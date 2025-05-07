@@ -1,0 +1,64 @@
+# Get a single entity by CUI with its reports
+query GetEntity {
+  entity(cui: "12345678") {
+    cui
+    name
+    sector_type
+    uat_type
+    county_name
+    region
+    population
+    reports(limit: 5) {
+      nodes {
+        report_id
+        report_date
+        reporting_year
+        reporting_period
+      }
+      pageInfo {
+        totalCount
+        hasNextPage
+      }
+    }
+  }
+}
+
+# Get a paginated list of entities
+query GetEntities {
+  entities(limit: 10, offset: 0) {
+    nodes {
+      cui
+      name
+      uat_type
+      county_name
+      region
+    }
+    pageInfo {
+      totalCount
+      hasNextPage
+      hasPreviousPage
+    }
+  }
+}
+
+# Get entities with filtering
+query GetFilteredEntities {
+  entities(
+    filter: {
+      uat_type: "Comuna"
+      county_code: "SB" # Sibiu county
+    }
+    limit: 20
+  ) {
+    nodes {
+      cui
+      name
+      uat_type
+      county_name
+      population
+    }
+    pageInfo {
+      totalCount
+    }
+  }
+}

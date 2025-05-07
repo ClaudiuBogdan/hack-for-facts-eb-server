@@ -1,0 +1,104 @@
+# Get category aggregated metrics for expenses by functional classification
+query GetExpenseCategoriesMetrics {
+  categoryAggregatedMetrics(
+    filter: {
+      reporting_year: 2023
+      reporting_period: "Annual"
+      account_category: "ch" # Expenses
+      county_name: "Cluj"
+    }
+    sortBy: [{ metric: "total_amount", direction: DESC }]
+    limit: 20
+  ) {
+    nodes {
+      reporting_year
+      reporting_period
+      account_category
+      functional_code
+      functional_name
+      economic_code
+      economic_name
+      funding_source
+      county_name
+      uat_region
+      total_amount
+      contributing_entities_count
+      # Access related data
+      functionalClassification {
+        functional_code
+        functional_name
+      }
+      economicClassification {
+        economic_code
+        economic_name
+      }
+    }
+    pageInfo {
+      totalCount
+      hasNextPage
+    }
+  }
+}
+
+# Get revenue categories for multiple regions
+query GetRevenueCategoriesMetrics {
+  categoryAggregatedMetrics(
+    filter: {
+      reporting_year: 2023
+      account_category: "vn" # Revenue
+      regions: ["Nord-Vest", "Centru"]
+    }
+    sortBy: [
+      { metric: "total_amount", direction: DESC }
+      { metric: "functional_name", direction: ASC }
+    ]
+    limit: 30
+  ) {
+    nodes {
+      reporting_year
+      reporting_period
+      functional_code
+      functional_name
+      funding_source
+      total_amount
+      uat_region
+      contributing_entities_count
+      functionalClassification {
+        functional_code
+        functional_name
+      }
+    }
+  }
+}
+
+# Get metrics for specific functional codes (e.g., education, healthcare)
+query GetSpecificCategoriesMetrics {
+  categoryAggregatedMetrics(
+    filter: {
+      reporting_year: 2023
+      reporting_period: "Annual"
+      functional_codes: ["65.02", "66.02", "67.02"] # Education, Healthcare, Culture
+      account_category: "ch"
+    }
+    sortBy: [
+      { metric: "functional_name", direction: ASC }
+      { metric: "total_amount", direction: DESC }
+    ]
+  ) {
+    nodes {
+      functional_code
+      functional_name
+      economic_code
+      economic_name
+      funding_source_id
+      funding_source
+      total_amount
+      contributing_entities_count
+      # Get related funding source details
+      fundingSource {
+        source_id
+        source_description
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+# Get execution line items for a specific report with filtering
+query GetExecutionLineItems {
+  executionLineItems(
+    filter: { report_id: 1, account_category: "ch", min_amount: 10000 }
+    limit: 20
+  ) {
+    nodes {
+      line_item_id
+      functional_code
+      economic_code
+      amount
+      functionalClassification {
+        functional_name
+      }
+      economicClassification {
+        economic_name
+      }
+    }
+    pageInfo {
+      totalCount
+      hasNextPage
+    }
+  }
+}
+
+# Get a single execution line item with all relations
+query GetExecutionLineItem {
+  executionLineItem(id: 1) {
+    line_item_id
+    report_id
+    funding_source_id
+    functional_code
+    economic_code
+    account_category
+    amount
+    program_code
+    report {
+      report_date
+      reporting_year
+      entity {
+        name
+      }
+    }
+    fundingSource {
+      source_description
+    }
+    functionalClassification {
+      functional_name
+    }
+    economicClassification {
+      economic_name
+    }
+  }
+}
+
+# Get spending anomalies for a specific year and period
+query GetSpendingAnomalies {
+  spendingAnomalies(
+    year: 2023
+    period: "Annual"
+    minDeviationPercentage: 50
+    limit: 10
+  ) {
+    entity_cui
+    entity_name
+    report_id
+    report_date
+    functional_code
+    functional_name
+    economic_code
+    economic_name
+    amount
+    average_amount
+    deviation_percentage
+    score
+  }
+}

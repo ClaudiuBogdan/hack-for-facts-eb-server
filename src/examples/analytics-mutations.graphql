@@ -1,0 +1,43 @@
+# Note: The current schema doesn't include mutations for analytics data.
+# This file contains example mutations that could be implemented in the future.
+
+# Example of what a future mutation for saving custom analytics views might look like
+mutation SaveCustomAnalyticsView {
+  # This is a placeholder - not currently implemented
+  saveCustomAnalyticsView(
+    input: {
+      name: "My Regional Dashboard"
+      description: "Custom view of regional budget data"
+      filters: { region: "Centru", reporting_year: 2023 }
+      metrics: ["total_income", "total_expense", "budget_balance"]
+      visualizationType: "COMPARISON"
+      userId: "user123"
+    }
+  ) {
+    id
+    name
+    createdAt
+    lastAccessed
+  }
+}
+
+# Example of what a future mutation for scheduling reports might look like
+mutation ScheduleAnalyticsReport {
+  # This is a placeholder - not currently implemented
+  scheduleAnalyticsReport(
+    input: {
+      name: "Monthly Regional Budget Report"
+      description: "Automated report of regional budget metrics"
+      frequency: "MONTHLY"
+      recipients: ["user@example.com", "manager@example.com"]
+      filters: { region: "Centru", reporting_period: "Monthly" }
+      metrics: ["total_income", "total_expense", "per_capita_expense"]
+      visualizationTypes: ["TABLE", "BAR_CHART", "LINE_CHART"]
+    }
+  ) {
+    id
+    name
+    nextScheduledDate
+    status
+  }
+}

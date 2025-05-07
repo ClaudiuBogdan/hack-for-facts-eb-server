@@ -1,0 +1,78 @@
+# Get time series data for total expense across years
+query GetExpenseTimeSeries {
+  metricTimeSeries(
+    metric: "total_expense"
+    groupBy: "year"
+    filter: { uat_id: 123 }
+  ) {
+    year
+    period
+    value
+  }
+}
+
+# Get quarterly time series data for per capita income
+query GetPerCapitaIncomeQuarterlyTimeSeries {
+  metricTimeSeries(
+    metric: "per_capita_income"
+    groupBy: "period"
+    filter: { county_code: "CJ", reporting_years: [2021, 2022, 2023] }
+  ) {
+    year
+    period
+    value
+  }
+}
+
+# Get time series for multiple counties grouped by year
+query GetCountiesTimeSeries {
+  metricTimeSeries(
+    metric: "budget_balance"
+    groupBy: "year"
+    filter: {
+      county_codes: ["CJ", "BV", "TM"]
+      reporting_years: [2020, 2021, 2022, 2023]
+    }
+  ) {
+    year
+    period
+    value
+  }
+}
+
+# Compare multiple UATs side by side on key metrics
+query CompareUATs {
+  compareItems(
+    itemType: "UAT"
+    itemIds: [123, 456, 789]
+    metrics: [
+      "total_income"
+      "total_expense"
+      "per_capita_expense"
+      "budget_balance"
+    ]
+    reporting_year: 2023
+    reporting_period: "Annual"
+  ) {
+    uat_id
+    uat_name
+    metric_name
+    value
+  }
+}
+
+# Compare entities (institutions) side by side
+query CompareEntities {
+  compareItems(
+    itemType: "Entity"
+    itemIds: ["12345678", "23456789", "34567890"]
+    metrics: ["total_income", "total_expense", "budget_balance"]
+    reporting_year: 2023
+    reporting_period: "Annual"
+  ) {
+    uat_id
+    uat_name
+    metric_name
+    value
+  }
+}

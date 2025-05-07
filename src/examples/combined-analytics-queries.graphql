@@ -1,0 +1,153 @@
+# Comprehensive dashboard query for UAT-level analytics
+query UATDashboardData {
+  # Get the UAT details
+  uat(id: 123) {
+    id
+    name
+    county_name
+    region
+    population
+  }
+
+  # Get annual metrics for the past 3 years
+  uatAggregatedMetrics(
+    filter: {
+      uat_id: 123
+      reporting_years: [2021, 2022, 2023]
+      reporting_period: "Annual"
+    }
+  ) {
+    nodes {
+      reporting_year
+      total_income
+      total_expense
+      budget_balance
+      per_capita_income
+      per_capita_expense
+    }
+  }
+
+  # Get time series data for key metrics
+  incomeTimeSeries: metricTimeSeries(
+    metric: "total_income"
+    groupBy: "year"
+    filter: { uat_id: 123 }
+  ) {
+    year
+    value
+  }
+
+  expenseTimeSeries: metricTimeSeries(
+    metric: "total_expense"
+    groupBy: "year"
+    filter: { uat_id: 123 }
+  ) {
+    year
+    value
+  }
+
+  # Compare with similar UATs
+  compareUATs: compareItems(
+    itemType: "UAT"
+    itemIds: [123, 456, 789] # Current UAT + similar ones
+    metrics: ["total_income", "total_expense", "per_capita_expense"]
+    reporting_year: 2023
+    reporting_period: "Annual"
+  ) {
+    uat_id
+    uat_name
+    metric_name
+    value
+  }
+
+  # Get top expense categories for the UAT
+  categoryAggregatedMetrics(
+    filter: {
+      uat_id: 123
+      reporting_year: 2023
+      reporting_period: "Annual"
+      account_category: "ch"
+    }
+    sortBy: [{ metric: "total_amount", direction: DESC }]
+    limit: 10
+  ) {
+    nodes {
+      functional_code
+      functional_name
+      total_amount
+      # Calculate percentage of total
+    }
+  }
+}
+
+# Regional comparative analysis
+query RegionalAnalysisDashboard {
+  # County level aggregated metrics
+  countiesData: countyAggregatedMetrics(
+    filter: {
+      region: "Centru"
+      reporting_year: 2023
+      reporting_period: "Annual"
+    }
+    sortBy: [{ metric: "total_income", direction: DESC }]
+  ) {
+    nodes {
+      county_code
+      county_name
+      total_county_population
+      total_income
+      total_expense
+      budget_balance
+      per_capita_income
+      per_capita_expense
+    }
+  }
+
+  # Top UATs by income in the region
+  topUATsByIncome: uatAggregatedMetrics(
+    filter: {
+      region: "Centru"
+      reporting_year: 2023
+      reporting_period: "Annual"
+    }
+    sortBy: [{ metric: "total_income", direction: DESC }]
+    limit: 10
+  ) {
+    nodes {
+      uat_name
+      county_name
+      total_income
+      total_expense
+      uat_population
+    }
+  }
+
+  # Top expense categories across the region
+  topRegionalExpenses: categoryAggregatedMetrics(
+    filter: {
+      region: "Centru"
+      reporting_year: 2023
+      reporting_period: "Annual"
+      account_category: "ch"
+    }
+    sortBy: [{ metric: "total_amount", direction: DESC }]
+    limit: 5
+  ) {
+    nodes {
+      functional_code
+      functional_name
+      total_amount
+      contributing_entities_count
+    }
+  }
+
+  # Time series for region's total budget
+  regionTimeSeries: metricTimeSeries(
+    metric: "total_income"
+    groupBy: "year"
+    filter: { region: "Centru" }
+  ) {
+    year
+    value
+  }
+}
