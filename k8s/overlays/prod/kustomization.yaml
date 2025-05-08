@@ -52,7 +52,7 @@ patches:
         value: hack-for-facts-prod
       - op: replace
         path: /spec/hosts/0
-        value: "api.hack-for-facts.devostack.com"
+        value: "hack-for-facts-api.devostack.com"
 
   - target:
       kind: ConfigMap
