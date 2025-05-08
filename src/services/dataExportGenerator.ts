@@ -69,6 +69,7 @@ interface ExecutionLineItem {
   account_category: string;
   amount: number;
   program_code: string | null;
+  year: number;
 }
 
 interface ReportsData {
@@ -232,7 +233,7 @@ export async function generateDataExport(): Promise<void> {
           report_date: reportDate,
           reporting_year: parseInt(year),
           reporting_period: month,
-          file_source: filePath,
+          file_source: filePath.replace(config.dataDir, ""),
           import_timestamp: new Date().toISOString(),
         };
 
@@ -259,6 +260,7 @@ export async function generateDataExport(): Promise<void> {
             const lineItem: ExecutionLineItem = {
               line_item_id: lineItemIdCounter++,
               report_id: reportId,
+              year: parseInt(year),
               funding_source_id: fundingSourceId,
               functional_code: item.functionalCode,
               economic_code: item.economicCode || null,

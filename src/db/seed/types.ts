@@ -77,6 +77,7 @@ export type ExecutionLineItemsFile = {
     account_category: string;
     amount: string;
     program_code: string;
+    year: number;
   }[];
 };
 

@@ -17,6 +17,10 @@ export const executionLineItemRepository = {
       reporting_year?: number;
       county_code?: string;
       uat_id?: number;
+      year?: number;
+      years?: number[];
+      start_year?: number;
+      end_year?: number;
     }> = {},
     limit?: number,
     offset?: number
@@ -94,6 +98,30 @@ export const executionLineItemRepository = {
         ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
         conditions.push(`r.reporting_year = $${paramIndex++}`);
         values.push(filters.reporting_year);
+      }
+
+      if (filters.year !== undefined) {
+        conditions.push(`eli.year = $${paramIndex++}`);
+        values.push(filters.year);
+      }
+
+      if (filters.years && filters.years.length > 0) {
+        const yearPlaceholders = filters.years
+          .map((_, idx) => `$${paramIndex + idx}`)
+          .join(", ");
+        conditions.push(`eli.year IN (${yearPlaceholders})`);
+        values.push(...filters.years);
+        paramIndex += filters.years.length;
+      }
+
+      if (filters.start_year !== undefined) {
+        conditions.push(`eli.year >= $${paramIndex++}`);
+        values.push(filters.start_year);
+      }
+
+      if (filters.end_year !== undefined) {
+        conditions.push(`eli.year <= $${paramIndex++}`);
+        values.push(filters.end_year);
       }
 
       if (filters.county_code) {
@@ -182,6 +210,10 @@ export const executionLineItemRepository = {
       reporting_year?: number;
       county_code?: string;
       uat_id?: number;
+      year?: number;
+      years?: number[];
+      start_year?: number;
+      end_year?: number;
     }> = {}
   ): Promise<number> {
     try {
@@ -256,6 +288,30 @@ export const executionLineItemRepository = {
         ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
         conditions.push(`r.reporting_year = $${paramIndex++}`);
         values.push(filters.reporting_year);
+      }
+
+      if (filters.year !== undefined) {
+        conditions.push(`eli.year = $${paramIndex++}`);
+        values.push(filters.year);
+      }
+
+      if (filters.years && filters.years.length > 0) {
+        const yearPlaceholders = filters.years
+          .map((_, idx) => `$${paramIndex + idx}`)
+          .join(", ");
+        conditions.push(`eli.year IN (${yearPlaceholders})`);
+        values.push(...filters.years);
+        paramIndex += filters.years.length;
+      }
+
+      if (filters.start_year !== undefined) {
+        conditions.push(`eli.year >= $${paramIndex++}`);
+        values.push(filters.start_year);
+      }
+
+      if (filters.end_year !== undefined) {
+        conditions.push(`eli.year <= $${paramIndex++}`);
+        values.push(filters.end_year);
       }
 
       if (filters.county_code) {

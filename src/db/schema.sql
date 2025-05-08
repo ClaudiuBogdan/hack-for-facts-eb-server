@@ -107,6 +107,7 @@ CREATE TABLE ExecutionLineItems (
     account_category CHAR(2) NOT NULL,
     amount DECIMAL(18, 2) NOT NULL,
     program_code VARCHAR(50) NULL,
+    year INT NOT NULL,
 
     FOREIGN KEY (report_id) REFERENCES Reports(report_id) ON DELETE CASCADE,
     FOREIGN KEY (entity_cui) REFERENCES Entities(cui) ON DELETE RESTRICT,
@@ -137,6 +138,7 @@ CREATE INDEX idx_uats_uat_code ON UATs (uat_code);
 CREATE INDEX idx_uats_county_code ON UATs (county_code);
 CREATE INDEX idx_executionitems_account_category ON ExecutionLineItems (account_category);
 CREATE INDEX idx_executionitems_entity_cui ON ExecutionLineItems (entity_cui);
+CREATE INDEX idx_executionitems_year ON ExecutionLineItems (year);
 
 -- ========= ANALYTICAL VIEWS =========
 

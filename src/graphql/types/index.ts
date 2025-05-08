@@ -128,6 +128,7 @@ export const types = `
     account_category: String!
     amount: Float!
     program_code: String
+    year: Int!
     # Relations
     report: Report!
     entity: Entity!
@@ -277,6 +278,10 @@ export const types = `
     reporting_year: Int
     county_code: String
     uat_id: Int
+    year: Int
+    years: [Int]
+    start_year: Int
+    end_year: Int
   }
 
   # More specific filter for UAT Aggregated Metrics

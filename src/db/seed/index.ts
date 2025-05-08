@@ -199,7 +199,7 @@ async function loadData() {
             queryValues.length + 3
           }, $${queryValues.length + 4}, $${queryValues.length + 5}, $${
             queryValues.length + 6
-          }, $${queryValues.length + 7}, $${queryValues.length + 8})`
+          }, $${queryValues.length + 7}, $${queryValues.length + 8}, $${queryValues.length + 9})`
         );
         queryValues.push(
           item.report_id,
@@ -209,14 +209,15 @@ async function loadData() {
           item.economic_code?.toString() || "0",
           item.account_category,
           item.amount,
-          item.program_code
+          item.program_code,
+          item.year
         );
         batchCount++;
 
         // Execute batch every 1000 rows
         if (batchCount % 1000 === 0) {
           const insertQuery = `INSERT INTO ExecutionLineItems 
-            (report_id, entity_cui, funding_source_id, functional_code, economic_code, account_category, amount, program_code)
+            (report_id, entity_cui, funding_source_id, functional_code, economic_code, account_category, amount, program_code, year)
             VALUES ${valueStrings.join(", ")}`;
           await client.query(insertQuery, queryValues);
           valueStrings.length = 0;
@@ -226,7 +227,7 @@ async function loadData() {
       // Insert any remaining rows in the batch.
       if (valueStrings.length > 0) {
         const insertQuery = `INSERT INTO ExecutionLineItems 
-          (report_id, entity_cui, funding_source_id, functional_code, economic_code, account_category, amount, program_code)
+          (report_id, entity_cui, funding_source_id, functional_code, economic_code, account_category, amount, program_code, year)
           VALUES ${valueStrings.join(", ")}`;
         await client.query(insertQuery, queryValues);
       }
