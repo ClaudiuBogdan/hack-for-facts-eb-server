@@ -5,6 +5,7 @@ import { schema } from "./graphql/schemas";
 import config from "./config";
 import filterGeneratorRoutes from "./routes/filterGenerator";
 import mcpRoutes from "./routes/mcp";
+import applicationRoutes from "./routes";
 
 // Initialize Fastify server
 const fastify = Fastify({
@@ -22,13 +23,12 @@ fastify.register(fastifyCors, {
 // Register Mercurius GraphQL
 fastify.register(mercurius, {
   schema,
-  graphiql: config.nodeEnv === "development", // Enable GraphiQL in development
+  graphiql: true,  // TODO config.nodeEnv === "development", // Enable GraphiQL in development
   path: "/graphql",
 });
 
 // Register routes
-fastify.register(filterGeneratorRoutes);
-fastify.register(mcpRoutes);
+fastify.register(applicationRoutes);
 
 // Start the server
 const start = async () => {
