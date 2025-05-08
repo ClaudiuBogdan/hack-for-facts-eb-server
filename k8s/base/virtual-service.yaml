@@ -5,7 +5,7 @@ metadata:
   namespace: hack-for-facts
 spec:
   hosts:
-  - "api.hack-for-facts.devostack.com"
+  - "hack-for-facts-api.devostack.com"
   gateways:
   - istio-system/istio-https-gateway
   http:
