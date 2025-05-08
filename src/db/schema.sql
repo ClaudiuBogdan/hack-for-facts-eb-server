@@ -3,15 +3,15 @@
 -- RESTART IDENTITY resets serial counters (like for SERIAL or BIGSERIAL types).
 -- CASCADE handles foreign key dependencies, truncating dependent tables as well.
 
-TRUNCATE
-    UATs,
-    Entities,
-    FunctionalClassifications,
-    EconomicClassifications,
-    FundingSources,
-    Reports,
-    ExecutionLineItems
-RESTART IDENTITY CASCADE;
+-- TRUNCATE
+--     UATs,
+--     Entities,
+--     FunctionalClassifications,
+--     EconomicClassifications,
+--     FundingSources,
+--     Reports,
+--     ExecutionLineItems
+-- RESTART IDENTITY CASCADE;
 
 -- ========= DIMENSION TABLES =========
 
