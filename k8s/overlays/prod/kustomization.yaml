@@ -1,0 +1,63 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: hack-for-facts-prod
+
+resources:
+  - ../../base
+  - ./secrets/sealed-app-secret.yaml
+  - ./secrets/sealed-db-deployment.yaml
+  - ./secrets/sealed-registry-secret.yaml
+
+patches:
+  - target:
+      kind: Cluster
+      name: postgres-db
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/storage/size
+        value: 20Gi
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts_user
+
+  - target:
+      kind: Deployment
+      name: hack-for-facts-eb-server
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+
+  - target:
+      kind: Service
+      name: hack-for-facts-eb-server
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+
+  - target:
+      kind: VirtualService
+      name: istio-hack-for-facts-eb-server-virtualservice
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/hosts/0
+        value: "api.hack-for-facts.devostack.com"
+
+  - target:
+      kind: ConfigMap
+      name: hack-for-facts-eb-server-config
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod

@@ -6,3 +6,9 @@ data/
 data-map
 
 .DS_Store
+
+# Kubernetes
+*.secret.yaml
+
+# Kubernetes base vars
+k8s/base/vars.env
