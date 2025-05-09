@@ -64,6 +64,11 @@ export const types = `
     ): ExecutionLineItemConnection!
   }
 
+  type FunctionalClassificationConnection {
+    nodes: [FunctionalClassification!]!
+    pageInfo: PageInfo!
+  }
+
   type EconomicClassification {
     economic_code: ID!
     economic_name: String!
@@ -74,6 +79,11 @@ export const types = `
       reportId: Int
       accountCategory: String
     ): ExecutionLineItemConnection!
+  }
+
+  type EconomicClassificationConnection {
+    nodes: [EconomicClassification!]!
+    pageInfo: PageInfo!
   }
 
   type FundingSource {
@@ -361,6 +371,14 @@ export const types = `
     score: Float!
   }
 
+  input FunctionalClassificationFilterInput {
+    search: String
+  }
+
+  input EconomicClassificationFilterInput {
+    search: String
+  }
+
   # Query root type
   type Query {
     # Basic entity queries
@@ -389,10 +407,18 @@ export const types = `
     
     # Classification queries
     functionalClassification(code: ID!): FunctionalClassification
-    functionalClassifications: [FunctionalClassification!]!
+    functionalClassifications(
+      filter: FunctionalClassificationFilterInput
+      limit: Int
+      offset: Int
+    ): FunctionalClassificationConnection!
     
     economicClassification(code: ID!): EconomicClassification
-    economicClassifications: [EconomicClassification!]!
+    economicClassifications(
+      filter: EconomicClassificationFilterInput
+      limit: Int
+      offset: Int
+    ): EconomicClassificationConnection!
     
     fundingSource(id: ID!): FundingSource
     fundingSources: [FundingSource!]!

@@ -1,5 +1,11 @@
 import pool from "../../db/connection";
-import { executionLineItemRepository } from "../../db/repositories";
+import {
+  executionLineItemRepository,
+  functionalClassificationRepository,
+  economicClassificationRepository,
+} from "../../db/repositories";
+import { FunctionalClassificationFilter } from "../../db/repositories/functionalClassificationRepository";
+import { EconomicClassificationFilter } from "../../db/repositories/economicClassificationRepository";
 
 export const classificationsResolver = {
   Query: {
@@ -11,11 +17,30 @@ export const classificationsResolver = {
       );
       return result.rows.length ? result.rows[0] : null;
     },
-    functionalClassifications: async () => {
-      const result = await pool.query(
-        "SELECT * FROM FunctionalClassifications ORDER BY functional_code"
-      );
-      return result.rows;
+    functionalClassifications: async (
+      _: any,
+      {
+        filter,
+        limit = 10,
+        offset = 0,
+      }: {
+        filter?: FunctionalClassificationFilter;
+        limit?: number;
+        offset?: number;
+      }
+    ) => {
+      const [nodes, totalCount] = await Promise.all([
+        functionalClassificationRepository.getAll(filter, limit, offset),
+        functionalClassificationRepository.count(filter),
+      ]);
+      return {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
     },
 
     // Economic Classification resolvers
@@ -26,11 +51,30 @@ export const classificationsResolver = {
       );
       return result.rows.length ? result.rows[0] : null;
     },
-    economicClassifications: async () => {
-      const result = await pool.query(
-        "SELECT * FROM EconomicClassifications ORDER BY economic_code"
-      );
-      return result.rows;
+    economicClassifications: async (
+      _: any,
+      {
+        filter,
+        limit = 10,
+        offset = 0,
+      }: {
+        filter?: EconomicClassificationFilter;
+        limit?: number;
+        offset?: number;
+      }
+    ) => {
+      const [nodes, totalCount] = await Promise.all([
+        economicClassificationRepository.getAll(filter, limit, offset),
+        economicClassificationRepository.count(filter),
+      ]);
+      return {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
     },
 
     // Funding Source resolvers
