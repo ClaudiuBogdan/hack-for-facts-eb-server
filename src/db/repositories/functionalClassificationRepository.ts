@@ -5,30 +5,67 @@ export interface FunctionalClassificationFilter {
   search?: string;
 }
 
+// Similarity threshold for pg_trgm; adjust for Romanian short strings
+const SIMILARITY_THRESHOLD = 0.1;
+
+/**
+ * Builds the WHERE clause and parameters for pg_trgm search filtering.
+ */
+function buildSearchClause(
+  filter: FunctionalClassificationFilter
+): { clause: string; params: any[] } {
+  const { search } = filter;
+  const params: any[] = [];
+  let clause = "";
+
+  if (search) {
+    clause = `WHERE similarity(functional_name, $1) > $2`;
+    params.push(search, SIMILARITY_THRESHOLD);
+  }
+
+  return { clause, params };
+}
+
+/**
+ * Builds ORDER BY clause and selects similarity score if searching.
+ */
+function buildOrderAndSelect(
+  filter: FunctionalClassificationFilter
+): { selectExtra: string; orderBy: string } {
+  if (filter.search) {
+    return {
+      selectExtra: ", similarity(functional_name, $1) AS relevance",
+      orderBy: "ORDER BY relevance DESC, functional_code ASC",
+    };
+  }
+
+  return { selectExtra: "", orderBy: "ORDER BY functional_code ASC" };
+}
+
 export const functionalClassificationRepository = {
   async getAll(
-    filter?: FunctionalClassificationFilter,
+    filter: FunctionalClassificationFilter = {},
     limit?: number,
     offset?: number
   ): Promise<FunctionalClassification[]> {
+    const { clause, params } = buildSearchClause(filter);
+    const { selectExtra, orderBy } = buildOrderAndSelect(filter);
+
+    // Build base query with optional relevance select
+    let query = `SELECT *${selectExtra} FROM FunctionalClassifications ${clause} ${orderBy}`;
+
+    // Pagination
+    if (limit !== undefined) {
+      params.push(limit);
+      query += ` LIMIT $${params.length}`;
+    }
+    if (offset !== undefined) {
+      params.push(offset);
+      query += ` OFFSET $${params.length}`;
+    }
+
     try {
-      let query = "SELECT * FROM FunctionalClassifications";
-      const queryParams: any[] = [];
-      let paramIndex = 1;
-
-      if (filter && filter.search) {
-        query += ` WHERE functional_name ILIKE $${paramIndex++}`;
-        queryParams.push(`%${filter.search}%`);
-      }
-
-      query += " ORDER BY functional_code";
-
-      if (limit !== undefined && offset !== undefined) {
-        query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-        queryParams.push(limit, offset);
-      }
-
-      const result = await pool.query(query, queryParams);
+      const result = await pool.query(query, params);
       return result.rows;
     } catch (error) {
       console.error("Error fetching functional classifications:", error);
@@ -36,18 +73,12 @@ export const functionalClassificationRepository = {
     }
   },
 
-  async count(filter?: FunctionalClassificationFilter): Promise<number> {
+  async count(filter: FunctionalClassificationFilter = {}): Promise<number> {
+    const { clause, params } = buildSearchClause(filter);
+    const query = `SELECT COUNT(*) AS count FROM FunctionalClassifications ${clause}`;
+
     try {
-      let query = "SELECT COUNT(*) FROM FunctionalClassifications";
-      const queryParams: any[] = [];
-      let paramIndex = 1;
-
-      if (filter && filter.search) {
-        query += ` WHERE functional_name ILIKE $${paramIndex++}`;
-        queryParams.push(`%${filter.search}%`);
-      }
-
-      const result = await pool.query(query, queryParams);
+      const result = await pool.query(query, params);
       return parseInt(result.rows[0].count, 10);
     } catch (error) {
       console.error("Error counting functional classifications:", error);
@@ -56,12 +87,11 @@ export const functionalClassificationRepository = {
   },
 
   async getByCode(code: string): Promise<FunctionalClassification | null> {
+    const query =
+      "SELECT * FROM FunctionalClassifications WHERE functional_code = $1";
     try {
-      const result = await pool.query(
-        "SELECT * FROM FunctionalClassifications WHERE functional_code = $1",
-        [code]
-      );
-      return result.rows.length ? result.rows[0] : null;
+      const result = await pool.query(query, [code]);
+      return result.rows[0] || null;
     } catch (error) {
       console.error(
         `Error fetching functional classification with code: ${code}`,

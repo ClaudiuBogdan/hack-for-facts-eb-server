@@ -3,6 +3,7 @@ import {
   entityRepository,
   executionLineItemRepository,
 } from "../../db/repositories";
+import { ReportFilter } from "../../db/repositories/reportRepository";
 import pool from "../../db/connection";
 
 export const reportResolver = {
@@ -17,18 +18,18 @@ export const reportResolver = {
         limit = 20,
         offset = 0,
       }: {
-        filter: any;
-        limit: number;
-        offset: number;
+        filter?: ReportFilter;
+        limit?: number;
+        offset?: number;
       }
     ) => {
-      const [reports, totalCount] = await Promise.all([
+      const [nodes, totalCount] = await Promise.all([
         reportRepository.getAll(filter, limit, offset),
         reportRepository.count(filter),
       ]);
 
       return {
-        nodes: reports,
+        nodes,
         pageInfo: {
           totalCount,
           hasNextPage: offset + limit < totalCount,

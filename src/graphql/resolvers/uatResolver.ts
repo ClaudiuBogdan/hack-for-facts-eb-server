@@ -1,4 +1,5 @@
 import { uatRepository } from "../../db/repositories";
+import { UATFilter } from "../../db/repositories/uatRepository";
 
 export const uatResolver = {
   Query: {
@@ -12,18 +13,18 @@ export const uatResolver = {
         limit = 20,
         offset = 0,
       }: {
-        filter: any;
-        limit: number;
-        offset: number;
+        filter?: UATFilter;
+        limit?: number;
+        offset?: number;
       }
     ) => {
-      const [uats, totalCount] = await Promise.all([
+      const [nodes, totalCount] = await Promise.all([
         uatRepository.getAll(filter, limit, offset),
         uatRepository.count(filter),
       ]);
 
       return {
-        nodes: uats,
+        nodes,
         pageInfo: {
           totalCount,
           hasNextPage: offset + limit < totalCount,

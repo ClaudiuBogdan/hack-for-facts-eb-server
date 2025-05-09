@@ -3,9 +3,11 @@ import {
   executionLineItemRepository,
   functionalClassificationRepository,
   economicClassificationRepository,
+  fundingSourceRepository,
 } from "../../db/repositories";
 import { FunctionalClassificationFilter } from "../../db/repositories/functionalClassificationRepository";
 import { EconomicClassificationFilter } from "../../db/repositories/economicClassificationRepository";
+import { FundingSourceFilter } from "../../db/repositories/fundingSourceRepository";
 
 export const classificationsResolver = {
   Query: {
@@ -79,17 +81,32 @@ export const classificationsResolver = {
 
     // Funding Source resolvers
     fundingSource: async (_: any, { id }: { id: number }) => {
-      const result = await pool.query(
-        "SELECT * FROM FundingSources WHERE source_id = $1",
-        [id]
-      );
-      return result.rows.length ? result.rows[0] : null;
+      return fundingSourceRepository.getById(id);
     },
-    fundingSources: async () => {
-      const result = await pool.query(
-        "SELECT * FROM FundingSources ORDER BY source_id"
-      );
-      return result.rows;
+    fundingSources: async (
+      _: any,
+      {
+        filter,
+        limit = 10,
+        offset = 0,
+      }: {
+        filter?: FundingSourceFilter;
+        limit?: number;
+        offset?: number;
+      }
+    ) => {
+      const [nodes, totalCount] = await Promise.all([
+        fundingSourceRepository.getAll(filter, limit, offset),
+        fundingSourceRepository.count(filter),
+      ]);
+      return {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
     },
   },
 

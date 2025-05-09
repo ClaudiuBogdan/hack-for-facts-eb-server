@@ -13,6 +13,9 @@
 --     ExecutionLineItems
 -- RESTART IDENTITY CASCADE;
 
+-- Enable pg_trgm extension for similarity searches
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- ========= DIMENSION TABLES =========
 
 -- Table to store information about the UATs (Administrative Territorial Units)
@@ -139,6 +142,17 @@ CREATE INDEX idx_uats_county_code ON UATs (county_code);
 CREATE INDEX idx_executionitems_account_category ON ExecutionLineItems (account_category);
 CREATE INDEX idx_executionitems_entity_cui ON ExecutionLineItems (entity_cui);
 CREATE INDEX idx_executionitems_year ON ExecutionLineItems (year);
+
+-- Indexes for pg_trgm text search performance
+CREATE INDEX idx_gin_fc_functional_name ON FunctionalClassifications USING gin (functional_name gin_trgm_ops);
+CREATE INDEX idx_gin_ec_economic_name ON EconomicClassifications USING gin (economic_name gin_trgm_ops);
+CREATE INDEX idx_gin_fs_source_description ON FundingSources USING gin (source_description gin_trgm_ops);
+CREATE INDEX idx_gin_entities_name ON Entities USING gin (name gin_trgm_ops);
+CREATE INDEX idx_gin_entities_address ON Entities USING gin (address gin_trgm_ops);
+CREATE INDEX idx_gin_uats_name ON UATs USING gin (name gin_trgm_ops);
+CREATE INDEX idx_gin_uats_county_name ON UATs USING gin (county_name gin_trgm_ops);
+CREATE INDEX idx_gin_reports_file_source ON Reports USING gin (file_source gin_trgm_ops);
+CREATE INDEX idx_gin_eli_program_code ON ExecutionLineItems USING gin (program_code gin_trgm_ops);
 
 -- ========= ANALYTICAL VIEWS =========
 

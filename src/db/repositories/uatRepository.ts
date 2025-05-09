@@ -1,66 +1,115 @@
 import pool from "../connection";
 import { UAT } from "../models";
 
+export interface UATFilter {
+  id?: number;
+  uat_key?: string;
+  uat_code?: string;
+  name?: string;          // Exact or partial match
+  county_code?: string;
+  county_name?: string;   // Exact or partial match
+  region?: string;
+  search?: string;        // pg_trgm based search
+}
+
+// Similarity threshold for pg_trgm searches (tune for Romanian strings)
+const SIMILARITY_THRESHOLD = 0.1;
+
+/**
+ * Builds the pg_trgm search condition for name & county_name.
+ */
+function buildSearchCondition(
+  filter: UATFilter
+): { condition: string; params: any[] } {
+  if (!filter.search) {
+    return { condition: "", params: [] };
+  }
+  return {
+    condition: `GREATEST(similarity(name, $1), similarity(COALESCE(county_name, ''), $1)) > $2`,
+    params: [filter.search, SIMILARITY_THRESHOLD],
+  };
+}
+
+/**
+ * Builds SELECT extra and ORDER BY for search vs. default.
+ */
+function buildOrderAndSelect(
+  filter: UATFilter
+): { selectExtra: string; orderBy: string } {
+  if (filter.search) {
+    return {
+      selectExtra: `, GREATEST(similarity(name, $1), similarity(COALESCE(county_name, ''), $1)) AS relevance`,
+      orderBy: "ORDER BY relevance DESC, id ASC",
+    };
+  }
+  return { selectExtra: "", orderBy: "ORDER BY id ASC" };
+}
+
 export const uatRepository = {
   async getAll(
-    filters: Partial<UAT> = {},
+    filter: UATFilter = {},
     limit?: number,
     offset?: number
   ): Promise<UAT[]> {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    // pg_trgm search first
+    const search = buildSearchCondition(filter);
+    if (search.condition) {
+      conditions.push(search.condition);
+      params.push(...search.params);
+    } else {
+      // fallback partial matches
+      if (filter.name) {
+        conditions.push(`name ILIKE $${params.length + 1}`);
+        params.push(`%${filter.name}%`);
+      }
+      if (filter.county_name) {
+        conditions.push(`county_name ILIKE $${params.length + 1}`);
+        params.push(`%${filter.county_name}%`);
+      }
+    }
+
+    // exact-match filters
+    if (filter.id !== undefined) {
+      conditions.push(`id = $${params.length + 1}`);
+      params.push(filter.id);
+    }
+    if (filter.uat_key) {
+      conditions.push(`uat_key = $${params.length + 1}`);
+      params.push(filter.uat_key);
+    }
+    if (filter.uat_code) {
+      conditions.push(`uat_code = $${params.length + 1}`);
+      params.push(filter.uat_code);
+    }
+    if (filter.county_code) {
+      conditions.push(`county_code = $${params.length + 1}`);
+      params.push(filter.county_code);
+    }
+    if (filter.region) {
+      conditions.push(`region = $${params.length + 1}`);
+      params.push(filter.region);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { selectExtra, orderBy } = buildOrderAndSelect(filter);
+
+    let query = `SELECT *${selectExtra} FROM UATs ${whereClause} ${orderBy}`;
+
+    // pagination
+    if (limit !== undefined) {
+      params.push(limit);
+      query += ` LIMIT $${params.length}`;
+    }
+    if (offset !== undefined) {
+      params.push(offset);
+      query += ` OFFSET $${params.length}`;
+    }
+
     try {
-      // Start with base query
-      let query = "SELECT * FROM UATs WHERE 1=1";
-      const values: any[] = [];
-      let paramIndex = 1;
-
-      // Add filters dynamically
-      if (filters.id) {
-        query += ` AND id = $${paramIndex++}`;
-        values.push(filters.id);
-      }
-
-      if (filters.uat_key) {
-        query += ` AND uat_key = $${paramIndex++}`;
-        values.push(filters.uat_key);
-      }
-
-      if (filters.uat_code) {
-        query += ` AND uat_code = $${paramIndex++}`;
-        values.push(filters.uat_code);
-      }
-
-      if (filters.name) {
-        query += ` AND name ILIKE $${paramIndex++}`;
-        values.push(`%${filters.name}%`);
-      }
-
-      if (filters.county_code) {
-        query += ` AND county_code = $${paramIndex++}`;
-        values.push(filters.county_code);
-      }
-
-      if (filters.county_name) {
-        query += ` AND county_name ILIKE $${paramIndex++}`;
-        values.push(`%${filters.county_name}%`);
-      }
-
-      if (filters.region) {
-        query += ` AND region = $${paramIndex++}`;
-        values.push(filters.region);
-      }
-
-      // Add pagination
-      if (limit !== undefined) {
-        query += ` LIMIT $${paramIndex++}`;
-        values.push(limit);
-      }
-
-      if (offset !== undefined) {
-        query += ` OFFSET $${paramIndex++}`;
-        values.push(offset);
-      }
-
-      const result = await pool.query(query, values);
+      const result = await pool.query(query, params);
       return result.rows;
     } catch (error) {
       console.error("Error fetching UATs:", error);
@@ -70,59 +119,63 @@ export const uatRepository = {
 
   async getById(id: number): Promise<UAT | null> {
     try {
-      const result = await pool.query("SELECT * FROM UATs WHERE id = $1", [id]);
-      return result.rows.length ? result.rows[0] : null;
+      const result = await pool.query(
+        "SELECT * FROM UATs WHERE id = $1",
+        [id]
+      );
+      return result.rows[0] || null;
     } catch (error) {
       console.error(`Error fetching UAT with ID: ${id}`, error);
       throw error;
     }
   },
 
-  async count(filters: Partial<UAT> = {}): Promise<number> {
+  async count(filter: UATFilter = {}): Promise<number> {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    const search = buildSearchCondition(filter);
+    if (search.condition) {
+      conditions.push(search.condition);
+      params.push(...search.params);
+    } else {
+      if (filter.name) {
+        conditions.push(`name ILIKE $${params.length + 1}`);
+        params.push(`%${filter.name}%`);
+      }
+      if (filter.county_name) {
+        conditions.push(`county_name ILIKE $${params.length + 1}`);
+        params.push(`%${filter.county_name}%`);
+      }
+    }
+
+    if (filter.id !== undefined) {
+      conditions.push(`id = $${params.length + 1}`);
+      params.push(filter.id);
+    }
+    if (filter.uat_key) {
+      conditions.push(`uat_key = $${params.length + 1}`);
+      params.push(filter.uat_key);
+    }
+    if (filter.uat_code) {
+      conditions.push(`uat_code = $${params.length + 1}`);
+      params.push(filter.uat_code);
+    }
+    if (filter.county_code) {
+      conditions.push(`county_code = $${params.length + 1}`);
+      params.push(filter.county_code);
+    }
+    if (filter.region) {
+      conditions.push(`region = $${params.length + 1}`);
+      params.push(filter.region);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const query = `SELECT COUNT(*) AS count FROM UATs ${whereClause}`;
+
     try {
-      // Start with base query
-      let query = "SELECT COUNT(*) FROM UATs WHERE 1=1";
-      const values: any[] = [];
-      let paramIndex = 1;
-
-      // Add filters dynamically
-      if (filters.id) {
-        query += ` AND id = $${paramIndex++}`;
-        values.push(filters.id);
-      }
-
-      if (filters.uat_key) {
-        query += ` AND uat_key = $${paramIndex++}`;
-        values.push(filters.uat_key);
-      }
-
-      if (filters.uat_code) {
-        query += ` AND uat_code = $${paramIndex++}`;
-        values.push(filters.uat_code);
-      }
-
-      if (filters.name) {
-        query += ` AND name ILIKE $${paramIndex++}`;
-        values.push(`%${filters.name}%`);
-      }
-
-      if (filters.county_code) {
-        query += ` AND county_code = $${paramIndex++}`;
-        values.push(filters.county_code);
-      }
-
-      if (filters.county_name) {
-        query += ` AND county_name ILIKE $${paramIndex++}`;
-        values.push(`%${filters.county_name}%`);
-      }
-
-      if (filters.region) {
-        query += ` AND region = $${paramIndex++}`;
-        values.push(filters.region);
-      }
-
-      const result = await pool.query(query, values);
-      return parseInt(result.rows[0].count);
+      const result = await pool.query(query, params);
+      return parseInt(result.rows[0].count, 10);
     } catch (error) {
       console.error("Error counting UATs:", error);
       throw error;

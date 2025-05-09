@@ -4,6 +4,7 @@ import {
   uatRepository,
   executionLineItemRepository,
 } from "../../db/repositories";
+import { EntityFilter } from "../../db/repositories/entityRepository";
 
 export const entityResolver = {
   Query: {
@@ -17,18 +18,18 @@ export const entityResolver = {
         limit = 20,
         offset = 0,
       }: {
-        filter: any;
-        limit: number;
-        offset: number;
+        filter?: EntityFilter;
+        limit?: number;
+        offset?: number;
       }
     ) => {
-      const [entities, totalCount] = await Promise.all([
+      const [nodes, totalCount] = await Promise.all([
         entityRepository.getAll(filter, limit, offset),
         entityRepository.count(filter),
       ]);
 
       return {
-        nodes: entities,
+        nodes,
         pageInfo: {
           totalCount,
           hasNextPage: offset + limit < totalCount,

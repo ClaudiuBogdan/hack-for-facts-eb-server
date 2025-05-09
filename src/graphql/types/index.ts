@@ -255,6 +255,7 @@ export const types = `
     sector_type: String
     uat_id: Int
     address: String
+    search: String
   }
 
   input UATFilter {
@@ -264,6 +265,7 @@ export const types = `
     name: String
     county_code: String
     region: String
+    search: String
   }
 
   input ReportFilter {
@@ -272,6 +274,7 @@ export const types = `
     reporting_period: String
     report_date_start: String
     report_date_end: String
+    search: String
   }
 
   input ExecutionLineItemFilter {
@@ -292,6 +295,7 @@ export const types = `
     years: [Int]
     start_year: Int
     end_year: Int
+    search: String
   }
 
   # More specific filter for UAT Aggregated Metrics
@@ -379,6 +383,17 @@ export const types = `
     search: String
   }
 
+  # Input for Funding Source filtering
+  input FundingSourceFilterInput {
+    search: String
+  }
+
+  # Connection type for FundingSource
+  type FundingSourceConnection {
+    nodes: [FundingSource!]!
+    pageInfo: PageInfo!
+  }
+
   # Query root type
   type Query {
     # Basic entity queries
@@ -421,7 +436,11 @@ export const types = `
     ): EconomicClassificationConnection!
     
     fundingSource(id: ID!): FundingSource
-    fundingSources: [FundingSource!]!
+    fundingSources(
+      filter: FundingSourceFilterInput
+      limit: Int
+      offset: Int
+    ): FundingSourceConnection!
     
     # Line item queries
     executionLineItem(id: ID!): ExecutionLineItem
