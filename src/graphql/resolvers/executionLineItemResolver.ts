@@ -3,7 +3,7 @@ import {
   reportRepository,
 } from "../../db/repositories";
 import pool from "../../db/connection";
-import { ExecutionLineItemFilter } from "../../db/repositories/executionLineItemRepository";
+import { ExecutionLineItemFilter, SortOrderOption } from "../../db/repositories/executionLineItemRepository";
 
 export const executionLineItemResolver = {
   Query: {
@@ -14,16 +14,18 @@ export const executionLineItemResolver = {
       _: any,
       {
         filter = {},
+        sort,
         limit = 100,
         offset = 0,
       }: {
         filter?: ExecutionLineItemFilter;
+        sort?: SortOrderOption;
         limit?: number;
         offset?: number;
       }
     ) => {
       const [nodes, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(filter, limit, offset),
+        executionLineItemRepository.getAll(filter, sort, limit, offset),
         executionLineItemRepository.count(filter),
       ]);
 

@@ -298,6 +298,11 @@ export const types = `
     search: String
   }
 
+  input SortOrder {
+    by: String!
+    order: String!
+  }
+
   # More specific filter for UAT Aggregated Metrics
   input UATAggregatedMetricsFilter {
     reporting_year: Int
@@ -446,6 +451,7 @@ export const types = `
     executionLineItem(id: ID!): ExecutionLineItem
     executionLineItems(
       filter: ExecutionLineItemFilter
+      sort: SortOrder
       limit: Int
       offset: Int
     ): ExecutionLineItemConnection!
@@ -468,7 +474,7 @@ export const types = `
     # Query aggregated metrics for UATs
     uatAggregatedMetrics(
       filter: UATAggregatedMetricsFilter
-      sortBy: [MetricSortCriteria!] # Allow sorting by multiple metrics
+      sort: [MetricSortCriteria!] # Allow sorting by multiple metrics
       limit: Int = 20
       offset: Int = 0
     ): UATAggregatedMetricsConnection!
@@ -476,7 +482,7 @@ export const types = `
     # Query aggregated metrics for Counties
     countyAggregatedMetrics(
       filter: CountyAggregatedMetricsFilter
-      sortBy: [MetricSortCriteria!]
+      sort: [MetricSortCriteria!]
       limit: Int = 20
       offset: Int = 0
     ): CountyAggregatedMetricsConnection!
@@ -484,7 +490,7 @@ export const types = `
     # Query aggregated metrics by Category
     categoryAggregatedMetrics(
       filter: CategoryAggregatedMetricsFilter
-      sortBy: [MetricSortCriteria!] # e.g., sort by total_amount
+      sort: [MetricSortCriteria!] # e.g., sort by total_amount
       limit: Int = 50
       offset: Int = 0
     ): CategoryAggregatedMetricsConnection!

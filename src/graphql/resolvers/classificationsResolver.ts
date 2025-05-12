@@ -131,7 +131,7 @@ export const classificationsResolver = {
       if (accountCategory) filter.account_category = accountCategory;
 
       const [lineItems, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(filter, limit, offset),
+        executionLineItemRepository.getAll(filter, undefined, limit, offset),
         executionLineItemRepository.count(filter),
       ]);
 
@@ -167,7 +167,7 @@ export const classificationsResolver = {
       if (accountCategory) filter.account_category = accountCategory;
 
       const [lineItems, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(filter, limit, offset),
+        executionLineItemRepository.getAll(filter, undefined, limit, offset),
         executionLineItemRepository.count(filter),
       ]);
 
@@ -203,7 +203,7 @@ export const classificationsResolver = {
       if (accountCategory) filter.account_category = accountCategory;
 
       const [lineItems, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(filter, limit, offset),
+        executionLineItemRepository.getAll(filter, undefined, limit, offset),
         executionLineItemRepository.count(filter),
       ]);
 

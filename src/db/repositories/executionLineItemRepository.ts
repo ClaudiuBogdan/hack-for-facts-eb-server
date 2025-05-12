@@ -22,9 +22,16 @@ export interface ExecutionLineItemFilter {
   search?: string;
 }
 
+// Interface for specifying sort order
+export interface SortOrderOption {
+  by: string;
+  order: string;
+}
+
 export const executionLineItemRepository = {
   async getAll(
     filters: ExecutionLineItemFilter,
+    sort?: SortOrderOption,
     limit?: number,
     offset?: number
   ): Promise<ExecutionLineItem[]> {
@@ -145,7 +152,27 @@ export const executionLineItemRepository = {
 
       let finalQuery = querySelect + queryFrom + (joinClauses ? " " + joinClauses : "") + whereClause;
 
-      finalQuery += " ORDER BY eli.line_item_id";
+      // Determine sort order
+      const sortableFields = [
+        'line_item_id',
+        'report_id',
+        'entity_cui',
+        'funding_source_id',
+        'functional_code',
+        'economic_code',
+        'account_category',
+        'amount',
+        'program_code',
+        'year',
+      ];
+      let orderByClause = 'ORDER BY eli.line_item_id';
+      if (sort && sortableFields.includes(sort.by)) {
+        const direction = sort.order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+        orderByClause = `ORDER BY eli.${sort.by} ${direction}`;
+      } else {
+        orderByClause = 'ORDER BY eli.year DESC, eli.amount DESC';
+      }
+      finalQuery += ` ${orderByClause}`;
 
       if (limit !== undefined) {
         finalQuery += ` LIMIT $${paramIndex++}`;

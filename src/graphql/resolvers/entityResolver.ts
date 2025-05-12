@@ -5,6 +5,7 @@ import {
   executionLineItemRepository,
 } from "../../db/repositories";
 import { EntityFilter } from "../../db/repositories/entityRepository";
+import { SortOrderOption } from "../../db/repositories/executionLineItemRepository";
 
 export const entityResolver = {
   Query: {
@@ -82,16 +83,18 @@ export const entityResolver = {
         filter = {},
         limit = 100,
         offset = 0,
+        sortBy,
       }: {
         filter: any;
         limit: number;
         offset: number;
+        sortBy: SortOrderOption;
       }
     ) => {
       const combinedFilter = { ...filter, entity_cui: parent.cui };
 
       const [lineItems, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(combinedFilter, limit, offset),
+        executionLineItemRepository.getAll(combinedFilter, sortBy, limit, offset),
         executionLineItemRepository.count(combinedFilter),
       ]);
 

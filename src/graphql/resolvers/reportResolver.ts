@@ -96,7 +96,7 @@ export const reportResolver = {
       if (maxAmount !== undefined) filter.max_amount = maxAmount;
 
       const [lineItems, totalCount] = await Promise.all([
-        executionLineItemRepository.getAll(filter, limit, offset),
+        executionLineItemRepository.getAll(filter, undefined, limit, offset),
         executionLineItemRepository.count(filter),
       ]);
 
