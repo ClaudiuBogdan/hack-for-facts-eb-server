@@ -4,17 +4,17 @@ import { ExecutionLineItem } from "../models";
 export interface ExecutionLineItemFilter {
   report_id?: number;
   report_ids?: number[];
-  entity_cui?: string;
+  entity_cuis?: string[];
   funding_source_id?: number;
-  functional_code?: string;
-  economic_code?: string;
-  account_category?: "vn" | "ch";
+  functional_codes?: string[];
+  economic_codes?: string[];
+  account_categories?: ("vn" | "ch")[];
   min_amount?: number;
   max_amount?: number;
   program_code?: string;
   reporting_year?: number;
   county_code?: string;
-  uat_id?: number;
+  uat_ids?: number[];
   year?: number;
   years?: number[];
   start_year?: number;
@@ -43,9 +43,9 @@ export const executionLineItemRepository = {
       };
 
       // Add filters dynamically
-      if (filters.entity_cui) {
-        conditions.push(`eli.entity_cui = $${paramIndex++}`);
-        values.push(filters.entity_cui);
+      if (filters.entity_cuis && filters.entity_cuis.length > 0) {
+        conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
+        values.push(filters.entity_cuis);
       }
 
       if (filters.report_id) {
@@ -67,19 +67,19 @@ export const executionLineItemRepository = {
         values.push(filters.funding_source_id);
       }
 
-      if (filters.functional_code) {
-        conditions.push(`eli.functional_code = $${paramIndex++}`);
-        values.push(filters.functional_code);
+      if (filters.functional_codes && filters.functional_codes.length > 0) {
+        conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
+        values.push(filters.functional_codes);
       }
 
-      if (filters.economic_code) {
-        conditions.push(`eli.economic_code = $${paramIndex++}`);
-        values.push(filters.economic_code);
+      if (filters.economic_codes && filters.economic_codes.length > 0) {
+        conditions.push(`eli.economic_code = ANY($${paramIndex++}::text[])`);
+        values.push(filters.economic_codes);
       }
 
-      if (filters.account_category) {
-        conditions.push(`eli.account_category = $${paramIndex++}`);
-        values.push(filters.account_category);
+      if (filters.account_categories && filters.account_categories.length > 0) {
+        conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
+        values.push(filters.account_categories);
       }
 
       if (filters.min_amount !== undefined) {
@@ -134,11 +134,10 @@ export const executionLineItemRepository = {
         values.push(filters.county_code);
       }
       
-      // New filter: uat_code
-      if (filters.uat_id) {
+      if (filters.uat_ids && filters.uat_ids.length > 0) {
         ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        conditions.push(`e.uat_id = $${paramIndex++}`);
-        values.push(filters.uat_id);
+        conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
+        values.push(filters.uat_ids);
       }
 
       const joinClauses = Array.from(joinsMap.values()).join(" ");
@@ -202,17 +201,17 @@ export const executionLineItemRepository = {
     filters: Partial<{
       report_id: number;
       report_ids: number[];
-      entity_cui?: string;
+      entity_cuis?: string[];
       funding_source_id: number;
-      functional_code: string;
-      economic_code: string;
-      account_category: "vn" | "ch";
+      functional_codes?: string[];
+      economic_codes?: string[];
+      account_categories?: ("vn" | "ch")[];
       min_amount: number;
       max_amount: number;
       program_code: string;
       reporting_year?: number;
       county_code?: string;
-      uat_id?: number;
+      uat_ids?: number[];
       year?: number;
       years?: number[];
       start_year?: number;
@@ -233,9 +232,9 @@ export const executionLineItemRepository = {
         }
       };
       
-      if (filters.entity_cui) {
-        conditions.push(`eli.entity_cui = $${paramIndex++}`);
-        values.push(filters.entity_cui);
+      if (filters.entity_cuis && filters.entity_cuis.length > 0) {
+        conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
+        values.push(filters.entity_cuis);
       }
 
       if (filters.report_id) {
@@ -257,19 +256,19 @@ export const executionLineItemRepository = {
         values.push(filters.funding_source_id);
       }
 
-      if (filters.functional_code) {
-        conditions.push(`eli.functional_code = $${paramIndex++}`);
-        values.push(filters.functional_code);
+      if (filters.functional_codes && filters.functional_codes.length > 0) {
+        conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
+        values.push(filters.functional_codes);
       }
 
-      if (filters.economic_code) {
-        conditions.push(`eli.economic_code = $${paramIndex++}`);
-        values.push(filters.economic_code);
+      if (filters.economic_codes && filters.economic_codes.length > 0) {
+        conditions.push(`eli.economic_code = ANY($${paramIndex++}::text[])`);
+        values.push(filters.economic_codes);
       }
 
-      if (filters.account_category) {
-        conditions.push(`eli.account_category = $${paramIndex++}`);
-        values.push(filters.account_category);
+      if (filters.account_categories && filters.account_categories.length > 0) {
+        conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
+        values.push(filters.account_categories);
       }
 
       if (filters.min_amount !== undefined) {
@@ -324,11 +323,10 @@ export const executionLineItemRepository = {
         values.push(filters.county_code);
       }
 
-      // New filter: uat_code
-      if (filters.uat_id) {
+      if (filters.uat_ids && filters.uat_ids.length > 0) {
         ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        conditions.push(`e.uat_id = $${paramIndex++}`);
-        values.push(filters.uat_id);
+        conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
+        values.push(filters.uat_ids);
       }
 
       const joinClauses = Array.from(joinsMap.values()).join(" ");

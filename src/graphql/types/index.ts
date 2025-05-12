@@ -280,17 +280,17 @@ export const types = `
   input ExecutionLineItemFilter {
     report_id: Int
     report_ids: [Int]
-    entity_cui: String
+    entity_cuis: [String]
     funding_source_id: Int
-    functional_code: String
-    economic_code: String
-    account_category: String
+    functional_codes: [String]
+    economic_codes: [String]
+    account_categories: [String]
     min_amount: Float
     max_amount: Float
     program_code: String
     reporting_year: Int
     county_code: String
-    uat_id: Int
+    uat_ids: [Int]
     year: Int
     years: [Int]
     start_year: Int
