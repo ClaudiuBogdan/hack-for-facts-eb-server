@@ -8,6 +8,8 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
+    "db:setup": "ts-node src/db/setup-db.ts",
+    "db:seed": "ts-node src/db/seed/index.ts",
     "validate-xml": "ts-node src/utils/validate-xml-cli.ts",
     "import-uats": "ts-node src/scripts/import-uats.ts",
     "generate-uat-json": "ts-node src/scripts/generate-uat-json.ts",
