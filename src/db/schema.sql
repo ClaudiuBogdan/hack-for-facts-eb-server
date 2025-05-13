@@ -23,6 +23,7 @@ CREATE TABLE UATs (
     id SERIAL PRIMARY KEY,
     uat_key VARCHAR(35) NOT NULL, -- uat_key is combined of county name and uat name
     uat_code VARCHAR(20) UNIQUE NOT NULL, -- CIF/uat_cod from uat_cif_pop_2021.csv
+    siruta_code VARCHAR(20) UNIQUE NOT NULL, -- SIRUTA code from uat_cif_pop_2021.csv
     name TEXT NOT NULL,
     county_code VARCHAR(2),
     county_name VARCHAR(50),
@@ -43,8 +44,12 @@ CREATE TABLE Entities (
     uat_id INT,
     address TEXT,
     last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    admin_uat_cui VARCHAR(20),
+    admin_ministry_cui VARCHAR(20),
     
-    FOREIGN KEY (uat_id) REFERENCES UATs(id) ON DELETE RESTRICT
+    FOREIGN KEY (uat_id) REFERENCES UATs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (admin_uat_cui) REFERENCES Entities(cui) ON DELETE RESTRICT,
+    FOREIGN KEY (admin_ministry_cui) REFERENCES Entities(cui) ON DELETE RESTRICT
 );
 
 -- Add explanatory comment to Entities table

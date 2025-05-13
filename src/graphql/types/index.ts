@@ -11,6 +11,7 @@ export const types = `
     id: ID!
     uat_key: String!
     uat_code: String!
+    siruta_code: String!
     name: String!
     county_code: String
     county_name: String
@@ -217,6 +218,7 @@ export const types = `
     uat_id: ID!
     uat_code: String!       # For client-side mapping to GeoJSON properties
     uat_name: String!       # For display
+    siruta_code: String!    # Unique identifier for UATs
     county_code: String     # For context or potential county-level roll-up view
     county_name: String     # For display
     population: Int         # For per-capita calculations by the client

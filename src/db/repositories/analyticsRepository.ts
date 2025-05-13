@@ -14,6 +14,7 @@ export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
   uat_code: string;
   uat_name: string;
+  siruta_code: string;
   county_code: string | null;
   county_name: string | null;
   population: number | null;
@@ -77,6 +78,7 @@ export const analyticsRepository = {
       SELECT
         u.id AS uat_id,
         u.uat_code,
+        u.siruta_code,
         u.name AS uat_name,
         u.county_code,
         u.county_name,
@@ -89,6 +91,7 @@ export const analyticsRepository = {
       GROUP BY
         u.id,
         u.uat_code,
+        u.siruta_code,
         u.name,
         u.county_code,
         u.county_name,
@@ -104,6 +107,7 @@ export const analyticsRepository = {
         uat_id: row.uat_id,
         uat_code: row.uat_code,
         uat_name: row.uat_name,
+        siruta_code: row.siruta_code,
         county_code: row.county_code,
         county_name: row.county_name,
         population: row.population,

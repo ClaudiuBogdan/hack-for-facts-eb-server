@@ -55,13 +55,14 @@ async function loadData() {
     const uatMapping = new Map<string, number>();
     for (const uat of uatData.uats) {
       await client.query(
-        `INSERT INTO UATs (id, uat_key, uat_code, name, county_code, county_name, region, population)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO UATs (id, uat_key, uat_code, siruta_code, name, county_code, county_name, region, population)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id`,
         [
           uat.id,
           uat.uat_key,
           uat.uat_code,
+          uat.siruta_code,
           uat.name,
           uat.county_code,
           uat.county_name,
