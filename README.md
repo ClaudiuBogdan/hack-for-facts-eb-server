@@ -205,37 +205,6 @@ query GetReportWithAnalytics {
     }
     reporting_year
     reporting_period
-    budgetTotals {
-      revenue
-      expense
-      balance
-    }
-    topFunctionalCodesExpense(limit: 5) {
-      functional_code
-      functional_name
-      total
-      percentage
-    }
-  }
-}
-```
-
-#### Get spending anomalies
-
-```graphql
-query GetAnomalies {
-  spendingAnomalies(
-    year: 2023,
-    period: "Annual",
-    minDeviationPercentage: 50,
-    limit: 10
-  ) {
-    entity_name
-    functional_name
-    amount
-    average_amount
-    deviation_percentage
-    score
   }
 }
 ```

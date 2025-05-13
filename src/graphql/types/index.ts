@@ -117,10 +117,6 @@ export const types = `
       minAmount: Float
       maxAmount: Float
     ): ExecutionLineItemConnection!
-    # Aggregations
-    budgetTotals: BudgetTotals!
-    topFunctionalCodesExpense(limit: Int): [FunctionalCodeTotal!]!
-    topFunctionalCodesRevenue(limit: Int): [FunctionalCodeTotal!]!
   }
 
   type ReportConnection {
@@ -214,27 +210,32 @@ export const types = `
     DESC
   }
 
-  input MetricSortCriteria {
-    metric: String! # e.g., "total_expense", "per_capita_income", "budget_balance"
-    direction: SortDirection!
+  # --- START: Types for Heatmap Analytics ---
+
+  # Data point for UAT-level heatmap visualization
+  type HeatmapUATDataPoint {
+    uat_id: ID!
+    uat_code: String!       # For client-side mapping to GeoJSON properties
+    uat_name: String!       # For display
+    county_code: String     # For context or potential county-level roll-up view
+    county_name: String     # For display
+    population: Int         # For per-capita calculations by the client
+    aggregated_value: Float! # The calculated sum based on filters
   }
 
-  # Anomaly detection types
-  type SpendingAnomaly {
-    entity_cui: String!
-    entity_name: String!
-    report_id: Int!
-    report_date: String!
-    reporting_period: String!
-    functional_code: String!
-    functional_name: String!
-    economic_code: String
-    economic_name: String
-    amount: Float!
-    average_amount: Float!
-    deviation_percentage: Float!
-    score: Float!
+  # Input filters for querying heatmap data
+  input HeatmapFilterInput {
+    functional_codes: [String!]    # Optional: filter by functional classification codes
+    economic_codes: [String!]      # Optional: filter by economic classification codes
+    account_categories: [String!]! # Mandatory: e.g., ["ch"] for expenses, ["vn"] for income
+    years: [Int!]!                 # Mandatory: list of years to include
+    min_amount: Float              # Optional: filter individual line items by minimum amount
+    max_amount: Float              # Optional: filter individual line items by maximum amount
+    # county_codes: [String!]      # Optional: to focus heatmap on specific counties
+    # regions: [String!]           # Optional: to focus heatmap on specific regions
   }
+
+  # --- END: Types for Heatmap Analytics ---
 
   input FunctionalClassificationFilterInput {
     search: String
@@ -312,59 +313,7 @@ export const types = `
       offset: Int
     ): ExecutionLineItemConnection!
     
-    # Analytics queries
-    entityBudgetTimeline(
-      cui: ID!
-      startYear: Int
-      endYear: Int
-    ): [Report!]!
-    
-    # Anomaly detection
-    spendingAnomalies(
-      year: Int!
-      period: String
-      minDeviationPercentage: Float = 50
-      limit: Int = 10
-    ): [SpendingAnomaly!]!
-
-    # Query aggregated metrics for UATs
-    uatAggregatedMetrics(
-      filter: UATAggregatedMetricsFilter
-      sort: [MetricSortCriteria!] # Allow sorting by multiple metrics
-      limit: Int = 20
-      offset: Int = 0
-    ): UATAggregatedMetricsConnection!
-
-    # Query aggregated metrics for Counties
-    countyAggregatedMetrics(
-      filter: CountyAggregatedMetricsFilter
-      sort: [MetricSortCriteria!]
-      limit: Int = 20
-      offset: Int = 0
-    ): CountyAggregatedMetricsConnection!
-
-    # Query aggregated metrics by Category
-    categoryAggregatedMetrics(
-      filter: CategoryAggregatedMetricsFilter
-      sort: [MetricSortCriteria!] # e.g., sort by total_amount
-      limit: Int = 50
-      offset: Int = 0
-    ): CategoryAggregatedMetricsConnection!
-
-    # Query for generating time series data for a specific metric
-    metricTimeSeries(
-      metric: String! # e.g., "total_expense", "per_capita_income"
-      groupBy: String! # e.g., "year", "period"
-      filter: UATAggregatedMetricsFilter # Filter by UAT, county, region etc.
-    ): [TimeSeriesDataPoint!]!
-
-    # Query designed for comparing specific entities or UATs side-by-side
-    compareItems(
-      itemType: String! # "UAT" or "Entity"
-      itemIds: [ID!]! # List of UAT IDs or Entity CUIs to compare
-      metrics: [String!]! # List of metrics, e.g., ["total_expense", "per_capita_expense", "budget_balance"]
-      reporting_year: Int!
-      reporting_period: String!
-    ): [ComparisonData!]!
+    # Query for UAT-level heatmap data
+    heatmapUATData(filter: HeatmapFilterInput!): [HeatmapUATDataPoint!]!
   }
 `;

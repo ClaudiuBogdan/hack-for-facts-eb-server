@@ -3,6 +3,7 @@ import { reportResolver } from "./reportResolver";
 import { executionLineItemResolver } from "./executionLineItemResolver";
 import { classificationsResolver } from "./classificationsResolver";
 import { uatResolver } from "./uatResolver";
+import { analyticsResolver } from "./analyticsResolver";
 
 export const resolvers = {
   Query: {
@@ -12,6 +13,7 @@ export const resolvers = {
     ...executionLineItemResolver.Query,
     ...classificationsResolver.Query,
     ...uatResolver.Query,
+    ...analyticsResolver.Query,
   },
   // Merge type-specific resolvers
   Entity: entityResolver.Entity,
