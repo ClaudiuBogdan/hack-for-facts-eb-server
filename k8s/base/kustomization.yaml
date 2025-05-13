@@ -31,11 +31,11 @@ patches:
       template:
         metadata:
           annotations:
-            image-sha: 636b5f5fda9f41ca5a3bb42ae6c655c4ca68cd73
+            image-sha: c7f706e28e8ec1d660016d78304dd8f66e6bb781
   target:
     kind: Deployment
     name: hack-for-facts-eb-server
 images:
 - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
   newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-  newTag: 636b5f5fda9f41ca5a3bb42ae6c655c4ca68cd73
+  newTag: c7f706e28e8ec1d660016d78304dd8f66e6bb781
