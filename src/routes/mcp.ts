@@ -80,15 +80,6 @@ export const mcpDefinition: McpDefinition = {
         description:
           "Query individual spending/revenue line items, supports detailed filtering.",
       },
-      {
-        name: "spendingAnomalies",
-        description:
-          "Identify potential spending anomalies based on deviation from averages for a given year/period.",
-      },
-      {
-        name: "entityBudgetTimeline",
-        description: "Retrieve report data for a specific entity over time.",
-      },
     ],
   },
 };
