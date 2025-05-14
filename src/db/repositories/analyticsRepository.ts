@@ -1,15 +1,5 @@
 import pool from "../connection";
 
-export interface HeatmapUATDataPoint {
-  uat_id: number;
-  uat_code: string;
-  uat_name: string;
-  county_code: string | null;
-  county_name: string | null;
-  population: number | null;
-  aggregated_value: number; // Sum will be a number, maps to Float! in GQL
-}
-
 export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
   uat_code: string;
@@ -18,7 +8,9 @@ export interface HeatmapUATDataPoint_Repo {
   siruta_code: string;
   county_code: string | null;
   county_name: string | null;
-  aggregated_value: number; 
+  amount: number;
+  total_amount: number;
+  per_capita_amount: number;
 }
 
 export interface HeatmapFilterInput {
@@ -29,8 +21,8 @@ export interface HeatmapFilterInput {
   min_amount?: number | null;
   max_amount?: number | null;
   normalization?: 'total' | 'per-capita';
-  min_population?: number | null;        
-  max_population?: number | null;        
+  min_population?: number | null;
+  max_population?: number | null;
 }
 
 export const analyticsRepository = {
@@ -97,7 +89,7 @@ export const analyticsRepository = {
         u.county_code,
         u.county_name,
         u.population,
-        SUM(eli.amount) AS aggregated_value
+        SUM(eli.amount) AS total_amount
       FROM ExecutionLineItems eli
       JOIN Entities e ON eli.entity_cui = e.cui
       JOIN UATs u ON e.uat_id = u.id
@@ -119,26 +111,26 @@ export const analyticsRepository = {
       const result = await pool.query(queryString, params);
 
       const calculateValue = (value: string, population: number) => {
-        console.log("value", value);
-        console.log("population", population);
-        console.log("filter.normalization", filter.normalization);
         const valueNumber = parseFloat(value);
-        if (filter.normalization === 'per-capita') {
-          return valueNumber / population;
-        }
-        return valueNumber;
+        return valueNumber / population;
       };
 
-      return result.rows.map((row): HeatmapUATDataPoint_Repo => ({
-        uat_id: row.uat_id,
-        uat_code: row.uat_code,
-        uat_name: row.uat_name,
-        population: row.population,
-        siruta_code: row.siruta_code,
-        county_code: row.county_code,
-        county_name: row.county_name,
-        aggregated_value: calculateValue(row.aggregated_value, row.population),
-      }));
+      return result.rows.map((row): HeatmapUATDataPoint_Repo => {
+        const perCapitaAmount = calculateValue(row.total_amount, row.population);
+        const amount = filter.normalization === 'per-capita' ? perCapitaAmount : row.total_amount;
+        return {
+          uat_id: row.uat_id,
+          uat_code: row.uat_code,
+          uat_name: row.uat_name,
+          population: row.population,
+          siruta_code: row.siruta_code,
+          county_code: row.county_code,
+          county_name: row.county_name,
+          amount: amount,
+          total_amount: row.total_amount,
+          per_capita_amount: perCapitaAmount,
+        }
+      });
     } catch (error) {
       console.error("Error fetching heatmap data:", error);
       // Consider re-throwing a more specific error or a custom error type

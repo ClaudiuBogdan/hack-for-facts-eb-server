@@ -41,7 +41,7 @@ The feature aims to:
 
 ### 4.2. Data Aggregation & Value Representation
 
-*   **FR2.1:** The system shall calculate the `aggregated_value` for each UAT by summing the `amount` from `ExecutionLineItems` that match the applied filters.
+*   **FR2.1:** The system shall calculate the `total_amount` for each UAT by summing the `amount` from `ExecutionLineItems` that match the applied filters.
 *   **FR2.2:** Users must be able to select the `account_category` to determine if the aggregated value represents income (`vn`) or expenses (`ch`). This is a mandatory filter.
 
 ### 4.3. Filtering Capabilities
@@ -72,7 +72,7 @@ The system shall provide the following filters to refine the data displayed on t
 *   **FR4.3:** On hovering over a UAT on the map, a tooltip shall display:
     *   UAT Name (`uat_name`)
     *   UAT Code (`uat_code`)
-    *   Aggregated Value (`aggregated_value`)
+    *   Aggregated Value (`total_amount`)
     *   County Name (`county_name`)
     *   Population (`population`) (to allow users to mentally contextualize or for client-side per-capita display)
 *   **FR4.4:** A legend explaining the color scale and corresponding value ranges shall be displayed.
@@ -100,7 +100,7 @@ type HeatmapUATDataPoint {
   county_code: String     # For context or potential county-level roll-up view
   county_name: String     # For display
   population: Int         # For per-capita calculations by the client
-  aggregated_value: Float! # The calculated sum based on filters
+  total_amount: Float! # The calculated sum based on filters
 }
 ```
 

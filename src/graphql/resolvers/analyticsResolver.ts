@@ -19,7 +19,8 @@ interface HeatmapUATDataPoint_Repo {
     county_code: string | null;
     county_name: string | null;
     population: number | null;
-    aggregated_value: number;
+    total_amount: number;
+    per_capita_amount: number;
 }
 
 // Type matching the GraphQL Schema for HeatmapUATDataPoint
@@ -30,7 +31,8 @@ interface HeatmapUATDataPoint_GQL {
     county_code: string | null;
     county_name: string | null;
     population: number | null;
-    aggregated_value: number; // Float! is number in JS/TS
+    total_amount: number; // Float! is number in JS/TS
+    per_capita_amount: number;
 }
 
 export const analyticsResolver = {
@@ -49,22 +51,6 @@ export const analyticsResolver = {
                     ...repoItem,
                     uat_id: String(repoItem.uat_id), // Convert number ID to string for GraphQL ID!
                 }));
-
-                // Apply normalization if specified
-                if (args.filter.normalization === 'per-capita') {
-                    gqlData = gqlData.map(item => {
-                        if (item.population && item.population > 0) {
-                            return {
-                                ...item,
-                                aggregated_value: item.aggregated_value / item.population,
-                            };
-                        }
-                        // If population is null or 0, keep aggregated_value as is or handle as error/specific value
-                        // For now, returning item as is, effectively making aggregated_value 0 or unchanged if not calculable
-                        return item; 
-                    });
-                }
-
                 return gqlData;
             } catch (error: any) {
                 console.error("Error in heatmapUATData resolver:", error);

@@ -222,7 +222,9 @@ export const types = `
     county_code: String     # For context or potential county-level roll-up view
     county_name: String     # For display
     population: Int         # For per-capita calculations by the client
-    aggregated_value: Float! # The calculated sum based on filters
+    amount: Float!          # The calculated sum based on filters
+    total_amount: Float!    # The calculated sum based on filters
+    per_capita_amount: Float! # The calculated per-capita amount based on filters
   }
 
   # Input filters for querying heatmap data
