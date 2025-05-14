@@ -14,10 +14,10 @@ export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
   uat_code: string;
   uat_name: string;
+  population: number;
   siruta_code: string;
   county_code: string | null;
   county_name: string | null;
-  population: number | null;
   aggregated_value: number; 
 }
 
@@ -28,6 +28,9 @@ export interface HeatmapFilterInput {
   years: number[];             // Mandatory, and array ensured by GQL to be non-null, items non-null
   min_amount?: number | null;
   max_amount?: number | null;
+  normalization?: 'total' | 'per-capita';
+  min_population?: number | null;        
+  max_population?: number | null;        
 }
 
 export const analyticsRepository = {
@@ -58,6 +61,17 @@ export const analyticsRepository = {
     if (filter.economic_codes && filter.economic_codes.length > 0) {
       conditions.push(`eli.economic_code = ANY($${paramIndex++})`);
       params.push(filter.economic_codes);
+    }
+
+    // Add population filters to the WHERE clause targeting the UATs table
+    if (filter.min_population !== undefined && filter.min_population !== null) {
+      conditions.push(`u.population >= $${paramIndex++}`);
+      params.push(filter.min_population);
+    }
+
+    if (filter.max_population !== undefined && filter.max_population !== null) {
+      conditions.push(`u.population <= $${paramIndex++}`);
+      params.push(filter.max_population);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -103,15 +117,27 @@ export const analyticsRepository = {
 
     try {
       const result = await pool.query(queryString, params);
+
+      const calculateValue = (value: string, population: number) => {
+        console.log("value", value);
+        console.log("population", population);
+        console.log("filter.normalization", filter.normalization);
+        const valueNumber = parseFloat(value);
+        if (filter.normalization === 'per-capita') {
+          return valueNumber / population;
+        }
+        return valueNumber;
+      };
+
       return result.rows.map((row): HeatmapUATDataPoint_Repo => ({
         uat_id: row.uat_id,
         uat_code: row.uat_code,
         uat_name: row.uat_name,
+        population: row.population,
         siruta_code: row.siruta_code,
         county_code: row.county_code,
         county_name: row.county_name,
-        population: row.population,
-        aggregated_value: parseFloat(row.aggregated_value), // SUM can return as string from pg
+        aggregated_value: calculateValue(row.aggregated_value, row.population),
       }));
     } catch (error) {
       console.error("Error fetching heatmap data:", error);

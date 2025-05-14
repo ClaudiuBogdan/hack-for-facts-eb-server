@@ -7,6 +7,9 @@ interface HeatmapFilterInput {
     years: number[];
     min_amount?: number | null;
     max_amount?: number | null;
+    normalization?: 'total' | 'per-capita';
+    min_population?: number | null;
+    max_population?: number | null;
 }
 
 interface HeatmapUATDataPoint_Repo {
@@ -42,10 +45,25 @@ export const analyticsResolver = {
                 const repoData: HeatmapUATDataPoint_Repo[] = await analyticsRepository.getHeatmapData(args.filter);
 
                 // Map repository data to GraphQL schema type (e.g., convert uat_id to string)
-                const gqlData: HeatmapUATDataPoint_GQL[] = repoData.map(repoItem => ({
+                let gqlData: HeatmapUATDataPoint_GQL[] = repoData.map(repoItem => ({
                     ...repoItem,
                     uat_id: String(repoItem.uat_id), // Convert number ID to string for GraphQL ID!
                 }));
+
+                // Apply normalization if specified
+                if (args.filter.normalization === 'per-capita') {
+                    gqlData = gqlData.map(item => {
+                        if (item.population && item.population > 0) {
+                            return {
+                                ...item,
+                                aggregated_value: item.aggregated_value / item.population,
+                            };
+                        }
+                        // If population is null or 0, keep aggregated_value as is or handle as error/specific value
+                        // For now, returning item as is, effectively making aggregated_value 0 or unchanged if not calculable
+                        return item; 
+                    });
+                }
 
                 return gqlData;
             } catch (error: any) {

@@ -233,6 +233,9 @@ export const types = `
     years: [Int!]!                 # Mandatory: list of years to include
     min_amount: Float              # Optional: filter individual line items by minimum amount
     max_amount: Float              # Optional: filter individual line items by maximum amount
+    normalization: String          # Optional: 'total' or 'per_capita'
+    min_population: Int            # Optional: filter UATs by minimum population
+    max_population: Int            # Optional: filter UATs by maximum population
     # county_codes: [String!]      # Optional: to focus heatmap on specific counties
     # regions: [String!]           # Optional: to focus heatmap on specific regions
   }
