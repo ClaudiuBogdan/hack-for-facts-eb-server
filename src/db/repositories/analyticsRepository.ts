@@ -70,12 +70,14 @@ export const analyticsRepository = {
 
     const havingConditions: string[] = [];
     if (filter.min_amount !== undefined && filter.min_amount !== null) {
-      havingConditions.push(`SUM(eli.amount) >= $${paramIndex++}`);
+      const amountExpression = filter.normalization === 'per-capita' ? 'SUM(eli.amount) / u.population' : 'SUM(eli.amount)';
+      havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
       params.push(filter.min_amount);
     }
 
     if (filter.max_amount !== undefined && filter.max_amount !== null) {
-      havingConditions.push(`SUM(eli.amount) <= $${paramIndex++}`);
+      const amountExpression = filter.normalization === 'per-capita' ? 'SUM(eli.amount) / u.population' : 'SUM(eli.amount)';
+      havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
       params.push(filter.max_amount);
     }
     const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
