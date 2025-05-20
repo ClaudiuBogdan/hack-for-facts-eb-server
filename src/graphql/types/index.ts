@@ -1,4 +1,9 @@
 export const types = `
+  type YearlyAmount {
+    year: Int!
+    totalAmount: Float!
+  }
+    
   # Pagination type to handle paginated queries
   type PageInfo {
     totalCount: Int!
@@ -40,12 +45,20 @@ export const types = `
       offset: Int
       year: Int
       period: String
+      sort: SortOrder
     ): ReportConnection!
     executionLineItems(
       filter: ExecutionLineItemFilter
       limit: Int
       offset: Int
+      sort: SortOrder
     ): ExecutionLineItemConnection!
+    totalIncome(year: Int!): Float
+    totalExpenses(year: Int!): Float
+    budgetBalance(year: Int!): Float
+    incomeTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
+    expenseTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
+    balanceTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
   }
 
   type EntityConnection {

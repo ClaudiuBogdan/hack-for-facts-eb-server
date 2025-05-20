@@ -28,6 +28,13 @@ export interface SortOrderOption {
   order: string;
 }
 
+export interface YearlyFinancials {
+  year: number;
+  totalIncome: number;
+  totalExpenses: number;
+  budgetBalance: number;
+}
+
 export const executionLineItemRepository = {
   async getAll(
     filters: ExecutionLineItemFilter,
@@ -140,7 +147,7 @@ export const executionLineItemRepository = {
         conditions.push(`u.county_code = $${paramIndex++}`);
         values.push(filters.county_code);
       }
-      
+
       if (filters.uat_ids && filters.uat_ids.length > 0) {
         ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
         conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
@@ -258,7 +265,7 @@ export const executionLineItemRepository = {
           joinsMap.set(alias, joinStatement);
         }
       };
-      
+
       if (filters.entity_cuis && filters.entity_cuis.length > 0) {
         conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
         values.push(filters.entity_cuis);
@@ -358,7 +365,7 @@ export const executionLineItemRepository = {
 
       const joinClauses = Array.from(joinsMap.values()).join(" ");
       const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
-      
+
       const finalQuery = querySelect + queryFrom + (joinClauses ? " " + joinClauses : "") + whereClause;
 
       const result = await pool.query(finalQuery, values);
@@ -415,6 +422,66 @@ export const executionLineItemRepository = {
     } catch (error) {
       console.error(
         `Error calculating top functional codes for report ID: ${reportId}`,
+        error
+      );
+      throw error;
+    }
+  },
+
+  async getYearlySnapshotTotals(entityCui: string, year: number): Promise<{ totalIncome: number; totalExpenses: number }> {
+    const query = `
+      SELECT 
+        COALESCE(SUM(total_income), 0) AS "totalIncome",
+        COALESCE(SUM(total_expense), 0) AS "totalExpenses"
+      FROM vw_BudgetSummary_ByEntityPeriod
+      WHERE entity_cui = $1 AND reporting_year = $2;
+    `;
+    try {
+      const result = await pool.query(query, [entityCui, year]);
+      if (result.rows.length > 0) {
+        return {
+          totalIncome: parseFloat(result.rows[0].totalIncome),
+          totalExpenses: parseFloat(result.rows[0].totalExpenses),
+        };
+      }
+      return { totalIncome: 0, totalExpenses: 0 }; // Default if no records found
+    } catch (error) {
+      console.error(
+        `Error fetching yearly snapshot totals for entity ${entityCui}, year ${year}:`,
+        error
+      );
+      throw error;
+    }
+  },
+
+  async getYearlyFinancialTrends(
+    entityCui: string,
+    startYear: number,
+    endYear: number
+  ): Promise<YearlyFinancials[]> {
+    const query = `
+      SELECT 
+        reporting_year AS year,
+        COALESCE(SUM(total_income), 0) AS "totalIncome",
+        COALESCE(SUM(total_expense), 0) AS "totalExpenses",
+        COALESCE(SUM(budget_balance), 0) AS "budgetBalance"
+      FROM vw_BudgetSummary_ByEntityPeriod
+      WHERE entity_cui = $1 
+        AND reporting_year BETWEEN $2 AND $3
+      GROUP BY reporting_year
+      ORDER BY reporting_year ASC;
+    `;
+    try {
+      const result = await pool.query(query, [entityCui, startYear, endYear]);
+      return result.rows.map(row => ({
+        year: parseInt(row.year, 10),
+        totalIncome: parseFloat(row.totalIncome),
+        totalExpenses: parseFloat(row.totalExpenses),
+        budgetBalance: parseFloat(row.budgetBalance),
+      }));
+    } catch (error) {
+      console.error(
+        `Error fetching yearly financial trends for entity ${entityCui} (${startYear}-${endYear}):`,
         error
       );
       throw error;

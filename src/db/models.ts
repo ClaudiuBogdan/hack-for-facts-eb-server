@@ -47,10 +47,12 @@ export interface Report {
 export interface ExecutionLineItem {
   line_item_id: number;
   report_id: number;
+  entity_cui: string;
   funding_source_id: number;
   functional_code: string;
   economic_code?: string;
   account_category: "vn" | "ch";
   amount: number;
   program_code?: string;
+  year: number;
 }
