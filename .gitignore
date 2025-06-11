@@ -12,3 +12,5 @@ data-map
 
 # Kubernetes base vars
 k8s/base/vars.env
+
+start-local.sh

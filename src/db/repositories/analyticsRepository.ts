@@ -94,7 +94,7 @@ export const analyticsRepository = {
         SUM(eli.amount) AS total_amount
       FROM ExecutionLineItems eli
       JOIN Entities e ON eli.entity_cui = e.cui
-      JOIN UATs u ON e.uat_id = u.id
+      JOIN UATs u ON e.cui = u.uat_code
       ${whereClause}
       GROUP BY
         u.id,
