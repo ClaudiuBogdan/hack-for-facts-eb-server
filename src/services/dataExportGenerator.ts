@@ -265,7 +265,7 @@ export async function generateDataExport(): Promise<void> {
               functional_code: item.functionalCode,
               economic_code: item.economicCode || null,
               account_category: item.accountCategory || "",
-              amount: Math.abs(amount),
+              amount: amount,
               program_code: null, // Not available in current data model
             };
 

@@ -73,7 +73,7 @@ export const types = `
     executionLineItems(
       limit: Int
       offset: Int
-      reportId: Int
+      reportId: String
       accountCategory: String
     ): ExecutionLineItemConnection!
   }
@@ -90,7 +90,7 @@ export const types = `
     executionLineItems(
       limit: Int
       offset: Int
-      reportId: Int
+      reportId: String
       accountCategory: String
     ): ExecutionLineItemConnection!
   }
@@ -107,7 +107,7 @@ export const types = `
     executionLineItems(
       limit: Int
       offset: Int
-      reportId: Int
+      reportId: String
       accountCategory: String
     ): ExecutionLineItemConnection!
   }

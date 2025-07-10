@@ -6,6 +6,7 @@ import config from "./config";
 import filterGeneratorRoutes from "./routes/filterGenerator";
 import mcpRoutes from "./routes/mcp";
 import applicationRoutes from "./routes";
+import { refreshViews } from "./db/seed/view-refresh";
 
 // Initialize Fastify server
 const fastify = Fastify({
@@ -34,6 +35,7 @@ fastify.register(applicationRoutes);
 const start = async () => {
   try {
     // Start the server
+    // await refreshViews();
     await fastify.listen({ port: config.port, host: "0.0.0.0" });
     console.log(`🚀 Server is running on port ${config.port}`);
     console.log(`GraphQL endpoint: http://localhost:${config.port}/graphql`);

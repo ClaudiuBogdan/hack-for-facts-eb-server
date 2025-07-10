@@ -44,12 +44,10 @@ CREATE TABLE Entities (
     uat_id INT,
     address TEXT,
     last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    admin_uat_cui VARCHAR(20),
-    admin_ministry_cui VARCHAR(20),
+    parent_1_cui VARCHAR(20) NULL, -- can be null
+    parent_2_cui VARCHAR(20) NULL, -- can be null
     
-    FOREIGN KEY (uat_id) REFERENCES UATs(id) ON DELETE RESTRICT,
-    FOREIGN KEY (admin_uat_cui) REFERENCES Entities(cui) ON DELETE RESTRICT,
-    FOREIGN KEY (admin_ministry_cui) REFERENCES Entities(cui) ON DELETE RESTRICT
+    FOREIGN KEY (uat_id) REFERENCES UATs(id) ON DELETE RESTRICT
 );
 
 -- Add explanatory comment to Entities table
@@ -83,20 +81,33 @@ CREATE TABLE FundingSources (
 -- Add explanatory comment
 COMMENT ON TABLE FundingSources IS 'Sources of funding for budget items (e.g., State Budget, EU Funds, Own Revenues)';
 
+-- Table for Budget Sectors
+CREATE TABLE BudgetSectors (
+    sector_id SERIAL PRIMARY KEY,
+    sector_description TEXT NOT NULL UNIQUE
+);
+
+-- Add explanatory comment
+COMMENT ON TABLE BudgetSectors IS 'Budget sectors for categorizing budget sources: local budget, state budget, etc.';
+
 -- ========= METADATA TABLE =========
 
 -- Table to store metadata about each imported report file/instance
 CREATE TABLE Reports (
-    report_id SERIAL PRIMARY KEY,
+    report_id  TEXT PRIMARY KEY,
     entity_cui VARCHAR(20) NOT NULL,
+    main_creditor_cui VARCHAR(20),
     report_date DATE NOT NULL,
     reporting_year INT NOT NULL,
     reporting_period VARCHAR(10) NOT NULL,
+    budget_sector_id INT NOT NULL,
     file_source TEXT,
     import_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    download_links TEXT[],
 
     FOREIGN KEY (entity_cui) REFERENCES Entities(cui) ON DELETE RESTRICT,
-    UNIQUE (entity_cui, report_date)
+    FOREIGN KEY (budget_sector_id) REFERENCES BudgetSectors(sector_id) ON DELETE RESTRICT,
+    UNIQUE (entity_cui, report_date, main_creditor_cui, budget_sector_id)
 );
 
 -- Add explanatory comment
@@ -107,8 +118,10 @@ COMMENT ON TABLE Reports IS 'Metadata for each imported budget execution report,
 -- The main table holding individual budget execution line items
 CREATE TABLE ExecutionLineItems (
     line_item_id BIGSERIAL PRIMARY KEY,
-    report_id INT NOT NULL,
+    report_id TEXT NOT NULL,
     entity_cui VARCHAR(20) NOT NULL,
+    main_creditor_cui VARCHAR(20),
+    budget_sector_id INT NOT NULL,
     funding_source_id INT NOT NULL,
     functional_code VARCHAR(10) NOT NULL,
     economic_code VARCHAR(10) NULL,
@@ -122,6 +135,8 @@ CREATE TABLE ExecutionLineItems (
     FOREIGN KEY (funding_source_id) REFERENCES FundingSources(source_id) ON DELETE RESTRICT,
     FOREIGN KEY (functional_code) REFERENCES FunctionalClassifications(functional_code) ON DELETE RESTRICT,
     FOREIGN KEY (economic_code) REFERENCES EconomicClassifications(economic_code) ON DELETE RESTRICT,
+    FOREIGN KEY (budget_sector_id) REFERENCES BudgetSectors(sector_id) ON DELETE RESTRICT,
+    FOREIGN KEY (main_creditor_cui) REFERENCES Entities(cui) ON DELETE RESTRICT,
     CHECK (account_category IN ('vn', 'ch')),
     -- Ensure economic_code is not NULL for expenses (account_category = 'ch')
     CHECK (account_category != 'ch' OR economic_code IS NOT NULL)
@@ -142,6 +157,8 @@ CREATE INDEX idx_reports_entity_cui ON Reports (entity_cui);
 CREATE INDEX idx_reports_report_date ON Reports (report_date);
 CREATE INDEX idx_reports_reporting_year ON Reports (reporting_year);
 CREATE INDEX idx_entities_uat_id ON Entities (uat_id);
+CREATE INDEX idx_entities_parent_1_cui ON Entities (parent_1_cui) WHERE parent_1_cui IS NOT NULL;
+CREATE INDEX idx_entities_parent_2_cui ON Entities (parent_2_cui) WHERE parent_2_cui IS NOT NULL;
 CREATE INDEX idx_uats_uat_code ON UATs (uat_code);
 CREATE INDEX idx_uats_county_code ON UATs (county_code);
 CREATE INDEX idx_executionitems_account_category ON ExecutionLineItems (account_category);

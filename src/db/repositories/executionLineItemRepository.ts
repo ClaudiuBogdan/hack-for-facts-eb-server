@@ -215,7 +215,7 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getByReportId(reportId: number): Promise<ExecutionLineItem[]> {
+  async getByReportId(reportId: string): Promise<ExecutionLineItem[]> {
     try {
       const result = await pool.query(
         "SELECT * FROM ExecutionLineItems WHERE report_id = $1",
@@ -379,7 +379,7 @@ export const executionLineItemRepository = {
   // Functions for analytics
 
   async getTotalsByCategory(
-    reportId: number
+    reportId: string
   ): Promise<{ account_category: "vn" | "ch"; total: number }[]> {
     try {
       const query = `
@@ -400,7 +400,7 @@ export const executionLineItemRepository = {
   },
 
   async getTopFunctionalCodes(
-    reportId: number,
+    reportId: string,
     accountCategory: "vn" | "ch",
     limit: number = 10
   ): Promise<{ functional_code: string; total: number }[]> {

@@ -8,7 +8,7 @@ import pool from "../../db/connection";
 
 export const reportResolver = {
   Query: {
-    report: async (_: any, { report_id }: { report_id: number }) => {
+    report: async (_: any, { report_id }: { report_id: string }) => {
       return reportRepository.getById(report_id);
     },
     reports: async (

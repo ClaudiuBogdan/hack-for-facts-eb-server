@@ -138,7 +138,7 @@ export const reportRepository = {
     }
   },
 
-  async getById(reportId: number): Promise<Report | null> {
+  async getById(reportId: string): Promise<Report | null> {
     try {
       const result = await pool.query(
         "SELECT * FROM Reports WHERE report_id = $1",
