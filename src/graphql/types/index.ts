@@ -140,7 +140,7 @@ export const types = `
 
   type ExecutionLineItem {
     line_item_id: ID!
-    report_id: Int!
+    report_id: String!
     entity_cui: String!
     funding_source_id: Int!
     functional_code: String!
@@ -193,8 +193,8 @@ export const types = `
   }
 
   input ExecutionLineItemFilter {
-    report_id: Int
-    report_ids: [Int]
+    report_id: String
+    report_ids: [String]
     entity_cuis: [String]
     funding_source_id: Int
     functional_codes: [String]
