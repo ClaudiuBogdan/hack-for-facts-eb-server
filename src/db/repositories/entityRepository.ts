@@ -4,10 +4,12 @@ import { Entity } from "../models";
 export interface EntityFilter {
   cui?: string;
   name?: string;    // Exact or partial match
-  sector_type?: string;
+  entity_type?: string;
   uat_id?: number;
   address?: string; // Exact or partial match
   search?: string;  // pg_trgm based search across name & address
+  is_main_creditor?: boolean;
+  is_uat?: boolean;
 }
 
 // Threshold for pg_trgm similarity (adjust as needed for Romanian text)
@@ -75,13 +77,21 @@ export const entityRepository = {
       conditions.push(`cui = $${params.length + 1}`);
       params.push(filter.cui);
     }
-    if (filter.sector_type) {
-      conditions.push(`sector_type = $${params.length + 1}`);
-      params.push(filter.sector_type);
+    if (filter.entity_type) {
+      conditions.push(`entity_type = $${params.length + 1}`);
+      params.push(filter.entity_type);
     }
     if (filter.uat_id !== undefined) {
       conditions.push(`uat_id = $${params.length + 1}`);
       params.push(filter.uat_id);
+    }
+    if (filter.is_main_creditor !== undefined) {
+      conditions.push(`is_main_creditor = $${params.length + 1}`);
+      params.push(filter.is_main_creditor);
+    }
+    if (filter.is_uat !== undefined) {
+      conditions.push(`is_uat = $${params.length + 1}`);
+      params.push(filter.is_uat);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -121,6 +131,28 @@ export const entityRepository = {
     }
   },
 
+  async getChildren(cui: string): Promise<Entity[]> {
+    const result = await pool.query(
+      "SELECT * FROM Entities WHERE main_creditor_1_cui = $1 OR main_creditor_2_cui = $1",
+      [cui]
+    );
+    return result.rows;
+  },
+
+  async getParents(cui: string): Promise<Entity[]> {
+    const query = `
+      SELECT child.*
+      FROM Entities AS child
+      JOIN Entities AS parent
+        ON parent.cui = $1
+      WHERE child.cui = parent.main_creditor_1_cui
+         OR child.cui = parent.main_creditor_2_cui;
+    `;
+
+    const result = await pool.query<Entity>(query, [cui]);
+    return result.rows;
+  },
+
   async count(filter: EntityFilter = {}): Promise<number> {
     const conditions: string[] = [];
     const params: any[] = [];
@@ -146,13 +178,21 @@ export const entityRepository = {
       conditions.push(`cui = $${params.length + 1}`);
       params.push(filter.cui);
     }
-    if (filter.sector_type) {
-      conditions.push(`sector_type = $${params.length + 1}`);
-      params.push(filter.sector_type);
+    if (filter.entity_type) {
+      conditions.push(`entity_type = $${params.length + 1}`);
+      params.push(filter.entity_type);
     }
     if (filter.uat_id !== undefined) {
       conditions.push(`uat_id = $${params.length + 1}`);
       params.push(filter.uat_id);
+    }
+    if (filter.is_main_creditor !== undefined) {
+      conditions.push(`is_main_creditor = $${params.length + 1}`);
+      params.push(filter.is_main_creditor);
+    }
+    if (filter.is_uat !== undefined) {
+      conditions.push(`is_uat = $${params.length + 1}`);
+      params.push(filter.is_uat);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

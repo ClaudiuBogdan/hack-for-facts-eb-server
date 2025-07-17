@@ -13,7 +13,7 @@ export interface UAT {
 export interface Entity {
   cui: string;
   name: string;
-  sector_type?: string;
+  entity_type: string | null;
   uat_id?: number;
   address?: string;
   last_updated?: Date;

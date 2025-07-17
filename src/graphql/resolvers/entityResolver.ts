@@ -74,6 +74,12 @@ export const entityResolver = {
       if (!parent.uat_id) return null;
       return uatRepository.getById(parent.uat_id);
     },
+    children: async (parent: any) => {
+      return entityRepository.getChildren(parent.cui);
+    },
+    parents: async (parent: any) => {
+      return entityRepository.getParents(parent.cui);
+    },
     reports: async (
       parent: any,
       {

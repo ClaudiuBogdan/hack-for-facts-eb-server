@@ -35,7 +35,6 @@ The page primarily draws data from the following tables and views (as defined in
 *   **`Entities`:**
     *   `cui`: Primary identifier.
     *   `name`: Entity's official name.
-    *   `sector_type`: Classification of the entity.
     *   `address`: Physical address.
     *   `last_updated`: Data freshness indicator.
 *   **`UATs` (linked via `Entities.uat_id`):**
@@ -61,7 +60,7 @@ The page primarily draws data from the following tables and views (as defined in
 ## 5. Page Sections & Business Logic
 
 ### 5.1. Header / Profile Section
-*   **Data:** `Entities.name`, `Entities.cui`, `Entities.sector_type`, `UATs.name` (if linked), `UATs.county_name`, `UATs.population`.
+*   **Data:** `Entities.name`, `Entities.cui`, `Entities.category`, `UATs.name` (if linked), `UATs.county_name`, `UATs.population`.
 *   **Logic:** Direct lookup from `Entities` and `UATs` tables based on the entity CUI.
 
 ### 5.2. Financial Overview (Latest Period & Trends)
@@ -130,7 +129,7 @@ The goal of comparative analysis in this context is to identify data points or t
 *   **Peer Group Comparison (Inter-Entity Analysis):**
     *   **Defining Peer Groups:**
         *   *For UATs:* Same county/region, similar population size (+/- 10-20%), similar socio-economic profiles (advanced).
-        *   *For Other Entities:* Same `sector_type`, similar size/budget.
+        *   *For Other Entities:* Same `category`, similar size/budget.
     *   **Metrics for Comparison:** Per capita figures, % budget allocations, operational ratios.
     *   **Baselines:** Average, median, quartiles of the peer group.
     *   *Anomaly Indication:* Outlier status (e.g., top/bottom 5%), significant deviation from peer central tendency.

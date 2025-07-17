@@ -8,7 +8,6 @@
 CREATE TABLE Entities (
     cui VARCHAR(20) PRIMARY KEY,             -- Unique Fiscal Code (from <P_CUI>)
     name VARCHAR(255) NOT NULL,              -- Full name of the entity (from <NUME>)
-    sector_type VARCHAR(100),                -- Sector type (from <TIP_SECTOR>)
     uat_type VARCHAR(20),                    -- Type: 'Comuna', 'Oras', 'Municipiu', 'Judet', 'Other' (Needs enrichment)
     county_code VARCHAR(2),                  -- Standard 2-letter county code (e.g., 'SB') (Needs enrichment)
     county_name VARCHAR(50),                 -- County name (e.g., 'Sibiu') (Needs enrichment)

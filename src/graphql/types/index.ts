@@ -34,12 +34,16 @@ export const types = `
   type Entity {
     cui: ID!
     name: String!
-    sector_type: String
+    entity_type: String
     uat_id: Int
+    is_main_creditor: Boolean
+    is_uat: Boolean
     address: String
     last_updated: String
     # Relations
     uat: UAT
+    children: [Entity!]!
+    parents: [Entity!]!
     reports(
       limit: Int
       offset: Int
@@ -167,10 +171,12 @@ export const types = `
   input EntityFilter {
     cui: String
     name: String
-    sector_type: String
+    entity_type: String
     uat_id: Int
     address: String
     search: String
+    is_main_creditor: Boolean
+    is_uat: Boolean
   }
 
   input UATFilter {
