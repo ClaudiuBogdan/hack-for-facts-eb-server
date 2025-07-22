@@ -17,8 +17,8 @@ interface GraphQLSortOrderInput {
 // Type for ExecutionLineItemFilter from GraphQL args
 interface GraphQLExecutionLineItemFilterInput { 
   // Define fields based on ExecutionLineItemFilter in src/graphql/types/index.ts
-  report_id?: number;
-  report_ids?: number[];
+  report_id?: string;
+  report_ids?: string[];
   entity_cuis?: string[]; // This will be overridden by parent.cui
   funding_source_id?: number;
   functional_codes?: string[];
@@ -138,7 +138,7 @@ export const entityResolver = {
         filter?: GraphQLExecutionLineItemFilterInput;
         limit?: number;
         offset?: number;
-        sort?: GraphQLSortOrderInput;
+        sort?: ELISortOrderOption;
       }
     ) => {
       const combinedFilter: any = { ...filter, entity_cuis: [parent.cui] };

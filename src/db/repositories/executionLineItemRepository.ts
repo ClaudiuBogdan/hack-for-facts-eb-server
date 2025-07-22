@@ -1,6 +1,38 @@
 import pool from "../connection";
 import { ExecutionLineItem } from "../models";
 
+// --- Constants for Table and View Names ---
+const TABLES = {
+  EXECUTION_LINE_ITEMS: 'ExecutionLineItems',
+  ENTITIES: 'Entities',
+  REPORTS: 'Reports',
+  UATS: 'UATs',
+  VW_BUDGET_SUMMARY: 'vw_BudgetSummary_ByEntityPeriod',
+} as const;
+
+// --- Type-Safe Sorting Definitions ---
+const SORTABLE_FIELDS = [
+  'line_item_id',
+  'report_id',
+  'entity_cui',
+  'funding_source_id',
+  'functional_code',
+  'economic_code',
+  'account_category',
+  'amount',
+  'program_code',
+  'year',
+] as const;
+
+type SortableField = typeof SORTABLE_FIELDS[number];
+
+// Interface for specifying sort order with enhanced type safety
+export interface SortOrderOption {
+  by: SortableField;
+  order: 'ASC' | 'DESC';
+}
+
+// --- Filter and Model Interfaces ---
 export interface ExecutionLineItemFilter {
   report_id?: string;
   report_ids?: string[];
@@ -19,7 +51,6 @@ export interface ExecutionLineItemFilter {
   years?: number[];
   start_year?: number;
   end_year?: number;
-  search?: string;
   entity_type?: string;
   is_uat?: boolean;
   is_main_creditor?: boolean;
@@ -28,12 +59,6 @@ export interface ExecutionLineItemFilter {
   budget_sector_id?: number;
   budget_sector_ids?: number[];
   expense_types?: string[];
-}
-
-// Interface for specifying sort order
-export interface SortOrderOption {
-  by: string;
-  order: string;
 }
 
 export interface YearlyFinancials {
@@ -68,7 +93,7 @@ const buildExecutionLineItemFilterQuery = (
     }
   };
 
-  // ---------- Basic column filters ----------
+  // ---------- Basic column filters on ExecutionLineItems (eli) ----------
   if (filters.entity_cuis?.length) {
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
     values.push(filters.entity_cuis);
@@ -89,31 +114,6 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.funding_source_id);
   }
 
-  // ---------- Entity-level filters (require join with Entities) ----------
-  if (
-    filters.entity_type !== undefined ||
-    filters.is_uat !== undefined ||
-    filters.is_main_creditor !== undefined
-  ) {
-    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-  }
-
-  if (filters.entity_type) {
-    conditions.push(`e.entity_type = $${paramIndex++}`);
-    values.push(filters.entity_type);
-  }
-
-  if (filters.is_uat !== undefined) {
-    conditions.push(`e.is_uat = $${paramIndex++}`);
-    values.push(filters.is_uat);
-  }
-
-  if (filters.is_main_creditor !== undefined) {
-    conditions.push(`e.is_main_creditor = $${paramIndex++}`);
-    values.push(filters.is_main_creditor);
-  }
-
-  // ---------- Budget sector ----------
   if (filters.budget_sector_id) {
     conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
     values.push(filters.budget_sector_id);
@@ -175,13 +175,6 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.program_code);
   }
 
-  // ---------- Reporting year (via Reports join) ----------
-  if (filters.reporting_year !== undefined) {
-    ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
-    conditions.push(`r.reporting_year = $${paramIndex++}`);
-    values.push(filters.reporting_year);
-  }
-
   // ---------- Year filters ----------
   if (filters.year !== undefined) {
     conditions.push(`eli.year = $${paramIndex++}`);
@@ -203,18 +196,49 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.end_year);
   }
 
-  // ---------- County / UAT filters ----------
+  // ---------- Joined Filters (Entities, Reports, UATs) ----------
+
+  // Grouped check for any filter requiring a JOIN on the Entities table
+  if (
+    filters.entity_type !== undefined ||
+    filters.is_uat !== undefined ||
+    filters.is_main_creditor !== undefined ||
+    filters.county_code ||
+    filters.uat_ids?.length
+  ) {
+    ensureJoin("e", `JOIN ${TABLES.ENTITIES} e ON eli.entity_cui = e.cui`);
+  }
+
+  if (filters.entity_type) {
+    conditions.push(`e.entity_type = $${paramIndex++}`);
+    values.push(filters.entity_type);
+  }
+
+  if (filters.is_uat !== undefined) {
+    conditions.push(`e.is_uat = $${paramIndex++}`);
+    values.push(filters.is_uat);
+  }
+
+  if (filters.is_main_creditor !== undefined) {
+    conditions.push(`e.is_main_creditor = $${paramIndex++}`);
+    values.push(filters.is_main_creditor);
+  }
+
+  if (filters.uat_ids?.length) {
+    conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
+    values.push(filters.uat_ids);
+  }
+
   if (filters.county_code) {
-    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-    ensureJoin("u", "JOIN UATs u ON e.uat_id = u.id");
+    ensureJoin("u", `JOIN ${TABLES.UATS} u ON e.uat_id = u.id`);
     conditions.push(`u.county_code = $${paramIndex++}`);
     values.push(filters.county_code);
   }
 
-  if (filters.uat_ids?.length) {
-    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-    conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-    values.push(filters.uat_ids);
+  if (filters.reporting_year !== undefined) {
+    ensureJoin("r", `JOIN ${TABLES.REPORTS} r ON eli.report_id = r.report_id`);
+    conditions.push(`r.reporting_year = $${paramIndex++}`);
+    values.push(filters.reporting_year);
   }
 
   // ---------- Finalise query pieces ----------
@@ -233,9 +257,8 @@ export const executionLineItemRepository = {
   ): Promise<ExecutionLineItem[]> {
     try {
       let querySelect = "SELECT eli.*";
-      let queryFrom = " FROM ExecutionLineItems eli";
+      let queryFrom = ` FROM ${TABLES.EXECUTION_LINE_ITEMS} eli`;
 
-      // Delegate filter construction to the shared helper
       const {
         joinClauses,
         whereClause,
@@ -251,23 +274,11 @@ export const executionLineItemRepository = {
         (joinClauses ? " " + joinClauses : "") +
         whereClause;
 
-      // Determine sort order
-      const sortableFields = [
-        'line_item_id',
-        'report_id',
-        'entity_cui',
-        'funding_source_id',
-        'functional_code',
-        'economic_code',
-        'account_category',
-        'amount',
-        'program_code',
-        'year',
-      ];
+      // Determine sort order using type-safe fields
       let orderByClause: string;
-      if (sort && sortableFields.includes(sort.by)) {
-        const direction = sort.order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-        orderByClause = `ORDER BY eli.${sort.by} ${direction}`;
+      if (sort && SORTABLE_FIELDS.includes(sort.by)) {
+        // The 'order' property is guaranteed to be 'ASC' or 'DESC' by the type
+        orderByClause = `ORDER BY eli.${sort.by} ${sort.order}`;
       } else {
         orderByClause = 'ORDER BY eli.year DESC, eli.amount DESC';
       }
@@ -294,7 +305,7 @@ export const executionLineItemRepository = {
   async getById(lineItemId: number): Promise<ExecutionLineItem | null> {
     try {
       const result = await pool.query(
-        "SELECT * FROM ExecutionLineItems WHERE line_item_id = $1",
+        `SELECT * FROM ${TABLES.EXECUTION_LINE_ITEMS} WHERE line_item_id = $1`,
         [lineItemId]
       );
       return result.rows.length ? result.rows[0] : null;
@@ -310,7 +321,7 @@ export const executionLineItemRepository = {
   async getByReportId(reportId: string): Promise<ExecutionLineItem[]> {
     try {
       const result = await pool.query(
-        "SELECT * FROM ExecutionLineItems WHERE report_id = $1",
+        `SELECT * FROM ${TABLES.EXECUTION_LINE_ITEMS} WHERE report_id = $1`,
         [reportId]
       );
       return result.rows;
@@ -328,7 +339,7 @@ export const executionLineItemRepository = {
   ): Promise<number> {
     try {
       const querySelect = "SELECT COUNT(eli.line_item_id) as count";
-      const queryFrom = " FROM ExecutionLineItems eli";
+      const queryFrom = ` FROM ${TABLES.EXECUTION_LINE_ITEMS} eli`;
 
       const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(
         filters as ExecutionLineItemFilter
@@ -348,7 +359,7 @@ export const executionLineItemRepository = {
     }
   },
 
-  // Functions for analytics
+  // --- Functions for analytics ---
 
   async getTotalsByCategory(
     reportId: string
@@ -356,7 +367,7 @@ export const executionLineItemRepository = {
     try {
       const query = `
         SELECT account_category, SUM(amount) as total
-        FROM ExecutionLineItems
+        FROM ${TABLES.EXECUTION_LINE_ITEMS}
         WHERE report_id = $1
         GROUP BY account_category
       `;
@@ -379,7 +390,7 @@ export const executionLineItemRepository = {
     try {
       const query = `
         SELECT functional_code, SUM(amount) as total
-        FROM ExecutionLineItems
+        FROM ${TABLES.EXECUTION_LINE_ITEMS}
         WHERE report_id = $1 AND account_category = $2
         GROUP BY functional_code
         ORDER BY total DESC
@@ -405,7 +416,7 @@ export const executionLineItemRepository = {
       SELECT 
         COALESCE(SUM(total_income), 0) AS "totalIncome",
         COALESCE(SUM(total_expense), 0) AS "totalExpenses"
-      FROM vw_BudgetSummary_ByEntityPeriod
+      FROM ${TABLES.VW_BUDGET_SUMMARY}
       WHERE entity_cui = $1 AND reporting_year = $2;
     `;
     try {
@@ -416,7 +427,7 @@ export const executionLineItemRepository = {
           totalExpenses: parseFloat(result.rows[0].totalExpenses),
         };
       }
-      return { totalIncome: 0, totalExpenses: 0 }; // Default if no records found
+      return { totalIncome: 0, totalExpenses: 0 };
     } catch (error) {
       console.error(
         `Error fetching yearly snapshot totals for entity ${entityCui}, year ${year}:`,
@@ -437,7 +448,7 @@ export const executionLineItemRepository = {
         COALESCE(SUM(total_income), 0) AS "totalIncome",
         COALESCE(SUM(total_expense), 0) AS "totalExpenses",
         COALESCE(SUM(budget_balance), 0) AS "budgetBalance"
-      FROM vw_BudgetSummary_ByEntityPeriod
+      FROM ${TABLES.VW_BUDGET_SUMMARY}
       WHERE entity_cui = $1 
         AND reporting_year BETWEEN $2 AND $3
       GROUP BY reporting_year
