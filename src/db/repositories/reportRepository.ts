@@ -21,7 +21,7 @@ const SIMILARITY_THRESHOLD = 0.1;
 const BASE_QUERY = "FROM Reports r JOIN Entities e ON r.entity_cui = e.cui";
 
 /**
- * Builds pg_trgm search condition for entity name & file_source.
+ * Builds pg_trgm search condition for entity name & download_links.
  */
 function buildSearchCondition(
   filter: ReportFilter
@@ -32,7 +32,7 @@ function buildSearchCondition(
   // Ensure placeholder numbers here are distinct if params are combined later.
   // Using $1 and $2 here, assuming they are the first params if search is active.
   return {
-    condition: `GREATEST(similarity(e.name, $1), similarity(COALESCE(r.file_source, ''), $1)) > $2`,
+    condition: `GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1)) > $2`,
     params: [filter.search, SIMILARITY_THRESHOLD],
   };
 }
@@ -63,7 +63,7 @@ function buildOrderAndSelect(
   if (filter.search) {
     // Adjust parameter index for similarity function if search params are not $1, $2
     // This assumes searchCond.params are always the first if present.
-    const searchRelevanceCol = `GREATEST(similarity(e.name, $1), similarity(COALESCE(r.file_source, ''), $1))`;
+    const searchRelevanceCol = `GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1))`;
     selectExtraClause = `, ${searchRelevanceCol} AS relevance`;
     if (!sort) {
         orderByClause = `ORDER BY relevance DESC, r.report_date DESC, r.report_id DESC`;

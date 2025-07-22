@@ -42,6 +42,9 @@ export const reportResolver = {
     entity: async (parent: any) => {
       return entityRepository.getById(parent.entity_cui);
     },
+    main_creditor: async (parent: any) => {
+      return entityRepository.getById(parent.main_creditor_cui);
+    },
     executionLineItems: async (
       parent: any,
       {

@@ -40,8 +40,10 @@ export interface Report {
   report_date: Date;
   reporting_year: number;
   reporting_period: string;
-  file_source?: string;
   import_timestamp: Date;
+  download_links: string[];
+  report_type: string;
+  main_creditor_cui: string;
 }
 
 export interface ExecutionLineItem {

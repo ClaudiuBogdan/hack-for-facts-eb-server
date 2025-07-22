@@ -122,7 +122,9 @@ export const types = `
     report_date: String!
     reporting_year: Int!
     reporting_period: String!
-    file_source: String
+    download_links: [String!]!
+    report_type: String!
+    main_creditor: Entity!
     import_timestamp: String!
     # Relations
     entity: Entity!

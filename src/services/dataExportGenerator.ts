@@ -56,8 +56,10 @@ interface Report {
   report_date: string;
   reporting_year: number;
   reporting_period: string;
-  file_source: string;
   import_timestamp: string;
+  download_links: string[];
+  report_type: string;
+  main_creditor_cui: string;
 }
 
 interface ExecutionLineItem {
@@ -233,8 +235,10 @@ export async function generateDataExport(): Promise<void> {
           report_date: reportDate,
           reporting_year: parseInt(year),
           reporting_period: month,
-          file_source: filePath.replace(config.dataDir, ""),
           import_timestamp: new Date().toISOString(),
+          download_links: [],
+          report_type: "",
+          main_creditor_cui: "",
         };
 
         reportsData.reports.push(report);
