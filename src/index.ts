@@ -3,10 +3,7 @@ import mercurius from "mercurius";
 import fastifyCors from "@fastify/cors";
 import { schema } from "./graphql/schemas";
 import config from "./config";
-import filterGeneratorRoutes from "./routes/filterGenerator";
-import mcpRoutes from "./routes/mcp";
 import applicationRoutes from "./routes";
-import { refreshViews } from "./db/seed/view-refresh";
 
 // Initialize Fastify server
 const fastify = Fastify({
