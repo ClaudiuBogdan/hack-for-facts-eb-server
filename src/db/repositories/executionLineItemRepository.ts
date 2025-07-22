@@ -382,35 +382,6 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getTopFunctionalCodes(
-    reportId: string,
-    accountCategory: "vn" | "ch",
-    limit: number = 10
-  ): Promise<{ functional_code: string; total: number }[]> {
-    try {
-      const query = `
-        SELECT functional_code, SUM(amount) as total
-        FROM ${TABLES.EXECUTION_LINE_ITEMS}
-        WHERE report_id = $1 AND account_category = $2
-        GROUP BY functional_code
-        ORDER BY total DESC
-        LIMIT $3
-      `;
-      const result = await pool.query(query, [
-        reportId,
-        accountCategory,
-        limit,
-      ]);
-      return result.rows;
-    } catch (error) {
-      console.error(
-        `Error calculating top functional codes for report ID: ${reportId}`,
-        error
-      );
-      throw error;
-    }
-  },
-
   async getYearlySnapshotTotals(entityCui: string, year: number): Promise<{ totalIncome: number; totalExpenses: number }> {
     const query = `
       SELECT 
