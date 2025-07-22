@@ -2,8 +2,8 @@ import pool from "../connection";
 import { ExecutionLineItem } from "../models";
 
 export interface ExecutionLineItemFilter {
-  report_id?: number;
-  report_ids?: number[];
+  report_id?: string;
+  report_ids?: string[];
   entity_cuis?: string[];
   funding_source_id?: number;
   functional_codes?: string[];
@@ -43,6 +43,187 @@ export interface YearlyFinancials {
   budgetBalance: number;
 }
 
+/**
+ * Builds JOIN & WHERE clauses plus the parameters array for ExecutionLineItems queries.
+ * Returns the constructed clauses, collected parameter values and the next positional
+ * parameter index so that callers can continue adding placeholders (e.g. for LIMIT/OFFSET).
+ */
+const buildExecutionLineItemFilterQuery = (
+  filters: ExecutionLineItemFilter,
+  initialParamIndex: number = 1
+): {
+  joinClauses: string;
+  whereClause: string;
+  values: any[];
+  nextParamIndex: number;
+} => {
+  const joinsMap = new Map<string, string>();
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let paramIndex = initialParamIndex;
+
+  const ensureJoin = (alias: string, joinStatement: string) => {
+    if (!joinsMap.has(alias)) {
+      joinsMap.set(alias, joinStatement);
+    }
+  };
+
+  // ---------- Basic column filters ----------
+  if (filters.entity_cuis?.length) {
+    conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
+    values.push(filters.entity_cuis);
+  }
+
+  if (filters.report_id) {
+    conditions.push(`eli.report_id = $${paramIndex++}`);
+    values.push(filters.report_id);
+  }
+
+  if (filters.report_ids?.length) {
+    conditions.push(`eli.report_id = ANY($${paramIndex++}::int[])`);
+    values.push(filters.report_ids);
+  }
+
+  if (filters.funding_source_id) {
+    conditions.push(`eli.funding_source_id = $${paramIndex++}`);
+    values.push(filters.funding_source_id);
+  }
+
+  // ---------- Entity-level filters (require join with Entities) ----------
+  if (
+    filters.entity_type !== undefined ||
+    filters.is_uat !== undefined ||
+    filters.is_main_creditor !== undefined
+  ) {
+    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
+  }
+
+  if (filters.entity_type) {
+    conditions.push(`e.entity_type = $${paramIndex++}`);
+    values.push(filters.entity_type);
+  }
+
+  if (filters.is_uat !== undefined) {
+    conditions.push(`e.is_uat = $${paramIndex++}`);
+    values.push(filters.is_uat);
+  }
+
+  if (filters.is_main_creditor !== undefined) {
+    conditions.push(`e.is_main_creditor = $${paramIndex++}`);
+    values.push(filters.is_main_creditor);
+  }
+
+  // ---------- Budget sector ----------
+  if (filters.budget_sector_id) {
+    conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
+    values.push(filters.budget_sector_id);
+  }
+
+  if (filters.budget_sector_ids?.length) {
+    conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
+    values.push(filters.budget_sector_ids);
+  }
+
+  // ---------- Functional & economic codes ----------
+  if (filters.functional_codes?.length) {
+    conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
+    values.push(filters.functional_codes);
+  }
+
+  if (filters.functional_prefixes?.length) {
+    const patterns = filters.functional_prefixes.map((p) => `${p}%`);
+    conditions.push(`eli.functional_code LIKE ANY($${paramIndex++}::text[])`);
+    values.push(patterns);
+  }
+
+  if (filters.economic_codes?.length) {
+    conditions.push(`eli.economic_code = ANY($${paramIndex++}::text[])`);
+    values.push(filters.economic_codes);
+  }
+
+  if (filters.economic_prefixes?.length) {
+    const patterns = filters.economic_prefixes.map((p) => `${p}%`);
+    conditions.push(`eli.economic_code LIKE ANY($${paramIndex++}::text[])`);
+    values.push(patterns);
+  }
+
+  // ---------- Account categories & expense types ----------
+  if (filters.account_categories?.length) {
+    conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
+    values.push(filters.account_categories);
+  }
+
+  if (filters.expense_types?.length) {
+    conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
+    values.push(filters.expense_types);
+  }
+
+  // ---------- Amount range ----------
+  if (filters.min_amount !== undefined) {
+    conditions.push(`eli.amount >= $${paramIndex++}`);
+    values.push(filters.min_amount);
+  }
+
+  if (filters.max_amount !== undefined) {
+    conditions.push(`eli.amount <= $${paramIndex++}`);
+    values.push(filters.max_amount);
+  }
+
+  // ---------- Program code ----------
+  if (filters.program_code) {
+    conditions.push(`eli.program_code = $${paramIndex++}`);
+    values.push(filters.program_code);
+  }
+
+  // ---------- Reporting year (via Reports join) ----------
+  if (filters.reporting_year !== undefined) {
+    ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
+    conditions.push(`r.reporting_year = $${paramIndex++}`);
+    values.push(filters.reporting_year);
+  }
+
+  // ---------- Year filters ----------
+  if (filters.year !== undefined) {
+    conditions.push(`eli.year = $${paramIndex++}`);
+    values.push(filters.year);
+  }
+
+  if (filters.years?.length) {
+    conditions.push(`eli.year = ANY($${paramIndex++}::int[])`);
+    values.push(filters.years);
+  }
+
+  if (filters.start_year !== undefined) {
+    conditions.push(`eli.year >= $${paramIndex++}`);
+    values.push(filters.start_year);
+  }
+
+  if (filters.end_year !== undefined) {
+    conditions.push(`eli.year <= $${paramIndex++}`);
+    values.push(filters.end_year);
+  }
+
+  // ---------- County / UAT filters ----------
+  if (filters.county_code) {
+    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
+    ensureJoin("u", "JOIN UATs u ON e.uat_id = u.id");
+    conditions.push(`u.county_code = $${paramIndex++}`);
+    values.push(filters.county_code);
+  }
+
+  if (filters.uat_ids?.length) {
+    ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
+    conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
+    values.push(filters.uat_ids);
+  }
+
+  // ---------- Finalise query pieces ----------
+  const joinClauses = Array.from(joinsMap.values()).join(" ");
+  const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+
+  return { joinClauses, whereClause, values, nextParamIndex: paramIndex };
+};
+
 export const executionLineItemRepository = {
   async getAll(
     filters: ExecutionLineItemFilter,
@@ -53,170 +234,22 @@ export const executionLineItemRepository = {
     try {
       let querySelect = "SELECT eli.*";
       let queryFrom = " FROM ExecutionLineItems eli";
-      const joinsMap = new Map<string, string>();
-      const conditions: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
 
-      const ensureJoin = (alias: string, joinStatement: string) => {
-        if (!joinsMap.has(alias)) {
-          joinsMap.set(alias, joinStatement);
-        }
-      };
+      // Delegate filter construction to the shared helper
+      const {
+        joinClauses,
+        whereClause,
+        values,
+        nextParamIndex,
+      } = buildExecutionLineItemFilterQuery(filters);
 
-      // Add filters dynamically
-      if (filters.entity_cuis && filters.entity_cuis.length > 0) {
-        conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
-        values.push(filters.entity_cuis);
-      }
+      let paramIndex = nextParamIndex;
 
-      if (filters.report_id) {
-        conditions.push(`eli.report_id = $${paramIndex++}`);
-        values.push(filters.report_id);
-      }
-
-      if (filters.report_ids && filters.report_ids.length > 0) {
-        const reportIdPlaceholders = filters.report_ids
-          .map((_, idx) => `$${paramIndex + idx}`)
-          .join(", ");
-        conditions.push(`eli.report_id IN (${reportIdPlaceholders})`);
-        values.push(...filters.report_ids);
-        paramIndex += filters.report_ids.length;
-      }
-
-      if (filters.funding_source_id) {
-        conditions.push(`eli.funding_source_id = $${paramIndex++}`);
-        values.push(filters.funding_source_id);
-      }
-
-      // Entity level filters require join with Entities table
-      if (
-        filters.entity_type !== undefined ||
-        filters.is_uat !== undefined ||
-        filters.is_main_creditor !== undefined
-      ) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-      }
-
-      if (filters.entity_type) {
-        conditions.push(`e.entity_type = $${paramIndex++}`);
-        values.push(filters.entity_type);
-      }
-
-      if (filters.is_uat !== undefined) {
-        conditions.push(`e.is_uat = $${paramIndex++}`);
-        values.push(filters.is_uat);
-      }
-
-      if (filters.is_main_creditor !== undefined) {
-        conditions.push(`e.is_main_creditor = $${paramIndex++}`);
-        values.push(filters.is_main_creditor);
-      }
-
-      if (filters.budget_sector_id) {
-        conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
-        values.push(filters.budget_sector_id);
-      }
-
-      if (filters.budget_sector_ids && filters.budget_sector_ids.length > 0) {
-        conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
-        values.push(filters.budget_sector_ids);
-      }
-
-      if (filters.functional_codes && filters.functional_codes.length > 0) {
-        conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
-        values.push(filters.functional_codes);
-      }
-
-      if (filters.functional_prefixes && filters.functional_prefixes.length > 0) {
-        const patterns = filters.functional_prefixes.map((p: string) => `${p}%`);
-        conditions.push(`eli.functional_code LIKE ANY($${paramIndex++}::text[])`);
-        values.push(patterns);
-      }
-
-      if (filters.economic_codes && filters.economic_codes.length > 0) {
-        conditions.push(`eli.economic_code = ANY($${paramIndex++}::text[])`);
-        values.push(filters.economic_codes);
-      }
-
-      if (filters.economic_prefixes && filters.economic_prefixes.length > 0) {
-        const patterns = filters.economic_prefixes.map((p: string) => `${p}%`);
-        conditions.push(`eli.economic_code LIKE ANY($${paramIndex++}::text[])`);
-        values.push(patterns);
-      }
-
-      if (filters.account_categories && filters.account_categories.length > 0) {
-        conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
-        values.push(filters.account_categories);
-      }
-
-      if (filters.expense_types && filters.expense_types.length > 0) {
-        conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
-        values.push(filters.expense_types);
-      }
-
-      if (filters.min_amount !== undefined) {
-        conditions.push(`eli.amount >= $${paramIndex++}`);
-        values.push(filters.min_amount);
-      }
-
-      if (filters.max_amount !== undefined) {
-        conditions.push(`eli.amount <= $${paramIndex++}`);
-        values.push(filters.max_amount);
-      }
-
-      if (filters.program_code) {
-        conditions.push(`eli.program_code = $${paramIndex++}`);
-        values.push(filters.program_code);
-      }
-
-      if (filters.reporting_year !== undefined) {
-        ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
-        conditions.push(`r.reporting_year = $${paramIndex++}`);
-        values.push(filters.reporting_year);
-      }
-
-      if (filters.year !== undefined) {
-        conditions.push(`eli.year = $${paramIndex++}`);
-        values.push(filters.year);
-      }
-
-      if (filters.years && filters.years.length > 0) {
-        const yearPlaceholders = filters.years
-          .map((_, idx) => `$${paramIndex + idx}`)
-          .join(", ");
-        conditions.push(`eli.year IN (${yearPlaceholders})`);
-        values.push(...filters.years);
-        paramIndex += filters.years.length;
-      }
-
-      if (filters.start_year !== undefined) {
-        conditions.push(`eli.year >= $${paramIndex++}`);
-        values.push(filters.start_year);
-      }
-
-      if (filters.end_year !== undefined) {
-        conditions.push(`eli.year <= $${paramIndex++}`);
-        values.push(filters.end_year);
-      }
-
-      if (filters.county_code) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        ensureJoin("u", "JOIN UATs u ON e.uat_id = u.id");
-        conditions.push(`u.county_code = $${paramIndex++}`);
-        values.push(filters.county_code);
-      }
-
-      if (filters.uat_ids && filters.uat_ids.length > 0) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-        values.push(filters.uat_ids);
-      }
-
-      const joinClauses = Array.from(joinsMap.values()).join(" ");
-      const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
-
-      let finalQuery = querySelect + queryFrom + (joinClauses ? " " + joinClauses : "") + whereClause;
+      let finalQuery =
+        querySelect +
+        queryFrom +
+        (joinClauses ? " " + joinClauses : "") +
+        whereClause;
 
       // Determine sort order
       const sortableFields = [
@@ -231,7 +264,7 @@ export const executionLineItemRepository = {
         'program_code',
         'year',
       ];
-      let orderByClause = 'ORDER BY eli.line_item_id';
+      let orderByClause: string;
       if (sort && sortableFields.includes(sort.by)) {
         const direction = sort.order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
         orderByClause = `ORDER BY eli.${sort.by} ${direction}`;
@@ -294,171 +327,18 @@ export const executionLineItemRepository = {
     filters: Partial<ExecutionLineItemFilter> = {}
   ): Promise<number> {
     try {
-      let querySelect = "SELECT COUNT(eli.line_item_id) as count";
-      let queryFrom = " FROM ExecutionLineItems eli";
-      const joinsMap = new Map<string, string>();
-      const conditions: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
+      const querySelect = "SELECT COUNT(eli.line_item_id) as count";
+      const queryFrom = " FROM ExecutionLineItems eli";
 
-      const ensureJoin = (alias: string, joinStatement: string) => {
-        if (!joinsMap.has(alias)) {
-          joinsMap.set(alias, joinStatement);
-        }
-      };
+      const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(
+        filters as ExecutionLineItemFilter
+      );
 
-      if (filters.entity_cuis && filters.entity_cuis.length > 0) {
-        conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
-        values.push(filters.entity_cuis);
-      }
-
-      if (filters.report_id) {
-        conditions.push(`eli.report_id = $${paramIndex++}`);
-        values.push(filters.report_id);
-      }
-
-      if (filters.report_ids && filters.report_ids.length > 0) {
-        const reportIdPlaceholders = filters.report_ids
-          .map((_, idx) => `$${paramIndex + idx}`)
-          .join(", ");
-        conditions.push(`eli.report_id IN (${reportIdPlaceholders})`);
-        values.push(...filters.report_ids);
-        paramIndex += filters.report_ids.length;
-      }
-
-      if (filters.funding_source_id) {
-        conditions.push(`eli.funding_source_id = $${paramIndex++}`);
-        values.push(filters.funding_source_id);
-      }
-
-      // Entity level filters require join with Entities table
-      if (
-        filters.entity_type !== undefined ||
-        filters.is_uat !== undefined ||
-        filters.is_main_creditor !== undefined
-      ) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-      }
-
-      if (filters.entity_type) {
-        conditions.push(`e.entity_type = $${paramIndex++}`);
-        values.push(filters.entity_type);
-      }
-
-      if (filters.is_uat !== undefined) {
-        conditions.push(`e.is_uat = $${paramIndex++}`);
-        values.push(filters.is_uat);
-      }
-
-      if (filters.is_main_creditor !== undefined) {
-        conditions.push(`e.is_main_creditor = $${paramIndex++}`);
-        values.push(filters.is_main_creditor);
-      }
-
-      if (filters.budget_sector_id) {
-        conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
-        values.push(filters.budget_sector_id);
-      }
-
-      if (filters.budget_sector_ids && filters.budget_sector_ids.length > 0) {
-        conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
-        values.push(filters.budget_sector_ids);
-      }
-
-      if (filters.functional_codes && filters.functional_codes.length > 0) {
-        conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
-        values.push(filters.functional_codes);
-      }
-
-      if (filters.functional_prefixes && filters.functional_prefixes.length > 0) {
-        const patterns = filters.functional_prefixes.map((p: string) => `${p}%`);
-        conditions.push(`eli.functional_code LIKE ANY($${paramIndex++}::text[])`);
-        values.push(patterns);
-      }
-
-      if (filters.economic_codes && filters.economic_codes.length > 0) {
-        conditions.push(`eli.economic_code = ANY($${paramIndex++}::text[])`);
-        values.push(filters.economic_codes);
-      }
-
-      if (filters.economic_prefixes && filters.economic_prefixes.length > 0) {
-        const patterns = filters.economic_prefixes.map((p: string) => `${p}%`);
-        conditions.push(`eli.economic_code LIKE ANY($${paramIndex++}::text[])`);
-        values.push(patterns);
-      }
-
-      if (filters.account_categories && filters.account_categories.length > 0) {
-        conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
-        values.push(filters.account_categories);
-      }
-
-      if (filters.expense_types && filters.expense_types.length > 0) {
-        conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
-        values.push(filters.expense_types);
-      }
-
-      if (filters.min_amount !== undefined) {
-        conditions.push(`eli.amount >= $${paramIndex++}`);
-        values.push(filters.min_amount);
-      }
-
-      if (filters.max_amount !== undefined) {
-        conditions.push(`eli.amount <= $${paramIndex++}`);
-        values.push(filters.max_amount);
-      }
-
-      if (filters.program_code) {
-        conditions.push(`eli.program_code = $${paramIndex++}`);
-        values.push(filters.program_code);
-      }
-
-      if (filters.reporting_year !== undefined) {
-        ensureJoin("r", "JOIN Reports r ON eli.report_id = r.report_id");
-        conditions.push(`r.reporting_year = $${paramIndex++}`);
-        values.push(filters.reporting_year);
-      }
-
-      if (filters.year !== undefined) {
-        conditions.push(`eli.year = $${paramIndex++}`);
-        values.push(filters.year);
-      }
-
-      if (filters.years && filters.years.length > 0) {
-        const yearPlaceholders = filters.years
-          .map((_, idx) => `$${paramIndex + idx}`)
-          .join(", ");
-        conditions.push(`eli.year IN (${yearPlaceholders})`);
-        values.push(...filters.years);
-        paramIndex += filters.years.length;
-      }
-
-      if (filters.start_year !== undefined) {
-        conditions.push(`eli.year >= $${paramIndex++}`);
-        values.push(filters.start_year);
-      }
-
-      if (filters.end_year !== undefined) {
-        conditions.push(`eli.year <= $${paramIndex++}`);
-        values.push(filters.end_year);
-      }
-
-      if (filters.county_code) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        ensureJoin("u", "JOIN UATs u ON e.uat_id = u.id");
-        conditions.push(`u.county_code = $${paramIndex++}`);
-        values.push(filters.county_code);
-      }
-
-      if (filters.uat_ids && filters.uat_ids.length > 0) {
-        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
-        conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-        values.push(filters.uat_ids);
-      }
-
-      const joinClauses = Array.from(joinsMap.values()).join(" ");
-      const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
-
-      const finalQuery = querySelect + queryFrom + (joinClauses ? " " + joinClauses : "") + whereClause;
+      const finalQuery =
+        querySelect +
+        queryFrom +
+        (joinClauses ? " " + joinClauses : "") +
+        whereClause;
 
       const result = await pool.query(finalQuery, values);
       return parseInt(result.rows[0].count);
