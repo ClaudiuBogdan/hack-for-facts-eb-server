@@ -20,6 +20,14 @@ export interface ExecutionLineItemFilter {
   start_year?: number;
   end_year?: number;
   search?: string;
+  entity_type?: string;
+  is_uat?: boolean;
+  is_main_creditor?: boolean;
+  functional_prefixes?: string[];
+  economic_prefixes?: string[];
+  budget_sector_id?: number;
+  budget_sector_ids?: number[];
+  expense_types?: string[];
 }
 
 // Interface for specifying sort order
@@ -81,9 +89,49 @@ export const executionLineItemRepository = {
         values.push(filters.funding_source_id);
       }
 
+      // Entity level filters require join with Entities table
+      if (
+        filters.entity_type !== undefined ||
+        filters.is_uat !== undefined ||
+        filters.is_main_creditor !== undefined
+      ) {
+        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
+      }
+
+      if (filters.entity_type) {
+        conditions.push(`e.entity_type = $${paramIndex++}`);
+        values.push(filters.entity_type);
+      }
+
+      if (filters.is_uat !== undefined) {
+        conditions.push(`e.is_uat = $${paramIndex++}`);
+        values.push(filters.is_uat);
+      }
+
+      if (filters.is_main_creditor !== undefined) {
+        conditions.push(`e.is_main_creditor = $${paramIndex++}`);
+        values.push(filters.is_main_creditor);
+      }
+
+      if (filters.budget_sector_id) {
+        conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
+        values.push(filters.budget_sector_id);
+      }
+
+      if (filters.budget_sector_ids && filters.budget_sector_ids.length > 0) {
+        conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
+        values.push(filters.budget_sector_ids);
+      }
+
       if (filters.functional_codes && filters.functional_codes.length > 0) {
         conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
         values.push(filters.functional_codes);
+      }
+
+      if (filters.functional_prefixes && filters.functional_prefixes.length > 0) {
+        const patterns = filters.functional_prefixes.map((p: string) => `${p}%`);
+        conditions.push(`eli.functional_code LIKE ANY($${paramIndex++}::text[])`);
+        values.push(patterns);
       }
 
       if (filters.economic_codes && filters.economic_codes.length > 0) {
@@ -91,9 +139,20 @@ export const executionLineItemRepository = {
         values.push(filters.economic_codes);
       }
 
+      if (filters.economic_prefixes && filters.economic_prefixes.length > 0) {
+        const patterns = filters.economic_prefixes.map((p: string) => `${p}%`);
+        conditions.push(`eli.economic_code LIKE ANY($${paramIndex++}::text[])`);
+        values.push(patterns);
+      }
+
       if (filters.account_categories && filters.account_categories.length > 0) {
         conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
         values.push(filters.account_categories);
+      }
+
+      if (filters.expense_types && filters.expense_types.length > 0) {
+        conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
+        values.push(filters.expense_types);
       }
 
       if (filters.min_amount !== undefined) {
@@ -232,25 +291,7 @@ export const executionLineItemRepository = {
   },
 
   async count(
-    filters: Partial<{
-      report_id: number;
-      report_ids: number[];
-      entity_cuis?: string[];
-      funding_source_id: number;
-      functional_codes?: string[];
-      economic_codes?: string[];
-      account_categories?: ("vn" | "ch")[];
-      min_amount: number;
-      max_amount: number;
-      program_code: string;
-      reporting_year?: number;
-      county_code?: string;
-      uat_ids?: number[];
-      year?: number;
-      years?: number[];
-      start_year?: number;
-      end_year?: number;
-    }> = {}
+    filters: Partial<ExecutionLineItemFilter> = {}
   ): Promise<number> {
     try {
       let querySelect = "SELECT COUNT(eli.line_item_id) as count";
@@ -290,9 +331,49 @@ export const executionLineItemRepository = {
         values.push(filters.funding_source_id);
       }
 
+      // Entity level filters require join with Entities table
+      if (
+        filters.entity_type !== undefined ||
+        filters.is_uat !== undefined ||
+        filters.is_main_creditor !== undefined
+      ) {
+        ensureJoin("e", "JOIN Entities e ON eli.entity_cui = e.cui");
+      }
+
+      if (filters.entity_type) {
+        conditions.push(`e.entity_type = $${paramIndex++}`);
+        values.push(filters.entity_type);
+      }
+
+      if (filters.is_uat !== undefined) {
+        conditions.push(`e.is_uat = $${paramIndex++}`);
+        values.push(filters.is_uat);
+      }
+
+      if (filters.is_main_creditor !== undefined) {
+        conditions.push(`e.is_main_creditor = $${paramIndex++}`);
+        values.push(filters.is_main_creditor);
+      }
+
+      if (filters.budget_sector_id) {
+        conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
+        values.push(filters.budget_sector_id);
+      }
+
+      if (filters.budget_sector_ids && filters.budget_sector_ids.length > 0) {
+        conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
+        values.push(filters.budget_sector_ids);
+      }
+
       if (filters.functional_codes && filters.functional_codes.length > 0) {
         conditions.push(`eli.functional_code = ANY($${paramIndex++}::text[])`);
         values.push(filters.functional_codes);
+      }
+
+      if (filters.functional_prefixes && filters.functional_prefixes.length > 0) {
+        const patterns = filters.functional_prefixes.map((p: string) => `${p}%`);
+        conditions.push(`eli.functional_code LIKE ANY($${paramIndex++}::text[])`);
+        values.push(patterns);
       }
 
       if (filters.economic_codes && filters.economic_codes.length > 0) {
@@ -300,9 +381,20 @@ export const executionLineItemRepository = {
         values.push(filters.economic_codes);
       }
 
+      if (filters.economic_prefixes && filters.economic_prefixes.length > 0) {
+        const patterns = filters.economic_prefixes.map((p: string) => `${p}%`);
+        conditions.push(`eli.economic_code LIKE ANY($${paramIndex++}::text[])`);
+        values.push(patterns);
+      }
+
       if (filters.account_categories && filters.account_categories.length > 0) {
         conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
         values.push(filters.account_categories);
+      }
+
+      if (filters.expense_types && filters.expense_types.length > 0) {
+        conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
+        values.push(filters.expense_types);
       }
 
       if (filters.min_amount !== undefined) {

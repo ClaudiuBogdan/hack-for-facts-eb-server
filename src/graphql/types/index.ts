@@ -218,6 +218,14 @@ export const types = `
     years: [Int]
     start_year: Int
     end_year: Int
+    entity_type: String
+    is_main_creditor: Boolean
+    is_uat: Boolean
+    functional_prefixes: [String]
+    economic_prefixes: [String]
+    budget_sector_id: Int
+    budget_sector_ids: [Int]
+    expense_types: [String]
     search: String
   }
 

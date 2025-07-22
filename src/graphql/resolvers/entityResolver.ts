@@ -35,6 +35,14 @@ interface GraphQLExecutionLineItemFilterInput {
   start_year?: number;
   end_year?: number;
   search?: string;
+  entity_type?: string;
+  is_main_creditor?: boolean;
+  is_uat?: boolean;
+  functional_prefixes?: string[];
+  economic_prefixes?: string[];
+  budget_sector_id?: number;
+  budget_sector_ids?: number[];
+  expense_types?: string[];
 }
 
 export const entityResolver = {
