@@ -1,4 +1,6 @@
 import { analyticsRepository } from "../../db/repositories/analyticsRepository";
+import { executionLineItemRepository } from '../../db/repositories';
+import { GraphQLResolveInfo } from 'graphql';
 
 interface HeatmapFilterInput {
     functional_codes?: string[] | null;
@@ -35,6 +37,10 @@ interface HeatmapUATDataPoint_GQL {
     per_capita_amount: number;
 }
 
+interface AnalyticsArgs {
+  inputs: Array<{ filter: any; seriesId?: string }>; // Use any for filter; refine if types available
+}
+
 export const analyticsResolver = {
     Query: {
         async heatmapUATData(
@@ -59,6 +65,22 @@ export const analyticsResolver = {
                 }
                 throw new Error("An error occurred while fetching heatmap data."); // Generic error
             }
+        },
+        async executionAnalytics(_parent: unknown, args: AnalyticsArgs, _context: unknown, info: GraphQLResolveInfo) {
+          const requestedFields: Set<string> = new Set();
+          info.fieldNodes[0].selectionSet?.selections.forEach((selection: any) => {
+            if (selection.kind === 'Field') requestedFields.add(selection.name.value);
+          });
+          return Promise.all(args.inputs.map(async (input) => {
+            const result: { seriesId?: string; totalAmount?: number; yearlyTrend?: Array<{ year: number; totalAmount: number }> } = { seriesId: input.seriesId };
+            if (requestedFields.has('totalAmount')) {
+              result.totalAmount = await executionLineItemRepository.getTotalAmount(input.filter);
+            }
+            if (requestedFields.has('yearlyTrend')) {
+              result.yearlyTrend = await executionLineItemRepository.getYearlyTrend(input.filter);
+            }
+            return result;
+          }));
         },
     },
 };

@@ -24,6 +24,12 @@ const SORTABLE_FIELDS = [
   'year',
 ] as const;
 
+const VALID_ACCOUNT_CATEGORIES = ['vn', 'ch'] as const;
+const VALID_REPORT_TYPES = [
+  'Executie bugetara agregata la nivel de ordonator principal',
+  'Executie bugetara detaliata'
+];
+
 type SortableField = typeof SORTABLE_FIELDS[number];
 
 // Interface for specifying sort order with enhanced type safety
@@ -36,11 +42,13 @@ export interface SortOrderOption {
 export interface ExecutionLineItemFilter {
   report_id?: string;
   report_ids?: string[];
+  report_type?: string;
   entity_cuis?: string[];
   funding_source_id?: number;
   functional_codes?: string[];
   economic_codes?: string[];
   account_categories?: ("vn" | "ch")[];
+  account_category?: "vn" | "ch";
   min_amount?: number;
   max_amount?: number;
   program_code?: string;
@@ -51,9 +59,8 @@ export interface ExecutionLineItemFilter {
   years?: number[];
   start_year?: number;
   end_year?: number;
-  entity_type?: string;
+  entity_types?: string[];
   is_uat?: boolean;
-  is_main_creditor?: boolean;
   functional_prefixes?: string[];
   economic_prefixes?: string[];
   budget_sector_id?: number;
@@ -109,6 +116,11 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.report_ids);
   }
 
+  if (filters.report_type) {
+    conditions.push(`eli.report_type = $${paramIndex++}`);
+    values.push(filters.report_type);
+  }
+
   if (filters.funding_source_id) {
     conditions.push(`eli.funding_source_id = $${paramIndex++}`);
     values.push(filters.funding_source_id);
@@ -151,6 +163,11 @@ const buildExecutionLineItemFilterQuery = (
   if (filters.account_categories?.length) {
     conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
     values.push(filters.account_categories);
+  }
+
+  if (filters.account_category) {
+    conditions.push(`eli.account_category = $${paramIndex++}`);
+    values.push(filters.account_category);
   }
 
   if (filters.expense_types?.length) {
@@ -200,28 +217,22 @@ const buildExecutionLineItemFilterQuery = (
 
   // Grouped check for any filter requiring a JOIN on the Entities table
   if (
-    filters.entity_type !== undefined ||
+    filters.entity_types?.length ||
     filters.is_uat !== undefined ||
-    filters.is_main_creditor !== undefined ||
     filters.county_code ||
     filters.uat_ids?.length
   ) {
     ensureJoin("e", `JOIN ${TABLES.ENTITIES} e ON eli.entity_cui = e.cui`);
   }
 
-  if (filters.entity_type) {
-    conditions.push(`e.entity_type = $${paramIndex++}`);
-    values.push(filters.entity_type);
+  if (filters.entity_types?.length) {
+    conditions.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
+    values.push(filters.entity_types);
   }
 
   if (filters.is_uat !== undefined) {
     conditions.push(`e.is_uat = $${paramIndex++}`);
     values.push(filters.is_uat);
-  }
-
-  if (filters.is_main_creditor !== undefined) {
-    conditions.push(`e.is_main_creditor = $${paramIndex++}`);
-    values.push(filters.is_main_creditor);
   }
 
   if (filters.uat_ids?.length) {
@@ -441,4 +452,45 @@ export const executionLineItemRepository = {
       throw error;
     }
   },
+
+  async getTotalAmount(filters: ExecutionLineItemFilter): Promise<number> {
+    validateAggregatedFilters(filters);
+    const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(filters);
+    const query = `SELECT COALESCE(SUM(eli.amount), 0) as total FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause}`;
+    const result = await pool.query(query, values);
+    return parseFloat(result.rows[0].total);
+  },
+
+  async getYearlyTrend(filters: ExecutionLineItemFilter): Promise<{ year: number; totalAmount: number }[]> {
+    validateAggregatedFilters(filters);
+    // Remove year, years, start_year, and end_year from filters to avoid filtering by year
+    const trendFilters = {
+      ...filters,
+      year: undefined,
+      years: undefined,
+      start_year: undefined,
+      end_year: undefined,
+    };
+    const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(trendFilters);
+    const query = `SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS total_amount FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause} GROUP BY eli.year ORDER BY eli.year ASC`;
+    const result = await pool.query(query, values);
+    return result.rows.map(row => ({ year: parseInt(row.year, 10), totalAmount: parseFloat(row.total_amount) }));
+  },
 };
+
+function validateAggregatedFilters(filters: ExecutionLineItemFilter) {
+
+  if (filters.account_category && !VALID_ACCOUNT_CATEGORIES.includes(filters.account_category)) {
+    throw new Error(`getTotalAmount and getYearlyTrend only support account_category "ch" or "vn". Set account_category to "ch" or "vn"`);
+  }
+  const totalAccountCategories = [...(filters.account_categories || []), filters.account_category].filter(Boolean) as ("vn" | "ch")[];
+  if (totalAccountCategories.length !== 1) {
+    throw new Error(`getTotalAmount only supports one account category. Set account_categories to "ch" or "vn". Make sure to not set both account_categories and account_category.`);
+  }
+  if (!VALID_ACCOUNT_CATEGORIES.includes(totalAccountCategories[0])) {
+    throw new Error(`getTotalAmount and getYearlyTrend only support account_categories "ch" or "vn". Set account_categories to "ch" or "vn"`);
+  }
+  if (filters.report_type && !VALID_REPORT_TYPES.includes(filters.report_type as string)) {
+    throw new Error(`getTotalAmount and getYearlyTrend do not support report_type. Set report_type to ${VALID_REPORT_TYPES.join(", ")}`);
+  }
+}

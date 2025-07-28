@@ -35,8 +35,7 @@ export const types = `
     cui: ID!
     name: String!
     entity_type: String
-    uat_id: Int
-    is_main_creditor: Boolean
+    uat_id: ID
     is_uat: Boolean
     address: String
     last_updated: String
@@ -174,10 +173,9 @@ export const types = `
     cui: String
     name: String
     entity_type: String
-    uat_id: Int
+    uat_id: ID
     address: String
     search: String
-    is_main_creditor: Boolean
     is_uat: Boolean
   }
 
@@ -203,30 +201,30 @@ export const types = `
   input ExecutionLineItemFilter {
     report_id: String
     report_ids: [String]
+    report_type: String
     entity_cuis: [String]
     funding_source_id: Int
     functional_codes: [String]
     economic_codes: [String]
     account_categories: [String]
+    account_category: String
     min_amount: Float
     max_amount: Float
     program_code: String
     reporting_year: Int
     county_code: String
-    uat_ids: [Int]
+    uat_ids: [ID]
     year: Int
     years: [Int]
     start_year: Int
     end_year: Int
-    entity_type: String
-    is_main_creditor: Boolean
+    entity_types: [String]
     is_uat: Boolean
     functional_prefixes: [String]
     economic_prefixes: [String]
     budget_sector_id: Int
     budget_sector_ids: [Int]
     expense_types: [String]
-    search: String
   }
 
   input SortOrder {
@@ -292,6 +290,17 @@ export const types = `
     pageInfo: PageInfo!
   }
 
+  input AnalyticsInput {
+    filter: ExecutionLineItemFilter!
+    seriesId: String
+  }
+
+  type AnalyticsResult {
+    seriesId: String
+    totalAmount: Float!
+    yearlyTrend: [YearlyAmount!]!
+  }
+
   # Query root type
   type Query {
     # Basic entity queries
@@ -351,5 +360,7 @@ export const types = `
     
     # Query for UAT-level heatmap data
     heatmapUATData(filter: HeatmapFilterInput!): [HeatmapUATDataPoint!]!
+
+    executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
   }
 `;

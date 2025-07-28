@@ -8,7 +8,6 @@ export interface EntityFilter {
   uat_id?: number;
   address?: string; // Exact or partial match
   search?: string;  // pg_trgm based search across name & address
-  is_main_creditor?: boolean;
   is_uat?: boolean;
 }
 
@@ -84,10 +83,6 @@ export const entityRepository = {
     if (filter.uat_id !== undefined) {
       conditions.push(`uat_id = $${params.length + 1}`);
       params.push(filter.uat_id);
-    }
-    if (filter.is_main_creditor !== undefined) {
-      conditions.push(`is_main_creditor = $${params.length + 1}`);
-      params.push(filter.is_main_creditor);
     }
     if (filter.is_uat !== undefined) {
       conditions.push(`is_uat = $${params.length + 1}`);
@@ -185,10 +180,6 @@ export const entityRepository = {
     if (filter.uat_id !== undefined) {
       conditions.push(`uat_id = $${params.length + 1}`);
       params.push(filter.uat_id);
-    }
-    if (filter.is_main_creditor !== undefined) {
-      conditions.push(`is_main_creditor = $${params.length + 1}`);
-      params.push(filter.is_main_creditor);
     }
     if (filter.is_uat !== undefined) {
       conditions.push(`is_uat = $${params.length + 1}`);

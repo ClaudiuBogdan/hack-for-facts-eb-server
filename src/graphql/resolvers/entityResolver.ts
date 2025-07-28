@@ -35,8 +35,7 @@ interface GraphQLExecutionLineItemFilterInput {
   start_year?: number;
   end_year?: number;
   search?: string;
-  entity_type?: string;
-  is_main_creditor?: boolean;
+  entity_types?: string[];
   is_uat?: boolean;
   functional_prefixes?: string[];
   economic_prefixes?: string[];
