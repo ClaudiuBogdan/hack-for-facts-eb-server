@@ -1,4 +1,7 @@
 import pool from "../connection";
+import { createCache, getCacheKey } from "../../utils/cache";
+
+const cache = createCache<HeatmapUATDataPoint_Repo[]>();
 
 export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
@@ -29,6 +32,10 @@ export const analyticsRepository = {
   async getHeatmapData(
     filter: HeatmapFilterInput
   ): Promise<HeatmapUATDataPoint_Repo[]> {
+    const cacheKey = getCacheKey(filter);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
@@ -117,7 +124,7 @@ export const analyticsRepository = {
         return valueNumber / population;
       };
 
-      return result.rows.map((row): HeatmapUATDataPoint_Repo => {
+      const data = result.rows.map((row): HeatmapUATDataPoint_Repo => {
         const perCapitaAmount = calculateValue(row.total_amount, row.population);
         const amount = filter.normalization === 'per-capita' ? perCapitaAmount : row.total_amount;
         return {
@@ -133,6 +140,8 @@ export const analyticsRepository = {
           per_capita_amount: perCapitaAmount,
         }
       });
+      cache.set(cacheKey, data);
+      return data;
     } catch (error) {
       console.error("Error fetching heatmap data:", error);
       // Consider re-throwing a more specific error or a custom error type
