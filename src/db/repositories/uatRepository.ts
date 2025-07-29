@@ -1,5 +1,8 @@
 import pool from "../connection";
 import { UAT } from "../models";
+import { createCache } from "../../utils/cache";
+
+const cache = createCache<UAT>();
 
 export interface UATFilter {
   id?: number;
@@ -118,12 +121,18 @@ export const uatRepository = {
   },
 
   async getById(id: number): Promise<UAT | null> {
+    const cacheKey = String(id);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
     try {
-      const result = await pool.query(
+      const { rows } = await pool.query<UAT>(
         "SELECT * FROM UATs WHERE id = $1",
         [id]
       );
-      return result.rows[0] || null;
+      const result = rows.length > 0 ? rows[0] : null;
+      if (result) cache.set(cacheKey, result);
+      return result;
     } catch (error) {
       console.error(`Error fetching UAT with ID: ${id}`, error);
       throw error;

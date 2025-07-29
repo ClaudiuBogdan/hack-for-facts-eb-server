@@ -1,5 +1,7 @@
 import {
+  budgetSectorRepository,
   executionLineItemRepository,
+  fundingSourceRepository,
   reportRepository,
 } from "../../db/repositories";
 import pool from "../../db/connection";
@@ -49,11 +51,10 @@ export const executionLineItemResolver = {
       return entityRepository.getById(parent.entity_cui);
     },
     fundingSource: async (parent: any) => {
-      const result = await pool.query(
-        "SELECT * FROM FundingSources WHERE source_id = $1",
-        [parent.funding_source_id]
-      );
-      return result.rows.length ? result.rows[0] : null;
+      return fundingSourceRepository.getById(parent.funding_source_id);
+    },
+    budgetSector: async (parent: any) => {
+      return budgetSectorRepository.getById(parent.budget_sector_id);
     },
     functionalClassification: async (parent: any) => {
       const result = await pool.query(

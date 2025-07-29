@@ -1,5 +1,8 @@
 import pool from "../connection";
 import { EconomicClassification } from "../models";
+import { createCache } from "../../utils/cache";
+
+const cache = createCache<EconomicClassification>();
 
 export interface EconomicClassificationFilter {
   search?: string;
@@ -87,11 +90,17 @@ export const economicClassificationRepository = {
   },
 
   async getByCode(code: string): Promise<EconomicClassification | null> {
+    const cacheKey = String(code);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
     const query =
       "SELECT * FROM EconomicClassifications WHERE economic_code = $1";
     try {
-      const result = await pool.query(query, [code]);
-      return result.rows[0] || null;
+      const { rows } = await pool.query<EconomicClassification>(query, [code]);
+      const result = rows.length > 0 ? rows[0] : null;
+      if (result) cache.set(cacheKey, result);
+      return result;
     } catch (error) {
       console.error(
         `Error fetching economic classification with code: ${code}`,

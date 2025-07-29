@@ -9,8 +9,8 @@ interface CacheOptions {
 
 // --- Cache Configuration ---
 const defaultOptions: CacheOptions = {
-    maxSize: 50 * 1024 * 1024, // 50MB
-    maxItems: 5000,
+    maxSize: 10 * 1024 * 1024, // 10MB
+    maxItems: 1000,
 };
 
 // --- Helper function to calculate the size of a cache entry. Simplified implementation for simple key-value pairs of strings ---

@@ -1,97 +1,79 @@
+import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { FundingSource } from "../models";
+
+// Threshold for pg_trgm similarity
+const SIMILARITY_THRESHOLD = 0.1;
+
+const cache = createCache<FundingSource>();
 
 export interface FundingSourceFilter {
   search?: string;
 }
 
-// Similarity threshold for pg_trgm (tune for short Romanian descriptions)
-const SIMILARITY_THRESHOLD = 0.1;
+const TABLE_NAME = "FundingSources";
 
-/**
- * Builds pg_trgm search clause for source_description.
- */
-function buildSearchClause(
-  filter: FundingSourceFilter
-): { clause: string; params: any[] } {
-  if (!filter.search) {
-    return { clause: "", params: [] };
+const buildFilterQuery = (
+  filters: FundingSourceFilter,
+  initialParamIndex: number = 1
+): {
+  whereClause: string;
+  values: any[];
+} => {
+  const conditions: string[] = [];
+  const params: any[] = [];
+  let paramIndex = initialParamIndex;
+
+  if (filters.search) {
+    conditions.push(`similarity(source_description, $${paramIndex}) > $${paramIndex + 1}`);
+    params.push(filters.search, SIMILARITY_THRESHOLD);
+    paramIndex += 2;
   }
+
+  const allConditions = conditions.filter(Boolean).join(" AND ");
   return {
-    clause: `WHERE similarity(source_description, $1) > $2`,
-    params: [filter.search, SIMILARITY_THRESHOLD],
+    whereClause: allConditions ? `WHERE ${allConditions}` : "",
+    values: params,
   };
 }
-
-/**
- * Builds extra SELECT and ORDER BY when search is active.
- */
-function buildOrderAndSelect(
-  filter: FundingSourceFilter
-): { selectExtra: string; orderBy: string } {
-  if (filter.search) {
-    return {
-      selectExtra: `, similarity(source_description, $1) AS relevance`,
-      orderBy: "ORDER BY relevance DESC, source_id ASC",
-    };
-  }
-  return { selectExtra: "", orderBy: "ORDER BY source_id ASC" };
-}
-
 export const fundingSourceRepository = {
   async getAll(
     filter: FundingSourceFilter = {},
     limit?: number,
     offset?: number
   ): Promise<FundingSource[]> {
-    // Build search clause and params
-    const { clause, params } = buildSearchClause(filter);
-    const { selectExtra, orderBy } = buildOrderAndSelect(filter);
+    const { whereClause, values } = buildFilterQuery(filter, 3);
 
-    let query = `SELECT *${selectExtra} FROM FundingSources ${clause} ${orderBy}`;
+    const queryText = `SELECT * FROM ${TABLE_NAME} ${whereClause} LIMIT $1 OFFSET $2`;
 
-    // Pagination
-    if (limit !== undefined) {
-      params.push(limit);
-      query += ` LIMIT $${params.length}`;
-    }
-    if (offset !== undefined) {
-      params.push(offset);
-      query += ` OFFSET $${params.length}`;
-    }
+    const queryParams = [limit, offset, ...values];
 
-    try {
-      const result = await pool.query(query, params);
-      return result.rows;
-    } catch (error) {
-      console.error("Error fetching funding sources:", error);
-      throw error;
-    }
+    const { rows } = await pool.query<FundingSource>(queryText, queryParams);
+    return rows;
   },
 
   async count(filter: FundingSourceFilter = {}): Promise<number> {
-    const { clause, params } = buildSearchClause(filter);
-    const query = `SELECT COUNT(*) AS count FROM FundingSources ${clause}`;
+    const { whereClause, values } = buildFilterQuery(filter);
 
-    try {
-      const result = await pool.query(query, params);
-      return parseInt(result.rows[0].count, 10);
-    } catch (error) {
-      console.error("Error counting funding sources:", error);
-      throw error;
-    }
+    const queryText = `SELECT COUNT(*) FROM ${TABLE_NAME} ${whereClause}`;
+
+    const queryParams = [...values];
+
+    const { rows } = await pool.query<{ count: string }>(queryText, queryParams);
+    return parseInt(rows[0].count, 10);
   },
 
   async getById(id: number): Promise<FundingSource | null> {
-    try {
-      const result = await pool.query(
-        "SELECT * FROM FundingSources WHERE source_id = $1",
-        [id]
-      );
-      return result.rows[0] || null;
-    } catch (error) {
-      console.error(`Error fetching funding source with id: ${id}`, error);
-      throw error;
-    }
+    const cacheKey = String(id);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    const { rows } = await pool.query<FundingSource>(
+      `SELECT * FROM ${TABLE_NAME} WHERE source_id = $1`,
+      [id]
+    );
+    const result = rows.length > 0 ? rows[0] : null;
+    if (result) cache.set(cacheKey, result);
+    return result;
   },
 };

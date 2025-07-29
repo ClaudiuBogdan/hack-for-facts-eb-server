@@ -158,6 +158,7 @@ export const types = `
     report: Report!
     entity: Entity!
     fundingSource: FundingSource!
+    budgetSector: BudgetSector!
     functionalClassification: FunctionalClassification!
     economicClassification: EconomicClassification
   }
@@ -203,7 +204,8 @@ export const types = `
     report_ids: [String]
     report_type: String
     entity_cuis: [String]
-    funding_source_id: Int
+    funding_source_id: ID
+    funding_source_ids: [ID]
     functional_codes: [String]
     economic_codes: [String]
     account_categories: [String]
@@ -222,8 +224,8 @@ export const types = `
     is_uat: Boolean
     functional_prefixes: [String]
     economic_prefixes: [String]
-    budget_sector_id: Int
-    budget_sector_ids: [Int]
+    budget_sector_id: ID
+    budget_sector_ids: [ID]
     expense_types: [String]
   }
 
@@ -284,10 +286,30 @@ export const types = `
     search: String
   }
 
-  # Connection type for FundingSource
   type FundingSourceConnection {
     nodes: [FundingSource!]!
     pageInfo: PageInfo!
+  }
+
+  type BudgetSector {
+    sector_id: ID!
+    sector_description: String!
+    # Relations
+    executionLineItems(
+      limit: Int
+      offset: Int
+      reportId: String
+      accountCategory: String
+    ): ExecutionLineItemConnection!
+  }
+
+  type BudgetSectorConnection {
+    nodes: [BudgetSector!]!
+    pageInfo: PageInfo!
+  }
+
+  input BudgetSectorFilterInput {
+    search: String
   }
 
   input AnalyticsInput {
@@ -348,6 +370,13 @@ export const types = `
       limit: Int
       offset: Int
     ): FundingSourceConnection!
+    
+    budgetSector(id: ID!): BudgetSector
+    budgetSectors(
+      filter: BudgetSectorFilterInput
+      limit: Int
+      offset: Int
+    ): BudgetSectorConnection!
     
     # Line item queries
     executionLineItem(id: ID!): ExecutionLineItem

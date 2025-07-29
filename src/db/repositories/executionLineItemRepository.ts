@@ -50,7 +50,6 @@ export interface ExecutionLineItemFilter {
   report_ids?: string[];
   report_type?: string;
   entity_cuis?: string[];
-  funding_source_id?: number;
   functional_codes?: string[];
   economic_codes?: string[];
   account_categories?: ("vn" | "ch")[];
@@ -71,6 +70,8 @@ export interface ExecutionLineItemFilter {
   economic_prefixes?: string[];
   budget_sector_id?: number;
   budget_sector_ids?: number[];
+  funding_source_id?: number;
+  funding_source_ids?: number[];
   expense_types?: string[];
 }
 
@@ -130,6 +131,11 @@ const buildExecutionLineItemFilterQuery = (
   if (filters.funding_source_id) {
     conditions.push(`eli.funding_source_id = $${paramIndex++}`);
     values.push(filters.funding_source_id);
+  }
+
+  if (filters.funding_source_ids?.length) {
+    conditions.push(`eli.funding_source_id = ANY($${paramIndex++}::int[])`);
+    values.push(filters.funding_source_ids);
   }
 
   if (filters.budget_sector_id) {

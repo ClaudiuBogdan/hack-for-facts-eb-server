@@ -1,5 +1,8 @@
+import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { Entity } from "../models";
+
+const cache = createCache<Entity>();
 
 export interface EntityFilter {
   cui?: string;
@@ -114,12 +117,18 @@ export const entityRepository = {
   },
 
   async getById(cui: string): Promise<Entity | null> {
+    const cacheKey = String(cui);
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
     try {
-      const result = await pool.query(
+      const { rows } = await pool.query<Entity>(
         "SELECT * FROM Entities WHERE cui = $1",
         [cui]
       );
-      return result.rows[0] || null;
+      const result = rows.length > 0 ? rows[0] : null;
+      if (result) cache.set(cacheKey, result);
+      return result;
     } catch (error) {
       console.error(`Error fetching entity with CUI: ${cui}`, error);
       throw error;
