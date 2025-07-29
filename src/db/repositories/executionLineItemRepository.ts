@@ -1,5 +1,11 @@
 import pool from "../connection";
 import { ExecutionLineItem } from "../models";
+import { createCache, getCacheKey } from "../../utils/cache";
+
+const analyticsCache = createCache({
+  maxSize: 200 * 1024 * 1024, // 200 MB
+  maxItems: 10000,
+});
 
 // --- Constants for Table and View Names ---
 const TABLES = {
@@ -454,14 +460,29 @@ export const executionLineItemRepository = {
   },
 
   async getTotalAmount(filters: ExecutionLineItemFilter): Promise<number> {
+    const cacheKey = getCacheKey(filters);
+    const cachedValue = analyticsCache.get(cacheKey);
+    if (cachedValue) {
+      return cachedValue;
+    }
+
     validateAggregatedFilters(filters);
     const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(filters);
     const query = `SELECT COALESCE(SUM(eli.amount), 0) as total FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause}`;
     const result = await pool.query(query, values);
-    return parseFloat(result.rows[0].total);
+    const total = parseFloat(result.rows[0].total);
+
+    analyticsCache.set(cacheKey, total);
+    return total;
   },
 
   async getYearlyTrend(filters: ExecutionLineItemFilter): Promise<{ year: number; totalAmount: number }[]> {
+    const cacheKey = getCacheKey(filters);
+    const cachedValue = analyticsCache.get(cacheKey);
+    if (cachedValue) {
+      return cachedValue;
+    }
+
     validateAggregatedFilters(filters);
     // Remove year, years, start_year, and end_year from filters to avoid filtering by year
     const trendFilters = {
@@ -474,7 +495,10 @@ export const executionLineItemRepository = {
     const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(trendFilters);
     const query = `SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS total_amount FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause} GROUP BY eli.year ORDER BY eli.year ASC`;
     const result = await pool.query(query, values);
-    return result.rows.map(row => ({ year: parseInt(row.year, 10), totalAmount: parseFloat(row.total_amount) }));
+    const yearlyTrend = result.rows.map(row => ({ year: parseInt(row.year, 10), totalAmount: parseFloat(row.total_amount) }));
+
+    analyticsCache.set(cacheKey, yearlyTrend);
+    return yearlyTrend;
   },
 };
 
