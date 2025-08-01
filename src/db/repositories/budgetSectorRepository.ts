@@ -20,6 +20,12 @@ const buildFilterQuery = (
     paramIndex += 2;
   }
 
+  if (filters.sector_ids?.length) {
+    conditions.push(`sector_id = ANY($${paramIndex}::int[])`);
+    params.push(filters.sector_ids);
+    paramIndex++;
+  }
+
   const allConditions = conditions.filter(Boolean).join(" AND ");
   return {
     whereClause: allConditions ? `WHERE ${allConditions}` : "",
@@ -37,6 +43,7 @@ export interface BudgetSector {
 
 export interface BudgetSectorFilter {
   search?: string;
+  sector_ids?: number[];
 }
 
 const TABLE_NAME = "BudgetSectors";

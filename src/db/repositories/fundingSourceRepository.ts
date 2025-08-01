@@ -9,6 +9,7 @@ const cache = createCache<FundingSource>();
 
 export interface FundingSourceFilter {
   search?: string;
+  source_ids?: number[];
 }
 
 const TABLE_NAME = "FundingSources";
@@ -28,6 +29,12 @@ const buildFilterQuery = (
     conditions.push(`similarity(source_description, $${paramIndex}) > $${paramIndex + 1}`);
     params.push(filters.search, SIMILARITY_THRESHOLD);
     paramIndex += 2;
+  }
+
+  if (filters.source_ids?.length) {
+    conditions.push(`source_id = ANY($${paramIndex}::int[])`);
+    params.push(filters.source_ids);
+    paramIndex++;
   }
 
   const allConditions = conditions.filter(Boolean).join(" AND ");

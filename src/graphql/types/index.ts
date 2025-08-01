@@ -172,6 +172,7 @@ export const types = `
   # Input types for filtering
   input EntityFilter {
     cui: String
+    cuis: [String]
     name: String
     entity_type: String
     uat_id: ID
@@ -182,10 +183,12 @@ export const types = `
 
   input UATFilter {
     id: Int
+    ids: [String]
     uat_key: String
     uat_code: String
     name: String
     county_code: String
+    county_name: String
     region: String
     search: String
   }
@@ -275,15 +278,18 @@ export const types = `
 
   input FunctionalClassificationFilterInput {
     search: String
+    functional_codes: [String]
   }
 
   input EconomicClassificationFilterInput {
     search: String
+    economic_codes: [String]
   }
 
   # Input for Funding Source filtering
   input FundingSourceFilterInput {
     search: String
+    source_ids: [String]
   }
 
   type FundingSourceConnection {
@@ -310,6 +316,7 @@ export const types = `
 
   input BudgetSectorFilterInput {
     search: String
+    sector_ids: [String]
   }
 
   input AnalyticsInput {

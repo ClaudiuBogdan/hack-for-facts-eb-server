@@ -5,12 +5,14 @@ import { createHash } from 'crypto';
 interface CacheOptions {
     maxSize: number; // Maximum size of the cache in bytes
     maxItems: number; // Maximum number of items in the cache
+    ttl: number; // Time to live in milliseconds
 }
 
 // --- Cache Configuration ---
 const defaultOptions: CacheOptions = {
     maxSize: 10 * 1024 * 1024, // 10MB
     maxItems: 1000,
+    ttl: 1000 * 60 * 60 * 24 * 7, // 1 week
 };
 
 // --- Helper function to calculate the size of a cache entry. Simplified implementation for simple key-value pairs of strings ---
@@ -29,6 +31,7 @@ export function createCache<T extends Record<string, any> = any>(options?: Parti
     const cache = new LRUCache<string, T>({
         max: maxItems,
         maxSize: maxSize,
+        ttl: options?.ttl,
         sizeCalculation,
     });
 

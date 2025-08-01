@@ -6,6 +6,7 @@ const cache = createCache<EconomicClassification>();
 
 export interface EconomicClassificationFilter {
   search?: string;
+  economic_codes?: string[];
 }
 
 // Similarity threshold for pg_trgm; adjust for Romanian short strings
@@ -17,15 +18,21 @@ const SIMILARITY_THRESHOLD = 0.1;
 function buildSearchClause(
   filter: EconomicClassificationFilter
 ): { clause: string; params: any[] } {
-  const { search } = filter;
+  const { search, economic_codes } = filter;
   const params: any[] = [];
-  let clause = "";
+  const conditions: string[] = [];
 
   if (search) {
-    clause = `WHERE similarity(economic_name, $1) > $2`;
+    conditions.push(`similarity(economic_name, $${params.length + 1}) > $${params.length + 2}`);
     params.push(search, SIMILARITY_THRESHOLD);
   }
 
+  if (economic_codes?.length) {
+    conditions.push(`economic_code = ANY($${params.length + 1}::text[])`);
+    params.push(economic_codes);
+  }
+
+  const clause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   return { clause, params };
 }
 

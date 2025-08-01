@@ -6,6 +6,7 @@ const cache = createCache<UAT>();
 
 export interface UATFilter {
   id?: number;
+  ids?: number[];
   uat_key?: string;
   uat_code?: string;
   name?: string;          // Exact or partial match
@@ -78,6 +79,10 @@ export const uatRepository = {
     if (filter.id !== undefined) {
       conditions.push(`id = $${params.length + 1}`);
       params.push(filter.id);
+    }
+    if (filter.ids) {
+      conditions.push(`id = ANY($${params.length + 1}::integer[])`);
+      params.push(filter.ids);
     }
     if (filter.uat_key) {
       conditions.push(`uat_key = $${params.length + 1}`);
@@ -161,6 +166,10 @@ export const uatRepository = {
     if (filter.id !== undefined) {
       conditions.push(`id = $${params.length + 1}`);
       params.push(filter.id);
+    }
+    if (filter.ids) {
+      conditions.push(`id = ANY($${params.length + 1}::integer[])`);
+      params.push(filter.ids);
     }
     if (filter.uat_key) {
       conditions.push(`uat_key = $${params.length + 1}`);

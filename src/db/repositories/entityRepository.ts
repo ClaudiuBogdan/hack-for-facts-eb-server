@@ -6,6 +6,7 @@ const cache = createCache<Entity>();
 
 export interface EntityFilter {
   cui?: string;
+  cuis?: string[];
   name?: string;    // Exact or partial match
   entity_type?: string;
   uat_id?: number;
@@ -78,6 +79,10 @@ export const entityRepository = {
     if (filter.cui) {
       conditions.push(`cui = $${params.length + 1}`);
       params.push(filter.cui);
+    }
+    if (filter.cuis) {
+      conditions.push(`cui = ANY($${params.length + 1}::text[])`);
+      params.push(filter.cuis);
     }
     if (filter.entity_type) {
       conditions.push(`entity_type = $${params.length + 1}`);
@@ -181,6 +186,10 @@ export const entityRepository = {
     if (filter.cui) {
       conditions.push(`cui = $${params.length + 1}`);
       params.push(filter.cui);
+    }
+    if (filter.cuis) {
+      conditions.push(`cui = ANY($${params.length + 1}::text[])`);
+      params.push(filter.cuis);
     }
     if (filter.entity_type) {
       conditions.push(`entity_type = $${params.length + 1}`);

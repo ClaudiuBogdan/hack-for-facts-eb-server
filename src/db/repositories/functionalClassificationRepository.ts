@@ -6,6 +6,7 @@ const cache = createCache<FunctionalClassification>();
 
 export interface FunctionalClassificationFilter {
   search?: string;
+  functional_codes?: string[];
 }
 
 // Similarity threshold for pg_trgm; adjust for Romanian short strings
@@ -14,18 +15,24 @@ const SIMILARITY_THRESHOLD = 0.1;
 /**
  * Builds the WHERE clause and parameters for pg_trgm search filtering.
  */
-function buildSearchClause(
+function buildQueryFromFilters(
   filter: FunctionalClassificationFilter
 ): { clause: string; params: any[] } {
-  const { search } = filter;
+  const { search, functional_codes } = filter;
   const params: any[] = [];
-  let clause = "";
+  const conditions: string[] = [];
 
   if (search) {
-    clause = `WHERE similarity(functional_name, $1) > $2`;
+    conditions.push(`similarity(functional_name, $${params.length + 1}) > $${params.length + 2}`);
     params.push(search, SIMILARITY_THRESHOLD);
   }
 
+  if (functional_codes?.length) {
+    conditions.push(`functional_code = ANY($${params.length + 1}::text[])`);
+    params.push(functional_codes);
+  }
+
+  const clause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   return { clause, params };
 }
 
@@ -51,7 +58,7 @@ export const functionalClassificationRepository = {
     limit?: number,
     offset?: number
   ): Promise<FunctionalClassification[]> {
-    const { clause, params } = buildSearchClause(filter);
+    const { clause, params } = buildQueryFromFilters(filter);
     const { selectExtra, orderBy } = buildOrderAndSelect(filter);
 
     // Build base query with optional relevance select
@@ -77,7 +84,7 @@ export const functionalClassificationRepository = {
   },
 
   async count(filter: FunctionalClassificationFilter = {}): Promise<number> {
-    const { clause, params } = buildSearchClause(filter);
+    const { clause, params } = buildQueryFromFilters(filter);
     const query = `SELECT COUNT(*) AS count FROM FunctionalClassifications ${clause}`;
 
     try {
