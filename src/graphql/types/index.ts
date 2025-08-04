@@ -327,6 +327,7 @@ export const types = `
   type AnalyticsResult {
     seriesId: String
     totalAmount: Float!
+    unit: String
     yearlyTrend: [YearlyAmount!]!
   }
 
