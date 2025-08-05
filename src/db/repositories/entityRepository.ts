@@ -29,7 +29,7 @@ function buildSearchCondition(
     return { condition: "", params: [] };
   }
   return {
-    condition: `GREATEST(similarity(name, $1), similarity(address, $1)) > $2`,
+    condition: `GREATEST(similarity('cui:' || cui || ' ' || name, $1), similarity(address, $1)) > $2`,
     params: [filter.search, SIMILARITY_THRESHOLD],
   };
 }
@@ -41,9 +41,10 @@ function buildOrderAndSelect(
   filter: EntityFilter
 ): { selectExtra: string; orderBy: string } {
   if (filter.search) {
+    const relevance = `GREATEST(similarity('cui:' || cui || ' ' || name, $1), similarity(address, $1))`;
     return {
-      selectExtra: `, GREATEST(similarity(name, $1), similarity(address, $1)) AS relevance`,
-      orderBy: "ORDER BY relevance DESC, cui ASC",
+      selectExtra: `, ${relevance} AS relevance`,
+      orderBy: `ORDER BY CASE WHEN 'cui:' || cui || ' ' || name ILIKE $1 || '%' THEN 0 ELSE 1 END, relevance DESC`,
     };
   }
   return { selectExtra: "", orderBy: "ORDER BY cui ASC" };

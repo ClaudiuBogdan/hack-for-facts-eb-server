@@ -23,7 +23,7 @@ function buildSearchClause(
   const conditions: string[] = [];
 
   if (search) {
-    conditions.push(`similarity(economic_name, $${params.length + 1}) > $${params.length + 2}`);
+    conditions.push(`similarity('ec:' || economic_code || ' ' || economic_name, $${params.length + 1}) > $${params.length + 2}`);
     params.push(search, SIMILARITY_THRESHOLD);
   }
 
@@ -43,9 +43,10 @@ function buildOrderAndSelect(
   filter: EconomicClassificationFilter
 ): { selectExtra: string; orderBy: string } {
   if (filter.search) {
+    const relevance = `similarity('ec:' || economic_code || ' ' || economic_name, $1)`;
     return {
-      selectExtra: ", similarity(economic_name, $1) AS relevance",
-      orderBy: "ORDER BY relevance DESC, economic_code ASC",
+      selectExtra: `, ${relevance} AS relevance`,
+      orderBy: `ORDER BY CASE WHEN 'ec:' || economic_code || ' ' || economic_name ILIKE $1 || '%' THEN 0 ELSE 1 END, relevance DESC, economic_code ASC`,
     };
   }
 

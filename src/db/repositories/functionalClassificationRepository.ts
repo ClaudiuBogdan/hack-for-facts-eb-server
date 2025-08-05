@@ -23,7 +23,7 @@ function buildQueryFromFilters(
   const conditions: string[] = [];
 
   if (search) {
-    conditions.push(`similarity(functional_name, $${params.length + 1}) > $${params.length + 2}`);
+    conditions.push(`similarity('fn:' || functional_code || ' ' || functional_name, $${params.length + 1}) > $${params.length + 2}`);
     params.push(search, SIMILARITY_THRESHOLD);
   }
 
@@ -43,9 +43,10 @@ function buildOrderAndSelect(
   filter: FunctionalClassificationFilter
 ): { selectExtra: string; orderBy: string } {
   if (filter.search) {
+    const relevance = `similarity('fn:' || functional_code || ' ' || functional_name, $1)`;
     return {
-      selectExtra: ", similarity(functional_name, $1) AS relevance",
-      orderBy: "ORDER BY relevance DESC, functional_code ASC",
+      selectExtra: `, ${relevance} AS relevance`,
+      orderBy: `ORDER BY CASE WHEN 'fn:' || functional_code || ' ' || functional_name ILIKE $1 || '%' THEN 0 ELSE 1 END, relevance DESC, functional_code ASC`,
     };
   }
 
@@ -65,17 +66,18 @@ export const functionalClassificationRepository = {
     let query = `SELECT *${selectExtra} FROM FunctionalClassifications ${clause} ${orderBy}`;
 
     // Pagination
+    const queryParams = [...params];
     if (limit !== undefined) {
-      params.push(limit);
-      query += ` LIMIT $${params.length}`;
+      queryParams.push(limit);
+      query += ` LIMIT $${queryParams.length}`;
     }
     if (offset !== undefined) {
-      params.push(offset);
-      query += ` OFFSET $${params.length}`;
+      queryParams.push(offset);
+      query += ` OFFSET $${queryParams.length}`;
     }
 
     try {
-      const result = await pool.query(query, params);
+      const result = await pool.query(query, queryParams);
       return result.rows;
     } catch (error) {
       console.error("Error fetching functional classifications:", error);
