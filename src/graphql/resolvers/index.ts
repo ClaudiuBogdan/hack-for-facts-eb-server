@@ -6,6 +6,7 @@ import { reportResolver } from "./reportResolver";
 import { analyticsResolver } from "./analyticsResolver";
 import { fundingSourcesResolver } from "./fundingSourcesResolver";
 import { budgetSectorResolver } from "./budgetSectorResolver";
+import { datasetResolver } from "./datasetResolver";
 
 export const resolvers = [
   entityResolver,
@@ -16,5 +17,6 @@ export const resolvers = [
   analyticsResolver,
   fundingSourcesResolver,
   budgetSectorResolver,
+  datasetResolver,
 ];
 

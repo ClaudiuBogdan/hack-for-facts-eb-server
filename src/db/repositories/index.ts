@@ -7,3 +7,4 @@ export { functionalClassificationRepository } from "./functionalClassificationRe
 export { economicClassificationRepository } from "./economicClassificationRepository";
 export { fundingSourceRepository } from "./fundingSourceRepository";
 export { analyticsRepository } from "./analyticsRepository";
+export { datasetRepository } from "./datasetRepository";

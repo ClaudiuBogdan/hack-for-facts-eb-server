@@ -399,5 +399,40 @@ export const types = `
     heatmapUATData(filter: HeatmapFilterInput!): [HeatmapUATDataPoint!]!
 
     executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
+
+    # Query to search for datasets with pagination
+    datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0): DatasetConnection!
+ 
+    # Query to fetch analytics data for a list of dataset IDs
+    staticChartAnalytics(datasetIds: [ID!]!): [StaticAnalyticsDataPoint!]!
+  }
+
+  # 1. A type to represent a dataset
+  type Dataset {
+    id: ID!
+    name: String!
+    unit: String!
+    description: String
+    sourceName: String
+    sourceUrl: String
+  }
+
+  # 2. A connection type for paginated datasets
+  type DatasetConnection {
+    nodes: [Dataset!]!
+    pageInfo: PageInfo!
+  }
+
+  # 3. An input type for filtering datasets
+  input DatasetFilter {
+    search: String
+    ids: [ID!]
+  }
+
+  # 4. A type for the data points returned for a static series
+  type StaticAnalyticsDataPoint {
+    datasetId: ID!
+    unit: String!
+    yearlyTrend: [YearlyAmount!]!
   }
 `;
