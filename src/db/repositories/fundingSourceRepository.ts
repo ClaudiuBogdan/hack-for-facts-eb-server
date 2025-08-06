@@ -5,7 +5,7 @@ import { FundingSource } from "../models";
 // Threshold for pg_trgm similarity
 const SIMILARITY_THRESHOLD = 0.1;
 
-const cache = createCache<FundingSource>();
+const cache = createCache<FundingSource>({ name: 'fundingSource' });
 
 export interface FundingSourceFilter {
   search?: string;

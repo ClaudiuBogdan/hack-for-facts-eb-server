@@ -3,12 +3,17 @@ import { ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
 
 const analyticsCache = createCache({
+  name: 'executionLineItemAnalytics',
   maxSize: 200 * 1024 * 1024, // 200 MB
   maxItems: 10000,
 });
 
-const executionLineItemCache = createCache<ExecutionLineItem[]>();
-const countCache = createCache<{ count: number }>();
+const executionLineItemCache = createCache<ExecutionLineItem[]>({
+  name: 'executionLineItem',
+});
+const countCache = createCache<{ count: number }>({
+  name: 'executionLineItemCount',
+});
 
 // --- Constants for Table and View Names ---
 const TABLES = {

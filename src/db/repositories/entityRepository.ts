@@ -2,9 +2,9 @@ import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { Entity } from "../models";
 
-const entityCache = createCache<Entity>();
-const entitiesCache = createCache<Entity[]>();
-const countCache = createCache<{ count: number }>();
+const entityCache = createCache<Entity>({ name: 'entity' });
+const entitiesCache = createCache<Entity[]>({ name: 'entities' });
+const countCache = createCache<{ count: number }>({ name: 'entityCount' });
 
 export interface EntityFilter {
   cui?: string;

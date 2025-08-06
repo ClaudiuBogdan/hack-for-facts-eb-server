@@ -2,7 +2,7 @@ import pool from "../connection";
 import { UAT } from "../models";
 import { createCache } from "../../utils/cache";
 
-const cache = createCache<UAT>();
+const cache = createCache<UAT>({ name: 'uat' });
 
 export interface UATFilter {
   id?: number;

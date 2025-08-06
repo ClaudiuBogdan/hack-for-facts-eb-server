@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 
-const cache = createCache<HeatmapUATDataPoint_Repo[]>();
+const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap' });
 
 export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
