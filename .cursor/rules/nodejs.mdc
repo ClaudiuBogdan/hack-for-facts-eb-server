@@ -64,7 +64,3 @@ src/
    - Create specific error types for validation failures
    - Log errors with context (user, operation, timestamp)
    - Return user-friendly error messages
-
-## Verify the code is building
-
-When done, make sure the the code is building by running ```yarn build``.
