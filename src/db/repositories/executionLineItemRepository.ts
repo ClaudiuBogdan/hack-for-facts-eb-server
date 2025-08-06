@@ -7,6 +7,9 @@ const analyticsCache = createCache({
   maxItems: 10000,
 });
 
+const executionLineItemCache = createCache<ExecutionLineItem[]>();
+const countCache = createCache<{ count: number }>();
+
 // --- Constants for Table and View Names ---
 const TABLES = {
   EXECUTION_LINE_ITEMS: 'ExecutionLineItems',
@@ -317,7 +320,14 @@ export const executionLineItemRepository = {
         values.push(offset);
       }
 
+      const cacheKey = `getAll:${finalQuery}:${JSON.stringify(values)}`;
+      const cached = executionLineItemCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
       const result = await pool.query(finalQuery, values);
+      executionLineItemCache.set(cacheKey, result.rows);
       return result.rows;
     } catch (error) {
       console.error("Error fetching execution line items:", error);
@@ -374,8 +384,16 @@ export const executionLineItemRepository = {
         (joinClauses ? " " + joinClauses : "") +
         whereClause;
 
+      const cacheKey = `count:${finalQuery}:${JSON.stringify(values)}`;
+      const cached = countCache.get(cacheKey);
+      if (cached) {
+        return cached.count;
+      }
+
       const result = await pool.query(finalQuery, values);
-      return parseInt(result.rows[0].count);
+      const count = parseInt(result.rows[0].count, 10);
+      countCache.set(cacheKey, { count });
+      return count;
     } catch (error) {
       console.error("Error counting execution line items:", error);
       throw error;
