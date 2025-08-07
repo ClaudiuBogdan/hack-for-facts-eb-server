@@ -29,7 +29,11 @@ function buildSearchCondition(
     return { condition: "", params: [] };
   }
   return {
-    condition: `GREATEST(similarity(name, $1), similarity(COALESCE(county_name, ''), $1)) > $2`,
+    condition: `(
+      name ILIKE '%' || $1 || '%'
+      OR COALESCE(county_name, '') ILIKE '%' || $1 || '%'
+      OR GREATEST(similarity(name, $1), similarity(COALESCE(county_name, ''), $1)) > $2
+    )`,
     params: [filter.search, SIMILARITY_THRESHOLD],
   };
 }
@@ -43,7 +47,7 @@ function buildOrderAndSelect(
   if (filter.search) {
     return {
       selectExtra: `, GREATEST(similarity(name, $1), similarity(COALESCE(county_name, ''), $1)) AS relevance`,
-      orderBy: "ORDER BY relevance DESC, id ASC",
+      orderBy: "ORDER BY CASE WHEN name ILIKE $1 || '%' THEN 1 ELSE 0 END DESC, relevance DESC, id ASC",
     };
   }
   return { selectExtra: "", orderBy: "ORDER BY id ASC" };

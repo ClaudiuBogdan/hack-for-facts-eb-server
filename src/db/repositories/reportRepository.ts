@@ -32,7 +32,11 @@ function buildSearchCondition(
   // Ensure placeholder numbers here are distinct if params are combined later.
   // Using $1 and $2 here, assuming they are the first params if search is active.
   return {
-    condition: `GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1)) > $2`,
+    condition: `(
+      e.name ILIKE '%' || $1 || '%'
+      OR COALESCE(array_to_string(r.download_links, ' '), '') ILIKE '%' || $1 || '%'
+      OR GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1)) > $2
+    )`,
     params: [filter.search, SIMILARITY_THRESHOLD],
   };
 }
@@ -66,7 +70,7 @@ function buildOrderAndSelect(
     const searchRelevanceCol = `GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1))`;
     selectExtraClause = `, ${searchRelevanceCol} AS relevance`;
     if (!sort) {
-        orderByClause = `ORDER BY relevance DESC, r.report_date DESC, r.report_id DESC`;
+        orderByClause = `ORDER BY CASE WHEN e.name ILIKE $1 || '%' THEN 1 ELSE 0 END DESC, relevance DESC, r.report_date DESC, r.report_id DESC`;
     }
   }
   return {

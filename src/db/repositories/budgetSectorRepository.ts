@@ -15,7 +15,7 @@ const buildFilterQuery = (
   let paramIndex = initialParamIndex;
 
   if (filters.search) {
-    conditions.push(`similarity(sector_description, $${paramIndex}) > $${paramIndex + 1}`);
+    conditions.push(`(sector_description ILIKE '%' || $${paramIndex} || '%' OR similarity(sector_description, $${paramIndex}) > $${paramIndex + 1})`);
     params.push(filters.search, SIMILARITY_THRESHOLD);
     paramIndex += 2;
   }
