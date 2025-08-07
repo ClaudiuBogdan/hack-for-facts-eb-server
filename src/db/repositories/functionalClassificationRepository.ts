@@ -13,18 +13,56 @@ export interface FunctionalClassificationFilter {
 const SIMILARITY_THRESHOLD = 0.1;
 
 /**
- * Builds the WHERE clause and parameters for pg_trgm search filtering.
+ * Parse functional classification search intent.
+ */
+function parseFunctionalSearch(searchRaw?: string):
+  | { mode: "none" }
+  | { mode: "code"; codePrefix: string }
+  | { mode: "name"; term: string } {
+  if (!searchRaw) return { mode: "none" };
+  const raw = searchRaw.trim();
+  if (!raw) return { mode: "none" };
+
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("fn:")) {
+    const codeCandidate = raw.slice(lower.indexOf(":") + 1).trim();
+    const codePrefix = codeCandidate.replace(/[^0-9.]/g, "");
+    if (codePrefix) return { mode: "code", codePrefix };
+    return { mode: "none" };
+  }
+
+  // Bare code-like (COFOG-like) patterns
+  if (/^\d{1,2}(?:\.\d{2})(?:\.\d{2})?(?:\.\d{2})?$/.test(raw)) {
+    return { mode: "code", codePrefix: raw };
+  }
+
+  return { mode: "name", term: raw };
+}
+
+/**
+ * Builds the WHERE clause and parameters for robust search filtering.
+ * - Code queries use prefix matching on functional_code.
+ * - Name queries use substring ILIKE and trigram similarity on functional_name.
  */
 function buildQueryFromFilters(
   filter: FunctionalClassificationFilter
-): { clause: string; params: any[] } {
+): { clause: string; params: any[]; isNameSearch: boolean } {
   const { search, functional_codes } = filter;
   const params: any[] = [];
   const conditions: string[] = [];
 
+  let isNameSearch = false;
+
   if (search) {
-    conditions.push(`similarity('fn:' || functional_code || ' ' || functional_name, $${params.length + 1}) > $${params.length + 2}`);
-    params.push(search, SIMILARITY_THRESHOLD);
+    const parsed = parseFunctionalSearch(search);
+    if (parsed.mode === "code") {
+      conditions.push(`functional_code LIKE $${params.length + 1}`);
+      params.push(`${parsed.codePrefix}%`);
+    } else if (parsed.mode === "name") {
+      isNameSearch = true;
+      conditions.push(`(functional_name ILIKE '%' || $1 || '%' OR similarity(functional_name, $1) > $2)`);
+      params.push(parsed.term, SIMILARITY_THRESHOLD);
+    }
   }
 
   if (functional_codes?.length) {
@@ -33,20 +71,20 @@ function buildQueryFromFilters(
   }
 
   const clause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  return { clause, params };
+  return { clause, params, isNameSearch };
 }
 
 /**
  * Builds ORDER BY clause and selects similarity score if searching.
  */
 function buildOrderAndSelect(
-  filter: FunctionalClassificationFilter
+  isNameSearch: boolean
 ): { selectExtra: string; orderBy: string } {
-  if (filter.search) {
-    const relevance = `similarity('fn:' || functional_code || ' ' || functional_name, $1)`;
+  if (isNameSearch) {
+    const relevance = `similarity(functional_name, $1)`;
     return {
       selectExtra: `, ${relevance} AS relevance`,
-      orderBy: `ORDER BY CASE WHEN 'fn:' || functional_code || ' ' || functional_name ILIKE $1 || '%' THEN 0 ELSE 1 END, relevance DESC, functional_code ASC`,
+      orderBy: `ORDER BY CASE WHEN functional_name ILIKE $1 || '%' THEN 0 ELSE 1 END, relevance DESC, functional_code ASC`,
     };
   }
 
@@ -59,8 +97,8 @@ export const functionalClassificationRepository = {
     limit?: number,
     offset?: number
   ): Promise<FunctionalClassification[]> {
-    const { clause, params } = buildQueryFromFilters(filter);
-    const { selectExtra, orderBy } = buildOrderAndSelect(filter);
+    const { clause, params, isNameSearch } = buildQueryFromFilters(filter);
+    const { selectExtra, orderBy } = buildOrderAndSelect(isNameSearch);
 
     // Build base query with optional relevance select
     let query = `SELECT *${selectExtra} FROM FunctionalClassifications ${clause} ${orderBy}`;
