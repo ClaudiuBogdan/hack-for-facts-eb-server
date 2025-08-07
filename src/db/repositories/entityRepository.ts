@@ -2,7 +2,7 @@ import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { Entity } from "../models";
 
-const entityCache = createCache<Entity>({ name: 'entity' });
+const entityCache = createCache<Entity>({ name: 'entity', maxItems: 20_000 }); // Romania has around 14k entities
 const entitiesCache = createCache<Entity[]>({ name: 'entities' });
 const countCache = createCache<{ count: number }>({ name: 'entityCount' });
 
@@ -247,4 +247,18 @@ export const entityRepository = {
       throw error;
     }
   },
+
+  async getCountyEntity(countyCode?: string | null): Promise<Entity | null> {
+    if (!countyCode) {
+      return null;
+    }
+    const query = `
+      SELECT * FROM Entities e
+      JOIN Uats u ON e.uat_id = u.id
+      WHERE u.county_code = $1 AND (e.entity_type = 'admin_county_council' OR e.cui = '179132')
+    `;
+    const result = await pool.query(query, [countyCode]);
+    return result.rows.length ? result.rows[0] : null;
+  },
+
 };

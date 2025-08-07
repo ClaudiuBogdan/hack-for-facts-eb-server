@@ -3,6 +3,18 @@ import { createCache, getCacheKey } from "../../utils/cache";
 
 const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap' });
 
+// Type matching the GraphQL Schema for HeatmapUATDataPoint
+export interface HeatmapUATDataPoint_GQL {
+  uat_id: string; // ID! is string in GraphQL
+  uat_code: string;
+  uat_name: string;
+  county_code: string | null;
+  county_name: string | null;
+  population: number | null;
+  total_amount: number; // Float! is number in JS/TS
+  per_capita_amount: number;
+}
+
 export interface HeatmapUATDataPoint_Repo {
   uat_id: number;
   uat_code: string;
@@ -26,9 +38,11 @@ export interface HeatmapFilterInput {
   normalization?: 'total' | 'per-capita';
   min_population?: number | null;
   max_population?: number | null;
+  county_codes?: string[] | null;
+  regions?: string[] | null;
 }
 
-export const analyticsRepository = {
+export const uatAnalyticsRepository = {
   async getHeatmapData(
     filter: HeatmapFilterInput
   ): Promise<HeatmapUATDataPoint_Repo[]> {

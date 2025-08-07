@@ -23,6 +23,7 @@ export const types = `
     region: String
     population: Int
     last_updated: String
+    county_entity: Entity
   }
 
   type UATConnection {
@@ -37,6 +38,7 @@ export const types = `
     entity_type: String
     uat_id: ID
     is_uat: Boolean
+    is_main_creditor: Boolean
     address: String
     last_updated: String
     # Relations
@@ -259,6 +261,16 @@ export const types = `
     per_capita_amount: Float! # The calculated per-capita amount based on filters
   }
 
+  type HeatmapJudetDataPoint {
+    county_code: String!
+    county_name: String!
+    county_population: Int!
+    amount: Float!
+    total_amount: Float!
+    per_capita_amount: Float!
+    county_entity: Entity
+  }
+
   # Input filters for querying heatmap data
   input HeatmapFilterInput {
     functional_codes: [String!]    # Optional: filter by functional classification codes
@@ -270,8 +282,8 @@ export const types = `
     normalization: String          # Optional: 'total' or 'per_capita'
     min_population: Int            # Optional: filter UATs by minimum population
     max_population: Int            # Optional: filter UATs by maximum population
-    # county_codes: [String!]      # Optional: to focus heatmap on specific counties
-    # regions: [String!]           # Optional: to focus heatmap on specific regions
+    county_codes: [String!]        # Optional: to focus heatmap on specific counties
+    regions: [String!]             # Optional: to focus heatmap on specific regions
   }
 
   # --- END: Types for Heatmap Analytics ---
@@ -397,6 +409,7 @@ export const types = `
     
     # Query for UAT-level heatmap data
     heatmapUATData(filter: HeatmapFilterInput!): [HeatmapUATDataPoint!]!
+    heatmapJudetData(filter: HeatmapFilterInput!): [HeatmapJudetDataPoint!]!
 
     executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
 

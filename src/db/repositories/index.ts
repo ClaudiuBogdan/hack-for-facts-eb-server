@@ -6,5 +6,6 @@ export { executionLineItemRepository } from "./executionLineItemRepository";
 export { functionalClassificationRepository } from "./functionalClassificationRepository";
 export { economicClassificationRepository } from "./economicClassificationRepository";
 export { fundingSourceRepository } from "./fundingSourceRepository";
-export { analyticsRepository } from "./analyticsRepository";
+export { uatAnalyticsRepository as analyticsRepository } from "./uatAnalyticsRepository";
+export { judetAnalyticsRepository } from "./judetAnalyticsRepository";
 export { datasetRepository } from "./datasetRepository";

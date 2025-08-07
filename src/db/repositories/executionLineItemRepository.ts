@@ -1,5 +1,5 @@
 import pool from "../connection";
-import { ExecutionLineItem } from "../models";
+import { Entity, ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
 
 const analyticsCache = createCache({

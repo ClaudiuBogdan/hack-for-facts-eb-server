@@ -1,41 +1,8 @@
-import { analyticsRepository } from "../../db/repositories/analyticsRepository";
-import { executionLineItemRepository } from '../../db/repositories';
+import { HeatmapUATDataPoint_GQL, HeatmapUATDataPoint_Repo, uatAnalyticsRepository } from "../../db/repositories/uatAnalyticsRepository";
+import { executionLineItemRepository, judetAnalyticsRepository, entityRepository } from '../../db/repositories';
 import { GraphQLResolveInfo } from 'graphql';
+import { HeatmapFilterInput, HeatmapJudetDataPoint_GQL, HeatmapJudetDataPoint_Repo } from "../../db/repositories/judetAnalyticsRepository";
 
-interface HeatmapFilterInput {
-  functional_codes?: string[] | null;
-  economic_codes?: string[] | null;
-  account_categories: string[];
-  years: number[];
-  min_amount?: number | null;
-  max_amount?: number | null;
-  normalization?: 'total' | 'per-capita';
-  min_population?: number | null;
-  max_population?: number | null;
-}
-
-interface HeatmapUATDataPoint_Repo {
-  uat_id: number;
-  uat_code: string;
-  uat_name: string;
-  county_code: string | null;
-  county_name: string | null;
-  population: number | null;
-  total_amount: number;
-  per_capita_amount: number;
-}
-
-// Type matching the GraphQL Schema for HeatmapUATDataPoint
-interface HeatmapUATDataPoint_GQL {
-  uat_id: string; // ID! is string in GraphQL
-  uat_code: string;
-  uat_name: string;
-  county_code: string | null;
-  county_name: string | null;
-  population: number | null;
-  total_amount: number; // Float! is number in JS/TS
-  per_capita_amount: number;
-}
 
 interface AnalyticsArgs {
   inputs: Array<{ filter: any; seriesId?: string }>; // Use any for filter; refine if types available
@@ -50,7 +17,7 @@ export const analyticsResolver = {
       _info: any
     ): Promise<HeatmapUATDataPoint_GQL[]> { // Returns type matching GQL schema
       try {
-        const repoData: HeatmapUATDataPoint_Repo[] = await analyticsRepository.getHeatmapData(args.filter);
+        const repoData: HeatmapUATDataPoint_Repo[] = await uatAnalyticsRepository.getHeatmapData(args.filter);
 
         // Map repository data to GraphQL schema type (e.g., convert uat_id to string)
         let gqlData: HeatmapUATDataPoint_GQL[] = repoData.map(repoItem => ({
@@ -64,6 +31,25 @@ export const analyticsResolver = {
           throw new Error(error.message); // Propagate validation errors
         }
         throw new Error("An error occurred while fetching heatmap data."); // Generic error
+      }
+    },
+    async heatmapJudetData(
+      _parent: any,
+      args: { filter: HeatmapFilterInput },
+      _context: any,
+      _info: any
+    ): Promise<HeatmapJudetDataPoint_GQL[]> {
+      try {
+        const repoData = await judetAnalyticsRepository.getHeatmapJudetData(args.filter);
+        return repoData.map(repoItem => ({
+          ...repoItem,
+        }));
+      } catch (error: any) {
+        console.error("Error in heatmapJudetData resolver:", error);
+        if (error.message.includes("cannot be empty")) {
+          throw new Error(error.message);
+        }
+        throw new Error("An error occurred while fetching heatmap judet data.");
       }
     },
     async executionAnalytics(_parent: unknown, args: AnalyticsArgs, _context: unknown, info: GraphQLResolveInfo) {
@@ -84,6 +70,14 @@ export const analyticsResolver = {
         }
         return result;
       }));
+    },
+  },
+  HeatmapJudetDataPoint: {
+    county_entity: async (parent: HeatmapJudetDataPoint_Repo) => {
+      if (!parent.county_entity_cui) {
+        return null;
+      }
+      return entityRepository.getById(parent.county_entity_cui);
     },
   },
 };

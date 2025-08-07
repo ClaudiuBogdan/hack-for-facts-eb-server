@@ -1,4 +1,5 @@
-import { uatRepository } from "../../db/repositories";
+import { UAT } from "../../db/models";
+import { entityRepository, uatRepository } from "../../db/repositories";
 import { UATFilter } from "../../db/repositories/uatRepository";
 
 export const uatResolver = {
@@ -31,6 +32,11 @@ export const uatResolver = {
           hasPreviousPage: offset > 0,
         },
       };
+    },
+  },
+  UAT: {
+    county_entity: async (uat: UAT) => {
+      return entityRepository.getCountyEntity(uat.county_code);
     },
   },
 };
