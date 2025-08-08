@@ -348,6 +348,10 @@ export const types = /* GraphQL */ `
     expense_types: [String]
     program_code: String
     reporting_year: Int
+    # Single/range helpers (not used for aggregation; prefer years)
+    year: Int
+    start_year: Int
+    end_year: Int
     county_code: String
     county_codes: [String]
     uat_ids: [ID]
@@ -361,6 +365,9 @@ export const types = /* GraphQL */ `
     min_amount: Float
     max_amount: Float
     normalization: String # 'total' or 'per-capita' (also accept 'per_capita')
+    # Population constraints (applies when normalization is per_capita, but can be used regardless)
+    min_population: Int
+    max_population: Int
   }
 
   input FunctionalClassificationFilterInput {

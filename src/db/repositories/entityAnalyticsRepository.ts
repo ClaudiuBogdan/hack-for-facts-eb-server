@@ -239,20 +239,34 @@ function buildHavingClause(
   return { havingClause, nextParamIndex: paramIndex };
 }
 
-function toOrderBy(sort?: EntityAnalyticsSortOption): string {
-  if (!sort) return " ORDER BY amount DESC, total_amount DESC";
-  const sortable = new Set([
-    "amount",
-    "total_amount",
-    "per_capita_amount",
-    "entity_name",
-    "entity_type",
-    "population",
-    "county_name",
-    "county_code",
-  ]);
-  const by = sortable.has(sort.by) ? sort.by : "amount";
-  const order = sort.order === "ASC" ? "ASC" : "DESC";
+function toOrderBy(sort?: EntityAnalyticsSortOption | { by?: string; order?: string }): string {
+  if (!sort || !sort.by) return " ORDER BY amount DESC, total_amount DESC";
+
+  // Accept both snake_case and camelCase field names from clients
+  const byMap: Record<string, string> = {
+    amount: "amount",
+    total_amount: "total_amount",
+    totalAmount: "total_amount",
+    per_capita_amount: "per_capita_amount",
+    perCapitaAmount: "per_capita_amount",
+    entity_name: "entity_name",
+    entityName: "entity_name",
+    entity_type: "entity_type",
+    entityType: "entity_type",
+    population: "population",
+    county_name: "county_name",
+    countyName: "county_name",
+    county_code: "county_code",
+    countyCode: "county_code",
+  };
+
+  const byKey = typeof (sort as any).by === "string" ? (sort as any).by : "amount";
+  const by = byMap[byKey] ?? "amount";
+
+  const rawOrder = (sort as any).order ?? "DESC";
+  const orderUpper = String(rawOrder).toUpperCase();
+  const order = orderUpper === "ASC" ? "ASC" : "DESC";
+
   return ` ORDER BY ${by} ${order}`;
 }
 
@@ -275,7 +289,27 @@ export const entityAnalyticsRepository = {
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
 
     // Define expressions
-    const populationExpr = `COALESCE(u.population, 0)`;
+    // Population rules:
+    // - If the entity is a UAT (e.is_uat = TRUE), use that UAT's population (from the joined `u` row)
+    // - If the entity is a county-level council (admin_county_council), use the county population
+    //   like in judet heatmap: either the special Bucharest SIRUTA or the UAT whose siruta_code equals county_code
+    // - Otherwise, population is NULL and per-capita is 0
+    const countyPopulationExpr = `COALESCE((
+      SELECT MAX(CASE
+        WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
+        WHEN u2.siruta_code = u2.county_code THEN u2.population
+        ELSE 0
+      END)
+      FROM UATs u2
+      WHERE u2.county_code = u.county_code
+    ), 0)`;
+
+    const populationExpr = `CASE
+      WHEN e.is_uat = TRUE THEN u.population
+      WHEN e.entity_type = 'admin_county_council' THEN ${countyPopulationExpr}
+      ELSE NULL
+    END`;
+
     const totalAmountExpr = `COALESCE(SUM(eli.amount), 0)`;
     const perCapitaExpr = `COALESCE(${totalAmountExpr} / NULLIF(${populationExpr}, 0), 0)`;
     const amountExpr = filter.normalization === "per-capita" ? perCapitaExpr : totalAmountExpr;
