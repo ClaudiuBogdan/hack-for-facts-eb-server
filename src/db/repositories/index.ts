@@ -9,3 +9,4 @@ export { fundingSourceRepository } from "./fundingSourceRepository";
 export { uatAnalyticsRepository as analyticsRepository } from "./uatAnalyticsRepository";
 export { judetAnalyticsRepository } from "./judetAnalyticsRepository";
 export { datasetRepository } from "./datasetRepository";
+export { entityAnalyticsRepository } from "./entityAnalyticsRepository";

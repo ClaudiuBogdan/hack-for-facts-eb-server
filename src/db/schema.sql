@@ -84,14 +84,14 @@ COMMENT ON COLUMN Entities.is_main_creditor IS 'Flag indicating if this entity i
 COMMENT ON COLUMN Entities.is_uat IS 'Flag indicating if this entity is a UAT';
 -- Table for Functional Classification codes (COFOG)
 CREATE TABLE FunctionalClassifications (
-    functional_code VARCHAR(10) PRIMARY KEY,
+    functional_code VARCHAR(20) PRIMARY KEY,
     functional_name TEXT NOT NULL
 );
 -- Add explanatory comment
 COMMENT ON TABLE FunctionalClassifications IS 'COFOG functional classification codes for categorizing budget items by purpose/function';
 -- Table for Economic Classification codes
 CREATE TABLE EconomicClassifications (
-    economic_code VARCHAR(10) PRIMARY KEY,
+    economic_code VARCHAR(20) PRIMARY KEY,
     economic_name TEXT NOT NULL
 );
 -- Add explanatory comment
@@ -159,8 +159,8 @@ CREATE TABLE ExecutionLineItems (
     main_creditor_cui VARCHAR(20),
     budget_sector_id INT NOT NULL,
     funding_source_id INT NOT NULL,
-    functional_code VARCHAR(10) NOT NULL,
-    economic_code VARCHAR(10) NULL,
+    functional_code VARCHAR(20) NOT NULL,
+    economic_code VARCHAR(20) NULL,
     account_category CHAR(2) NOT NULL,
     amount DECIMAL(18, 2) NOT NULL,
     program_code VARCHAR(50) NULL,
@@ -197,14 +197,14 @@ CREATE TABLE EntityTags (
     FOREIGN KEY (tag_id) REFERENCES Tags(tag_id) ON DELETE CASCADE
 );
 CREATE TABLE FunctionalClassificationTags (
-    functional_code VARCHAR(10),
+    functional_code VARCHAR(20),
     tag_id INT,
     PRIMARY KEY (functional_code, tag_id),
     FOREIGN KEY (functional_code) REFERENCES FunctionalClassifications(functional_code) ON DELETE CASCADE,
     FOREIGN KEY (tag_id) REFERENCES Tags(tag_id) ON DELETE CASCADE
 );
 CREATE TABLE EconomicClassificationTags (
-    economic_code VARCHAR(10),
+    economic_code VARCHAR(20),
     tag_id INT,
     PRIMARY KEY (economic_code, tag_id),
     FOREIGN KEY (economic_code) REFERENCES EconomicClassifications(economic_code) ON DELETE CASCADE,

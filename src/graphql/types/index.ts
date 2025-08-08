@@ -1,9 +1,10 @@
-export const types = `
+export const types = /* GraphQL */ `
+  # Utility Types
   type YearlyAmount {
     year: Int!
     totalAmount: Float!
   }
-    
+
   # Pagination type to handle paginated queries
   type PageInfo {
     totalCount: Int!
@@ -11,6 +12,26 @@ export const types = `
     hasPreviousPage: Boolean!
   }
 
+  # Sorting helpers
+  enum SortDirection {
+    ASC
+    DESC
+  }
+
+  # Budget account categories (income vs expenses)
+  enum AccountCategory {
+    vn
+    ch
+  }
+
+  input SortOrder {
+    by: String!
+    order: String!
+  }
+
+  # ---------------------------------------------------------------------------
+  # Core Domain Types
+  # ---------------------------------------------------------------------------
   # UAT (Unitate Administrativ-Teritoriala) type
   type UAT {
     id: ID!
@@ -71,6 +92,9 @@ export const types = `
     pageInfo: PageInfo!
   }
 
+  # ---------------------------------------------------------------------------
+  # Classification Types
+  # ---------------------------------------------------------------------------
   type FunctionalClassification {
     functional_code: ID!
     functional_name: String!
@@ -79,7 +103,7 @@ export const types = `
       limit: Int
       offset: Int
       reportId: String
-      accountCategory: String
+      accountCategory: AccountCategory
     ): ExecutionLineItemConnection!
   }
 
@@ -96,7 +120,7 @@ export const types = `
       limit: Int
       offset: Int
       reportId: String
-      accountCategory: String
+      accountCategory: AccountCategory
     ): ExecutionLineItemConnection!
   }
 
@@ -113,7 +137,7 @@ export const types = `
       limit: Int
       offset: Int
       reportId: String
-      accountCategory: String
+      accountCategory: AccountCategory
     ): ExecutionLineItemConnection!
   }
 
@@ -134,7 +158,7 @@ export const types = `
       offset: Int
       functionalCode: String
       economicCode: String
-      accountCategory: String
+      accountCategory: AccountCategory
       minAmount: Float
       maxAmount: Float
     ): ExecutionLineItemConnection!
@@ -152,7 +176,7 @@ export const types = `
     funding_source_id: Int!
     functional_code: String!
     economic_code: String
-    account_category: String!
+    account_category: AccountCategory!
     amount: Float!
     program_code: String
     year: Int!
@@ -171,6 +195,9 @@ export const types = `
   }
 
 
+  # ---------------------------------------------------------------------------
+  # Filters & Inputs
+  # ---------------------------------------------------------------------------
   # Input types for filtering
   input EntityFilter {
     cui: String
@@ -213,8 +240,8 @@ export const types = `
     funding_source_ids: [ID]
     functional_codes: [String]
     economic_codes: [String]
-    account_categories: [String]
-    account_category: String
+    account_categories: [AccountCategory]
+    account_category: AccountCategory
     min_amount: Float
     max_amount: Float
     program_code: String
@@ -234,18 +261,9 @@ export const types = `
     expense_types: [String]
   }
 
-  input SortOrder {
-    by: String!
-    order: String!
-  }
-
-  # Input for defining sorting criteria
-  enum SortDirection {
-    ASC
-    DESC
-  }
-
-  # --- START: Types for Heatmap Analytics ---
+  # ---------------------------------------------------------------------------
+  # Analytics Types
+  # ---------------------------------------------------------------------------
 
   # Data point for UAT-level heatmap visualization
   type HeatmapUATDataPoint {
@@ -275,7 +293,7 @@ export const types = `
   input HeatmapFilterInput {
     functional_codes: [String!]    # Optional: filter by functional classification codes
     economic_codes: [String!]      # Optional: filter by economic classification codes
-    account_categories: [String!]! # Mandatory: e.g., ["ch"] for expenses, ["vn"] for income
+    account_categories: [AccountCategory!]! # Mandatory: e.g., [ch] for expenses, [vn] for income
     years: [Int!]!                 # Mandatory: list of years to include
     min_amount: Float              # Optional: filter individual line items by minimum amount
     max_amount: Float              # Optional: filter individual line items by maximum amount
@@ -287,6 +305,63 @@ export const types = `
   }
 
   # --- END: Types for Heatmap Analytics ---
+
+  # ---------------------------------------------------------------------------
+  # Entity Analytics Types
+  # ---------------------------------------------------------------------------
+  type EntityAnalyticsDataPoint {
+    entity_cui: ID!
+    entity_name: String!
+    entity_type: String
+    uat_id: ID
+    county_code: String
+    county_name: String
+    population: Int
+    amount: Float!
+    total_amount: Float!
+    per_capita_amount: Float!
+  }
+
+  type EntityAnalyticsConnection {
+    nodes: [EntityAnalyticsDataPoint!]!
+    pageInfo: PageInfo!
+  }
+
+  input EntityAnalyticsFilterInput {
+    # Required aggregation scope
+    account_category: AccountCategory!
+    years: [Int!]!
+
+    # Execution line item filters
+    report_id: ID
+    report_ids: [ID]
+    report_type: String
+    entity_cuis: [String]
+    functional_codes: [String]
+    functional_prefixes: [String]
+    economic_codes: [String]
+    economic_prefixes: [String]
+    funding_source_id: ID
+    funding_source_ids: [ID]
+    budget_sector_id: ID
+    budget_sector_ids: [ID]
+    expense_types: [String]
+    program_code: String
+    reporting_year: Int
+    county_code: String
+    county_codes: [String]
+    uat_ids: [ID]
+    entity_types: [String]
+    is_uat: Boolean
+
+    # Entity-level filters
+    search: String
+
+    # Aggregated constraints & transforms
+    min_amount: Float
+    max_amount: Float
+    normalization: String # 'total' or 'per-capita' (also accept 'per_capita')
+  }
 
   input FunctionalClassificationFilterInput {
     search: String
@@ -309,6 +384,7 @@ export const types = `
     pageInfo: PageInfo!
   }
 
+  # Budget Sectors
   type BudgetSector {
     sector_id: ID!
     sector_description: String!
@@ -343,7 +419,37 @@ export const types = `
     yearlyTrend: [YearlyAmount!]!
   }
 
-  # Query root type
+  # ---------------------------------------------------------------------------
+  # Dataset Types
+  # ---------------------------------------------------------------------------
+  type Dataset {
+    id: ID!
+    name: String!
+    unit: String!
+    description: String
+    sourceName: String
+    sourceUrl: String
+  }
+
+  type DatasetConnection {
+    nodes: [Dataset!]!
+    pageInfo: PageInfo!
+  }
+
+  input DatasetFilter {
+    search: String
+    ids: [ID!]
+  }
+
+  type StaticAnalyticsDataPoint {
+    datasetId: ID!
+    unit: String!
+    yearlyTrend: [YearlyAmount!]!
+  }
+
+  # ---------------------------------------------------------------------------
+  # Root Query
+  # ---------------------------------------------------------------------------
   type Query {
     # Basic entity queries
     entity(cui: ID!): Entity
@@ -413,39 +519,18 @@ export const types = `
 
     executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
 
+    # Entities analytics with flexible filters and sorting
+    entityAnalytics(
+      filter: EntityAnalyticsFilterInput!
+      sort: SortOrder
+      limit: Int = 50
+      offset: Int = 0
+    ): EntityAnalyticsConnection!
+
     # Query to search for datasets with pagination
     datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0): DatasetConnection!
  
     # Query to fetch analytics data for a list of dataset IDs
     staticChartAnalytics(datasetIds: [ID!]!): [StaticAnalyticsDataPoint!]!
-  }
-
-  # 1. A type to represent a dataset
-  type Dataset {
-    id: ID!
-    name: String!
-    unit: String!
-    description: String
-    sourceName: String
-    sourceUrl: String
-  }
-
-  # 2. A connection type for paginated datasets
-  type DatasetConnection {
-    nodes: [Dataset!]!
-    pageInfo: PageInfo!
-  }
-
-  # 3. An input type for filtering datasets
-  input DatasetFilter {
-    search: String
-    ids: [ID!]
-  }
-
-  # 4. A type for the data points returned for a static series
-  type StaticAnalyticsDataPoint {
-    datasetId: ID!
-    unit: String!
-    yearlyTrend: [YearlyAmount!]!
   }
 `;

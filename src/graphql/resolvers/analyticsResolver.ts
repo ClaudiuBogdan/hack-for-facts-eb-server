@@ -2,6 +2,7 @@ import { HeatmapUATDataPoint_GQL, HeatmapUATDataPoint_Repo, uatAnalyticsReposito
 import { executionLineItemRepository, judetAnalyticsRepository, entityRepository } from '../../db/repositories';
 import { GraphQLResolveInfo } from 'graphql';
 import { HeatmapFilterInput, HeatmapJudetDataPoint_GQL, HeatmapJudetDataPoint_Repo } from "../../db/repositories/judetAnalyticsRepository";
+import { entityAnalyticsRepository } from "../../db/repositories";
 
 
 interface AnalyticsArgs {
@@ -70,6 +71,25 @@ export const analyticsResolver = {
         }
         return result;
       }));
+    },
+    async entityAnalytics(
+      _parent: unknown,
+      args: { filter: any; sort?: { by: string; order: 'ASC' | 'DESC' }; limit?: number; offset?: number },
+      _context: unknown,
+      _info: GraphQLResolveInfo
+    ) {
+      // Map normalization alias 'per_capita' to 'per-capita'
+      const normalization = args.filter?.normalization === 'per_capita' ? 'per-capita' : args.filter?.normalization;
+      const filter = { ...args.filter, normalization };
+      const { rows, totalCount } = await entityAnalyticsRepository.getEntityAnalytics(filter, args.sort as any, args.limit, args.offset);
+      return {
+        nodes: rows,
+        pageInfo: {
+          totalCount,
+          hasNextPage: (args.offset ?? 0) + (args.limit ?? 50) < totalCount,
+          hasPreviousPage: (args.offset ?? 0) > 0,
+        },
+      };
     },
   },
   HeatmapJudetDataPoint: {
