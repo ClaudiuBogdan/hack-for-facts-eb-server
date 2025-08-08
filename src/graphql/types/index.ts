@@ -220,6 +220,7 @@ export const types = /* GraphQL */ `
     county_name: String
     region: String
     search: String
+    is_county: Boolean
   }
 
   input ReportFilter {

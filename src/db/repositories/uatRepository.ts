@@ -14,6 +14,7 @@ export interface UATFilter {
   county_name?: string;   // Exact or partial match
   region?: string;
   search?: string;        // pg_trgm based search
+  is_county?: boolean;    // Filter to only county-level UATs (special-case Bucharest)
 }
 
 // Similarity threshold for pg_trgm searches (tune for Romanian strings)
@@ -105,6 +106,12 @@ export const uatRepository = {
       params.push(filter.region);
     }
 
+    // County-level UAT filter
+    if (filter.is_county !== undefined) {
+      const isCountyExpr = `(siruta_code = county_code OR (county_code = 'B' AND siruta_code = '179132'))`;
+      conditions.push(filter.is_county ? isCountyExpr : `NOT ${isCountyExpr}`);
+    }
+
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const { selectExtra, orderBy } = buildOrderAndSelect(filter);
 
@@ -190,6 +197,11 @@ export const uatRepository = {
     if (filter.region) {
       conditions.push(`region = $${params.length + 1}`);
       params.push(filter.region);
+    }
+
+    if (filter.is_county !== undefined) {
+      const isCountyExpr = `(siruta_code = county_code OR (county_code = 'B' AND siruta_code = '179132'))`;
+      conditions.push(filter.is_county ? isCountyExpr : `NOT ${isCountyExpr}`);
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
