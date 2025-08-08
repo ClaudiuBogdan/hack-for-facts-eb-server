@@ -13,6 +13,12 @@ data:
   # CORS allowed origins (comma-separated full URLs). Example:
   #   https://app.example.com,https://www.example.com
   ALLOWED_ORIGINS: ""
+  # Rate limiting
+  RATE_LIMIT_MAX: "300"
+  RATE_LIMIT_WINDOW: "1 minute"
+  # Special service key & limits (use a Kubernetes Secret for the real key in overlays)
+  SPECIAL_RATE_LIMIT_HEADER: "x-api-key"
+  SPECIAL_RATE_LIMIT_MAX: "1200"
   
   # Logging Configuration
   LOG_LEVEL: "debug"

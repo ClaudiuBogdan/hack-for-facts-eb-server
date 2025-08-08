@@ -19,6 +19,12 @@ export const config = {
   dbIdleInTxTimeoutMs: process.env.DB_IDLE_IN_TX_TIMEOUT_MS ? parseInt(process.env.DB_IDLE_IN_TX_TIMEOUT_MS, 10) : undefined,
   dbUseSSL: (process.env.DB_USE_SSL || '').toLowerCase() === 'true',
   dbRejectUnauthorizedSSL: (process.env.DB_REJECT_UNAUTHORIZED_SSL || '').toLowerCase() === 'true',
+  // Rate limit config
+  rateLimitMax: process.env.RATE_LIMIT_MAX ? parseInt(process.env.RATE_LIMIT_MAX, 10) : 300,
+  rateLimitTimeWindow: process.env.RATE_LIMIT_WINDOW || "1 minute",
+  specialRateLimitKey: process.env.SPECIAL_RATE_LIMIT_KEY || "",
+  specialRateLimitHeader: (process.env.SPECIAL_RATE_LIMIT_HEADER || "x-api-key").toLowerCase(),
+  specialRateLimitMax: process.env.SPECIAL_RATE_LIMIT_MAX ? parseInt(process.env.SPECIAL_RATE_LIMIT_MAX, 10) : 1200,
 };
 
 export default config;

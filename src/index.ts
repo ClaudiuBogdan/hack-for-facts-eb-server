@@ -65,8 +65,22 @@ fastify.register(fastifyCors, {
   credentials: true,
 });
 fastify.register(rateLimit, {
-  max: 300, // per timeWindow per ip
-  timeWindow: "1 minute",
+  max: (req, _res) => {
+    const headerName = config.specialRateLimitHeader;
+    const provided = String(req.headers[headerName] || "").trim();
+    if (provided && config.specialRateLimitKey && provided === config.specialRateLimitKey) {
+      return config.specialRateLimitMax;
+    }
+    return config.rateLimitMax;
+  },
+  timeWindow: config.rateLimitTimeWindow,
+  keyGenerator: (req) => {
+    // Prefer API key identity when present; fallback to IP
+    const headerName = config.specialRateLimitHeader;
+    const provided = String(req.headers[headerName] || "").trim();
+    if (provided) return `apiKey:${provided}`;
+    return req.ip;
+  },
 });
 
 // Register Mercurius GraphQL

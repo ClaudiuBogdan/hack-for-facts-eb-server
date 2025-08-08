@@ -217,6 +217,8 @@ Environment variables (required/important):
 - DATABASE_URL=postgres://...
 - ALLOWED_ORIGINS=comma-separated list of absolute URLs allowed by CORS in production, e.g. `https://app.example.com,https://www.example.com`
 - CLIENT_BASE_URL/PUBLIC_CLIENT_BASE_URL=primary client URL (used for deep links)
+ - RATE_LIMIT_MAX and RATE_LIMIT_WINDOW to tune default rate limiting
+ - SPECIAL_RATE_LIMIT_HEADER (default `x-api-key`), SPECIAL_RATE_LIMIT_MAX, and SPECIAL_RATE_LIMIT_KEY (secret) to grant higher limits to special services
 
 Security notes:
 
