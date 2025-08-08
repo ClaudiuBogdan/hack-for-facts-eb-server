@@ -2,7 +2,16 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import pool from "../db/connection";
 
 export default async function healthzRoutes(fastify: FastifyInstance) {
-  fastify.get("/healthz", async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get("/healthz", {
+    schema: {
+      tags: ["Health"],
+      description: "Liveness and DB connectivity probe.",
+      response: {
+        200: { type: "string", example: "OK" },
+        503: { type: "string", example: "Service Unavailable" },
+      },
+    },
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       // Check database connection
       await pool.query("SELECT 1");

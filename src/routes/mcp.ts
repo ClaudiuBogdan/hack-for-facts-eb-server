@@ -88,12 +88,20 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
   // --- >>> MCP Definition Endpoint <<< ---
   // This endpoint exposes the structure and capabilities of the API
   // for programmatic consumption (e.g., by LLMs).
-  fastify.get(
-    "/mcp/v1/definition",
-    async (request, reply): Promise<McpDefinition> => {
-      return reply.status(200).send(mcpDefinition);
-    }
-  );
+  fastify.get("/mcp/v1/definition", {
+    schema: {
+      tags: ["AI"],
+      summary: "Model Context Protocol description of the GraphQL API",
+      response: {
+        200: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+    },
+  }, async (request, reply): Promise<McpDefinition> => {
+    return reply.status(200).send(mcpDefinition);
+  });
 
   return fastify;
 }

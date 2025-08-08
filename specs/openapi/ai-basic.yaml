@@ -1,0 +1,442 @@
+openapi: 3.1.0
+info:
+  title: Transparenta.eu - Basic AI API
+  description: |
+    Basic AI endpoints for search and entity details. Designed for AI systems to fetch precise public spending data and provide deep links into the client.
+  version: 1.0.0
+servers:
+  - url: https://related-kiwi-epic.ngrok-free.app
+    description: Public tunnel (demo)
+tags:
+  - name: AI Basic
+    description: Basic AI-friendly data retrieval endpoints (search, entity details)
+paths:
+  /ai/v1/entities/search:
+    get:
+      operationId: getAiEntitiesSearch
+      tags: [AI Basic]
+      summary: Search entities by name/CUI (fuzzy)
+      description: |
+        Fuzzy search across entity name and CUI. Returns a list of matching entities. Use the CUI in subsequent calls when possible.
+      parameters:
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+          description: Free-text, fuzzy across entity name and CUI.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 25
+          description: Max number of results to return.
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Offset for pagination.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIResponseEntitiesSearch'
+        '400':
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ai/v1/entities/details:
+    get:
+      operationId: getAiEntityDetails
+      tags: [AI Basic]
+      summary: Entity details by CUI or search
+      description: |
+        Returns entity profile, yearly totals, trends, execution lines, and grouped expense/income (chapter → functional → economic). Identify by `cui` or fuzzy `search` (name/CUI). Supports `expenseSearch`/`incomeSearch` (plain text, `fn:<code>`, `ec:<code>`). UI params only affect the deep link.
+      parameters:
+        - in: query
+          name: cui
+          schema:
+            type: string
+          description: Exact CUI of the entity (preferred when known).
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Free-text fuzzy search across name and CUI; first match is used when CUI is not provided.
+        - in: query
+          name: year
+          schema:
+            type: integer
+            minimum: 2016
+            maximum: 2100
+            default: 2024
+          description: Reporting year for snapshot totals and execution lines.
+        - in: query
+          name: startYear
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+            default: 2016
+          description: Start of inclusive range for trend series.
+        - in: query
+          name: endYear
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+            default: 2025
+          description: End of inclusive range for trend series.
+        - in: query
+          name: view
+          schema:
+            type: string
+            enum: [overview, map, income-trends, expense-trends]
+          description: Forwarded to client deep-link (does not change server result).
+        - in: query
+          name: trend
+          schema:
+            type: string
+            enum: [absolute, percent]
+          description: Forwarded to client deep-link (does not change server result).
+        - in: query
+          name: expenseSearch
+          schema:
+            type: string
+          description: |
+            Server-side filter for expenseGroups. Supports plain text and code prefixes: fn:<code> for functional codes (e.g., fn:65.03.02), ec:<code> for economic codes (e.g., ec:10.01.01). Case-insensitive.
+        - in: query
+          name: incomeSearch
+          schema:
+            type: string
+          description: |
+            Server-side filter for incomeGroups. Supports plain text and code prefixes: fn:<code> for functional codes (e.g., fn:65.03.02), ec:<code> for economic codes (e.g., ec:10.01.01). Case-insensitive.
+        - in: query
+          name: analyticsChartType
+          schema:
+            type: string
+            enum: [bar, pie]
+          description: Forwarded to client deep-link (does not change server result).
+        - in: query
+          name: analyticsDataType
+          schema:
+            type: string
+            enum: [income, expense]
+          description: Forwarded to client deep-link (does not change server result).
+        - in: query
+          name: mapFilters
+          style: deepObject
+          explode: true
+          schema:
+            $ref: '#/components/schemas/MapFilters'
+          description: Forwarded to client deep-link (does not change server result).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIResponseEntityDetails'
+        '400':
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+        details:
+          nullable: true
+    Link:
+      type: object
+      properties:
+        absolute:
+          type: string
+          nullable: true
+          description: Absolute URL when CLIENT_BASE_URL is configured
+        relative:
+          type: string
+        route:
+          type: string
+        query:
+          type: string
+    PageInfo:
+      type: object
+      properties:
+        totalCount:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    EntitySummary:
+      type: object
+      additionalProperties: true
+      properties:
+        cui:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+          nullable: true
+        entity_type:
+          type: string
+          nullable: true
+        is_uat:
+          type: boolean
+          nullable: true
+        is_main_creditor:
+          type: boolean
+          nullable: true
+
+    EntitiesSearchData:
+      type: object
+      properties:
+        kind:
+          type: string
+          const: entities.search
+        query:
+          type: object
+          properties:
+            search: { type: string }
+            limit: { type: integer }
+            offset: { type: integer }
+        link:
+          $ref: '#/components/schemas/Link'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntitySummary'
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+
+    AIResponseEntitiesSearch:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/EntitiesSearchData'
+
+    TrendPoint:
+      type: object
+      properties:
+        year:
+          type: integer
+        totalAmount:
+          type: number
+
+    GroupedEconomic:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        amount:
+          type: number
+
+    GroupedFunctional:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        totalAmount:
+          type: number
+        economics:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupedEconomic'
+
+    GroupedChapter:
+      type: object
+      properties:
+        prefix:
+          type: string
+        description:
+          type: string
+        totalAmount:
+          type: number
+        functionals:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupedFunctional'
+
+    ExecutionLineItemEnriched:
+      type: object
+      properties:
+        account_category:
+          type: string
+          enum: [vn, ch]
+        amount:
+          type: number
+        functionalClassification:
+          type: object
+          nullable: true
+          properties:
+            functional_code: { type: string }
+            functional_name: { type: string }
+        economicClassification:
+          type: object
+          nullable: true
+          properties:
+            economic_code: { type: string }
+            economic_name: { type: string }
+
+    ReportSummary:
+      type: object
+      properties:
+        report_id: { type: string }
+        reporting_year: { type: integer }
+        report_type: { type: string }
+        report_date: { type: string }
+        download_links:
+          description: May be an object or list of URLs depending on source
+          nullable: true
+    EntityDetails:
+      type: object
+      properties:
+        cui: { type: string }
+        name: { type: string }
+        address: { type: string, nullable: true }
+        entity_type: { type: string, nullable: true }
+        is_uat: { type: boolean, nullable: true }
+        is_main_creditor: { type: boolean, nullable: true }
+        uat: { nullable: true }
+        children:
+          type: array
+          items:
+            type: object
+            properties:
+              cui: { type: string }
+              name: { type: string }
+        parents:
+          type: array
+          items:
+            type: object
+            properties:
+              cui: { type: string }
+              name: { type: string }
+        totalIncome: { type: number, nullable: true }
+        totalExpenses: { type: number, nullable: true }
+        budgetBalance: { type: number, nullable: true }
+        incomeTrend:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+        expenseTrend:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+        balanceTrend:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+        expenseGroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupedChapter'
+        incomeGroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupedChapter'
+        reports:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReportSummary'
+        executionLineItems:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/ExecutionLineItemEnriched'
+
+    EntityDetailsData:
+      type: object
+      properties:
+        kind:
+          type: string
+          const: entities.details
+        query:
+          type: object
+          properties:
+            cui: { type: string }
+            year: { type: integer }
+            startYear: { type: integer }
+            endYear: { type: integer }
+            view: { type: string }
+            trend: { type: string }
+            expenseSearch: { type: string }
+            incomeSearch: { type: string }
+            analyticsChartType: { type: string }
+            analyticsDataType: { type: string }
+            mapFilters:
+              $ref: '#/components/schemas/MapFilters'
+        link:
+          $ref: '#/components/schemas/Link'
+        item:
+          $ref: '#/components/schemas/EntityDetails'
+        raw:
+          type: object
+          description: Underlying raw records used to derive the item
+
+    AIResponseEntityDetails:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/EntityDetailsData'
+
+    MapFilters:
+      type: object
+      description: Filters used by the client map views (forwarded only)
+      properties:
+        years:
+          type: array
+          items:
+            type: integer
+        account_categories:
+          type: array
+          items:
+            type: string
+            enum: [vn, ch]
+        normalization:
+          type: string
+          enum: [per_capita, total]
+
+

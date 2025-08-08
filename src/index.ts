@@ -4,6 +4,8 @@ import fastifyCors from "@fastify/cors";
 import { schema } from "./graphql/schemas";
 import config from "./config";
 import applicationRoutes from "./routes";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUI from "@fastify/swagger-ui";
 
 // Initialize Fastify server
 const fastify = Fastify({
@@ -23,6 +25,27 @@ fastify.register(mercurius, {
   schema,
   graphiql: true,  // TODO config.nodeEnv === "development", // Enable GraphiQL in development
   path: "/graphql",
+});
+
+// Register Swagger/OpenAPI for REST endpoints
+fastify.register(fastifySwagger, {
+  openapi: {
+    info: {
+      title: "Hack for Facts - Public Spending API",
+      description: "REST endpoints designed for AI agents and tools to fetch Romanian public spending data in a compact, structured format.",
+      version: "1.0.0",
+    },
+    servers: [{ url: "/" }],
+    tags: [
+      { name: "AI", description: "AI-friendly simplified and aggregated endpoints" },
+      { name: "Health", description: "Health check endpoints" },
+    ],
+  },
+});
+
+fastify.register(fastifySwaggerUI, {
+  routePrefix: "/docs",
+  staticCSP: true,
 });
 
 // Register routes
