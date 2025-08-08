@@ -168,7 +168,7 @@ NODE_ENV=development
 yarn dev
 ```
 
-4. Access GraphiQL playground: http://localhost:3000/graphiql
+4. Access GraphiQL playground: http://localhost:3000/graphiql (disabled in production)
 
 ### Example Queries
 
@@ -207,6 +207,23 @@ query GetReportWithAnalytics {
   }
 }
 ```
+
+## Production Setup
+
+Environment variables (required/important):
+
+- NODE_ENV=production
+- PORT=3000 (or set via `APP_PORT` in k8s configmap)
+- DATABASE_URL=postgres://...
+- ALLOWED_ORIGINS=comma-separated list of absolute URLs allowed by CORS in production, e.g. `https://app.example.com,https://www.example.com`
+- CLIENT_BASE_URL/PUBLIC_CLIENT_BASE_URL=primary client URL (used for deep links)
+
+Security notes:
+
+- GraphQL introspection and GraphiQL are disabled in production.
+- GraphQL depth limit is set to 8; batched queries are disabled.
+- Rate limiting is enabled (300 req/min/ip) and request body size is capped (~1MB).
+- Swagger UI is available only in non-production environments at `/docs`.
 
 ## API Documentation
 

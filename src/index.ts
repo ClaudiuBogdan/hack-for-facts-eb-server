@@ -25,15 +25,44 @@ const fastify = Fastify({
 fastify.register(helmet);
 fastify.register(fastifyCors, {
   origin: (origin, cb) => {
-    // Allow in dev; restrict to configured client base in prod
+    // Allow server-to-server or same-origin requests
     if (!origin) return cb(null, true);
-    const isDev = config.nodeEnv !== "production";
-    if (isDev) return cb(null, true);
-    const allowed = (process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "").replace(/\/$/, "");
-    if (allowed && origin.startsWith(allowed)) return cb(null, true);
+    // Allow everything in non-prod
+    if (config.nodeEnv !== "production") return cb(null, true);
+
+    const allowedRaw = (process.env.ALLOWED_ORIGINS || process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "").trim();
+    if (!allowedRaw) return cb(new Error("CORS origin not allowed"), false);
+    const allowedList = allowedRaw.split(",").map((s) => s.trim()).filter(Boolean);
+
+    try {
+      const originUrl = new URL(origin);
+      const isAllowed = allowedList.some((allowed) => {
+        try {
+          const allowedUrl = new URL(allowed);
+          const hostMatch = originUrl.hostname === allowedUrl.hostname;
+          const protoMatch = originUrl.protocol === allowedUrl.protocol;
+          const portMatch = allowedUrl.port ? originUrl.port === allowedUrl.port : true;
+          return hostMatch && protoMatch && portMatch;
+        } catch {
+          return false;
+        }
+      });
+      if (isAllowed) return cb(null, true);
+    } catch {
+      // fallthrough to deny
+    }
     cb(new Error("CORS origin not allowed"), false);
   },
   methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: [
+    "content-type",
+    "x-requested-with",
+    "authorization",
+    "x-api-key",
+    "accept",
+  ],
+  exposedHeaders: ["content-length"],
+  credentials: true,
 });
 fastify.register(rateLimit, {
   max: 300, // per timeWindow per ip

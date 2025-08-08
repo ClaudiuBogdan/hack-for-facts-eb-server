@@ -10,6 +10,9 @@ data:
   APP_NAME: "hack-for-facts-eb-server"
   NODE_ENV: "production"
   APP_PORT: "3000"
+  # CORS allowed origins (comma-separated full URLs). Example:
+  #   https://app.example.com,https://www.example.com
+  ALLOWED_ORIGINS: ""
   
   # Logging Configuration
   LOG_LEVEL: "debug"
