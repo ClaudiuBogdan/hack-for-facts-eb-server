@@ -56,7 +56,7 @@ export function buildClientLink(opts: BuildClientLinkOptions): {
   const query = buildQuery({ view: opts.view, filters: encodedFilters, ...opts.extraParams });
 
   const relative = `${baseRoute}${query}`;
-  const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL;
+  const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
   const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${relative}` : undefined;
 
   return { absolute, relative, route: baseRoute, query };
@@ -90,7 +90,7 @@ export function buildEntityDetailsLink(cui: string, search?: Record<string, stri
   const baseRoute = `/entities/${encodeURIComponent(cui)}`;
   const query = buildQuery(search || {});
   const relative = `${baseRoute}${query}`;
-  const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL;
+  const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
   const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${relative}` : undefined;
   return { absolute, relative };
 }
