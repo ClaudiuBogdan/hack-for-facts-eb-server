@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 
-const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap' });
+const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap', maxSize: 150 * 1024 * 1024, maxItems: 30000 });
 
 // Type matching the GraphQL Schema for HeatmapUATDataPoint
 export interface HeatmapUATDataPoint_GQL {

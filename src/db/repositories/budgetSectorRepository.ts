@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache } from "../../utils/cache";
 
-const cache = createCache<BudgetSector>({ name: 'budgetSector' });
+const cache = createCache<BudgetSector>({ name: 'budgetSector', maxItems: 1000, maxSize: 2 * 1024 * 1024 });
 
 const buildFilterQuery = (
   filters: BudgetSectorFilter,

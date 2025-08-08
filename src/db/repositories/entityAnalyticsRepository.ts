@@ -73,8 +73,8 @@ export interface EntityAnalyticsDataPoint_Repo {
 
 const cache = createCache<EntityAnalyticsDataPoint_Repo[]>({
   name: "entity_analytics",
-  maxSize: 200 * 1024 * 1024,
-  maxItems: 10000,
+  maxSize: 300 * 1024 * 1024, // Entity analytics can be large; allow up to 300MB
+  maxItems: 30000,
 });
 
 function buildEntityAnalyticsWhere(
@@ -360,6 +360,11 @@ export const entityAnalyticsRepository = {
 
     const countResult = await pool.query(countQuery, values);
     const totalCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
+
+    // If we have cached rows for this exact request (filter+sort+pagination), return them
+    if (cached) {
+      return { rows: cached, totalCount };
+    }
 
     let finalQuery = query;
     let paramIndex = afterHavingIndex;

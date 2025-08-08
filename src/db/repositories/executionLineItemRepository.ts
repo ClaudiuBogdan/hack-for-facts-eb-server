@@ -4,15 +4,19 @@ import { createCache, getCacheKey } from "../../utils/cache";
 
 const analyticsCache = createCache({
   name: 'executionLineItemAnalytics',
-  maxSize: 200 * 1024 * 1024, // 200 MB
-  maxItems: 10000,
+  maxSize: 150 * 1024 * 1024, // analytics scalars & trends fit in smaller cache
+  maxItems: 20000,
 });
 
 const executionLineItemCache = createCache<ExecutionLineItem[]>({
   name: 'executionLineItem',
+  maxSize: 100 * 1024 * 1024,
+  maxItems: 10000,
 });
 const countCache = createCache<{ count: number }>({
   name: 'executionLineItemCount',
+  maxSize: 20 * 1024 * 1024,
+  maxItems: 20000,
 });
 
 // --- Constants for Table and View Names ---

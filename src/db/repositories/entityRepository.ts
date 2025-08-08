@@ -2,9 +2,9 @@ import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { Entity } from "../models";
 
-const entityCache = createCache<Entity>({ name: 'entity', maxItems: 20_000 }); // Romania has around 14k entities
-const entitiesCache = createCache<Entity[]>({ name: 'entities' });
-const countCache = createCache<{ count: number }>({ name: 'entityCount' });
+const entityCache = createCache<Entity>({ name: 'entity', maxItems: 50_000, maxSize: 20 * 1024 * 1024 }); // individual rows are small; prefer many items
+const entitiesCache = createCache<Entity[]>({ name: 'entities', maxItems: 20_000, maxSize: 50 * 1024 * 1024 });
+const countCache = createCache<{ count: number }>({ name: 'entityCount', maxItems: 20_000, maxSize: 10 * 1024 * 1024 });
 
 export interface EntityFilter {
   cui?: string;

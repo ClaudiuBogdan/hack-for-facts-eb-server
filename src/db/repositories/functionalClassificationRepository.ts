@@ -2,7 +2,7 @@ import pool from "../connection";
 import { FunctionalClassification } from "../models";
 import { createCache } from "../../utils/cache";
 
-const cache = createCache<FunctionalClassification>({ name: 'functionalClassification' });
+const cache = createCache<FunctionalClassification>({ name: 'functionalClassification', maxItems: 5000, maxSize: 5 * 1024 * 1024 });
 
 export interface FunctionalClassificationFilter {
   search?: string;

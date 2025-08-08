@@ -25,6 +25,17 @@ export const config = {
   specialRateLimitKey: process.env.SPECIAL_RATE_LIMIT_KEY || "",
   specialRateLimitHeader: (process.env.SPECIAL_RATE_LIMIT_HEADER || "x-api-key").toLowerCase(),
   specialRateLimitMax: process.env.SPECIAL_RATE_LIMIT_MAX ? parseInt(process.env.SPECIAL_RATE_LIMIT_MAX, 10) : 1200,
+  // Cache config
+  cache: {
+    // Defaults chosen for analytics-heavy workloads; override via env
+    enabled: (process.env.CACHE_ENABLED || 'true').toLowerCase() === 'true',
+    // Global default TTL for entries unless module overrides
+    ttlMs: process.env.CACHE_TTL_MS ? parseInt(process.env.CACHE_TTL_MS, 10) : 1000 * 60 * 60, // 1 hour
+    // Memory cap across caches (soft per LRU instance). Modules can set lower caps.
+    maxSizeBytes: process.env.CACHE_MAX_SIZE_BYTES ? parseInt(process.env.CACHE_MAX_SIZE_BYTES, 10) : 200 * 1024 * 1024, // 200MB
+    // Max items per cache
+    maxItems: process.env.CACHE_MAX_ITEMS ? parseInt(process.env.CACHE_MAX_ITEMS, 10) : 20000,
+  },
 };
 
 export default config;

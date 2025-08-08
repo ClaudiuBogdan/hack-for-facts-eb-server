@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 
-const cache = createCache<HeatmapJudetDataPoint_Repo[]>({ name: 'heatmap_judet' });
+const cache = createCache<HeatmapJudetDataPoint_Repo[]>({ name: 'heatmap_judet', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
 // This should be moved to a central types file, e.g. src/graphql/types/index.ts
 export interface HeatmapFilterInput {

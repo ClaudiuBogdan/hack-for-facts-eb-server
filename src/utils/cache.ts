@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache';
 import { createHash } from 'crypto';
+import { config } from '../config';
 
 // --- Interfaces and Types for Cache Configuration ---
 interface CacheOptions {
@@ -22,18 +23,36 @@ const sizeCalculation = (value: any, key: string): number => {
     const valueSize = Buffer.from(JSON.stringify(value)).length;
     const keySize = Buffer.from(key).length;
     const totalSize = valueSize + keySize;
-    console.log(`Size of ${key}: ${totalSize} bytes`);
+    if (process.env.CACHE_DEBUG === 'true') {
+        console.log(`Size of ${key}: ${totalSize} bytes`);
+    }
     return totalSize;
 };
 
 // Factory function to create a cache instance
 export function createCache<T extends Record<string, any> = any>(options?: Partial<CacheOptions>) {
-    const { maxSize, maxItems } = { ...defaultOptions, ...options };
-    console.log(`Creating cache with maxSize: ${maxSize} bytes and maxItems: ${maxItems} for ${options?.name}`);
+    const merged = { ...defaultOptions, ttl: config.cache.ttlMs, ...options } as CacheOptions;
+    const { maxSize, maxItems, ttl, name } = merged;
+    if (process.env.CACHE_DEBUG === 'true') {
+        console.log(`Creating cache '${name}' with maxSize: ${maxSize} bytes, maxItems: ${maxItems}, ttl: ${ttl} ms`);
+    }
+    // Allow disabling caches globally via config
+    if (!config.cache.enabled) {
+        // Provide a no-op cache with the same interface subset we use
+        const noop = new Map<string, T>();
+        return {
+            get: (key: string) => noop.get(key),
+            set: (key: string, value: T) => { noop.set(key, value); return true; },
+            delete: (key: string) => noop.delete(key),
+            has: (key: string) => noop.has(key),
+            clear: () => noop.clear(),
+        } as unknown as LRUCache<string, T>;
+    }
+
     const cache = new LRUCache<string, T>({
         max: maxItems,
-        maxSize: maxSize,
-        ttl: options?.ttl,
+        maxSize: Math.min(maxSize, config.cache.maxSizeBytes),
+        ttl,
         sizeCalculation,
     });
 
@@ -61,6 +80,6 @@ export const getCacheKey = (data: Record<string, any>): string => {
     const sortedData = sortObjectKeys(data);
     const stringifiedData = JSON.stringify(sortedData);
     const hash = createHash('sha256');
-    hash.update(JSON.stringify(stringifiedData));
+    hash.update(stringifiedData);
     return hash.digest('hex');
 }; 

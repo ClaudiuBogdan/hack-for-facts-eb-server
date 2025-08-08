@@ -2,7 +2,7 @@ import pool from "../connection";
 import { EconomicClassification } from "../models";
 import { createCache } from "../../utils/cache";
 
-const cache = createCache<EconomicClassification>({ name: 'economicClassification' });
+const cache = createCache<EconomicClassification>({ name: 'economicClassification', maxItems: 5000, maxSize: 5 * 1024 * 1024 });
 
 export interface EconomicClassificationFilter {
   search?: string;
