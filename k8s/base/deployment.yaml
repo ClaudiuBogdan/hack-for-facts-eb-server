@@ -55,8 +55,8 @@ spec:
                   fieldPath: metadata.labels['app']
           resources:
             limits:
-              cpu: "1"
-              memory: "1Gi"
+              cpu: "3"
+              memory: "4Gi"
             requests:
               cpu: "100m"
               memory: "128Mi"
