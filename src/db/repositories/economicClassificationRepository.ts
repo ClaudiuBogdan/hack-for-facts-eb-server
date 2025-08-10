@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { EconomicClassification } from "../models";
 import { createCache } from "../../utils/cache";
+import { SqlFilterParts } from "../../types";
 
 const cache = createCache<EconomicClassification>({ name: 'economicClassification', maxItems: 5000, maxSize: 5 * 1024 * 1024 });
 
@@ -99,18 +100,36 @@ function buildOrderAndSelect(
 }
 
 export const economicClassificationRepository = {
+  /**
+   * Unified builder used by both getAll and count.
+   */
+  buildEconomicFilterParts(
+    filter: EconomicClassificationFilter = {},
+    initialIndex: number = 1
+  ): SqlFilterParts {
+    const { clause, params } = buildSearchClause(filter);
+    return {
+      joins: "",
+      where: clause ? ` ${clause}` : "",
+      values: params,
+      nextIndex: initialIndex + params.length,
+    };
+  },
+
   async getAll(
     filter: EconomicClassificationFilter = {},
     limit?: number,
     offset?: number
   ): Promise<EconomicClassification[]> {
-    const { clause, params, isNameSearch } = buildSearchClause(filter);
+    const { where, values } = this.buildEconomicFilterParts(filter);
+    const isNameSearch = !!filter.search && parseEconomicSearch(filter.search).mode === "name";
     const { selectExtra, orderBy } = buildOrderAndSelect(isNameSearch);
 
     // Build base query with optional relevance select
-    let query = `SELECT *${selectExtra} FROM EconomicClassifications ${clause} ${orderBy}`;
+    let query = `SELECT *${selectExtra} FROM EconomicClassifications${where} ${orderBy}`;
 
     // Pagination
+    const params = [...values];
     if (limit !== undefined) {
       params.push(limit);
       query += ` LIMIT $${params.length}`;
@@ -130,11 +149,11 @@ export const economicClassificationRepository = {
   },
 
   async count(filter: EconomicClassificationFilter = {}): Promise<number> {
-    const { clause, params } = buildSearchClause(filter);
-    const query = `SELECT COUNT(*) AS count FROM EconomicClassifications ${clause}`;
+    const { where, values } = this.buildEconomicFilterParts(filter);
+    const query = `SELECT COUNT(*) AS count FROM EconomicClassifications${where}`;
 
     try {
-      const result = await pool.query(query, params);
+      const result = await pool.query(query, values);
       return parseInt(result.rows[0].count, 10);
     } catch (error) {
       console.error("Error counting economic classifications:", error);

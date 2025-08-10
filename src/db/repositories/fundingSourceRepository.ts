@@ -1,6 +1,7 @@
 import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { FundingSource } from "../models";
+import { SqlFilterParts } from "../../types";
 
 // Threshold for pg_trgm similarity
 const SIMILARITY_THRESHOLD = 0.1;
@@ -44,15 +45,30 @@ const buildFilterQuery = (
   };
 }
 export const fundingSourceRepository = {
+  /**
+   * Unified builder used by both getAll and count.
+   */
+  buildFundingSourceFilterParts(
+    filter: FundingSourceFilter = {},
+    initialIndex: number = 1
+  ): SqlFilterParts {
+    const { whereClause, values } = buildFilterQuery(filter, initialIndex);
+    return {
+      joins: "",
+      where: whereClause ? ` ${whereClause}` : "",
+      values,
+      nextIndex: initialIndex + values.length,
+    };
+  },
+
   async getAll(
     filter: FundingSourceFilter = {},
     limit?: number,
     offset?: number
   ): Promise<FundingSource[]> {
-    const { whereClause, values } = buildFilterQuery(filter, 3);
-
-    const queryText = `SELECT * FROM ${TABLE_NAME} ${whereClause} LIMIT $1 OFFSET $2`;
-
+    // Keep the existing $1/$2 shape for limit/offset as this repo encoded earlier
+    const { where, values } = this.buildFundingSourceFilterParts(filter, 3);
+    const queryText = `SELECT * FROM ${TABLE_NAME}${where} LIMIT $1 OFFSET $2`;
     const queryParams = [limit, offset, ...values];
 
     const { rows } = await pool.query<FundingSource>(queryText, queryParams);
@@ -60,10 +76,8 @@ export const fundingSourceRepository = {
   },
 
   async count(filter: FundingSourceFilter = {}): Promise<number> {
-    const { whereClause, values } = buildFilterQuery(filter);
-
-    const queryText = `SELECT COUNT(*) FROM ${TABLE_NAME} ${whereClause}`;
-
+    const { where, values } = this.buildFundingSourceFilterParts(filter);
+    const queryText = `SELECT COUNT(*) FROM ${TABLE_NAME}${where}`;
     const queryParams = [...values];
 
     const { rows } = await pool.query<{ count: string }>(queryText, queryParams);

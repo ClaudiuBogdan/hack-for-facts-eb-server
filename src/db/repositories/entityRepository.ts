@@ -1,6 +1,7 @@
 import { createCache } from "../../utils/cache";
 import pool from "../connection";
 import { Entity } from "../models";
+import { SqlFilterParts } from "../../types";
 
 const entityCache = createCache<Entity>({ name: 'entity', maxItems: 50_000, maxSize: 20 * 1024 * 1024 }); // individual rows are small; prefer many items
 const entitiesCache = createCache<Entity[]>({ name: 'entities', maxItems: 20_000, maxSize: 50 * 1024 * 1024 });
@@ -52,60 +53,81 @@ function buildOrderAndSelect(
   return { selectExtra: "", orderBy: "ORDER BY cui ASC" };
 }
 
+/**
+ * Unified builder used by both getAll and count to avoid drift.
+ * Ensures that, when search is present, its parameters occupy $1/$2 consistently
+ * so that order/select relevance clauses can safely reference $1.
+ */
+export function buildEntityFilterParts(
+  filter: EntityFilter,
+  initialIndex: number = 1
+): SqlFilterParts {
+  const conditions: string[] = [];
+  const values: any[] = [];
+
+  // Search uses fixed $1/$2 to keep ORDER BY stable. Must be appended first.
+  const search = buildSearchCondition(filter);
+  if (search.condition) {
+    if (initialIndex !== 1) {
+      throw new Error("buildEntityFilterParts expects initialIndex=1 when search is used");
+    }
+    conditions.push(search.condition);
+    values.push(...search.params);
+  } else {
+    // Fallback partial matches when search is not used
+    if (filter.name) {
+      conditions.push(`name ILIKE $${values.length + 1}`);
+      values.push(`%${filter.name}%`);
+    }
+    if (filter.address) {
+      conditions.push(`address ILIKE $${values.length + 1}`);
+      values.push(`%${filter.address}%`);
+    }
+  }
+
+  // Exact-match filters
+  if (filter.cui) {
+    conditions.push(`cui = $${values.length + 1}`);
+    values.push(filter.cui);
+  }
+  if (filter.cuis) {
+    conditions.push(`cui = ANY($${values.length + 1}::text[])`);
+    values.push(filter.cuis);
+  }
+  if (filter.entity_type) {
+    conditions.push(`entity_type = $${values.length + 1}`);
+    values.push(filter.entity_type);
+  }
+  if (filter.uat_id !== undefined) {
+    conditions.push(`uat_id = $${values.length + 1}`);
+    values.push(filter.uat_id);
+  }
+  if (filter.is_uat !== undefined) {
+    conditions.push(`is_uat = $${values.length + 1}`);
+    values.push(filter.is_uat);
+  }
+
+  const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+  return {
+    joins: "",
+    where: whereClause,
+    values,
+    nextIndex: initialIndex + values.length,
+  };
+}
+
 export const entityRepository = {
   async getAll(
     filter: EntityFilter = {},
     limit?: number,
     offset?: number
   ): Promise<Entity[]> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    // pg_trgm search across name & address
-    const search = buildSearchCondition(filter);
-    if (search.condition) {
-      conditions.push(search.condition);
-      params.push(...search.params);
-    } else {
-      // fallback filters when no pg_trgm search
-      if (filter.name) {
-        conditions.push(`name ILIKE $${params.length + 1}`);
-        params.push(`%${filter.name}%`);
-      }
-      if (filter.address) {
-        conditions.push(`address ILIKE $${params.length + 1}`);
-        params.push(`%${filter.address}%`);
-      }
-    }
-
-    // other exact-match filters
-    if (filter.cui) {
-      conditions.push(`cui = $${params.length + 1}`);
-      params.push(filter.cui);
-    }
-    if (filter.cuis) {
-      conditions.push(`cui = ANY($${params.length + 1}::text[])`);
-      params.push(filter.cuis);
-    }
-    if (filter.entity_type) {
-      conditions.push(`entity_type = $${params.length + 1}`);
-      params.push(filter.entity_type);
-    }
-    if (filter.uat_id !== undefined) {
-      conditions.push(`uat_id = $${params.length + 1}`);
-      params.push(filter.uat_id);
-    }
-    if (filter.is_uat !== undefined) {
-      conditions.push(`is_uat = $${params.length + 1}`);
-      params.push(filter.is_uat);
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { where, values } = buildEntityFilterParts(filter);
     const { selectExtra, orderBy } = buildOrderAndSelect(filter);
 
-    let query = `SELECT *${selectExtra} FROM Entities ${whereClause} ${orderBy}`;
+    let query = `SELECT *${selectExtra} FROM Entities${where} ${orderBy}`;
+    const params: any[] = [...values];
 
-    // Pagination
     if (limit !== undefined) {
       params.push(limit);
       query += ` LIMIT $${params.length}`;
@@ -188,57 +210,16 @@ export const entityRepository = {
   },
 
   async count(filter: EntityFilter = {}): Promise<number> {
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    // reuse search condition logic
-    const search = buildSearchCondition(filter);
-    if (search.condition) {
-      conditions.push(search.condition);
-      params.push(...search.params);
-    } else {
-      if (filter.name) {
-        conditions.push(`name ILIKE $${params.length + 1}`);
-        params.push(`%${filter.name}%`);
-      }
-      if (filter.address) {
-        conditions.push(`address ILIKE $${params.length + 1}`);
-        params.push(`%${filter.address}%`);
-      }
-    }
-
-    // other exact-match filters
-    if (filter.cui) {
-      conditions.push(`cui = $${params.length + 1}`);
-      params.push(filter.cui);
-    }
-    if (filter.cuis) {
-      conditions.push(`cui = ANY($${params.length + 1}::text[])`);
-      params.push(filter.cuis);
-    }
-    if (filter.entity_type) {
-      conditions.push(`entity_type = $${params.length + 1}`);
-      params.push(filter.entity_type);
-    }
-    if (filter.uat_id !== undefined) {
-      conditions.push(`uat_id = $${params.length + 1}`);
-      params.push(filter.uat_id);
-    }
-    if (filter.is_uat !== undefined) {
-      conditions.push(`is_uat = $${params.length + 1}`);
-      params.push(filter.is_uat);
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const query = `SELECT COUNT(*) AS count FROM Entities ${whereClause}`;
+    const { where, values } = buildEntityFilterParts(filter);
+    const query = `SELECT COUNT(*) AS count FROM Entities${where}`;
 
     try {
-      const cacheKey = `count:${query}:${JSON.stringify(params)}`;
+      const cacheKey = `count:${query}:${JSON.stringify(values)}`;
       const cached = countCache.get(cacheKey);
       if (cached) {
         return cached.count;
       }
-      const result = await pool.query(query, params);
+      const result = await pool.query(query, values);
       const count = parseInt(result.rows[0].count, 10);
       countCache.set(cacheKey, { count });
       return count;

@@ -47,15 +47,6 @@ The page primarily draws data from the following tables and views (as defined in
     *   `FunctionalClassifications` (`functional_name`)
     *   `EconomicClassifications` (`economic_name`)
     *   `FundingSources` (`source_description`)
-*   **Materialized Views (for aggregated data & performance):**
-    *   `vw_ExecutionDetails`: Flattened detailed view.
-    *   `vw_BudgetSummary_ByEntityPeriod`: Aggregated income, expenses, balance per entity/period.
-    *   `vw_ExpenseAnalysis_ByCategory`: Expense breakdown by classifications.
-    *   `vw_FundingSource_Summary`: Income/expense by funding source.
-    *   `vw_UAT_Aggregated_Metrics`: Per UAT metrics including per capita.
-    *   `vw_County_Aggregated_Metrics`: County-level aggregations (for peer comparison).
-    *   `vw_Category_Aggregated_Metrics`: Aggregations by various categories.
-    *   *(Potentially new MVs for anomaly detection baselines, e.g., historical standard deviations, peer group medians).*
 
 ## 5. Page Sections & Business Logic
 
@@ -64,7 +55,6 @@ The page primarily draws data from the following tables and views (as defined in
 *   **Logic:** Direct lookup from `Entities` and `UATs` tables based on the entity CUI.
 
 ### 5.2. Financial Overview (Latest Period & Trends)
-*   **Data:** Sourced from `vw_BudgetSummary_ByEntityPeriod` and `vw_UAT_Aggregated_Metrics`.
 *   **Metrics Displayed:**
     *   Total Income (latest period, YTD, trend over last 3-5 years).
     *   Total Expense (latest period, YTD, trend over last 3-5 years).
@@ -95,7 +85,6 @@ The page primarily draws data from the following tables and views (as defined in
 
 ### 5.5. Comparative Analysis & Anomaly Indicators
 *   **Data:**
-    *   Entity's data from views like `vw_UAT_Aggregated_Metrics`, `vw_ExpenseAnalysis_ByCategory`.
     *   Historical baselines (e.g., average of same metric over last 3 years for the entity).
     *   Peer group baselines (e.g., median per capita expense for UATs in the same county from `vw_County_Aggregated_Metrics` or a specialized peer view).
 *   **Logic:**

@@ -1,5 +1,6 @@
 import pool from "../connection";
 import { createCache } from "../../utils/cache";
+import { SqlFilterParts } from "../../types";
 
 const cache = createCache<BudgetSector>({ name: 'budgetSector', maxItems: 1000, maxSize: 2 * 1024 * 1024 });
 
@@ -49,6 +50,22 @@ export interface BudgetSectorFilter {
 const TABLE_NAME = "BudgetSectors";
 
 export const budgetSectorRepository = {
+  /**
+   * Unified builder used by both getAll and count.
+   */
+  buildBudgetSectorFilterParts(
+    filter: BudgetSectorFilter = {},
+    initialIndex: number = 1
+  ): SqlFilterParts {
+    const { whereClause, values } = buildFilterQuery(filter, initialIndex);
+    return {
+      joins: "",
+      where: whereClause ? ` ${whereClause}` : "",
+      values,
+      nextIndex: initialIndex + values.length,
+    };
+  },
+
   async getById(id: number): Promise<BudgetSector | null> {
     const cacheKey = String(id);
     const cached = cache.get(cacheKey);
@@ -68,20 +85,16 @@ export const budgetSectorRepository = {
     limit: number,
     offset: number
   ): Promise<BudgetSector[]> {
-    const { whereClause, values } = buildFilterQuery(filter, 3);
-
-    const queryText = `SELECT * FROM ${TABLE_NAME} ${whereClause} LIMIT $1 OFFSET $2`;
-
+    const { where, values } = this.buildBudgetSectorFilterParts(filter, 3);
+    const queryText = `SELECT * FROM ${TABLE_NAME}${where} LIMIT $1 OFFSET $2`;
     const queryParams = [limit, offset, ...values];
     const { rows } = await pool.query<BudgetSector>(queryText, queryParams);
     return rows;
   },
 
   async count(filter: BudgetSectorFilter = {}): Promise<number> {
-    const { whereClause, values } = buildFilterQuery(filter);
-
-    const queryText = `SELECT COUNT(*) FROM ${TABLE_NAME} ${whereClause}`;
-
+    const { where, values } = this.buildBudgetSectorFilterParts(filter);
+    const queryText = `SELECT COUNT(*) FROM ${TABLE_NAME}${where}`;
     const queryParams = [...values];
     const { rows } = await pool.query<{ count: string }>(queryText, queryParams);
     return parseInt(rows[0].count, 10);

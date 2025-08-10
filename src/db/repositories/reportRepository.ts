@@ -1,5 +1,6 @@
 import pool from "../connection";
 import { Report } from "../models";
+import { SqlFilterParts } from "../../types";
 
 export interface ReportFilter {
   entity_cui?: string;
@@ -80,17 +81,19 @@ function buildOrderAndSelect(
 }
 
 export const reportRepository = {
-  async getAll(
-    filter: ReportFilter = {},
-    limit?: number,
-    offset?: number,
-    sort?: SortOptions
-  ): Promise<Report[]> {
+  /**
+   * Unified builder used by both getAll and count to avoid drift.
+   * Keeps search parameters at $1/$2 when present so ORDER BY relevance can safely reference $1.
+   */
+  buildReportFilterParts(filter: ReportFilter, initialIndex: number = 1): SqlFilterParts {
     const conditions: string[] = [];
-    let queryParams: any[] = [];
+    const queryParams: any[] = [];
 
     const searchCond = buildSearchCondition(filter);
     if (searchCond.condition) {
+      if (initialIndex !== 1) {
+        throw new Error("buildReportFilterParts expects initialIndex=1 when search is used");
+      }
       conditions.push(searchCond.condition);
       queryParams.push(...searchCond.params);
     }
@@ -116,28 +119,42 @@ export const reportRepository = {
       queryParams.push(filter.report_date_end);
     }
 
-    const whereClause = conditions.length
-      ? ` WHERE ${conditions.join(" AND ")}`
-      : "";
+    const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    return {
+      joins: "",
+      where: whereClause,
+      values: queryParams,
+      nextIndex: initialIndex + queryParams.length,
+    };
+  },
 
+  async getAll(
+    filter: ReportFilter = {},
+    limit?: number,
+    offset?: number,
+    sort?: SortOptions
+  ): Promise<Report[]> {
+    const { where, values } = this.buildReportFilterParts(filter);
+    const searchCond = buildSearchCondition(filter);
     const { selectExtra, orderBy } = buildOrderAndSelect(filter, sort, searchCond.params.length);
-    
-    let query = `SELECT r.*${selectExtra} ${BASE_QUERY}${whereClause} ${orderBy}`;
+
+    let query = `SELECT r.*${selectExtra} ${BASE_QUERY}${where} ${orderBy}`;
+    const params: any[] = [...values];
 
     if (limit !== undefined) {
-      queryParams.push(limit);
-      query += ` LIMIT $${queryParams.length}`;
+      params.push(limit);
+      query += ` LIMIT $${params.length}`;
     }
     if (offset !== undefined) {
-      queryParams.push(offset);
-      query += ` OFFSET $${queryParams.length}`;
+      params.push(offset);
+      query += ` OFFSET $${params.length}`;
     }
 
     try {
-      const result = await pool.query(query, queryParams);
+      const result = await pool.query(query, params);
       return result.rows;
     } catch (error) {
-      console.error("Error fetching reports:", error, { query, queryParams });
+      console.error("Error fetching reports:", error, { query, params });
       throw error;
     }
   },
@@ -175,48 +192,14 @@ export const reportRepository = {
   },
 
   async count(filter: ReportFilter = {}): Promise<number> {
-    const conditions: string[] = [];
-    let queryParams: any[] = [];
+    const { where, values } = this.buildReportFilterParts(filter);
+    const countQuery = `SELECT COUNT(DISTINCT r.report_id) AS count ${BASE_QUERY}${where}`;
 
-    const searchCond = buildSearchCondition(filter);
-    if (searchCond.condition) {
-      conditions.push(searchCond.condition);
-      queryParams.push(...searchCond.params);
-    }
-
-    if (filter.entity_cui) {
-      conditions.push(`r.entity_cui = $${queryParams.length + 1}`);
-      queryParams.push(filter.entity_cui);
-    }
-    if (filter.reporting_year !== undefined) {
-      conditions.push(`r.reporting_year = $${queryParams.length + 1}`);
-      queryParams.push(filter.reporting_year);
-    }
-    if (filter.reporting_period) {
-      conditions.push(`r.reporting_period = $${queryParams.length + 1}`);
-      queryParams.push(filter.reporting_period);
-    }
-    if (filter.report_date_start) {
-      conditions.push(`r.report_date >= $${queryParams.length + 1}`);
-      queryParams.push(filter.report_date_start);
-    }
-    if (filter.report_date_end) {
-      conditions.push(`r.report_date <= $${queryParams.length + 1}`);
-      queryParams.push(filter.report_date_end);
-    }
-
-    const whereClause = conditions.length
-      ? ` WHERE ${conditions.join(" AND ")}`
-      : "";
-
-    const countQuery =
-      `SELECT COUNT(DISTINCT r.report_id) AS count ${BASE_QUERY}${whereClause}`;
-    
     try {
-      const result = await pool.query(countQuery, queryParams);
+      const result = await pool.query(countQuery, values);
       return parseInt(result.rows[0].count, 10);
     } catch (error) {
-      console.error("Error counting reports:", error, { query: countQuery, queryParams });
+      console.error("Error counting reports:", error, { query: countQuery, values });
       throw error;
     }
   },

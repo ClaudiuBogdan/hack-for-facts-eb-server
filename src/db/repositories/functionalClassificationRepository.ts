@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { FunctionalClassification } from "../models";
 import { createCache } from "../../utils/cache";
+import { SqlFilterParts } from "../../types";
 
 const cache = createCache<FunctionalClassification>({ name: 'functionalClassification', maxItems: 5000, maxSize: 5 * 1024 * 1024 });
 
@@ -92,19 +93,37 @@ function buildOrderAndSelect(
 }
 
 export const functionalClassificationRepository = {
+  /**
+   * Unified builder used by both getAll and count.
+   */
+  buildFunctionalFilterParts(
+    filter: FunctionalClassificationFilter,
+    initialIndex: number = 1
+  ): SqlFilterParts {
+    const { clause, params } = buildQueryFromFilters(filter);
+    // clause already includes WHERE if non-empty
+    return {
+      joins: "",
+      where: clause ? ` ${clause}` : "",
+      values: params,
+      nextIndex: initialIndex + params.length,
+    };
+  },
+
   async getAll(
     filter: FunctionalClassificationFilter = {},
     limit?: number,
     offset?: number
   ): Promise<FunctionalClassification[]> {
-    const { clause, params, isNameSearch } = buildQueryFromFilters(filter);
+    const { where, values } = this.buildFunctionalFilterParts(filter);
+    const isNameSearch = !!filter.search && parseFunctionalSearch(filter.search).mode === "name";
     const { selectExtra, orderBy } = buildOrderAndSelect(isNameSearch);
 
     // Build base query with optional relevance select
-    let query = `SELECT *${selectExtra} FROM FunctionalClassifications ${clause} ${orderBy}`;
+    let query = `SELECT *${selectExtra} FROM FunctionalClassifications${where} ${orderBy}`;
 
     // Pagination
-    const queryParams = [...params];
+    const queryParams = [...values];
     if (limit !== undefined) {
       queryParams.push(limit);
       query += ` LIMIT $${queryParams.length}`;
@@ -124,11 +143,11 @@ export const functionalClassificationRepository = {
   },
 
   async count(filter: FunctionalClassificationFilter = {}): Promise<number> {
-    const { clause, params } = buildQueryFromFilters(filter);
-    const query = `SELECT COUNT(*) AS count FROM FunctionalClassifications ${clause}`;
+    const { where, values } = this.buildFunctionalFilterParts(filter);
+    const query = `SELECT COUNT(*) AS count FROM FunctionalClassifications${where}`;
 
     try {
-      const result = await pool.query(query, params);
+      const result = await pool.query(query, values);
       return parseInt(result.rows[0].count, 10);
     } catch (error) {
       console.error("Error counting functional classifications:", error);

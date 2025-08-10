@@ -29,6 +29,9 @@ export interface LineItem {
 // Unified Analytics Filter Types
 // ------------------------------
 
+// Narrow alias for places that accept only income/expense categories
+export type AccountCategory = "vn" | "ch";
+
 export type NormalizationMode = "total" | "per_capita";
 
 export type ExpenseType = "dezvoltare" | "functionare";
@@ -36,7 +39,7 @@ export type ExpenseType = "dezvoltare" | "functionare";
 export interface AnalyticsFilter {
   // Required scope
   years: number[];
-  account_category: "vn" | "ch";
+  account_category: AccountCategory;
 
   // Line-item dimensional filters (WHERE on ExecutionLineItems or joined dims)
   report_ids?: string[];
@@ -73,3 +76,45 @@ export interface AnalyticsFilter {
   item_min_amount?: number | null;
   item_max_amount?: number | null;
 }
+
+// ------------------------------
+// Shared SQL builder contracts
+// ------------------------------
+
+/**
+ * Standardized parts produced by repository filter builders.
+ * - joins: any JOIN clauses required (including leading space if non-empty)
+ * - where: WHERE clause beginning with a single leading space (or empty string)
+ * - having: optional HAVING clause beginning with a single leading space (or empty string)
+ * - values: bound parameter values in order
+ * - nextIndex: next positional parameter index the caller should use
+ */
+export interface SqlFilterParts {
+  joins: string;
+  where: string;
+  having?: string;
+  values: any[];
+  nextIndex: number;
+}
+
+/**
+ * Optional extra SELECT columns and ORDER BY used for search relevance and stable sorting.
+ */
+export interface QueryOrderParts {
+  selectExtra: string;
+  orderBy: string;
+}
+
+/**
+ * Function type for building SQL filter parts for a given repository filter type.
+ */
+export type FilterBuilder<F> = (filter: F, initialIndex?: number) => SqlFilterParts;
+
+/**
+ * Function type for building HAVING clauses that depend on aggregate expressions and normalization.
+ */
+export type HavingBuilder = (opts: {
+  normalization?: NormalizationMode;
+  baseIndex: number;
+  values: any[];
+}) => { having: string; nextIndex: number };
