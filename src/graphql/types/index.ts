@@ -24,6 +24,18 @@ export const types = /* GraphQL */ `
     ch
   }
 
+  # Normalization mode for aggregated values
+  enum Normalization {
+    total
+    per_capita
+  }
+
+  # ExpenseType mirrors DB enum
+  enum ExpenseType {
+    dezvoltare
+    functionare
+  }
+
   input SortOrder {
     by: String!
     order: String!
@@ -74,7 +86,7 @@ export const types = /* GraphQL */ `
       sort: SortOrder
     ): ReportConnection!
     executionLineItems(
-      filter: ExecutionLineItemFilter
+      filter: AnalyticsFilterInput
       limit: Int
       offset: Int
       sort: SortOrder
@@ -232,34 +244,46 @@ export const types = /* GraphQL */ `
     search: String
   }
 
-  input ExecutionLineItemFilter {
-    report_id: String
-    report_ids: [String]
-    report_type: String
-    entity_cuis: [String]
-    funding_source_id: ID
-    funding_source_ids: [ID]
-    functional_codes: [String]
-    economic_codes: [String]
-    account_categories: [AccountCategory]
-    account_category: AccountCategory
-    min_amount: Float
-    max_amount: Float
-    program_code: String
-    reporting_year: Int
-    county_code: String
-    uat_ids: [ID]
-    year: Int
-    years: [Int]
-    start_year: Int
-    end_year: Int
-    entity_types: [String]
-    is_uat: Boolean
-    functional_prefixes: [String]
-    economic_prefixes: [String]
-    budget_sector_id: ID
-    budget_sector_ids: [ID]
-    expense_types: [String]
+  # Unified analytics filter used by heatmaps, entity analytics, and line items
+  input AnalyticsFilterInput {
+    # Required scope
+    years: [Int!]!
+    account_category: AccountCategory!
+
+    # Line-item dimensional filters
+    report_ids: [ID!]              # Used by: all. Heatmaps filter contributing reports.
+    report_types: [String!]        # Used by: all. Heatmaps filter contributing report types.
+    reporting_years: [Int!]        # Used by: all. Heatmaps join Reports to filter by year.
+    entity_cuis: [String!]         # Used by: all. Heatmaps constrain contributing entities.
+    functional_codes: [String!]
+    functional_prefixes: [String!]
+    economic_codes: [String!]
+    economic_prefixes: [String!]
+    funding_source_ids: [ID!]      # Used by: all. Heatmaps constrain contributing items.
+    budget_sector_ids: [ID!]       # Used by: all. Heatmaps constrain contributing items.
+    expense_types: [ExpenseType!]  # Used by: all. Heatmaps constrain contributing items.
+    program_codes: [String!]       # Used by: all. Heatmaps constrain contributing items.
+
+    # Geography / entity scope
+    county_codes: [String!]        # Used by: all. Heatmaps limit geography.
+    regions: [String!]             # Used by: heatmaps to limit geography.
+    uat_ids: [ID!]                 # Used by: all. Heatmaps limit UATs subset.
+    entity_types: [String!]        # Used by: all. Heatmaps constrain contributing entities.
+    is_uat: Boolean                # Used by: all. Heatmaps constrain contributing entities.
+    search: String                 # Used by: entityAnalytics. Ignored by: heatmaps, executionLineItems, executionAnalytics
+
+    # Population constraints (missing treated as 0)
+    min_population: Int            # Used by: heatmaps, entityAnalytics. Ignored by: executionLineItems, executionAnalytics
+    max_population: Int            # Used by: heatmaps, entityAnalytics. Ignored by: executionLineItems, executionAnalytics
+
+    # Aggregated constraints & transforms
+    normalization: Normalization   # Used by: heatmaps, entityAnalytics. Ignored by: executionLineItems, executionAnalytics
+    aggregate_min_amount: Float    # Used by: heatmaps, entityAnalytics. Ignored by: executionLineItems, executionAnalytics
+    aggregate_max_amount: Float    # Used by: heatmaps, entityAnalytics. Ignored by: executionLineItems, executionAnalytics
+
+    # Per-item thresholds
+    item_min_amount: Float         # Used by: all. 
+    item_max_amount: Float         # Used by: all.
   }
 
   # ---------------------------------------------------------------------------
@@ -290,20 +314,7 @@ export const types = /* GraphQL */ `
     county_entity: Entity
   }
 
-  # Input filters for querying heatmap data
-  input HeatmapFilterInput {
-    functional_codes: [String!]    # Optional: filter by functional classification codes
-    economic_codes: [String!]      # Optional: filter by economic classification codes
-    account_categories: [AccountCategory!]! # Mandatory: e.g., [ch] for expenses, [vn] for income
-    years: [Int!]!                 # Mandatory: list of years to include
-    min_amount: Float              # Optional: filter individual line items by minimum amount
-    max_amount: Float              # Optional: filter individual line items by maximum amount
-    normalization: String          # Optional: 'total' or 'per_capita'
-    min_population: Int            # Optional: filter UATs by minimum population
-    max_population: Int            # Optional: filter UATs by maximum population
-    county_codes: [String!]        # Optional: to focus heatmap on specific counties
-    regions: [String!]             # Optional: to focus heatmap on specific regions
-  }
+  # Input filters for querying heatmap data are unified under AnalyticsFilterInput
 
   # --- END: Types for Heatmap Analytics ---
 
@@ -328,48 +339,7 @@ export const types = /* GraphQL */ `
     pageInfo: PageInfo!
   }
 
-  input EntityAnalyticsFilterInput {
-    # Required aggregation scope
-    account_category: AccountCategory!
-    years: [Int!]!
-
-    # Execution line item filters
-    report_id: ID
-    report_ids: [ID]
-    report_type: String
-    entity_cuis: [String]
-    functional_codes: [String]
-    functional_prefixes: [String]
-    economic_codes: [String]
-    economic_prefixes: [String]
-    funding_source_id: ID
-    funding_source_ids: [ID]
-    budget_sector_id: ID
-    budget_sector_ids: [ID]
-    expense_types: [String]
-    program_code: String
-    reporting_year: Int
-    # Single/range helpers (not used for aggregation; prefer years)
-    year: Int
-    start_year: Int
-    end_year: Int
-    county_code: String
-    county_codes: [String]
-    uat_ids: [ID]
-    entity_types: [String]
-    is_uat: Boolean
-
-    # Entity-level filters
-    search: String
-
-    # Aggregated constraints & transforms
-    min_amount: Float
-    max_amount: Float
-    normalization: String # 'total' or 'per-capita' (also accept 'per_capita')
-    # Population constraints (applies when normalization is per_capita, but can be used regardless)
-    min_population: Int
-    max_population: Int
-  }
+  # Entity analytics uses AnalyticsFilterInput
 
   input FunctionalClassificationFilterInput {
     search: String
@@ -416,7 +386,7 @@ export const types = /* GraphQL */ `
   }
 
   input AnalyticsInput {
-    filter: ExecutionLineItemFilter!
+    filter: AnalyticsFilterInput!
     seriesId: String
   }
 
@@ -515,21 +485,21 @@ export const types = /* GraphQL */ `
     # Line item queries
     executionLineItem(id: ID!): ExecutionLineItem
     executionLineItems(
-      filter: ExecutionLineItemFilter
+      filter: AnalyticsFilterInput
       sort: SortOrder
       limit: Int
       offset: Int
     ): ExecutionLineItemConnection!
     
     # Query for UAT-level heatmap data
-    heatmapUATData(filter: HeatmapFilterInput!): [HeatmapUATDataPoint!]!
-    heatmapJudetData(filter: HeatmapFilterInput!): [HeatmapJudetDataPoint!]!
+    heatmapUATData(filter: AnalyticsFilterInput!): [HeatmapUATDataPoint!]!
+    heatmapJudetData(filter: AnalyticsFilterInput!): [HeatmapJudetDataPoint!]!
 
     executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
 
     # Entities analytics with flexible filters and sorting
     entityAnalytics(
-      filter: EntityAnalyticsFilterInput!
+      filter: AnalyticsFilterInput!
       sort: SortOrder
       limit: Int = 50
       offset: Int = 0

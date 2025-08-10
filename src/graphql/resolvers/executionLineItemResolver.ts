@@ -5,7 +5,8 @@ import {
   reportRepository,
 } from "../../db/repositories";
 import pool from "../../db/connection";
-import { ExecutionLineItemFilter, SortOrderOption } from "../../db/repositories/executionLineItemRepository";
+import { SortOrderOption } from "../../db/repositories/executionLineItemRepository";
+import { AnalyticsFilter } from "../../types";
 
 export const executionLineItemResolver = {
   Query: {
@@ -20,7 +21,7 @@ export const executionLineItemResolver = {
         limit = 100,
         offset = 0,
       }: {
-        filter?: ExecutionLineItemFilter;
+        filter?: Partial<AnalyticsFilter>;
         sort?: SortOrderOption;
         limit?: number;
         offset?: number;

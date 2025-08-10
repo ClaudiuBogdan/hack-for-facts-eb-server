@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { Entity, ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
+import { AnalyticsFilter } from "../../types";
 
 const analyticsCache = createCache({
   name: 'executionLineItemAnalytics',
@@ -57,35 +58,7 @@ export interface SortOrderOption {
 }
 
 // --- Filter and Model Interfaces ---
-export interface ExecutionLineItemFilter {
-  report_id?: string;
-  report_ids?: string[];
-  report_type?: string;
-  entity_cuis?: string[];
-  functional_codes?: string[];
-  economic_codes?: string[];
-  account_categories?: ("vn" | "ch")[];
-  account_category?: "vn" | "ch";
-  min_amount?: number;
-  max_amount?: number;
-  program_code?: string;
-  reporting_year?: number;
-  county_code?: string;
-  uat_ids?: number[];
-  year?: number;
-  years?: number[];
-  start_year?: number;
-  end_year?: number;
-  entity_types?: string[];
-  is_uat?: boolean;
-  functional_prefixes?: string[];
-  economic_prefixes?: string[];
-  budget_sector_id?: number;
-  budget_sector_ids?: number[];
-  funding_source_id?: number;
-  funding_source_ids?: number[];
-  expense_types?: string[];
-}
+// Use unified AnalyticsFilter
 
 export interface YearlyFinancials {
   year: number;
@@ -100,7 +73,7 @@ export interface YearlyFinancials {
  * parameter index so that callers can continue adding placeholders (e.g. for LIMIT/OFFSET).
  */
 const buildExecutionLineItemFilterQuery = (
-  filters: ExecutionLineItemFilter,
+  filters: Partial<AnalyticsFilter>,
   initialParamIndex: number = 1
 ): {
   joinClauses: string;
@@ -125,34 +98,19 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.entity_cuis);
   }
 
-  if (filters.report_id) {
-    conditions.push(`eli.report_id = $${paramIndex++}`);
-    values.push(filters.report_id);
-  }
-
   if (filters.report_ids?.length) {
-    conditions.push(`eli.report_id = ANY($${paramIndex++}::int[])`);
+    conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
     values.push(filters.report_ids);
   }
 
-  if (filters.report_type) {
-    conditions.push(`eli.report_type = $${paramIndex++}`);
-    values.push(filters.report_type);
-  }
-
-  if (filters.funding_source_id) {
-    conditions.push(`eli.funding_source_id = $${paramIndex++}`);
-    values.push(filters.funding_source_id);
+  if (filters.report_types?.length) {
+    conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
+    values.push(filters.report_types);
   }
 
   if (filters.funding_source_ids?.length) {
     conditions.push(`eli.funding_source_id = ANY($${paramIndex++}::int[])`);
     values.push(filters.funding_source_ids);
-  }
-
-  if (filters.budget_sector_id) {
-    conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
-    values.push(filters.budget_sector_id);
   }
 
   if (filters.budget_sector_ids?.length) {
@@ -184,11 +142,6 @@ const buildExecutionLineItemFilterQuery = (
   }
 
   // ---------- Account categories & expense types ----------
-  if (filters.account_categories?.length) {
-    conditions.push(`eli.account_category = ANY($${paramIndex++}::text[])`);
-    values.push(filters.account_categories);
-  }
-
   if (filters.account_category) {
     conditions.push(`eli.account_category = $${paramIndex++}`);
     values.push(filters.account_category);
@@ -200,41 +153,26 @@ const buildExecutionLineItemFilterQuery = (
   }
 
   // ---------- Amount range ----------
-  if (filters.min_amount !== undefined) {
+  if (filters.item_min_amount !== undefined && filters.item_min_amount !== null) {
     conditions.push(`eli.amount >= $${paramIndex++}`);
-    values.push(filters.min_amount);
+    values.push(filters.item_min_amount);
   }
 
-  if (filters.max_amount !== undefined) {
+  if (filters.item_max_amount !== undefined && filters.item_max_amount !== null) {
     conditions.push(`eli.amount <= $${paramIndex++}`);
-    values.push(filters.max_amount);
+    values.push(filters.item_max_amount);
   }
 
   // ---------- Program code ----------
-  if (filters.program_code) {
-    conditions.push(`eli.program_code = $${paramIndex++}`);
-    values.push(filters.program_code);
+  if (filters.program_codes?.length) {
+    conditions.push(`eli.program_code = ANY($${paramIndex++}::text[])`);
+    values.push(filters.program_codes);
   }
 
   // ---------- Year filters ----------
-  if (filters.year !== undefined) {
-    conditions.push(`eli.year = $${paramIndex++}`);
-    values.push(filters.year);
-  }
-
   if (filters.years?.length) {
     conditions.push(`eli.year = ANY($${paramIndex++}::int[])`);
     values.push(filters.years);
-  }
-
-  if (filters.start_year !== undefined) {
-    conditions.push(`eli.year >= $${paramIndex++}`);
-    values.push(filters.start_year);
-  }
-
-  if (filters.end_year !== undefined) {
-    conditions.push(`eli.year <= $${paramIndex++}`);
-    values.push(filters.end_year);
   }
 
   // ---------- Joined Filters (Entities, Reports, UATs) ----------
@@ -243,7 +181,7 @@ const buildExecutionLineItemFilterQuery = (
   if (
     filters.entity_types?.length ||
     filters.is_uat !== undefined ||
-    filters.county_code ||
+    (filters.county_codes && filters.county_codes.length > 0) ||
     filters.uat_ids?.length
   ) {
     ensureJoin("e", `JOIN ${TABLES.ENTITIES} e ON eli.entity_cui = e.cui`);
@@ -264,16 +202,16 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.uat_ids);
   }
 
-  if (filters.county_code) {
+  if (filters.county_codes?.length) {
     ensureJoin("u", `JOIN ${TABLES.UATS} u ON e.uat_id = u.id`);
-    conditions.push(`u.county_code = $${paramIndex++}`);
-    values.push(filters.county_code);
+    conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
+    values.push(filters.county_codes);
   }
 
-  if (filters.reporting_year !== undefined) {
+  if (filters.reporting_years?.length) {
     ensureJoin("r", `JOIN ${TABLES.REPORTS} r ON eli.report_id = r.report_id`);
-    conditions.push(`r.reporting_year = $${paramIndex++}`);
-    values.push(filters.reporting_year);
+    conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
+    values.push(filters.reporting_years);
   }
 
   // ---------- Finalise query pieces ----------
@@ -285,7 +223,7 @@ const buildExecutionLineItemFilterQuery = (
 
 export const executionLineItemRepository = {
   async getAll(
-    filters: ExecutionLineItemFilter,
+    filters: Partial<AnalyticsFilter>,
     sort?: SortOrderOption,
     limit?: number,
     offset?: number
@@ -377,14 +315,14 @@ export const executionLineItemRepository = {
   },
 
   async count(
-    filters: Partial<ExecutionLineItemFilter> = {}
+    filters: Partial<AnalyticsFilter> = {}
   ): Promise<number> {
     try {
       const querySelect = "SELECT COUNT(eli.line_item_id) as count";
       const queryFrom = ` FROM ${TABLES.EXECUTION_LINE_ITEMS} eli`;
 
       const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(
-        filters as ExecutionLineItemFilter
+        filters as AnalyticsFilter
       );
 
       const finalQuery =
@@ -492,7 +430,7 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getTotalAmount(filters: ExecutionLineItemFilter): Promise<number> {
+  async getTotalAmount(filters: AnalyticsFilter): Promise<number> {
     const cacheKey = getCacheKey(filters);
     const cachedValue = analyticsCache.get(cacheKey);
     if (cachedValue) {
@@ -509,7 +447,7 @@ export const executionLineItemRepository = {
     return total;
   },
 
-  async getYearlyTrend(filters: ExecutionLineItemFilter): Promise<{ year: number; totalAmount: number }[]> {
+  async getYearlyTrend(filters: AnalyticsFilter): Promise<{ year: number; totalAmount: number }[]> {
     const cacheKey = getCacheKey(filters);
     const cachedValue = analyticsCache.get(cacheKey);
     if (cachedValue) {
@@ -517,15 +455,7 @@ export const executionLineItemRepository = {
     }
 
     validateAggregatedFilters(filters);
-    // Remove year, years, start_year, and end_year from filters to avoid filtering by year
-    const trendFilters = {
-      ...filters,
-      year: undefined,
-      years: undefined,
-      start_year: undefined,
-      end_year: undefined,
-    };
-    const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(trendFilters);
+    const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(filters);
     const query = `SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS total_amount FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause} GROUP BY eli.year ORDER BY eli.year ASC`;
     const result = await pool.query(query, values);
     const yearlyTrend = result.rows.map(row => ({ year: parseInt(row.year, 10), totalAmount: parseFloat(row.total_amount) }));
@@ -535,19 +465,8 @@ export const executionLineItemRepository = {
   },
 };
 
-function validateAggregatedFilters(filters: ExecutionLineItemFilter) {
-
-  if (filters.account_category && !VALID_ACCOUNT_CATEGORIES.includes(filters.account_category)) {
-    throw new Error(`getTotalAmount and getYearlyTrend only support account_category "ch" or "vn". Set account_category to "ch" or "vn"`);
-  }
-  const totalAccountCategories = [...(filters.account_categories || []), filters.account_category].filter(Boolean) as ("vn" | "ch")[];
-  if (totalAccountCategories.length !== 1) {
-    throw new Error(`getTotalAmount only supports one account category. Set account_categories to "ch" or "vn". Make sure to not set both account_categories and account_category.`);
-  }
-  if (!VALID_ACCOUNT_CATEGORIES.includes(totalAccountCategories[0])) {
-    throw new Error(`getTotalAmount and getYearlyTrend only support account_categories "ch" or "vn". Set account_categories to "ch" or "vn"`);
-  }
-  if (filters.report_type && !VALID_REPORT_TYPES.includes(filters.report_type as string)) {
-    throw new Error(`getTotalAmount and getYearlyTrend do not support report_type. Set report_type to ${VALID_REPORT_TYPES.join(", ")}`);
+function validateAggregatedFilters(filters: AnalyticsFilter) {
+  if (!filters.account_category || !VALID_ACCOUNT_CATEGORIES.includes(filters.account_category)) {
+    throw new Error(`getTotalAmount and getYearlyTrend require account_category of "ch" or "vn"`);
   }
 }

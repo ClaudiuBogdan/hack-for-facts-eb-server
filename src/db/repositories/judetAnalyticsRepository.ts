@@ -1,22 +1,11 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
+import { AnalyticsFilter } from "../../types";
 
 const cache = createCache<HeatmapJudetDataPoint_Repo[]>({ name: 'heatmap_judet', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
 // This should be moved to a central types file, e.g. src/graphql/types/index.ts
-export interface HeatmapFilterInput {
-    functional_codes?: string[] | null;
-    economic_codes?: string[] | null;
-    account_categories: string[]; // Mandatory, and array ensured by GQL to be non-null, items non-null
-    years: number[];             // Mandatory, and array ensured by GQL to be non-null, items non-null
-    min_amount?: number | null;
-    max_amount?: number | null;
-    normalization?: 'total' | 'per-capita';
-    min_population?: number | null;
-    max_population?: number | null;
-    county_codes?: string[] | null;
-    regions?: string[] | null;
-}
+// Use AnalyticsFilter instead of legacy HeatmapFilterInput
 
 export interface HeatmapJudetDataPoint_GQL {
     county_code: string;
@@ -39,7 +28,7 @@ export interface HeatmapJudetDataPoint_Repo {
 
 export const judetAnalyticsRepository = {
     async getHeatmapJudetData(
-        filter: HeatmapFilterInput
+        filter: AnalyticsFilter
     ): Promise<HeatmapJudetDataPoint_Repo[]> {
         const cacheKey = getCacheKey(filter);
         const cached = cache.get(cacheKey);
@@ -49,13 +38,13 @@ export const judetAnalyticsRepository = {
         const params: any[] = [];
         let paramIndex = 1;
 
-        if (filter.account_categories.length === 0) {
-            throw new Error("Account categories array cannot be empty for heatmap data.");
+        if (!filter.account_category) {
+            throw new Error("account_category is required for heatmap data.");
         }
-        conditions.push(`eli.account_category = ANY($${paramIndex++})`);
-        params.push(filter.account_categories);
+        conditions.push(`eli.account_category = $${paramIndex++}`);
+        params.push(filter.account_category);
 
-        if (filter.years.length === 0) {
+        if (!filter.years || filter.years.length === 0) {
             throw new Error("Years array cannot be empty for heatmap data.");
         }
         conditions.push(`eli.year = ANY($${paramIndex++})`);
@@ -71,9 +60,83 @@ export const judetAnalyticsRepository = {
             params.push(filter.economic_codes);
         }
 
+        if (filter.functional_prefixes && filter.functional_prefixes.length > 0) {
+            const patterns = filter.functional_prefixes.map((p) => `${p}%`);
+            conditions.push(`eli.functional_code LIKE ANY($${paramIndex++})`);
+            params.push(patterns);
+        }
+
+        if (filter.economic_prefixes && filter.economic_prefixes.length > 0) {
+            const patterns = filter.economic_prefixes.map((p) => `${p}%`);
+            conditions.push(`eli.economic_code LIKE ANY($${paramIndex++})`);
+            params.push(patterns);
+        }
+
         if (filter.county_codes && filter.county_codes.length > 0) {
             conditions.push(`u.county_code = ANY($${paramIndex++})`);
             params.push(filter.county_codes);
+        }
+
+        if (filter.regions && filter.regions.length > 0) {
+            conditions.push(`u.region = ANY($${paramIndex++})`);
+            params.push(filter.regions);
+        }
+
+        if (filter.uat_ids && filter.uat_ids.length > 0) {
+            conditions.push(`u.id = ANY($${paramIndex++})`);
+            params.push(filter.uat_ids);
+        }
+
+        if (filter.entity_cuis && filter.entity_cuis.length > 0) {
+            conditions.push(`eli.entity_cui = ANY($${paramIndex++})`);
+            params.push(filter.entity_cuis);
+        }
+
+        if (filter.funding_source_ids && filter.funding_source_ids.length > 0) {
+            conditions.push(`eli.funding_source_id = ANY($${paramIndex++}::int[])`);
+            params.push(filter.funding_source_ids);
+        }
+
+        if (filter.budget_sector_ids && filter.budget_sector_ids.length > 0) {
+            conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
+            params.push(filter.budget_sector_ids);
+        }
+
+        if (filter.expense_types && filter.expense_types.length > 0) {
+            conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
+            params.push(filter.expense_types);
+        }
+
+        if (filter.program_codes && filter.program_codes.length > 0) {
+            conditions.push(`eli.program_code = ANY($${paramIndex++}::text[])`);
+            params.push(filter.program_codes);
+        }
+
+        // Per-item thresholds
+        if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
+            conditions.push(`eli.amount >= $${paramIndex++}`);
+            params.push(filter.item_min_amount);
+        }
+        if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
+            conditions.push(`eli.amount <= $${paramIndex++}`);
+            params.push(filter.item_max_amount);
+        }
+
+        let requireReportsJoin = false;
+        if (filter.report_types && filter.report_types.length > 0) {
+            conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
+            params.push(filter.report_types);
+        }
+
+        if (filter.report_ids && filter.report_ids.length > 0) {
+            conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
+            params.push(filter.report_ids);
+        }
+
+        if (filter.reporting_years && filter.reporting_years.length > 0) {
+            requireReportsJoin = true;
+            conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
+            params.push(filter.reporting_years);
         }
 
         const whereClause = `WHERE e.is_uat = TRUE AND ${conditions.join(" AND ")}`;
@@ -99,29 +162,30 @@ export const judetAnalyticsRepository = {
         const havingConditions: string[] = [];
 
         if (filter.min_population !== undefined && filter.min_population !== null) {
-            havingConditions.push(`${countyPopulationExpression} >= $${paramIndex++}`);
+            havingConditions.push(`COALESCE(${countyPopulationExpression}, 0) >= $${paramIndex++}`);
             params.push(filter.min_population);
         }
 
         if (filter.max_population !== undefined && filter.max_population !== null) {
-            havingConditions.push(`${countyPopulationExpression} <= $${paramIndex++}`);
+            havingConditions.push(`COALESCE(${countyPopulationExpression}, 0) <= $${paramIndex++}`);
             params.push(filter.max_population);
         }
 
-        if (filter.min_amount !== undefined && filter.min_amount !== null) {
-            const amountExpression = filter.normalization === 'per-capita' ? `SUM(eli.amount) / NULLIF(${countyPopulationExpression}, 0)` : 'SUM(eli.amount)';
+        if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
+            const amountExpression = filter.normalization === 'per_capita' ? `SUM(eli.amount) / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : 'SUM(eli.amount)';
             havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
-            params.push(filter.min_amount);
+            params.push(filter.aggregate_min_amount);
         }
 
-        if (filter.max_amount !== undefined && filter.max_amount !== null) {
-            const amountExpression = filter.normalization === 'per-capita' ? `SUM(eli.amount) / NULLIF(${countyPopulationExpression}, 0)` : 'SUM(eli.amount)';
+        if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
+            const amountExpression = filter.normalization === 'per_capita' ? `SUM(eli.amount) / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : 'SUM(eli.amount)';
             havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
-            params.push(filter.max_amount);
+            params.push(filter.aggregate_max_amount);
         }
 
         const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
 
+        const reportsJoin = requireReportsJoin ? `JOIN Reports r ON eli.report_id = r.report_id` : "";
         const queryString = `
             SELECT
                 u.county_code,
@@ -132,6 +196,7 @@ export const judetAnalyticsRepository = {
             FROM ExecutionLineItems eli
             JOIN Entities e ON eli.entity_cui = e.cui
             JOIN UATs u ON e.cui = u.uat_code
+            ${reportsJoin}
             ${whereClause}
             GROUP BY
                 u.county_code,
@@ -152,7 +217,7 @@ export const judetAnalyticsRepository = {
                     ? 0
                     : totalAmount / countyPopulation;
 
-                const amount = filter.normalization === 'per-capita' ? perCapitaAmount : totalAmount;
+                const amount = filter.normalization === 'per_capita' ? perCapitaAmount : totalAmount;
 
                 return {
                     county_code: row.county_code,

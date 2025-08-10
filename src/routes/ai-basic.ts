@@ -45,7 +45,7 @@ const spendingSummaryQuery = paginationSchema.extend({
 });
 
 const entitiesCompareQuery = spendingSummaryQuery.extend({
-  normalization: z.enum(["total", "per-capita"]).optional().default("total"),
+  normalization: z.enum(["total", "per_capita"]).optional().default("total"),
   search: z.string().optional(),
 });
 
@@ -148,7 +148,7 @@ How to query:
     if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
 
     const [executionLineItems] = await Promise.all([
-      executionLineItemRepository.getAll({ entity_cuis: [entity.cui], year }, { by: "amount", order: "DESC" }, 1000, 0),
+      executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "ch" }, { by: "amount", order: "DESC" }, 1000, 0),
     ]);
     const [yearlySnapshot, trends] = await Promise.all([
       executionLineItemRepository.getYearlySnapshotTotals(entity.cui, year),

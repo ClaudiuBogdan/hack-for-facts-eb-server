@@ -1,49 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
+import { AnalyticsFilter } from "../../types";
 
-export type NormalizationMode = "total" | "per-capita";
-
-export interface EntityAnalyticsFilter {
-  // Aggregation scope
-  account_category: ("vn" | "ch"); // required single
-  years: number[]; // required
-
-  // Execution line item filters
-  report_id?: string;
-  report_ids?: string[];
-  report_type?: string;
-  entity_cuis?: string[];
-  functional_codes?: string[];
-  functional_prefixes?: string[];
-  economic_codes?: string[];
-  economic_prefixes?: string[];
-  funding_source_id?: number;
-  funding_source_ids?: number[];
-  budget_sector_id?: number;
-  budget_sector_ids?: number[];
-  expense_types?: string[];
-  program_code?: string;
-  reporting_year?: number;
-  county_code?: string;
-  county_codes?: string[];
-  uat_ids?: number[];
-  year?: number; // ignored for aggregation, use years instead
-  start_year?: number; // ignored for aggregation, use years instead
-  end_year?: number; // ignored for aggregation, use years instead
-  entity_types?: string[];
-  is_uat?: boolean;
-  // Population constraints for per-capita
-  min_population?: number | null;
-  max_population?: number | null;
-
-  // Entity-level filters
-  search?: string; // search by entity name (ILIKE)
-
-  // Aggregated constraints & transforms
-  min_amount?: number | null; // applies to aggregated amount (after normalization)
-  max_amount?: number | null; // applies to aggregated amount (after normalization)
-  normalization?: NormalizationMode; // default 'total'
-}
 
 export interface EntityAnalyticsSortOption {
   by:
@@ -78,7 +36,7 @@ const cache = createCache<EntityAnalyticsDataPoint_Repo[]>({
 });
 
 function buildEntityAnalyticsWhere(
-  filter: EntityAnalyticsFilter,
+  filter: AnalyticsFilter,
   initialParamIndex: number = 1
 ): { conditions: string[]; values: any[]; nextParamIndex: number; requireReportsJoin: boolean } {
   const conditions: string[] = [];
@@ -100,33 +58,21 @@ function buildEntityAnalyticsWhere(
   values.push(filter.years);
 
   // Basic ELI filters
-  if (filter.report_id) {
-    conditions.push(`eli.report_id = $${paramIndex++}`);
-    values.push(filter.report_id);
-  }
   if (filter.report_ids?.length) {
     conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
     values.push(filter.report_ids);
   }
-  if (filter.report_type) {
-    conditions.push(`eli.report_type = $${paramIndex++}`);
-    values.push(filter.report_type);
+  if (filter.report_types?.length) {
+    conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
+    values.push(filter.report_types);
   }
   if (filter.entity_cuis?.length) {
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
     values.push(filter.entity_cuis);
   }
-  if (filter.funding_source_id) {
-    conditions.push(`eli.funding_source_id = $${paramIndex++}`);
-    values.push(filter.funding_source_id);
-  }
   if (filter.funding_source_ids?.length) {
     conditions.push(`eli.funding_source_id = ANY($${paramIndex++}::int[])`);
     values.push(filter.funding_source_ids);
-  }
-  if (filter.budget_sector_id) {
-    conditions.push(`eli.budget_sector_id = $${paramIndex++}`);
-    values.push(filter.budget_sector_id);
   }
   if (filter.budget_sector_ids?.length) {
     conditions.push(`eli.budget_sector_id = ANY($${paramIndex++}::int[])`);
@@ -156,14 +102,24 @@ function buildEntityAnalyticsWhere(
     conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
     values.push(filter.expense_types);
   }
-  if (filter.program_code) {
-    conditions.push(`eli.program_code = $${paramIndex++}`);
-    values.push(filter.program_code);
+  if (filter.program_codes?.length) {
+    conditions.push(`eli.program_code = ANY($${paramIndex++}::text[])`);
+    values.push(filter.program_codes);
   }
-  if (filter.reporting_year !== undefined) {
+  if (filter.reporting_years?.length) {
     requireReportsJoin = true;
-    conditions.push(`r.reporting_year = $${paramIndex++}`);
-    values.push(filter.reporting_year);
+    conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
+    values.push(filter.reporting_years);
+  }
+
+  // Per-item thresholds for entity analytics (applied before aggregation)
+  if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
+    conditions.push(`eli.amount >= $${paramIndex++}`);
+    values.push(filter.item_min_amount);
+  }
+  if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
+    conditions.push(`eli.amount <= $${paramIndex++}`);
+    values.push(filter.item_max_amount);
   }
 
   // Joined filters requiring Entities and/or UATs
@@ -171,7 +127,6 @@ function buildEntityAnalyticsWhere(
     filter.entity_types?.length ||
     typeof filter.is_uat === "boolean" ||
     filter.uat_ids?.length ||
-    filter.county_code ||
     filter.county_codes?.length ||
     filter.search
   ) {
@@ -194,23 +149,17 @@ function buildEntityAnalyticsWhere(
     }
   }
 
-  if (filter.county_code || filter.county_codes?.length) {
-    if (filter.county_code) {
-      conditions.push(`u.county_code = $${paramIndex++}`);
-      values.push(filter.county_code);
-    }
-    if (filter.county_codes?.length) {
-      conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
-      values.push(filter.county_codes);
-    }
+  if (filter.county_codes?.length) {
+    conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
+    values.push(filter.county_codes);
   }
 
   if (filter.min_population !== undefined && filter.min_population !== null) {
-    conditions.push(`u.population >= $${paramIndex++}`);
+    conditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
     values.push(filter.min_population);
   }
   if (filter.max_population !== undefined && filter.max_population !== null) {
-    conditions.push(`u.population <= $${paramIndex++}`);
+    conditions.push(`COALESCE(u.population, 0) <= $${paramIndex++}`);
     values.push(filter.max_population);
   }
 
@@ -218,7 +167,7 @@ function buildEntityAnalyticsWhere(
 }
 
 function buildHavingClause(
-  filter: EntityAnalyticsFilter,
+  filter: AnalyticsFilter,
   amountExpression: string,
   initialParamIndex: number,
   values: any[]
@@ -226,13 +175,13 @@ function buildHavingClause(
   const havingConditions: string[] = [];
   let paramIndex = initialParamIndex;
 
-  if (filter.min_amount !== undefined && filter.min_amount !== null) {
+  if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
     havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
-    values.push(filter.min_amount);
+    values.push(filter.aggregate_min_amount);
   }
-  if (filter.max_amount !== undefined && filter.max_amount !== null) {
+  if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
     havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
-    values.push(filter.max_amount);
+    values.push(filter.aggregate_max_amount);
   }
 
   const havingClause = havingConditions.length ? ` HAVING ${havingConditions.join(" AND ")}` : "";
@@ -272,7 +221,7 @@ function toOrderBy(sort?: EntityAnalyticsSortOption | { by?: string; order?: str
 
 export const entityAnalyticsRepository = {
   async getEntityAnalytics(
-    filter: EntityAnalyticsFilter,
+    filter: AnalyticsFilter,
     sort?: EntityAnalyticsSortOption,
     limit?: number,
     offset?: number
@@ -312,7 +261,7 @@ export const entityAnalyticsRepository = {
 
     const totalAmountExpr = `COALESCE(SUM(eli.amount), 0)`;
     const perCapitaExpr = `COALESCE(${totalAmountExpr} / NULLIF(${populationExpr}, 0), 0)`;
-    const amountExpr = filter.normalization === "per-capita" ? perCapitaExpr : totalAmountExpr;
+    const amountExpr = filter.normalization === "per_capita" ? perCapitaExpr : totalAmountExpr;
 
     // Group by entity and UAT attributes used in SELECT
     const groupBy = ` GROUP BY e.cui, e.name, e.entity_type, e.uat_id, u.county_code, u.county_name, u.population`;

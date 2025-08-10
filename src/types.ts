@@ -1,24 +1,3 @@
-export interface FieldStats {
-  min: number;
-  max: number;
-  total: number;
-  count: number;
-  examples: Array<{ value: string; file: string }>;
-}
-
-export interface ValidationStats {
-  totalFiles: number;
-  parsedFiles: number; // Files successfully parsed
-  validFiles: number; // Files passing validation after extraction
-  invalidFiles: number; // Files failing validation after extraction
-  parsingErrors: number; // Files failing XML parsing
-  missingEntityInfoCount: number; // Specific validation failure count
-  invalidDateFormatCount: number; // Specific validation failure count
-  errorsByFile: Record<string, string[]>; // Store multiple errors per file
-  fieldsStats: Record<string, FieldStats>;
-  formatDistribution: Record<string, number>; // Track formats identified during extraction
-}
-
 // Represents the data extracted consistently, regardless of source XML structure
 export interface NormalizedData {
   cui?: string;
@@ -46,12 +25,51 @@ export interface LineItem {
   amount?: number; // Example: Extracting amount if present
 }
 
-export interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
-}
+// ------------------------------
+// Unified Analytics Filter Types
+// ------------------------------
 
-export interface ExtractionResult {
-  data?: NormalizedData;
-  error?: string; // Error during extraction itself
+export type NormalizationMode = "total" | "per_capita";
+
+export type ExpenseType = "dezvoltare" | "functionare";
+
+export interface AnalyticsFilter {
+  // Required scope
+  years: number[];
+  account_category: "vn" | "ch";
+
+  // Line-item dimensional filters (WHERE on ExecutionLineItems or joined dims)
+  report_ids?: string[];
+  report_types?: string[];
+  reporting_years?: number[];
+  entity_cuis?: string[];
+  functional_codes?: string[];
+  functional_prefixes?: string[];
+  economic_codes?: string[];
+  economic_prefixes?: string[];
+  funding_source_ids?: number[];
+  budget_sector_ids?: number[];
+  expense_types?: ExpenseType[];
+  program_codes?: string[];
+
+  // Geography / entity scope (joins to Entities/UATs)
+  county_codes?: string[];
+  regions?: string[];
+  uat_ids?: number[];
+  entity_types?: string[];
+  is_uat?: boolean;
+  search?: string;
+
+  // Population constraints (missing population is treated as 0)
+  min_population?: number | null;
+  max_population?: number | null;
+
+  // Transform and aggregated thresholds (HAVING on aggregated measure)
+  normalization?: NormalizationMode; // default 'total'
+  aggregate_min_amount?: number | null;
+  aggregate_max_amount?: number | null;
+
+  // Per-item thresholds (WHERE on eli.amount)
+  item_min_amount?: number | null;
+  item_max_amount?: number | null;
 }

@@ -8,41 +8,15 @@ import { EntityFilter } from "../../db/repositories/entityRepository";
 import { SortOrderOption as ELISortOrderOption } from "../../db/repositories/executionLineItemRepository";
 import { SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
 import { YearlyFinancials } from "../../db/repositories/executionLineItemRepository";
+import { AnalyticsFilter } from "../../types";
 
 interface GraphQLSortOrderInput {
   by: string;
   order: "ASC" | "DESC";
 }
 
-// Type for ExecutionLineItemFilter from GraphQL args
-interface GraphQLExecutionLineItemFilterInput { 
-  // Define fields based on ExecutionLineItemFilter in src/graphql/types/index.ts
-  report_id?: string;
-  report_ids?: string[];
-  entity_cuis?: string[]; // This will be overridden by parent.cui
-  funding_source_id?: number;
-  functional_codes?: string[];
-  economic_codes?: string[];
-  account_categories?: string[];
-  min_amount?: number;
-  max_amount?: number;
-  program_code?: string;
-  reporting_year?: number;
-  county_code?: string;
-  uat_ids?: number[];
-  year?: number;
-  years?: number[];
-  start_year?: number;
-  end_year?: number;
-  search?: string;
-  entity_types?: string[];
-  is_uat?: boolean;
-  functional_prefixes?: string[];
-  economic_prefixes?: string[];
-  budget_sector_id?: number;
-  budget_sector_ids?: number[];
-  expense_types?: string[];
-}
+// GraphQL args expect the unified AnalyticsFilter shape
+type GraphQLAnalyticsFilterInput = Partial<AnalyticsFilter>;
 
 export const entityResolver = {
   Query: {
@@ -134,7 +108,7 @@ export const entityResolver = {
         offset = 0,
         sort,
       }: {
-        filter?: GraphQLExecutionLineItemFilterInput;
+        filter?: GraphQLAnalyticsFilterInput;
         limit?: number;
         offset?: number;
         sort?: ELISortOrderOption;

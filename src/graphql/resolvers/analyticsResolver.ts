@@ -1,24 +1,25 @@
 import { HeatmapUATDataPoint_GQL, HeatmapUATDataPoint_Repo, uatAnalyticsRepository } from "../../db/repositories/uatAnalyticsRepository";
 import { executionLineItemRepository, judetAnalyticsRepository, entityRepository } from '../../db/repositories';
 import { GraphQLResolveInfo } from 'graphql';
-import { HeatmapFilterInput, HeatmapJudetDataPoint_GQL, HeatmapJudetDataPoint_Repo } from "../../db/repositories/judetAnalyticsRepository";
+import { HeatmapJudetDataPoint_GQL, HeatmapJudetDataPoint_Repo } from "../../db/repositories/judetAnalyticsRepository";
 import { entityAnalyticsRepository } from "../../db/repositories";
+import { AnalyticsFilter } from "../../types";
 
 
 interface AnalyticsArgs {
-  inputs: Array<{ filter: any; seriesId?: string }>; // Use any for filter; refine if types available
+  inputs: Array<{ filter: AnalyticsFilter; seriesId?: string }>;
 }
 
 export const analyticsResolver = {
   Query: {
     async heatmapUATData(
       _parent: any,
-      args: { filter: HeatmapFilterInput },
+      args: { filter: AnalyticsFilter },
       _context: any,
       _info: any
     ): Promise<HeatmapUATDataPoint_GQL[]> { // Returns type matching GQL schema
       try {
-        const repoData: HeatmapUATDataPoint_Repo[] = await uatAnalyticsRepository.getHeatmapData(args.filter);
+        const repoData: HeatmapUATDataPoint_Repo[] = await uatAnalyticsRepository.getHeatmapData(args.filter as any);
 
         // Map repository data to GraphQL schema type (e.g., convert uat_id to string)
         let gqlData: HeatmapUATDataPoint_GQL[] = repoData.map(repoItem => ({
@@ -36,12 +37,12 @@ export const analyticsResolver = {
     },
     async heatmapJudetData(
       _parent: any,
-      args: { filter: HeatmapFilterInput },
+      args: { filter: AnalyticsFilter },
       _context: any,
       _info: any
     ): Promise<HeatmapJudetDataPoint_GQL[]> {
       try {
-        const repoData = await judetAnalyticsRepository.getHeatmapJudetData(args.filter);
+        const repoData = await judetAnalyticsRepository.getHeatmapJudetData(args.filter as any);
         return repoData.map(repoItem => ({
           ...repoItem,
         }));
@@ -74,14 +75,11 @@ export const analyticsResolver = {
     },
     async entityAnalytics(
       _parent: unknown,
-      args: { filter: any; sort?: { by: string; order: 'ASC' | 'DESC' }; limit?: number; offset?: number },
+      args: { filter: AnalyticsFilter; sort?: { by: string; order: 'ASC' | 'DESC' }; limit?: number; offset?: number },
       _context: unknown,
       _info: GraphQLResolveInfo
     ) {
-      // Map normalization alias 'per_capita' to 'per-capita'
-      const normalization = args.filter?.normalization === 'per_capita' ? 'per-capita' : args.filter?.normalization;
-      const filter = { ...args.filter, normalization };
-      const { rows, totalCount } = await entityAnalyticsRepository.getEntityAnalytics(filter, args.sort as any, args.limit, args.offset);
+      const { rows, totalCount } = await entityAnalyticsRepository.getEntityAnalytics(args.filter as any, args.sort as any, args.limit, args.offset);
       return {
         nodes: rows,
         pageInfo: {
