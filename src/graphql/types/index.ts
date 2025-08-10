@@ -252,7 +252,7 @@ export const types = /* GraphQL */ `
 
     # Line-item dimensional filters
     report_ids: [ID!]              # Used by: all. Heatmaps filter contributing reports.
-    report_types: [String!]        # Used by: all. Heatmaps filter contributing report types.
+    report_type: String        # Used by: all. Heatmaps filter contributing report types.
     reporting_years: [Int!]        # Used by: all. Heatmaps join Reports to filter by year.
     entity_cuis: [String!]         # Used by: all. Heatmaps constrain contributing entities.
     functional_codes: [String!]

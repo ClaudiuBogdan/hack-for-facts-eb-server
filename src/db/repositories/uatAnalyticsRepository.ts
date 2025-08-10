@@ -83,9 +83,10 @@ export const uatAnalyticsRepository = {
       params.push(filter.report_ids);
     }
 
-    if (filter.report_types && filter.report_types.length > 0) {
-      conditions.push(`eli.report_type = ANY($${paramIndex++})`);
-      params.push(filter.report_types);
+    if (filter.report_type) {
+      requireReportsJoin = true;
+      conditions.push(`eli.report_type = $${paramIndex++}`);
+      params.push(filter.report_type);
     }
 
     if (filter.reporting_years && filter.reporting_years.length > 0) {

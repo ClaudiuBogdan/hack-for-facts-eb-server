@@ -103,9 +103,9 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.report_ids);
   }
 
-  if (filters.report_types?.length) {
-    conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
-    values.push(filters.report_types);
+  if (filters.report_type) {
+    conditions.push(`eli.report_type = $${paramIndex++}`);
+    values.push(String(filters.report_type));
   }
 
   if (filters.funding_source_ids?.length) {

@@ -40,7 +40,7 @@ input AnalyticsFilterInput {
 
   # Line-item dimensional filters (WHERE on ExecutionLineItems or joined dims)
   report_ids: [ID!]
-  report_types: [String!]                     # values from DB enum report_type
+  report_type: String                     # values from DB enum report_type
   reporting_years: [Int!]
   entity_cuis: [String!]
   functional_codes: [String!]
@@ -81,7 +81,7 @@ input AnalyticsFilterInput {
 - account_category: Required single value, one of {vn, ch}. No mixing within a single query.
 
 - report_ids: Optional. Filters `eli.report_id IN (...)`.
-- report_types: Optional. Filters `eli.report_type IN (...)`. Values must match DB enum `report_type` strings.
+- report_type: Optional. Filters `eli.report_type = '...'`. Value must match DB enum `report_type` strings.
 - reporting_years: Optional. Filters `Reports.reporting_year IN (...)` (requires join).
 - entity_cuis: Optional. Filters `eli.entity_cui IN (...)`.
 - functional_codes/economic_codes: Exact code filters.
@@ -113,7 +113,7 @@ input AnalyticsFilterInput {
 #### 1) UAT heatmap (by UAT)
 
 - Grouping: by UAT (`u.id`, `u.uat_code`, etc.).
-- WHERE: years, account_category, functional/economic filters and prefixes, optional report_ids/report_types/reporting_years (JOIN Reports), entity_cuis, funding_source_ids, budget_sector_ids, expense_types, program_codes; geography (county_codes, regions), and explicit `uat_ids`. Population thresholds via `COALESCE(u.population, 0)`.
+- WHERE: years, account_category, functional/economic filters and prefixes, optional report_ids/report_type/reporting_years (JOIN Reports), entity_cuis, funding_source_ids, budget_sector_ids, expense_types, program_codes; geography (county_codes, regions), and explicit `uat_ids`. Population thresholds via `COALESCE(u.population, 0)`.
 - HAVING: aggregate thresholds applied to either `SUM(eli.amount)` or `SUM(eli.amount) / NULLIF(COALESCE(u.population, 0), 0)`.
 - Returned fields: total_amount, per_capita_amount, and `amount` matching `normalization`.
 
@@ -181,7 +181,7 @@ input AnalyticsFilterInput {
   - Per-capita HAVING: divide by `NULLIF(population, 0)`; select per-capita with COALESCE to 0
 
 - Entity analytics (entityAnalyticsRepository)
-  - Add support for array filters: report_ids/report_types/reporting_years/program_codes
+  - Add support for array filters: report_ids/reporting_years/program_codes
   - Prefix matching for functional/economic; codes and prefixes OR-ed within dimension
   - Entity scope and search via joins to Entities/UATs
   - Population expression per entity type; use `COALESCE(expr, 0)` in WHERE; per-capita uses `NULLIF(expr, 0)` and COALESCE result to 0

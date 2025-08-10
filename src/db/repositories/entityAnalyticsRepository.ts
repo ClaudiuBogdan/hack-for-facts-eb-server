@@ -5,14 +5,14 @@ import { AnalyticsFilter } from "../../types";
 
 export interface EntityAnalyticsSortOption {
   by:
-    | "amount"
-    | "total_amount"
-    | "per_capita_amount"
-    | "entity_name"
-    | "entity_type"
-    | "population"
-    | "county_name"
-    | "county_code";
+  | "amount"
+  | "total_amount"
+  | "per_capita_amount"
+  | "entity_name"
+  | "entity_type"
+  | "population"
+  | "county_name"
+  | "county_code";
   order: "ASC" | "DESC";
 }
 
@@ -62,9 +62,9 @@ function buildEntityAnalyticsWhere(
     conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
     values.push(filter.report_ids);
   }
-  if (filter.report_types?.length) {
-    conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
-    values.push(filter.report_types);
+  if (filter.report_type) {
+    conditions.push(`eli.report_type = $${paramIndex++}`);
+    values.push(filter.report_type);
   }
   if (filter.entity_cuis?.length) {
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);

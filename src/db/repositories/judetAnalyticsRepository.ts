@@ -123,9 +123,10 @@ export const judetAnalyticsRepository = {
         }
 
         let requireReportsJoin = false;
-        if (filter.report_types && filter.report_types.length > 0) {
-            conditions.push(`eli.report_type = ANY($${paramIndex++}::text[])`);
-            params.push(filter.report_types);
+        if (filter.report_type) {
+            requireReportsJoin = true;
+            conditions.push(`eli.report_type = $${paramIndex++}`);
+            params.push(filter.report_type);
         }
 
         if (filter.report_ids && filter.report_ids.length > 0) {

@@ -43,7 +43,7 @@ export interface AnalyticsFilter {
 
   // Line-item dimensional filters (WHERE on ExecutionLineItems or joined dims)
   report_ids?: string[];
-  report_types?: string[];
+  report_type?: string;
   reporting_years?: number[];
   entity_cuis?: string[];
   functional_codes?: string[];
