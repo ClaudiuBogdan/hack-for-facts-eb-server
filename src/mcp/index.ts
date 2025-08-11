@@ -4,7 +4,6 @@ import {
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import fetch from "node-fetch"; // Or use the built-in fetch
 import { mcpDefinition } from "../routes/mcp";
 
 // --- Configuration ---
