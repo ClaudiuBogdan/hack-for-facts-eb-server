@@ -8,5 +8,7 @@ export { economicClassificationRepository } from "./economicClassificationReposi
 export { fundingSourceRepository } from "./fundingSourceRepository";
 export { uatAnalyticsRepository as analyticsRepository } from "./uatAnalyticsRepository";
 export { judetAnalyticsRepository } from "./judetAnalyticsRepository";
+export { categoryAnalyticsRepository } from "./categoryAnalyticsRepository";
 export { datasetRepository } from "./datasetRepository";
+export { aggregatedLineItemsRepository } from "./aggregatedLineItemsRepository";
 export { entityAnalyticsRepository } from "./entityAnalyticsRepository";

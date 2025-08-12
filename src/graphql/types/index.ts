@@ -339,6 +339,20 @@ export const types = /* GraphQL */ `
     pageInfo: PageInfo!
   }
 
+  type AggregatedLineItem {
+    functional_code: String!
+    functional_name: String!
+    economic_code: String!
+    economic_name: String!
+    amount: Float!
+    count: Int!
+  }
+
+  type AggregatedLineItemConnection {
+    nodes: [AggregatedLineItem!]!
+    pageInfo: PageInfo!
+  }
+
   # Entity analytics uses AnalyticsFilterInput
 
   input FunctionalClassificationFilterInput {
@@ -510,5 +524,11 @@ export const types = /* GraphQL */ `
  
     # Query to fetch analytics data for a list of dataset IDs
     staticChartAnalytics(datasetIds: [ID!]!): [StaticAnalyticsDataPoint!]!
+
+    aggregatedLineItems(
+      filter: AnalyticsFilterInput!
+      limit: Int = 50
+      offset: Int = 0
+    ): AggregatedLineItemConnection!
   }
 `;

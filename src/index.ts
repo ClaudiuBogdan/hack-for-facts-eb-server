@@ -21,8 +21,20 @@ const fastify = Fastify({
   trustProxy: true,
 });
 
+// Allow GraphiQL to load in development
+const helmetConfig = process.env.NODE_ENV !== "production" ? {
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://unpkg.com"],
+      connectSrc: ["'self'", "https://unpkg.com"],
+      // Add other directives if needed (e.g., styleSrc for CSS if GraphiQL loads styles)
+    },
+  },
+} : {};
+
 // Register plugins
-fastify.register(helmet);
+fastify.register(helmet, helmetConfig);
 fastify.register(fastifyCors, {
   origin: (origin, cb) => {
     // Allow server-to-server or same-origin requests
