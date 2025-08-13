@@ -12,17 +12,14 @@
  */
 
 export type ClientView =
-  | "entities-search"
-  | "uat-search"
-  | "classifications-functional"
-  | "classifications-economic"
-  | "spending-summary"
-  | "analytics-entities-compare";
+  | "overview"
+  | "expense-trends"
+  | "income-trends"
 
 export interface BuildClientLinkOptions {
   view: ClientView;
+  route: string;
   filters?: Record<string, unknown> | null;
-  route?: string; // default: "/explore"
   extraParams?: Record<string, string | number | boolean | undefined | null>;
 }
 
@@ -45,53 +42,34 @@ export function buildQuery(params: Record<string, string | number | boolean | un
   return s ? `?${s}` : "";
 }
 
-export function buildClientLink(opts: BuildClientLinkOptions): {
-  absolute?: string; // present when CLIENT_BASE_URL configured
-  relative: string;
-  route: string;
-  query: string;
-} {
-  const baseRoute = opts.route ?? "/explore";
+export function buildClientLink(opts: BuildClientLinkOptions): string {
+  const baseRoute = opts.route;
   const encodedFilters = opts.filters ? toBase64Url(JSON.stringify(opts.filters)) : undefined;
   const query = buildQuery({ view: opts.view, filters: encodedFilters, ...opts.extraParams });
 
   const relative = `${baseRoute}${query}`;
   const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
-  const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${relative}` : undefined;
+  const link = clientBase ? `${clientBase.replace(/\/$/, "")}${relative}` : "";
 
-  return { absolute, relative, route: baseRoute, query };
+  return link;
 }
 
-export function buildEntitySearchLink(search: string): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "entities-search", filters: { search } });
+export function buildFunctionalLink(cui: string, fnCode: string, type: "income" | "expense"): string {
+  const search = type === "expense" ? "expenseSearch" : "incomeSearch";
+  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `fn:${fnCode}` } });
 }
 
-export function buildFunctionalSearchLink(search: string): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "classifications-functional", filters: { search } });
+export function buildEconomicLink(cui: string, ecCode: string, type: "income" | "expense"): string {
+  const search = type === "expense" ? "expenseSearch" : "incomeSearch";
+  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `ec:${ecCode}` } });
 }
 
-export function buildEconomicSearchLink(search: string): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "classifications-economic", filters: { search } });
-}
-
-export function buildUatSearchLink(search: string): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "uat-search", filters: { search } });
-}
-
-export function buildSpendingSummaryLink(filters: Record<string, unknown>): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "spending-summary", filters });
-}
-
-export function buildEntitiesCompareLink(filters: Record<string, unknown>): { absolute?: string; relative: string } {
-  return buildClientLink({ view: "analytics-entities-compare", filters });
-}
-
-export function buildEntityDetailsLink(cui: string, search?: Record<string, string | number | boolean | undefined | null>): { sourceLink?: string } {
+export function buildEntityDetailsLink(cui: string, search?: Record<string, string | number | boolean | undefined | null>): string {
   const baseRoute = `/entities/${encodeURIComponent(cui)}`;
   const query = buildQuery(search || {});
   const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
-  const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${baseRoute}${query}` : undefined;
-  return { sourceLink: absolute };
+  const link = clientBase ? `${clientBase.replace(/\/$/, "")}${baseRoute}${query}` : "";
+  return link;
 }
 
 

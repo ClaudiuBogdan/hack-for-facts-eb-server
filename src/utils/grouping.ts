@@ -1,4 +1,7 @@
-import { classifications } from "./functionalChapters";
+import { ExecutionLineItem } from "../db/models";
+import { formatCurrency, formatNumberRO } from "./formatter";
+import { getChapterMap } from "./functionalClassificationUtils";
+import { buildFunctionalLink } from "./link";
 
 export interface GroupedEconomic {
   code: string;
@@ -10,6 +13,8 @@ export interface GroupedFunctional {
   code: string;
   name: string;
   totalAmount: number;
+  totalAmountHumanReadable: string;
+  link: string;
   economics: GroupedEconomic[];
 }
 
@@ -17,7 +22,9 @@ export interface GroupedChapter {
   prefix: string;
   description: string;
   totalAmount: number;
-  functionals: GroupedFunctional[];
+  totalAmountHumanReadable: string;
+  link: string;
+  functionals?: GroupedFunctional[];
 }
 
 export interface EnrichedLineItem {
@@ -27,22 +34,9 @@ export interface EnrichedLineItem {
   economicClassification?: { economic_code: string; economic_name?: string };
 }
 
-export function groupByFunctional(items: EnrichedLineItem[]): GroupedChapter[] {
+export function groupByFunctional(items: EnrichedLineItem[], cui: string, type: "income" | "expense"): GroupedChapter[] {
   // Create chapter map: prefix -> description, built from classifications JSON
-  const chapterMap = new Map<string, string>();
-  classifications.groups.forEach((group) => {
-    group.chapters.forEach((ch) => {
-      if ((ch as any).code) {
-        const prefix = (ch as any).code.slice(0, 2);
-        chapterMap.set(prefix, ch.description);
-      } else if ((ch as any).codes) {
-        (ch as any).codes!.forEach((c: string) => {
-          const prefix = c.slice(0, 2);
-          chapterMap.set(prefix, ch.description);
-        });
-      }
-    });
-  });
+  const chapterMap = getChapterMap();
 
   const chapters = new Map<string, { total: number; functionals: Map<string, { name: string; total: number; economics: Map<string, { name: string; amount: number }> }> }>();
   for (const item of items) {
@@ -76,13 +70,18 @@ export function groupByFunctional(items: EnrichedLineItem[]): GroupedChapter[] {
     const functionals: GroupedFunctional[] = [];
     for (const [code, f] of ch.functionals) {
       const economics: GroupedEconomic[] = Array.from(f.economics, ([ecoCode, eco]) => ({ code: ecoCode, name: eco.name, amount: eco.amount })).sort((a, b) => b.amount - a.amount);
-      functionals.push({ code, name: f.name, totalAmount: f.total, economics });
+      const totalAmountHumanReadable = `The total ${type} for ${f.name} with functional code ${code} was ${formatCurrency(f.total, 'compact')} (${formatCurrency(f.total, 'standard')})`;
+      const link = buildFunctionalLink(cui, code, type);
+      functionals.push({ code, name: f.name, totalAmount: f.total, totalAmountHumanReadable, economics, link });
     }
     functionals.sort((a, b) => b.totalAmount - a.totalAmount);
     const description = chapterMap.get(prefix) || "Unknown";
-    result.push({ prefix, description, totalAmount: ch.total, functionals });
+    const totalAmountHumanReadable = `The total ${type} for ${description} with functional code ${prefix} was ${formatCurrency(ch.total, 'compact')} (${formatCurrency(ch.total, 'standard')})`;
+    const link = buildFunctionalLink(cui, prefix, type);
+    result.push({ prefix, description, totalAmount: ch.total, totalAmountHumanReadable, functionals, link });
   }
   result.sort((a, b) => b.totalAmount - a.totalAmount);
+
   return result;
 }
 
@@ -91,7 +90,20 @@ function textMatches(text: string, query: string): boolean {
   return text.toLowerCase().includes(query.toLowerCase());
 }
 
-export function filterGroups(groups: GroupedChapter[], term: string): GroupedChapter[] {
+export function filterGroups(initialGroups: GroupedChapter[], term?: string, topLevelOnly?: boolean): GroupedChapter[] {
+  const groups: GroupedChapter[] = [];
+
+  if (topLevelOnly) {
+    for (const chapter of initialGroups) {
+      groups.push({
+        ...chapter,
+        functionals: undefined, // We remove the functionals to avoid too much noise
+      });
+    }
+  } else {
+    groups.push(...initialGroups);
+  }
+
   const query = (term || "").trim();
   if (!query) return groups;
 
@@ -107,7 +119,7 @@ export function filterGroups(groups: GroupedChapter[], term: string): GroupedCha
     }
 
     const matchedFunctionals: GroupedFunctional[] = [];
-    for (const func of chapter.functionals) {
+    for (const func of chapter.functionals || []) {
       const funcText = `${func.name} fn:${func.code}`;
       const funcMatches = textMatches(funcText, query);
 

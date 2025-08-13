@@ -29,7 +29,7 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200
+              "maximum": 10
             },
             "in": "query",
             "name": "limit",
@@ -59,7 +59,7 @@
         "tags": [
           "AI"
         ],
-        "description": "\nHow to query:\n- Identify entity via one of:\n  - cui: exact CUI string (preferred when known)\n  - search: free-text (fuzzy) across name/CUI; first result is used\n- year: reporting year (default 2024)\n",
+        "description": "Provides a summary of an entity's expenses and incomes for a given year.",
         "parameters": [
           {
             "schema": {
@@ -90,6 +90,53 @@
             "name": "year",
             "required": false,
             "description": "Reporting year for snapshot totals and execution lines"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/ai/v1/entities/budget-analysis": {
+      "get": {
+        "operationId": "getEntityBudgetAnalysis",
+        "summary": "Get a summary of an entity's spending and income by main functional classification (Classification of the Functions of Government). Useful if you need entity data about education, transport, health, etc.",
+        "tags": [
+          "AI"
+        ],
+        "description": "Provides a summary of an entity's expenses and incomes for a given year using functional classification grouping and sorted by amount. Useful if you need entity data about education, transport, health, etc.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cui",
+            "required": false,
+            "description": "Exact CUI of the entity."
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "description": "Free-text fuzzy search for the entity."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 2016,
+              "maximum": 2024,
+              "default": 2024
+            },
+            "in": "query",
+            "name": "year",
+            "required": true,
+            "description": "Reporting year for the spending summary."
           }
         ],
         "responses": {
