@@ -378,3 +378,11 @@ async function getEntity(cui?: string, search?: string) {
   }
   return entity;
 }
+
+/**
+ * http://localhost:5173/entities/4305857?view=overview&year=2024
+ * http://localhost:3000/ai/v1/entities/budget-analysis-by-functional?entityCui=4305857&functionalCode=84
+ * http://localhost:3000/ai/v1/entities/budget-analysis-by-functional?entityCui=4305857&functionalCode=84.03
+ * http://localhost:3000/ai/v1/economic-classifications?search=%22salarii%22
+ * http://localhost:3000/ai/v1/entities/budget-analysis-by-economic?entityCui=4305857&economicCode=10.01
+ */
