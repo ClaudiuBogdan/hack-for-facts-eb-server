@@ -61,6 +61,48 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // Economic classifications: search by code or name
+  fastify.get(
+    "/ai/v1/economic-classifications",
+    {
+      schema: {
+        operationId: "getEconomicClassificationsSearch",
+        tags: ["AI"],
+        summary: "Search economic classifications (code or name) using romanian language.",
+        description:
+          `Find economic classification entries by code prefix or name keywords. Use this to locate a code (e.g., Salarii, Chirii, Constructii) before running entity analysis by economic code.`,
+        querystring: {
+          type: "object",
+          properties: {
+            search: { type: "string", description: "Keyword or code prefix (e.g., '10.01' or 'salarii')." },
+            limit: { type: "integer", minimum: 1, maximum: 50 },
+            offset: { type: "integer", minimum: 0 },
+          },
+          required: ["search"],
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const qs = request.query as any;
+      const search: string = typeof qs?.search === "string" ? qs.search : "";
+      const limit: number = typeof qs?.limit === "number" ? Math.min(Math.max(1, qs.limit), 50) : 10;
+      const offset: number = typeof qs?.offset === "number" ? Math.max(0, qs.offset) : 0;
+      if (!search.trim()) return bad(reply, "Invalid query");
+
+      const [items, total] = await Promise.all([
+        economicClassificationRepository.getAll({ search }, limit, offset),
+        economicClassificationRepository.count({ search }),
+      ]);
+
+      return ok(reply, {
+        kind: "economic-classifications.search",
+        query: { search, limit, offset },
+        items,
+        pageInfo: { totalCount: total, limit, offset },
+      });
+    }
+  );
+
   // Entity details (by cui or search)
   fastify.get("/ai/v1/entities/details", {
     schema: {
@@ -217,7 +259,7 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     schema: {
       operationId: "getEntityBudgetAnalysisSpendingByEconomic",
       summary: "Deep dive by economic code (e.g., '10.01.01').",
-      description: `Detailed breakdown filtered by an economic classification code (dotted format, e.g., '10.01.01'), showing where that code contributes across functional areas. Required: 'entityCui', 'year', 'economicCode'. Response includes a deep link.`,
+      description: `Detailed breakdown filtered by an economic classification code (dotted format, e.g., '10.01.01' for salarii or the prefix '10.01' for all kind of salaries), showing where that code contributes across functional areas. Required: 'entityCui', 'year', 'economicCode'. Response includes a deep link.`,
       querystring: {
         type: "object",
         properties: {

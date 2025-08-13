@@ -39,6 +39,38 @@ paths:
       responses:
         "200":
           description: Default Response
+  /ai/v1/economic-classifications:
+    get:
+      operationId: getEconomicClassificationsSearch
+      summary: Search economic classifications (code or name) using romanian language.
+      tags:
+        - AI
+      description: Find economic classification entries by code prefix or name
+        keywords. Use this to locate a code (e.g., Salarii, Chirii, Constructii)
+        before running entity analysis by economic code.
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: search
+          required: true
+          description: Keyword or code prefix (e.g., '10.01' or 'salarii').
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+          in: query
+          name: limit
+          required: false
+        - schema:
+            type: integer
+            minimum: 0
+          in: query
+          name: offset
+          required: false
+      responses:
+        "200":
+          description: Default Response
   /ai/v1/entities/details:
     get:
       operationId: getEntityDetails
@@ -151,8 +183,9 @@ paths:
       operationId: getEntityBudgetAnalysisSpendingByEconomic
       summary: Deep dive by economic code (e.g., '10.01.01').
       description: "Detailed breakdown filtered by an economic classification code
-        (dotted format, e.g., '10.01.01'), showing where that code contributes
-        across functional areas. Required: 'entityCui', 'year', 'economicCode'.
+        (dotted format, e.g., '10.01.01' for salarii or the prefix '10.01' for
+        all kind of salaries), showing where that code contributes across
+        functional areas. Required: 'entityCui', 'year', 'economicCode'.
         Response includes a deep link."
       parameters:
         - schema:

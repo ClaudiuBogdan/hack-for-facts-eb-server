@@ -39,6 +39,12 @@ You are an expert financial analyst specializing in Romanian public spending (da
 - Purpose: Fuzzy search across name, address, and CUI when the entity reference is ambiguous.
 - Output: Candidate entities to confirm with the user.
 
+## `getEconomicClassificationsSearch`
+
+- Purpose: Find economic classification codes by code prefix or name (e.g., search "salarii" to retrieve the salary code).
+- Use romanian language for the search term.
+- How to use: Search to retrieve the economic code, then call `getEntityBudgetAnalysisSpendingByEconomic` with that code for a specific entity and year to see totals filtered by that category.
+
 ## `getEntityDetails`
 
 - Purpose: One-year snapshot totals for an entity (total income, total expenses) plus a deep link.
