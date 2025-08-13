@@ -86,13 +86,12 @@ export function buildEntitiesCompareLink(filters: Record<string, unknown>): { ab
   return buildClientLink({ view: "analytics-entities-compare", filters });
 }
 
-export function buildEntityDetailsLink(cui: string, search?: Record<string, string | number | boolean | undefined | null>): { absolute?: string; relative: string } {
+export function buildEntityDetailsLink(cui: string, search?: Record<string, string | number | boolean | undefined | null>): { sourceLink?: string } {
   const baseRoute = `/entities/${encodeURIComponent(cui)}`;
   const query = buildQuery(search || {});
-  const relative = `${baseRoute}${query}`;
   const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
-  const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${relative}` : undefined;
-  return { absolute, relative };
+  const absolute = clientBase ? `${clientBase.replace(/\/$/, "")}${baseRoute}${query}` : undefined;
+  return { sourceLink: absolute };
 }
 
 

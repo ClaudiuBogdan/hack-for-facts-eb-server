@@ -114,7 +114,10 @@ fastify.register(fastifySwagger, {
       description: "REST endpoints designed for AI agents and tools to fetch Romanian public spending data in a compact, structured format.",
       version: "1.0.0",
     },
-    servers: [{ url: "/" }],
+    servers: [
+      // Prefer explicit server URL from env for generated spec; fallback to relative
+      { url: process.env.OPENAPI_SERVER_URL?.replace(/\/$/, "") || "/" },
+    ],
     tags: [
       { name: "AI", description: "AI-friendly simplified and aggregated endpoints" },
       { name: "Health", description: "Health check endpoints" },

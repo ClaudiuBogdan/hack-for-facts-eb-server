@@ -1,0 +1,118 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hack for Facts - Public Spending API",
+    "description": "REST endpoints designed for AI agents and tools to fetch Romanian public spending data in a compact, structured format.",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/ai/v1/entities/search": {
+      "get": {
+        "operationId": "getEntitiesSearch",
+        "summary": "Search entities by name/address/CUI (fuzzy)",
+        "tags": [
+          "AI"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "search",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/ai/v1/entities/details": {
+      "get": {
+        "operationId": "getEntityDetails",
+        "summary": "Entity details by cui or search",
+        "tags": [
+          "AI"
+        ],
+        "description": "\nHow to query:\n- Identify entity via one of:\n  - cui: exact CUI string (preferred when known)\n  - search: free-text (fuzzy) across name/CUI; first result is used\n- year: reporting year (default 2024)\n",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cui",
+            "required": false,
+            "description": "Exact CUI of the entity (preferred when known)"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "description": "Free-text fuzzy search across name/address/CUI; first match is used when CUI is not provided"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 2016,
+              "maximum": 2100,
+              "default": 2024
+            },
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "description": "Reporting year for snapshot totals and execution lines"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://related-kiwi-epic.ngrok-free.app"
+    }
+  ],
+  "tags": [
+    {
+      "name": "AI",
+      "description": "AI-friendly simplified and aggregated endpoints"
+    },
+    {
+      "name": "Health",
+      "description": "Health check endpoints"
+    }
+  ]
+}
