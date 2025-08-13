@@ -1,87 +1,160 @@
-import { ExecutionLineItem } from "../db/models";
 import { formatCurrency, formatNumberRO } from "./formatter";
-import { getChapterMap } from "./functionalClassificationUtils";
-import { buildFunctionalLink } from "./link";
+import { getChapterMap, getFilterDescription } from "./functionalClassificationUtils";
+import { buildEconomicLink, buildFunctionalLink } from "./link";
+import { ExecutionLineItem } from "../db/models";
 
 export interface GroupedEconomic {
-  code: string;
-  name: string;
+  economicCode: string;
+  economicName: string;
   amount: number;
+  humanSummary: string;
+  link: string;
+  percentage: number; // 0..1 share of total income/expense for the entity-year
 }
 
 export interface GroupedFunctional {
-  code: string;
-  name: string;
+  functionalCode: string;
+  functionalName: string;
   totalAmount: number;
-  totalAmountHumanReadable: string;
+  humanSummary: string;
   link: string;
-  economics: GroupedEconomic[];
+  economics?: GroupedEconomic[];
+  percentage: number; // 0..1 share of total income/expense for the entity-year
 }
 
 export interface GroupedChapter {
-  prefix: string;
-  description: string;
+  functionalCode: string;
+  functionalDescription: string;
   totalAmount: number;
-  totalAmountHumanReadable: string;
+  humanSummary: string;
   link: string;
-  functionals?: GroupedFunctional[];
+  functionalChildren?: GroupedFunctional[];
+  percentage: number; // 0..1 share of total income/expense for the entity-year
 }
 
-export interface EnrichedLineItem {
-  account_category: string; // "vn" | "ch"
-  amount: number;
-  functionalClassification?: { functional_code: string; functional_name?: string };
-  economicClassification?: { economic_code: string; economic_name?: string };
+export interface EnrichedLineItem extends ExecutionLineItem {
+  functional_name?: string;
+  economic_name?: string;
 }
 
-export function groupByFunctional(items: EnrichedLineItem[], cui: string, type: "income" | "expense"): GroupedChapter[] {
-  // Create chapter map: prefix -> description, built from classifications JSON
+export function groupByFunctional(items: EnrichedLineItem[], cui: string, type: "income" | "expense", year: number): GroupedChapter[] {
+  // Chapter map: 2-digit prefix -> description (built from classifications JSON)
   const chapterMap = getChapterMap();
 
-  const chapters = new Map<string, { total: number; functionals: Map<string, { name: string; total: number; economics: Map<string, { name: string; amount: number }> }> }>();
-  for (const item of items) {
-    const f = item.functionalClassification;
-    if (!f?.functional_code) continue;
-    const prefix = f.functional_code.slice(0, 2);
-    // Skip unknown prefixes not in chapter map, as requested
-    if (!chapterMap.has(prefix)) continue;
-    if (!chapters.has(prefix)) chapters.set(prefix, { total: 0, functionals: new Map() });
-    const ch = chapters.get(prefix)!;
-    let fn = ch.functionals.get(f.functional_code);
-    if (!fn) {
-      fn = { name: f.functional_name || "Unknown", total: 0, economics: new Map() };
-      ch.functionals.set(f.functional_code, fn);
-    }
-    const amt = Number(item.amount) || 0;
-    fn.total += amt;
-    ch.total += amt;
-    const e = item.economicClassification;
-    if (e?.economic_code && e.economic_code !== "0" && e.economic_code !== "00.00.00") {
-      let eco = fn.economics.get(e.economic_code);
-      if (!eco) {
-        eco = { name: e.economic_name || "Unknown", amount: 0 };
-        fn.economics.set(e.economic_code, eco);
-      }
-      eco.amount += amt;
-    }
-  }
-  const result: GroupedChapter[] = [];
-  for (const [prefix, ch] of chapters) {
-    const functionals: GroupedFunctional[] = [];
-    for (const [code, f] of ch.functionals) {
-      const economics: GroupedEconomic[] = Array.from(f.economics, ([ecoCode, eco]) => ({ code: ecoCode, name: eco.name, amount: eco.amount })).sort((a, b) => b.amount - a.amount);
-      const totalAmountHumanReadable = `The total ${type} for "${f.name}" was ${formatCurrency(f.total, 'compact')} (${formatCurrency(f.total, 'standard')})`;
-      const link = buildFunctionalLink(cui, code, type);
-      functionals.push({ code, name: f.name, totalAmount: f.total, totalAmountHumanReadable, economics, link });
-    }
-    functionals.sort((a, b) => b.totalAmount - a.totalAmount);
-    const description = chapterMap.get(prefix) || "Unknown";
-    const totalAmountHumanReadable = `The total ${type} for "${description}" was ${formatCurrency(ch.total, 'compact')} (${formatCurrency(ch.total, 'standard')})`;
-    const link = buildFunctionalLink(cui, prefix, type);
-    result.push({ prefix, description, totalAmount: ch.total, totalAmountHumanReadable, functionals, link });
-  }
-  result.sort((a, b) => b.totalAmount - a.totalAmount);
+  // Magic codes sometimes present in data that should be ignored
+  const INVALID_ECONOMIC_CODES = new Set(["0", "00.00.00"]);
 
+  type EconomicAccumulator = { name: string; amount: number };
+  type FunctionalAccumulator = {
+    functionalCode: string;
+    functionalName: string;
+    total: number;
+    economics: Map<string, EconomicAccumulator>;
+  };
+  type ChapterAccumulator = {
+    total: number;
+    functionalChildren: Map<string, FunctionalAccumulator>;
+  };
+
+  const chapters = new Map<string, ChapterAccumulator>();
+
+  const ensureChapter = (prefix: string): ChapterAccumulator => {
+    let chapter = chapters.get(prefix);
+    if (!chapter) {
+      chapter = { total: 0, functionalChildren: new Map() };
+      chapters.set(prefix, chapter);
+    }
+    return chapter;
+  };
+
+  const ensureFunctional = (chapter: ChapterAccumulator, code: string, name: string): FunctionalAccumulator => {
+    let functional = chapter.functionalChildren.get(code);
+    if (!functional) {
+      functional = { functionalCode: code, functionalName: name || "Unknown", total: 0, economics: new Map() };
+      chapter.functionalChildren.set(code, functional);
+    }
+    return functional;
+  };
+
+  const addLineItemToAccumulators = (lineItem: EnrichedLineItem) => {
+    if (!lineItem?.functional_code) return;
+    const prefix = lineItem.functional_code.slice(0, 2);
+    if (!chapterMap.has(prefix)) return; // Skip unknown prefixes not in chapter map
+
+    const chapter = ensureChapter(prefix);
+    const functional = ensureFunctional(chapter, lineItem.functional_code, lineItem.functional_name || "");
+
+    const amount = Number(lineItem.amount) || 0;
+    functional.total += amount;
+    chapter.total += amount;
+
+    const ecoCode = lineItem.economic_code;
+    if (ecoCode && !INVALID_ECONOMIC_CODES.has(ecoCode)) {
+      let eco = functional.economics.get(ecoCode);
+      if (!eco) {
+        eco = { name: lineItem.economic_name || "Unknown", amount: 0 };
+        functional.economics.set(ecoCode, eco);
+      }
+      eco.amount += amount;
+    }
+  };
+
+  for (const lineItem of items) addLineItemToAccumulators(lineItem);
+
+  // Compute overall total for this type (income or expense) to derive shares
+  let overallTotal = 0;
+  for (const chapter of chapters.values()) overallTotal += chapter.total;
+  overallTotal = Number.isFinite(overallTotal) ? overallTotal : 0;
+
+  const toPercent = (value: number): string => {
+    if (!overallTotal || !Number.isFinite(value)) return "0%";
+    const pct = (value / overallTotal) * 100;
+    return `${formatNumberRO(pct, 'compact')}%`;
+  };
+
+  const result: GroupedChapter[] = [];
+
+  for (const [prefix, chapter] of chapters) {
+    const functionalChildren: GroupedFunctional[] = [];
+
+    for (const [functionalCode, functional] of chapter.functionalChildren) {
+      const economics: GroupedEconomic[] = Array.from(functional.economics, ([economicCode, eco]) => {
+        const link = buildEconomicLink(cui, economicCode, type, year);
+        const humanSummary = `The ${type} for economic category "${eco.name}" from the functional category "${functional.functionalName}" was ${formatCurrency(eco.amount, 'compact')} (${formatCurrency(eco.amount, 'standard')}) — ${toPercent(eco.amount)} of total ${type}.`;
+        return { economicCode, economicName: eco.name, amount: eco.amount, humanSummary, link, percentage: overallTotal ? eco.amount / overallTotal : 0 };
+      }).sort((a, b) => b.amount - a.amount);
+
+      const functionalSummary = `The total ${type} for "${functional.functionalName}" was ${formatCurrency(functional.total, 'compact')} (${formatCurrency(functional.total, 'standard')}) — ${toPercent(functional.total)} of total ${type}.`;
+      const link = buildFunctionalLink(cui, functionalCode, type, year);
+
+      functionalChildren.push({
+        functionalCode,
+        functionalName: functional.functionalName,
+        totalAmount: functional.total,
+        humanSummary: functionalSummary,
+        economics,
+        link,
+        percentage: overallTotal ? functional.total / overallTotal : 0,
+      });
+    }
+
+    functionalChildren.sort((a, b) => b.totalAmount - a.totalAmount);
+    const chapterDescription = chapterMap.get(prefix) || "Unknown";
+    const chapterSummary = `The ${type} for functional category "${chapterDescription}" was ${formatCurrency(chapter.total, 'compact')} (${formatCurrency(chapter.total, 'standard')}) — ${toPercent(chapter.total)} of total ${type}.`;
+    const chapterLink = buildFunctionalLink(cui, prefix, type, year);
+
+    result.push({
+      functionalCode: prefix,
+      functionalDescription: chapterDescription,
+      totalAmount: chapter.total,
+      humanSummary: chapterSummary,
+      functionalChildren,
+      link: chapterLink,
+      percentage: overallTotal ? chapter.total / overallTotal : 0,
+    });
+  }
+
+  result.sort((a, b) => b.totalAmount - a.totalAmount);
   return result;
 }
 
@@ -90,70 +163,119 @@ function textMatches(text: string, query: string): boolean {
   return text.toLowerCase().includes(query.toLowerCase());
 }
 
-export function filterGroups(initialGroups: GroupedChapter[], term?: string, topLevelOnly?: boolean): GroupedChapter[] {
+export function filterGroups(args:
+  {
+    initialGroups: GroupedChapter[],
+    fnCode?: string,
+    ecCode?: string,
+    level?: "group" | "functional" | "economic",
+    type?: "income" | "expense",
+  }
+): GroupedChapter[] {
+  const { initialGroups, fnCode, ecCode, level, type } = args;
   const groups: GroupedChapter[] = [];
 
-  if (topLevelOnly) {
+  if (level === "group") {
     for (const chapter of initialGroups) {
       groups.push({
         ...chapter,
-        functionals: undefined, // We remove the functionals to avoid too much noise
+        functionalChildren: undefined, // We remove the functionalChildren to avoid too much noise
+      });
+    }
+  } else if (level === "functional") {
+    for (const chapter of initialGroups) {
+      groups.push({
+        ...chapter,
+        functionalChildren: chapter.functionalChildren?.map((f) => ({ ...f, economics: undefined })), // We remove the economics to avoid too much noise
       });
     }
   } else {
     groups.push(...initialGroups);
   }
 
-  const query = (term || "").trim();
-  if (!query) return groups;
+  const fnQuery = (fnCode || "").trim();
+  const ecQuery = (ecCode || "").trim();
+  if (!fnQuery && !ecQuery) return groups;
 
   const filteredChapters = new Map<string, GroupedChapter>();
 
+  const totalAmountWithoutFilters = initialGroups.reduce((sum, ch) => sum + (Number(ch.totalAmount) || 0), 0);
+
   for (const chapter of groups) {
-    const chapterText = `${chapter.description} ${chapter.prefix}`;
-    const chapterMatches = textMatches(chapterText, query);
+    const chapterText = `${chapter.functionalDescription} ${chapter.functionalCode}`;
+    const chapterMatches = textMatches(chapterText, fnQuery);
 
     if (chapterMatches) {
-      filteredChapters.set(chapter.prefix, { ...chapter });
+      filteredChapters.set(chapter.functionalCode, { ...chapter });
       continue;
     }
 
-    const matchedFunctionals: GroupedFunctional[] = [];
-    for (const func of chapter.functionals || []) {
-      const funcText = `${func.name} fn:${func.code}`;
-      const funcMatches = textMatches(funcText, query);
+    const matchedFunctionalChildren: GroupedFunctional[] = [];
+    for (const func of chapter.functionalChildren || []) {
+      const funcText = `${func.functionalName} fn:${func.functionalCode}`;
+      const funcMatches = textMatches(funcText, fnQuery);
 
       if (funcMatches) {
-        matchedFunctionals.push({ ...func });
+        matchedFunctionalChildren.push({ ...func });
         continue;
       }
 
       const matchedEconomics: GroupedEconomic[] = [];
-      for (const eco of func.economics) {
-        const ecoText = `${eco.name} ec:${eco.code}`;
-        if (textMatches(ecoText, query)) {
+      for (const eco of func.economics || []) {
+        const ecoText = `${eco.economicName} ec:${eco.economicCode}`;
+        if (textMatches(ecoText, ecQuery)) {
           matchedEconomics.push({ ...eco });
         }
       }
 
       if (matchedEconomics.length > 0) {
         const newTotal = matchedEconomics.reduce((sum, eco) => sum + eco.amount, 0);
-        matchedFunctionals.push({ ...func, economics: matchedEconomics, totalAmount: newTotal });
+        matchedFunctionalChildren.push({ ...func, economics: matchedEconomics, totalAmount: newTotal });
       }
     }
 
-    if (matchedFunctionals.length > 0) {
-      const newChapterTotal = matchedFunctionals.reduce((sum, f) => sum + f.totalAmount, 0);
+    if (matchedFunctionalChildren.length > 0) {
+      const newChapterTotal = matchedFunctionalChildren.reduce((sum, f) => sum + f.totalAmount, 0);
       const updatedChapter: GroupedChapter = {
         ...chapter,
-        functionals: matchedFunctionals.sort((a, b) => b.totalAmount - a.totalAmount),
+        functionalChildren: matchedFunctionalChildren.sort((a, b) => b.totalAmount - a.totalAmount),
         totalAmount: newChapterTotal,
       };
-      filteredChapters.set(chapter.prefix, updatedChapter);
+      filteredChapters.set(chapter.functionalCode, updatedChapter);
     }
   }
 
-  return Array.from(filteredChapters.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  // Recompute shares based on filtered totals
+  const filteredArray = Array.from(filteredChapters.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  const toPercent = (value: number): string => {
+    if (!totalAmountWithoutFilters || !Number.isFinite(value)) return "0%";
+    const pct = (value / totalAmountWithoutFilters) * 100;
+    return `${formatNumberRO(pct, 'compact')}%`;
+  };
+  const filterDescription = getFilterDescription({ fnCode, ecCode });
+
+  return filteredArray.map((chapter) => {
+    const updatedFunctionalChildren = (chapter.functionalChildren || []).map((func) => {
+      const updatedEconomics = (func.economics || []).map((eco) => ({
+        ...eco,
+        percentage: totalAmountWithoutFilters ? eco.amount / totalAmountWithoutFilters : 0,
+        humanSummary: `The ${type ?? 'amount'} for economic category "${eco.economicName}" from the functional category "${func.functionalName}" was ${formatCurrency(eco.amount, 'compact')} (${formatCurrency(eco.amount, 'standard')}) — ${toPercent(eco.amount)} of total ${type ?? 'amount'}.`,
+      }));
+      const newFunc = {
+        ...func,
+        economics: updatedEconomics,
+        percentage: totalAmountWithoutFilters ? func.totalAmount / totalAmountWithoutFilters : 0,
+        humanSummary: `The total ${type ?? 'amount'} for "${func.functionalName}"${filterDescription} was ${formatCurrency(func.totalAmount, 'compact')} (${formatCurrency(func.totalAmount, 'standard')}) — ${toPercent(func.totalAmount)} of total ${type ?? 'amount'}.`,
+      } as GroupedFunctional;
+      return newFunc;
+    });
+    return {
+      ...chapter,
+      functionalChildren: updatedFunctionalChildren,
+      percentage: totalAmountWithoutFilters ? chapter.totalAmount / totalAmountWithoutFilters : 0,
+      humanSummary: `The ${type ?? 'amount'} for functional category "${chapter.functionalDescription}"${filterDescription} was ${formatCurrency(chapter.totalAmount, 'compact')} (${formatCurrency(chapter.totalAmount, 'standard')}) — ${toPercent(chapter.totalAmount)} of total ${type ?? 'amount'}.`,
+    } as GroupedChapter;
+  });
 }
 
 

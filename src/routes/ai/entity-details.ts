@@ -4,9 +4,10 @@ import { entityRepository } from "../../db/repositories/entityRepository";
 import { executionLineItemRepository } from "../../db/repositories/executionLineItemRepository";
 import { functionalClassificationRepository } from "../../db/repositories/functionalClassificationRepository";
 import { economicClassificationRepository } from "../../db/repositories/economicClassificationRepository";
-import { buildClientLink, buildEntityDetailsLink } from "../../utils/link";
+import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink } from "../../utils/link";
 import { filterGroups, groupByFunctional } from "../../utils/grouping";
 import { formatCurrency } from "../../utils/formatter";
+import { Entity, ExecutionLineItem } from "../../db/models";
 
 function ok(reply: FastifyReply, data: unknown) {
   return reply.code(200).send({ ok: true, data });
@@ -32,7 +33,9 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
       schema: {
         operationId: "getEntitiesSearch",
         tags: ["AI"],
-        summary: "Search entities by name/address/CUI (fuzzy)",
+        summary: "Find public institutions.",
+        description:
+          "Use this to help the user find a specific public institution when their query is ambiguous or they don't know the exact name or CUI (fiscal identifier). Returns a list of potential matches that the user can choose from.",
         querystring: {
           type: "object",
           properties: {
@@ -63,26 +66,33 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     schema: {
       operationId: "getEntityDetails",
       tags: ["AI"],
-      summary: "Entity details by cui or search",
-      description: `Provides a summary of an entity's expenses and incomes for a given year.`,
+      summary: "Get high-level financial totals for an entity.",
+      description: `Returns one-year totals (income and expenses) for a selected entity. Use for high-level questions like “How much did [entity] spend in <year>?”. Prefer 'entityCui' (exact); otherwise use 'entitySearch' (fuzzy). Include 'year'. Response contains a deep link at 'data.link'.`,
       querystring: {
         type: "object",
         properties: {
-          cui: { type: "string", description: "Exact CUI of the entity (preferred when known)" },
-          search: { type: "string", description: "Free-text fuzzy search across name/address/CUI; first match is used when CUI is not provided" },
+          entityCui: {
+            type: "string",
+            description: "Exact CUI (fiscal identifier) of the entity. Always prefer using this over 'search' if the CUI is known, as it guarantees an exact match.",
+          },
+          entitySearch: {
+            type: "string",
+            description: "Free-text fuzzy search. Use this when the CUI is unknown. Note: this returns the single best match, which may not be correct if the name is ambiguous.",
+          },
           year: { type: "integer", minimum: 2016, maximum: 2100, default: 2024, description: "Reporting year for snapshot totals and execution lines" },
         },
       },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const qs = request.query as any;
-    const cui: string | undefined = typeof qs?.cui === "string" && qs.cui.trim() ? qs.cui.trim() : undefined;
-    const search: string | undefined = typeof qs?.search === "string" && qs.search.trim() ? qs.search.trim() : undefined;
-    const year: number = typeof qs?.year === "number" ? qs.year : 2024;
+    const entityCui: string | undefined = typeof qs?.entityCui === "string" && qs.entityCui.trim() ? qs.entityCui.trim() : undefined;
+    const entitySearch: string | undefined = typeof qs?.entitySearch === "string" && qs.entitySearch.trim() ? qs.entitySearch.trim() : undefined;
+    const year: number | undefined = typeof qs?.year === "number" ? qs.year : undefined;
 
-    let entity = cui ? await entityRepository.getById(cui) : undefined;
-    if (!entity && search) {
-      const results = await entityRepository.getAll({ search }, 1, 0);
+    if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
+    let entity = entityCui ? await entityRepository.getById(entityCui) : undefined;
+    if (!entity && entitySearch) {
+      const results = await entityRepository.getAll({ search: entitySearch }, 1, 0);
       entity = results[0];
     }
     if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
@@ -114,14 +124,13 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
   fastify.get("/ai/v1/entities/budget-analysis", {
     schema: {
       operationId: "getEntityBudgetAnalysis",
-      tags: ["AI"],
-      summary: "Get a summary of an entity's spending and income by main functional classification (Classification of the Functions of Government). Useful if you need entity data about education, transport, health, etc.",
-      description: `Provides a summary of an entity's expenses and incomes for a given year using functional classification grouping and sorted by amount. Useful if you need entity data about education, transport, health, etc.`,
+      summary: "Income and spending grouped by functional category (overview).",
+      description: `One-year overview of income and expenses grouped by functional category (e.g., education, health, transport), sorted by amount. Identify entity by 'cui' or 'search'; 'year' is required. Response includes a deep link. For deep dives, use the functional or economic endpoints.`,
       querystring: {
         type: "object",
         properties: {
-          cui: { type: "string", description: "Exact CUI of the entity." },
-          search: { type: "string", description: "Free-text fuzzy search for the entity." },
+          cui: { type: "string", description: "Exact CUI of the entity (preferred when known)." },
+          search: { type: "string", description: "Free-text fuzzy search when CUI is unknown." },
           year: { type: "integer", minimum: 2016, maximum: 2024, default: 2024, description: "Reporting year for the spending summary." },
         },
         required: ["year"],
@@ -132,51 +141,18 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     const cui: string | undefined = typeof qs?.cui === "string" && qs.cui.trim() ? qs.cui.trim() : undefined;
     const search: string | undefined = typeof qs?.search === "string" && qs.search.trim() ? qs.search.trim() : undefined;
     const year: number = qs.year;
-    const expenseSearch: string | undefined = qs.expenseSearch;
-    const incomeSearch: string | undefined = qs.incomeSearch;
 
-    if (!cui && !search) {
-      return bad(reply, "Either 'cui' or 'search' parameter must be provided.");
-    }
+    if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
+    const entity = await getEntity(cui, search);
+    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
 
-    let entity = cui ? await entityRepository.getById(cui) : undefined;
-    if (!entity && search) {
-      const results = await entityRepository.getAll({ search }, 1, 0);
-      entity = results[0];
-    }
-
-    if (!entity) {
-      return reply.code(404).send({ ok: false, error: "Entity not found" });
-    }
-
-    const [expenseLineItems, incomeLineItems] = await Promise.all([
-      executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "ch" }, { by: "amount", order: "DESC" }, 1000, 0),
-      executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "vn" }, { by: "amount", order: "DESC" }, 1000, 0),
-    ]);
-
-    const enrichedExpenseLineItems = expenseLineItems.map((li: any) => ({
-      ...li,
-      functionalClassification: li.functional_code ? { functional_code: li.functional_code, functional_name: li.functional_name } : undefined,
-      economicClassification: li.economic_code ? { economic_code: li.economic_code, economic_name: li.economic_name } : undefined,
-    }));
-    const enrichedIncomeLineItems = incomeLineItems.map((li: any) => ({
-      ...li,
-      functionalClassification: li.functional_code ? { functional_code: li.functional_code, functional_name: li.functional_name } : undefined,
-      economicClassification: li.economic_code ? { economic_code: li.economic_code, economic_name: li.economic_name } : undefined,
-    }));
-
-    let expenseGroups = groupByFunctional(enrichedExpenseLineItems, entity.cui, "expense");
-    let incomeGroups = groupByFunctional(enrichedIncomeLineItems, entity.cui, "income");
-
-    expenseGroups = filterGroups(expenseGroups, expenseSearch, true);
-    incomeGroups = filterGroups(incomeGroups, incomeSearch, true);
-
+    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level: "group" });
     const details = {
       cui: entity.cui,
       name: (entity as any).name,
-      expenseGroups,
-      incomeGroups,
+      ...budgetAnalysis,
     };
+
 
     const link = buildEntityDetailsLink(entity.cui, { year });
     return ok(reply, {
@@ -187,7 +163,176 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     });
   });
 
+
+  fastify.get("/ai/v1/entities/budget-analysis-by-functional", {
+    schema: {
+      operationId: "getEntityBudgetAnalysisSpendingByFunctional",
+      summary: "Deep dive by functional code (chapter or full code).",
+      description: `Detailed breakdown for a single functional area. Accepts a 2-digit chapter (e.g., '65') or a full functional code (e.g., '65.04.02'). Required: 'entityCui', 'year', 'functionalCode'. Includes totals and, where applicable, economic composition. Response includes a deep link.`,
+      querystring: {
+        type: "object",
+        properties: {
+          entityCui: { type: "string", description: "Exact CUI of the entity." },
+          year: { type: "integer", minimum: 2016, maximum: 2024, default: 2024, description: "Reporting year for the spending summary." },
+          functionalCode: { type: "string", description: "Functional code to filter the breakdown. Use a 2-digit chapter (e.g., '65') or a full code (e.g., '65.04.02')." },
+        },
+        required: ["entityCui", "year", "functionalCode"],
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const qs = request.query as any;
+    const entityCui: string = typeof qs?.entityCui === "string" && qs.entityCui.trim() ? qs.entityCui.trim() : "";
+    const functionalCode: string = typeof qs?.functionalCode === "string" && qs.functionalCode.trim() ? qs.functionalCode.trim() : "";
+    const year: number | undefined = typeof qs?.year === "number" ? qs.year : undefined;
+
+    if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
+
+    console.log("entityCui, functionalCode, year", entityCui, functionalCode, year);
+
+    const entity = await getEntity(entityCui);
+    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
+    if (!functionalCode) return reply.code(400).send({ ok: false, error: "functionalCode is required" });
+
+    const level = functionalCode.length === 2 ? "functional" : "economic";
+    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level, fnCode: functionalCode });
+    const details = {
+      cui: entity.cui,
+      name: (entity as any).name,
+      ...budgetAnalysis,
+    };
+
+    const type = budgetAnalysis.expenseGroups.length === 0 ? "income" : "expense";
+
+    const link = buildFunctionalLink(entity.cui, functionalCode, type, year);
+    return ok(reply, {
+      kind: "entities.budget-analysis-spending-by-functional",
+      query: { cui: entity.cui, year },
+      link,
+      item: details,
+    });
+  });
+
+
+  fastify.get("/ai/v1/entities/budget-analysis-by-economic", {
+    schema: {
+      operationId: "getEntityBudgetAnalysisSpendingByEconomic",
+      summary: "Deep dive by economic code (e.g., '10.01.01').",
+      description: `Detailed breakdown filtered by an economic classification code (dotted format, e.g., '10.01.01'), showing where that code contributes across functional areas. Required: 'entityCui', 'year', 'economicCode'. Response includes a deep link.`,
+      querystring: {
+        type: "object",
+        properties: {
+          entityCui: { type: "string", description: "Exact CUI of the entity." },
+          year: { type: "integer", minimum: 2016, maximum: 2024, default: 2024, description: "Reporting year for the spending summary." },
+          economicCode: { type: "string", description: "Economic code to filter the breakdown; dotted format like '10.01.01'." }
+        },
+        required: ["entityCui", "year", "economicCode"],
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const qs = request.query as any;
+    const entityCui: string = typeof qs?.entityCui === "string" && qs.entityCui.trim() ? qs.entityCui.trim() : "";
+    const economicCode: string = typeof qs?.economicCode === "string" && qs.economicCode.trim() ? qs.economicCode.trim() : "";
+    const year: number | undefined = typeof qs?.year === "number" ? qs.year : undefined;
+
+    if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
+
+    const entity = await getEntity(entityCui);
+    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
+    if (!economicCode) return reply.code(400).send({ ok: false, error: "economicCode is required" });
+
+    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level: "economic", ecCode: economicCode });
+    const details = {
+      cui: entity.cui,
+      name: (entity as any).name,
+      ...budgetAnalysis,
+    };
+
+    const type = budgetAnalysis.expenseGroups.length === 0 ? "income" : "expense";
+
+    const link = buildEconomicLink(entity.cui, economicCode, type, year);
+    return ok(reply, {
+      kind: "entities.budget-analysis-spending-by-economic",
+      query: { cui: entity.cui, year },
+      link,
+      item: details,
+    });
+  });
   return fastify;
 }
 
 
+interface GetBudgetAnalysisParams {
+  entity: Entity;
+  year: number;
+  level: "group" | "functional" | "economic";
+  fnCode?: string;
+  ecCode?: string;
+}
+
+async function getBudgetAnalysis({ entity, year, level, fnCode, ecCode }: GetBudgetAnalysisParams) {
+
+  const [expenseLineItems, incomeLineItems] = await Promise.all([
+    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "ch" }, { by: "amount", order: "DESC" }, 1000, 0),
+    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "vn" }, { by: "amount", order: "DESC" }, 1000, 0),
+  ]);
+
+
+  // Get the functional and economic names for the income line items
+  const detailedLineItems = await Promise.all(expenseLineItems.map(async (li: ExecutionLineItem) => {
+    const functionalClassification = li.functional_code ? await functionalClassificationRepository.getByCode(li.functional_code) : undefined;
+    const economicClassification = li.economic_code ? await economicClassificationRepository.getByCode(li.economic_code) : undefined;
+    return {
+      ...li,
+      functional_name: functionalClassification?.functional_name,
+      economic_name: economicClassification?.economic_name,
+    };
+  }));
+
+  const detailedIncomeLineItems = await Promise.all(incomeLineItems.map(async (li: ExecutionLineItem) => {
+    const functionalClassification = li.functional_code ? await functionalClassificationRepository.getByCode(li.functional_code) : undefined;
+    const economicClassification = li.economic_code ? await economicClassificationRepository.getByCode(li.economic_code) : undefined;
+    return {
+      ...li,
+      functional_name: functionalClassification?.functional_name,
+      economic_name: economicClassification?.economic_name,
+    };
+  }));
+
+
+  let expenseGroups = groupByFunctional(detailedLineItems, entity.cui, "expense", year);
+  let incomeGroups = groupByFunctional(detailedIncomeLineItems, entity.cui, "income", year);
+
+  expenseGroups = filterGroups({ initialGroups: expenseGroups, fnCode, ecCode, level, type: "expense" });
+  incomeGroups = filterGroups({ initialGroups: incomeGroups, fnCode, ecCode, level, type: "income" });
+
+  let expenseGroupSummary: string | undefined = undefined;
+  let incomeGroupSummary: string | undefined = undefined;
+
+  if (expenseGroups.length > 0) {
+    const total = expenseGroups.reduce((sum, ch) => sum + ch.totalAmount, 0);
+    expenseGroupSummary = `The total expenses for ${entity.name} in ${year} were ${formatCurrency(total, 'compact')} (${formatCurrency(total, 'standard')})`;
+  }
+  if (incomeGroups.length > 0) {
+    const total = incomeGroups.reduce((sum, ch) => sum + ch.totalAmount, 0);
+    incomeGroupSummary = `The total income for ${entity.name} in ${year} were ${formatCurrency(total, 'compact')} (${formatCurrency(total, 'standard')})`;
+  }
+
+  return {
+    expenseGroups,
+    incomeGroups,
+    expenseGroupSummary,
+    incomeGroupSummary,
+  };
+}
+
+async function getEntity(cui?: string, search?: string) {
+  let entity = cui ? await entityRepository.getById(cui) : undefined;
+  if (!entity && search) {
+    const results = await entityRepository.getAll({ search }, 1, 0);
+    entity = results[0];
+  }
+  if (!entity) {
+    return null;
+  }
+  return entity;
+}

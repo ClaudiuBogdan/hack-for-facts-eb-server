@@ -10,9 +10,13 @@ paths:
   /ai/v1/entities/search:
     get:
       operationId: getEntitiesSearch
-      summary: Search entities by name/address/CUI (fuzzy)
+      summary: Find public institutions.
       tags:
         - AI
+      description: Use this to help the user find a specific public institution when
+        their query is ambiguous or they don't know the exact name or CUI
+        (fiscal identifier). Returns a list of potential matches that the user
+        can choose from.
       parameters:
         - schema:
             type: string
@@ -38,24 +42,30 @@ paths:
   /ai/v1/entities/details:
     get:
       operationId: getEntityDetails
-      summary: Entity details by cui or search
+      summary: Get high-level financial totals for an entity.
       tags:
         - AI
-      description: Provides a summary of an entity's expenses and incomes for a given year.
+      description: Returns one-year totals (income and expenses) for a selected
+        entity. Use for high-level questions like “How much did [entity] spend
+        in <year>?”. Prefer 'entityCui' (exact); otherwise use 'entitySearch'
+        (fuzzy). Include 'year'. Response contains a deep link at 'data.link'.
       parameters:
         - schema:
             type: string
           in: query
-          name: cui
+          name: entityCui
           required: false
-          description: Exact CUI of the entity (preferred when known)
+          description: Exact CUI (fiscal identifier) of the entity. Always prefer using
+            this over 'search' if the CUI is known, as it guarantees an exact
+            match.
         - schema:
             type: string
           in: query
-          name: search
+          name: entitySearch
           required: false
-          description: Free-text fuzzy search across name/address/CUI; first match is used
-            when CUI is not provided
+          description: "Free-text fuzzy search. Use this when the CUI is unknown. Note:
+            this returns the single best match, which may not be correct if the
+            name is ambiguous."
         - schema:
             type: integer
             minimum: 2016
@@ -71,27 +81,25 @@ paths:
   /ai/v1/entities/budget-analysis:
     get:
       operationId: getEntityBudgetAnalysis
-      summary: Get a summary of an entity's spending and income by main functional
-        classification (Classification of the Functions of Government). Useful
-        if you need entity data about education, transport, health, etc.
-      tags:
-        - AI
-      description: Provides a summary of an entity's expenses and incomes for a given
-        year using functional classification grouping and sorted by amount.
-        Useful if you need entity data about education, transport, health, etc.
+      summary: Income and spending grouped by functional category (overview).
+      description: One-year overview of income and expenses grouped by functional
+        category (e.g., education, health, transport), sorted by amount.
+        Identify entity by 'cui' or 'search'; 'year' is required. Response
+        includes a deep link. For deep dives, use the functional or economic
+        endpoints.
       parameters:
         - schema:
             type: string
           in: query
           name: cui
           required: false
-          description: Exact CUI of the entity.
+          description: Exact CUI of the entity (preferred when known).
         - schema:
             type: string
           in: query
           name: search
           required: false
-          description: Free-text fuzzy search for the entity.
+          description: Free-text fuzzy search when CUI is unknown.
         - schema:
             type: integer
             minimum: 2016
@@ -101,6 +109,73 @@ paths:
           name: year
           required: true
           description: Reporting year for the spending summary.
+      responses:
+        "200":
+          description: Default Response
+  /ai/v1/entities/budget-analysis-by-functional:
+    get:
+      operationId: getEntityBudgetAnalysisSpendingByFunctional
+      summary: Deep dive by functional code (chapter or full code).
+      description: "Detailed breakdown for a single functional area. Accepts a 2-digit
+        chapter (e.g., '65') or a full functional code (e.g., '65.04.02').
+        Required: 'entityCui', 'year', 'functionalCode'. Includes totals and,
+        where applicable, economic composition. Response includes a deep link."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: entityCui
+          required: true
+          description: Exact CUI of the entity.
+        - schema:
+            type: integer
+            minimum: 2016
+            maximum: 2024
+            default: 2024
+          in: query
+          name: year
+          required: true
+          description: Reporting year for the spending summary.
+        - schema:
+            type: string
+          in: query
+          name: functionalCode
+          required: true
+          description: Functional code to filter the breakdown. Use a 2-digit chapter
+            (e.g., '65') or a full code (e.g., '65.04.02').
+      responses:
+        "200":
+          description: Default Response
+  /ai/v1/entities/budget-analysis-by-economic:
+    get:
+      operationId: getEntityBudgetAnalysisSpendingByEconomic
+      summary: Deep dive by economic code (e.g., '10.01.01').
+      description: "Detailed breakdown filtered by an economic classification code
+        (dotted format, e.g., '10.01.01'), showing where that code contributes
+        across functional areas. Required: 'entityCui', 'year', 'economicCode'.
+        Response includes a deep link."
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: entityCui
+          required: true
+          description: Exact CUI of the entity.
+        - schema:
+            type: integer
+            minimum: 2016
+            maximum: 2024
+            default: 2024
+          in: query
+          name: year
+          required: true
+          description: Reporting year for the spending summary.
+        - schema:
+            type: string
+          in: query
+          name: economicCode
+          required: true
+          description: Economic code to filter the breakdown; dotted format like '10.01.01'.
       responses:
         "200":
           description: Default Response

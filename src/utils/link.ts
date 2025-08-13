@@ -54,14 +54,14 @@ export function buildClientLink(opts: BuildClientLinkOptions): string {
   return link;
 }
 
-export function buildFunctionalLink(cui: string, fnCode: string, type: "income" | "expense"): string {
+export function buildFunctionalLink(cui: string, fnCode: string, type: "income" | "expense", year: number): string {
   const search = type === "expense" ? "expenseSearch" : "incomeSearch";
-  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `fn:${fnCode}` } });
+  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `fn:${fnCode}`, year } });
 }
 
-export function buildEconomicLink(cui: string, ecCode: string, type: "income" | "expense"): string {
+export function buildEconomicLink(cui: string, ecCode: string, type: "income" | "expense", year: number): string {
   const search = type === "expense" ? "expenseSearch" : "incomeSearch";
-  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `ec:${ecCode}` } });
+  return buildClientLink({ route: `/entities/${cui}`, view: type === "expense" ? "expense-trends" : "income-trends", extraParams: { [search]: `ec:${ecCode}`, year } });
 }
 
 export function buildEntityDetailsLink(cui: string, search?: Record<string, string | number | boolean | undefined | null>): string {
