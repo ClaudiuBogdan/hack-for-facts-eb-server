@@ -8,7 +8,7 @@
  * to keep lookups fast at runtime.
  */
 
-const functionalTree = require("./functional-classificatinos-general.json");
+import { functionalTree } from "./functional-classificatinos-general";
 
 interface BudgetNode {
     description: string;
