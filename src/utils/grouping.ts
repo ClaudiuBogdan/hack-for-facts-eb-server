@@ -70,13 +70,13 @@ export function groupByFunctional(items: EnrichedLineItem[], cui: string, type: 
     const functionals: GroupedFunctional[] = [];
     for (const [code, f] of ch.functionals) {
       const economics: GroupedEconomic[] = Array.from(f.economics, ([ecoCode, eco]) => ({ code: ecoCode, name: eco.name, amount: eco.amount })).sort((a, b) => b.amount - a.amount);
-      const totalAmountHumanReadable = `The total ${type} for ${f.name} with functional code ${code} was ${formatCurrency(f.total, 'compact')} (${formatCurrency(f.total, 'standard')})`;
+      const totalAmountHumanReadable = `The total ${type} for "${f.name}" was ${formatCurrency(f.total, 'compact')} (${formatCurrency(f.total, 'standard')})`;
       const link = buildFunctionalLink(cui, code, type);
       functionals.push({ code, name: f.name, totalAmount: f.total, totalAmountHumanReadable, economics, link });
     }
     functionals.sort((a, b) => b.totalAmount - a.totalAmount);
     const description = chapterMap.get(prefix) || "Unknown";
-    const totalAmountHumanReadable = `The total ${type} for ${description} with functional code ${prefix} was ${formatCurrency(ch.total, 'compact')} (${formatCurrency(ch.total, 'standard')})`;
+    const totalAmountHumanReadable = `The total ${type} for "${description}" was ${formatCurrency(ch.total, 'compact')} (${formatCurrency(ch.total, 'standard')})`;
     const link = buildFunctionalLink(cui, prefix, type);
     result.push({ prefix, description, totalAmount: ch.total, totalAmountHumanReadable, functionals, link });
   }
