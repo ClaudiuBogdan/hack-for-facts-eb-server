@@ -7,7 +7,7 @@ export { functionalClassificationRepository } from "./functionalClassificationRe
 export { economicClassificationRepository } from "./economicClassificationRepository";
 export { fundingSourceRepository } from "./fundingSourceRepository";
 export { uatAnalyticsRepository as analyticsRepository } from "./uatAnalyticsRepository";
-export { judetAnalyticsRepository } from "./judetAnalyticsRepository";
+export { countyAnalyticsRepository } from "./countyAnalyticsRepository";
 export { categoryAnalyticsRepository } from "./categoryAnalyticsRepository";
 export { datasetRepository } from "./datasetRepository";
 export { aggregatedLineItemsRepository } from "./aggregatedLineItemsRepository";

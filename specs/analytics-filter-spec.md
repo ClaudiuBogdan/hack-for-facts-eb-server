@@ -176,7 +176,7 @@ input AnalyticsFilterInput {
   - HAVING: use `SUM(eli.amount)` or `SUM(eli.amount) / NULLIF(COALESCE(u.population, 0), 0)`
   - Result amount: if per_capita, return per-capita; else total
 
-- County heatmap (judetAnalyticsRepository)
+- County heatmap (countyAnalyticsRepository)
   - Population expression returns 0 when not identifiable; reuse in WHERE/HAVING via `COALESCE(..., 0)`
   - Per-capita HAVING: divide by `NULLIF(population, 0)`; select per-capita with COALESCE to 0
 
@@ -249,7 +249,7 @@ Target specific entities by CUI:
 - Add `Normalization` enum and `AnalyticsFilterInput` as defined above.
 - Replace query args to use `AnalyticsFilterInput`:
   - `heatmapUATData(filter: AnalyticsFilterInput!)`
-  - `heatmapJudetData(filter: AnalyticsFilterInput!)`
+  - `heatmapCountyData(filter: AnalyticsFilterInput!)`
   - `entityAnalytics(filter: AnalyticsFilterInput!, sort: SortOrder, limit: Int, offset: Int)`
   - `executionLineItems(filter: AnalyticsFilterInput, sort: SortOrder, limit: Int, offset: Int)`
   - `executionAnalytics(inputs: [{ filter: AnalyticsFilterInput!, seriesId: String }!]!)`
@@ -271,7 +271,7 @@ Target specific entities by CUI:
   - Switch to `AnalyticsFilter`.
   - Add support for prefixes, arrays for ids/types, regions, item thresholds.
   - Population thresholds via `COALESCE(u.population, 0)`; HAVING on aggregate_*; compute per-capita safely.
-- `judetAnalyticsRepository`
+- `countyAnalyticsRepository`
   - Switch to `AnalyticsFilter`.
   - Use county population expression with `COALESCE(..., 0)` in thresholds; per-capita as above.
 - `executionLineItemRepository`

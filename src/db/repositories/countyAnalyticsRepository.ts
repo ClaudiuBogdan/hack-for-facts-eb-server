@@ -2,12 +2,12 @@ import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
 
-const cache = createCache<HeatmapJudetDataPoint_Repo[]>({ name: 'heatmap_judet', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
+const cache = createCache<HeatmapCountyDataPoint_Repo[]>({ name: 'heatmap_county', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
 // This should be moved to a central types file, e.g. src/graphql/types/index.ts
 // Use AnalyticsFilter instead of legacy HeatmapFilterInput
 
-export interface HeatmapJudetDataPoint_GQL {
+export interface HeatmapCountyDataPoint_GQL {
     county_code: string;
     county_name: string;
     amount: number;
@@ -16,7 +16,7 @@ export interface HeatmapJudetDataPoint_GQL {
     county_population: number;
 }
 
-export interface HeatmapJudetDataPoint_Repo {
+export interface HeatmapCountyDataPoint_Repo {
     county_code: string;
     county_name: string;
     county_population: number;
@@ -26,10 +26,10 @@ export interface HeatmapJudetDataPoint_Repo {
     county_entity_cui: string;
 }
 
-export const judetAnalyticsRepository = {
-    async getHeatmapJudetData(
+export const countyAnalyticsRepository = {
+    async getHeatmapCountyData(
         filter: AnalyticsFilter
-    ): Promise<HeatmapJudetDataPoint_Repo[]> {
+    ): Promise<HeatmapCountyDataPoint_Repo[]> {
         const cacheKey = getCacheKey(filter);
         const cached = cache.get(cacheKey);
         if (cached) return cached;
@@ -90,6 +90,11 @@ export const judetAnalyticsRepository = {
         if (filter.entity_cuis && filter.entity_cuis.length > 0) {
             conditions.push(`eli.entity_cui = ANY($${paramIndex++})`);
             params.push(filter.entity_cuis);
+        }
+
+        if (filter.is_uat !== undefined) {
+            conditions.push(`e.is_uat = $${paramIndex++}`);
+            params.push(filter.is_uat);
         }
 
         if (filter.funding_source_ids && filter.funding_source_ids.length > 0) {
@@ -210,7 +215,7 @@ export const judetAnalyticsRepository = {
         try {
             const result = await pool.query(queryString, params);
 
-            const data = result.rows.map((row): HeatmapJudetDataPoint_Repo => {
+            const data = result.rows.map((row): HeatmapCountyDataPoint_Repo => {
                 const totalAmount = parseFloat(row.total_amount || 0);
                 const countyPopulation = parseInt(row.county_population, 10) || 0;
 
@@ -233,8 +238,8 @@ export const judetAnalyticsRepository = {
             cache.set(cacheKey, data);
             return data;
         } catch (error) {
-            console.error("Error fetching heatmap judet data:", error);
-            throw new Error("Database error while fetching heatmap judet data.");
+            console.error("Error fetching heatmap county data:", error);
+            throw new Error("Database error while fetching heatmap county data.");
         }
     },
 };

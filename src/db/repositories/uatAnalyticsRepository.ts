@@ -100,6 +100,11 @@ export const uatAnalyticsRepository = {
       params.push(filter.entity_cuis);
     }
 
+    if (filter.is_uat !== undefined) {
+      conditions.push(`e.is_uat = $${paramIndex++}`);
+      params.push(filter.is_uat);
+    }
+
     if (filter.funding_source_ids && filter.funding_source_ids.length > 0) {
       conditions.push(`eli.funding_source_id = ANY($${paramIndex++})`);
       params.push(filter.funding_source_ids);

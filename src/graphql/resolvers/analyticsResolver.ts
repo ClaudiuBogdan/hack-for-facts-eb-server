@@ -1,7 +1,7 @@
 import { HeatmapUATDataPoint_GQL, HeatmapUATDataPoint_Repo, uatAnalyticsRepository } from "../../db/repositories/uatAnalyticsRepository";
-import { executionLineItemRepository, judetAnalyticsRepository, entityRepository } from '../../db/repositories';
+import { executionLineItemRepository, countyAnalyticsRepository, entityRepository } from '../../db/repositories';
 import { GraphQLResolveInfo } from 'graphql';
-import { HeatmapJudetDataPoint_GQL, HeatmapJudetDataPoint_Repo } from "../../db/repositories/judetAnalyticsRepository";
+import { HeatmapCountyDataPoint_GQL, HeatmapCountyDataPoint_Repo } from "../../db/repositories/countyAnalyticsRepository";
 import { entityAnalyticsRepository } from "../../db/repositories";
 import { AnalyticsFilter } from "../../types";
 
@@ -35,23 +35,23 @@ export const analyticsResolver = {
         throw new Error("An error occurred while fetching heatmap data."); // Generic error
       }
     },
-    async heatmapJudetData(
+    async heatmapCountyData(
       _parent: any,
       args: { filter: AnalyticsFilter },
       _context: any,
       _info: any
-    ): Promise<HeatmapJudetDataPoint_GQL[]> {
+    ): Promise<HeatmapCountyDataPoint_GQL[]> {
       try {
-        const repoData = await judetAnalyticsRepository.getHeatmapJudetData(args.filter as any);
+        const repoData = await countyAnalyticsRepository.getHeatmapCountyData(args.filter as any);
         return repoData.map(repoItem => ({
           ...repoItem,
         }));
       } catch (error: any) {
-        console.error("Error in heatmapJudetData resolver:", error);
+        console.error("Error in heatmapCountyData resolver:", error);
         if (error.message.includes("cannot be empty")) {
           throw new Error(error.message);
         }
-        throw new Error("An error occurred while fetching heatmap judet data.");
+        throw new Error("An error occurred while fetching heatmap county data.");
       }
     },
     async executionAnalytics(_parent: unknown, args: AnalyticsArgs, _context: unknown, info: GraphQLResolveInfo) {
@@ -90,8 +90,8 @@ export const analyticsResolver = {
       };
     },
   },
-  HeatmapJudetDataPoint: {
-    county_entity: async (parent: HeatmapJudetDataPoint_Repo) => {
+  HeatmapCountyDataPoint: {
+    county_entity: async (parent: HeatmapCountyDataPoint_Repo) => {
       if (!parent.county_entity_cui) {
         return null;
       }

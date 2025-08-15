@@ -304,7 +304,7 @@ export const types = /* GraphQL */ `
     per_capita_amount: Float! # The calculated per-capita amount based on filters
   }
 
-  type HeatmapJudetDataPoint {
+  type HeatmapCountyDataPoint {
     county_code: String!
     county_name: String!
     county_population: Int!
@@ -507,7 +507,7 @@ export const types = /* GraphQL */ `
     
     # Query for UAT-level heatmap data
     heatmapUATData(filter: AnalyticsFilterInput!): [HeatmapUATDataPoint!]!
-    heatmapJudetData(filter: AnalyticsFilterInput!): [HeatmapJudetDataPoint!]!
+    heatmapCountyData(filter: AnalyticsFilterInput!): [HeatmapCountyDataPoint!]!
 
     executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
 

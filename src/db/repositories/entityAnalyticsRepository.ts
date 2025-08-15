@@ -241,7 +241,7 @@ export const entityAnalyticsRepository = {
     // Population rules:
     // - If the entity is a UAT (e.is_uat = TRUE), use that UAT's population (from the joined `u` row)
     // - If the entity is a county-level council (admin_county_council), use the county population
-    //   like in judet heatmap: either the special Bucharest SIRUTA or the UAT whose siruta_code equals county_code
+    //   like in county heatmap: either the special Bucharest SIRUTA or the UAT whose siruta_code equals county_code
     // - Otherwise, population is NULL and per-capita is 0
     const countyPopulationExpr = `COALESCE((
       SELECT MAX(CASE
