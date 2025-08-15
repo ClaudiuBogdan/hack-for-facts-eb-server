@@ -25,6 +25,12 @@ export interface LineItem {
   amount?: number; // Example: Extracting amount if present
 }
 
+export interface AnalyticsResult {
+  seriesId: string;
+  unit: string;
+  yearlyTrend: { year: number; value: number }[];
+}
+
 // ------------------------------
 // Unified Analytics Filter Types
 // ------------------------------

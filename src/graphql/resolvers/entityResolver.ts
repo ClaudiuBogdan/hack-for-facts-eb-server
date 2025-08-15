@@ -8,7 +8,7 @@ import { EntityFilter } from "../../db/repositories/entityRepository";
 import { SortOrderOption as ELISortOrderOption } from "../../db/repositories/executionLineItemRepository";
 import { SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
 import { YearlyFinancials } from "../../db/repositories/executionLineItemRepository";
-import { AnalyticsFilter } from "../../types";
+import { AnalyticsFilter, AnalyticsResult } from "../../types";
 
 interface GraphQLSortOrderInput {
   by: string;
@@ -149,17 +149,29 @@ export const entityResolver = {
       }
       return null;
     },
-    incomeTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
+    incomeTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }): Promise<AnalyticsResult> => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, value: t.totalIncome }));
+      return {
+        seriesId: 'income',
+        unit: 'RON',
+        yearlyTrend: trends.map(t => ({ year: t.year, value: t.totalIncome })),
+      };
     },
-    expenseTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
+    expenseTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }): Promise<AnalyticsResult> => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, value: t.totalExpenses }));
+      return {
+        seriesId: 'expense',
+        unit: 'RON',
+        yearlyTrend: trends.map(t => ({ year: t.year, value: t.totalExpenses })),
+      };
     },
-    balanceTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
+    balanceTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }): Promise<AnalyticsResult> => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, value: t.budgetBalance }));
+      return {
+        seriesId: 'balance',
+        unit: 'RON',
+        yearlyTrend: trends.map(t => ({ year: t.year, value: t.budgetBalance })),
+      };
     },
   },
 };
