@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { Entity, ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
-import { AnalyticsFilter } from "../../types";
+import { AnalyticsFilter, NormalizationMode } from "../../types";
 import { datasetRepository } from "./datasetRepository";
 
 const analyticsCache = createCache({
@@ -378,7 +378,8 @@ export const executionLineItemRepository = {
   async getYearlyFinancialTrends(
     entityCui: string,
     startYear: number,
-    endYear: number
+    endYear: number,
+    normalization: NormalizationMode
   ): Promise<YearlyFinancials[]> {
     const query = `
       SELECT 
@@ -394,12 +395,70 @@ export const executionLineItemRepository = {
     `;
     try {
       const result = await pool.query(query, [entityCui, startYear, endYear]);
-      return result.rows.map(row => ({
-        year: parseInt(row.year, 10),
-        totalIncome: parseFloat(row.totalIncome),
-        totalExpenses: parseFloat(row.totalExpenses),
-        budgetBalance: parseFloat(row.budgetBalance),
-      }));
+
+      const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
+      const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
+
+      let population = 0;
+      if (needsPerCapita) {
+        // Compute population for the entity using the same rules as entity analytics
+        const populationQuery = `
+          WITH e AS (
+            SELECT cui, is_uat, entity_type, uat_id FROM ${TABLES.ENTITIES} WHERE cui = $1
+          ), ul AS (
+            SELECT u1.*
+            FROM ${TABLES.UATS} u1
+            JOIN e ON (u1.id = e.uat_id) OR (u1.uat_code = e.cui)
+            ORDER BY CASE WHEN u1.id = (SELECT uat_id FROM e) THEN 0 ELSE 1 END
+            LIMIT 1
+          )
+          SELECT CASE
+            WHEN (SELECT is_uat FROM e) IS TRUE THEN COALESCE((SELECT population FROM ul), 0)
+            WHEN (SELECT entity_type FROM e) = 'admin_county_council' THEN COALESCE((
+              SELECT MAX(CASE
+                WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
+                WHEN u2.siruta_code = u2.county_code THEN u2.population
+                ELSE 0
+              END)
+              FROM ${TABLES.UATS} u2
+              WHERE u2.county_code = (SELECT county_code FROM ul)
+            ), 0)
+            ELSE 0
+          END AS population;
+        `;
+        const popRes = await pool.query(populationQuery, [entityCui]);
+        population = parseInt(popRes.rows[0]?.population ?? 0, 10) || 0;
+      }
+
+      const rateByYear = needsEuro ? getEurRateMap() : null;
+
+      return result.rows.map(row => {
+        const year = parseInt(row.year, 10);
+        let totalIncome = parseFloat(row.totalIncome);
+        let totalExpenses = parseFloat(row.totalExpenses);
+        let budgetBalance = parseFloat(row.budgetBalance);
+
+        if (needsPerCapita) {
+          if (population > 0) {
+            totalIncome = totalIncome / population;
+            totalExpenses = totalExpenses / population;
+            budgetBalance = budgetBalance / population;
+          } else {
+            totalIncome = 0;
+            totalExpenses = 0;
+            budgetBalance = 0;
+          }
+        }
+
+        if (needsEuro && rateByYear) {
+          const rate = rateByYear.get(year) ?? 1;
+          totalIncome = totalIncome / rate;
+          totalExpenses = totalExpenses / rate;
+          budgetBalance = budgetBalance / rate;
+        }
+
+        return { year, totalIncome, totalExpenses, budgetBalance };
+      });
     } catch (error) {
       console.error(
         `Error fetching yearly financial trends for entity ${entityCui} (${startYear}-${endYear}):`,

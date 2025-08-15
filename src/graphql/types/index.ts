@@ -96,9 +96,9 @@ export const types = /* GraphQL */ `
     totalIncome(year: Int!): Float
     totalExpenses(year: Int!): Float
     budgetBalance(year: Int!): Float
-    incomeTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
-    expenseTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
-    balanceTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
+    incomeTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
+    expenseTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
+    balanceTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
   }
 
   type EntityConnection {
