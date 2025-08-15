@@ -27,7 +27,9 @@ export const types = /* GraphQL */ `
   # Normalization mode for aggregated values
   enum Normalization {
     total
+    total_euro
     per_capita
+    per_capita_euro
   }
 
   # ExpenseType mirrors DB enum
