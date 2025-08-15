@@ -3,7 +3,8 @@ import { executionLineItemRepository, countyAnalyticsRepository, entityRepositor
 import { GraphQLResolveInfo } from 'graphql';
 import { HeatmapCountyDataPoint_GQL, HeatmapCountyDataPoint_Repo } from "../../db/repositories/countyAnalyticsRepository";
 import { entityAnalyticsRepository } from "../../db/repositories";
-import { AnalyticsFilter } from "../../types";
+import { AnalyticsFilter, NormalizationMode } from "../../types";
+import { getNormalizationUnit } from "../../db/repositories/utils";
 
 
 interface AnalyticsArgs {
@@ -60,12 +61,9 @@ export const analyticsResolver = {
         if (selection.kind === 'Field') requestedFields.add(selection.name.value);
       });
       return Promise.all(args.inputs.map(async (input) => {
-        const result: { seriesId?: string; totalAmount?: number; unit?: string; yearlyTrend?: Array<{ year: number; totalAmount: number }> } = { seriesId: input.seriesId };
-        if (requestedFields.has('totalAmount')) {
-          result.totalAmount = await executionLineItemRepository.getTotalAmount(input.filter);
-        }
+        const result: { seriesId?: string; unit?: string; yearlyTrend?: Array<{ year: number; value: number }> } = { seriesId: input.seriesId };
         if (requestedFields.has('unit')) {
-          result.unit = 'RON';
+          result.unit = getNormalizationUnit(input.filter.normalization);
         }
         if (requestedFields.has('yearlyTrend')) {
           result.yearlyTrend = await executionLineItemRepository.getYearlyTrend(input.filter);

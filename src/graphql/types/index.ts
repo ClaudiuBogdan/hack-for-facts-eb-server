@@ -2,7 +2,7 @@ export const types = /* GraphQL */ `
   # Utility Types
   type YearlyAmount {
     year: Int!
-    totalAmount: Float!
+    value: Float!
   }
 
   # Pagination type to handle paginated queries
@@ -71,7 +71,7 @@ export const types = /* GraphQL */ `
     entity_type: String
     uat_id: ID
     is_uat: Boolean
-    is_main_creditor: Boolean
+    is_main_creditor: Boolean # This is not a reliable flag, as an entity can change their creditor status over time. Check report type for main creditor executions.
     address: String
     last_updated: String
     # Relations
@@ -94,9 +94,9 @@ export const types = /* GraphQL */ `
     totalIncome(year: Int!): Float
     totalExpenses(year: Int!): Float
     budgetBalance(year: Int!): Float
-    incomeTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
-    expenseTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
-    balanceTrend(startYear: Int!, endYear: Int!): [YearlyAmount!]!
+    incomeTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
+    expenseTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
+    balanceTrend(startYear: Int!, endYear: Int!): AnalyticsResult!
   }
 
   type EntityConnection {
@@ -406,7 +406,6 @@ export const types = /* GraphQL */ `
 
   type AnalyticsResult {
     seriesId: String
-    totalAmount: Float!
     unit: String
     yearlyTrend: [YearlyAmount!]!
   }
@@ -434,7 +433,7 @@ export const types = /* GraphQL */ `
   }
 
   type StaticAnalyticsDataPoint {
-    datasetId: ID!
+    seriesId: ID!
     unit: String!
     yearlyTrend: [YearlyAmount!]!
   }
@@ -523,7 +522,7 @@ export const types = /* GraphQL */ `
     datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0): DatasetConnection!
  
     # Query to fetch analytics data for a list of dataset IDs
-    staticChartAnalytics(datasetIds: [ID!]!): [StaticAnalyticsDataPoint!]!
+    staticChartAnalytics(seriesIds: [ID!]!): [StaticAnalyticsDataPoint!]!
 
     aggregatedLineItems(
       filter: AnalyticsFilterInput!

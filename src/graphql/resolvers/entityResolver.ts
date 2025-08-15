@@ -151,15 +151,15 @@ export const entityResolver = {
     },
     incomeTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, totalAmount: t.totalIncome }));
+      return trends.map(t => ({ year: t.year, value: t.totalIncome }));
     },
     expenseTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, totalAmount: t.totalExpenses }));
+      return trends.map(t => ({ year: t.year, value: t.totalExpenses }));
     },
     balanceTrend: async (parent: { cui: string }, { startYear, endYear }: { startYear: number; endYear: number }) => {
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear);
-      return trends.map(t => ({ year: t.year, totalAmount: t.budgetBalance }));
+      return trends.map(t => ({ year: t.year, value: t.budgetBalance }));
     },
   },
 };

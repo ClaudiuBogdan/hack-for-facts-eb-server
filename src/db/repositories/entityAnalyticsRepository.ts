@@ -25,7 +25,7 @@ export interface EntityAnalyticsDataPoint_Repo {
   county_name: string | null;
   population: number | null;
   total_amount: number;
-  per_capita_amount: number;
+  per_capita_amount: number; // we compute this value in the server to enable ordering by per_capita_amount with pagination
   amount: number; // equals total_amount or per_capita_amount depending on normalization
 }
 

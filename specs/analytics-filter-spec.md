@@ -246,6 +246,7 @@ Target specific entities by CUI:
 ### Implementation plan
 
 1) Schema updates (GraphQL)
+
 - Add `Normalization` enum and `AnalyticsFilterInput` as defined above.
 - Replace query args to use `AnalyticsFilterInput`:
   - `heatmapUATData(filter: AnalyticsFilterInput!)`
@@ -256,12 +257,14 @@ Target specific entities by CUI:
 - Remove legacy input types (`HeatmapFilterInput`, `ExecutionLineItemFilter`) and fields.
 
 2) Shared TS types
+
 - Create shared TS types in `src/types.ts`:
   - `export type NormalizationMode = 'total' | 'per_capita'`
   - `export type ExpenseType = 'dezvoltare' | 'functionare'`
   - `export interface AnalyticsFilter` matching the schema.
 
 3) Repositories
+
 - `entityAnalyticsRepository`
   - Switch filter type to `AnalyticsFilter`.
   - Update WHERE builder: equality for `account_category`, `years ANY`, arrays for ids/types/codes/prefixes, `program_codes ANY`, `reporting_years ANY` with Reports join.
@@ -280,15 +283,18 @@ Target specific entities by CUI:
   - Update validator to require single `account_category`.
 
 4) Resolvers
+
 - Update resolver signatures to expect `AnalyticsFilterInput`.
 - Remove legacy normalization aliasing; accept `Normalization.per_capita`.
 - Pass filters through to repos (no back-compat mapping).
 
 5) Build & test
+
 - Run `npx tsc -b --noEmit` to ensure compile.
 - Smoke test GraphQL queries locally for map/table/chart flows.
 
 6) Docs
+
 - Update examples and any routes/docs referencing old filters.
 
 ### Notes

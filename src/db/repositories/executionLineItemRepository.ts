@@ -348,28 +348,6 @@ export const executionLineItemRepository = {
   },
 
   // --- Functions for analytics ---
-
-  async getTotalsByCategory(
-    reportId: string
-  ): Promise<{ account_category: "vn" | "ch"; total: number }[]> {
-    try {
-      const query = `
-        SELECT account_category, SUM(amount) as total
-        FROM ${TABLES.EXECUTION_LINE_ITEMS}
-        WHERE report_id = $1
-        GROUP BY account_category
-      `;
-      const result = await pool.query(query, [reportId]);
-      return result.rows;
-    } catch (error) {
-      console.error(
-        `Error calculating totals for report ID: ${reportId}`,
-        error
-      );
-      throw error;
-    }
-  },
-
   async getYearlySnapshotTotals(entityCui: string, year: number): Promise<{ totalIncome: number; totalExpenses: number }> {
     const query = `
       SELECT 
@@ -430,24 +408,7 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getTotalAmount(filters: AnalyticsFilter): Promise<number> {
-    const cacheKey = getCacheKey(filters);
-    const cachedValue = analyticsCache.get(cacheKey);
-    if (cachedValue) {
-      return cachedValue;
-    }
-
-    validateAggregatedFilters(filters);
-    const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(filters);
-    const query = `SELECT COALESCE(SUM(eli.amount), 0) as total FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause}`;
-    const result = await pool.query(query, values);
-    const total = parseFloat(result.rows[0].total);
-
-    analyticsCache.set(cacheKey, total);
-    return total;
-  },
-
-  async getYearlyTrend(filters: AnalyticsFilter): Promise<{ year: number; totalAmount: number }[]> {
+  async getYearlyTrend(filters: AnalyticsFilter): Promise<{ year: number; value: number }[]> {
     const cacheKey = getCacheKey(filters);
     const cachedValue = analyticsCache.get(cacheKey);
     if (cachedValue) {
@@ -458,7 +419,7 @@ export const executionLineItemRepository = {
     const { joinClauses, whereClause, values } = buildExecutionLineItemFilterQuery(filters);
     const query = `SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS total_amount FROM ${TABLES.EXECUTION_LINE_ITEMS} eli ${joinClauses} ${whereClause} GROUP BY eli.year ORDER BY eli.year ASC`;
     const result = await pool.query(query, values);
-    const yearlyTrend = result.rows.map(row => ({ year: parseInt(row.year, 10), totalAmount: parseFloat(row.total_amount) }));
+    const yearlyTrend = result.rows.map(row => ({ year: parseInt(row.year, 10), value: parseFloat(row.total_amount) }));
 
     analyticsCache.set(cacheKey, yearlyTrend);
     return yearlyTrend;

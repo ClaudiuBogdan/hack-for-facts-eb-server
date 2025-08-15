@@ -32,7 +32,7 @@ export interface LineItem {
 // Narrow alias for places that accept only income/expense categories
 export type AccountCategory = "vn" | "ch";
 
-export type NormalizationMode = "total" | "per_capita";
+export type NormalizationMode = "total" | "per_capita" | "total_euro" | "per_capita_euro";
 
 export type ExpenseType = "dezvoltare" | "functionare";
 

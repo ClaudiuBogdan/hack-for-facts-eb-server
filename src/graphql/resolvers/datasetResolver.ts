@@ -26,10 +26,10 @@ export const datasetResolver = {
         },
       };
     },
-    staticChartAnalytics: async (_: any, { datasetIds }: { datasetIds: string[] }) => {
-      const datasets = datasetRepository.getByIds(datasetIds);
+    staticChartAnalytics: async (_: any, { seriesIds }: { seriesIds: string[] }) => {
+      const datasets = datasetRepository.getByIds(seriesIds);
       return datasets.map(d => ({
-        datasetId: d.id,
+        seriesId: d.id,
         unit: d.unit,
         yearlyTrend: d.yearlyTrend,
       }));
