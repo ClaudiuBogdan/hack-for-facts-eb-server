@@ -318,7 +318,7 @@ function validateDatasets() {
     unit: z.string(),
     yearlyTrend: z.array(z.object({
       year: z.number(),
-      totalAmount: z.number(),
+      value: z.number(),
     })),
   }));
 
