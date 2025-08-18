@@ -687,7 +687,7 @@ function getEurRateMap(): Map<number, number> {
     eurRateByYear = new Map<number, number>();
     if (exchange && Array.isArray(exchange.yearlyTrend)) {
       for (const point of exchange.yearlyTrend) {
-        eurRateByYear.set(point.year, point.totalAmount);
+        eurRateByYear.set(point.year, point.value);
       }
     }
   }

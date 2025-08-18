@@ -8,7 +8,7 @@ export interface Dataset {
   sourceName?: string;
   sourceUrl?: string;
   unit?: string;
-  yearlyTrend: { year: number; totalAmount: number }[];
+  yearlyTrend: { year: number; value: number }[];
 }
 
 export interface DatasetFilter {
@@ -44,7 +44,7 @@ class DatasetRepository {
       });
       return fuse.search(filter.search).map(result => result.item);
     }
-    
+
     return filtered;
   }
 
