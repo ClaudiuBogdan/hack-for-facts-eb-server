@@ -31,7 +31,7 @@ export const countyAnalyticsRepository = {
         filter: AnalyticsFilter
     ): Promise<HeatmapCountyDataPoint_Repo[]> {
         const cacheKey = getCacheKey(filter);
-        const cached = cache.get(cacheKey);
+        const cached = await cache.get(cacheKey);
         if (cached) return cached;
 
         const conditions: string[] = [];
@@ -235,7 +235,7 @@ export const countyAnalyticsRepository = {
                     county_entity_cui: row.county_entity_cui,
                 }
             });
-            cache.set(cacheKey, data);
+            await cache.set(cacheKey, data);
             return data;
         } catch (error) {
             console.error("Error fetching heatmap county data:", error);

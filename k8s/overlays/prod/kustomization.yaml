@@ -8,6 +8,7 @@ resources:
   - ./secrets/sealed-app-secret.yaml
   - ./secrets/sealed-db-deployment.yaml
   - ./secrets/sealed-registry-secret.yaml
+  - ./secrets/sealed-redis-auth.yaml
 
 patches:
   - target:
@@ -57,6 +58,41 @@ patches:
   - target:
       kind: ConfigMap
       name: hack-for-facts-eb-server-config
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: redis-data
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 10Gi
+
+  - target:
+      kind: Deployment
+      name: redis
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: REDIS_EXTRA_FLAGS
+          value: "--maxmemory 1.5gb --maxmemory-policy allkeys-lru --save ''"
+
+  - target:
+      kind: Service
+      name: redis
     patch: |-
       - op: replace
         path: /metadata/namespace

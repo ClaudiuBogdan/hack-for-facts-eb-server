@@ -7,6 +7,7 @@ resources:
 - service.yaml
 - virtual-service.yaml
 - configmap.yaml
+- redis.yaml
 commonLabels:
   app.kubernetes.io/name: hack-for-facts-eb-server
   app.kubernetes.io/part-of: hack-for-facts

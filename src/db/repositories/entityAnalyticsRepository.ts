@@ -227,7 +227,7 @@ export const entityAnalyticsRepository = {
     offset?: number
   ): Promise<{ rows: EntityAnalyticsDataPoint_Repo[]; totalCount: number }> {
     const cacheKey = getCacheKey({ filter, sort, limit, offset });
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
     // We only cache rows list; totalCount can change with data, but accept same key
     // to avoid storing two caches; we still compute totalCount separately without caching here.
 
@@ -342,7 +342,7 @@ export const entityAnalyticsRepository = {
     }));
 
     // Cache only the rows list
-    cache.set(cacheKey, rows);
+    await cache.set(cacheKey, rows);
 
     return { rows, totalCount };
   },

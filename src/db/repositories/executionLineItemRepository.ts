@@ -269,13 +269,13 @@ export const executionLineItemRepository = {
       }
 
       const cacheKey = `getAll:${finalQuery}:${JSON.stringify(values)}`;
-      const cached = executionLineItemCache.get(cacheKey);
+      const cached = await executionLineItemCache.get(cacheKey);
       if (cached) {
         return cached;
       }
 
       const result = await pool.query(finalQuery, values);
-      executionLineItemCache.set(cacheKey, result.rows);
+      await executionLineItemCache.set(cacheKey, result.rows);
       return result.rows;
     } catch (error) {
       console.error("Error fetching execution line items:", error);
@@ -333,14 +333,14 @@ export const executionLineItemRepository = {
         whereClause;
 
       const cacheKey = `count:${finalQuery}:${JSON.stringify(values)}`;
-      const cached = countCache.get(cacheKey);
+      const cached = await countCache.get(cacheKey);
       if (cached) {
         return cached.count;
       }
 
       const result = await pool.query(finalQuery, values);
       const count = parseInt(result.rows[0].count, 10);
-      countCache.set(cacheKey, { count });
+      await countCache.set(cacheKey, { count });
       return count;
     } catch (error) {
       console.error("Error counting execution line items:", error);
@@ -486,7 +486,7 @@ export const executionLineItemRepository = {
    */
   async getYearlyTrend(filters: AnalyticsFilter): Promise<{ year: number; value: number }[]> {
     const cacheKey = getCacheKey(filters);
-    const cachedValue = analyticsCache.get(cacheKey);
+    const cachedValue = await analyticsCache.get(cacheKey);
     if (cachedValue) {
       return cachedValue;
     }
@@ -668,7 +668,7 @@ export const executionLineItemRepository = {
       });
     }
 
-    analyticsCache.set(cacheKey, yearlyTrend);
+    await analyticsCache.set(cacheKey, yearlyTrend);
     return yearlyTrend;
   },
 };

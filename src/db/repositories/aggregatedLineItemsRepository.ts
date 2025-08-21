@@ -160,7 +160,7 @@ export const aggregatedLineItemsRepository = {
     offset?: number
   ): Promise<{ rows: AggregatedLineItem_Repo[]; totalCount: number }> {
     const cacheKey = getCacheKey({ filter, limit, offset });
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
 
     const values: any[] = [];
     const { conditions, values: filterValues, nextParamIndex, requireEntitiesJoin, requireReportsJoin, requireUATsJoin } = buildWhereClause(filter, 1);
@@ -236,7 +236,7 @@ export const aggregatedLineItemsRepository = {
       count: parseInt(row.count ?? "0", 10),
     }));
 
-    cache.set(cacheKey, rows);
+    await cache.set(cacheKey, rows);
 
     return { rows, totalCount };
   },

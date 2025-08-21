@@ -139,12 +139,12 @@ export const entityRepository = {
 
     try {
       const cacheKey = `getAll:${query}:${JSON.stringify(params)}`;
-      const cached = entitiesCache.get(cacheKey);
+      const cached = await entitiesCache.get(cacheKey);
       if (cached) {
         return cached;
       }
       const result = await pool.query(query, params);
-      entitiesCache.set(cacheKey, result.rows);
+      await entitiesCache.set(cacheKey, result.rows);
       return result.rows;
     } catch (error) {
       console.error("Error fetching entities:", error);
@@ -154,7 +154,7 @@ export const entityRepository = {
 
   async getById(cui: string): Promise<Entity | null> {
     const cacheKey = String(cui);
-    const cached = entityCache.get(cacheKey);
+    const cached = await entityCache.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -165,7 +165,7 @@ export const entityRepository = {
         [cui]
       );
       const result = rows.length > 0 ? rows[0] : null;
-      if (result) entityCache.set(cacheKey, result);
+      if (result) await entityCache.set(cacheKey, result);
       return result;
     } catch (error) {
       console.error(`Error fetching entity with CUI: ${cui}`, error);
@@ -175,7 +175,7 @@ export const entityRepository = {
 
   async getChildren(cui: string): Promise<Entity[]> {
     const cacheKey = `getChildren:${cui}`;
-    const cached = entitiesCache.get(cacheKey);
+    const cached = await entitiesCache.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -184,13 +184,13 @@ export const entityRepository = {
       "SELECT * FROM Entities WHERE main_creditor_1_cui = $1 OR main_creditor_2_cui = $1",
       [cui]
     );
-    entitiesCache.set(cacheKey, result.rows);
+    await entitiesCache.set(cacheKey, result.rows);
     return result.rows;
   },
 
   async getParents(cui: string): Promise<Entity[]> {
     const cacheKey = `getParents:${cui}`;
-    const cached = entitiesCache.get(cacheKey);
+    const cached = await entitiesCache.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -205,7 +205,7 @@ export const entityRepository = {
     `;
 
     const result = await pool.query<Entity>(query, [cui]);
-    entitiesCache.set(cacheKey, result.rows);
+    await entitiesCache.set(cacheKey, result.rows);
     return result.rows;
   },
 
@@ -215,13 +215,13 @@ export const entityRepository = {
 
     try {
       const cacheKey = `count:${query}:${JSON.stringify(values)}`;
-      const cached = countCache.get(cacheKey);
+      const cached = await countCache.get(cacheKey);
       if (cached) {
         return cached.count;
       }
       const result = await pool.query(query, values);
       const count = parseInt(result.rows[0].count, 10);
-      countCache.set(cacheKey, { count });
+      await countCache.set(cacheKey, { count });
       return count;
     } catch (error) {
       console.error("Error counting entities:", error);

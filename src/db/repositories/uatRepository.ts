@@ -138,7 +138,7 @@ export const uatRepository = {
 
   async getById(id: number): Promise<UAT | null> {
     const cacheKey = String(id);
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
     if (cached) return cached;
 
     try {
@@ -147,7 +147,7 @@ export const uatRepository = {
         [id]
       );
       const result = rows.length > 0 ? rows[0] : null;
-      if (result) cache.set(cacheKey, result);
+      if (result) await cache.set(cacheKey, result);
       return result;
     } catch (error) {
       console.error(`Error fetching UAT with ID: ${id}`, error);

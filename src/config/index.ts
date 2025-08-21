@@ -35,6 +35,12 @@ export const config = {
     maxSizeBytes: process.env.CACHE_MAX_SIZE_BYTES ? parseInt(process.env.CACHE_MAX_SIZE_BYTES, 10) : 200 * 1024 * 1024, // 200MB
     // Max items per cache
     maxItems: process.env.CACHE_MAX_ITEMS ? parseInt(process.env.CACHE_MAX_ITEMS, 10) : 20000,
+    // Optional Redis-backed cache
+    redis: {
+      enabled: (process.env.REDIS_ENABLED || 'false').toLowerCase() === 'true',
+      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      prefix: process.env.REDIS_PREFIX || 'hack-for-facts-eb-server',
+    },
   },
 };
 

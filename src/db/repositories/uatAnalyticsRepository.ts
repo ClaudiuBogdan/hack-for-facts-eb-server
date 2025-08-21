@@ -36,7 +36,7 @@ export const uatAnalyticsRepository = {
     filter: AnalyticsFilter
   ): Promise<HeatmapUATDataPoint_Repo[]> {
     const cacheKey = getCacheKey(filter);
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
     if (cached) return cached;
 
     const conditions: string[] = [];
@@ -231,7 +231,7 @@ export const uatAnalyticsRepository = {
           per_capita_amount: perCapitaAmount,
         }
       });
-      cache.set(cacheKey, data);
+      await cache.set(cacheKey, data);
       return data;
     } catch (error) {
       console.error("Error fetching heatmap data:", error);

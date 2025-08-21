@@ -157,7 +157,7 @@ export const functionalClassificationRepository = {
 
   async getByCode(code: string): Promise<FunctionalClassification | null> {
     const cacheKey = String(code);
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
     if (cached) return cached;
 
     const query =
@@ -165,7 +165,7 @@ export const functionalClassificationRepository = {
     try {
       const { rows } = await pool.query<FunctionalClassification>(query, [code]);
       const result = rows.length > 0 ? rows[0] : null;
-      if (result) cache.set(cacheKey, result);
+      if (result) await cache.set(cacheKey, result);
       return result;
     } catch (error) {
       console.error(

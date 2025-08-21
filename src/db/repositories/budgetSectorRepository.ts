@@ -68,7 +68,7 @@ export const budgetSectorRepository = {
 
   async getById(id: number): Promise<BudgetSector | null> {
     const cacheKey = String(id);
-    const cached = cache.get(cacheKey);
+    const cached = await cache.get(cacheKey);
     if (cached) return cached;
 
     const { rows } = await pool.query<BudgetSector>(
@@ -76,7 +76,7 @@ export const budgetSectorRepository = {
       [id]
     );
     const result = rows.length > 0 ? rows[0] : null;
-    if (result) cache.set(cacheKey, result);
+    if (result) await cache.set(cacheKey, result);
     return result;
   },
 
