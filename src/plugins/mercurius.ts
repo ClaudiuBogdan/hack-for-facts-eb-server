@@ -58,7 +58,6 @@ export async function registerMercurius(fastify: FastifyInstance) {
 
 			try {
 				// Verify token networklessly using JWT public key
-				console.log("verifying token");
 				const payload = await verifyToken(token, {
 					jwtKey: config.clerkJwtKey,
 					authorizedParties: config.clerkAuthorizedParties?.length
@@ -71,8 +70,6 @@ export async function registerMercurius(fastify: FastifyInstance) {
 					auth = { userId: payload.sub };
 				}
 			} catch (error: any) {
-				console.log("error", error);
-				// Log verification errors but don't expose details
 				request.log.debug({ error: error.message }, 'JWT verification failed');
 			}
 
