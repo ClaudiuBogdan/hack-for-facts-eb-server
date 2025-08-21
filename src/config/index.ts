@@ -39,6 +39,7 @@ export const config = {
     redis: {
       enabled: (process.env.REDIS_ENABLED || 'false').toLowerCase() === 'true',
       url: process.env.REDIS_URL || 'redis://localhost:6379',
+      password: process.env.REDIS_PASSWORD || '',
       prefix: process.env.REDIS_PREFIX || 'hack-for-facts-eb-server',
     },
   },

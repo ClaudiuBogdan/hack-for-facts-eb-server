@@ -46,7 +46,9 @@ async function getRedisClient(): Promise<Redis | null> {
     try {
         // Lazily import ioredis
         const { default: RedisCtor } = await import('ioredis');
-        const client = new RedisCtor(config.cache.redis.url);
+        const client = new RedisCtor(config.cache.redis.url, {
+            password: config.cache.redis.password,
+        });
         client.on('error', (err) => {
             logger.error({ err }, 'Redis connection error');
         });
