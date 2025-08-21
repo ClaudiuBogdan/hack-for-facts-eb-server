@@ -11,6 +11,8 @@
     "schema:gen": "node ./scripts/generate-openapi.mjs"
   },
   "dependencies": {
+    "@clerk/backend": "^2.9.3",
+    "@clerk/fastify": "^2.4.23",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.1.0",

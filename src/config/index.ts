@@ -43,6 +43,12 @@ export const config = {
       prefix: process.env.REDIS_PREFIX || 'hack-for-facts-eb-server',
     },
   },
+  // Auth config (Clerk) - using JWT public key for networkless verification
+  clerkJwtKey: process.env.CLERK_JWT_KEY || "",
+  clerkAuthorizedParties: (process.env.CLERK_AUTHORIZED_PARTIES || process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 };
 
 export default config;
