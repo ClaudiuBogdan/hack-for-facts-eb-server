@@ -88,7 +88,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: REDIS_EXTRA_FLAGS
-          value: "--maxmemory 1.5gb --maxmemory-policy allkeys-lru --save ''"
+          value: "--maxmemory 1536mb --maxmemory-policy allkeys-lru --save ''"
 
   - target:
       kind: Service
