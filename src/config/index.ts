@@ -19,6 +19,17 @@ export const config = {
   dbIdleInTxTimeoutMs: process.env.DB_IDLE_IN_TX_TIMEOUT_MS ? parseInt(process.env.DB_IDLE_IN_TX_TIMEOUT_MS, 10) : undefined,
   dbUseSSL: (process.env.DB_USE_SSL || '').toLowerCase() === 'true',
   dbRejectUnauthorizedSSL: (process.env.DB_REJECT_UNAUTHORIZED_SSL || '').toLowerCase() === 'true',
+  // User Data DB
+  userDataDatabaseUrl:
+    process.env.USERDATA_DATABASE_URL ||
+    "postgres://postgres:postgres@localhost:5432/userdata_db",
+  userDataDbPoolMax: process.env.USERDATA_DB_POOL_MAX ? parseInt(process.env.USERDATA_DB_POOL_MAX, 10) : undefined,
+  userDataDbPoolIdleMs: process.env.USERDATA_DB_POOL_IDLE_MS ? parseInt(process.env.USERDATA_DB_POOL_IDLE_MS, 10) : undefined,
+  userDataDbConnectionTimeoutMs: process.env.USERDATA_DB_CONNECTION_TIMEOUT_MS ? parseInt(process.env.USERDATA_DB_CONNECTION_TIMEOUT_MS, 10) : undefined,
+  userDataDbStatementTimeoutMs: process.env.USERDATA_DB_STATEMENT_TIMEOUT_MS ? parseInt(process.env.USERDATA_DB_STATEMENT_TIMEOUT_MS, 10) : undefined,
+  userDataDbIdleInTxTimeoutMs: process.env.USERDATA_DB_IDLE_IN_TX_TIMEOUT_MS ? parseInt(process.env.USERDATA_DB_IDLE_IN_TX_TIMEOUT_MS, 10) : undefined,
+  userDataDbUseSSL: (process.env.USERDATA_DB_USE_SSL || '').toLowerCase() === 'true',
+  userDataDbRejectUnauthorizedSSL: (process.env.USERDATA_DB_REJECT_UNAUTHORIZED_SSL || '').toLowerCase() === 'true',
   // Rate limit config
   rateLimitMax: process.env.RATE_LIMIT_MAX ? parseInt(process.env.RATE_LIMIT_MAX, 10) : 300,
   rateLimitTimeWindow: process.env.RATE_LIMIT_WINDOW || "1 minute",

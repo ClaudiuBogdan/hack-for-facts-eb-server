@@ -6,6 +6,8 @@ import { registerRateLimit } from "./plugins/rateLimit";
 import { registerSwagger } from "./plugins/swagger";
 import { registerMercurius } from "./plugins/mercurius";
 import applicationRoutes from "./routes";
+import primaryPool from "./db/connection";
+import userDataPool from "./db/connectionUserData";
 
 export async function buildServer() {
 	const fastify = Fastify({
@@ -44,6 +46,15 @@ export async function startServer() {
 	const gracefulShutdown = async (signal: string) => {
 		fastify.log.info(`Received ${signal}. Shutting down gracefully...`);
 		await fastify.close();
+		try {
+			await Promise.all([
+				primaryPool.end(),
+				userDataPool.end()
+			])
+		} catch (err) {
+			fastify.log.error(err);
+			process.exit(1);
+		}
 		process.exit(0);
 	};
 
