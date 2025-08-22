@@ -1,10 +1,13 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UnauthorizedError } from "./errors";
+import { getAuthContext } from "./auth";
 
 export async function authenticate(request: FastifyRequest, _: FastifyReply) {
   try {
-    // The mercurius plugin adds auth context. We just need to check if it's there.
-    if (!request.auth) {
+    const auth = await getAuthContext(request);
+    request.auth = auth;
+
+    if (!auth) {
       throw new UnauthorizedError("Unauthorized")
     }
   } catch (error) {
