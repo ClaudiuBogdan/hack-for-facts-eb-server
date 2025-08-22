@@ -8,6 +8,8 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
+    "test": "node --test --require ts-node/register 'src/**/*.test.ts'",
+    "test:watch": "node --test --watch --require ts-node/register 'src/**/*.test.ts'",
     "schema:gen": "node ./scripts/generate-openapi.mjs"
   },
   "dependencies": {
