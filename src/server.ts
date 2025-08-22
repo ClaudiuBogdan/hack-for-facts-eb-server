@@ -8,6 +8,8 @@ import { registerMercurius } from "./plugins/mercurius";
 import applicationRoutes from "./routes";
 import primaryPool from "./db/connection";
 import userDataPool from "./db/connectionUserData";
+import { UnauthorizedError } from "./utils/errors";
+import { registerAuth } from "./plugins/auth";
 
 export async function buildServer() {
 	const fastify = Fastify({
@@ -24,6 +26,7 @@ export async function buildServer() {
 	await registerRateLimit(fastify);
 	await registerMercurius(fastify);
 	await registerSwagger(fastify);
+	await registerAuth(fastify);
 	await fastify.register(applicationRoutes);
 
 	return fastify;
