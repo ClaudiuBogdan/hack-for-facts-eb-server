@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { UnauthorizedError } from "../utils/errors";
 
-export async function registerAuth(fastify: FastifyInstance) {
+export async function registerErrorHandler(fastify: FastifyInstance) {
 
     fastify.setErrorHandler((error, request, reply) => {
         if (error instanceof UnauthorizedError) {
@@ -12,6 +12,6 @@ export async function registerAuth(fastify: FastifyInstance) {
         // Add more error handling here
 
         request.log.error(error);
-        reply.status(500).send({ error: 'Internal Server Error' });
+        reply.status(500).send({ ok: false, error: 'Internal Server Error' });
     });
 }
