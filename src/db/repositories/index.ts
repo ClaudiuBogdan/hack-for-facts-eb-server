@@ -12,3 +12,4 @@ export { categoryAnalyticsRepository } from "./categoryAnalyticsRepository";
 export { datasetRepository } from "./datasetRepository";
 export { aggregatedLineItemsRepository } from "./aggregatedLineItemsRepository";
 export { entityAnalyticsRepository } from "./entityAnalyticsRepository";
+export { shortLinkRepository, ShortLinkCollisionError } from "./shortLinkRepository";

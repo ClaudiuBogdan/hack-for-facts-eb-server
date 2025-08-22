@@ -4,8 +4,12 @@ import { getPool, type DataDomain } from ".";
 export async function runQuery<T extends QueryResultRow = any>(
   domain: DataDomain,
   text: string,
-  params?: any[]
+  params?: any[],
+  client?: PoolClient
 ): Promise<QueryResult<T>> {
+  if (client) {
+    return client.query<T>(text, params);
+  }
   const pool: Pool = getPool(domain);
   return pool.query<T>(text, params);
 }
