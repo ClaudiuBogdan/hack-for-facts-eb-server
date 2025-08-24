@@ -25,10 +25,24 @@ export interface LineItem {
   amount?: number; // Example: Extracting amount if present
 }
 
-export interface AnalyticsResult {
-  seriesId: string;
+export type AxisDataType = 'STRING' | 'INTEGER' | 'FLOAT' | 'DATE';
+
+export interface Axis {
+  name: string;
+  type: AxisDataType;
   unit: string;
-  yearlyTrend: { year: number; value: number }[];
+}
+
+export interface AnalyticsDataPoint {
+  x: string;
+  y: number;
+}
+
+export interface AnalyticsSeries {
+  seriesId: string;
+  xAxis: Axis;
+  yAxis: Axis;
+  data: AnalyticsDataPoint[];
 }
 
 // ------------------------------

@@ -30,8 +30,9 @@ export const datasetResolver = {
       const datasets = datasetRepository.getByIds(seriesIds);
       return datasets.map(d => ({
         seriesId: d.id,
-        unit: d.unit,
-        yearlyTrend: d.yearlyTrend,
+        xAxis: { name: 'Year', type: 'INTEGER', unit: 'year' },
+        yAxis: { name: d.name ?? 'Amount', type: 'FLOAT', unit: d.unit },
+        data: d.yearlyTrend.map(p => ({ x: String(p.year), y: p.value })),
       }));
     },
   },

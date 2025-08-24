@@ -3,7 +3,7 @@ import { executionLineItemRepository, countyAnalyticsRepository, entityRepositor
 import { GraphQLResolveInfo } from 'graphql';
 import { HeatmapCountyDataPoint_GQL, HeatmapCountyDataPoint_Repo } from "../../db/repositories/countyAnalyticsRepository";
 import { entityAnalyticsRepository } from "../../db/repositories";
-import { AnalyticsFilter, NormalizationMode } from "../../types";
+import { AnalyticsFilter, AnalyticsSeries } from "../../types";
 import { getNormalizationUnit } from "../../db/repositories/utils";
 
 
@@ -61,14 +61,15 @@ export const analyticsResolver = {
         if (selection.kind === 'Field') requestedFields.add(selection.name.value);
       });
       return Promise.all(args.inputs.map(async (input) => {
-        const result: { seriesId?: string; unit?: string; yearlyTrend?: Array<{ year: number; value: number }> } = { seriesId: input.seriesId };
-        if (requestedFields.has('unit')) {
-          result.unit = getNormalizationUnit(input.filter.normalization);
-        }
-        if (requestedFields.has('yearlyTrend')) {
-          result.yearlyTrend = await executionLineItemRepository.getYearlyTrend(input.filter);
-        }
-        return result;
+        const unit = getNormalizationUnit(input.filter.normalization);
+        const yearly = await executionLineItemRepository.getYearlyTrend(input.filter);
+        const series: AnalyticsSeries = {
+          seriesId: input.seriesId ?? 'series',
+          xAxis: { name: 'Year', type: 'INTEGER', unit: 'year' },
+          yAxis: { name: 'Amount', type: 'FLOAT', unit },
+          data: yearly.map(p => ({ x: String(p.year), y: p.value })),
+        };
+        return series;
       }));
     },
     async entityAnalytics(

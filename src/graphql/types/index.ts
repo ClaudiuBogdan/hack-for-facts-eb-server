@@ -1,8 +1,29 @@
 export const types = /* GraphQL */ `
   # Utility Types
-  type YearlyAmount {
-    year: Int!
-    value: Float!
+  # Axis metadata and analytics series types
+  enum AxisDataType {
+    STRING
+    INTEGER
+    FLOAT
+    DATE
+  }
+
+  type Axis {
+    name: String!
+    type: AxisDataType!
+    unit: String!
+  }
+
+  type AnalyticsDataPoint {
+    x: String!
+    y: Float!
+  }
+
+  type AnalyticsSeries {
+    seriesId: String!
+    xAxis: Axis!
+    yAxis: Axis!
+    data: [AnalyticsDataPoint!]!
   }
 
   # Pagination type to handle paginated queries
@@ -96,9 +117,9 @@ export const types = /* GraphQL */ `
     totalIncome(year: Int!): Float
     totalExpenses(year: Int!): Float
     budgetBalance(year: Int!): Float
-    incomeTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
-    expenseTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
-    balanceTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsResult!
+    incomeTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
+    expenseTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
+    balanceTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
   }
 
   type EntityConnection {
@@ -406,11 +427,7 @@ export const types = /* GraphQL */ `
     seriesId: String
   }
 
-  type AnalyticsResult {
-    seriesId: String
-    unit: String
-    yearlyTrend: [YearlyAmount!]!
-  }
+  # Legacy AnalyticsResult removed in favor of AnalyticsSeries
 
   # ---------------------------------------------------------------------------
   # Dataset Types
@@ -434,11 +451,7 @@ export const types = /* GraphQL */ `
     ids: [ID!]
   }
 
-  type StaticAnalyticsDataPoint {
-    seriesId: ID!
-    unit: String!
-    yearlyTrend: [YearlyAmount!]!
-  }
+  # Legacy StaticAnalyticsDataPoint removed in favor of AnalyticsSeries
 
   # ---------------------------------------------------------------------------
   # Root Query
@@ -510,7 +523,7 @@ export const types = /* GraphQL */ `
     heatmapUATData(filter: AnalyticsFilterInput!): [HeatmapUATDataPoint!]!
     heatmapCountyData(filter: AnalyticsFilterInput!): [HeatmapCountyDataPoint!]!
 
-    executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsResult!]!
+    executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsSeries!]!
 
     # Entities analytics with flexible filters and sorting
     entityAnalytics(
@@ -524,7 +537,7 @@ export const types = /* GraphQL */ `
     datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0): DatasetConnection!
  
     # Query to fetch analytics data for a list of dataset IDs
-    staticChartAnalytics(seriesIds: [ID!]!): [StaticAnalyticsDataPoint!]!
+    staticChartAnalytics(seriesIds: [ID!]!): [AnalyticsSeries!]!
 
     aggregatedLineItems(
       filter: AnalyticsFilterInput!

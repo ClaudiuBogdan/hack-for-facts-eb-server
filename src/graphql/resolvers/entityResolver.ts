@@ -8,7 +8,7 @@ import { EntityFilter } from "../../db/repositories/entityRepository";
 import { SortOrderOption as ELISortOrderOption } from "../../db/repositories/executionLineItemRepository";
 import { SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
 import { YearlyFinancials } from "../../db/repositories/executionLineItemRepository";
-import { AnalyticsFilter, AnalyticsResult, NormalizationMode } from "../../types";
+import { AnalyticsFilter, AnalyticsSeries, NormalizationMode } from "../../types";
 import { getNormalizationUnit } from "../../db/repositories/utils";
 
 interface GraphQLSortOrderInput {
@@ -150,31 +150,34 @@ export const entityResolver = {
       }
       return null;
     },
-    incomeTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsResult> => {
+    incomeTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
       return {
         seriesId: 'income',
-        unit: getNormalizationUnit(mode),
-        yearlyTrend: trends.map(t => ({ year: t.year, value: t.totalIncome })),
+        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
+        data: trends.map(t => ({ x: String(t.year), y: t.totalIncome })),
       };
     },
-    expenseTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsResult> => {
+    expenseTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
       return {
         seriesId: 'expense',
-        unit: getNormalizationUnit(mode),
-        yearlyTrend: trends.map(t => ({ year: t.year, value: t.totalExpenses })),
+        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
+        data: trends.map(t => ({ x: String(t.year), y: t.totalExpenses })),
       };
     },
-    balanceTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsResult> => {
+    balanceTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
       const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
       return {
         seriesId: 'balance',
-        unit: getNormalizationUnit(mode),
-        yearlyTrend: trends.map(t => ({ year: t.year, value: t.budgetBalance })),
+        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
+        data: trends.map(t => ({ x: String(t.year), y: t.budgetBalance })),
       };
     },
   },
