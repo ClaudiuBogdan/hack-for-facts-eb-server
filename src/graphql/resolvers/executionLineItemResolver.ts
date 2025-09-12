@@ -43,6 +43,9 @@ export const executionLineItemResolver = {
     },
   },
   ExecutionLineItem: {
+    amount: async (parent: any) => {
+      return parent.ytd_amount;
+    },
     report: async (parent: any) => {
       return reportRepository.getById(parent.report_id);
     },

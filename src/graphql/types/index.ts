@@ -1,4 +1,12 @@
 export const types = /* GraphQL */ `
+  # ---------------------------------------------------------------------------
+  # Scalars & Directives
+  # ---------------------------------------------------------------------------
+  "A string representing a Year (YYYY), Year-Month (YYYY-MM), or Year-Quarter (YYYY-Q[1-4])"
+  scalar PeriodDate
+
+  directive @oneOf on INPUT_OBJECT
+
   # Utility Types
   # Axis metadata and analytics series types
   enum AxisDataType {
@@ -6,6 +14,12 @@ export const types = /* GraphQL */ `
     INTEGER
     FLOAT
     DATE
+  }
+
+  enum ReportType {
+    PRINCIPAL_AGGREGATED
+    SECONDARY_AGGREGATED
+    DETAILED
   }
 
   type Axis {
@@ -92,6 +106,7 @@ export const types = /* GraphQL */ `
     cui: ID!
     name: String!
     entity_type: String
+    default_report_type: ReportType!
     uat_id: ID
     is_uat: Boolean
     is_main_creditor: Boolean # This is not a reliable flag, as an entity can change their creditor status over time. Check report type for main creditor executions.
@@ -183,7 +198,7 @@ export const types = /* GraphQL */ `
     reporting_year: Int!
     reporting_period: String!
     download_links: [String!]!
-    report_type: String!
+    report_type: ReportType!
     main_creditor: Entity!
     import_timestamp: String!
     # Relations
@@ -233,6 +248,33 @@ export const types = /* GraphQL */ `
   # ---------------------------------------------------------------------------
   # Filters & Inputs
   # ---------------------------------------------------------------------------
+  
+  # ------------------------------
+  # Report Period Inputs
+  # ------------------------------
+  enum ReportPeriodType {
+    MONTH
+    QUARTER
+    YEAR
+  }
+
+  "Closed interval with period precision (inclusive)."
+  input PeriodIntervalInput {
+    start: PeriodDate!
+    end: PeriodDate!
+  }
+
+  "Exactly one of {interval, dates} must be supplied."
+  input PeriodSelection @oneOf {
+    interval: PeriodIntervalInput
+    dates: [PeriodDate!]
+  }
+
+  "Mandatory type + a mutually exclusive selection."
+  input ReportPeriodInput {
+    type: ReportPeriodType!
+    selection: PeriodSelection!
+  }
   # Input types for filtering
   input EntityFilter {
     cui: String
@@ -262,6 +304,7 @@ export const types = /* GraphQL */ `
     entity_cui: String
     reporting_year: Int
     reporting_period: String
+    report_type: ReportType
     report_date_start: String
     report_date_end: String
     search: String
@@ -270,13 +313,12 @@ export const types = /* GraphQL */ `
   # Unified analytics filter used by heatmaps, entity analytics, and line items
   input AnalyticsFilterInput {
     # Required scope
-    years: [Int!]!
     account_category: AccountCategory!
-
+    report_period: ReportPeriodInput!        # Preferred period selector (month/quarter/year via month anchors)
+    
     # Line-item dimensional filters
+    report_type: ReportType                  # Used by: all. Heatmaps filter contributing report types.
     report_ids: [ID!]              # Used by: all. Heatmaps filter contributing reports.
-    report_type: String        # Used by: all. Heatmaps filter contributing report types.
-    reporting_years: [Int!]        # Used by: all. Heatmaps join Reports to filter by year.
     entity_cuis: [String!]         # Used by: all. Heatmaps constrain contributing entities.
     functional_codes: [String!]
     functional_prefixes: [String!]

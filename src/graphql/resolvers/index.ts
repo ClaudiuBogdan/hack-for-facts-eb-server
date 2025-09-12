@@ -8,8 +8,12 @@ import { fundingSourcesResolver } from "./fundingSourcesResolver";
 import { budgetSectorResolver } from "./budgetSectorResolver";
 import { datasetResolver } from "./datasetResolver";
 import { aggregatedLineItemsResolver } from "./aggregatedLineItemsResolver";
+import { scalarResolvers } from "./scalars";
+import { enumResolvers } from "./enums";
 
 export const resolvers = [
+  scalarResolvers,
+  enumResolvers,
   entityResolver,
   uatResolver,
   classificationsResolver,

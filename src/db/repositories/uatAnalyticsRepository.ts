@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode } from "../../types";
+import { buildPeriodFilterSql } from "./utils";
 
 const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap', maxSize: 150 * 1024 * 1024, maxItems: 30000 });
 
@@ -50,11 +51,12 @@ export const uatAnalyticsRepository = {
     conditions.push(`eli.account_category = $${paramIndex++}`);
     params.push(filter.account_category);
 
-    if (!filter.years || filter.years.length === 0) {
-      throw new Error("Years array cannot be empty for heatmap data.");
+    const { clause, values, nextParamIndex } = buildPeriodFilterSql(filter.report_period, paramIndex);
+    if (clause) {
+      conditions.push(clause);
+      params.push(...values);
+      paramIndex = nextParamIndex;
     }
-    conditions.push(`eli.year = ANY($${paramIndex++})`);
-    params.push(filter.years);
 
     if (filter.functional_codes && filter.functional_codes.length > 0) {
       conditions.push(`eli.functional_code = ANY($${paramIndex++})`);
@@ -84,16 +86,11 @@ export const uatAnalyticsRepository = {
     }
 
     if (filter.report_type) {
-      requireReportsJoin = true;
       conditions.push(`eli.report_type = $${paramIndex++}`);
       params.push(filter.report_type);
     }
 
-    if (filter.reporting_years && filter.reporting_years.length > 0) {
-      requireReportsJoin = true;
-      conditions.push(`r.reporting_year = ANY($${paramIndex++})`);
-      params.push(filter.reporting_years);
-    }
+    // reporting_years deprecated; use report_period
 
     if (filter.entity_cuis && filter.entity_cuis.length > 0) {
       conditions.push(`eli.entity_cui = ANY($${paramIndex++})`);

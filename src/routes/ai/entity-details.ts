@@ -139,9 +139,7 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     }
     if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
 
-    const yearlySnapshot = await executionLineItemRepository.getYearlySnapshotTotals(entity.cui, year);
-
-
+    const yearlySnapshot = await executionLineItemRepository.getYearlySnapshotTotals(entity.cui, year, entity.default_report_type);
 
     const details = {
       cui: entity.cui,
@@ -313,9 +311,11 @@ interface GetBudgetAnalysisParams {
 
 async function getBudgetAnalysis({ entity, year, level, fnCode, ecCode }: GetBudgetAnalysisParams) {
 
+  const report_period = { type: 'YEAR', selection: { interval: { start: `${year}-01`, end: `${year}-01` } } } as const;
+  const default_report_type = 'Executie bugetara agregata la nivel de ordonator principal';
   const [expenseLineItems, incomeLineItems] = await Promise.all([
-    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "ch" }, { by: "amount", order: "DESC" }, 1000, 0),
-    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], years: [year], account_category: "vn" }, { by: "amount", order: "DESC" }, 1000, 0),
+    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], report_period, report_type: default_report_type, account_category: "ch" } as any, { by: "ytd_amount", order: "DESC" }, 1000, 0),
+    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], report_period, report_type: default_report_type, account_category: "vn" } as any, { by: "ytd_amount", order: "DESC" }, 1000, 0),
   ]);
 
 

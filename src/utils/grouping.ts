@@ -84,7 +84,7 @@ export function groupByFunctional(items: EnrichedLineItem[], cui: string, type: 
     const chapter = ensureChapter(prefix);
     const functional = ensureFunctional(chapter, lineItem.functional_code, lineItem.functional_name || "");
 
-    const amount = Number(lineItem.amount) || 0;
+    const amount = Number(lineItem.ytd_amount) || 0;
     functional.total += amount;
     chapter.total += amount;
 

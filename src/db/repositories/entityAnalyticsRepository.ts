@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
+import { buildPeriodFilterSql } from "./utils";
 
 
 export interface EntityAnalyticsSortOption {
@@ -51,11 +52,16 @@ function buildEntityAnalyticsWhere(
   conditions.push(`eli.account_category = $${paramIndex++}`);
   values.push(filter.account_category);
 
-  if (!filter.years || filter.years.length === 0) {
-    throw new Error("Years array cannot be empty for entity analytics.");
+  if (!filter.report_period) {
+    throw new Error("report_period is required for entity analytics.");
   }
-  conditions.push(`eli.year = ANY($${paramIndex++}::int[])`);
-  values.push(filter.years);
+
+  const { clause, values: v, nextParamIndex: nextParam } = buildPeriodFilterSql(filter.report_period, paramIndex);
+  if (clause) {
+    conditions.push(clause);
+    values.push(...v);
+    paramIndex = nextParam;
+  }
 
   // Basic ELI filters
   if (filter.report_ids?.length) {
@@ -106,11 +112,7 @@ function buildEntityAnalyticsWhere(
     conditions.push(`eli.program_code = ANY($${paramIndex++}::text[])`);
     values.push(filter.program_codes);
   }
-  if (filter.reporting_years?.length) {
-    requireReportsJoin = true;
-    conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
-    values.push(filter.reporting_years);
-  }
+  // reporting_years deprecated; use report_period
 
   // Per-item thresholds for entity analytics (applied before aggregation)
   if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {

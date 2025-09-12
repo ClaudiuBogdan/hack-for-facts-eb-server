@@ -49,6 +49,26 @@ export interface AnalyticsSeries {
 // Unified Analytics Filter Types
 // ------------------------------
 
+export type TMonth = '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11' | '12'
+export type TQuarter = 'Q1' | 'Q2' | 'Q3' | 'Q4'
+
+export type YearPeriod = `${number}`
+export type YearMonthPeriod = `${number}-${TMonth}`
+export type YearQuarterPeriod = `${number}-${TQuarter}`
+export type ReportPeriodType = 'YEAR' | 'MONTH' | 'QUARTER'
+export type PeriodDate = YearPeriod | YearMonthPeriod | YearQuarterPeriod
+
+export type PeriodSelection =
+  | { interval: { start: PeriodDate; end: PeriodDate }; dates?: undefined }
+  | { dates: PeriodDate[]; interval?: undefined }
+
+export interface ReportPeriodInput {
+  readonly type: ReportPeriodType
+  readonly selection: PeriodSelection
+}
+
+export type GqlReportType = 'PRINCIPAL_AGGREGATED' | 'SECONDARY_AGGREGATED' | 'DETAILED'
+
 // Narrow alias for places that accept only income/expense categories
 export type AccountCategory = "vn" | "ch";
 
@@ -58,13 +78,12 @@ export type ExpenseType = "dezvoltare" | "functionare";
 
 export interface AnalyticsFilter {
   // Required scope
-  years: number[];
   account_category: AccountCategory;
+  report_type: string;
+  report_period: ReportPeriodInput; // Preferred selector (month/quarter/year via month anchors)
 
   // Line-item dimensional filters (WHERE on ExecutionLineItems or joined dims)
   report_ids?: string[];
-  report_type?: string;
-  reporting_years?: number[];
   entity_cuis?: string[];
   functional_codes?: string[];
   functional_prefixes?: string[];

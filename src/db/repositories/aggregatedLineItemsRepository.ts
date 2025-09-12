@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
+import { buildPeriodFilterSql } from "./utils";
 
 export interface AggregatedLineItem_Repo {
   functional_code: string;
@@ -35,11 +36,16 @@ function buildWhereClause(
   let requireReportsJoin = false;
   let requireUATsJoin = false;
 
-  if (!filter.years || filter.years.length === 0) {
-    throw new Error("Years array cannot be empty for analytics.");
+  if (!filter.report_period) {
+    throw new Error("report_period is required for analytics.");
   }
-  conditions.push(`eli.year = ANY($${paramIndex++}::int[])`);
-  values.push(filter.years);
+  
+  const { clause, values: v, nextParamIndex: nextParam } = buildPeriodFilterSql(filter.report_period, paramIndex);
+  if (clause) {
+    conditions.push(clause);
+    values.push(...v);
+    paramIndex = nextParam;
+  }
 
   if (filter.account_category) {
     conditions.push(`eli.account_category = $${paramIndex++}`);
@@ -93,11 +99,7 @@ function buildWhereClause(
     conditions.push(`eli.program_code = ANY($${paramIndex++}::text[])`);
     values.push(filter.program_codes);
   }
-  if (filter.reporting_years?.length) {
-    requireReportsJoin = true;
-    conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
-    values.push(filter.reporting_years);
-  }
+  // reporting_years deprecated; use report_period
 
   // Per-item thresholds
   if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {

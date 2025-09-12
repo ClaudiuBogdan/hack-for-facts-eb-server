@@ -5,29 +5,37 @@ services:
     image: postgres:14-alpine
     container_name: budget_db
     restart: always
+    # Increase shared memory size, crucial for PostgreSQL performance
+    shm_size: '2gb'
     ports:
       - "5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: budget_db
-    # volumes:
-    #   - postgres_data:/var/lib/postgresql/data
-
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: budget_api
-  #   restart: always
-  #   depends_on:
-  #     - postgres
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     DATABASE_URL: postgres://postgres:postgres@postgres:5432/budget_db
-  #     PORT: 3000
-  #     NODE_ENV: production
+    volumes:
+      # Using a volume is crucial for data persistence and performance
+      - postgres_data:/var/lib/postgresql/data
+    # Command to override postgresql.conf settings for maximum insert speed
+    # WARNING: These settings are UNSAFE for production environments.
+    command: 
+      - "postgres"
+      - "-c"
+      - "fsync=off"                 # Disables forcing writes to disk, major speed boost.
+      - "-c"
+      - "synchronous_commit=off"    # Client doesn't wait for WAL commit, very fast.
+      - "-c"
+      - "full_page_writes=off"      # Reduces WAL volume, safe when fsync is off.
+      - "-c"
+      - "wal_buffers=16MB"          # Increases in-memory buffer for WAL data.
+      - "-c"
+      - "max_wal_size=4GB"          # Allows more WAL data before a checkpoint is forced.
+      - "-c"
+      - "checkpoint_timeout=3600s"  # Sets checkpoint frequency to once per hour.
+      - "-c"
+      - "autovacuum=off"            # Prevents autovacuum from interfering with the bulk load.
+      - "-c"
+      - "maintenance_work_mem=2GB"  # Allocates more memory for creating indexes after the load.
 
 volumes:
-  postgres_data: 
+  postgres_data:

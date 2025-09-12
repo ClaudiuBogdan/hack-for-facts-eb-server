@@ -133,26 +133,29 @@ export const entityResolver = {
         },
       };
     },
-    totalIncome: async (parent: { cui: string }, { year }: { year: number }) => {
-      const { totalIncome } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year);
+    totalIncome: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }) => {
+      const reportTypeArg = reportTypeFilter ?? parent.default_report_type;
+      const { totalIncome } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year, reportTypeArg);
       return totalIncome;
     },
-    totalExpenses: async (parent: { cui: string }, { year }: { year: number }) => {
-      const { totalExpenses } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year);
+    totalExpenses: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }) => {
+      const reportType = reportTypeFilter ?? parent.default_report_type;
+      const { totalExpenses } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year, reportType);
       return totalExpenses;
     },
-    budgetBalance: async (parent: { cui: string }, { year }: { year: number }, context: any, info: any) => {
-
-      const income = await entityResolver.Entity.totalIncome(parent, { year });
-      const expenses = await entityResolver.Entity.totalExpenses(parent, { year });
+    budgetBalance: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }, context: any, info: any) => {
+      const reportType = reportTypeFilter ?? parent.default_report_type;
+      const income = await entityResolver.Entity.totalIncome(parent, { year, reportType });
+      const expenses = await entityResolver.Entity.totalExpenses(parent, { year, reportType });
       if (income !== null && expenses !== null) {
         return income - expenses;
       }
       return null;
     },
-    incomeTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    incomeTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
+      const reportType = reportTypeFilter ?? parent.default_report_type;
+      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
       return {
         seriesId: 'income',
         xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
@@ -160,9 +163,10 @@ export const entityResolver = {
         data: trends.map(t => ({ x: String(t.year), y: t.totalIncome })),
       };
     },
-    expenseTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    expenseTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
+      const reportType = reportTypeFilter ?? parent.default_report_type;
+      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
       return {
         seriesId: 'expense',
         xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
@@ -170,9 +174,10 @@ export const entityResolver = {
         data: trends.map(t => ({ x: String(t.year), y: t.totalExpenses })),
       };
     },
-    balanceTrend: async (parent: { cui: string }, { startYear, endYear, normalization }: { startYear: number; endYear: number; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    balanceTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
       const mode: NormalizationMode = normalization ?? 'total';
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, startYear, endYear, mode);
+      const reportType = reportTypeFilter ?? parent.default_report_type;
+      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
       return {
         seriesId: 'balance',
         xAxis: { name: 'Year', type: 'INTEGER', unit: '' },

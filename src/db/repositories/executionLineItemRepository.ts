@@ -1,7 +1,8 @@
 import pool from "../connection";
-import { Entity, ExecutionLineItem } from "../models";
+import { ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode } from "../../types";
+import { buildPeriodFilterSql } from "./utils";
 import { datasetRepository } from "./datasetRepository";
 
 const analyticsCache = createCache({
@@ -27,7 +28,7 @@ const TABLES = {
   ENTITIES: 'Entities',
   REPORTS: 'Reports',
   UATS: 'UATs',
-  VW_BUDGET_SUMMARY: 'vw_BudgetSummary_ByEntityPeriod',
+  VW_BUDGET_SUMMARY: 'mv_annual_budget_summary',
 } as const;
 
 // --- Type-Safe Sorting Definitions ---
@@ -39,7 +40,7 @@ const SORTABLE_FIELDS = [
   'functional_code',
   'economic_code',
   'account_category',
-  'amount',
+  'ytd_amount',
   'program_code',
   'year',
 ] as const;
@@ -94,6 +95,27 @@ const buildExecutionLineItemFilterQuery = (
   };
 
   // ---------- Basic column filters on ExecutionLineItems (eli) ----------
+  // Enforce report_type if provided, else default to principal aggregated
+  if (filters.report_type) {
+    conditions.push(`eli.report_type = $${paramIndex++}`);
+    values.push(String(filters.report_type));
+  } else {
+    conditions.push(`eli.report_type = 'Executie bugetara agregata la nivel de ordonator principal'`);
+  }
+
+  // Period filter
+  if (filters.report_period) {
+    const periodSql = buildPeriodFilterSql(filters.report_period, paramIndex);
+    if (periodSql.clause) {
+      conditions.push(periodSql.clause);
+      values.push(...periodSql.values);
+      paramIndex = periodSql.nextParamIndex;
+    }
+  } else {
+    // Historical default behaviour: use latest available month per (entity, year, report_type)
+    conditions.push(`eli.period_type = 'YEAR'`);
+  }
+  
   if (filters.entity_cuis?.length) {
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
     values.push(filters.entity_cuis);
@@ -155,12 +177,12 @@ const buildExecutionLineItemFilterQuery = (
 
   // ---------- Amount range ----------
   if (filters.item_min_amount !== undefined && filters.item_min_amount !== null) {
-    conditions.push(`eli.amount >= $${paramIndex++}`);
+    conditions.push(`eli.ytd_amount >= $${paramIndex++}`);
     values.push(filters.item_min_amount);
   }
 
   if (filters.item_max_amount !== undefined && filters.item_max_amount !== null) {
-    conditions.push(`eli.amount <= $${paramIndex++}`);
+    conditions.push(`eli.ytd_amount <= $${paramIndex++}`);
     values.push(filters.item_max_amount);
   }
 
@@ -170,11 +192,7 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.program_codes);
   }
 
-  // ---------- Year filters ----------
-  if (filters.years?.length) {
-    conditions.push(`eli.year = ANY($${paramIndex++}::int[])`);
-    values.push(filters.years);
-  }
+  // ---------- Year filters removed: use report_period exclusively ----------
 
   // ---------- Joined Filters (Entities, Reports, UATs) ----------
 
@@ -209,11 +227,7 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.county_codes);
   }
 
-  if (filters.reporting_years?.length) {
-    ensureJoin("r", `JOIN ${TABLES.REPORTS} r ON eli.report_id = r.report_id`);
-    conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
-    values.push(filters.reporting_years);
-  }
+  // reporting_years removed in favor of report_period
 
   // ---------- Finalise query pieces ----------
   const joinClauses = Array.from(joinsMap.values()).join(" ");
@@ -254,7 +268,7 @@ export const executionLineItemRepository = {
         // The 'order' property is guaranteed to be 'ASC' or 'DESC' by the type
         orderByClause = `ORDER BY eli.${sort.by} ${sort.order}`;
       } else {
-        orderByClause = 'ORDER BY eli.year DESC, eli.amount DESC';
+        orderByClause = 'ORDER BY eli.year DESC, eli.ytd_amount DESC';
       }
       finalQuery += ` ${orderByClause}`;
 
@@ -349,16 +363,16 @@ export const executionLineItemRepository = {
   },
 
   // --- Functions for analytics ---
-  async getYearlySnapshotTotals(entityCui: string, year: number): Promise<{ totalIncome: number; totalExpenses: number }> {
+  async getYearlySnapshotTotals(entityCui: string, year: number, reportType: string): Promise<{ totalIncome: number; totalExpenses: number }> {
     const query = `
       SELECT 
         COALESCE(SUM(total_income), 0) AS "totalIncome",
         COALESCE(SUM(total_expense), 0) AS "totalExpenses"
       FROM ${TABLES.VW_BUDGET_SUMMARY}
-      WHERE entity_cui = $1 AND reporting_year = $2;
+      WHERE entity_cui = $1 AND year = $2 AND report_type = $3;
     `;
     try {
-      const result = await pool.query(query, [entityCui, year]);
+      const result = await pool.query(query, [entityCui, year, reportType]);
       if (result.rows.length > 0) {
         return {
           totalIncome: parseFloat(result.rows[0].totalIncome),
@@ -377,24 +391,26 @@ export const executionLineItemRepository = {
 
   async getYearlyFinancialTrends(
     entityCui: string,
+    reportType: string,
     startYear: number,
     endYear: number,
-    normalization: NormalizationMode
+    normalization: NormalizationMode,
   ): Promise<YearlyFinancials[]> {
     const query = `
       SELECT 
-        reporting_year AS year,
+        year AS year,
         COALESCE(SUM(total_income), 0) AS "totalIncome",
         COALESCE(SUM(total_expense), 0) AS "totalExpenses",
         COALESCE(SUM(budget_balance), 0) AS "budgetBalance"
       FROM ${TABLES.VW_BUDGET_SUMMARY}
       WHERE entity_cui = $1 
-        AND reporting_year BETWEEN $2 AND $3
-      GROUP BY reporting_year
-      ORDER BY reporting_year ASC;
+        AND report_type = $2
+        AND year BETWEEN $3 AND $4
+      GROUP BY year
+      ORDER BY year ASC;
     `;
     try {
-      const result = await pool.query(query, [entityCui, startYear, endYear]);
+      const result = await pool.query(query, [entityCui, reportType, startYear, endYear]);
 
       const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
       const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
@@ -502,7 +518,7 @@ export const executionLineItemRepository = {
 
     if (!needsPerCapita) {
       // Simple total by year
-      query = `SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS value
+      query = `SELECT eli.year, COALESCE(SUM(eli.ytd_amount), 0) AS value
         FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
         ${joinClauses ? " " + joinClauses : ""}
         ${whereClause}
@@ -581,7 +597,7 @@ export const executionLineItemRepository = {
       query = `
         WITH amounts AS (
           -- (1) Sum amounts per year under the fiscal filters
-          SELECT eli.year, COALESCE(SUM(eli.amount), 0) AS total_amount
+          SELECT eli.year, COALESCE(SUM(eli.ytd_amount), 0) AS total_amount
           FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
           ${joinClauses ? " " + joinClauses : ""}
           ${whereClause}

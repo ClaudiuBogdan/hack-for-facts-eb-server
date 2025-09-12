@@ -14,6 +14,7 @@ export interface Entity {
   cui: string;
   name: string;
   entity_type: string | null;
+  default_report_type: string;
   uat_id?: number;
   address?: string;
   last_updated?: Date;
@@ -54,7 +55,9 @@ export interface ExecutionLineItem {
   functional_code: string;
   economic_code?: string;
   account_category: "vn" | "ch";
-  amount: number;
+  ytd_amount: number;
+  monthly_amount: number;
   program_code?: string;
   year: number;
+  month: number;
 }

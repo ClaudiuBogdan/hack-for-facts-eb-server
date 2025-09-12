@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
+import { buildPeriodFilterSql } from "./utils";
 
 const cache = createCache<HeatmapCountyDataPoint_Repo[]>({ name: 'heatmap_county', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
@@ -44,11 +45,16 @@ export const countyAnalyticsRepository = {
         conditions.push(`eli.account_category = $${paramIndex++}`);
         params.push(filter.account_category);
 
-        if (!filter.years || filter.years.length === 0) {
-            throw new Error("Years array cannot be empty for heatmap data.");
+        if (!filter.report_period) {
+            throw new Error("report_period is required for heatmap data.");
         }
-        conditions.push(`eli.year = ANY($${paramIndex++})`);
-        params.push(filter.years);
+        
+        const { clause, values, nextParamIndex } = buildPeriodFilterSql(filter.report_period, paramIndex);
+        if (clause) {
+            conditions.push(clause);
+            params.push(...values);
+            paramIndex = nextParamIndex;
+        }
 
         if (filter.functional_codes && filter.functional_codes.length > 0) {
             conditions.push(`eli.functional_code = ANY($${paramIndex++})`);
@@ -129,7 +135,6 @@ export const countyAnalyticsRepository = {
 
         let requireReportsJoin = false;
         if (filter.report_type) {
-            requireReportsJoin = true;
             conditions.push(`eli.report_type = $${paramIndex++}`);
             params.push(filter.report_type);
         }
@@ -139,11 +144,7 @@ export const countyAnalyticsRepository = {
             params.push(filter.report_ids);
         }
 
-        if (filter.reporting_years && filter.reporting_years.length > 0) {
-            requireReportsJoin = true;
-            conditions.push(`r.reporting_year = ANY($${paramIndex++}::int[])`);
-            params.push(filter.reporting_years);
-        }
+        // reporting_years deprecated; use report_period
 
         const whereClause = `WHERE e.is_uat = TRUE AND ${conditions.join(" AND ")}`;
 
