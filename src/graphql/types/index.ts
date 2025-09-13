@@ -129,12 +129,12 @@ export const types = /* GraphQL */ `
       offset: Int
       sort: SortOrder
     ): ExecutionLineItemConnection!
-    totalIncome(year: Int!): Float
-    totalExpenses(year: Int!): Float
-    budgetBalance(year: Int!): Float
-    incomeTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
-    expenseTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
-    balanceTrend(startYear: Int!, endYear: Int!, normalization: Normalization): AnalyticsSeries!
+    totalIncome(period: ReportPeriodInput!): Float
+    totalExpenses(period: ReportPeriodInput!): Float
+    budgetBalance(period: ReportPeriodInput!): Float
+    incomeTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!
+    expensesTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!
+    balanceTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!
   }
 
   type EntityConnection {
@@ -227,9 +227,13 @@ export const types = /* GraphQL */ `
     functional_code: String!
     economic_code: String
     account_category: AccountCategory!
-    amount: Float!
     program_code: String
     year: Int!
+    month: Int!
+    quarter: Int
+    ytd_amount: Float!
+    monthly_amount: Float!
+    quarterly_amount: Float
     # Relations
     report: Report!
     entity: Entity!

@@ -7,8 +7,8 @@ import {
 import { EntityFilter } from "../../db/repositories/entityRepository";
 import { SortOrderOption as ELISortOrderOption } from "../../db/repositories/executionLineItemRepository";
 import { SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
-import { YearlyFinancials } from "../../db/repositories/executionLineItemRepository";
-import { AnalyticsFilter, AnalyticsSeries, NormalizationMode } from "../../types";
+import { PeriodFinancials } from "../../db/repositories/executionLineItemRepository";
+import { AnalyticsFilter, AnalyticsSeries, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
 import { getNormalizationUnit } from "../../db/repositories/utils";
 
 interface GraphQLSortOrderInput {
@@ -18,6 +18,41 @@ interface GraphQLSortOrderInput {
 
 // GraphQL args expect the unified AnalyticsFilter shape
 type GraphQLAnalyticsFilterInput = Partial<AnalyticsFilter>;
+
+// Removed per-parent caching; rely on repository-level cache for consistency.
+
+function formatAsAnalyticsSeries(
+  seriesId: string,
+  trends: PeriodFinancials[],
+  periodType: ReportPeriodType,
+  valueKey: keyof PeriodFinancials,
+  normalization: NormalizationMode,
+): AnalyticsSeries {
+  let xKey: keyof PeriodFinancials;
+  let xAxisName: string;
+
+  switch (periodType) {
+    case 'YEAR':
+      xKey = 'year';
+      xAxisName = 'Year';
+      break;
+    case 'QUARTER':
+      xKey = 'quarter';
+      xAxisName = 'Quarter';
+      break;
+    case 'MONTH':
+      xKey = 'month';
+      xAxisName = 'Month';
+      break;
+  }
+
+  return {
+    seriesId,
+    xAxis: { name: xAxisName, type: 'INTEGER', unit: '' },
+    yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(normalization) },
+    data: trends.map(t => ({ x: String(t[xKey]!), y: t[valueKey] as number })),
+  };
+}
 
 export const entityResolver = {
   Query: {
@@ -102,10 +137,10 @@ export const entityResolver = {
       };
     },
     executionLineItems: async (
-      parent: { cui: string },
+      parent: { cui: string, default_report_type: string },
       {
         filter = {},
-        limit = 100,
+        limit = 10000,
         offset = 0,
         sort,
       }: {
@@ -115,7 +150,11 @@ export const entityResolver = {
         sort?: ELISortOrderOption;
       }
     ) => {
-      const combinedFilter: any = { ...filter, entity_cuis: [parent.cui] };
+      const combinedFilter: any = {
+        ...filter,
+        report_type: filter.report_type ?? parent.default_report_type,
+        entity_cuis: [parent.cui]
+      }
 
       const eliSortOption: ELISortOrderOption | undefined = sort;
 
@@ -133,57 +172,38 @@ export const entityResolver = {
         },
       };
     },
-    totalIncome: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }) => {
-      const reportTypeArg = reportTypeFilter ?? parent.default_report_type;
-      const { totalIncome } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year, reportTypeArg);
+    totalIncome: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
+      const rt = parent.default_report_type;
+      const { totalIncome } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
       return totalIncome;
     },
-    totalExpenses: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }) => {
-      const reportType = reportTypeFilter ?? parent.default_report_type;
-      const { totalExpenses } = await executionLineItemRepository.getYearlySnapshotTotals(parent.cui, year, reportType);
+    totalExpenses: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
+      const rt = parent.default_report_type;
+      const { totalExpenses } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
       return totalExpenses;
     },
-    budgetBalance: async (parent: { cui: string, default_report_type: string }, { year, reportType: reportTypeFilter }: { year: number; reportType?: string }, context: any, info: any) => {
-      const reportType = reportTypeFilter ?? parent.default_report_type;
-      const income = await entityResolver.Entity.totalIncome(parent, { year, reportType });
-      const expenses = await entityResolver.Entity.totalExpenses(parent, { year, reportType });
-      if (income !== null && expenses !== null) {
-        return income - expenses;
-      }
-      return null;
+    budgetBalance: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
+      const rt = parent.default_report_type;
+      const { budgetBalance } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
+      return budgetBalance;
     },
-    incomeTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
-      const mode: NormalizationMode = normalization ?? 'total';
-      const reportType = reportTypeFilter ?? parent.default_report_type;
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
-      return {
-        seriesId: 'income',
-        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
-        data: trends.map(t => ({ x: String(t.year), y: t.totalIncome })),
-      };
+    incomeTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+      const rt = reportType ?? parent.default_report_type;
+      const mode = normalization ?? 'total';
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      return formatAsAnalyticsSeries('income', trends, period.type, 'totalIncome', mode);
     },
-    expenseTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
-      const mode: NormalizationMode = normalization ?? 'total';
-      const reportType = reportTypeFilter ?? parent.default_report_type;
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
-      return {
-        seriesId: 'expense',
-        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
-        data: trends.map(t => ({ x: String(t.year), y: t.totalExpenses })),
-      };
+    expensesTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+      const rt = reportType ?? parent.default_report_type;
+      const mode = normalization ?? 'total';
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      return formatAsAnalyticsSeries('expenses', trends, period.type, 'totalExpenses', mode);
     },
-    balanceTrend: async (parent: { cui: string, default_report_type: string }, { startYear, endYear, reportType: reportTypeFilter, normalization }: { startYear: number; endYear: number; reportType?: string; normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
-      const mode: NormalizationMode = normalization ?? 'total';
-      const reportType = reportTypeFilter ?? parent.default_report_type;
-      const trends: YearlyFinancials[] = await executionLineItemRepository.getYearlyFinancialTrends(parent.cui, reportType, startYear, endYear, mode);
-      return {
-        seriesId: 'balance',
-        xAxis: { name: 'Year', type: 'INTEGER', unit: '' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(mode) },
-        data: trends.map(t => ({ x: String(t.year), y: t.budgetBalance })),
-      };
+    balanceTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+      const rt = reportType ?? parent.default_report_type;
+      const mode = normalization ?? 'total';
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      return formatAsAnalyticsSeries('balance', trends, period.type, 'budgetBalance', mode);
     },
   },
 };

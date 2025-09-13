@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
-import { AnalyticsFilter, NormalizationMode } from "../../types";
+import { AnalyticsFilter, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
 import { buildPeriodFilterSql } from "./utils";
 import { datasetRepository } from "./datasetRepository";
 
@@ -28,7 +28,7 @@ const TABLES = {
   ENTITIES: 'Entities',
   REPORTS: 'Reports',
   UATS: 'UATs',
-  VW_BUDGET_SUMMARY: 'mv_annual_budget_summary',
+  VW_BUDGET_SUMMARY: 'mv_summary_annual',
 } as const;
 
 // --- Type-Safe Sorting Definitions ---
@@ -62,8 +62,10 @@ export interface SortOrderOption {
 // --- Filter and Model Interfaces ---
 // Use unified AnalyticsFilter
 
-export interface YearlyFinancials {
+export interface PeriodFinancials {
   year: number;
+  month?: number;
+  quarter?: number;
   totalIncome: number;
   totalExpenses: number;
   budgetBalance: number;
@@ -100,7 +102,7 @@ const buildExecutionLineItemFilterQuery = (
     conditions.push(`eli.report_type = $${paramIndex++}`);
     values.push(String(filters.report_type));
   } else {
-    conditions.push(`eli.report_type = 'Executie bugetara agregata la nivel de ordonator principal'`);
+    throw new Error("report_type is required for analytics.");
   }
 
   // Period filter
@@ -111,11 +113,16 @@ const buildExecutionLineItemFilterQuery = (
       values.push(...periodSql.values);
       paramIndex = periodSql.nextParamIndex;
     }
+
+    if (filters.report_period.type === 'YEAR') {
+      conditions.push(`eli.is_yearly = true`);
+    } else if (filters.report_period.type === 'QUARTER') {
+      conditions.push(`eli.is_quarterly = true`);
+    }
   } else {
-    // Historical default behaviour: use latest available month per (entity, year, report_type)
-    conditions.push(`eli.period_type = 'YEAR'`);
+    throw new Error("report_period is required for analytics.");
   }
-  
+
   if (filters.entity_cuis?.length) {
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
     values.push(filters.entity_cuis);
@@ -124,11 +131,6 @@ const buildExecutionLineItemFilterQuery = (
   if (filters.report_ids?.length) {
     conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
     values.push(filters.report_ids);
-  }
-
-  if (filters.report_type) {
-    conditions.push(`eli.report_type = $${paramIndex++}`);
-    values.push(String(filters.report_type));
   }
 
   if (filters.funding_source_ids?.length) {
@@ -192,8 +194,6 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.program_codes);
   }
 
-  // ---------- Year filters removed: use report_period exclusively ----------
-
   // ---------- Joined Filters (Entities, Reports, UATs) ----------
 
   // Grouped check for any filter requiring a JOIN on the Entities table
@@ -226,8 +226,6 @@ const buildExecutionLineItemFilterQuery = (
     conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
     values.push(filters.county_codes);
   }
-
-  // reporting_years removed in favor of report_period
 
   // ---------- Finalise query pieces ----------
   const joinClauses = Array.from(joinsMap.values()).join(" ");
@@ -363,6 +361,42 @@ export const executionLineItemRepository = {
   },
 
   // --- Functions for analytics ---
+  async getPeriodSnapshotTotals(entityCui: string, period: ReportPeriodInput, reportType: string): Promise<{ totalIncome: number; totalExpenses: number; budgetBalance: number }> {
+    const { viewName } = getPeriodViewInfo(period.type);
+
+    const cacheKey = getCacheKey({ method: 'getPeriodSnapshotTotals', entityCui, period, reportType });
+    const cached = await analyticsCache.get(cacheKey);
+    if (cached) {
+      return cached as { totalIncome: number; totalExpenses: number; budgetBalance: number };
+    }
+
+    const periodSql = buildPeriodFilterSql(period, 3, 'v');
+    const params = [entityCui, reportType, ...periodSql.values];
+
+    const query = `
+      SELECT 
+        COALESCE(SUM(v.total_income), 0) AS "totalIncome",
+        COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
+        COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
+      FROM ${viewName} v
+      WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''};
+    `;
+
+    try {
+      const result = await pool.query(query, params);
+      const row = result.rows[0] ?? { totalIncome: 0, totalExpenses: 0, budgetBalance: 0 };
+      const value = {
+        totalIncome: parseFloat(row.totalIncome ?? 0),
+        totalExpenses: parseFloat(row.totalExpenses ?? 0),
+        budgetBalance: parseFloat(row.budgetBalance ?? 0),
+      };
+      await analyticsCache.set(cacheKey, value);
+      return value;
+    } catch (error) {
+      console.error(`Error fetching period snapshot totals for entity ${entityCui}, period ${JSON.stringify(period)}:`, error);
+      throw error;
+    }
+  },
   async getYearlySnapshotTotals(entityCui: string, year: number, reportType: string): Promise<{ totalIncome: number; totalExpenses: number }> {
     const query = `
       SELECT 
@@ -389,97 +423,82 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getYearlyFinancialTrends(
-    entityCui: string,
-    reportType: string,
-    startYear: number,
-    endYear: number,
-    normalization: NormalizationMode,
-  ): Promise<YearlyFinancials[]> {
+  async getFinancialTrends(entityCui: string, reportType: string, period: ReportPeriodInput, normalization: NormalizationMode): Promise<PeriodFinancials[]> {
+    const { type } = period;
+    const { viewName, dateColumn, orderColumn } = getPeriodViewInfo(type);
+
+    // Repository-level cache (L1/L2) using stable key like entityAnalyticsRepository
+    const cacheKey = getCacheKey({ method: 'getFinancialTrends', entityCui, reportType, period, normalization });
+    const cached = await analyticsCache.get(cacheKey);
+    if (cached) {
+      return cached as PeriodFinancials[];
+    }
+
+    // Reuse shared builder to construct precise YEAR/MONTH/QUARTER filters against the view alias 'v'
+    const periodSql = buildPeriodFilterSql(period, 3, 'v');
+    const params = [entityCui, reportType, ...periodSql.values];
+
     const query = `
-      SELECT 
-        year AS year,
-        COALESCE(SUM(total_income), 0) AS "totalIncome",
-        COALESCE(SUM(total_expense), 0) AS "totalExpenses",
-        COALESCE(SUM(budget_balance), 0) AS "budgetBalance"
-      FROM ${TABLES.VW_BUDGET_SUMMARY}
-      WHERE entity_cui = $1 
-        AND report_type = $2
-        AND year BETWEEN $3 AND $4
-      GROUP BY year
-      ORDER BY year ASC;
+      SELECT
+        v.year,
+        ${dateColumn ? `v.${dateColumn},` : ''}
+        v.total_income AS "totalIncome",
+        v.total_expense AS "totalExpenses",
+        v.budget_balance AS "budgetBalance"
+      FROM ${viewName} v
+      WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}
+      ORDER BY v.${orderColumn} ASC;
     `;
+
     try {
-      const result = await pool.query(query, [entityCui, reportType, startYear, endYear]);
+      const result = await pool.query(query, params);
 
       const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
       const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
-
       let population = 0;
+
       if (needsPerCapita) {
-        // Compute population for the entity using the same rules as entity analytics
-        const populationQuery = `
-          WITH e AS (
-            SELECT cui, is_uat, entity_type, uat_id FROM ${TABLES.ENTITIES} WHERE cui = $1
-          ), ul AS (
-            SELECT u1.*
-            FROM ${TABLES.UATS} u1
-            JOIN e ON (u1.id = e.uat_id) OR (u1.uat_code = e.cui)
-            ORDER BY CASE WHEN u1.id = (SELECT uat_id FROM e) THEN 0 ELSE 1 END
-            LIMIT 1
-          )
-          SELECT CASE
-            WHEN (SELECT is_uat FROM e) IS TRUE THEN COALESCE((SELECT population FROM ul), 0)
-            WHEN (SELECT entity_type FROM e) = 'admin_county_council' THEN COALESCE((
-              SELECT MAX(CASE
-                WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-                WHEN u2.siruta_code = u2.county_code THEN u2.population
-                ELSE 0
-              END)
-              FROM ${TABLES.UATS} u2
-              WHERE u2.county_code = (SELECT county_code FROM ul)
-            ), 0)
-            ELSE 0
-          END AS population;
-        `;
-        const popRes = await pool.query(populationQuery, [entityCui]);
-        population = parseInt(popRes.rows[0]?.population ?? 0, 10) || 0;
+        population = await getEntityPopulation(entityCui);
       }
 
       const rateByYear = needsEuro ? getEurRateMap() : null;
 
-      return result.rows.map(row => {
+      const mapped: PeriodFinancials[] = result.rows.map(row => {
+        let { totalIncome, totalExpenses, budgetBalance } = row;
+        totalIncome = parseFloat(totalIncome);
+        totalExpenses = parseFloat(totalExpenses);
+        budgetBalance = parseFloat(budgetBalance);
         const year = parseInt(row.year, 10);
-        let totalIncome = parseFloat(row.totalIncome);
-        let totalExpenses = parseFloat(row.totalExpenses);
-        let budgetBalance = parseFloat(row.budgetBalance);
+        const rate = rateByYear?.get(year) ?? 1;
 
-        if (needsPerCapita) {
-          if (population > 0) {
-            totalIncome = totalIncome / population;
-            totalExpenses = totalExpenses / population;
-            budgetBalance = budgetBalance / population;
-          } else {
-            totalIncome = 0;
-            totalExpenses = 0;
-            budgetBalance = 0;
-          }
+        if (needsPerCapita && population > 0) {
+          totalIncome /= population;
+          totalExpenses /= population;
+          budgetBalance /= population;
+        } else if (needsPerCapita) {
+          totalIncome = 0;
+          totalExpenses = 0;
+          budgetBalance = 0;
         }
 
-        if (needsEuro && rateByYear) {
-          const rate = rateByYear.get(year) ?? 1;
-          totalIncome = totalIncome / rate;
-          totalExpenses = totalExpenses / rate;
-          budgetBalance = budgetBalance / rate;
+        if (needsEuro) {
+          totalIncome /= rate;
+          totalExpenses /= rate;
+          budgetBalance /= rate;
         }
 
-        return { year, totalIncome, totalExpenses, budgetBalance };
+        return {
+          ...row,
+          totalIncome,
+          totalExpenses,
+          budgetBalance,
+        } as PeriodFinancials;
       });
+
+      await analyticsCache.set(cacheKey, mapped);
+      return mapped;
     } catch (error) {
-      console.error(
-        `Error fetching yearly financial trends for entity ${entityCui} (${startYear}-${endYear}):`,
-        error
-      );
+      console.error(`Error fetching financials for entity ${entityCui}, period ${JSON.stringify(period)}:`, error);
       throw error;
     }
   },
@@ -693,6 +712,48 @@ function validateAggregatedFilters(filters: AnalyticsFilter) {
   if (!filters.account_category || !VALID_ACCOUNT_CATEGORIES.includes(filters.account_category)) {
     throw new Error(`getTotalAmount and getYearlyTrend require account_category of "ch" or "vn"`);
   }
+}
+
+function getPeriodViewInfo(periodType: ReportPeriodType): { viewName: string, dateColumn: string | null, orderColumn: string } {
+  switch (periodType) {
+    case 'YEAR':
+      return { viewName: 'mv_summary_annual', dateColumn: null, orderColumn: 'year' };
+    case 'QUARTER':
+      return { viewName: 'mv_summary_quarterly', dateColumn: 'quarter', orderColumn: 'quarter' };
+    case 'MONTH':
+      return { viewName: 'mv_summary_monthly', dateColumn: 'month', orderColumn: 'month' };
+    default:
+      throw new Error(`Unsupported period type: ${periodType}`);
+  }
+}
+
+async function getEntityPopulation(entityCui: string): Promise<number> {
+  const populationQuery = `
+    WITH e AS (
+      SELECT cui, is_uat, entity_type, uat_id FROM ${TABLES.ENTITIES} WHERE cui = $1
+    ), ul AS (
+      SELECT u1.*
+      FROM ${TABLES.UATS} u1
+      JOIN e ON (u1.id = e.uat_id) OR (u1.uat_code = e.cui)
+      ORDER BY CASE WHEN u1.id = (SELECT uat_id FROM e) THEN 0 ELSE 1 END
+      LIMIT 1
+    )
+    SELECT CASE
+      WHEN (SELECT is_uat FROM e) IS TRUE THEN COALESCE((SELECT population FROM ul), 0)
+      WHEN (SELECT entity_type FROM e) = 'admin_county_council' THEN COALESCE((
+        SELECT MAX(CASE
+          WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
+          WHEN u2.siruta_code = u2.county_code THEN u2.population
+          ELSE 0
+        END)
+        FROM ${TABLES.UATS} u2
+        WHERE u2.county_code = (SELECT county_code FROM ul)
+      ), 0)
+      ELSE 0
+    END AS population;
+  `;
+  const popRes = await pool.query(populationQuery, [entityCui]);
+  return parseInt(popRes.rows[0]?.population ?? 0, 10) || 0;
 }
 
 // --- Helpers ---
