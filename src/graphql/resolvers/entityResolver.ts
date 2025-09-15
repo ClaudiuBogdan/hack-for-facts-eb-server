@@ -172,19 +172,19 @@ export const entityResolver = {
         },
       };
     },
-    totalIncome: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
-      const rt = parent.default_report_type;
-      const { totalIncome } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
+    totalIncome: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+      const rt = reportType ?? parent.default_report_type;
+      const { totalIncome } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
       return totalIncome;
     },
-    totalExpenses: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
-      const rt = parent.default_report_type;
-      const { totalExpenses } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
+    totalExpenses: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+      const rt = reportType ?? parent.default_report_type;
+      const { totalExpenses } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
       return totalExpenses;
     },
-    budgetBalance: async (parent: { cui: string, default_report_type: string }, { period }: { period: ReportPeriodInput }) => {
-      const rt = parent.default_report_type;
-      const { budgetBalance } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt);
+    budgetBalance: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+      const rt = reportType ?? parent.default_report_type;
+      const { budgetBalance } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
       return budgetBalance;
     },
     incomeTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {

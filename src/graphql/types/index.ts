@@ -129,9 +129,9 @@ export const types = /* GraphQL */ `
       offset: Int
       sort: SortOrder
     ): ExecutionLineItemConnection!
-    totalIncome(period: ReportPeriodInput!): Float
-    totalExpenses(period: ReportPeriodInput!): Float
-    budgetBalance(period: ReportPeriodInput!): Float
+    totalIncome(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization): Float
+    totalExpenses(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization): Float
+    budgetBalance(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization): Float
     incomeTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!
     expensesTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!
     balanceTrend(period: ReportPeriodInput!, reportType: ReportType, normalization: Normalization = total): AnalyticsSeries!

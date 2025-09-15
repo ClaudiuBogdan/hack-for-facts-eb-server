@@ -245,7 +245,8 @@ export const datasetsData = [
       { "year": 2021, "value": 4.9215 },
       { "year": 2022, "value": 4.9465 },
       { "year": 2023, "value": 4.9465 },
-      { "year": 2024, "value": 4.9746 }
+      { "year": 2024, "value": 4.9746 },
+      { "year": 2025, "value": 5.0245 }
     ]
   },
   {

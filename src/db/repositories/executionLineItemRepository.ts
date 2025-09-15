@@ -242,6 +242,12 @@ export const executionLineItemRepository = {
     offset?: number
   ): Promise<ExecutionLineItem[]> {
     try {
+      const norm = (filters.normalization ?? 'total') as NormalizationMode;
+      const cacheKey = getCacheKey({ method: 'getAll', filters, sort, limit, offset, normalization: norm });
+      const cached = await executionLineItemCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
       let querySelect = "SELECT eli.*";
       let queryFrom = ` FROM ${TABLES.EXECUTION_LINE_ITEMS} eli`;
 
@@ -280,13 +286,58 @@ export const executionLineItemRepository = {
         values.push(offset);
       }
 
-      const cacheKey = `getAll:${finalQuery}:${JSON.stringify(values)}`;
-      const cached = await executionLineItemCache.get(cacheKey);
-      if (cached) {
-        return cached;
+      const result = await pool.query(finalQuery, values);
+
+      console.log("Query:", finalQuery);
+      console.log("Values:", JSON.stringify(values, null, 2));
+
+      // Apply normalization if required
+      if (norm !== 'total') {
+        const needsPerCapita = norm === 'per_capita' || norm === 'per_capita_euro';
+        const needsEuro = norm === 'total_euro' || norm === 'per_capita_euro';
+
+        // Pre-compute population per entity when needed
+        const populationByEntity = new Map<string, number>();
+        if (needsPerCapita) {
+          const uniqueEntityCuis = Array.from(new Set(result.rows.map((r: any) => r.entity_cui).filter(Boolean)));
+          for (const cui of uniqueEntityCuis) {
+            const pop = await getEntityPopulation(cui);
+            populationByEntity.set(cui, pop);
+          }
+        }
+        const rateByYear = needsEuro ? getEurRateMap() : null;
+
+        const normalized = result.rows.map((row: any) => {
+          const entityPopulation = needsPerCapita ? (populationByEntity.get(row.entity_cui) ?? 0) : 0;
+          const eurRate = needsEuro ? (rateByYear!.get(Number(row.year)) ?? 1) : 1;
+
+          const normalizeValue = (value: any) => {
+            let v = parseFloat(value ?? 0);
+            if (needsPerCapita) {
+              v = entityPopulation > 0 ? v / entityPopulation : 0;
+            }
+            if (needsEuro) {
+              v = v / eurRate;
+            }
+            return v;
+          };
+
+          const ytd_amount = normalizeValue(row.ytd_amount);
+          const monthly_amount = normalizeValue(row.monthly_amount);
+          const quarterly_amount = row.quarterly_amount !== null && row.quarterly_amount !== undefined ? normalizeValue(row.quarterly_amount) : row.quarterly_amount;
+
+          return {
+            ...row,
+            ytd_amount,
+            monthly_amount,
+            quarterly_amount,
+          } as ExecutionLineItem;
+        });
+
+        await executionLineItemCache.set(cacheKey, normalized);
+        return normalized;
       }
 
-      const result = await pool.query(finalQuery, values);
       await executionLineItemCache.set(cacheKey, result.rows);
       return result.rows;
     } catch (error) {
@@ -361,37 +412,94 @@ export const executionLineItemRepository = {
   },
 
   // --- Functions for analytics ---
-  async getPeriodSnapshotTotals(entityCui: string, period: ReportPeriodInput, reportType: string): Promise<{ totalIncome: number; totalExpenses: number; budgetBalance: number }> {
+  async getPeriodSnapshotTotals(entityCui: string, period: ReportPeriodInput, reportType: string, normalization: NormalizationMode = 'total'): Promise<{ totalIncome: number; totalExpenses: number; budgetBalance: number }> {
     const { viewName } = getPeriodViewInfo(period.type);
 
-    const cacheKey = getCacheKey({ method: 'getPeriodSnapshotTotals', entityCui, period, reportType });
+    const cacheKey = getCacheKey({ method: 'getPeriodSnapshotTotals', entityCui, period, reportType, normalization });
     const cached = await analyticsCache.get(cacheKey);
     if (cached) {
       return cached as { totalIncome: number; totalExpenses: number; budgetBalance: number };
     }
 
+    const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
+    const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
+
     const periodSql = buildPeriodFilterSql(period, 3, 'v');
     const params = [entityCui, reportType, ...periodSql.values];
 
-    const query = `
-      SELECT 
-        COALESCE(SUM(v.total_income), 0) AS "totalIncome",
-        COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
-        COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
-      FROM ${viewName} v
-      WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''};
-    `;
+    const query = (normalization === 'total')
+      ? `
+          SELECT 
+            COALESCE(SUM(v.total_income), 0) AS "totalIncome",
+            COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
+            COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
+          FROM ${viewName} v
+          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''};
+        `
+      : `
+          SELECT 
+            v.year,
+            COALESCE(SUM(v.total_income), 0) AS "totalIncome",
+            COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
+            COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
+          FROM ${viewName} v
+          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}
+          GROUP BY v.year;
+        `;
 
     try {
       const result = await pool.query(query, params);
-      const row = result.rows[0] ?? { totalIncome: 0, totalExpenses: 0, budgetBalance: 0 };
-      const value = {
-        totalIncome: parseFloat(row.totalIncome ?? 0),
-        totalExpenses: parseFloat(row.totalExpenses ?? 0),
-        budgetBalance: parseFloat(row.budgetBalance ?? 0),
-      };
-      await analyticsCache.set(cacheKey, value);
-      return value;
+
+      if (normalization === 'total') {
+        const row = result.rows[0] ?? { totalIncome: 0, totalExpenses: 0, budgetBalance: 0 };
+        const value = {
+          totalIncome: parseFloat(row.totalIncome ?? 0),
+          totalExpenses: parseFloat(row.totalExpenses ?? 0),
+          budgetBalance: parseFloat(row.budgetBalance ?? 0),
+        };
+        await analyticsCache.set(cacheKey, value);
+        return value;
+      }
+
+      let population = 0;
+      if (needsPerCapita) {
+        population = await getEntityPopulation(entityCui);
+      }
+      const rateByYear = needsEuro ? getEurRateMap() : null;
+
+      const totals = result.rows.reduce((acc, row) => {
+        let { totalIncome, totalExpenses, budgetBalance } = row;
+        totalIncome = parseFloat(totalIncome);
+        totalExpenses = parseFloat(totalExpenses);
+        budgetBalance = parseFloat(budgetBalance);
+        const year = parseInt(row.year, 10);
+        const rate = rateByYear?.get(year) ?? 1;
+
+        if (needsPerCapita && population > 0) {
+          totalIncome /= population;
+          totalExpenses /= population;
+          budgetBalance /= population;
+        } else if (needsPerCapita) {
+          totalIncome = 0;
+          totalExpenses = 0;
+          budgetBalance = 0;
+        }
+
+        if (needsEuro) {
+          totalIncome /= rate;
+          totalExpenses /= rate;
+          budgetBalance /= rate;
+        }
+
+        acc.totalIncome += totalIncome;
+        acc.totalExpenses += totalExpenses;
+        acc.budgetBalance += budgetBalance;
+        return acc;
+      }, { totalIncome: 0, totalExpenses: 0, budgetBalance: 0 });
+
+      await analyticsCache.set(cacheKey, totals);
+      return totals;
+
     } catch (error) {
       console.error(`Error fetching period snapshot totals for entity ${entityCui}, period ${JSON.stringify(period)}:`, error);
       throw error;
