@@ -8,6 +8,7 @@ export interface ReportFilter {
   reporting_period?: string;
   report_date_start?: string; // ISO string
   report_date_end?: string;   // ISO string
+  report_type?: string;
   search?: string;            // pg_trgm search term
 }
 
@@ -71,7 +72,7 @@ function buildOrderAndSelect(
     const searchRelevanceCol = `GREATEST(similarity(e.name, $1), similarity(COALESCE(array_to_string(r.download_links, ' '), ''), $1))`;
     selectExtraClause = `, ${searchRelevanceCol} AS relevance`;
     if (!sort) {
-        orderByClause = `ORDER BY CASE WHEN e.name ILIKE $1 || '%' THEN 1 ELSE 0 END DESC, relevance DESC, r.report_date DESC, r.report_id DESC`;
+      orderByClause = `ORDER BY CASE WHEN e.name ILIKE $1 || '%' THEN 1 ELSE 0 END DESC, relevance DESC, r.report_date DESC, r.report_id DESC`;
     }
   }
   return {
@@ -118,7 +119,10 @@ export const reportRepository = {
       conditions.push(`r.report_date <= $${queryParams.length + 1}`);
       queryParams.push(filter.report_date_end);
     }
-
+    if (filter.report_type) {
+      conditions.push(`r.report_type = $${queryParams.length + 1}`);
+      queryParams.push(filter.report_type);
+    }
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
     return {
       joins: "",

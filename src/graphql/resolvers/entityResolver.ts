@@ -6,7 +6,7 @@ import {
 } from "../../db/repositories";
 import { EntityFilter } from "../../db/repositories/entityRepository";
 import { SortOrderOption as ELISortOrderOption } from "../../db/repositories/executionLineItemRepository";
-import { SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
+import { ReportFilter, SortOptions as ReportSortOptions } from "../../db/repositories/reportRepository";
 import { PeriodFinancials } from "../../db/repositories/executionLineItemRepository";
 import { AnalyticsFilter, AnalyticsSeries, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
 import { getNormalizationUnit } from "../../db/repositories/utils";
@@ -104,19 +104,22 @@ export const entityResolver = {
         offset = 0,
         year,
         period,
+        type,
         sort,
       }: {
         limit: number;
         offset: number;
         year?: number;
         period?: string;
+        type?: string;
         sort?: GraphQLSortOrderInput;
       }
     ) => {
-      const filter: any = { entity_cui: parent.cui };
+      const filter: ReportFilter = { entity_cui: parent.cui };
 
       if (year) filter.reporting_year = year;
       if (period) filter.reporting_period = period;
+      if (type) filter.report_type = type;
 
       // Map GraphQLSortOrderInput to ReportSortOptions if necessary, or ensure they are compatible
       // In this case, they are compatible.

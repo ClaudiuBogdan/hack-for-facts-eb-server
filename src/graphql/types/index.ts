@@ -121,6 +121,7 @@ export const types = /* GraphQL */ `
       offset: Int
       year: Int
       period: String
+      type: ReportType
       sort: SortOrder
     ): ReportConnection!
     executionLineItems(

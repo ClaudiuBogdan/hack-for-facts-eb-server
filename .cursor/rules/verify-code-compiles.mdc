@@ -4,5 +4,5 @@ alwaysApply: true
 ---
 # Verify the code is compiling
 
-Always run `npx tsc -b --noEmit` to verify the code is compiling.
+Always run `yarn typecheck` to verify the code is compiling.
 Fix any errors and run the command again until it passes.

@@ -288,9 +288,6 @@ export const executionLineItemRepository = {
 
       const result = await pool.query(finalQuery, values);
 
-      console.log("Query:", finalQuery);
-      console.log("Values:", JSON.stringify(values, null, 2));
-
       // Apply normalization if required
       if (norm !== 'total') {
         const needsPerCapita = norm === 'per_capita' || norm === 'per_capita_euro';

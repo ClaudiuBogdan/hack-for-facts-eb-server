@@ -227,8 +227,6 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
 
     if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
 
-    console.log("entityCui, functionalCode, year", entityCui, functionalCode, year);
-
     const entity = await getEntity(entityCui);
     if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
     if (!functionalCode) return reply.code(400).send({ ok: false, error: "functionalCode is required" });

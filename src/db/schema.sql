@@ -489,6 +489,9 @@ CREATE INDEX idx_executionlineitems_main_creditor_cui ON ExecutionLineItems (mai
 CREATE INDEX idx_reports_entity_cui ON Reports (entity_cui);
 CREATE INDEX idx_reports_report_date ON Reports (report_date);
 CREATE INDEX idx_reports_date_brin ON Reports USING BRIN (report_date); -- BRIN is good for linear time-series data.
+-- Helpful for frequent period filtering on reports
+CREATE INDEX idx_reports_reporting_year ON Reports (reporting_year);
+CREATE INDEX idx_reports_reporting_period ON Reports (reporting_period);
 CREATE INDEX idx_reports_main_creditor_cui ON Reports (main_creditor_cui);
 CREATE INDEX idx_reports_budget_sector_id ON Reports (budget_sector_id);
 -- Entities
