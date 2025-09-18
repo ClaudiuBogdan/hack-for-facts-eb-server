@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
-import { buildPeriodFilterSql } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
 
 
 export interface EntityAnalyticsSortOption {
@@ -63,6 +63,11 @@ function buildEntityAnalyticsWhere(
     paramIndex = nextParam;
   }
 
+  const periodFlag = getPeriodFlagCondition(filter.report_period);
+  if (periodFlag) {
+    conditions.push(periodFlag);
+  }
+
   // Basic ELI filters
   if (filter.report_ids?.length) {
     conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
@@ -115,12 +120,13 @@ function buildEntityAnalyticsWhere(
   // reporting_years deprecated; use report_period
 
   // Per-item thresholds for entity analytics (applied before aggregation)
+  const amountFragments = getAmountSqlFragments(filter.report_period, 'eli');
   if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-    conditions.push(`eli.amount >= $${paramIndex++}`);
+    conditions.push(`${amountFragments.itemColumn} >= $${paramIndex++}`);
     values.push(filter.item_min_amount);
   }
   if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-    conditions.push(`eli.amount <= $${paramIndex++}`);
+    conditions.push(`${amountFragments.itemColumn} <= $${paramIndex++}`);
     values.push(filter.item_max_amount);
   }
 
@@ -261,7 +267,7 @@ export const entityAnalyticsRepository = {
       ELSE NULL
     END`;
 
-    const totalAmountExpr = `COALESCE(SUM(eli.amount), 0)`;
+    const { sumExpression: totalAmountExpr } = getAmountSqlFragments(filter.report_period, 'eli');
     const perCapitaExpr = `COALESCE(${totalAmountExpr} / NULLIF(${populationExpr}, 0), 0)`;
     const amountExpr = filter.normalization === "per_capita" ? perCapitaExpr : totalAmountExpr;
 

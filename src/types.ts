@@ -111,7 +111,7 @@ export interface AnalyticsFilter {
   aggregate_min_amount?: number | null;
   aggregate_max_amount?: number | null;
 
-  // Per-item thresholds (WHERE on eli.amount)
+  // Per-item thresholds
   item_min_amount?: number | null;
   item_max_amount?: number | null;
 }

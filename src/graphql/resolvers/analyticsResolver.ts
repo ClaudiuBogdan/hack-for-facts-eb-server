@@ -62,6 +62,31 @@ export const analyticsResolver = {
       });
       return Promise.all(args.inputs.map(async (input) => {
         const unit = getNormalizationUnit(input.filter.normalization);
+        const type = input.filter.report_period?.type;
+
+        if (type === 'MONTH') {
+          const monthly = await executionLineItemRepository.getMonthlyTrend(input.filter);
+          const series: AnalyticsSeries = {
+            seriesId: input.seriesId ?? 'series',
+            xAxis: { name: 'Month', type: 'STRING', unit: 'month' },
+            yAxis: { name: 'Amount', type: 'FLOAT', unit },
+            data: monthly.map(p => ({ x: `${p.year}-${String(p.month).padStart(2, '0')}`, y: p.value })),
+          };
+          return series;
+        }
+
+        if (type === 'QUARTER') {
+          const quarterly = await executionLineItemRepository.getQuarterlyTrend(input.filter);
+          const series: AnalyticsSeries = {
+            seriesId: input.seriesId ?? 'series',
+            xAxis: { name: 'Quarter', type: 'STRING', unit: 'quarter' },
+            yAxis: { name: 'Amount', type: 'FLOAT', unit },
+            data: quarterly.map(p => ({ x: `${p.year}-Q${p.quarter}`, y: p.value })),
+          };
+          return series;
+        }
+
+        // Default: yearly
         const yearly = await executionLineItemRepository.getYearlyTrend(input.filter);
         const series: AnalyticsSeries = {
           seriesId: input.seriesId ?? 'series',

@@ -66,37 +66,81 @@ export function buildPeriodFilterSql(
   } else if (period.selection.dates) {
     const dates = period.selection.dates;
     const dateConditions: string[] = [];
-    const sameYear = dates.length === 1
+    const sameYear = dates.length === 1;
 
     if (period.type === 'YEAR' && sameYear) {
       conditions.push(`${alias}.year = $${paramIndex++}`);
-      values.push(dates[0]);
+      values.push(parseDate(dates[0]).year);
     } else if (period.type === 'YEAR') {
       const years = dates.map(d => parseDate(d).year);
-      conditions.push(`${alias}.year = ANY($${paramIndex++}::int[])`);
-      values.push(years);
+      if (years.length > 0) {
+        conditions.push(`${alias}.year = ANY($${paramIndex++}::int[])`);
+        values.push(years);
+      }
     } else if (period.type === 'MONTH') {
       for (const date of dates) {
         const parsed = parseDate(date);
         dateConditions.push(`(${alias}.year = $${paramIndex++} AND ${alias}.month = $${paramIndex++})`);
         values.push(parsed.year, parsed.month);
       }
-      conditions.push(`(${dateConditions.join(' OR ')})`);
+      if (dateConditions.length > 0) {
+        conditions.push(`(${dateConditions.join(' OR ')})`);
+      }
     } else if (period.type === 'QUARTER') {
       const quarterMap: { [key: string]: number } = { 'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4 };
       for (const date of dates) {
         const parsed = parseDate(date);
-        // TODO: fix this. not quarter column yet
         dateConditions.push(`(${alias}.year = $${paramIndex++} AND ${alias}.quarter = $${paramIndex++})`);
         values.push(parsed.year, quarterMap[parsed.quarter!]);
       }
-      conditions.push(`(${dateConditions.join(' OR ')})`);
+      if (dateConditions.length > 0) {
+        conditions.push(`(${dateConditions.join(' OR ')})`);
+      }
     }
   }
 
   return {
-    clause: `(${conditions.join(' AND ')})`,
+    clause: conditions.length > 0 ? `(${conditions.join(' AND ')})` : '',
     values,
     nextParamIndex: paramIndex
   };
+}
+
+// Returns SQL fragments for selecting the correct amount column based on the requested period granularity.
+// - itemColumn: raw column to use for per-item thresholds (non-aggregated)
+// - sumExpression: aggregated SUM expression, COALESCE'd to 0 for safety
+export function getAmountSqlFragments(
+  period: ReportPeriodInput,
+  alias: string = 'eli'
+): { itemColumn: string; sumExpression: string } {
+  if (period.type === 'MONTH') {
+    return {
+      itemColumn: `${alias}.monthly_amount`,
+      sumExpression: `COALESCE(SUM(${alias}.monthly_amount), 0)`
+    };
+  }
+  if (period.type === 'QUARTER') {
+    return {
+      itemColumn: `${alias}.quarterly_amount`,
+      sumExpression: `COALESCE(SUM(${alias}.quarterly_amount), 0)`
+    };
+  }
+  // YEAR
+  return {
+    itemColumn: `${alias}.ytd_amount`,
+    sumExpression: `COALESCE(SUM(${alias}.ytd_amount), 0)`
+  };
+}
+
+// Additional WHERE clause required by the schema for specific period granularities.
+// - For YEAR queries, restrict to yearly rows (is_yearly = true)
+// - For QUARTER queries, restrict to quarterly rows (is_quarterly = true)
+// - For MONTH queries, no extra flag is needed
+export function getPeriodFlagCondition(
+  period: ReportPeriodInput,
+  alias: string = 'eli'
+): string {
+  if (period.type === 'YEAR') return `${alias}.is_yearly = true`;
+  if (period.type === 'QUARTER') return `${alias}.is_quarterly = true`;
+  return '';
 }

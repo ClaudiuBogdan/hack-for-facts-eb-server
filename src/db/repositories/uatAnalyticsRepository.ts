@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode } from "../../types";
-import { buildPeriodFilterSql } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
 
 const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap', maxSize: 150 * 1024 * 1024, maxItems: 30000 });
 
@@ -56,6 +56,11 @@ export const uatAnalyticsRepository = {
       conditions.push(clause);
       params.push(...values);
       paramIndex = nextParamIndex;
+    }
+
+    const periodFlag = getPeriodFlagCondition(filter.report_period);
+    if (periodFlag) {
+      conditions.push(periodFlag);
     }
 
     if (filter.functional_codes && filter.functional_codes.length > 0) {
@@ -123,12 +128,13 @@ export const uatAnalyticsRepository = {
     }
 
     // Per-item thresholds
+    const { itemColumn, sumExpression } = getAmountSqlFragments(filter.report_period, 'eli');
     if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      conditions.push(`eli.amount >= $${paramIndex++}`);
+      conditions.push(`${itemColumn} >= $${paramIndex++}`);
       params.push(filter.item_min_amount);
     }
     if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      conditions.push(`eli.amount <= $${paramIndex++}`);
+      conditions.push(`${itemColumn} <= $${paramIndex++}`);
       params.push(filter.item_max_amount);
     }
 
@@ -162,13 +168,13 @@ export const uatAnalyticsRepository = {
 
     const havingConditions: string[] = [];
     if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-      const amountExpression = filter.normalization === 'per_capita' ? 'SUM(eli.amount) / NULLIF(COALESCE(u.population, 0), 0)' : 'SUM(eli.amount)';
+      const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(u.population, 0), 0)` : `${sumExpression}`;
       havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
       params.push(filter.aggregate_min_amount);
     }
 
     if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-      const amountExpression = filter.normalization === 'per_capita' ? 'SUM(eli.amount) / NULLIF(COALESCE(u.population, 0), 0)' : 'SUM(eli.amount)';
+      const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(u.population, 0), 0)` : `${sumExpression}`;
       havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
       params.push(filter.aggregate_max_amount);
     }
@@ -184,7 +190,7 @@ export const uatAnalyticsRepository = {
         u.county_code,
         u.county_name,
         u.population,
-        SUM(eli.amount) AS total_amount
+        ${sumExpression} AS total_amount
       FROM ExecutionLineItems eli
       JOIN Entities e ON eli.entity_cui = e.cui
       JOIN UATs u ON e.cui = u.uat_code

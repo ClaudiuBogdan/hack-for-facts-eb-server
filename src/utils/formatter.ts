@@ -22,3 +22,11 @@ export const formatNumberRO = (value: number | null | undefined, notation?: "sta
         maximumFractionDigits: 2,
     }).format(value);
 };
+
+export function getMonthLabel(month: number): string {
+    return String(month).padStart(2, '0');
+}
+
+export function getQuarterLabel(quarter: number): string {
+    return `Q${quarter}`;
+}

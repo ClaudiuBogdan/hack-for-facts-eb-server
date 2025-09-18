@@ -10,6 +10,7 @@ import { ReportFilter, SortOptions as ReportSortOptions } from "../../db/reposit
 import { PeriodFinancials } from "../../db/repositories/executionLineItemRepository";
 import { AnalyticsFilter, AnalyticsSeries, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
 import { getNormalizationUnit } from "../../db/repositories/utils";
+import { getMonthLabel, getQuarterLabel } from "../../utils/formatter";
 
 interface GraphQLSortOrderInput {
   by: string;
@@ -28,29 +29,36 @@ function formatAsAnalyticsSeries(
   valueKey: keyof PeriodFinancials,
   normalization: NormalizationMode,
 ): AnalyticsSeries {
-  let xKey: keyof PeriodFinancials;
   let xAxisName: string;
 
   switch (periodType) {
     case 'YEAR':
-      xKey = 'year';
       xAxisName = 'Year';
       break;
     case 'QUARTER':
-      xKey = 'quarter';
       xAxisName = 'Quarter';
       break;
     case 'MONTH':
-      xKey = 'month';
       xAxisName = 'Month';
       break;
   }
 
+  const getXKey = (value: PeriodFinancials): string => {
+    switch (periodType) {
+      case 'YEAR':
+        return `${value.year}`;
+      case 'QUARTER':
+        return `${value.year}-${getQuarterLabel(value.quarter!)}`;
+      case 'MONTH':
+        return `${value.year}-${getMonthLabel(value.month!)}`;
+    }
+  }
+
   return {
     seriesId,
-    xAxis: { name: xAxisName, type: 'INTEGER', unit: '' },
+    xAxis: { name: xAxisName, type: 'STRING', unit: '' },
     yAxis: { name: 'Amount', type: 'FLOAT', unit: getNormalizationUnit(normalization) },
-    data: trends.map(t => ({ x: String(t[xKey]!), y: t[valueKey] as number })),
+    data: trends.map(t => ({ x: getXKey(t), y: t[valueKey] as number })),
   };
 }
 

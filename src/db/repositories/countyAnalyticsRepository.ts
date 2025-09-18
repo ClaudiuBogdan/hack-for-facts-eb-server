@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
-import { buildPeriodFilterSql } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
 
 const cache = createCache<HeatmapCountyDataPoint_Repo[]>({ name: 'heatmap_county', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
@@ -54,6 +54,11 @@ export const countyAnalyticsRepository = {
             conditions.push(clause);
             params.push(...values);
             paramIndex = nextParamIndex;
+        }
+
+        const periodFlag = getPeriodFlagCondition(filter.report_period);
+        if (periodFlag) {
+            conditions.push(periodFlag);
         }
 
         if (filter.functional_codes && filter.functional_codes.length > 0) {
@@ -124,12 +129,13 @@ export const countyAnalyticsRepository = {
         }
 
         // Per-item thresholds
+        const { itemColumn, sumExpression } = getAmountSqlFragments(filter.report_period, 'eli');
         if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-            conditions.push(`eli.amount >= $${paramIndex++}`);
+            conditions.push(`${itemColumn} >= $${paramIndex++}`);
             params.push(filter.item_min_amount);
         }
         if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-            conditions.push(`eli.amount <= $${paramIndex++}`);
+            conditions.push(`${itemColumn} <= $${paramIndex++}`);
             params.push(filter.item_max_amount);
         }
 
@@ -179,13 +185,13 @@ export const countyAnalyticsRepository = {
         }
 
         if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-            const amountExpression = filter.normalization === 'per_capita' ? `SUM(eli.amount) / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : 'SUM(eli.amount)';
+            const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : `${sumExpression}`;
             havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
             params.push(filter.aggregate_min_amount);
         }
 
         if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-            const amountExpression = filter.normalization === 'per_capita' ? `SUM(eli.amount) / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : 'SUM(eli.amount)';
+            const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : `${sumExpression}`;
             havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
             params.push(filter.aggregate_max_amount);
         }
@@ -197,7 +203,7 @@ export const countyAnalyticsRepository = {
             SELECT
                 u.county_code,
                 u.county_name,
-                SUM(eli.amount) AS total_amount,
+                ${sumExpression} AS total_amount,
                 ${countyPopulationExpression} AS county_population,
                 ${countyCuiExpression} AS county_entity_cui
             FROM ExecutionLineItems eli
