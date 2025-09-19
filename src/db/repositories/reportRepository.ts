@@ -10,6 +10,7 @@ export interface ReportFilter {
   report_date_end?: string;   // ISO string
   report_type?: string;
   search?: string;            // pg_trgm search term
+  main_creditor_cui?: string;
 }
 
 export interface SortOptions {
@@ -122,6 +123,10 @@ export const reportRepository = {
     if (filter.report_type) {
       conditions.push(`r.report_type = $${queryParams.length + 1}`);
       queryParams.push(filter.report_type);
+    }
+    if (filter.main_creditor_cui) {
+      conditions.push(`r.main_creditor_cui = $${queryParams.length + 1}`);
+      queryParams.push(filter.main_creditor_cui);
     }
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
     return {

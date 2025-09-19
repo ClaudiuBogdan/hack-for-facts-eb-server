@@ -16,6 +16,7 @@ export interface EntityFilter {
   address?: string; // Exact or partial match
   search?: string;  // pg_trgm based search across name & address
   is_uat?: boolean;
+  parents?: string[];
 }
 
 // Threshold for pg_trgm similarity (adjust as needed for Romanian text)
@@ -93,6 +94,10 @@ export function buildEntityFilterParts(
   if (filter.cuis) {
     conditions.push(`cui = ANY($${values.length + 1}::text[])`);
     values.push(filter.cuis);
+  }
+  if (filter.parents && filter.parents.length > 0) {
+    conditions.push(`(main_creditor_1_cui = ANY($${values.length + 1}::text[]) OR main_creditor_2_cui = ANY($${values.length + 1}::text[]))`);
+    values.push(filter.parents);
   }
   if (filter.entity_type) {
     conditions.push(`entity_type = $${values.length + 1}`);

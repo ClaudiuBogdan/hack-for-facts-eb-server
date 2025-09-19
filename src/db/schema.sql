@@ -261,13 +261,13 @@ SELECT
     eli.year,
     eli.quarter,
     eli.entity_cui,
+    eli.main_creditor_cui,
     eli.report_type,
-    e.name AS entity_name,
     -- Sum monthly amounts for income ('vn') and expenses ('ch')
-    SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE 0 END) AS total_income,
-    SUM(CASE WHEN eli.account_category = 'ch' THEN eli.monthly_amount ELSE 0 END) AS total_expense,
+    SUM(CASE WHEN eli.account_category = 'vn' THEN eli.quarterly_amount ELSE 0 END) AS total_income,
+    SUM(CASE WHEN eli.account_category = 'ch' THEN eli.quarterly_amount ELSE 0 END) AS total_expense,
     -- Calculate the balance based on the summed monthly amounts
-    SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE -eli.monthly_amount END) AS budget_balance
+    SUM(CASE WHEN eli.account_category = 'vn' THEN eli.quarterly_amount ELSE -eli.quarterly_amount END) AS budget_balance
 FROM
     ExecutionLineItems eli
 JOIN
@@ -278,21 +278,21 @@ GROUP BY
     eli.year,
     eli.quarter,
     eli.entity_cui,
-    eli.report_type,
-    e.name;
+    eli.main_creditor_cui,
+    eli.report_type;
 
 COMMENT ON MATERIALIZED VIEW mv_summary_quarterly IS 'Quarterly summary of budget totals (income, expense, balance) aggregated by entity.';
 
 -- Add a unique index for fast lookups
-CREATE UNIQUE INDEX idx_mv_summary_quarterly_unique ON mv_summary_quarterly(year, quarter, entity_cui, report_type);
+CREATE UNIQUE INDEX idx_mv_summary_quarterly_unique ON mv_summary_quarterly(year, quarter, entity_cui, report_type, main_creditor_cui);
 
 CREATE MATERIALIZED VIEW mv_summary_monthly AS
 SELECT
     eli.year,
     eli.month,
     eli.entity_cui,
+    eli.main_creditor_cui,
     eli.report_type,
-    e.name AS entity_name,
     -- The monthly amounts are already at the correct granularity, so we just sum them up by category
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE 0 END) AS total_income,
     SUM(CASE WHEN eli.account_category = 'ch' THEN eli.monthly_amount ELSE 0 END) AS total_expense,
@@ -305,33 +305,31 @@ GROUP BY
     eli.year,
     eli.month,
     eli.entity_cui,
-    eli.report_type,
-    e.name;
+    eli.main_creditor_cui,
+    eli.report_type;
 
 COMMENT ON MATERIALIZED VIEW mv_summary_monthly IS 'Monthly summary of budget totals (income, expense, balance) aggregated by entity.';
 
 -- Add a unique index for fast lookups
-CREATE UNIQUE INDEX idx_mv_summary_monthly_unique ON mv_summary_monthly(year, month, entity_cui, report_type);
+CREATE UNIQUE INDEX idx_mv_summary_monthly_unique ON mv_summary_monthly(year, month, entity_cui, report_type, main_creditor_cui);
 
 CREATE MATERIALIZED VIEW mv_summary_annual AS
 SELECT
     eli.year,
     eli.entity_cui,
+    eli.main_creditor_cui,
     eli.report_type,
-    e.name AS entity_name,
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.ytd_amount ELSE 0 END) AS total_income,
     SUM(CASE WHEN eli.account_category = 'ch' THEN eli.ytd_amount ELSE 0 END) AS total_expense,
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.ytd_amount ELSE -eli.ytd_amount END) AS budget_balance
 FROM ExecutionLineItems eli
 JOIN Entities e ON eli.entity_cui = e.cui
-LEFT JOIN UATs u ON e.uat_id = u.id
 WHERE eli.is_yearly = true
 GROUP BY
     eli.year,
     eli.entity_cui,
-    eli.report_type,
-    e.name,
-    e.entity_type;
+    eli.main_creditor_cui,
+    eli.report_type;
 
 COMMENT ON MATERIALIZED VIEW mv_summary_annual IS 'Annual summary of budget totals (income, expense, balance) aggregated by entity, using latest available month (is_yearly=true).';
 CREATE INDEX idx_mv_summary_annual_entity_year ON mv_summary_annual(entity_cui, year);
@@ -339,7 +337,7 @@ CREATE INDEX idx_mv_summary_annual_year_balance ON mv_summary_annual(year, budge
 
 -- mv_annual_budget_summary: one row per (year, entity)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_summary_annual_unique
-  ON mv_summary_annual (year, report_type, entity_cui);
+  ON mv_summary_annual (year, report_type, entity_cui, main_creditor_cui);
 
 
 -- ========= JUNCTION TABLES =========
@@ -408,66 +406,53 @@ COMMENT ON FUNCTION set_period_flags() IS 'Computes is_yearly, is_quarterly, and
 -- Function 2: Computes and stores the quarterly amount
 CREATE OR REPLACE FUNCTION compute_quarterly_amounts() RETURNS void AS $$
 BEGIN
-  -- Step 1: Use a CTE to calculate the sum of monthly_amount for each quarterly group.
+  -- Step 1: Use a CTE with a window function (LAG) to calculate the quarterly amount
+  -- from the ytd_amount. The quarterly value is the difference between the current
+  -- quarter's YTD and the previous quarter's YTD.
   WITH QuarterlyTotals AS (
     SELECT
+      line_item_id,
       year,
-      quarter,
-      entity_cui,
       report_type,
-      budget_sector_id,
-      funding_source_id,
-      functional_code,
-      economic_code,
-      program_code,
-      expense_type,
-      account_category,
-      main_creditor_cui,
-      SUM(monthly_amount) AS total_quarterly_amount
-    FROM ExecutionLineItems
-    WHERE quarter IS NOT NULL -- Only consider rows that belong to a quarter
-    GROUP BY
-      year,
-      quarter,
-      entity_cui,
-      report_type,
-      budget_sector_id,
-      funding_source_id,
-      functional_code,
-      economic_code,
-      program_code,
-      expense_type,
-      main_creditor_cui,
-      account_category
+      (
+        ytd_amount - LAG(ytd_amount, 1, 0) OVER (
+          PARTITION BY
+            year,
+            entity_cui,
+            report_type,
+            main_creditor_cui,
+            budget_sector_id,
+            funding_source_id,
+            functional_code,
+            economic_code,
+            program_code,
+            expense_type,
+            account_category
+          ORDER BY
+            month
+        )
+      ) AS total_quarterly_amount
+    FROM
+      ExecutionLineItems
+    WHERE
+      is_quarterly = true -- Process only rows flagged as end-of-quarter
   )
-  -- Step 2: Update the main table using the computed totals.
-  UPDATE ExecutionLineItems eli
+  -- Step 2: Update the main table with the computed quarterly amounts.
+  UPDATE
+    ExecutionLineItems eli
   SET
-    -- Use a CASE statement to place the value only on the quarterly-flagged row.
-    -- All other rows for that quarter (e.g., Jan/Feb for Q1) will have this value set to NULL.
-    quarterly_amount = CASE
-                         WHEN eli.is_quarterly = true THEN qt.total_quarterly_amount
-                         ELSE NULL
-                       END
-  FROM QuarterlyTotals qt
-  -- Join the computed totals back to the main table on all the grouped dimensions.
+    -- The quarterly_amount is only set on the row marked as is_quarterly.
+    -- Other rows within the same quarter will have this field as NULL.
+    quarterly_amount = qt.total_quarterly_amount
+  FROM
+    QuarterlyTotals qt
   WHERE
-    eli.year = qt.year
-    AND eli.quarter = qt.quarter
-    AND eli.entity_cui = qt.entity_cui
-    AND eli.report_type = qt.report_type
-    AND eli.budget_sector_id = qt.budget_sector_id
-    AND eli.funding_source_id = qt.funding_source_id
-    AND eli.functional_code = qt.functional_code
-    AND eli.account_category = qt.account_category
-    -- Handle potentially NULL codes
-    AND (eli.economic_code = qt.economic_code OR (eli.economic_code IS NULL AND qt.economic_code IS NULL))
-    AND (eli.program_code = qt.program_code OR (eli.program_code IS NULL AND qt.program_code IS NULL))
-    AND (eli.expense_type = qt.expense_type OR (eli.expense_type IS NULL AND qt.expense_type IS NULL));
-
+    eli.line_item_id = qt.line_item_id
+    AND eli.year = qt.year
+    AND eli.report_type = qt.report_type;
 END;
 $$ LANGUAGE plpgsql;
-COMMENT ON FUNCTION compute_quarterly_amounts() IS 'Computes quarterly totals by summing monthly amounts and stores the result in the quarterly_amount column for rows where is_quarterly=true.';
+COMMENT ON FUNCTION compute_quarterly_amounts() IS 'Computes quarterly totals by subtracting the previous quarter''s ytd_amount from the current one and stores the result in the quarterly_amount column for rows where is_quarterly=true.';
 
 -- Indexes for specific expense drill-downs.
 CREATE INDEX idx_executionlineitems_entity_cui_type_func_ch ON ExecutionLineItems (entity_cui, report_type, functional_code) WHERE account_category = 'ch';

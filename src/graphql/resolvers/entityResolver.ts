@@ -114,6 +114,7 @@ export const entityResolver = {
         period,
         type,
         sort,
+        main_creditor_cui,
       }: {
         limit: number;
         offset: number;
@@ -121,6 +122,7 @@ export const entityResolver = {
         period?: string;
         type?: string;
         sort?: GraphQLSortOrderInput;
+        main_creditor_cui?: string;
       }
     ) => {
       const filter: ReportFilter = { entity_cui: parent.cui };
@@ -128,6 +130,7 @@ export const entityResolver = {
       if (year) filter.reporting_year = year;
       if (period) filter.reporting_period = period;
       if (type) filter.report_type = type;
+      if (main_creditor_cui) filter.main_creditor_cui = main_creditor_cui;
 
       // Map GraphQLSortOrderInput to ReportSortOptions if necessary, or ensure they are compatible
       // In this case, they are compatible.
@@ -183,37 +186,37 @@ export const entityResolver = {
         },
       };
     },
-    totalIncome: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+    totalIncome: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode, main_creditor_cui?: string }) => {
       const rt = reportType ?? parent.default_report_type;
-      const { totalIncome } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
+      const { totalIncome } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization, main_creditor_cui);
       return totalIncome;
     },
-    totalExpenses: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+    totalExpenses: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode, main_creditor_cui?: string }) => {
       const rt = reportType ?? parent.default_report_type;
-      const { totalExpenses } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
+      const { totalExpenses } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization, main_creditor_cui);
       return totalExpenses;
     },
-    budgetBalance: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode }) => {
+    budgetBalance: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization?: NormalizationMode, main_creditor_cui?: string }) => {
       const rt = reportType ?? parent.default_report_type;
-      const { budgetBalance } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization);
+      const { budgetBalance } = await executionLineItemRepository.getPeriodSnapshotTotals(parent.cui, period, rt, normalization, main_creditor_cui);
       return budgetBalance;
     },
-    incomeTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    incomeTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode, main_creditor_cui?: string }): Promise<AnalyticsSeries> => {
       const rt = reportType ?? parent.default_report_type;
       const mode = normalization ?? 'total';
-      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode, main_creditor_cui);
       return formatAsAnalyticsSeries('income', trends, period.type, 'totalIncome', mode);
     },
-    expensesTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    expensesTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode, main_creditor_cui?: string }): Promise<AnalyticsSeries> => {
       const rt = reportType ?? parent.default_report_type;
       const mode = normalization ?? 'total';
-      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode, main_creditor_cui);
       return formatAsAnalyticsSeries('expenses', trends, period.type, 'totalExpenses', mode);
     },
-    balanceTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode }): Promise<AnalyticsSeries> => {
+    balanceTrend: async (parent: { cui: string, default_report_type: string }, { period, reportType, normalization, main_creditor_cui }: { period: ReportPeriodInput, reportType?: string, normalization: NormalizationMode, main_creditor_cui?: string }): Promise<AnalyticsSeries> => {
       const rt = reportType ?? parent.default_report_type;
       const mode = normalization ?? 'total';
-      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode);
+      const trends = await executionLineItemRepository.getFinancialTrends(parent.cui, rt, period, mode, main_creditor_cui);
       return formatAsAnalyticsSeries('balance', trends, period.type, 'budgetBalance', mode);
     },
   },

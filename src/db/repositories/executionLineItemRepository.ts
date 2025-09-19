@@ -128,6 +128,11 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.entity_cuis);
   }
 
+  if (filters.main_creditor_cui) {
+    conditions.push(`eli.main_creditor_cui = $${paramIndex++}`);
+    values.push(filters.main_creditor_cui);
+  }
+
   if (filters.report_ids?.length) {
     conditions.push(`eli.report_id = ANY($${paramIndex++}::text[])`);
     values.push(filters.report_ids);
@@ -409,10 +414,10 @@ export const executionLineItemRepository = {
   },
 
   // --- Functions for analytics ---
-  async getPeriodSnapshotTotals(entityCui: string, period: ReportPeriodInput, reportType: string, normalization: NormalizationMode = 'total'): Promise<{ totalIncome: number; totalExpenses: number; budgetBalance: number }> {
+  async getPeriodSnapshotTotals(entityCui: string, period: ReportPeriodInput, reportType: string, normalization: NormalizationMode = 'total', main_creditor_cui?: string): Promise<{ totalIncome: number; totalExpenses: number; budgetBalance: number }> {
     const { viewName } = getPeriodViewInfo(period.type);
 
-    const cacheKey = getCacheKey({ method: 'getPeriodSnapshotTotals', entityCui, period, reportType, normalization });
+    const cacheKey = getCacheKey({ method: 'getPeriodSnapshotTotals', entityCui, period, reportType, normalization, main_creditor_cui });
     const cached = await analyticsCache.get(cacheKey);
     if (cached) {
       return cached as { totalIncome: number; totalExpenses: number; budgetBalance: number };
@@ -422,7 +427,12 @@ export const executionLineItemRepository = {
     const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
     const periodSql = buildPeriodFilterSql(period, 3, 'v');
-    const params = [entityCui, reportType, ...periodSql.values];
+    let params: any[] = [entityCui, reportType, ...periodSql.values];
+    let mainCreditorCondition = '';
+    if (main_creditor_cui) {
+      mainCreditorCondition = ` AND v.main_creditor_cui = $${params.length + 1}`;
+      params.push(main_creditor_cui);
+    }
 
     const query = (normalization === 'total')
       ? `
@@ -431,7 +441,7 @@ export const executionLineItemRepository = {
             COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
             COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
           FROM ${viewName} v
-          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''};
+          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}${mainCreditorCondition};
         `
       : `
           SELECT 
@@ -440,10 +450,10 @@ export const executionLineItemRepository = {
             COALESCE(SUM(v.total_expense), 0) AS "totalExpenses",
             COALESCE(SUM(v.budget_balance), 0) AS "budgetBalance"
           FROM ${viewName} v
-          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}
+          WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}${mainCreditorCondition}
           GROUP BY v.year;
         `;
-
+    
     try {
       const result = await pool.query(query, params);
 
@@ -502,16 +512,23 @@ export const executionLineItemRepository = {
       throw error;
     }
   },
-  async getYearlySnapshotTotals(entityCui: string, year: number, reportType: string): Promise<{ totalIncome: number; totalExpenses: number }> {
+  async getYearlySnapshotTotals(entityCui: string, year: number, reportType: string, main_creditor_cui?: string): Promise<{ totalIncome: number; totalExpenses: number }> {
+    const params: any[] = [entityCui, year, reportType];
+    let mainCreditorCondition = '';
+    if (main_creditor_cui) {
+      mainCreditorCondition = ` AND main_creditor_cui = $${params.length + 1}`;
+      params.push(main_creditor_cui);
+    }
+
     const query = `
-      SELECT 
+      SELECT
         COALESCE(SUM(total_income), 0) AS "totalIncome",
         COALESCE(SUM(total_expense), 0) AS "totalExpenses"
       FROM ${TABLES.VW_BUDGET_SUMMARY}
-      WHERE entity_cui = $1 AND year = $2 AND report_type = $3;
+      WHERE entity_cui = $1 AND year = $2 AND report_type = $3${mainCreditorCondition};
     `;
     try {
-      const result = await pool.query(query, [entityCui, year, reportType]);
+      const result = await pool.query(query, params);
       if (result.rows.length > 0) {
         return {
           totalIncome: parseFloat(result.rows[0].totalIncome),
@@ -528,12 +545,12 @@ export const executionLineItemRepository = {
     }
   },
 
-  async getFinancialTrends(entityCui: string, reportType: string, period: ReportPeriodInput, normalization: NormalizationMode): Promise<PeriodFinancials[]> {
+  async getFinancialTrends(entityCui: string, reportType: string, period: ReportPeriodInput, normalization: NormalizationMode, main_creditor_cui?: string): Promise<PeriodFinancials[]> {
     const { type } = period;
     const { viewName, dateColumn, orderColumn } = getPeriodViewInfo(type);
 
     // Repository-level cache (L1/L2) using stable key like entityAnalyticsRepository
-    const cacheKey = getCacheKey({ method: 'getFinancialTrends', entityCui, reportType, period, normalization });
+    const cacheKey = getCacheKey({ method: 'getFinancialTrends', entityCui, reportType, period, normalization, main_creditor_cui });
     const cached = await analyticsCache.get(cacheKey);
     if (cached) {
       return cached as PeriodFinancials[];
@@ -541,18 +558,24 @@ export const executionLineItemRepository = {
 
     // Reuse shared builder to construct precise YEAR/MONTH/QUARTER filters against the view alias 'v'
     const periodSql = buildPeriodFilterSql(period, 3, 'v');
-    const params = [entityCui, reportType, ...periodSql.values];
+    const params: any[] = [entityCui, reportType, ...periodSql.values];
+    let mainCreditorCondition = '';
+    if (main_creditor_cui) {
+      mainCreditorCondition = ` AND v.main_creditor_cui = $${params.length + 1}`;
+      params.push(main_creditor_cui);
+    }
 
     const query = `
       SELECT
         v.year,
         ${dateColumn ? `v.${dateColumn},` : ''}
-        v.total_income AS "totalIncome",
-        v.total_expense AS "totalExpenses",
-        v.budget_balance AS "budgetBalance"
+        SUM(v.total_income) AS "totalIncome",
+        SUM(v.total_expense) AS "totalExpenses",
+        SUM(v.budget_balance) AS "budgetBalance"
       FROM ${viewName} v
-      WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}
-      ORDER BY v.${orderColumn} ASC;
+      WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}${mainCreditorCondition}
+      GROUP BY v.year ${dateColumn ? `, v.${dateColumn}` : ''}
+      ORDER BY v.year ASC${dateColumn ? `, v.${dateColumn} ASC` : ''};
     `;
 
     try {
