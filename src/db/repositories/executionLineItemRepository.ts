@@ -96,31 +96,40 @@ const buildExecutionLineItemFilterQuery = (
     }
   };
 
-  // ---------- Basic column filters on ExecutionLineItems (eli) ----------
-  // Enforce report_type if provided, else default to principal aggregated
+  // ---------- CRITICAL: Order filters to match index ----------
+  // Index: (is_yearly, is_quarterly, account_category, report_type, functional_code, economic_code, entity_cui)
+
+  // 1. Period flags FIRST (is_yearly/is_quarterly) - matches index prefix
+  if (!filters.report_period) {
+    throw new Error("report_period is required for analytics.");
+  }
+
+  if (filters.report_period.type === 'YEAR') {
+    conditions.push(`eli.is_yearly = true`);
+  } else if (filters.report_period.type === 'QUARTER') {
+    conditions.push(`eli.is_quarterly = true`);
+  }
+
+  // 2. Period filters (year/month/quarter) for partition pruning
+  const periodSql = buildPeriodFilterSql(filters.report_period, paramIndex);
+  if (periodSql.clause) {
+    conditions.push(periodSql.clause);
+    values.push(...periodSql.values);
+    paramIndex = periodSql.nextParamIndex;
+  }
+
+  // 3. account_category (if present, comes next in index)
+  if (filters.account_category) {
+    conditions.push(`eli.account_category = $${paramIndex++}`);
+    values.push(filters.account_category);
+  }
+
+  // 4. report_type (next in index)
   if (filters.report_type) {
     conditions.push(`eli.report_type = $${paramIndex++}`);
     values.push(String(filters.report_type));
   } else {
     throw new Error("report_type is required for analytics.");
-  }
-
-  // Period filter
-  if (filters.report_period) {
-    const periodSql = buildPeriodFilterSql(filters.report_period, paramIndex);
-    if (periodSql.clause) {
-      conditions.push(periodSql.clause);
-      values.push(...periodSql.values);
-      paramIndex = periodSql.nextParamIndex;
-    }
-
-    if (filters.report_period.type === 'YEAR') {
-      conditions.push(`eli.is_yearly = true`);
-    } else if (filters.report_period.type === 'QUARTER') {
-      conditions.push(`eli.is_quarterly = true`);
-    }
-  } else {
-    throw new Error("report_period is required for analytics.");
   }
 
   if (filters.entity_cuis?.length) {
@@ -171,11 +180,8 @@ const buildExecutionLineItemFilterQuery = (
     values.push(patterns);
   }
 
-  // ---------- Account categories & expense types ----------
-  if (filters.account_category) {
-    conditions.push(`eli.account_category = $${paramIndex++}`);
-    values.push(filters.account_category);
-  }
+  // ---------- Expense types ----------
+  // Note: account_category is now handled earlier (line 122-125) to match index order
 
   if (filters.expense_types?.length) {
     conditions.push(`eli.expense_type = ANY($${paramIndex++}::text[])`);
@@ -298,14 +304,11 @@ export const executionLineItemRepository = {
         const needsPerCapita = norm === 'per_capita' || norm === 'per_capita_euro';
         const needsEuro = norm === 'total_euro' || norm === 'per_capita_euro';
 
-        // Pre-compute population per entity when needed
-        const populationByEntity = new Map<string, number>();
+        // Pre-compute population per entity when needed (using batch query to avoid N+1)
+        let populationByEntity = new Map<string, number>();
         if (needsPerCapita) {
           const uniqueEntityCuis = Array.from(new Set(result.rows.map((r: any) => r.entity_cui).filter(Boolean)));
-          for (const cui of uniqueEntityCuis) {
-            const pop = await getEntityPopulation(cui);
-            populationByEntity.set(cui, pop);
-          }
+          populationByEntity = await getEntityPopulationBatch(uniqueEntityCuis);
         }
         const rateByYear = needsEuro ? getEurRateMap() : null;
 
@@ -1210,6 +1213,71 @@ async function getEntityPopulation(entityCui: string): Promise<number> {
   `;
   const popRes = await pool.query(populationQuery, [entityCui]);
   return parseInt(popRes.rows[0]?.population ?? 0, 10) || 0;
+}
+
+/**
+ * Batched version of getEntityPopulation to avoid N+1 queries.
+ * Fetches populations for multiple entities in a single query.
+ */
+async function getEntityPopulationBatch(entityCuis: string[]): Promise<Map<string, number>> {
+  if (entityCuis.length === 0) {
+    return new Map();
+  }
+
+  const populationQuery = `
+    WITH entities_batch AS (
+      SELECT cui, is_uat, entity_type, uat_id
+      FROM ${TABLES.ENTITIES}
+      WHERE cui = ANY($1::text[])
+    ),
+    entity_uats AS (
+      SELECT DISTINCT ON (e.cui)
+        e.cui,
+        e.is_uat,
+        e.entity_type,
+        u.population,
+        u.county_code
+      FROM entities_batch e
+      LEFT JOIN ${TABLES.UATS} u ON (u.id = e.uat_id) OR (u.uat_code = e.cui)
+      ORDER BY e.cui, CASE WHEN u.id = e.uat_id THEN 0 ELSE 1 END
+    ),
+    county_populations AS (
+      SELECT
+        county_code,
+        MAX(CASE
+          WHEN county_code = 'B' AND siruta_code = '179132' THEN population
+          WHEN siruta_code = county_code THEN population
+          ELSE 0
+        END) AS county_population
+      FROM ${TABLES.UATS}
+      GROUP BY county_code
+    )
+    SELECT
+      eu.cui,
+      CASE
+        WHEN eu.is_uat IS TRUE THEN COALESCE(eu.population, 0)
+        WHEN eu.entity_type = 'admin_county_council' THEN COALESCE(cp.county_population, 0)
+        ELSE 0
+      END AS population
+    FROM entity_uats eu
+    LEFT JOIN county_populations cp ON eu.county_code = cp.county_code;
+  `;
+
+  const result = await pool.query(populationQuery, [entityCuis]);
+  const populationMap = new Map<string, number>();
+
+  for (const row of result.rows) {
+    populationMap.set(row.cui, parseInt(row.population ?? 0, 10) || 0);
+  }
+
+  // Ensure all requested CUIs have an entry (default to 0 if not found)
+  for (const cui of entityCuis) {
+    if (!populationMap.has(cui)) {
+      populationMap.set(cui, 0);
+    }
+  }
+
+  return populationMap;
 }
 
 // --- Helpers ---

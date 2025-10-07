@@ -15,6 +15,10 @@ CREATE TYPE expense_type AS ENUM (
 );
 -- Create enum for account categories
 CREATE TYPE account_category AS ENUM ('vn', 'ch');
+
+-- Create enum for anomaly types
+CREATE TYPE anomaly_type AS ENUM ('YTD_ANOMALY', 'MISSING_LINE_ITEM');
+
 -- ========= DIMENSION TABLES =========
 -- Table to store information about the UATs (Administrative Territorial Units)
 CREATE TABLE UATs (
@@ -159,6 +163,7 @@ CREATE TABLE ExecutionLineItems (
   quarter INT CHECK (quarter BETWEEN 1 AND 4),
   quarterly_amount NUMERIC(18,2),
   is_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+  anomaly anomaly_type,
 
   -- PK must include all partition keys
   PRIMARY KEY (year, report_type, line_item_id),
@@ -299,8 +304,6 @@ SELECT
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE -eli.monthly_amount END) AS budget_balance
 FROM
     ExecutionLineItems eli
-JOIN
-    Entities e ON eli.entity_cui = e.cui
 GROUP BY
     eli.year,
     eli.month,
@@ -365,12 +368,30 @@ CREATE INDEX idx_economicclassificationtags_tag_id ON EconomicClassificationTags
 
 -- Indexes on the Partitioned Fact Table (ExecutionLineItems)
 -- This first index is a powerful covering index for primary dashboard queries.
-CREATE INDEX idx_executionlineitems_entity_cui_year_month_type_acct ON ExecutionLineItems (entity_cui, year, month, report_type, account_category);
+-- CREATE INDEX idx_executionlineitems_entity_cui_year_month_type_acct ON ExecutionLineItems (entity_cui, year, month, report_type, account_category);
 -- Partial indexes for period filtering
 CREATE INDEX idx_executionlineitems_yearly ON ExecutionLineItems (entity_cui, year, report_type) WHERE is_yearly = true;
 CREATE INDEX idx_executionlineitems_quarterly ON ExecutionLineItems (entity_cui, year, report_type) WHERE is_quarterly = true;
+-- Composite index for main filter conditions (report_type, year, account_category, is_yearly)
+CREATE INDEX idx_executionlineitems_report_type_year_acct_yearly ON ExecutionLineItems (report_type, year, account_category, is_yearly) WHERE is_yearly = true;
 -- New index for querying by quarter
 CREATE INDEX idx_executionlineitems_year_quarter ON ExecutionLineItems (year, quarter) WHERE quarter IS NOT NULL;
+
+-- NEW: A comprehensive index for the entity analytics query patterns.
+-- It leads with the most common filters (account_category, report_type) that are not already part of the partitioning key.
+-- This allows the planner to quickly narrow down the set of rows to scan.
+-- It includes entity_cui, functional_code, and economic_code to cover common drill-down scenarios.
+-- The various amount columns are included (INCLUDE) to allow for index-only scans, avoiding table heap access.
+CREATE INDEX idx_eli_analytics_coverage ON ExecutionLineItems (
+    is_yearly,
+    is_quarterly,
+    account_category,
+    report_type,
+    functional_code,
+    economic_code,
+    entity_cui
+)
+INCLUDE (ytd_amount, monthly_amount, quarterly_amount);
 
 -- Function to compute period flags (is_yearly, is_quarterly)
 CREATE OR REPLACE FUNCTION set_period_flags() RETURNS void AS $$
@@ -403,6 +424,48 @@ END;
 $$ LANGUAGE plpgsql;
 COMMENT ON FUNCTION set_period_flags() IS 'Computes is_yearly, is_quarterly, and quarter flags/values based on the latest available month for an entity/year/report_type.';
 
+-- Optimized function to get population for entities
+CREATE OR REPLACE FUNCTION get_entity_population(entity_cui_param VARCHAR(20), entity_type_param VARCHAR(50), uat_id_param INT)
+RETURNS INT AS $$
+DECLARE
+    result INT;
+BEGIN
+    -- For UAT entities, get population directly from UAT
+    IF entity_type_param = 'uat' OR entity_type_param IS NULL THEN
+        SELECT u.population INTO result
+        FROM UATs u
+        WHERE u.id = uat_id_param OR u.uat_code = entity_cui_param
+        ORDER BY CASE WHEN u.id = uat_id_param THEN 0 ELSE 1 END
+        LIMIT 1;
+        RETURN result;
+    END IF;
+
+    -- For admin county council, get county population
+    IF entity_type_param = 'admin_county_council' THEN
+        SELECT COALESCE(
+            MAX(CASE
+                WHEN u.county_code = 'B' AND u.siruta_code = '179132' THEN u.population
+                WHEN u.siruta_code = u.county_code THEN u.population
+                ELSE 0
+            END),
+            0
+        ) INTO result
+        FROM UATs u
+        WHERE u.county_code = (
+            SELECT u2.county_code
+            FROM UATs u2
+            WHERE u2.id = uat_id_param OR u2.uat_code = entity_cui_param
+            ORDER BY CASE WHEN u2.id = uat_id_param THEN 0 ELSE 1 END
+            LIMIT 1
+        );
+        RETURN result;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+COMMENT ON FUNCTION get_entity_population(entity_cui_param, entity_type_param, uat_id_param) IS 'Returns population for an entity based on its type and UAT association';
+
 -- Function 2: Computes and stores the quarterly amount
 CREATE OR REPLACE FUNCTION compute_quarterly_amounts() RETURNS void AS $$
 BEGIN
@@ -425,8 +488,6 @@ BEGIN
             funding_source_id,
             functional_code,
             economic_code,
-            program_code,
-            expense_type,
             account_category
           ORDER BY
             month
@@ -485,6 +546,12 @@ CREATE INDEX idx_entities_type ON Entities(entity_type) WHERE entity_type IS NOT
 -- UATs
 CREATE INDEX idx_uats_county_code ON UATs (county_code);
 CREATE INDEX idx_uats_region ON UATs (region);
+CREATE INDEX idx_uats_id ON UATs (id);
+CREATE INDEX idx_uats_uat_code ON UATs (uat_code);
+CREATE INDEX idx_uats_siruta_code ON UATs (siruta_code);
+
+-- Composite index for county council population lookups
+CREATE INDEX idx_uats_county_code_siruta_code ON UATs (county_code, siruta_code);
 
 
 -- GIN Indexes for Text Search (pg_trgm)

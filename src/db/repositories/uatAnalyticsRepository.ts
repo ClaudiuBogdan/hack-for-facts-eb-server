@@ -44,13 +44,19 @@ export const uatAnalyticsRepository = {
     const params: any[] = [];
     let paramIndex = 1;
     let requireReportsJoin = false;
+    let requireEntitiesJoin = false;
 
-    if (!filter.account_category) {
-      throw new Error("account_category is required for heatmap data.");
+    // CRITICAL: Add period flags FIRST to match index prefix (is_yearly, is_quarterly, ...)
+    if (!filter.report_period) {
+      throw new Error("report_period is required for heatmap data.");
     }
-    conditions.push(`eli.account_category = $${paramIndex++}`);
-    params.push(filter.account_category);
 
+    const periodFlag = getPeriodFlagCondition(filter.report_period);
+    if (periodFlag) {
+      conditions.push(periodFlag);
+    }
+
+    // Add period filters for partition pruning (year/month/quarter)
     const { clause, values, nextParamIndex } = buildPeriodFilterSql(filter.report_period, paramIndex);
     if (clause) {
       conditions.push(clause);
@@ -58,10 +64,12 @@ export const uatAnalyticsRepository = {
       paramIndex = nextParamIndex;
     }
 
-    const periodFlag = getPeriodFlagCondition(filter.report_period);
-    if (periodFlag) {
-      conditions.push(periodFlag);
+    // Then account_category (next in index)
+    if (!filter.account_category) {
+      throw new Error("account_category is required for heatmap data.");
     }
+    conditions.push(`eli.account_category = $${paramIndex++}`);
+    params.push(filter.account_category);
 
     if (filter.functional_codes && filter.functional_codes.length > 0) {
       conditions.push(`eli.functional_code = ANY($${paramIndex++})`);
@@ -105,6 +113,7 @@ export const uatAnalyticsRepository = {
     if (filter.is_uat !== undefined) {
       conditions.push(`e.is_uat = $${paramIndex++}`);
       params.push(filter.is_uat);
+      requireEntitiesJoin = true;
     }
 
     if (filter.funding_source_ids && filter.funding_source_ids.length > 0) {
@@ -138,50 +147,65 @@ export const uatAnalyticsRepository = {
       params.push(filter.item_max_amount);
     }
 
-    // Add population filters to the WHERE clause targeting the UATs table
+    // UAT/population/county/region filters will be applied in outer query after JOIN
+    const outerConditions: string[] = [];
+
     if (filter.min_population !== undefined && filter.min_population !== null) {
-      conditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
+      outerConditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
       params.push(filter.min_population);
     }
 
     if (filter.max_population !== undefined && filter.max_population !== null) {
-      conditions.push(`COALESCE(u.population, 0) <= $${paramIndex++}`);
+      outerConditions.push(`COALESCE(u.population, 0) <= $${paramIndex++}`);
       params.push(filter.max_population);
     }
 
     if (filter.county_codes && filter.county_codes.length > 0) {
-      conditions.push(`u.county_code = ANY($${paramIndex++})`);
+      outerConditions.push(`u.county_code = ANY($${paramIndex++})`);
       params.push(filter.county_codes);
     }
 
     if (filter.regions && filter.regions.length > 0) {
-      conditions.push(`u.region = ANY($${paramIndex++})`);
+      outerConditions.push(`u.region = ANY($${paramIndex++})`);
       params.push(filter.regions);
     }
 
     if (filter.uat_ids && filter.uat_ids.length > 0) {
-      conditions.push(`u.id = ANY($${paramIndex++})`);
+      outerConditions.push(`u.id = ANY($${paramIndex++})`);
       params.push(filter.uat_ids);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const outerWhereClause = outerConditions.length > 0 ? `WHERE ${outerConditions.join(" AND ")}` : "";
 
+    // Build HAVING clause for aggregate amount filtering
     const havingConditions: string[] = [];
     if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-      const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(u.population, 0), 0)` : `${sumExpression}`;
-      havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
+      havingConditions.push(`${sumExpression} >= $${paramIndex++}`);
       params.push(filter.aggregate_min_amount);
     }
-
     if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-      const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(u.population, 0), 0)` : `${sumExpression}`;
-      havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
+      havingConditions.push(`${sumExpression} <= $${paramIndex++}`);
       params.push(filter.aggregate_max_amount);
     }
     const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
 
+    // Optimized query structure: Filter and aggregate ExecutionLineItems first in CTE
     const reportsJoin = requireReportsJoin ? `JOIN Reports r ON eli.report_id = r.report_id` : "";
+    const entitiesJoin = requireEntitiesJoin ? `JOIN Entities e ON eli.entity_cui = e.cui` : "";
+
     const queryString = `
+      WITH filtered_aggregates AS (
+        SELECT
+          eli.entity_cui,
+          ${sumExpression} AS total_amount
+        FROM ExecutionLineItems eli
+        ${entitiesJoin}
+        ${reportsJoin}
+        ${whereClause}
+        GROUP BY eli.entity_cui
+        ${havingClause}
+      )
       SELECT
         u.id AS uat_id,
         u.uat_code,
@@ -190,23 +214,11 @@ export const uatAnalyticsRepository = {
         u.county_code,
         u.county_name,
         u.population,
-        ${sumExpression} AS total_amount
-      FROM ExecutionLineItems eli
-      JOIN Entities e ON eli.entity_cui = e.cui
-      JOIN UATs u ON e.cui = u.uat_code
-      ${reportsJoin}
-      ${whereClause}
-      GROUP BY
-        u.id,
-        u.uat_code,
-        u.siruta_code,
-        u.name,
-        u.county_code,
-        u.county_name,
-        u.population
-      ${havingClause}
-      ORDER BY
-        u.id;
+        fa.total_amount
+      FROM filtered_aggregates fa
+      JOIN UATs u ON fa.entity_cui = u.uat_code
+      ${outerWhereClause}
+      ORDER BY u.id;
     `;
 
     try {

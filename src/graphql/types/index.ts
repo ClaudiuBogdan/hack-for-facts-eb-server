@@ -52,6 +52,12 @@ export const types = /* GraphQL */ `
     functionare
   }
 
+  # Anomaly type
+  enum AnomalyType {
+    YTD_ANOMALY
+    MISSING_LINE_ITEM
+  }
+
   # ------------------------------
   # Report Period Inputs
   # ------------------------------
@@ -327,6 +333,8 @@ export const types = /* GraphQL */ `
     functional_code: String!
     economic_code: String
     account_category: AccountCategory!
+    expense_type: ExpenseType
+    anomaly: AnomalyType
     program_code: String
     year: Int!
     month: Int!

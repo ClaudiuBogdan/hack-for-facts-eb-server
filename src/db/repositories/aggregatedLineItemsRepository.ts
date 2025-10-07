@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
-import { buildPeriodFilterSql } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments } from "./utils";
 
 export interface AggregatedLineItem_Repo {
   functional_code: string;
@@ -36,10 +36,19 @@ function buildWhereClause(
   let requireReportsJoin = false;
   let requireUATsJoin = false;
 
+  // CRITICAL: Add period flags FIRST to match index prefix
   if (!filter.report_period) {
     throw new Error("report_period is required for analytics.");
   }
-  
+
+  // Add period flags (is_yearly/is_quarterly) first for index usage
+  if (filter.report_period.type === 'YEAR') {
+    conditions.push(`eli.is_yearly = true`);
+  } else if (filter.report_period.type === 'QUARTER') {
+    conditions.push(`eli.is_quarterly = true`);
+  }
+
+  // Then add period filters (year/month/quarter) for partition pruning
   const { clause, values: v, nextParamIndex: nextParam } = buildPeriodFilterSql(filter.report_period, paramIndex);
   if (clause) {
     conditions.push(clause);
@@ -101,13 +110,14 @@ function buildWhereClause(
   }
   // reporting_years deprecated; use report_period
 
-  // Per-item thresholds
+  // Per-item thresholds - use correct amount column based on period type
+  const { itemColumn } = getAmountSqlFragments(filter.report_period, 'eli');
   if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-    conditions.push(`eli.amount >= $${paramIndex++}`);
+    conditions.push(`${itemColumn} >= $${paramIndex++}`);
     values.push(filter.item_min_amount);
   }
   if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-    conditions.push(`eli.amount <= $${paramIndex++}`);
+    conditions.push(`${itemColumn} <= $${paramIndex++}`);
     values.push(filter.item_max_amount);
   }
 
@@ -168,6 +178,9 @@ export const aggregatedLineItemsRepository = {
     const { conditions, values: filterValues, nextParamIndex, requireEntitiesJoin, requireReportsJoin, requireUATsJoin } = buildWhereClause(filter, 1);
     values.push(...filterValues);
 
+    // Get the correct amount column based on period type
+    const { sumExpression } = getAmountSqlFragments(filter.report_period, 'eli');
+
     const joins = [];
     if (requireReportsJoin) {
       joins.push("LEFT JOIN Reports r ON eli.report_id = r.report_id");
@@ -176,13 +189,8 @@ export const aggregatedLineItemsRepository = {
       joins.push("JOIN Entities e ON eli.entity_cui = e.cui");
     }
     if (requireUATsJoin) {
-      joins.push(`LEFT JOIN LATERAL (
-        SELECT u1.*
-        FROM UATs u1
-        WHERE (u1.id = e.uat_id) OR (u1.uat_code = e.cui)
-        ORDER BY CASE WHEN u1.id = e.uat_id THEN 0 ELSE 1 END
-        LIMIT 1
-      ) u ON TRUE`);
+      // Replace LATERAL join with standard join for better performance
+      joins.push("LEFT JOIN UATs u ON (u.id = e.uat_id OR u.uat_code = e.cui)");
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -194,7 +202,7 @@ export const aggregatedLineItemsRepository = {
         fc.functional_name,
         ec.economic_code,
         ec.economic_name,
-        SUM(eli.amount) AS amount,
+        ${sumExpression} AS amount,
         COUNT(eli.line_item_id) AS count
       FROM ExecutionLineItems eli
       JOIN FunctionalClassifications fc ON eli.functional_code = fc.functional_code

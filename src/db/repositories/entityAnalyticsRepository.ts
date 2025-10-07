@@ -39,23 +39,23 @@ const cache = createCache<EntityAnalyticsDataPoint_Repo[]>({
 function buildEntityAnalyticsWhere(
   filter: AnalyticsFilter,
   initialParamIndex: number = 1
-): { conditions: string[]; values: any[]; nextParamIndex: number; requireReportsJoin: boolean } {
+): { conditions: string[]; values: any[]; nextParamIndex: number; requireReportsJoin: boolean; outerConditions: string[] } {
   const conditions: string[] = [];
   const values: any[] = [];
   let paramIndex = initialParamIndex;
   let requireReportsJoin = false;
 
-  // Mandatory
-  if (!filter.account_category) {
-    throw new Error("account_category is required for entity analytics.");
-  }
-  conditions.push(`eli.account_category = $${paramIndex++}`);
-  values.push(filter.account_category);
-
+  // CRITICAL: Add period flags FIRST to match index prefix (is_yearly, is_quarterly, ...)
   if (!filter.report_period) {
     throw new Error("report_period is required for entity analytics.");
   }
 
+  const periodFlag = getPeriodFlagCondition(filter.report_period);
+  if (periodFlag) {
+    conditions.push(periodFlag);
+  }
+
+  // Then add period filters (year/month/quarter) for partition pruning
   const { clause, values: v, nextParamIndex: nextParam } = buildPeriodFilterSql(filter.report_period, paramIndex);
   if (clause) {
     conditions.push(clause);
@@ -63,10 +63,12 @@ function buildEntityAnalyticsWhere(
     paramIndex = nextParam;
   }
 
-  const periodFlag = getPeriodFlagCondition(filter.report_period);
-  if (periodFlag) {
-    conditions.push(periodFlag);
+  // Then account_category (next in index)
+  if (!filter.account_category) {
+    throw new Error("account_category is required for entity analytics.");
   }
+  conditions.push(`eli.account_category = $${paramIndex++}`);
+  values.push(filter.account_category);
 
   // Basic ELI filters
   if (filter.report_ids?.length) {
@@ -157,21 +159,25 @@ function buildEntityAnalyticsWhere(
     }
   }
 
+  // Note: county_codes and population filters are moved to outer query
+  // because they reference UATs table which is joined after the CTE
+  const outerConditions: string[] = [];
+
   if (filter.county_codes?.length) {
-    conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
+    outerConditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
     values.push(filter.county_codes);
   }
 
   if (filter.min_population !== undefined && filter.min_population !== null) {
-    conditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
+    outerConditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
     values.push(filter.min_population);
   }
   if (filter.max_population !== undefined && filter.max_population !== null) {
-    conditions.push(`COALESCE(u.population, 0) <= $${paramIndex++}`);
+    outerConditions.push(`COALESCE(u.population, 0) <= $${paramIndex++}`);
     values.push(filter.max_population);
   }
 
-  return { conditions, values, nextParamIndex: paramIndex, requireReportsJoin };
+  return { conditions, values, nextParamIndex: paramIndex, requireReportsJoin, outerConditions };
 }
 
 function buildHavingClause(
@@ -240,30 +246,35 @@ export const entityAnalyticsRepository = {
     // to avoid storing two caches; we still compute totalCount separately without caching here.
 
     const values: any[] = [];
-    const { conditions, values: whereValues, nextParamIndex, requireReportsJoin } = buildEntityAnalyticsWhere(filter, 1);
+    const { conditions, values: whereValues, nextParamIndex, requireReportsJoin, outerConditions } = buildEntityAnalyticsWhere(filter, 1);
     values.push(...whereValues);
 
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    const outerWhereClause = outerConditions.length ? ` WHERE ${outerConditions.join(" AND ")}` : "";
 
     // Define expressions
     // Population rules:
     // - If the entity is a UAT (e.is_uat = TRUE), use that UAT's population (from the joined `u` row)
     // - If the entity is a county-level council (admin_county_council), use the county population
-    //   like in county heatmap: either the special Bucharest SIRUTA or the UAT whose siruta_code equals county_code
+    //   Pre-computed in CTE for efficiency (avoid N+1 subqueries)
     // - Otherwise, population is NULL and per-capita is 0
-    const countyPopulationExpr = `COALESCE((
-      SELECT MAX(CASE
-        WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-        WHEN u2.siruta_code = u2.county_code THEN u2.population
-        ELSE 0
-      END)
-      FROM UATs u2
-      WHERE u2.county_code = u.county_code
-    ), 0)`;
+
+    // Pre-compute county populations in a CTE for admin_county_council entities
+    const countyPopCTE = `county_populations AS (
+      SELECT
+        county_code,
+        MAX(CASE
+          WHEN county_code = 'B' AND siruta_code = '179132' THEN population
+          WHEN siruta_code = county_code THEN population
+          ELSE 0
+        END) AS county_population
+      FROM UATs
+      GROUP BY county_code
+    )`;
 
     const populationExpr = `CASE
       WHEN e.is_uat = TRUE THEN u.population
-      WHEN e.entity_type = 'admin_county_council' THEN ${countyPopulationExpr}
+      WHEN e.entity_type = 'admin_county_council' THEN COALESCE(cp.county_population, 0)
       ELSE NULL
     END`;
 
@@ -282,21 +293,25 @@ export const entityAnalyticsRepository = {
       values
     );
 
-    // Base FROM and mandatory joins
+    // Optimized query structure: Filter ExecutionLineItems first in CTE, then join
+    // This ensures we use the index on (is_yearly, is_quarterly, account_category, ...) efficiently
     const reportsJoin = requireReportsJoin ? " LEFT JOIN Reports r ON eli.report_id = r.report_id" : "";
-    const fromJoin = ` FROM ExecutionLineItems eli
-      JOIN Entities e ON eli.entity_cui = e.cui
-      LEFT JOIN LATERAL (
-        SELECT u1.*
-        FROM UATs u1
-        WHERE (u1.id = e.uat_id) OR (u1.uat_code = e.cui)
-        ORDER BY CASE WHEN u1.id = e.uat_id THEN 0 ELSE 1 END
-        LIMIT 1
-      ) u ON TRUE${reportsJoin}`;
+
+    // CTE: Pre-aggregate line items with optimal filtering + pre-compute county populations
+    const cteQuery = `WITH ${countyPopCTE}, filtered_aggregates AS (
+      SELECT
+        eli.entity_cui,
+        ${totalAmountExpr} AS total_amount
+      FROM ExecutionLineItems eli${reportsJoin}
+      ${whereClause}
+      GROUP BY eli.entity_cui
+      ${havingClause}
+    )`;
 
     const orderBy = toOrderBy(sort);
 
-    const select = `SELECT 
+    // Main query: Join pre-filtered results with entity and UAT data
+    const select = `SELECT
       e.cui AS entity_cui,
       e.name AS entity_name,
       e.entity_type AS entity_type,
@@ -304,16 +319,29 @@ export const entityAnalyticsRepository = {
       u.county_code AS county_code,
       u.county_name AS county_name,
       ${populationExpr} AS population,
-      ${totalAmountExpr} AS total_amount,
-      ${perCapitaExpr} AS per_capita_amount,
-      ${amountExpr} AS amount`;
+      fa.total_amount AS total_amount,
+      COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0) AS per_capita_amount,
+      ${filter.normalization === "per_capita" ? `COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0)` : 'fa.total_amount'} AS amount
+    FROM filtered_aggregates fa
+      JOIN Entities e ON fa.entity_cui = e.cui
+      LEFT JOIN UATs u ON (u.id = e.uat_id OR u.uat_code = e.cui)
+      LEFT JOIN county_populations cp ON u.county_code = cp.county_code
+    ${outerWhereClause}`;
 
-    const query = `${select}${fromJoin}${whereClause}${groupBy}${havingClause}${orderBy}`;
+    const query = `${cteQuery}${select}${orderBy}`;
 
-    // Count query (number of groups after HAVING)
-    const countQuery = `SELECT COUNT(*) AS count FROM (
-      ${select}${fromJoin}${whereClause}${groupBy}${havingClause}
-    ) t`;
+    // Count query (number of groups after HAVING) - reuses the filtered_aggregates CTE with outer filters
+    const countSelect = `SELECT
+      e.cui,
+      u.county_code,
+      u.population
+    FROM filtered_aggregates fa
+      JOIN Entities e ON fa.entity_cui = e.cui
+      LEFT JOIN UATs u ON (u.id = e.uat_id OR u.uat_code = e.cui)
+      LEFT JOIN county_populations cp ON u.county_code = cp.county_code
+    ${outerWhereClause}`;
+
+    const countQuery = `${cteQuery} SELECT COUNT(*) AS count FROM (${countSelect}) t`;
 
     const countResult = await pool.query(countQuery, values);
     const totalCount = parseInt(countResult.rows[0]?.count ?? "0", 10);

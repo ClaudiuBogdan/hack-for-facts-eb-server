@@ -38,17 +38,19 @@ export const countyAnalyticsRepository = {
         const conditions: string[] = [];
         const params: any[] = [];
         let paramIndex = 1;
+        let requireEntitiesJoin = false;
 
-        if (!filter.account_category) {
-            throw new Error("account_category is required for heatmap data.");
-        }
-        conditions.push(`eli.account_category = $${paramIndex++}`);
-        params.push(filter.account_category);
-
+        // CRITICAL: Add period flags FIRST to match index prefix (is_yearly, is_quarterly, ...)
         if (!filter.report_period) {
             throw new Error("report_period is required for heatmap data.");
         }
-        
+
+        const periodFlag = getPeriodFlagCondition(filter.report_period);
+        if (periodFlag) {
+            conditions.push(periodFlag);
+        }
+
+        // Add period filters for partition pruning (year/month/quarter)
         const { clause, values, nextParamIndex } = buildPeriodFilterSql(filter.report_period, paramIndex);
         if (clause) {
             conditions.push(clause);
@@ -56,10 +58,12 @@ export const countyAnalyticsRepository = {
             paramIndex = nextParamIndex;
         }
 
-        const periodFlag = getPeriodFlagCondition(filter.report_period);
-        if (periodFlag) {
-            conditions.push(periodFlag);
+        // Then account_category (next in index)
+        if (!filter.account_category) {
+            throw new Error("account_category is required for heatmap data.");
         }
+        conditions.push(`eli.account_category = $${paramIndex++}`);
+        params.push(filter.account_category);
 
         if (filter.functional_codes && filter.functional_codes.length > 0) {
             conditions.push(`eli.functional_code = ANY($${paramIndex++})`);
@@ -83,19 +87,35 @@ export const countyAnalyticsRepository = {
             params.push(patterns);
         }
 
+        // County/region/UAT/population filters will be applied in the outer query after aggregation
+        const postAggFilters: string[] = [];
         if (filter.county_codes && filter.county_codes.length > 0) {
-            conditions.push(`u.county_code = ANY($${paramIndex++})`);
+            postAggFilters.push(`ci.county_code = ANY($${paramIndex++})`);
             params.push(filter.county_codes);
         }
 
+        // Region and UAT ID filters need to be applied on the outer query
+        // Note: These are kept separate and will be joined to UATs in the outer query
+        const uatOuterConditions: string[] = [];
         if (filter.regions && filter.regions.length > 0) {
-            conditions.push(`u.region = ANY($${paramIndex++})`);
+            uatOuterConditions.push(`u.region = ANY($${paramIndex++})`);
             params.push(filter.regions);
         }
 
         if (filter.uat_ids && filter.uat_ids.length > 0) {
-            conditions.push(`u.id = ANY($${paramIndex++})`);
+            uatOuterConditions.push(`u.id = ANY($${paramIndex++})`);
             params.push(filter.uat_ids);
+        }
+
+        // Population filters applied after aggregation
+        if (filter.min_population !== undefined && filter.min_population !== null) {
+            postAggFilters.push(`COALESCE(ci.county_population, 0) >= $${paramIndex++}`);
+            params.push(filter.min_population);
+        }
+
+        if (filter.max_population !== undefined && filter.max_population !== null) {
+            postAggFilters.push(`COALESCE(ci.county_population, 0) <= $${paramIndex++}`);
+            params.push(filter.max_population);
         }
 
         if (filter.entity_cuis && filter.entity_cuis.length > 0) {
@@ -106,6 +126,7 @@ export const countyAnalyticsRepository = {
         if (filter.is_uat !== undefined) {
             conditions.push(`e.is_uat = $${paramIndex++}`);
             params.push(filter.is_uat);
+            requireEntitiesJoin = true;
         }
 
         if (filter.funding_source_ids && filter.funding_source_ids.length > 0) {
@@ -152,71 +173,69 @@ export const countyAnalyticsRepository = {
 
         // reporting_years deprecated; use report_period
 
-        const whereClause = `WHERE e.is_uat = TRUE AND ${conditions.join(" AND ")}`;
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-        // This expression identifies the population for a county's main administrative unit.
-        // It includes a special case for Bucharest (county_code 'B' and siruta_code '179132')
-        // and a general case for other counties.
-        // The SIRUTA code is treated as text to match its likely data type in the DB.
-        const countyPopulationExpression = `MAX(CASE
-            WHEN u.county_code = 'B' AND u.siruta_code = '179132' THEN u.population
-            WHEN u.siruta_code = u.county_code THEN u.population
-            ELSE 0
-        END)`;
-
-        // This expression retrieves the CUI (as uat_code) for the county's main administrative unit,
-        // also handling the Bucharest special case.
-        const countyCuiExpression = `MAX(CASE
-            WHEN u.county_code = 'B' AND u.siruta_code = '179132' THEN u.uat_code
-            WHEN u.siruta_code = u.county_code THEN u.uat_code
-            ELSE NULL
-        END)`;
-
+        // Build HAVING clause for aggregate amount filtering
         const havingConditions: string[] = [];
-
-        if (filter.min_population !== undefined && filter.min_population !== null) {
-            havingConditions.push(`COALESCE(${countyPopulationExpression}, 0) >= $${paramIndex++}`);
-            params.push(filter.min_population);
-        }
-
-        if (filter.max_population !== undefined && filter.max_population !== null) {
-            havingConditions.push(`COALESCE(${countyPopulationExpression}, 0) <= $${paramIndex++}`);
-            params.push(filter.max_population);
-        }
-
         if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-            const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : `${sumExpression}`;
-            havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
+            havingConditions.push(`${sumExpression} >= $${paramIndex++}`);
             params.push(filter.aggregate_min_amount);
         }
-
         if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-            const amountExpression = filter.normalization === 'per_capita' ? `${sumExpression} / NULLIF(COALESCE(${countyPopulationExpression}, 0), 0)` : `${sumExpression}`;
-            havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
+            havingConditions.push(`${sumExpression} <= $${paramIndex++}`);
             params.push(filter.aggregate_max_amount);
         }
-
         const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
 
+        // Optimized query structure: Filter ExecutionLineItems first, then join to UATs and aggregate by county
         const reportsJoin = requireReportsJoin ? `JOIN Reports r ON eli.report_id = r.report_id` : "";
+        const entitiesJoin = requireEntitiesJoin ? `JOIN Entities e ON eli.entity_cui = e.cui` : "";
+
+        // Combine all outer filters (county, population, region, uat_ids)
+        const allOuterFilters = [...postAggFilters, ...uatOuterConditions];
+        const postAggWhereClause = allOuterFilters.length > 0 ? `AND ${allOuterFilters.join(" AND ")}` : "";
+
         const queryString = `
+            WITH filtered_aggregates AS (
+                SELECT
+                    eli.entity_cui,
+                    ${sumExpression} AS total_amount
+                FROM ExecutionLineItems eli
+                ${entitiesJoin}
+                ${reportsJoin}
+                ${whereClause}
+                GROUP BY eli.entity_cui
+                ${havingClause}
+            ),
+            county_info AS (
+                SELECT
+                    county_code,
+                    county_name,
+                    MAX(CASE
+                        WHEN county_code = 'B' AND siruta_code = '179132' THEN population
+                        WHEN siruta_code = county_code THEN population
+                        ELSE 0
+                    END) AS county_population,
+                    MAX(CASE
+                        WHEN county_code = 'B' AND siruta_code = '179132' THEN uat_code
+                        WHEN siruta_code = county_code THEN uat_code
+                        ELSE NULL
+                    END) AS county_entity_cui
+                FROM UATs
+                GROUP BY county_code, county_name
+            )
             SELECT
-                u.county_code,
-                u.county_name,
-                ${sumExpression} AS total_amount,
-                ${countyPopulationExpression} AS county_population,
-                ${countyCuiExpression} AS county_entity_cui
-            FROM ExecutionLineItems eli
-            JOIN Entities e ON eli.entity_cui = e.cui
-            JOIN UATs u ON e.cui = u.uat_code
-            ${reportsJoin}
-            ${whereClause}
-            GROUP BY
-                u.county_code,
-                u.county_name
-            ${havingClause}
-            ORDER BY
-                u.county_code;
+                ci.county_code,
+                ci.county_name,
+                COALESCE(SUM(fa.total_amount), 0) AS total_amount,
+                ci.county_population,
+                ci.county_entity_cui
+            FROM county_info ci
+            LEFT JOIN UATs u ON u.county_code = ci.county_code
+            LEFT JOIN filtered_aggregates fa ON fa.entity_cui = u.uat_code
+            WHERE 1=1 ${postAggWhereClause}
+            GROUP BY ci.county_code, ci.county_name, ci.county_population, ci.county_entity_cui
+            ORDER BY ci.county_code;
         `;
 
         try {

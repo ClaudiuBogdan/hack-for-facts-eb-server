@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:14-alpine
+    image: postgres:17.6
     container_name: budget_db
     restart: always
     # Increase shared memory size, crucial for PostgreSQL performance
@@ -33,7 +31,7 @@ services:
       - "-c"
       - "checkpoint_timeout=3600s"  # Sets checkpoint frequency to once per hour.
       - "-c"
-      - "autovacuum=off"            # Prevents autovacuum from interfering with the bulk load.
+      - "autovacuum=on"            # Prevents autovacuum from interfering with the bulk load.
       - "-c"
       - "maintenance_work_mem=2GB"  # Allocates more memory for creating indexes after the load.
 
