@@ -3,6 +3,10 @@ import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
 import { buildPeriodFilterSql, getAmountSqlFragments } from "./utils";
 
+// Fallback bucket for items missing an economic classification
+const DEFAULT_ECONOMIC_CODE = "00.00.00";
+const DEFAULT_ECONOMIC_NAME = "Unknown economic classification";
+
 export interface AggregatedLineItem_Repo {
   functional_code: string;
   functional_name: string;
@@ -196,20 +200,23 @@ export const aggregatedLineItemsRepository = {
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const joinClause = joins.join("\n");
 
+    const normalizedEconomicCodeExpr = `COALESCE(eli.economic_code, '${DEFAULT_ECONOMIC_CODE}')`;
+    const normalizedEconomicNameExpr = `COALESCE(ec.economic_name, '${DEFAULT_ECONOMIC_NAME}')`;
+
     const baseQuery = `
       SELECT
         fc.functional_code,
         fc.functional_name,
-        ec.economic_code,
-        ec.economic_name,
+        ${normalizedEconomicCodeExpr} AS economic_code,
+        ${normalizedEconomicNameExpr} AS economic_name,
         ${sumExpression} AS amount,
         COUNT(eli.line_item_id) AS count
       FROM ExecutionLineItems eli
       JOIN FunctionalClassifications fc ON eli.functional_code = fc.functional_code
-      LEFT JOIN EconomicClassifications ec ON eli.economic_code = ec.economic_code
+      LEFT JOIN EconomicClassifications ec ON ${normalizedEconomicCodeExpr} = ec.economic_code
       ${joinClause}
       ${whereClause}
-      GROUP BY fc.functional_code, fc.functional_name, ec.economic_code, ec.economic_name
+      GROUP BY fc.functional_code, fc.functional_name, ${normalizedEconomicCodeExpr}, ${normalizedEconomicNameExpr}
     `;
 
     if (cached) {
