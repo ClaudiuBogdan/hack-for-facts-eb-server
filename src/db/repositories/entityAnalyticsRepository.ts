@@ -39,11 +39,19 @@ const cache = createCache<EntityAnalyticsDataPoint_Repo[]>({
 function buildEntityAnalyticsWhere(
   filter: AnalyticsFilter,
   initialParamIndex: number = 1
-): { conditions: string[]; values: any[]; nextParamIndex: number; requireReportsJoin: boolean; outerConditions: string[] } {
+): {
+  conditions: string[];
+  values: any[];
+  nextParamIndex: number;
+  requireReportsJoin: boolean;
+  requireEntitiesJoin: boolean;
+  outerConditions: string[];
+} {
   const conditions: string[] = [];
   const values: any[] = [];
   let paramIndex = initialParamIndex;
   let requireReportsJoin = false;
+  let requireEntitiesJoin = false;
 
   // CRITICAL: Add period flags FIRST to match index prefix (is_yearly, is_quarterly, ...)
   if (!filter.report_period) {
@@ -140,22 +148,26 @@ function buildEntityAnalyticsWhere(
     filter.county_codes?.length ||
     filter.search
   ) {
-    // Entities are always joined in main query; just add conditions here
+    // Prepare entity-level filters and record if we must join Entities in the CTE
     if (filter.entity_types?.length) {
       conditions.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
       values.push(filter.entity_types);
+      requireEntitiesJoin = true;
     }
     if (typeof filter.is_uat === "boolean") {
       conditions.push(`e.is_uat = $${paramIndex++}`);
       values.push(filter.is_uat);
+      requireEntitiesJoin = true;
     }
     if (filter.uat_ids?.length) {
       conditions.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
       values.push(filter.uat_ids);
+      requireEntitiesJoin = true;
     }
     if (filter.search) {
       conditions.push(`e.name ILIKE $${paramIndex++}`);
       values.push(`%${filter.search}%`);
+      requireEntitiesJoin = true;
     }
   }
 
@@ -177,29 +189,14 @@ function buildEntityAnalyticsWhere(
     values.push(filter.max_population);
   }
 
-  return { conditions, values, nextParamIndex: paramIndex, requireReportsJoin, outerConditions };
-}
-
-function buildHavingClause(
-  filter: AnalyticsFilter,
-  amountExpression: string,
-  initialParamIndex: number,
-  values: any[]
-): { havingClause: string; nextParamIndex: number } {
-  const havingConditions: string[] = [];
-  let paramIndex = initialParamIndex;
-
-  if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-    havingConditions.push(`${amountExpression} >= $${paramIndex++}`);
-    values.push(filter.aggregate_min_amount);
-  }
-  if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-    havingConditions.push(`${amountExpression} <= $${paramIndex++}`);
-    values.push(filter.aggregate_max_amount);
-  }
-
-  const havingClause = havingConditions.length ? ` HAVING ${havingConditions.join(" AND ")}` : "";
-  return { havingClause, nextParamIndex: paramIndex };
+  return {
+    conditions,
+    values,
+    nextParamIndex: paramIndex,
+    requireReportsJoin,
+    requireEntitiesJoin,
+    outerConditions,
+  };
 }
 
 function toOrderBy(sort?: EntityAnalyticsSortOption | { by?: string; order?: string }): string {
@@ -246,11 +243,18 @@ export const entityAnalyticsRepository = {
     // to avoid storing two caches; we still compute totalCount separately without caching here.
 
     const values: any[] = [];
-    const { conditions, values: whereValues, nextParamIndex, requireReportsJoin, outerConditions } = buildEntityAnalyticsWhere(filter, 1);
+    const {
+      conditions,
+      values: whereValues,
+      nextParamIndex,
+      requireReportsJoin,
+      requireEntitiesJoin,
+      outerConditions,
+    } = buildEntityAnalyticsWhere(filter, 1);
     values.push(...whereValues);
 
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
-    const outerWhereClause = outerConditions.length ? ` WHERE ${outerConditions.join(" AND ")}` : "";
+    let paramIndex = nextParamIndex;
 
     // Define expressions
     // Population rules:
@@ -279,30 +283,50 @@ export const entityAnalyticsRepository = {
     END`;
 
     const { sumExpression: totalAmountExpr } = getAmountSqlFragments(filter.report_period, 'eli');
-    const perCapitaExpr = `COALESCE(${totalAmountExpr} / NULLIF(${populationExpr}, 0), 0)`;
-    const amountExpr = filter.normalization === "per_capita" ? perCapitaExpr : totalAmountExpr;
+    const perCapitaSelectExpr = `COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0)`;
+    const needsPerCapitaNormalization =
+      filter.normalization === "per_capita" || filter.normalization === "per_capita_euro";
+    const amountSelectExpr = needsPerCapitaNormalization ? perCapitaSelectExpr : "fa.total_amount";
 
-    // Group by entity and UAT attributes used in SELECT
-    const groupBy = ` GROUP BY e.cui, e.name, e.entity_type, e.uat_id, u.county_code, u.county_name, u.population`;
+    // For total-based normalization we can push aggregate thresholds into the CTE HAVING
+    const havingParts: string[] = [];
+    if (!needsPerCapitaNormalization) {
+      if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
+        havingParts.push(`${totalAmountExpr} >= $${paramIndex++}`);
+        values.push(filter.aggregate_min_amount);
+      }
+      if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
+        havingParts.push(`${totalAmountExpr} <= $${paramIndex++}`);
+        values.push(filter.aggregate_max_amount);
+      }
+    } else {
+      // For per-capita normalization we evaluate thresholds after joining population data
+      if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
+        outerConditions.push(`${amountSelectExpr} >= $${paramIndex++}`);
+        values.push(filter.aggregate_min_amount);
+      }
+      if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
+        outerConditions.push(`${amountSelectExpr} <= $${paramIndex++}`);
+        values.push(filter.aggregate_max_amount);
+      }
+    }
+    const havingClause = havingParts.length ? ` HAVING ${havingParts.join(" AND ")}` : "";
 
-    // HAVING for aggregated amount thresholds
-    const { havingClause, nextParamIndex: afterHavingIndex } = buildHavingClause(
-      filter,
-      amountExpr,
-      nextParamIndex,
-      values
-    );
+    const outerWhereClause = outerConditions.length ? ` WHERE ${outerConditions.join(" AND ")}` : "";
 
     // Optimized query structure: Filter ExecutionLineItems first in CTE, then join
     // This ensures we use the index on (is_yearly, is_quarterly, account_category, ...) efficiently
     const reportsJoin = requireReportsJoin ? " LEFT JOIN Reports r ON eli.report_id = r.report_id" : "";
+    const entitiesJoin = requireEntitiesJoin ? " JOIN Entities e ON e.cui = eli.entity_cui" : "";
 
     // CTE: Pre-aggregate line items with optimal filtering + pre-compute county populations
     const cteQuery = `WITH ${countyPopCTE}, filtered_aggregates AS (
       SELECT
         eli.entity_cui,
         ${totalAmountExpr} AS total_amount
-      FROM ExecutionLineItems eli${reportsJoin}
+      FROM ExecutionLineItems eli
+      ${entitiesJoin}
+      ${reportsJoin}
       ${whereClause}
       GROUP BY eli.entity_cui
       ${havingClause}
@@ -320,8 +344,8 @@ export const entityAnalyticsRepository = {
       u.county_name AS county_name,
       ${populationExpr} AS population,
       fa.total_amount AS total_amount,
-      COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0) AS per_capita_amount,
-      ${filter.normalization === "per_capita" ? `COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0)` : 'fa.total_amount'} AS amount
+      ${perCapitaSelectExpr} AS per_capita_amount,
+      ${amountSelectExpr} AS amount
     FROM filtered_aggregates fa
       JOIN Entities e ON fa.entity_cui = e.cui
       LEFT JOIN UATs u ON (u.id = e.uat_id OR u.uat_code = e.cui)
@@ -352,7 +376,6 @@ export const entityAnalyticsRepository = {
     }
 
     let finalQuery = query;
-    let paramIndex = afterHavingIndex;
     if (limit !== undefined) {
       finalQuery += ` LIMIT $${paramIndex++}`;
       values.push(limit);
@@ -383,5 +406,3 @@ export const entityAnalyticsRepository = {
     return { rows, totalCount };
   },
 };
-
-
