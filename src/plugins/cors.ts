@@ -23,7 +23,7 @@ export async function registerCors(fastify: FastifyInstance) {
 			if (allowedOrigins.has(origin)) return cb(null, true);
 			return cb(new Error("CORS origin not allowed"), false);
 		},
-		methods: ["GET", "POST", "OPTIONS"],
+		methods: ["GET", "POST", "OPTIONS", "DELETE"],
 		allowedHeaders: [
 			"content-type",
 			"x-requested-with",

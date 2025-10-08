@@ -1,0 +1,60 @@
+{{!-- Alert Notification Partial --}}
+
+{{#if content.entityName}}
+<div class="entity-info">
+  <div class="entity-name">{{content.entityName}}</div>
+  {{#if content.entityCui}}
+  <div class="entity-cui">CUI: {{content.entityCui}}</div>
+  {{/if}}
+</div>
+{{/if}}
+
+<div class="alert-box">
+  {{#if content.alertTitle}}
+  <div class="alert-title">{{content.alertTitle}}</div>
+  {{/if}}
+
+  {{#if content.alertMessage}}
+  <div class="alert-message">{{content.alertMessage}}</div>
+  {{/if}}
+</div>
+
+{{#if content.details}}
+<div class="metrics">
+  {{#if content.details.currentValue}}
+  <div class="metric">
+    <div class="metric-label">Current Value</div>
+    <div class="metric-value">{{formatCurrency content.details.currentValue}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.details.threshold}}
+  <div class="metric">
+    <div class="metric-label">Threshold</div>
+    <div class="metric-value">{{formatCurrency content.details.threshold}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.details.difference}}
+  <div class="metric">
+    <div class="metric-label">Difference</div>
+    <div class="metric-value">{{formatCurrency content.details.difference}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.details.percentChange}}
+  <div class="metric">
+    <div class="metric-label">Change</div>
+    <div class="metric-value">{{content.details.percentChange}}%</div>
+  </div>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if content.periodKey}}
+<p><strong>Period:</strong> {{content.periodKey}}</p>
+{{/if}}
+
+{{#if content.entityUrl}}
+<a href="{{content.entityUrl}}" class="cta-button">View Details</a>
+{{/if}}

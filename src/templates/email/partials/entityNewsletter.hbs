@@ -1,0 +1,68 @@
+{{!-- Entity Newsletter Partial --}}
+
+{{#if content.entityName}}
+<div class="entity-info">
+  <div class="entity-name">{{content.entityName}}</div>
+  {{#if content.entityCui}}
+  <div class="entity-cui">CUI: {{content.entityCui}}</div>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if content.periodKey}}
+<p><strong>Period:</strong> {{content.periodKey}}</p>
+{{/if}}
+
+{{#if content.summary}}
+<div class="metrics">
+  {{#if content.summary.totalSpending}}
+  <div class="metric">
+    <div class="metric-label">Total Spending</div>
+    <div class="metric-value">{{formatCurrency content.summary.totalSpending}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.summary.totalIncome}}
+  <div class="metric">
+    <div class="metric-label">Total Income</div>
+    <div class="metric-value">{{formatCurrency content.summary.totalIncome}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.summary.balance}}
+  <div class="metric">
+    <div class="metric-label">Balance</div>
+    <div class="metric-value">{{formatCurrency content.summary.balance}}</div>
+  </div>
+  {{/if}}
+
+  {{#if content.summary.executionRate}}
+  <div class="metric">
+    <div class="metric-label">Execution Rate</div>
+    <div class="metric-value">{{content.summary.executionRate}}%</div>
+  </div>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if content.topCreditors}}
+<h3>Top Creditors</h3>
+<ul>
+  {{#each content.topCreditors}}
+  <li><strong>{{this.name}}</strong>: {{formatCurrency this.amount}}</li>
+  {{/each}}
+</ul>
+{{/if}}
+
+{{#if content.topDebtors}}
+<h3>Top Debtors</h3>
+<ul>
+  {{#each content.topDebtors}}
+  <li><strong>{{this.name}}</strong>: {{formatCurrency this.amount}}</li>
+  {{/each}}
+</ul>
+{{/if}}
+
+{{#if content.entityUrl}}
+<a href="{{content.entityUrl}}" class="cta-button">View Full Report</a>
+{{/if}}

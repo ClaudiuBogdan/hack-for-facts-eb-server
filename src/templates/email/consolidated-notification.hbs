@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Execution Updates</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: #ffffff;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header {
+      border-bottom: 3px solid #0066cc;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      margin: 0;
+      color: #0066cc;
+      font-size: 24px;
+    }
+    .section {
+      margin-bottom: 40px;
+      padding-bottom: 30px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .section:last-of-type {
+      border-bottom: none;
+    }
+    .section-title {
+      color: #0066cc;
+      font-size: 20px;
+      margin-bottom: 15px;
+    }
+    .entity-info {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+    }
+    .entity-name {
+      font-weight: bold;
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+    .entity-cui {
+      color: #666;
+      font-size: 14px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .metric {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+    }
+    .metric-label {
+      color: #666;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .metric-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+    }
+    .alert-box {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+    }
+    .alert-title {
+      font-weight: bold;
+      color: #856404;
+      margin-bottom: 5px;
+    }
+    .alert-message {
+      color: #856404;
+    }
+    .unsubscribe {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .unsubscribe a {
+      color: #666;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .unsubscribe a:hover {
+      text-decoration: underline;
+    }
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e0e0;
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+    }
+    .cta-button {
+      display: inline-block;
+      background-color: #0066cc;
+      color: #ffffff !important;
+      padding: 12px 24px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+      margin: 15px 0;
+    }
+    .cta-button:hover {
+      background-color: #0052a3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Budget Execution Updates</h1>
+    </div>
+
+    {{#each sections}}
+      <div class="section">
+        <h2 class="section-title">{{this.title}}</h2>
+
+        {{#if (eq this.type "entity_newsletter")}}
+          {{> entityNewsletter content=this.content}}
+        {{else if (eq this.type "alert")}}
+          {{> alertNotification content=this.content}}
+        {{/if}}
+
+        <div class="unsubscribe">
+          <a href="{{this.unsubscribeUrl}}">Unsubscribe from this notification</a>
+        </div>
+      </div>
+    {{/each}}
+
+    <div class="footer">
+      <p>You are receiving this email because you subscribed to budget execution notifications.</p>
+      <p>&copy; {{year}} Budget Execution Platform. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
