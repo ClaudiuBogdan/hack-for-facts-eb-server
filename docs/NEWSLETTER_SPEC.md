@@ -205,9 +205,16 @@ interface NewsletterConfig {
 **Data Series Alert Config**:
 
 ```typescript
+interface AlertCondition {
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+  threshold: number;
+  unit: string;
+}
+
 interface DataSeriesAlertConfig {
   alertTitle?: string;
   alertDescription?: string;
+  conditions?: AlertCondition[];
   analyticsInput?: {
     filter: {
       account_category: 'vn' | 'ch';

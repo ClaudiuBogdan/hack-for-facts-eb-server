@@ -13,12 +13,6 @@ export type UUID = string;
 
 export type AlertOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
 
-export interface AlertConditionConfig {
-  operator: AlertOperator;
-  threshold: number;
-  unit: string;
-}
-
 export interface DataSeriesConfiguration {
   type: string;
   label: string;

@@ -29,26 +29,23 @@ function ensureAlertConfig(
     ]);
   }
 
-  if (!config.condition) {
-    throw new ValidationError('condition is required', [
-      { path: 'config.condition', message: 'Condition must be provided', code: 'missing_condition' },
-    ]);
-  }
+  for (let i = 0; i < config.conditions.length; i++) {
+    const condition = config.conditions[i];
+    if (!condition.unit) {
+      throw new ValidationError('Condition unit is required', [
+        { path: `config.conditions[${i}].unit`, message: 'Provide a unit for the condition', code: 'missing_unit' },
+      ]);
+    }
 
-  if (!config.condition.unit) {
-    throw new ValidationError('Condition unit is required', [
-      { path: 'config.condition.unit', message: 'Provide a unit for the condition', code: 'missing_unit' },
-    ]);
-  }
-
-  if (!Number.isFinite(config.condition.threshold)) {
-    throw new ValidationError('Condition threshold must be a finite number', [
-      {
-        path: 'config.condition.threshold',
-        message: 'Threshold must be a finite number',
-        code: 'invalid_threshold',
-      },
-    ]);
+    if (!Number.isFinite(condition.threshold)) {
+      throw new ValidationError('Condition threshold must be a finite number', [
+        {
+          path: `config.conditions[${i}].threshold`,
+          message: 'Threshold must be a finite number',
+          code: 'invalid_threshold',
+        },
+      ]);
+    }
   }
 }
 
