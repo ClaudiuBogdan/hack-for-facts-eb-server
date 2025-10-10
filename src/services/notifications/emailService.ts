@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { withTransaction } from '../../db/dataAccess';
 import { notificationDeliveriesRepository } from '../../db/repositories/notificationDeliveriesRepository';
 import { unsubscribeTokensRepository } from '../../db/repositories/unsubscribeTokensRepository';
-import type { Notification } from './types';
+import type { Notification, UUID } from './types';
 import { generateDeliveryKey } from './types';
 
 export interface PendingNotification {
@@ -157,6 +157,11 @@ export class EmailService {
    * Generate section title based on notification type
    */
   private getSectionTitle(notification: Notification): string {
+    // For data series alerts, use the custom title from config
+    if (notification.notificationType === 'alert_data_series' && notification.config?.title) {
+      return notification.config.title;
+    }
+
     switch (notification.notificationType) {
       case 'newsletter_entity_monthly':
         return 'Monthly Budget Execution Report';
@@ -184,7 +189,7 @@ export class EmailService {
   /**
    * Get delivery key for checking
    */
-  getDeliveryKey(userId: string, notificationId: number, periodKey: string): string {
+  getDeliveryKey(userId: string, notificationId: UUID, periodKey: string): string {
     return generateDeliveryKey(userId, notificationId, periodKey);
   }
 }

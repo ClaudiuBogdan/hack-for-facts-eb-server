@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_shortlinks_created_at ON ShortLinks(created_at);
 
 -- Notifications: User notification preferences
 CREATE TABLE IF NOT EXISTS Notifications (
-  id BIGSERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY,
   user_id TEXT NOT NULL,
   entity_cui VARCHAR(20) NULL, -- Reference to main DB Entities (nullable for global notifications)
   notification_type VARCHAR(50) NOT NULL, -- 'newsletter_entity_monthly', etc.
@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_hash ON Notifications(hash);
 CREATE TABLE IF NOT EXISTS NotificationDeliveries (
   id BIGSERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,
-  notification_id BIGINT NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
+  notification_id UUID NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
 
   -- Period identifier for deduplication
   period_key TEXT NOT NULL, -- '2025-01', '2025-Q1', '2025'
@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_deliveries_email_batch ON NotificationDeliveries(
 CREATE TABLE IF NOT EXISTS UnsubscribeTokens (
   token TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  notification_id BIGINT NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
+  notification_id UUID NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '1 year'),
   used_at TIMESTAMPTZ
@@ -81,4 +81,3 @@ CREATE TABLE IF NOT EXISTS UnsubscribeTokens (
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_user ON UnsubscribeTokens(user_id) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_expires ON UnsubscribeTokens(expires_at) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_notification ON UnsubscribeTokens(notification_id);
-

@@ -1,10 +1,9 @@
 import { notificationsRepository } from '../../db/repositories/notificationsRepository';
 import { notificationDeliveriesRepository } from '../../db/repositories/notificationDeliveriesRepository';
-import { unsubscribeTokensRepository } from '../../db/repositories/unsubscribeTokensRepository';
 import type {
   Notification,
-  NotificationConfig,
   NotificationType,
+  UUID,
 } from './types';
 import {
   generateNotificationHash,
@@ -12,6 +11,46 @@ import {
   generatePeriodKey,
   NOTIFICATION_TYPE_CONFIGS,
 } from './types';
+import { ValidationError } from '../../utils/errors';
+import { AlertConfig } from '../../schemas/alerts';
+
+function ensureAlertConfig(
+  config: AlertConfig | null | undefined
+): asserts config is AlertConfig {
+  if (!config) {
+    throw new ValidationError('Alert configuration is required', [
+      { path: 'config', message: 'Provide alert config for alert notifications', code: 'missing_config' },
+    ]);
+  }
+
+  if (!config.filter) {
+    throw new ValidationError('Analytics filter is required', [
+      { path: 'config.filter', message: 'Analytics filter must be provided', code: 'missing_analytics_input' },
+    ]);
+  }
+
+  if (!config.condition) {
+    throw new ValidationError('condition is required', [
+      { path: 'config.condition', message: 'Condition must be provided', code: 'missing_condition' },
+    ]);
+  }
+
+  if (!config.condition.unit) {
+    throw new ValidationError('Condition unit is required', [
+      { path: 'config.condition.unit', message: 'Provide a unit for the condition', code: 'missing_unit' },
+    ]);
+  }
+
+  if (!Number.isFinite(config.condition.threshold)) {
+    throw new ValidationError('Condition threshold must be a finite number', [
+      {
+        path: 'config.condition.threshold',
+        message: 'Threshold must be a finite number',
+        code: 'invalid_threshold',
+      },
+    ]);
+  }
+}
 
 export class NotificationService {
   /**
@@ -22,17 +61,27 @@ export class NotificationService {
     userId: string,
     notificationType: NotificationType,
     entityCui?: string | null,
-    config?: NotificationConfig | null
+    config?: AlertConfig | null
   ): Promise<Notification> {
     const typeConfig = NOTIFICATION_TYPE_CONFIGS[notificationType];
 
     // Validate entity requirement
     if (typeConfig.requiresEntity && !entityCui) {
-      throw new Error(`Notification type ${notificationType} requires an entity_cui`);
+      throw new ValidationError('Notification type requires entityCui', [
+        {
+          path: 'entityCui',
+          message: `Notification type ${notificationType} requires an entityCui value`,
+          code: 'missing_entity_cui',
+        },
+      ]);
     }
 
     const normalizedEntity = entityCui ?? null;
     const defaultedConfig = config ?? typeConfig.defaultConfig ?? null;
+
+    if (notificationType === 'alert_data_series') {
+      ensureAlertConfig(defaultedConfig);
+    }
 
     const existing = await notificationsRepository.findByUserTypeAndEntity(
       userId,
@@ -40,7 +89,7 @@ export class NotificationService {
       normalizedEntity
     );
 
-    if (existing) {
+    if (existing && ['newsletter_entity_monthly', 'newsletter_entity_quarterly', 'newsletter_entity_yearly', 'newsletter_entity_annual'].includes(notificationType)) {
       const resolvedConfig = config !== undefined ? config : existing.config;
       const resolvedConfigOrNull = resolvedConfig ?? null;
       const nextHash = generateNotificationHash(
@@ -50,7 +99,7 @@ export class NotificationService {
         resolvedConfigOrNull
       );
 
-      const updates: { isActive: boolean; config?: NotificationConfig | null; hash?: string } = {
+      const updates: { isActive: boolean; config?: AlertConfig | null; hash?: string } = {
         isActive: true,
       };
 
@@ -65,7 +114,6 @@ export class NotificationService {
       return notificationsRepository.update(existing.id, updates);
     }
 
-    // Create new notification
     return notificationsRepository.create({
       userId,
       notificationType,
@@ -77,8 +125,48 @@ export class NotificationService {
   /**
    * Unsubscribe from a notification
    */
-  async unsubscribe(notificationId: number): Promise<Notification> {
+  async unsubscribe(notificationId: UUID): Promise<Notification> {
     return notificationsRepository.deactivate(notificationId);
+  }
+
+  async update(
+    notificationId: UUID,
+    updates: { isActive?: boolean; config?: AlertConfig | null }
+  ): Promise<Notification> {
+    const existing = await notificationsRepository.findById(notificationId);
+    if (!existing) {
+      throw new ValidationError('Notification not found', [
+        { path: 'notificationId', message: 'Notification does not exist', code: 'not_found' },
+      ]);
+    }
+
+    let resolvedConfig = existing.config;
+    const payload: { isActive?: boolean; config?: AlertConfig | null; hash?: string } = {};
+
+    if (updates.config !== undefined) {
+      if (existing.notificationType === 'alert_data_series') {
+        ensureAlertConfig(updates.config);
+      }
+      resolvedConfig = updates.config;
+      payload.config = updates.config;
+    }
+
+    if (updates.isActive !== undefined) {
+      payload.isActive = updates.isActive;
+    }
+
+    const nextHash = generateNotificationHash(
+      existing.userId,
+      existing.notificationType,
+      existing.entityCui,
+      resolvedConfig
+    );
+
+    if (nextHash !== existing.hash) {
+      payload.hash = nextHash;
+    }
+
+    return notificationsRepository.update(notificationId, payload);
   }
 
   /**
@@ -107,18 +195,11 @@ export class NotificationService {
   }
 
   /**
-   * Update notification configuration
-   */
-  async updateConfig(notificationId: number, config: NotificationConfig): Promise<Notification> {
-    return notificationsRepository.update(notificationId, { config });
-  }
-
-  /**
    * Check if a notification has already been delivered for a period
    */
   async hasBeenDelivered(
     userId: string,
-    notificationId: number,
+    notificationId: UUID,
     periodKey: string
   ): Promise<boolean> {
     const deliveryKey = generateDeliveryKey(userId, notificationId, periodKey);
@@ -136,7 +217,7 @@ export class NotificationService {
   /**
    * Delete a notification and related deliveries/tokens
    */
-  async deleteNotification(notificationId: number): Promise<Notification | null> {
+  async deleteNotification(notificationId: UUID): Promise<Notification | null> {
     return notificationsRepository.deleteCascade(notificationId);
   }
 

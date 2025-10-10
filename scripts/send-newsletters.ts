@@ -32,7 +32,10 @@ import type {
   YearMonthPeriod,
   YearQuarterPeriod,
   YearPeriod,
+  AnalyticsFilter,
+  AnalyticsSeries,
 } from '../src/types';
+import { getNormalizationUnit } from '../src/db/repositories/utils';
 
 // Clerk admin SDK for email lookup
 import { createClerkClient } from '@clerk/backend';
@@ -63,6 +66,22 @@ interface EntityNewsletterContent {
   topCreditors?: Array<{ name: string; amount: number }>;
   topDebtors?: Array<{ name: string; amount: number }>;
   entityUrl?: string;
+}
+
+interface DataSeriesAlertContent {
+  title?: string;
+  description?: string;
+  series: {
+    seriesId: string;
+    xAxis: { name: string; type: string; unit: string };
+    yAxis: { name: string; type: string; unit: string };
+    data: Array<{ x: string; y: number }>;
+  };
+  metadata: {
+    accountCategory: string;
+    periodType: string;
+    normalization?: string;
+  };
 }
 
 interface NotificationData<TContent = any> {
@@ -249,15 +268,111 @@ async function fetchUserEmails(userIds: string[], clerkToken: string): Promise<U
 }
 
 /**
+ * Fetch data series alert data from analytics
+ */
+async function fetchDataSeriesAlertData(
+  notification: Notification,
+  periodKey: string
+): Promise<NotificationData<DataSeriesAlertContent> | null> {
+  const config = notification.config;
+
+  if (!config?.filter) {
+    console.warn(`  Notification ${notification.id} missing analyticsInput config – skipping`);
+    return null;
+  }
+
+  if (!config.title) {
+    console.warn(`  Notification ${notification.id} missing title – skipping`);
+    return null;
+  }
+
+  try {
+    const filter = config.filter as any;
+    const unit = getNormalizationUnit(filter?.normalization);
+    const type = filter?.report_period?.type;
+
+    let series: AnalyticsSeries;
+
+    if (type === 'MONTH') {
+      const monthly = await executionLineItemRepository.getMonthlyTrend(filter);
+      series = {
+        seriesId: 'alert-series',
+        xAxis: { name: 'Month', type: 'STRING', unit: 'month' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit },
+        data: monthly.map(p => ({ x: `${p.year}-${String(p.month).padStart(2, '0')}`, y: p.value })),
+      };
+    } else if (type === 'QUARTER') {
+      const quarterly = await executionLineItemRepository.getQuarterlyTrend(filter);
+      series = {
+        seriesId: 'alert-series',
+        xAxis: { name: 'Quarter', type: 'STRING', unit: 'quarter' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit },
+        data: quarterly.map(p => ({ x: `${p.year}-Q${p.quarter}`, y: p.value })),
+      };
+    } else {
+      // Default: yearly
+      const yearly = await executionLineItemRepository.getYearlyTrend(filter);
+      series = {
+        seriesId: 'alert-series',
+        xAxis: { name: 'Year', type: 'INTEGER', unit: 'year' },
+        yAxis: { name: 'Amount', type: 'FLOAT', unit },
+        data: yearly.map(p => ({ x: String(p.year), y: p.value })),
+      };
+    }
+
+    // Check if there's any data
+    if (!series.data || series.data.length === 0) {
+      console.log(`  No data found for alert ${notification.id} – skipping`);
+      return null;
+    }
+
+    const content: DataSeriesAlertContent = {
+      title: config.title,
+      description: config.description,
+      series,
+      metadata: {
+        accountCategory: filter?.account_category === 'vn' ? 'Income' : 'Expenses',
+        periodType: type ?? 'YEAR',
+        normalization: filter?.normalization,
+      },
+    };
+
+    return {
+      notification,
+      data: content,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        periodKey,
+        seriesDataPointCount: series.data.length,
+        filterSummary: {
+          accountCategory: filter?.account_category,
+          periodType: type,
+          entityCuis: filter?.entity_cuis,
+          functionalCodes: filter?.functional_codes,
+          economicCodes: filter?.economic_codes,
+        },
+      },
+    };
+  } catch (error: any) {
+    console.error(`  Failed to fetch data series alert data: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Fetch notification data based on type
  * This is where you'd call your analytics/data repositories
- * TODO: Implement actual data fetching logic
  */
 async function fetchNotificationData(
   notification: Notification,
   periodKey: string
-): Promise<NotificationData<EntityNewsletterContent> | null> {
+): Promise<NotificationData<EntityNewsletterContent | DataSeriesAlertContent> | null> {
   console.log(`  Fetching data for notification ${notification.id} (${notification.notificationType})`);
+
+  // Handle data series alerts separately
+  if (notification.notificationType === 'alert_data_series') {
+    return fetchDataSeriesAlertData(notification, periodKey);
+  }
 
   if (
     notification.notificationType !== 'newsletter_entity_monthly' &&

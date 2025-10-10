@@ -1,10 +1,10 @@
 import type { PoolClient } from 'pg';
 import { runQuery } from '../dataAccess';
-import type { NotificationDelivery } from '../../services/notifications/types';
+import type { NotificationDelivery, UUID } from '../../services/notifications/types';
 
 export interface CreateDeliveryInput {
   userId: string;
-  notificationId: number;
+  notificationId: UUID;
   periodKey: string;
   deliveryKey: string;
   emailBatchId: string;
@@ -14,7 +14,7 @@ export interface CreateDeliveryInput {
 interface DeliveryRow {
   id: number;
   user_id: string;
-  notification_id: number;
+  notification_id: UUID;
   period_key: string;
   delivery_key: string;
   email_batch_id: string;
@@ -96,7 +96,7 @@ export const notificationDeliveriesRepository = {
     return result.rows.map(mapRowToDelivery);
   },
 
-  async findByNotificationId(notificationId: number): Promise<NotificationDelivery[]> {
+  async findByNotificationId(notificationId: UUID): Promise<NotificationDelivery[]> {
     const result = await runQuery<DeliveryRow>(
       'userdata',
       `SELECT * FROM NotificationDeliveries WHERE notification_id = $1 ORDER BY created_at DESC`,

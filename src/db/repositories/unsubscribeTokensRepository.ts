@@ -1,17 +1,17 @@
 import type { PoolClient } from 'pg';
 import { runQuery } from '../dataAccess';
-import type { UnsubscribeToken } from '../../services/notifications/types';
+import type { UnsubscribeToken, UUID } from '../../services/notifications/types';
 import crypto from 'crypto';
 
 export interface CreateTokenInput {
   userId: string;
-  notificationId: number;
+  notificationId: UUID;
 }
 
 interface TokenRow {
   token: string;
   user_id: string;
-  notification_id: number;
+  notification_id: UUID;
   created_at: Date;
   expires_at: Date;
   used_at: Date | null;
@@ -65,7 +65,7 @@ export const unsubscribeTokensRepository = {
     return result.rows.map(mapRowToToken);
   },
 
-  async findByNotificationId(notificationId: number): Promise<UnsubscribeToken[]> {
+  async findByNotificationId(notificationId: UUID): Promise<UnsubscribeToken[]> {
     const result = await runQuery<TokenRow>(
       'userdata',
       `SELECT * FROM UnsubscribeTokens WHERE notification_id = $1 ORDER BY created_at DESC`,

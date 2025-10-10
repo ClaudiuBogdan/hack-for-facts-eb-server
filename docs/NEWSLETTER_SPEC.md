@@ -206,17 +206,59 @@ interface NewsletterConfig {
 
 ```typescript
 interface DataSeriesAlertConfig {
-  operator: 'gt' | 'lt' | 'gte' | 'lte' | 'eq';
-  threshold: number;
-  period: 'monthly' | 'quarterly' | 'annual';
-  filters?: {
-    accountCategory?: 'vn' | 'ch';
-    functionalCode?: string;
-    economicCode?: string;
-    // ... Uses AnalyticsFilterInput or data series type to get the config for the data query and check the threshold
+  alertTitle?: string;
+  alertDescription?: string;
+  analyticsInput?: {
+    filter: {
+      account_category: 'vn' | 'ch';
+      report_period: {
+        type: 'MONTH' | 'QUARTER' | 'YEAR';
+        selection: {
+          interval?: {
+            start: string; // PeriodDate format: YYYY, YYYY-MM, or YYYY-Q[1-4]
+            end: string;
+          };
+          dates?: string[];
+        };
+      };
+      // All other AnalyticsFilterInput fields are optional
+      report_type?: string;
+      main_creditor_cui?: string;
+      entity_cuis?: string[];
+      functional_codes?: string[];
+      functional_prefixes?: string[];
+      economic_codes?: string[];
+      economic_prefixes?: string[];
+      funding_source_ids?: number[];
+      budget_sector_ids?: number[];
+      expense_types?: ('dezvoltare' | 'functionare')[];
+      program_codes?: string[];
+      county_codes?: string[];
+      regions?: string[];
+      uat_ids?: number[];
+      entity_types?: string[];
+      is_uat?: boolean;
+      search?: string;
+      min_population?: number;
+      max_population?: number;
+      normalization?: 'total' | 'per_capita' | 'total_euro' | 'per_capita_euro';
+      aggregate_min_amount?: number;
+      aggregate_max_amount?: number;
+      item_min_amount?: number;
+      item_max_amount?: number;
+    };
+    seriesId?: string;
   };
 }
 ```
+
+**Notes:**
+
+- `alertTitle`: Custom title for the alert (e.g., "Cluj County Spending Alert")
+- `alertDescription`: Optional description providing context
+- `analyticsInput`: Uses the same filter structure as the `executionAnalytics` GraphQL query
+- The data series will be evaluated during notification processing to generate email content
+- The `analyticsInput` is required for `alert_data_series` notification type
 
 ### Hash Generation
 

@@ -39,6 +39,7 @@
     "lru-cache": "^11.1.0",
     "mercurius": "^16.2.0",
     "pg": "^8.16.3",
+    "uuid": "^13.0.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

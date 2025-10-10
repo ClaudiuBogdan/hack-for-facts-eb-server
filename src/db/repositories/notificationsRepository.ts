@@ -1,17 +1,21 @@
 import type { PoolClient } from 'pg';
+import { v4 as uuid } from 'uuid';
 import { runQuery, withTransaction } from '../dataAccess';
 import type {
   Notification,
   NotificationConfig,
   NotificationType,
+  UUID,
 } from '../../services/notifications/types';
 import { generateNotificationHash } from '../../services/notifications/types';
 
 export interface CreateNotificationInput {
+  id?: UUID;
   userId: string;
   notificationType: NotificationType;
   entityCui?: string | null;
   config?: NotificationConfig | null;
+  hash?: string;
 }
 
 export interface UpdateNotificationInput {
@@ -21,7 +25,7 @@ export interface UpdateNotificationInput {
 }
 
 interface NotificationRow {
-  id: number;
+  id: UUID;
   user_id: string;
   entity_cui: string | null;
   notification_type: string;
@@ -48,23 +52,66 @@ function mapRowToNotification(row: NotificationRow): Notification {
 
 export const notificationsRepository = {
   async create(input: CreateNotificationInput, client?: PoolClient): Promise<Notification> {
-    const hash = generateNotificationHash(
-      input.userId,
-      input.notificationType,
-      input.entityCui ?? null,
-      input.config ?? null
-    );
+    const id = input.id ?? uuid();
+    const hash =
+      input.hash ??
+      generateNotificationHash(
+        input.userId,
+        input.notificationType,
+        input.entityCui ?? null,
+        input.config ?? null
+      );
 
     const result = await runQuery<NotificationRow>(
       'userdata',
-      `INSERT INTO Notifications (user_id, notification_type, entity_cui, config, hash)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO Notifications (id, user_id, notification_type, entity_cui, config, hash)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [input.userId, input.notificationType, input.entityCui ?? null, input.config ?? null, hash],
+      [id, input.userId, input.notificationType, input.entityCui ?? null, input.config ?? null, hash],
       client
     );
 
     return mapRowToNotification(result.rows[0]);
+  },
+
+  async findUserAlerts(userId: string, activeOnly = false): Promise<Notification[]> {
+    const query = activeOnly
+      ? `SELECT *
+         FROM Notifications
+         WHERE user_id = $1
+           AND notification_type = 'alert_data_series'
+           AND is_active = TRUE
+         ORDER BY created_at DESC`
+      : `SELECT *
+         FROM Notifications
+         WHERE user_id = $1
+           AND notification_type = 'alert_data_series'
+         ORDER BY created_at DESC`;
+
+    const result = await runQuery<NotificationRow>('userdata', query, [userId]);
+
+    return result.rows.map(mapRowToNotification);
+  },
+
+  async findUserAlertByClientId(
+    userId: string,
+    clientAlertId: string,
+    client?: PoolClient
+  ): Promise<Notification | null> {
+    const result = await runQuery<NotificationRow>(
+      'userdata',
+      `SELECT *
+       FROM Notifications
+       WHERE user_id = $1
+         AND notification_type = 'alert_data_series'
+         AND config ->> 'clientAlertId' = $2
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, clientAlertId],
+      client
+    );
+
+    return result.rows[0] ? mapRowToNotification(result.rows[0]) : null;
   },
 
   async findByHash(hash: string, client?: PoolClient): Promise<Notification | null> {
@@ -78,7 +125,7 @@ export const notificationsRepository = {
     return result.rows[0] ? mapRowToNotification(result.rows[0]) : null;
   },
 
-  async findById(id: number, client?: PoolClient): Promise<Notification | null> {
+  async findById(id: UUID, client?: PoolClient): Promise<Notification | null> {
     const result = await runQuery<NotificationRow>(
       'userdata',
       `SELECT * FROM Notifications WHERE id = $1`,
@@ -124,7 +171,7 @@ export const notificationsRepository = {
   },
 
   async update(
-    id: number,
+    id: UUID,
     input: UpdateNotificationInput,
     client?: PoolClient
   ): Promise<Notification> {
@@ -160,7 +207,7 @@ export const notificationsRepository = {
     return mapRowToNotification(result.rows[0]);
   },
 
-  async deactivate(id: number, client?: PoolClient): Promise<Notification> {
+  async deactivate(id: UUID, client?: PoolClient): Promise<Notification> {
     return this.update(id, { isActive: false }, client);
   },
 
@@ -204,7 +251,7 @@ export const notificationsRepository = {
     return this.findByUserId(userId, true);
   },
 
-  async deleteCascade(id: number): Promise<Notification | null> {
+  async deleteCascade(id: UUID): Promise<Notification | null> {
     return withTransaction('userdata', async (client) => {
       const existingResult = await runQuery<NotificationRow>(
         'userdata',

@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { AnalyticsFilter } from '../../types';
+import { AlertConfig } from '../../schemas/alerts';
 
 export type NotificationType =
   | 'newsletter_entity_monthly'
@@ -7,19 +9,26 @@ export type NotificationType =
   | 'newsletter_entity_annual'
   | 'alert_data_series';
 
-export interface NotificationConfig {
-  // For newsletter newsletters
-  includeTopCreditors?: boolean;
-  includeTopDebtors?: boolean;
+export type UUID = string;
 
-  // For alert_data_series
-  dataSeriesType?: 'spending' | 'income' | 'debt';
-  threshold?: number;
-  comparison?: 'above' | 'below';
+export type AlertOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+
+export interface AlertConditionConfig {
+  operator: AlertOperator;
+  threshold: number;
+  unit: string;
 }
 
+export interface DataSeriesConfiguration {
+  type: string;
+  label: string;
+  [key: string]: unknown;
+}
+
+export type NotificationConfig = AlertConfig; // Add more config here if needed with |
+
 export interface Notification {
-  id: number;
+  id: UUID;
   userId: string;
   entityCui: string | null;
   notificationType: NotificationType;
@@ -33,7 +42,7 @@ export interface Notification {
 export interface NotificationDelivery {
   id: number;
   userId: string;
-  notificationId: number;
+  notificationId: UUID;
   periodKey: string;
   deliveryKey: string;
   emailBatchId: string;
@@ -45,7 +54,7 @@ export interface NotificationDelivery {
 export interface UnsubscribeToken {
   token: string;
   userId: string;
-  notificationId: number;
+  notificationId: UUID;
   createdAt: Date;
   expiresAt: Date;
   usedAt: Date | null;
@@ -59,11 +68,6 @@ export interface NotificationTypeConfig {
   defaultConfig: NotificationConfig | null;
   generatePeriodKey: (date: Date) => string;
 }
-
-const NEWSLETTER_DEFAULT_CONFIG_BASE: NotificationConfig = {
-  includeTopCreditors: true,
-  includeTopDebtors: true,
-};
 
 function generatePreviousMonthKey(date: Date): string {
   const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
@@ -90,7 +94,7 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     label: 'Monthly Entity Newsletter',
     description: 'Receive monthly updates on entity budget execution',
     requiresEntity: true,
-    defaultConfig: { ...NEWSLETTER_DEFAULT_CONFIG_BASE },
+    defaultConfig: null,
     generatePeriodKey: generatePreviousMonthKey,
   },
   newsletter_entity_quarterly: {
@@ -98,7 +102,7 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     label: 'Quarterly Entity Newsletter',
     description: 'Receive quarterly updates on entity budget execution',
     requiresEntity: true,
-    defaultConfig: { ...NEWSLETTER_DEFAULT_CONFIG_BASE },
+    defaultConfig: null,
     generatePeriodKey: generatePreviousQuarterKey,
   },
   newsletter_entity_yearly: {
@@ -106,7 +110,7 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     label: 'Yearly Entity Newsletter',
     description: 'Receive yearly summary of entity budget execution',
     requiresEntity: true,
-    defaultConfig: { ...NEWSLETTER_DEFAULT_CONFIG_BASE },
+    defaultConfig: null,
     generatePeriodKey: generatePreviousYearKey,
   },
   newsletter_entity_annual: {
@@ -114,14 +118,14 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     label: 'Annual Entity Newsletter',
     description: 'Receive annual summary of entity budget execution',
     requiresEntity: true,
-    defaultConfig: { ...NEWSLETTER_DEFAULT_CONFIG_BASE },
+    defaultConfig: null,
     generatePeriodKey: generatePreviousYearKey,
   },
   alert_data_series: {
     type: 'alert_data_series',
     label: 'Data Series Alert',
-    description: 'Receive alerts when spending, income, or debt crosses a threshold',
-    requiresEntity: true,
+    description: 'Receive alerts based on custom data series queries',
+    requiresEntity: false,
     defaultConfig: null,
     generatePeriodKey: (date: Date) => {
       const year = date.getFullYear();
@@ -152,7 +156,7 @@ export function generateNotificationHash(
  */
 export function generateDeliveryKey(
   userId: string,
-  notificationId: number,
+  notificationId: UUID,
   periodKey: string
 ): string {
   return `${userId}:${notificationId}:${periodKey}`;

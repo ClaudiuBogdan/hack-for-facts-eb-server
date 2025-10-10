@@ -5,9 +5,13 @@ import { unsubscribeTokensRepository } from '../db/repositories/unsubscribeToken
 import { notificationsRepository } from '../db/repositories/notificationsRepository';
 import { z } from 'zod';
 import type { NotificationType, NotificationConfig } from '../services/notifications/types';
+import { ValidationError } from '../utils/errors';
+import { formatZodError } from '../utils/validation';
+import { alertConfigSchema } from '../schemas/alerts';
 
 // Validation schemas
-const subscribeSchema = z.object({
+
+const createNotificationSchema = z.object({
   notificationType: z.enum([
     'newsletter_entity_monthly',
     'newsletter_entity_quarterly',
@@ -16,26 +20,16 @@ const subscribeSchema = z.object({
     'alert_data_series',
   ]),
   entityCui: z.string().optional().nullable(),
-  config: z
-    .object({
-      includeTopCreditors: z.boolean().optional(),
-      includeTopDebtors: z.boolean().optional(),
-      dataSeriesType: z.enum(['spending', 'income', 'debt']).optional(),
-      threshold: z.number().optional(),
-      comparison: z.enum(['above', 'below']).optional(),
-    })
-    .optional()
-    .nullable(),
+  config: z.union([alertConfigSchema, z.null()]).optional(),
 });
 
-const updateConfigSchema = z.object({
-  config: z.object({
-    includeTopCreditors: z.boolean().optional(),
-    includeTopDebtors: z.boolean().optional(),
-    dataSeriesType: z.enum(['spending', 'income', 'debt']).optional(),
-    threshold: z.number().optional(),
-    comparison: z.enum(['above', 'below']).optional(),
-  }),
+const updateNotificationSchema = z.object({
+  isActive: z.boolean().optional(),
+  config: alertConfigSchema.optional(),
+});
+
+const notificationIdParamsSchema = z.object({
+  id: z.string().uuid(),
 });
 
 export default async function notificationRoutes(fastify: FastifyInstance) {
@@ -45,7 +39,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
      * Subscribe to a notification
      */
     fastify.post(
-      '/api/v1/notifications/subscribe',
+      '/api/v1/notifications',
       {
         preHandler: [authenticate],
       },
@@ -56,19 +50,28 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
         }
 
         try {
-          const body = subscribeSchema.parse(request.body);
+          const parsed = createNotificationSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply
+              .code(400)
+              .send({ ok: false, error: 'Invalid request body', details: formatZodError(parsed.error) });
+          }
+
+          const { notificationType, entityCui, config } = parsed.data;
 
           const notification = await notificationService.subscribe(
             userId,
-            body.notificationType as NotificationType,
-            body.entityCui,
-            body.config as NotificationConfig | null
+            notificationType as NotificationType,
+            entityCui,
+            config as NotificationConfig | null
           );
 
           return reply.code(200).send({ ok: true, data: notification });
         } catch (err: any) {
-          if (err.name === 'ZodError') {
-            return reply.code(400).send({ ok: false, error: 'Invalid request body' });
+          if (err instanceof ValidationError) {
+            return reply
+              .code(400)
+              .send({ ok: false, error: err.message, details: err.issues ?? [] });
           }
           request.log.error(err, 'Failed to subscribe to notification');
           return reply.code(500).send({ ok: false, error: err.message || 'Internal server error' });
@@ -80,43 +83,6 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
      * POST /api/v1/notifications/:id/unsubscribe
      * Unsubscribe from a notification (deactivate)
      */
-    fastify.post<{ Params: { id: string } }>(
-      '/api/v1/notifications/:id/unsubscribe',
-      {
-        preHandler: [authenticate],
-      },
-      async (request, reply) => {
-        const userId = request.auth?.userId;
-        if (!userId) {
-          return reply.code(401).send({ ok: false, error: 'Unauthorized' });
-        }
-
-        try {
-          const notificationId = parseInt(request.params.id, 10);
-          if (isNaN(notificationId)) {
-            return reply.code(400).send({ ok: false, error: 'Invalid notification ID' });
-          }
-
-          // Verify ownership
-          const notification = await notificationsRepository.findById(notificationId);
-          if (!notification) {
-            return reply.code(404).send({ ok: false, error: 'Notification not found' });
-          }
-
-          if (notification.userId !== userId) {
-            return reply.code(403).send({ ok: false, error: 'Forbidden' });
-          }
-
-          const updated = await notificationService.unsubscribe(notificationId);
-
-          return reply.code(200).send({ ok: true, data: updated });
-        } catch (err: any) {
-          request.log.error(err, 'Failed to unsubscribe from notification');
-          return reply.code(500).send({ ok: false, error: 'Internal server error' });
-        }
-      }
-    );
-
     /**
      * GET /api/v1/notifications
      * Get all notifications for the authenticated user
@@ -174,7 +140,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
      * Update notification configuration
      */
     fastify.patch<{ Params: { id: string } }>(
-      '/api/v1/notifications/:id/config',
+      '/api/v1/notifications/:id',
       {
         preHandler: [authenticate],
       },
@@ -185,12 +151,24 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
         }
 
         try {
-          const notificationId = parseInt(request.params.id, 10);
-          if (isNaN(notificationId)) {
-            return reply.code(400).send({ ok: false, error: 'Invalid notification ID' });
+          const parsedParams = notificationIdParamsSchema.safeParse(request.params);
+          if (!parsedParams.success) {
+            return reply
+              .code(400)
+              .send({
+                ok: false,
+                error: 'Invalid notification ID',
+                details: formatZodError(parsedParams.error),
+              });
           }
+          const notificationId = parsedParams.data.id;
 
-          const body = updateConfigSchema.parse(request.body);
+          const parsed = updateNotificationSchema.safeParse(request.body);
+          if (!parsed.success) {
+            return reply
+              .code(400)
+              .send({ ok: false, error: 'Invalid request body', details: formatZodError(parsed.error) });
+          }
 
           // Verify ownership
           const notification = await notificationsRepository.findById(notificationId);
@@ -202,12 +180,14 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
             return reply.code(403).send({ ok: false, error: 'Forbidden' });
           }
 
-          const updated = await notificationService.updateConfig(notificationId, body.config);
+          const updated = await notificationService.update(notificationId, parsed.data);
 
           return reply.code(200).send({ ok: true, data: updated });
         } catch (err: any) {
-          if (err.name === 'ZodError') {
-            return reply.code(400).send({ ok: false, error: 'Invalid request body' });
+          if (err instanceof ValidationError) {
+            return reply
+              .code(400)
+              .send({ ok: false, error: err.message, details: err.issues ?? [] });
           }
           request.log.error(err, 'Failed to update notification config');
           return reply.code(500).send({ ok: false, error: 'Internal server error' });
@@ -299,10 +279,17 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
         }
 
         try {
-          const notificationId = parseInt(request.params.id, 10);
-          if (isNaN(notificationId)) {
-            return reply.code(400).send({ ok: false, error: 'Invalid notification ID' });
+          const parsedParams = notificationIdParamsSchema.safeParse(request.params);
+          if (!parsedParams.success) {
+            return reply
+              .code(400)
+              .send({
+                ok: false,
+                error: 'Invalid notification ID',
+                details: formatZodError(parsedParams.error),
+              });
           }
+          const notificationId = parsedParams.data.id;
 
           const notification = await notificationsRepository.findById(notificationId);
           if (!notification) {
