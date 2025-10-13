@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
-import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition, getEurRateMap } from "./utils";
 
 
 export interface EntityAnalyticsSortOption {
@@ -253,6 +253,22 @@ export const entityAnalyticsRepository = {
     } = buildEntityAnalyticsWhere(filter, 1);
     values.push(...whereValues);
 
+    const needsEuro = filter.normalization === 'total_euro' || filter.normalization === 'per_capita_euro';
+    const { itemColumn } = getAmountSqlFragments(filter.report_period, 'eli');
+
+    let ratesCTE = '';
+    let ratesJoin = '';
+    if (needsEuro) {
+        const rateMap = getEurRateMap();
+        if (rateMap.size > 0) {
+            const valuesList = Array.from(rateMap.entries())
+                .map(([year, rate]) => `(${year}, ${rate})`)
+                .join(', ');
+            ratesCTE = `exchange_rates(year, rate) AS (VALUES ${valuesList}),`;
+            ratesJoin = `LEFT JOIN exchange_rates er ON er.year = eli.year`;
+        }
+    }
+
     const whereClause = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
     let paramIndex = nextParamIndex;
 
@@ -282,7 +298,9 @@ export const entityAnalyticsRepository = {
       ELSE NULL
     END`;
 
-    const { sumExpression: totalAmountExpr } = getAmountSqlFragments(filter.report_period, 'eli');
+    const totalAmountExprRON = getAmountSqlFragments(filter.report_period, 'eli').sumExpression;
+    const totalAmountExpr = needsEuro ? `COALESCE(SUM(${itemColumn} / COALESCE(er.rate, 1)), 0)` : totalAmountExprRON;
+
     const perCapitaSelectExpr = `COALESCE(fa.total_amount / NULLIF(${populationExpr}, 0), 0)`;
     const needsPerCapitaNormalization =
       filter.normalization === "per_capita" || filter.normalization === "per_capita_euro";
@@ -320,13 +338,14 @@ export const entityAnalyticsRepository = {
     const entitiesJoin = requireEntitiesJoin ? " JOIN Entities e ON e.cui = eli.entity_cui" : "";
 
     // CTE: Pre-aggregate line items with optimal filtering + pre-compute county populations
-    const cteQuery = `WITH ${countyPopCTE}, filtered_aggregates AS (
+    const cteQuery = `WITH ${ratesCTE} ${countyPopCTE}, filtered_aggregates AS (
       SELECT
         eli.entity_cui,
         ${totalAmountExpr} AS total_amount
       FROM ExecutionLineItems eli
       ${entitiesJoin}
       ${reportsJoin}
+      ${ratesJoin}
       ${whereClause}
       GROUP BY eli.entity_cui
       ${havingClause}

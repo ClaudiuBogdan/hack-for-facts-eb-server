@@ -2,8 +2,7 @@ import pool from "../connection";
 import { ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
-import { buildPeriodFilterSql } from "./utils";
-import { datasetRepository } from "./datasetRepository";
+import { buildPeriodFilterSql, getEurRateMap } from "./utils";
 
 const analyticsCache = createCache({
   name: 'executionLineItemAnalytics',
@@ -1281,48 +1280,3 @@ async function getEntityPopulationBatch(entityCuis: string[]): Promise<Map<strin
 }
 
 // --- Helpers ---
-let eurRateByYear: Map<number, number> | null = null;
-function getEurRateMap(): Map<number, number> {
-  if (!eurRateByYear) {
-    const [exchange] = datasetRepository.getByIds(['exchange-rate-eur-ron']);
-    eurRateByYear = new Map<number, number>();
-    if (exchange && Array.isArray(exchange.yearlyTrend)) {
-      for (const point of exchange.yearlyTrend) {
-        eurRateByYear.set(point.year, point.value);
-      }
-    }
-  }
-  return eurRateByYear;
-}
-
-
-/**
- * How this per-capita filter works (in plain English)
-  •	Amounts (numerator): We sum fiscal amounts per year using your normal joins and whereClause (whatever the user picked in the UI for money data).
-  •	Population (denominator):
-  •	If the user did select entities (by CUIs, UAT ids, county codes, is_uat, or entity types), we compute the population from the filter only:
-  •	UAT entities contribute their UAT population.
-  •	County councils contribute their county population once.
-  •	Any other entity type falls back to country population (so they still get a sensible per-capita denominator).
-  •	We deduplicate units (uat:ID / county:CODE / country:RO) before summing.
-  •	If the user did not select any entities, the denominator is the whole country population.
-  •	The denominator is not affected by whether there are fiscal line items — it reflects the filter intent, not data availability.
-  •	Final join: We divide the yearly total_amount by that year’s denominator (which is the same per year) and protect against divide-by-zero.
-
-⸻
-
-Quick test cases you can run
-  1.	No entity filters at all → per-capita uses country population.
-  2.	One UAT selected (e.g., a city hall) → denominator is that UAT population.
-  3.	Two UATs selected (same county) → denominator is the sum of both UAT populations (no double count).
-  4.	One county council selected → denominator is that county population (counted once).
-  5.	UAT + county council for the same county → denominator is UAT pop + county pop only if the UAT is outside that county council scope; if the UAT is inside the same county, you’ll still count them separately because they are different scopes (UAT vs county). This is intentional — a county council and a municipality represent different population “units”. If you prefer county to dominate, we can change the rule to “if any county council is present, ignore UATs from that county” (easy tweak).
-
-⸻
-
-Notes on maintainability
-  •	The SQL now has clear WITH CTEs and inline comments explaining each step.
-  •	The countryPopulationSql is centralized and documented (including the Bucharest special case).
-  •	Placeholder ordering is stable by pushing entityValues at the end.
-  •	The boolean hasEntityFilter is the single switch that drives “country vs filtered units”.
- */

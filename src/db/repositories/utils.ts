@@ -1,4 +1,5 @@
 import { NormalizationMode, PeriodDate, ReportPeriodInput } from "../../types";
+import { datasetRepository } from "./datasetRepository";
 
 export function getNormalizationUnit(normalization: NormalizationMode | undefined) {
   if (!normalization || normalization === 'total') {
@@ -143,4 +144,18 @@ export function getPeriodFlagCondition(
   if (period.type === 'YEAR') return `${alias}.is_yearly = true`;
   if (period.type === 'QUARTER') return `${alias}.is_quarterly = true`;
   return '';
+}
+
+let eurRateByYear: Map<number, number> | null = null;
+export function getEurRateMap(): Map<number, number> {
+  if (!eurRateByYear) {
+    const [exchange] = datasetRepository.getByIds(['exchange-rate-eur-ron']);
+    eurRateByYear = new Map<number, number>();
+    if (exchange && Array.isArray(exchange.yearlyTrend)) {
+      for (const point of exchange.yearlyTrend) {
+        eurRateByYear.set(point.year, point.value);
+      }
+    }
+  }
+  return eurRateByYear;
 }

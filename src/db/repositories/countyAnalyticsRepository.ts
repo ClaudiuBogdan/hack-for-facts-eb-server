@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
-import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition, getEurRateMap } from "./utils";
 
 const cache = createCache<HeatmapCountyDataPoint_Repo[]>({ name: 'heatmap_county', maxSize: 100 * 1024 * 1024, maxItems: 20000 });
 
@@ -34,6 +34,10 @@ export const countyAnalyticsRepository = {
         const cacheKey = getCacheKey(filter);
         const cached = await cache.get(cacheKey);
         if (cached) return cached;
+
+        const normalization = filter.normalization ?? 'total';
+        const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
+        const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
         const conditions: string[] = [];
         const params: any[] = [];
@@ -191,6 +195,8 @@ export const countyAnalyticsRepository = {
         const reportsJoin = requireReportsJoin ? `JOIN Reports r ON eli.report_id = r.report_id` : "";
         const entitiesJoin = requireEntitiesJoin ? `JOIN Entities e ON eli.entity_cui = e.cui` : "";
 
+        const yearlySumExpression = getAmountSqlFragments(filter.report_period, 'eli').sumExpression;
+
         // Combine all outer filters (county, population, region, uat_ids)
         const allOuterFilters = [...postAggFilters, ...uatOuterConditions];
         const postAggWhereClause = allOuterFilters.length > 0 ? `AND ${allOuterFilters.join(" AND ")}` : "";
@@ -199,7 +205,8 @@ export const countyAnalyticsRepository = {
             WITH filtered_aggregates AS (
                 SELECT
                     eli.entity_cui,
-                    ${sumExpression} AS total_amount
+                    ${needsEuro ? 'eli.year,' : ''}
+                    ${yearlySumExpression} AS total_amount
                 FROM ExecutionLineItems eli
                 ${entitiesJoin}
                 ${reportsJoin}
@@ -230,6 +237,7 @@ export const countyAnalyticsRepository = {
                 COALESCE(SUM(fa.total_amount), 0) AS total_amount,
                 ci.county_population,
                 ci.county_entity_cui
+                ${needsEuro ? ', fa.year' : ''}
             FROM county_info ci
             LEFT JOIN UATs u ON u.county_code = ci.county_code
             LEFT JOIN filtered_aggregates fa ON fa.entity_cui = u.uat_code
@@ -241,26 +249,57 @@ export const countyAnalyticsRepository = {
         try {
             const result = await pool.query(queryString, params);
 
-            const data = result.rows.map((row): HeatmapCountyDataPoint_Repo => {
-                const totalAmount = parseFloat(row.total_amount || 0);
-                const countyPopulation = parseInt(row.county_population, 10) || 0;
+            let data: HeatmapCountyDataPoint_Repo[];
 
-                const perCapitaAmount = countyPopulation === 0
-                    ? 0
-                    : totalAmount / countyPopulation;
+            if (needsEuro) {
+                const rateByYear = getEurRateMap();
+                const countyData = new Map<string, HeatmapCountyDataPoint_Repo>();
 
-                const amount = filter.normalization === 'per_capita' ? perCapitaAmount : totalAmount;
+                for (const row of result.rows) {
+                    const rate = rateByYear.get(row.year) || 1;
+                    const euroAmount = parseFloat(row.total_amount) / rate;
 
-                return {
-                    county_code: row.county_code,
-                    county_name: row.county_name,
-                    county_population: countyPopulation,
-                    amount: amount,
-                    total_amount: totalAmount,
-                    per_capita_amount: perCapitaAmount,
-                    county_entity_cui: row.county_entity_cui,
+                    let entry = countyData.get(row.county_code);
+                    if (!entry) {
+                        entry = {
+                            county_code: row.county_code,
+                            county_name: row.county_name,
+                            county_population: row.county_population,
+                            amount: 0,
+                            total_amount: 0,
+                            per_capita_amount: 0,
+                            county_entity_cui: row.county_entity_cui,
+                        };
+                        countyData.set(row.county_code, entry);
+                    }
+                    entry.total_amount += euroAmount;
                 }
-            });
+
+                data = Array.from(countyData.values()).map(entry => {
+                    const perCapitaAmount = entry.county_population > 0 ? entry.total_amount / entry.county_population : 0;
+                    entry.amount = needsPerCapita ? perCapitaAmount : entry.total_amount;
+                    entry.per_capita_amount = perCapitaAmount;
+                    return entry;
+                });
+            } else {
+                data = result.rows.map((row): HeatmapCountyDataPoint_Repo => {
+                    const totalAmount = parseFloat(row.total_amount || 0);
+                    const countyPopulation = parseInt(row.county_population, 10) || 0;
+                    const perCapitaAmount = countyPopulation > 0 ? totalAmount / countyPopulation : 0;
+                    const amount = needsPerCapita ? perCapitaAmount : totalAmount;
+
+                    return {
+                        county_code: row.county_code,
+                        county_name: row.county_name,
+                        county_population: countyPopulation,
+                        amount: amount,
+                        total_amount: totalAmount,
+                        per_capita_amount: perCapitaAmount,
+                        county_entity_cui: row.county_entity_cui,
+                    };
+                });
+            }
+
             await cache.set(cacheKey, data);
             return data;
         } catch (error) {

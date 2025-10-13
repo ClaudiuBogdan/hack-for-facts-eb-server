@@ -1,7 +1,7 @@
 import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode } from "../../types";
-import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition } from "./utils";
+import { buildPeriodFilterSql, getAmountSqlFragments, getPeriodFlagCondition, getEurRateMap } from "./utils";
 
 const cache = createCache<HeatmapUATDataPoint_Repo[]>({ name: 'heatmap', maxSize: 150 * 1024 * 1024, maxItems: 30000 });
 
@@ -39,6 +39,10 @@ export const uatAnalyticsRepository = {
     const cacheKey = getCacheKey(filter);
     const cached = await cache.get(cacheKey);
     if (cached) return cached;
+
+    const normalization = filter.normalization ?? 'total';
+    const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
+    const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
     const conditions: string[] = [];
     const params: any[] = [];
@@ -194,16 +198,20 @@ export const uatAnalyticsRepository = {
     const reportsJoin = requireReportsJoin ? `JOIN Reports r ON eli.report_id = r.report_id` : "";
     const entitiesJoin = requireEntitiesJoin ? `JOIN Entities e ON eli.entity_cui = e.cui` : "";
 
+    const yearlySumExpression = getAmountSqlFragments(filter.report_period, 'eli').sumExpression;
+    const finalSumExpression = needsEuro ? 'SUM(fa.total_amount)' : yearlySumExpression;
+
     const queryString = `
       WITH filtered_aggregates AS (
         SELECT
           eli.entity_cui,
-          ${sumExpression} AS total_amount
+          ${needsEuro ? 'eli.year,' : ''}
+          ${yearlySumExpression} AS total_amount
         FROM ExecutionLineItems eli
         ${entitiesJoin}
         ${reportsJoin}
         ${whereClause}
-        GROUP BY eli.entity_cui
+        GROUP BY eli.entity_cui${needsEuro ? ', eli.year' : ''}
         ${havingClause}
       )
       SELECT
@@ -215,6 +223,7 @@ export const uatAnalyticsRepository = {
         u.county_name,
         u.population,
         fa.total_amount
+        ${needsEuro ? ', fa.year' : ''}
       FROM filtered_aggregates fa
       JOIN UATs u ON fa.entity_cui = u.uat_code
       ${outerWhereClause}
@@ -223,29 +232,62 @@ export const uatAnalyticsRepository = {
 
     try {
       const result = await pool.query(queryString, params);
+      
+      let data: HeatmapUATDataPoint_Repo[];
 
-      const calculateValue = (value: string, population: number) => {
-        const valueNumber = parseFloat(value);
-        const den = population || 0;
-        return den > 0 ? valueNumber / den : 0;
-      };
+      if (needsEuro) {
+        const rateByYear = getEurRateMap();
+        const uatData = new Map<number, HeatmapUATDataPoint_Repo>();
 
-      const data = result.rows.map((row): HeatmapUATDataPoint_Repo => {
-        const perCapitaAmount = calculateValue(row.total_amount, row.population);
-        const amount = filter.normalization === 'per_capita' ? perCapitaAmount : row.total_amount;
-        return {
-          uat_id: row.uat_id,
-          uat_code: row.uat_code,
-          uat_name: row.uat_name,
-          population: row.population,
-          siruta_code: row.siruta_code,
-          county_code: row.county_code,
-          county_name: row.county_name,
-          amount: amount,
-          total_amount: row.total_amount,
-          per_capita_amount: perCapitaAmount,
+        for (const row of result.rows) {
+          const rate = rateByYear.get(row.year) || 1;
+          const euroAmount = parseFloat(row.total_amount) / rate;
+
+          let entry = uatData.get(row.uat_id);
+          if (!entry) {
+            entry = {
+              uat_id: row.uat_id,
+              uat_code: row.uat_code,
+              uat_name: row.uat_name,
+              population: row.population,
+              siruta_code: row.siruta_code,
+              county_code: row.county_code,
+              county_name: row.county_name,
+              amount: 0,
+              total_amount: 0,
+              per_capita_amount: 0,
+            };
+            uatData.set(row.uat_id, entry);
+          }
+          entry.total_amount += euroAmount;
         }
-      });
+
+        data = Array.from(uatData.values()).map(entry => {
+          const perCapitaAmount = entry.population > 0 ? entry.total_amount / entry.population : 0;
+          entry.amount = needsPerCapita ? perCapitaAmount : entry.total_amount;
+          entry.per_capita_amount = perCapitaAmount;
+          return entry;
+        });
+      } else {
+        data = result.rows.map((row): HeatmapUATDataPoint_Repo => {
+          const totalAmount = parseFloat(row.total_amount);
+          const perCapitaAmount = row.population > 0 ? totalAmount / row.population : 0;
+          const amount = needsPerCapita ? perCapitaAmount : totalAmount;
+          return {
+            uat_id: row.uat_id,
+            uat_code: row.uat_code,
+            uat_name: row.uat_name,
+            population: row.population,
+            siruta_code: row.siruta_code,
+            county_code: row.county_code,
+            county_name: row.county_name,
+            amount: amount,
+            total_amount: totalAmount,
+            per_capita_amount: perCapitaAmount,
+          };
+        });
+      }
+      
       await cache.set(cacheKey, data);
       return data;
     } catch (error) {
