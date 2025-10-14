@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "license": "MIT",
   "scripts": {
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
