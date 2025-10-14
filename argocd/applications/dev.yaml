@@ -4,7 +4,7 @@ metadata:
   name: hack-for-facts-eb-server-dev
   namespace: argocd
 spec:
-  project: hack-for-facts-dev
+  project: hack-for-facts
   source:
     kustomize:
       commonAnnotationsEnvsubst: true

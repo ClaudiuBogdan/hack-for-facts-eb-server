@@ -5,11 +5,11 @@ namespace: hack-for-facts-dev
 
 resources:
   - ../../base
-  - ./secrets/app-secret.secret.yaml
-  - ./secrets/db-deployment.secret.yaml
-  - ./secrets/db-user-deployment.secret.yaml
-  - ./secrets/registry-secret.secret.yaml
-  - ./secrets/redis-auth.secret.yaml
+  - ./secrets/sealed-app-secret.yaml
+  - ./secrets/sealed-db-deployment.yaml
+  - ./secrets/sealed-db-user-deployment.yaml
+  - ./secrets/sealed-registry-secret.yaml
+  - ./secrets/sealed-redis-auth.yaml
 
 patches:
   - target:
