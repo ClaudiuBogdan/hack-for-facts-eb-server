@@ -1,4 +1,5 @@
 import pool from "../connection";
+import { createCache, getCacheKey } from "../../utils/cache";
 
 export interface CategoryAggregateFilter {
   account_category: "vn" | "ch";
@@ -30,6 +31,22 @@ export interface EconomicAggregateRow {
   min_amount: number;
   max_amount: number;
 }
+
+// Caches for list + count results
+type FunctionalAggregatesCache = { rows: FunctionalAggregateRow[]; totalCount: number };
+type EconomicAggregatesCache = { rows: EconomicAggregateRow[]; totalCount: number };
+
+const functionalCache = createCache<FunctionalAggregatesCache>({
+  name: "category_functional_aggregates",
+  maxSize: 100 * 1024 * 1024,
+  maxItems: 10000,
+});
+
+const economicCache = createCache<EconomicAggregatesCache>({
+  name: "category_economic_aggregates",
+  maxSize: 100 * 1024 * 1024,
+  maxItems: 10000,
+});
 
 function buildWhere(filter: CategoryAggregateFilter) {
   const conditions: string[] = [];
@@ -78,6 +95,10 @@ export const categoryAnalyticsRepository = {
     limit = 50,
     offset = 0
   ): Promise<{ rows: FunctionalAggregateRow[]; totalCount: number }> {
+    const cacheKey = getCacheKey({ filter, limit, offset });
+    const cached = await functionalCache.get(cacheKey);
+    if (cached) return cached;
+
     const { where, values } = buildWhere(filter);
     const base = `FROM vw_Category_Aggregated_Metrics ${where}`;
     const select = `SELECT functional_code, COALESCE(functional_name, '') AS functional_name, SUM(total_amount) AS total_amount, SUM(contributing_entities_count) AS contributing_entities_count, AVG(avg_amount) AS avg_amount, MIN(min_amount) AS min_amount, MAX(max_amount) AS max_amount ${base} GROUP BY functional_code, functional_name ORDER BY total_amount DESC`;
@@ -91,7 +112,7 @@ export const categoryAnalyticsRepository = {
       pool.query(selectWithLimit, finalValues),
       pool.query(count, values),
     ]);
-    return {
+    const result = {
       rows: rowsRes.rows.map((r) => ({
         functional_code: r.functional_code,
         functional_name: r.functional_name,
@@ -103,6 +124,8 @@ export const categoryAnalyticsRepository = {
       })),
       totalCount: parseInt(countRes.rows[0].count, 10),
     };
+    await functionalCache.set(cacheKey, result);
+    return result;
   },
 
   async getEconomicAggregates(
@@ -110,6 +133,10 @@ export const categoryAnalyticsRepository = {
     limit = 50,
     offset = 0
   ): Promise<{ rows: EconomicAggregateRow[]; totalCount: number }> {
+    const cacheKey = getCacheKey({ filter, limit, offset });
+    const cached = await economicCache.get(cacheKey);
+    if (cached) return cached;
+
     const { where, values } = buildWhere(filter);
     const base = `FROM vw_Category_Aggregated_Metrics ${where}`;
     const select = `SELECT economic_code, COALESCE(economic_name, '') AS economic_name, SUM(total_amount) AS total_amount, SUM(contributing_entities_count) AS contributing_entities_count, AVG(avg_amount) AS avg_amount, MIN(min_amount) AS min_amount, MAX(max_amount) AS max_amount ${base} GROUP BY economic_code, economic_name ORDER BY total_amount DESC`;
@@ -123,7 +150,7 @@ export const categoryAnalyticsRepository = {
       pool.query(selectWithLimit, finalValues),
       pool.query(count, values),
     ]);
-    return {
+    const result = {
       rows: rowsRes.rows.map((r) => ({
         economic_code: r.economic_code,
         economic_name: r.economic_name,
@@ -135,7 +162,8 @@ export const categoryAnalyticsRepository = {
       })),
       totalCount: parseInt(countRes.rows[0].count, 10),
     };
+    await economicCache.set(cacheKey, result);
+    return result;
   },
 };
-
 

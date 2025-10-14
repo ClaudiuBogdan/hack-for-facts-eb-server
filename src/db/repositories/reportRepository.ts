@@ -1,6 +1,7 @@
 import pool from "../connection";
 import { Report } from "../models";
 import { SqlFilterParts } from "../../types";
+import { createCache, getCacheKey } from "../../utils/cache";
 
 export interface ReportFilter {
   entity_cui?: string;
@@ -22,6 +23,19 @@ export interface SortOptions {
 const SIMILARITY_THRESHOLD = 0.1;
 // Base join clause for Reports -> Entities
 const BASE_QUERY = "FROM Reports r JOIN Entities e ON r.entity_cui = e.cui";
+
+// Caches for report lists and counts
+const reportsListCache = createCache<Report[]>({
+  name: 'reports_list',
+  maxSize: 150 * 1024 * 1024,
+  maxItems: 20000,
+});
+
+const reportsCountCache = createCache<{ count: number }>({
+  name: 'reports_count',
+  maxSize: 20 * 1024 * 1024,
+  maxItems: 20000,
+});
 
 /**
  * Builds pg_trgm search condition for entity name & download_links.
@@ -160,7 +174,13 @@ export const reportRepository = {
     }
 
     try {
+      // Return cached result if available
+      const cacheKey = getCacheKey({ filter, limit, offset, sort });
+      const cached = await reportsListCache.get(cacheKey);
+      if (cached) return cached;
+
       const result = await pool.query(query, params);
+      await reportsListCache.set(cacheKey, result.rows);
       return result.rows;
     } catch (error) {
       console.error("Error fetching reports:", error, { query, params });
@@ -205,8 +225,14 @@ export const reportRepository = {
     const countQuery = `SELECT COUNT(DISTINCT r.report_id) AS count ${BASE_QUERY}${where}`;
 
     try {
+      const cacheKey = getCacheKey({ filter });
+      const cached = await reportsCountCache.get(cacheKey);
+      if (cached) return cached.count;
+
       const result = await pool.query(countQuery, values);
-      return parseInt(result.rows[0].count, 10);
+      const count = parseInt(result.rows[0].count, 10);
+      await reportsCountCache.set(cacheKey, { count });
+      return count;
     } catch (error) {
       console.error("Error counting reports:", error, { query: countQuery, values });
       throw error;
