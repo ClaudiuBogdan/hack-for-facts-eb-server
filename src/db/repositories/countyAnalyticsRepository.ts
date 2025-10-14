@@ -211,7 +211,7 @@ export const countyAnalyticsRepository = {
                 ${entitiesJoin}
                 ${reportsJoin}
                 ${whereClause}
-                GROUP BY eli.entity_cui
+                GROUP BY eli.entity_cui${needsEuro ? ', eli.year' : ''}
                 ${havingClause}
             ),
             county_info AS (
@@ -242,7 +242,7 @@ export const countyAnalyticsRepository = {
             LEFT JOIN UATs u ON u.county_code = ci.county_code
             LEFT JOIN filtered_aggregates fa ON fa.entity_cui = u.uat_code
             WHERE 1=1 ${postAggWhereClause}
-            GROUP BY ci.county_code, ci.county_name, ci.county_population, ci.county_entity_cui
+            GROUP BY ci.county_code, ci.county_name, ci.county_population, ci.county_entity_cui${needsEuro ? ', fa.year' : ''}
             ORDER BY ci.county_code;
         `;
 
