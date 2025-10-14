@@ -16,7 +16,8 @@ export interface AggregatedLineItem_Repo {
   count: number;
 }
 
-const cache = createCache<AggregatedLineItem_Repo[]>({
+type AggregatedLineItemsCache = { rows: AggregatedLineItem_Repo[]; totalCount: number };
+const cache = createCache<AggregatedLineItemsCache>({
   name: "aggregated_line_items",
   maxSize: 100 * 1024 * 1024,
   maxItems: 10000,
@@ -177,6 +178,10 @@ export const aggregatedLineItemsRepository = {
   ): Promise<{ rows: AggregatedLineItem_Repo[]; totalCount: number }> {
     const cacheKey = getCacheKey({ filter, limit, offset });
     const cached = await cache.get(cacheKey);
+    if (cached) {
+      // Return fully from cache if available (rows + totalCount)
+      return { rows: cached.rows, totalCount: cached.totalCount };
+    }
 
     const values: any[] = [];
     const { conditions, values: filterValues, nextParamIndex, requireEntitiesJoin, requireReportsJoin, requireUATsJoin } = buildWhereClause(filter, 1);
@@ -238,13 +243,6 @@ export const aggregatedLineItemsRepository = {
       ${havingClause}
     `;
 
-    if (cached) {
-      const countQuery = `SELECT COUNT(*) FROM (${baseQuery}) as agg_count`;
-      const countResult = await pool.query(countQuery, values);
-      const totalCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
-      return { rows: cached, totalCount };
-    }
-
     const countQuery = `SELECT COUNT(*) FROM (${baseQuery}) as agg_count`;
     const countResult = await pool.query(countQuery, values);
     const totalCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
@@ -282,8 +280,8 @@ export const aggregatedLineItemsRepository = {
         };
       });
 
-    await cache.set(cacheKey, rows);
-    return { rows, totalCount };
+      await cache.set(cacheKey, { rows, totalCount });
+      return { rows, totalCount };
     }
 
     // Euro modes: compute per-year aggregates, convert using yearly rates, then sort/paginate in memory
@@ -363,7 +361,7 @@ export const aggregatedLineItemsRepository = {
     const end = limit !== undefined ? start + limit : undefined;
     const pagedRows = rows.slice(start, end);
 
-    await cache.set(cacheKey, pagedRows);
+    await cache.set(cacheKey, { rows: pagedRows, totalCount: rows.length });
     return { rows: pagedRows, totalCount: rows.length };
   },
 };

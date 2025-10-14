@@ -30,7 +30,8 @@ export interface EntityAnalyticsDataPoint_Repo {
   amount: number; // equals total_amount or per_capita_amount depending on normalization
 }
 
-const cache = createCache<EntityAnalyticsDataPoint_Repo[]>({
+type EntityAnalyticsCache = { rows: EntityAnalyticsDataPoint_Repo[]; totalCount: number };
+const cache = createCache<EntityAnalyticsCache>({
   name: "entity_analytics",
   maxSize: 300 * 1024 * 1024, // Entity analytics can be large; allow up to 300MB
   maxItems: 30000,
@@ -239,8 +240,10 @@ export const entityAnalyticsRepository = {
   ): Promise<{ rows: EntityAnalyticsDataPoint_Repo[]; totalCount: number }> {
     const cacheKey = getCacheKey({ filter, sort, limit, offset });
     const cached = await cache.get(cacheKey);
-    // We only cache rows list; totalCount can change with data, but accept same key
-    // to avoid storing two caches; we still compute totalCount separately without caching here.
+    if (cached) {
+      // Return fully from cache if available (rows + totalCount)
+      return { rows: cached.rows, totalCount: cached.totalCount };
+    }
 
     const values: any[] = [];
     const {
@@ -389,11 +392,6 @@ export const entityAnalyticsRepository = {
     const countResult = await pool.query(countQuery, values);
     const totalCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
-    // If we have cached rows for this exact request (filter+sort+pagination), return them
-    if (cached) {
-      return { rows: cached, totalCount };
-    }
-
     let finalQuery = query;
     if (limit !== undefined) {
       finalQuery += ` LIMIT $${paramIndex++}`;
@@ -419,8 +417,8 @@ export const entityAnalyticsRepository = {
       amount: parseFloat(row.amount ?? 0),
     }));
 
-    // Cache only the rows list
-    await cache.set(cacheKey, rows);
+    // Cache rows and totalCount together
+    await cache.set(cacheKey, { rows, totalCount });
 
     return { rows, totalCount };
   },
