@@ -85,12 +85,8 @@ patches:
       kind: PersistentVolumeClaim
       name: redis-data
     patch: |-
-      - op: replace
-        path: /metadata/namespace
-        value: hack-for-facts-dev
-      - op: replace
-        path: /spec/resources/requests/storage
-        value: 2Gi
+      - op: remove
+        path: /
 
   - target:
       kind: Deployment
