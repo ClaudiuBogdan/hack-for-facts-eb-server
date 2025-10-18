@@ -17,7 +17,8 @@ export default async function healthzRoutes(fastify: FastifyInstance) {
       await pool.query("SELECT 1");
       reply.code(200).send("OK");
     } catch (error) {
-      fastify.log.error("Health check failed:", error);
+      fastify.log.error("Health check failed");
+      fastify.log.error(error, "Error details:");
       reply.code(503).send("Service Unavailable");
     }
   });
