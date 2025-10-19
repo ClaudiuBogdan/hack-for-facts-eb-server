@@ -127,6 +127,11 @@ export const countyAnalyticsRepository = {
             params.push(filter.entity_cuis);
         }
 
+        if (filter.main_creditor_cui) {
+            conditions.push(`eli.main_creditor_cui = $${paramIndex++}`);
+            params.push(filter.main_creditor_cui);
+        }
+
         if (filter.is_uat !== undefined) {
             conditions.push(`e.is_uat = $${paramIndex++}`);
             params.push(filter.is_uat);

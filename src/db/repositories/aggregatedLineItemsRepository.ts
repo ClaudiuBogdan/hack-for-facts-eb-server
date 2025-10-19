@@ -79,6 +79,10 @@ function buildWhereClause(
     conditions.push(`eli.entity_cui = ANY($${paramIndex++}::text[])`);
     values.push(filter.entity_cuis);
   }
+  if (filter.main_creditor_cui) {
+    conditions.push(`eli.main_creditor_cui = $${paramIndex++}`);
+    values.push(filter.main_creditor_cui);
+  }
   if (filter.funding_source_ids?.length) {
     conditions.push(`eli.funding_source_id = ANY($${paramIndex++}::int[])`);
     values.push(filter.funding_source_ids);
