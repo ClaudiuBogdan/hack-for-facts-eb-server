@@ -3,8 +3,8 @@ services:
     image: postgres:17.6
     container_name: budget_db
     restart: always
-    # Increase shared memory size, crucial for PostgreSQL performance
-    shm_size: '2gb'
+    # Increase shared memory size for analytics workloads
+    shm_size: '4gb'
     ports:
       - "5432:5432"
     environment:
@@ -12,28 +12,139 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: budget_db
     volumes:
-      # Using a volume is crucial for data persistence and performance
       - postgres_data:/var/lib/postgresql/data
-    # Command to override postgresql.conf settings for maximum insert speed
-    # WARNING: These settings are UNSAFE for production environments.
-    command: 
+    # Optimized for heavy analytics workloads
+    command:
       - "postgres"
+      # Preload libraries for monitoring and auto-explain
       - "-c"
-      - "fsync=off"                 # Disables forcing writes to disk, major speed boost.
+      - "shared_preload_libraries=pg_stat_statements,auto_explain"
+
+      # Connection Management
       - "-c"
-      - "synchronous_commit=off"    # Client doesn't wait for WAL commit, very fast.
+      - "max_connections=50"
+
+      # Memory configuration - optimized for large analytical queries
       - "-c"
-      - "full_page_writes=off"      # Reduces WAL volume, safe when fsync is off.
+      - "shared_buffers=4096MB"
       - "-c"
-      - "wal_buffers=16MB"          # Increases in-memory buffer for WAL data.
+      - "effective_cache_size=8GB"
       - "-c"
-      - "max_wal_size=4GB"          # Allows more WAL data before a checkpoint is forced.
+      - "maintenance_work_mem=2GB"
       - "-c"
-      - "checkpoint_timeout=3600s"  # Sets checkpoint frequency to once per hour.
+      - "work_mem=256MB"
       - "-c"
-      - "autovacuum=on"            # Prevents autovacuum from interfering with the bulk load.
+      - "temp_file_limit=20GB"
+
+      # WAL configuration
       - "-c"
-      - "maintenance_work_mem=2GB"  # Allocates more memory for creating indexes after the load.
+      - "wal_buffers=-1"
+      - "-c"
+      - "min_wal_size=2GB"
+      - "-c"
+      - "max_wal_size=16GB"
+      - "-c"
+      - "wal_compression=lz4"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "checkpoint_timeout=15min"
+
+      # Storage and IO tuning (optimized for SSD/NVMe)
+      - "-c"
+      - "random_page_cost=1.0"
+      - "-c"
+      - "effective_io_concurrency=256"
+      - "-c"
+      - "maintenance_io_concurrency=256"
+
+      # Parallel query execution
+      - "-c"
+      - "max_worker_processes=8"
+      - "-c"
+      - "max_parallel_workers=4"
+      - "-c"
+      - "max_parallel_workers_per_gather=4"
+      - "-c"
+      - "max_parallel_maintenance_workers=4"
+      - "-c"
+      - "parallel_setup_cost=100"
+      - "-c"
+      - "parallel_tuple_cost=0.01"
+      - "-c"
+      - "min_parallel_table_scan_size=8MB"
+      - "-c"
+      - "min_parallel_index_scan_size=512kB"
+
+      # Planner and partitioning
+      - "-c"
+      - "default_statistics_target=500"
+      - "-c"
+      - "constraint_exclusion=partition"
+      - "-c"
+      - "enable_partition_pruning=on"
+      - "-c"
+      - "enable_partitionwise_join=on"
+      - "-c"
+      - "enable_partitionwise_aggregate=on"
+      - "-c"
+      - "hash_mem_multiplier=2.0"
+
+      # Autovacuum tuning for analytics
+      - "-c"
+      - "autovacuum_max_workers=8"
+      - "-c"
+      - "autovacuum_naptime=30s"
+      - "-c"
+      - "autovacuum_vacuum_scale_factor=0.02"
+      - "-c"
+      - "autovacuum_analyze_scale_factor=0.01"
+      - "-c"
+      - "autovacuum_vacuum_cost_delay=0ms"
+      - "-c"
+      - "autovacuum_vacuum_cost_limit=10000"
+      - "-c"
+      - "autovacuum_vacuum_insert_scale_factor=0.02"
+
+      # Observability
+      - "-c"
+      - "pg_stat_statements.max=10000"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "auto_explain.log_min_duration=1000ms"
+      - "-c"
+      - "auto_explain.log_analyze=on"
+      - "-c"
+      - "auto_explain.log_buffers=on"
+      - "-c"
+      - "auto_explain.log_timing=on"
+      - "-c"
+      - "track_io_timing=on"
+      - "-c"
+      - "track_functions=all"
+      - "-c"
+      - "log_min_duration_statement=1000ms"
+      - "-c"
+      - "log_temp_files=0"
+      - "-c"
+      - "log_lock_waits=on"
+
+      # JIT compilation for complex queries
+      - "-c"
+      - "jit=on"
+      - "-c"
+      - "jit_above_cost=500000"
+      - "-c"
+      - "jit_inline_above_cost=500000"
+      - "-c"
+      - "jit_optimize_above_cost=500000"
+
+      # Statement timeouts
+      - "-c"
+      - "statement_timeout=3600000"
+      - "-c"
+      - "idle_in_transaction_session_timeout=600000"
 
 volumes:
   postgres_data:

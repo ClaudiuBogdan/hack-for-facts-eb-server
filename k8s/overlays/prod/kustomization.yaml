@@ -5,6 +5,7 @@ namespace: hack-for-facts-prod
 
 resources:
   - ../../base
+  - ./postgres-pooler.yaml
   - ./secrets/sealed-app-secret.yaml
   - ./secrets/sealed-db-deployment.yaml
   - ./secrets/sealed-db-user-deployment.yaml
@@ -21,13 +22,207 @@ patches:
         value: hack-for-facts-prod
       - op: replace
         path: /spec/storage/size
-        value: 20Gi
+        value: 200Gi
+      - op: add
+        path: /spec/walStorage
+        value:
+          size: 20Gi
+          storageClass: "microk8s-hostpath"
       - op: replace
         path: /spec/bootstrap/initdb/database
         value: hack-for-facts-prod
       - op: replace
         path: /spec/bootstrap/initdb/owner
         value: hack-for-facts_user
+      - op: add
+        path: /spec/resources
+        value:
+          requests:
+            memory: "10Gi"
+            cpu: "4"
+          limits:
+            memory: "10Gi"
+            cpu: "4"
+      - op: replace
+        path: /spec/postgresql/shared_preload_libraries
+        value:
+          - pg_stat_statements
+          - auto_explain
+
+      # Connection Management - Optimized for analytics
+      - op: replace
+        path: /spec/postgresql/parameters/max_connections
+        value: "50"
+
+      # Memory configuration - increased for large queries
+      - op: replace
+        path: /spec/postgresql/parameters/shared_buffers
+        value: "4096MB"
+      - op: add
+        path: /spec/postgresql/parameters/effective_cache_size
+        value: "8GB"
+      - op: add
+        path: /spec/postgresql/parameters/maintenance_work_mem
+        value: "2GB"
+      - op: add
+        path: /spec/postgresql/parameters/checkpoint_completion_target
+        value: "0.9"
+      - op: add
+        path: /spec/postgresql/parameters/checkpoint_timeout
+        value: "15min"
+      - op: add
+        path: /spec/postgresql/parameters/wal_buffers
+        value: "-1"
+      - op: add
+        path: /spec/postgresql/parameters/work_mem
+        value: "256MB"
+      - op: add
+        path: /spec/postgresql/parameters/temp_file_limit
+        value: "20GB"
+
+      # WAL configuration
+      - op: add
+        path: /spec/postgresql/parameters/min_wal_size
+        value: "2GB"
+      - op: add
+        path: /spec/postgresql/parameters/max_wal_size
+        value: "16GB"
+      - op: add
+        path: /spec/postgresql/parameters/wal_compression
+        value: "lz4"
+
+      # Storage and IO tuning (NVMe)
+      - op: add
+        path: /spec/postgresql/parameters/random_page_cost
+        value: "1.0"
+      - op: add
+        path: /spec/postgresql/parameters/effective_io_concurrency
+        value: "256"
+      - op: add
+        path: /spec/postgresql/parameters/maintenance_io_concurrency
+        value: "256"
+
+      # Parallel query
+      - op: add
+        path: /spec/postgresql/parameters/max_worker_processes
+        value: "8"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_workers
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_workers_per_gather
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_maintenance_workers
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/parallel_setup_cost
+        value: "100"
+      - op: add
+        path: /spec/postgresql/parameters/parallel_tuple_cost
+        value: "0.01"
+      - op: add
+        path: /spec/postgresql/parameters/min_parallel_table_scan_size
+        value: "8MB"
+      - op: add
+        path: /spec/postgresql/parameters/min_parallel_index_scan_size
+        value: "512kB"
+
+      # Planner and partitioning
+      - op: add
+        path: /spec/postgresql/parameters/default_statistics_target
+        value: "500"
+      - op: add
+        path: /spec/postgresql/parameters/constraint_exclusion
+        value: "partition"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partition_pruning
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partitionwise_join
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partitionwise_aggregate
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/hash_mem_multiplier
+        value: "2.0"
+
+      # Autovacuum tuning
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_max_workers
+        value: "8"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_naptime
+        value: "30s"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_vacuum_scale_factor
+        value: "0.02"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_analyze_scale_factor
+        value: "0.01"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_vacuum_cost_delay
+        value: "0ms"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_vacuum_cost_limit
+        value: "10000"
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum_vacuum_insert_scale_factor
+        value: "0.02"
+
+      # Observability and JIT
+      - op: add
+        path: /spec/postgresql/parameters/pg_stat_statements.max
+        value: "10000"
+      - op: add
+        path: /spec/postgresql/parameters/pg_stat_statements.track
+        value: "all"
+      - op: add
+        path: /spec/postgresql/parameters/auto_explain.log_min_duration
+        value: "1000ms"
+      - op: add
+        path: /spec/postgresql/parameters/auto_explain.log_analyze
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/auto_explain.log_buffers
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/auto_explain.log_timing
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/track_io_timing
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/track_functions
+        value: "all"
+      - op: add
+        path: /spec/postgresql/parameters/log_min_duration_statement
+        value: "1000ms"
+      - op: add
+        path: /spec/postgresql/parameters/log_temp_files
+        value: "0"
+      - op: add
+        path: /spec/postgresql/parameters/log_lock_waits
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/jit
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/jit_above_cost
+        value: "500000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_inline_above_cost
+        value: "500000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_optimize_above_cost
+        value: "500000"
+      - op: add
+        path: /spec/postgresql/parameters/statement_timeout
+        value: "3600000"
+      - op: add
+        path: /spec/postgresql/parameters/idle_in_transaction_session_timeout
+        value: "600000"
 
   - target:
       kind: Cluster
@@ -38,7 +233,7 @@ patches:
         value: hack-for-facts-prod
       - op: replace
         path: /spec/storage/size
-        value: 20Gi
+        value: 200Gi
       - op: replace
         path: /spec/bootstrap/initdb/database
         value: hack-for-facts-prod
