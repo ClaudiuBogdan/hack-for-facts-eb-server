@@ -37,9 +37,6 @@ patches:
       - op: add
         path: /spec/resources
         value:
-          requests:
-            memory: "10Gi"
-            cpu: "4"
           limits:
             memory: "10Gi"
             cpu: "4"
