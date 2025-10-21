@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17.6
+    image: postgres:18
     container_name: budget_db
     restart: always
     # Increase shared memory size for analytics workloads

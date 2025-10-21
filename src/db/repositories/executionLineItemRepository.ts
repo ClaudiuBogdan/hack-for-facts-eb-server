@@ -204,6 +204,57 @@ const buildExecutionLineItemFilterQuery = (
     values.push(filters.program_codes);
   }
 
+  // ---------- Exclusion rules on ELI fields ----------
+  const { exclude } = filters;
+  if (exclude) {
+    if (exclude.report_ids && exclude.report_ids.length) {
+      conditions.push(`NOT (eli.report_id = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.report_ids);
+    }
+    if (exclude.entity_cuis && exclude.entity_cuis.length) {
+      conditions.push(`NOT (eli.entity_cui = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_cuis);
+    }
+    if (exclude.main_creditor_cui) {
+      conditions.push(`eli.main_creditor_cui <> $${paramIndex++}`);
+      values.push(exclude.main_creditor_cui);
+    }
+    if (exclude.funding_source_ids && exclude.funding_source_ids.length) {
+      conditions.push(`NOT (eli.funding_source_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.funding_source_ids);
+    }
+    if (exclude.budget_sector_ids && exclude.budget_sector_ids.length) {
+      conditions.push(`NOT (eli.budget_sector_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.budget_sector_ids);
+    }
+    if (exclude.functional_codes && exclude.functional_codes.length) {
+      conditions.push(`NOT (eli.functional_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.functional_codes);
+    }
+    if (exclude.functional_prefixes && exclude.functional_prefixes.length) {
+      const patterns = exclude.functional_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.economic_codes && exclude.economic_codes.length) {
+      conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.economic_codes);
+    }
+    if (exclude.economic_prefixes && exclude.economic_prefixes.length) {
+      const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.expense_types && exclude.expense_types.length) {
+      conditions.push(`NOT (eli.expense_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.expense_types);
+    }
+    if (exclude.program_codes && exclude.program_codes.length) {
+      conditions.push(`NOT (eli.program_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.program_codes);
+    }
+  }
+
   // ---------- Joined Filters (Entities, Reports, UATs) ----------
 
   // Grouped check for any filter requiring a JOIN on the Entities table
@@ -211,7 +262,8 @@ const buildExecutionLineItemFilterQuery = (
     filters.entity_types?.length ||
     filters.is_uat !== undefined ||
     (filters.county_codes && filters.county_codes.length > 0) ||
-    filters.uat_ids?.length
+    filters.uat_ids?.length ||
+    (exclude && (exclude.entity_types?.length || exclude.uat_ids?.length || exclude.county_codes?.length))
   ) {
     ensureJoin("e", `JOIN ${TABLES.ENTITIES} e ON eli.entity_cui = e.cui`);
   }
@@ -235,6 +287,23 @@ const buildExecutionLineItemFilterQuery = (
     ensureJoin("u", `JOIN ${TABLES.UATS} u ON e.uat_id = u.id`);
     conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
     values.push(filters.county_codes);
+  }
+
+  // Exclusions that require joins
+  if (exclude) {
+    if (exclude.entity_types && exclude.entity_types.length) {
+      conditions.push(`NOT (e.entity_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_types);
+    }
+    if (exclude.uat_ids && exclude.uat_ids.length) {
+      conditions.push(`NOT (e.uat_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.uat_ids);
+    }
+    if (exclude.county_codes && exclude.county_codes.length) {
+      ensureJoin("u", `JOIN ${TABLES.UATS} u ON e.uat_id = u.id`);
+      conditions.push(`NOT (u.county_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.county_codes);
+    }
   }
 
   // ---------- Finalise query pieces ----------
@@ -455,7 +524,7 @@ export const executionLineItemRepository = {
           WHERE v.entity_cui = $1 AND v.report_type = $2${periodSql.clause ? ` AND ${periodSql.clause}` : ''}${mainCreditorCondition}
           GROUP BY v.year;
         `;
-    
+
     try {
       const result = await pool.query(query, params);
 

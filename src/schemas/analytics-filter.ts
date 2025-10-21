@@ -43,7 +43,25 @@ export const analyticsFilterSchema = z.object({
   aggregate_max_amount: z.number().nullable().optional(),
   item_min_amount: z.number().nullable().optional(),
   item_max_amount: z.number().nullable().optional(),
+  exclude: z
+    .object({
+      report_ids: z.array(z.string()).optional(),
+      entity_cuis: z.array(z.string()).optional(),
+      main_creditor_cui: z.string().optional(),
+      functional_codes: z.array(z.string()).optional(),
+      functional_prefixes: z.array(z.string()).optional(),
+      economic_codes: z.array(z.string()).optional(),
+      economic_prefixes: z.array(z.string()).optional(),
+      funding_source_ids: z.array(z.number()).optional(),
+      budget_sector_ids: z.array(z.number()).optional(),
+      expense_types: z.array(z.enum(['dezvoltare', 'functionare'])).optional(),
+      program_codes: z.array(z.string()).optional(),
+      county_codes: z.array(z.string()).optional(),
+      regions: z.array(z.string()).optional(),
+      uat_ids: z.array(z.number()).optional(),
+      entity_types: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 export type AnalyticsFilterInput = z.infer<typeof analyticsFilterSchema>;
-

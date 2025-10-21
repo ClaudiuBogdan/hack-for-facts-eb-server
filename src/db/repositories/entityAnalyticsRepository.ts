@@ -145,13 +145,65 @@ function buildEntityAnalyticsWhere(
     values.push(filter.item_max_amount);
   }
 
+  // Exclusions (negative filters on ELI level)
+  const { exclude } = filter
+  if (exclude) {
+    if (exclude.report_ids?.length) {
+      conditions.push(`NOT (eli.report_id = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.report_ids);
+    }
+    if (exclude.entity_cuis?.length) {
+      conditions.push(`NOT (eli.entity_cui = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_cuis);
+    }
+    if (exclude.main_creditor_cui) {
+      conditions.push(`eli.main_creditor_cui <> $${paramIndex++}`);
+      values.push(exclude.main_creditor_cui);
+    }
+    if (exclude.funding_source_ids?.length) {
+      conditions.push(`NOT (eli.funding_source_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.funding_source_ids);
+    }
+    if (exclude.budget_sector_ids?.length) {
+      conditions.push(`NOT (eli.budget_sector_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.budget_sector_ids);
+    }
+    if (exclude.functional_codes?.length) {
+      conditions.push(`NOT (eli.functional_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.functional_codes);
+    }
+    if (exclude.functional_prefixes?.length) {
+      const patterns = exclude.functional_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.economic_codes?.length) {
+      conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.economic_codes);
+    }
+    if (exclude.economic_prefixes?.length) {
+      const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.expense_types?.length) {
+      conditions.push(`NOT (eli.expense_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.expense_types);
+    }
+    if (exclude.program_codes?.length) {
+      conditions.push(`NOT (eli.program_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.program_codes);
+    }
+  }
+
   // Joined filters requiring Entities and/or UATs
   if (
     filter.entity_types?.length ||
     typeof filter.is_uat === "boolean" ||
     filter.uat_ids?.length ||
     filter.county_codes?.length ||
-    filter.search
+    filter.search ||
+    (exclude && (exclude.entity_types?.length || exclude.uat_ids?.length))
   ) {
     // Prepare entity-level filters and record if we must join Entities in the CTE
     if (filter.entity_types?.length) {
@@ -174,6 +226,16 @@ function buildEntityAnalyticsWhere(
       values.push(`%${filter.search}%`);
       requireEntitiesJoin = true;
     }
+    if (exclude?.entity_types?.length) {
+      conditions.push(`NOT (e.entity_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_types);
+      requireEntitiesJoin = true;
+    }
+    if (exclude?.uat_ids?.length) {
+      conditions.push(`NOT (e.uat_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.uat_ids);
+      requireEntitiesJoin = true;
+    }
   }
 
   // Note: county_codes and population filters are moved to outer query
@@ -183,6 +245,14 @@ function buildEntityAnalyticsWhere(
   if (filter.county_codes?.length) {
     outerConditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
     values.push(filter.county_codes);
+  }
+  if (exclude?.county_codes?.length) {
+    outerConditions.push(`NOT (u.county_code = ANY($${paramIndex++}::text[]))`);
+    values.push(exclude.county_codes);
+  }
+  if (exclude?.regions?.length) {
+    outerConditions.push(`NOT (u.region = ANY($${paramIndex++}::text[]))`);
+    values.push(exclude.regions);
   }
 
   if (filter.min_population !== undefined && filter.min_population !== null) {

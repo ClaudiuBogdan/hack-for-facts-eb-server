@@ -182,6 +182,75 @@ export const countyAnalyticsRepository = {
 
         // reporting_years deprecated; use report_period
 
+        // Exclusions (negative filters)
+        const { exclude } = filter
+        if (exclude) {
+            if (exclude.report_ids && exclude.report_ids.length > 0) {
+                conditions.push(`NOT (eli.report_id = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.report_ids);
+            }
+            if (exclude.entity_cuis && exclude.entity_cuis.length > 0) {
+                conditions.push(`NOT (eli.entity_cui = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.entity_cuis);
+            }
+            if (exclude.main_creditor_cui) {
+                conditions.push(`eli.main_creditor_cui <> $${paramIndex++}`);
+                params.push(exclude.main_creditor_cui);
+            }
+            if (exclude.funding_source_ids && exclude.funding_source_ids.length > 0) {
+                conditions.push(`NOT (eli.funding_source_id = ANY($${paramIndex++}::int[]))`);
+                params.push(exclude.funding_source_ids);
+            }
+            if (exclude.budget_sector_ids && exclude.budget_sector_ids.length > 0) {
+                conditions.push(`NOT (eli.budget_sector_id = ANY($${paramIndex++}::int[]))`);
+                params.push(exclude.budget_sector_ids);
+            }
+            if (exclude.functional_codes && exclude.functional_codes.length > 0) {
+                conditions.push(`NOT (eli.functional_code = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.functional_codes);
+            }
+            if (exclude.functional_prefixes && exclude.functional_prefixes.length > 0) {
+                const patterns = exclude.functional_prefixes.map((p) => `${p}%`);
+                conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
+                params.push(patterns);
+            }
+            if (exclude.economic_codes && exclude.economic_codes.length > 0) {
+                conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.economic_codes);
+            }
+            if (exclude.economic_prefixes && exclude.economic_prefixes.length > 0) {
+                const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
+                conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
+                params.push(patterns);
+            }
+            if (exclude.expense_types && exclude.expense_types.length > 0) {
+                conditions.push(`NOT (eli.expense_type = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.expense_types);
+            }
+            if (exclude.program_codes && exclude.program_codes.length > 0) {
+                conditions.push(`NOT (eli.program_code = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.program_codes);
+            }
+            if (exclude.entity_types && exclude.entity_types.length > 0) {
+                conditions.push(`NOT (e.entity_type = ANY($${paramIndex++}::text[]))`);
+                params.push(exclude.entity_types);
+                requireEntitiesJoin = true;
+            }
+            // UAT-level excludes applied post-aggregation on outer query
+            if (exclude.county_codes && exclude.county_codes.length > 0) {
+                postAggFilters.push(`NOT (ci.county_code = ANY($${paramIndex++}))`);
+                params.push(exclude.county_codes);
+            }
+            if (exclude.regions && exclude.regions.length > 0) {
+                uatOuterConditions.push(`NOT (u.region = ANY($${paramIndex++}))`);
+                params.push(exclude.regions);
+            }
+            if (exclude.uat_ids && exclude.uat_ids.length > 0) {
+                uatOuterConditions.push(`NOT (u.id = ANY($${paramIndex++}))`);
+                params.push(exclude.uat_ids);
+            }
+        }
+
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
         // Build HAVING clause for aggregate amount filtering

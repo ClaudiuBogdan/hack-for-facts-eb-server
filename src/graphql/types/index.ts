@@ -125,6 +125,28 @@ export const types = /* GraphQL */ `
   # Filters & Inputs
   # ---------------------------------------------------------------------------
   # Input types for filtering
+  
+  # Exclusion rules mirroring selectable filter dimensions.
+  # This structure is extensible: add keys that match the corresponding
+  # include fields in AnalyticsFilterInput. Each key excludes matching values.
+  input AnalyticsExcludeInput {
+    report_ids: [ID!]
+    entity_cuis: [String!]
+    main_creditor_cui: String
+    functional_codes: [String!]
+    functional_prefixes: [String!]
+    economic_codes: [String!]
+    economic_prefixes: [String!]
+    funding_source_ids: [ID!]
+    budget_sector_ids: [ID!]
+    expense_types: [ExpenseType!]
+    program_codes: [String!]
+
+    county_codes: [String!]
+    regions: [String!]
+    uat_ids: [ID!]
+    entity_types: [String!]
+  }
   input EntityFilter {
     cui: String
     cuis: [String]
@@ -201,6 +223,9 @@ export const types = /* GraphQL */ `
     # Per-item thresholds
     item_min_amount: Float         # Used by: all. 
     item_max_amount: Float         # Used by: all.
+
+    # Exclusion rules (applied in addition to includes)
+    exclude: AnalyticsExcludeInput
   }
 
   input FunctionalClassificationFilterInput {

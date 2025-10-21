@@ -115,6 +115,27 @@ export interface AnalyticsFilter {
   // Per-item thresholds
   item_min_amount?: number | null;
   item_max_amount?: number | null;
+
+  // Exclusions: apply negative matching for the same dimensions as above
+  exclude?: AnalyticsExclude;
+}
+
+export interface AnalyticsExclude {
+  report_ids?: string[];
+  entity_cuis?: string[];
+  main_creditor_cui?: string;
+  functional_codes?: string[];
+  functional_prefixes?: string[];
+  economic_codes?: string[];
+  economic_prefixes?: string[];
+  funding_source_ids?: number[];
+  budget_sector_ids?: number[];
+  expense_types?: ExpenseType[];
+  program_codes?: string[];
+  county_codes?: string[];
+  regions?: string[];
+  uat_ids?: number[];
+  entity_types?: string[];
 }
 
 // ------------------------------

@@ -119,6 +119,57 @@ function buildWhereClause(
   }
   // reporting_years deprecated; use report_period
 
+  // --- Exclusions (negative filters) ---
+  const { exclude } = filter
+  if (exclude) {
+    if (exclude.report_ids?.length) {
+      conditions.push(`NOT (eli.report_id = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.report_ids);
+    }
+    if (exclude.entity_cuis?.length) {
+      conditions.push(`NOT (eli.entity_cui = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_cuis);
+    }
+    if (exclude.main_creditor_cui) {
+      conditions.push(`eli.main_creditor_cui <> $${paramIndex++}`);
+      values.push(exclude.main_creditor_cui);
+    }
+    if (exclude.funding_source_ids?.length) {
+      conditions.push(`NOT (eli.funding_source_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.funding_source_ids);
+    }
+    if (exclude.budget_sector_ids?.length) {
+      conditions.push(`NOT (eli.budget_sector_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.budget_sector_ids);
+    }
+    if (exclude.functional_codes?.length) {
+      conditions.push(`NOT (eli.functional_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.functional_codes);
+    }
+    if (exclude.functional_prefixes?.length) {
+      const patterns = exclude.functional_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.economic_codes?.length) {
+      conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.economic_codes);
+    }
+    if (exclude.economic_prefixes?.length) {
+      const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
+      conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
+      values.push(patterns);
+    }
+    if (exclude.expense_types?.length) {
+      conditions.push(`NOT (eli.expense_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.expense_types);
+    }
+    if (exclude.program_codes?.length) {
+      conditions.push(`NOT (eli.program_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.program_codes);
+    }
+  }
+
   // Per-item thresholds - use correct amount column based on period type
   const { itemColumn } = getAmountSqlFragments(filter.report_period, 'eli');
   if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
@@ -131,7 +182,7 @@ function buildWhereClause(
   }
 
   // Joined filters
-  if (filter.entity_types?.length || typeof filter.is_uat === "boolean" || filter.uat_ids?.length || filter.search) {
+  if (filter.entity_types?.length || typeof filter.is_uat === "boolean" || filter.uat_ids?.length || filter.search || (exclude && (exclude.entity_types?.length || exclude.uat_ids?.length))) {
     requireEntitiesJoin = true;
     if (filter.entity_types?.length) {
       conditions.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
@@ -149,13 +200,29 @@ function buildWhereClause(
       conditions.push(`e.name ILIKE $${paramIndex++}`);
       values.push(`%${filter.search}%`);
     }
+    if (exclude?.entity_types?.length) {
+      conditions.push(`NOT (e.entity_type = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.entity_types);
+    }
+    if (exclude?.uat_ids?.length) {
+      conditions.push(`NOT (e.uat_id = ANY($${paramIndex++}::int[]))`);
+      values.push(exclude.uat_ids);
+    }
   }
 
-  if (filter.county_codes?.length || filter.min_population !== undefined || filter.max_population !== undefined) {
+  if (filter.county_codes?.length || filter.min_population !== undefined || filter.max_population !== undefined || (exclude && (exclude.county_codes?.length || exclude.regions?.length))) {
     requireUATsJoin = true;
     if (filter.county_codes?.length) {
       conditions.push(`u.county_code = ANY($${paramIndex++}::text[])`);
       values.push(filter.county_codes);
+    }
+    if (exclude?.county_codes?.length) {
+      conditions.push(`NOT (u.county_code = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.county_codes);
+    }
+    if (exclude?.regions?.length) {
+      conditions.push(`NOT (u.region = ANY($${paramIndex++}::text[]))`);
+      values.push(exclude.regions);
     }
     if (filter.min_population !== undefined && filter.min_population !== null) {
       conditions.push(`COALESCE(u.population, 0) >= $${paramIndex++}`);
@@ -275,12 +342,12 @@ export const aggregatedLineItemsRepository = {
         const rawAmount = parseFloat(row.amount ?? 0);
         const amount = needsPerCapita && denominator > 0 ? rawAmount / denominator : rawAmount;
         return {
-      functional_code: row.functional_code,
-      functional_name: row.functional_name,
-      economic_code: row.economic_code,
-      economic_name: row.economic_name,
+          functional_code: row.functional_code,
+          functional_name: row.functional_name,
+          economic_code: row.economic_code,
+          economic_name: row.economic_name,
           amount,
-      count: parseInt(row.count ?? "0", 10),
+          count: parseInt(row.count ?? "0", 10),
         };
       });
 
