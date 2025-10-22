@@ -1,7 +1,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
-  name: postgres-db-pooler-rw
+  name: postgres-db-pooler-ro
   namespace: hack-for-facts-prod
 spec:
   cluster:
