@@ -24,7 +24,7 @@ patches:
         value: 200Gi
       - op: replace
         path: /spec/instances
-        value: 2
+        value: 1
       - op: add
         path: /spec/walStorage
         value:
