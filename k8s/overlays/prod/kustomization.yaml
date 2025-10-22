@@ -40,10 +40,10 @@ patches:
         path: /spec/resources
         value:
           requests:
-            memory: "4Gi"
-            cpu: "500m"
+            memory: "2Gi"
+            cpu: "200m"
           limits:
-            memory: "8Gi"
+            memory: "6Gi"
             cpu: "3"
       - op: replace
         path: /spec/postgresql/shared_preload_libraries
