@@ -37,9 +37,12 @@ patches:
       - op: add
         path: /spec/resources
         value:
+          requests:
+            memory: "4Gi"
+            cpu: "500m"
           limits:
-            memory: "10Gi"
-            cpu: "4"
+            memory: "8Gi"
+            cpu: "3"
       - op: replace
         path: /spec/postgresql/shared_preload_libraries
         value:
@@ -50,17 +53,15 @@ patches:
       - op: replace
         path: /spec/postgresql/parameters/max_connections
         value: "50"
-
-      # Memory configuration - increased for large queries
       - op: replace
         path: /spec/postgresql/parameters/shared_buffers
-        value: "2GB"
+        value: "1536MB"
       - op: add
         path: /spec/postgresql/parameters/effective_cache_size
-        value: "8GB"
+        value: "6GB"
       - op: add
         path: /spec/postgresql/parameters/maintenance_work_mem
-        value: "2GB"
+        value: "1GB"
       - op: add
         path: /spec/postgresql/parameters/checkpoint_completion_target
         value: "0.9"
@@ -72,10 +73,10 @@ patches:
         value: "-1"
       - op: add
         path: /spec/postgresql/parameters/work_mem
-        value: "256MB"
+        value: "128MB"
       - op: add
         path: /spec/postgresql/parameters/temp_file_limit
-        value: "20GB"
+        value: "10GB"
 
       # WAL configuration
       - op: add
@@ -83,7 +84,7 @@ patches:
         value: "2GB"
       - op: add
         path: /spec/postgresql/parameters/max_wal_size
-        value: "16GB"
+        value: "8GB"
       - op: add
         path: /spec/postgresql/parameters/wal_compression
         value: "lz4"
@@ -99,19 +100,19 @@ patches:
         path: /spec/postgresql/parameters/maintenance_io_concurrency
         value: "256"
 
-      # Parallel query
+      # Parallel query - reduced for single CPU
       - op: add
         path: /spec/postgresql/parameters/max_worker_processes
-        value: "8"
+        value: "4"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_workers
-        value: "4"
+        value: "2"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_workers_per_gather
-        value: "4"
+        value: "2"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_maintenance_workers
-        value: "4"
+        value: "2"
       - op: add
         path: /spec/postgresql/parameters/parallel_setup_cost
         value: "100"
@@ -145,10 +146,10 @@ patches:
         path: /spec/postgresql/parameters/hash_mem_multiplier
         value: "2.0"
 
-      # Autovacuum tuning
+      # Autovacuum tuning - reduced workers
       - op: add
         path: /spec/postgresql/parameters/autovacuum_max_workers
-        value: "8"
+        value: "4"
       - op: add
         path: /spec/postgresql/parameters/autovacuum_naptime
         value: "30s"
@@ -190,6 +191,9 @@ patches:
       - op: add
         path: /spec/postgresql/parameters/track_io_timing
         value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/track_functions
+        value: "all"
       - op: add
         path: /spec/postgresql/parameters/track_functions
         value: "all"
@@ -287,14 +291,20 @@ patches:
       - op: replace
         path: /metadata/namespace
         value: hack-for-facts-prod
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
-        value: 2Gi
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: 1Gi
+            cpu: "250m"
+          limits:
+            memory: 1536Mi
+            cpu: "500m"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: REDIS_EXTRA_FLAGS
-          value: "--maxmemory 1536mb --maxmemory-policy allkeys-lru --save ''"
+          value: "--maxmemory 1152mb --maxmemory-policy allkeys-lru --save ''"
 
   - target:
       kind: Service
