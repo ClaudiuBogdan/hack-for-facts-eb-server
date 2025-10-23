@@ -1,0 +1,58 @@
+{
+  "id": "gdp-per-capita-romania",
+  "name": "PIB pe cap de locuitor România",
+  "title": "Romania GDP per Capita",
+  "description": "PIB-ul împărțit la numărul de locuitori, indicator al nivelului de trai și al capacității contributive a cetățenilor pentru bugetul public.",
+  "descriptionEn": "Gross Domestic Product divided by the population, a proxy for living standards and citizens' contribution capacity to public finances.",
+  "sourceName": "Institutul Național de Statistică",
+  "sourceUrl": "https://ziare.com/pib-romania/pib-cap-de-locuitor-a-crescut-nesemnificativ-in-2024-in-romania-1932069",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 34932
+    },
+    {
+      "x": 2017,
+      "y": 39267
+    },
+    {
+      "x": 2018,
+      "y": 46422
+    },
+    {
+      "x": 2019,
+      "y": 48159
+    },
+    {
+      "x": 2020,
+      "y": 49125
+    },
+    {
+      "x": 2021,
+      "y": 58405
+    },
+    {
+      "x": 2022,
+      "y": 65012
+    },
+    {
+      "x": 2023,
+      "y": 76224
+    },
+    {
+      "x": 2024,
+      "y": 92640
+    }
+  ],
+  "yAxis": {
+    "name": "Romania GDP per Capita",
+    "type": "FLOAT",
+    "unit": "RON"
+  }
+}

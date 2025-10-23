@@ -1,0 +1,58 @@
+{
+  "id": "government-revenue-romania",
+  "name": "Venituri guvernamentale România",
+  "title": "Romania Government Revenue",
+  "description": "Totalul veniturilor bugetare care determină capacitatea de finanțare a serviciilor publice și investițiilor de stat.",
+  "descriptionEn": "Total budgetary revenue that determines the government's capacity to finance public services and state investments.",
+  "sourceName": "Ministerul Finanțelor",
+  "sourceUrl": "https://mfinante.gov.ro/static/10/Mfp/buletin/executii/nota_bgc31122024.pdf",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 250000000000
+    },
+    {
+      "x": 2017,
+      "y": 275000000000
+    },
+    {
+      "x": 2018,
+      "y": 310000000000
+    },
+    {
+      "x": 2019,
+      "y": 340000000000
+    },
+    {
+      "x": 2020,
+      "y": 360000000000
+    },
+    {
+      "x": 2021,
+      "y": 410000000000
+    },
+    {
+      "x": 2022,
+      "y": 470000000000
+    },
+    {
+      "x": 2023,
+      "y": 520595800000
+    },
+    {
+      "x": 2024,
+      "y": 574598800000
+    }
+  ],
+  "yAxis": {
+    "name": "Romania Government Revenue",
+    "type": "FLOAT",
+    "unit": "RON"
+  }
+}

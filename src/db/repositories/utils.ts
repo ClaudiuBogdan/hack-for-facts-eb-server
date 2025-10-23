@@ -151,9 +151,18 @@ export function getEurRateMap(): Map<number, number> {
   if (!eurRateByYear) {
     const [exchange] = datasetRepository.getByIds(['exchange-rate-eur-ron']);
     eurRateByYear = new Map<number, number>();
-    if (exchange && Array.isArray(exchange.yearlyTrend)) {
-      for (const point of exchange.yearlyTrend) {
-        eurRateByYear.set(point.year, point.value);
+    if (exchange) {
+      const granularity =
+        exchange.xAxis.granularity ??
+        (exchange.xAxis.type === 'INTEGER' ? 'YEAR' : 'CATEGORY');
+      if (granularity === 'YEAR') {
+        for (const point of exchange.data) {
+          const numericYear =
+            typeof point.x === 'number' ? point.x : Number.parseInt(String(point.x), 10);
+          if (Number.isFinite(numericYear)) {
+            eurRateByYear.set(numericYear, point.y);
+          }
+        }
       }
     }
   }

@@ -191,6 +191,15 @@ query GetEntities {
 }
 ```
 
+## Filesystem datasets
+
+- Static financial indicators that back the `datasets` GraphQL queries live under the project-level `datasets/` directory. Each file is a standalone JSON document that must match the dataset id (e.g. `exchange-rate-eur-ron.json`).
+- The repository automatically discovers and indexes these files at runtime. You can override the directory location with the `DATASET_DIRECTORY` environment variable if you need to mount alternative data sources.
+- Every dataset stores localized metadata (`name`, `description`, `sourceName`) with optional language-specific variants (`nameEn`, `titleEn`, `descriptionEn`, `sourceNameEn`). The API exposes matching `xAxis`/`yAxis` definitions (each mirroring the shared `Axis` shape with optional `granularity` on `xAxis`) and a `data` array with `{ "x": ..., "y": ... }` points.
+- Use the optional `lang` argument (currently supporting `"en"`) on `datasets` and `staticChartAnalytics` GraphQL queries to receive translated strings when available.
+- After editing or adding dataset files run `yarn datasets:validate` (also covered by `yarn test`) to ensure the JSON payloads satisfy the schema, have sorted yearly data and unique identifiers.
+- The validation logic lives in `src/db/datasets/validation.ts` and is shared by both the runtime loader and the test suite.
+
 #### Get budget report with analytics
 
 ```graphql

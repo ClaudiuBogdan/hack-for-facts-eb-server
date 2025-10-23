@@ -12,7 +12,12 @@ export const types = /* GraphQL */ `
   # ---------------------------------------------------------------------------
   # Utility Types
   # Axis metadata and analytics series types
-  
+
+  enum Language {
+    ro
+    en
+  }
+
   enum AxisDataType {
     STRING
     INTEGER
@@ -524,13 +529,22 @@ export const types = /* GraphQL */ `
   # ---------------------------------------------------------------------------
   # Dataset Types
   # ---------------------------------------------------------------------------
+  type DatasetDataPoint {
+    x: String!
+    y: Float!
+  }
+
   type Dataset {
     id: ID!
     name: String!
-    unit: String!
+    title: String!
     description: String
+    descriptionEn: String
     sourceName: String
     sourceUrl: String
+    xAxis: Axis!
+    yAxis: Axis!
+    data: [DatasetDataPoint!]!
   }
 
   type DatasetConnection {
@@ -626,10 +640,10 @@ export const types = /* GraphQL */ `
     ): EntityAnalyticsConnection!
 
     # Query to search for datasets with pagination
-    datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0): DatasetConnection!
+    datasets(filter: DatasetFilter, limit: Int = 100, offset: Int = 0, lang: Language): DatasetConnection!
  
     # Query to fetch analytics data for a list of dataset IDs
-    staticChartAnalytics(seriesIds: [ID!]!): [AnalyticsSeries!]!
+    staticChartAnalytics(seriesIds: [ID!]!, lang: Language): [AnalyticsSeries!]!
 
     aggregatedLineItems(
       filter: AnalyticsFilterInput!

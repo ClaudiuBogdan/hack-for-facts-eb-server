@@ -1,0 +1,58 @@
+{
+  "id": "inflation-factor-romania-base-2024",
+  "name": "Factor de ajustare la inflație (baza 2024)",
+  "title": "Inflation Adjustment Factor (2024 Base)",
+  "description": "Coeficient multiplicator pentru exprimarea valorilor în prețuri constante (baza 2024=1.0). Înmulțește valoarea nominală din anul indicat pentru a o exprima în prețuri 2024.",
+  "descriptionEn": "Multiplier used to express nominal values in constant 2024 prices (base year 2024 = 1.0). Multiply the nominal amount for a given year to restate it at 2024 price levels.",
+  "sourceName": "Banca Națională a României",
+  "sourceUrl": "https://www.bnr.ro/uploads/2025-2raportasuprainfla%C8%9Bieifebruarie2025_documentpdf_545_1739785417.pdf",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 1.573489
+    },
+    {
+      "x": 2017,
+      "y": 1.553297
+    },
+    {
+      "x": 2018,
+      "y": 1.484987
+    },
+    {
+      "x": 2019,
+      "y": 1.430623
+    },
+    {
+      "x": 2020,
+      "y": 1.39437
+    },
+    {
+      "x": 2021,
+      "y": 1.326708
+    },
+    {
+      "x": 2022,
+      "y": 1.165824
+    },
+    {
+      "x": 2023,
+      "y": 1.056
+    },
+    {
+      "x": 2024,
+      "y": 1
+    }
+  ],
+  "yAxis": {
+    "name": "Inflation Adjustment Factor (2024 Base)",
+    "type": "FLOAT",
+    "unit": "unit"
+  }
+}

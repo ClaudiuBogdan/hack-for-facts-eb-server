@@ -1,0 +1,58 @@
+{
+  "id": "inflation-factor-romania-base-2016",
+  "name": "Factor de ajustare la inflație (baza 2016)",
+  "title": "Inflation Adjustment Factor (2016 Base)",
+  "description": "Coeficient multiplicator pentru exprimarea valorilor în prețuri constante (baza 2016=1.0). Înmulțește valoarea nominală din anul indicat pentru a o exprima în prețuri 2016.",
+  "descriptionEn": "Multiplier used to express nominal values in constant 2016 prices (base year 2016 = 1.0). Multiply the nominal amount for a given year to deflate it to 2016 prices.",
+  "sourceName": "Banca Națională a României",
+  "sourceUrl": "https://www.bnr.ro/uploads/2025-2raportasuprainfla%E8%9Bieifebruarie2025_documentpdf_545_1739785417.pdf",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 1
+    },
+    {
+      "x": 2017,
+      "y": 0.987167
+    },
+    {
+      "x": 2018,
+      "y": 0.943754
+    },
+    {
+      "x": 2019,
+      "y": 0.909204
+    },
+    {
+      "x": 2020,
+      "y": 0.886164
+    },
+    {
+      "x": 2021,
+      "y": 0.843163
+    },
+    {
+      "x": 2022,
+      "y": 0.740916
+    },
+    {
+      "x": 2023,
+      "y": 0.67112
+    },
+    {
+      "x": 2024,
+      "y": 0.63553
+    }
+  ],
+  "yAxis": {
+    "name": "Inflation Adjustment Factor (2016 Base)",
+    "type": "FLOAT",
+    "unit": "unit"
+  }
+}

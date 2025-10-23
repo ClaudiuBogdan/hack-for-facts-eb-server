@@ -12,7 +12,8 @@
     "test": "node --test --require ts-node/register 'src/**/*.test.ts'",
     "test:watch": "node --test --watch --require ts-node/register 'src/**/*.test.ts'",
     "schema:gen": "node ./scripts/generate-openapi.mjs",
-    "newsletters:send": "ts-node scripts/send-newsletters.ts"
+    "newsletters:send": "ts-node scripts/send-newsletters.ts",
+    "datasets:validate": "ts-node scripts/validate-datasets.ts"
   },
   "dependencies": {
     "@clerk/backend": "^2.9.3",

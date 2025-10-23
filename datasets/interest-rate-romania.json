@@ -1,0 +1,58 @@
+{
+  "id": "interest-rate-romania",
+  "name": "Rata dobânzii BNR",
+  "title": "Romania National Bank Policy Rate",
+  "description": "Rata dobânzii de politică monetară care influențează costul finanțării publice și private, impactând cheltuielile bugetare cu dobânzile.",
+  "descriptionEn": "National Bank of Romania policy interest rate, shaping public and private borrowing costs and the budget's interest expenditure.",
+  "sourceName": "Banca Națională a României",
+  "sourceUrl": "https://www.bnro.ro/page.aspx?prid=25940",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 1.75
+    },
+    {
+      "x": 2017,
+      "y": 1.75
+    },
+    {
+      "x": 2018,
+      "y": 2.5
+    },
+    {
+      "x": 2019,
+      "y": 2.5
+    },
+    {
+      "x": 2020,
+      "y": 1.25
+    },
+    {
+      "x": 2021,
+      "y": 1.25
+    },
+    {
+      "x": 2022,
+      "y": 7
+    },
+    {
+      "x": 2023,
+      "y": 7
+    },
+    {
+      "x": 2024,
+      "y": 6.5
+    }
+  ],
+  "yAxis": {
+    "name": "Romania National Bank Policy Rate",
+    "type": "FLOAT",
+    "unit": "% pe an"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "unemployment-rate-romania",
+  "name": "Rata șomajului România",
+  "title": "Romania Unemployment Rate",
+  "description": "Procentul populației active fără loc de muncă, care afectează veniturile din contribuții sociale și necesarul pentru ajutorul de șomaj.",
+  "descriptionEn": "Share of the active population without a job, influencing social contribution revenues and the need for unemployment assistance.",
+  "sourceName": "Agenția Națională pentru Ocuparea Forței de Muncă",
+  "sourceUrl": "https://www.anofm.ro/wp-content/uploads/2025/05/Raport-de-activitate-al-ANOFM-pentru-anul-2024.pdf",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": 6.2
+    },
+    {
+      "x": 2017,
+      "y": 5
+    },
+    {
+      "x": 2018,
+      "y": 4.2
+    },
+    {
+      "x": 2019,
+      "y": 3.9
+    },
+    {
+      "x": 2020,
+      "y": 5.2
+    },
+    {
+      "x": 2021,
+      "y": 5.6
+    },
+    {
+      "x": 2022,
+      "y": 5.8
+    },
+    {
+      "x": 2023,
+      "y": 2.89
+    },
+    {
+      "x": 2024,
+      "y": 3.14
+    }
+  ],
+  "yAxis": {
+    "name": "Romania Unemployment Rate",
+    "type": "FLOAT",
+    "unit": "%"
+  }
+}

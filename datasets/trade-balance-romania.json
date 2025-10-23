@@ -1,0 +1,58 @@
+{
+  "id": "trade-balance-romania",
+  "name": "Balanța comercială România",
+  "title": "Romania Trade Balance (EUR millions)",
+  "description": "Diferența între exporturi și importuri care afectează balanța de plăți, cursul de schimb și necesarul de finanțare externă.",
+  "descriptionEn": "Difference between exports and imports, influencing the balance of payments, exchange rate dynamics, and the need for external financing.",
+  "sourceName": "Institutul Național de Statistică",
+  "sourceUrl": "https://agerpres.ro/economic/2025/02/10/ins-deficitul-balantei-comerciale-in-2024-a-crescut-cu-15-3-la-aproape-33-4-miliarde-euro--1420905",
+  "xAxis": {
+    "name": "Year",
+    "type": "INTEGER",
+    "unit": "year",
+    "granularity": "YEAR"
+  },
+  "data": [
+    {
+      "x": 2016,
+      "y": -8500
+    },
+    {
+      "x": 2017,
+      "y": -10200
+    },
+    {
+      "x": 2018,
+      "y": -12800
+    },
+    {
+      "x": 2019,
+      "y": -15200
+    },
+    {
+      "x": 2020,
+      "y": -12800
+    },
+    {
+      "x": 2021,
+      "y": -18500
+    },
+    {
+      "x": 2022,
+      "y": -24800
+    },
+    {
+      "x": 2023,
+      "y": -28993
+    },
+    {
+      "x": 2024,
+      "y": -33393
+    }
+  ],
+  "yAxis": {
+    "name": "Romania Trade Balance (EUR millions)",
+    "type": "FLOAT",
+    "unit": "milioane EUR"
+  }
+}

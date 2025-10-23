@@ -7,10 +7,13 @@ interface PostMessageBody {
   message?: unknown;
 }
 
+interface PostMessageQuery {
+  sessionId?: string;
+}
+
 export default async function mcpSseRoutes(fastify: FastifyInstance) {
   const requireApiKey = Boolean(process.env.MCP_API_KEY);
-  const connections = new Map<string, ReturnType<typeof createMcpServer>>();
-  const transports = new Map<string, SSEServerTransport>();
+  const sessions = new Map<string, { server: ReturnType<typeof createMcpServer>; transport: SSEServerTransport }>();
 
   // Optional auth preHandler; off by default
   fastify.addHook("preHandler", async (req, reply) => {
@@ -22,36 +25,80 @@ export default async function mcpSseRoutes(fastify: FastifyInstance) {
   });
 
   // SSE stream: establishes a session and returns the endpoint for POST messages
-  fastify.get("/mcp/sse", async (request: FastifyRequest, reply: FastifyReply) => {
-    const server = createMcpServer();
+  fastify.get("/mcp/sse", (request: FastifyRequest, reply: FastifyReply) => {
     const nodeRes = reply.raw;
-    const transport = new SSEServerTransport("/mcp/messages", nodeRes);
-    await server.connect(transport);
-    await transport.start();
-    const sessionId = transport.sessionId;
-    connections.set(sessionId, server);
-    transports.set(sessionId, transport);
+    reply.hijack();
 
-    nodeRes.on("close", async () => {
+    const server = createMcpServer();
+    const transport = new SSEServerTransport("/mcp/messages", nodeRes);
+    let sessionId: string | undefined;
+
+    const cleanup = async () => {
+      if (sessionId) {
+        sessions.delete(sessionId);
+      }
+      try {
+        await transport.close();
+      } catch {
+        /* swallow */
+      }
       try {
         await server.close();
-      } catch {}
-      connections.delete(sessionId);
-      transports.delete(sessionId);
+      } catch {
+        /* swallow */
+      }
+    };
+
+    nodeRes.on("close", () => {
+      void cleanup();
     });
-    return reply.hijack();
+
+    void (async () => {
+      try {
+        await server.connect(transport);
+        await transport.start();
+        sessionId = transport.sessionId;
+        sessions.set(sessionId, { server, transport });
+      } catch (error) {
+        await cleanup();
+        if (!nodeRes.headersSent) {
+          nodeRes.writeHead(500, { "content-type": "application/json" });
+          nodeRes.end(
+            JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "SSE connection failed" })
+          );
+        } else {
+          nodeRes.end();
+        }
+      }
+    })();
   });
 
   // POST messages: client -> server JSON-RPC
-  fastify.post("/mcp/messages", async (request: FastifyRequest<{ Body: PostMessageBody }>, reply: FastifyReply) => {
-    const { sessionId, message } = (request.body || {}) as PostMessageBody;
-    if (!sessionId) return reply.code(400).send({ ok: false, error: "sessionId is required" });
-    const transport = transports.get(sessionId);
-    if (!transport) return reply.code(404).send({ ok: false, error: "session not found" });
+  fastify.post(
+    "/mcp/messages",
+    async (
+      request: FastifyRequest<{ Body: PostMessageBody; Querystring: PostMessageQuery }>,
+      reply: FastifyReply
+    ) => {
+      const body = (request.body || {}) as PostMessageBody;
+      const query = (request.query || {}) as PostMessageQuery;
+      const sessionId = body.sessionId ?? query.sessionId;
+      if (!sessionId) return reply.code(400).send({ ok: false, error: "sessionId is required" });
 
-    await transport.handleMessage(message);
-    return reply.code(202).send({ ok: true });
-  });
+      const session = sessions.get(sessionId);
+      if (!session) return reply.code(404).send({ ok: false, error: "session not found" });
+
+      try {
+        await session.transport.handleMessage(body.message);
+      } catch (error) {
+        return reply
+          .code(400)
+          .send({ ok: false, error: error instanceof Error ? error.message : "invalid message" });
+      }
+
+      return reply.code(202).send({ ok: true });
+    }
+  );
 
   // Human-inspectable definition
   fastify.get("/mcp/definition", async (request: FastifyRequest, reply: FastifyReply) => {
