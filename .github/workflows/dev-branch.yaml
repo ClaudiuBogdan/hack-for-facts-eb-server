@@ -19,6 +19,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Validate datasets
+        run: yarn datasets:validate
+
       - name: Get Secrets from Bitwarden
         uses: bitwarden/sm-action@v1
         with:
