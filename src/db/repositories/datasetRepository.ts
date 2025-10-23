@@ -265,7 +265,7 @@ class DatasetRepository {
     filter: DatasetFilter = {},
     limit: number = 100,
     offset: number = 0,
-    lang?: string,
+    lang?: 'ro' | 'en',
   ): Dataset[] {
     const normalizedLang = this.normalizeLang(lang);
     const filteredSummaries = this.getFilteredSummaries(filter, normalizedLang);
@@ -282,12 +282,12 @@ class DatasetRepository {
     return datasets;
   }
 
-  count(filter: DatasetFilter = {}, lang?: string): number {
+  count(filter: DatasetFilter = {}, lang?: 'ro' | 'en'): number {
     const normalizedLang = this.normalizeLang(lang);
     return this.getFilteredSummaries(filter, normalizedLang).length;
   }
 
-  getByIds(ids: string[], lang?: string): Dataset[] {
+  getByIds(ids: string[], lang?: 'ro' | 'en'): Dataset[] {
     if (!ids || ids.length === 0) {
       return [];
     }

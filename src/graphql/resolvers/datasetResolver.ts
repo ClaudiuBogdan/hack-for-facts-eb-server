@@ -63,7 +63,7 @@ export const datasetResolver = {
         filter?: DatasetFilter;
         limit?: number;
         offset?: number;
-        lang?: string;
+        lang?: 'ro' | 'en';
       }
     ) => {
       const nodes = datasetRepository.getAll(filter, limit, offset, lang);
@@ -80,7 +80,7 @@ export const datasetResolver = {
     },
     staticChartAnalytics: async (
       _: any,
-      { seriesIds, lang }: { seriesIds: string[]; lang?: string }
+      { seriesIds, lang }: { seriesIds: string[]; lang?: 'ro' | 'en' }
     ) => {
       const datasets = datasetRepository.getByIds(seriesIds, lang);
       return datasets.map(d => ({
