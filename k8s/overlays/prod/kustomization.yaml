@@ -41,7 +41,7 @@ patches:
         value:
           requests:
             memory: "4Gi"
-            cpu: "2000m"
+            cpu: "1000m"
           limits:
             memory: "8Gi"
             cpu: "4"
