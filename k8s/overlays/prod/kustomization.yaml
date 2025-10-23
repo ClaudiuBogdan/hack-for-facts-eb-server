@@ -40,58 +40,59 @@ patches:
         path: /spec/resources
         value:
           requests:
-            memory: "2Gi"
-            cpu: "200m"
+            memory: "4Gi"
+            cpu: "2000m"
           limits:
-            memory: "6Gi"
-            cpu: "3"
+            memory: "8Gi"
+            cpu: "4"
       - op: replace
         path: /spec/postgresql/shared_preload_libraries
         value:
           - pg_stat_statements
-          - auto_explain
 
-      # Connection Management - Optimized for analytics
       - op: replace
         path: /spec/postgresql/parameters/max_connections
         value: "50"
       - op: replace
         path: /spec/postgresql/parameters/shared_buffers
-        value: "1536MB"
+        value: "2GB"
       - op: add
         path: /spec/postgresql/parameters/effective_cache_size
         value: "6GB"
       - op: add
+        path: /spec/postgresql/parameters/work_mem
+        value: "64MB"
+      - op: add
         path: /spec/postgresql/parameters/maintenance_work_mem
-        value: "1GB"
+        value: "512MB"
+      - op: add
+        path: /spec/postgresql/parameters/temp_file_limit
+        value: "10GB"
+      - op: add
+        path: /spec/postgresql/parameters/hash_mem_multiplier
+        value: "2.0"
+      - op: add
+        path: /spec/postgresql/parameters/wal_buffers
+        value: "16MB"
+      - op: add
+        path: /spec/postgresql/parameters/min_wal_size
+        value: "500MB"
+      - op: add
+        path: /spec/postgresql/parameters/max_wal_size
+        value: "2GB"
+      - op: add
+        path: /spec/postgresql/parameters/wal_compression
+        value: "lz4"
+
+      # Checkpoint Configuration - Relaxed for read workload
       - op: add
         path: /spec/postgresql/parameters/checkpoint_completion_target
         value: "0.9"
       - op: add
         path: /spec/postgresql/parameters/checkpoint_timeout
-        value: "15min"
-      - op: add
-        path: /spec/postgresql/parameters/wal_buffers
-        value: "-1"
-      - op: add
-        path: /spec/postgresql/parameters/work_mem
-        value: "128MB"
-      - op: add
-        path: /spec/postgresql/parameters/temp_file_limit
-        value: "10GB"
+        value: "30min"
 
-      # WAL configuration
-      - op: add
-        path: /spec/postgresql/parameters/min_wal_size
-        value: "2GB"
-      - op: add
-        path: /spec/postgresql/parameters/max_wal_size
-        value: "8GB"
-      - op: add
-        path: /spec/postgresql/parameters/wal_compression
-        value: "lz4"
-
-      # Storage and IO tuning (NVMe)
+      # Storage and IO tuning (NVMe optimized)
       - op: add
         path: /spec/postgresql/parameters/random_page_cost
         value: "1.0"
@@ -102,33 +103,33 @@ patches:
         path: /spec/postgresql/parameters/maintenance_io_concurrency
         value: "256"
 
-      # Parallel query - reduced for single CPU
+      # Parallel Query - Maximized for read performance
       - op: add
         path: /spec/postgresql/parameters/max_worker_processes
         value: "4"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_workers
-        value: "2"
+        value: "4"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_workers_per_gather
-        value: "2"
+        value: "4"
       - op: add
         path: /spec/postgresql/parameters/max_parallel_maintenance_workers
         value: "2"
       - op: add
         path: /spec/postgresql/parameters/parallel_setup_cost
-        value: "100"
+        value: "10"
       - op: add
         path: /spec/postgresql/parameters/parallel_tuple_cost
-        value: "0.01"
+        value: "0.001"
       - op: add
         path: /spec/postgresql/parameters/min_parallel_table_scan_size
-        value: "8MB"
+        value: "1MB"
       - op: add
         path: /spec/postgresql/parameters/min_parallel_index_scan_size
-        value: "512kB"
+        value: "64kB"
 
-      # Planner and partitioning
+      # Query Planner - Optimized for analytics
       - op: add
         path: /spec/postgresql/parameters/default_statistics_target
         value: "500"
@@ -144,34 +145,27 @@ patches:
       - op: add
         path: /spec/postgresql/parameters/enable_partitionwise_aggregate
         value: "on"
-      - op: add
-        path: /spec/postgresql/parameters/hash_mem_multiplier
-        value: "2.0"
 
-      # Autovacuum tuning - reduced workers
+      # Autovacuum - DISABLED (manual VACUUM after monthly writes)
       - op: add
-        path: /spec/postgresql/parameters/autovacuum_max_workers
-        value: "4"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_naptime
-        value: "30s"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_vacuum_scale_factor
-        value: "0.02"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_analyze_scale_factor
-        value: "0.01"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_vacuum_cost_delay
-        value: "0ms"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_vacuum_cost_limit
-        value: "10000"
-      - op: add
-        path: /spec/postgresql/parameters/autovacuum_vacuum_insert_scale_factor
-        value: "0.02"
+        path: /spec/postgresql/parameters/autovacuum
+        value: "off"
 
-      # Observability and JIT
+      # JIT - Enabled for complex analytical queries
+      - op: add
+        path: /spec/postgresql/parameters/jit
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/jit_above_cost
+        value: "100000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_inline_above_cost
+        value: "500000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_optimize_above_cost
+        value: "500000"
+
+      # Observability - Lightweight monitoring only
       - op: add
         path: /spec/postgresql/parameters/pg_stat_statements.max
         value: "10000"
@@ -179,47 +173,22 @@ patches:
         path: /spec/postgresql/parameters/pg_stat_statements.track
         value: "all"
       - op: add
-        path: /spec/postgresql/parameters/auto_explain.log_min_duration
-        value: "1000ms"
-      - op: add
-        path: /spec/postgresql/parameters/auto_explain.log_analyze
-        value: "on"
-      - op: add
-        path: /spec/postgresql/parameters/auto_explain.log_buffers
-        value: "on"
-      - op: add
-        path: /spec/postgresql/parameters/auto_explain.log_timing
-        value: "on"
-      - op: add
         path: /spec/postgresql/parameters/track_io_timing
         value: "on"
       - op: add
         path: /spec/postgresql/parameters/track_functions
         value: "all"
       - op: add
-        path: /spec/postgresql/parameters/track_functions
-        value: "all"
-      - op: add
         path: /spec/postgresql/parameters/log_min_duration_statement
-        value: "1000ms"
+        value: "500ms"
       - op: add
         path: /spec/postgresql/parameters/log_temp_files
         value: "0"
       - op: add
         path: /spec/postgresql/parameters/log_lock_waits
         value: "on"
-      - op: add
-        path: /spec/postgresql/parameters/jit
-        value: "on"
-      - op: add
-        path: /spec/postgresql/parameters/jit_above_cost
-        value: "500000"
-      - op: add
-        path: /spec/postgresql/parameters/jit_inline_above_cost
-        value: "500000"
-      - op: add
-        path: /spec/postgresql/parameters/jit_optimize_above_cost
-        value: "500000"
+
+      # Timeouts
       - op: add
         path: /spec/postgresql/parameters/statement_timeout
         value: "3600000"
