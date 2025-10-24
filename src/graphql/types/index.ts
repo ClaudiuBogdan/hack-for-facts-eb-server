@@ -334,6 +334,7 @@ export const types = /* GraphQL */ `
     import_timestamp: String!
     # Relations
     entity: Entity!
+    budgetSector: BudgetSector!
     executionLineItems(
       limit: Int
       offset: Int

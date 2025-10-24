@@ -2,6 +2,7 @@ import {
   reportRepository,
   entityRepository,
   executionLineItemRepository,
+  budgetSectorRepository,
 } from "../../db/repositories";
 import { ReportFilter } from "../../db/repositories/reportRepository";
 import pool from "../../db/connection";
@@ -44,6 +45,9 @@ export const reportResolver = {
     },
     main_creditor: async (parent: any) => {
       return entityRepository.getById(parent.main_creditor_cui);
+    },
+    budgetSector: async (parent: any) => {
+      return budgetSectorRepository.getById(parent.budget_sector_id);
     },
     executionLineItems: async (
       parent: any,
