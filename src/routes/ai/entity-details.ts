@@ -1,13 +1,12 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { entityRepository } from "../../db/repositories/entityRepository";
-import { executionLineItemRepository } from "../../db/repositories/executionLineItemRepository";
-import { functionalClassificationRepository } from "../../db/repositories/functionalClassificationRepository";
-import { economicClassificationRepository } from "../../db/repositories/economicClassificationRepository";
-import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink } from "../../utils/link";
-import { filterGroups, groupByFunctional } from "../../utils/grouping";
-import { formatCurrency } from "../../utils/formatter";
-import { Entity, ExecutionLineItem } from "../../db/models";
+import { buildEconomicLink, buildFunctionalLink } from "../../utils/link";
+import {
+  getEntityDetails as svcGetEntityDetails,
+  searchEntities as svcSearchEntities,
+  searchEconomicClassifications as svcSearchEconomicClassifications,
+  getEntityBudgetAnalysis as svcGetEntityBudgetAnalysis,
+} from "../../services/ai-basic";
 
 function ok(reply: FastifyReply, data: unknown) {
   return reply.code(200).send({ ok: true, data });
@@ -51,13 +50,8 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
       const parse = entitySearchQuery.safeParse(request.query);
       if (!parse.success) return bad(reply, "Invalid query", parse.error.format());
       const { search, limit = 10, offset = 0 } = parse.data;
-
-      const [nodes, total] = await Promise.all([
-        entityRepository.getAll({ search }, limit, offset),
-        entityRepository.count({ search }),
-      ]);
-      const link = buildClientLink({ route: "/", view: "overview", filters: { search } });
-      return ok(reply, { kind: "entities.search", query: { search, limit, offset }, link, items: nodes, pageInfo: { totalCount: total, limit: limit ?? 25, offset: offset ?? 0 } });
+      const result = await svcSearchEntities({ search, limit, offset });
+      return ok(reply, result);
     }
   );
 
@@ -89,17 +83,8 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
       const offset: number = typeof qs?.offset === "number" ? Math.max(0, qs.offset) : 0;
       if (!search.trim()) return bad(reply, "Invalid query");
 
-      const [items, total] = await Promise.all([
-        economicClassificationRepository.getAll({ search }, limit, offset),
-        economicClassificationRepository.count({ search }),
-      ]);
-
-      return ok(reply, {
-        kind: "economic-classifications.search",
-        query: { search, limit, offset },
-        items,
-        pageInfo: { totalCount: total, limit, offset },
-      });
+      const result = await svcSearchEconomicClassifications({ search, limit, offset });
+      return ok(reply, result);
     }
   );
 
@@ -132,33 +117,14 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     const year: number | undefined = typeof qs?.year === "number" ? qs.year : undefined;
 
     if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
-    let entity = entityCui ? await entityRepository.getById(entityCui) : undefined;
-    if (!entity && entitySearch) {
-      const results = await entityRepository.getAll({ search: entitySearch }, 1, 0);
-      entity = results[0];
+    try {
+      const result = await svcGetEntityDetails({ entityCui, entitySearch, year });
+      return ok(reply, result);
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      const code = message === "Entity not found" ? 404 : 400;
+      return reply.code(code).send({ ok: false, error: message });
     }
-    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
-
-    const yearlySnapshot = await executionLineItemRepository.getYearlySnapshotTotals(entity.cui, year, entity.default_report_type);
-
-    const details = {
-      cui: entity.cui,
-      name: (entity as any).name,
-      address: (entity as any).address ?? null,
-      totalIncome: yearlySnapshot.totalIncome,
-      totalExpenses: yearlySnapshot.totalExpenses,
-      totalIncomeHumanReadable: `The total income for ${entity.name} in ${year} was ${formatCurrency(yearlySnapshot.totalIncome, 'compact')} (${formatCurrency(yearlySnapshot.totalIncome, 'standard')})`,
-      totalExpensesHumanReadable: `The total expenses for ${entity.name} in ${year} was ${formatCurrency(yearlySnapshot.totalExpenses, 'compact')} (${formatCurrency(yearlySnapshot.totalExpenses, 'standard')})`,
-      summary: `In ${year}, ${entity.name} had a total income of ${formatCurrency(yearlySnapshot.totalIncome, 'compact')} (${formatCurrency(yearlySnapshot.totalIncome, 'standard')}) and a total expenses of ${formatCurrency(yearlySnapshot.totalExpenses, 'compact')} (${formatCurrency(yearlySnapshot.totalExpenses, 'standard')}).`,
-    };
-
-    const link = buildEntityDetailsLink(entity.cui, { year });
-    return ok(reply, {
-      kind: "entities.details",
-      query: { cui: entity.cui, year },
-      link,
-      item: details,
-    });
   });
 
   fastify.get("/ai/v1/entities/budget-analysis", {
@@ -183,24 +149,14 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
     const year: number = qs.year;
 
     if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
-    const entity = await getEntity(cui, search);
-    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
-
-    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level: "group" });
-    const details = {
-      cui: entity.cui,
-      name: (entity as any).name,
-      ...budgetAnalysis,
-    };
-
-
-    const link = buildEntityDetailsLink(entity.cui, { year });
-    return ok(reply, {
-      kind: "entities.budget-analysis",
-      query: { cui: entity.cui, year },
-      link,
-      item: details,
-    });
+    try {
+      const result = await svcGetEntityBudgetAnalysis({ entityCui: cui, entitySearch: search, year, level: "group" });
+      return ok(reply, result);
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      const code = message === "Entity not found" ? 404 : 400;
+      return reply.code(code).send({ ok: false, error: message });
+    }
   });
 
 
@@ -227,27 +183,31 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
 
     if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
 
-    const entity = await getEntity(entityCui);
-    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
     if (!functionalCode) return reply.code(400).send({ ok: false, error: "functionalCode is required" });
 
-    const level = functionalCode.length === 2 ? "functional" : "economic";
-    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level, fnCode: functionalCode });
-    const details = {
-      cui: entity.cui,
-      name: (entity as any).name,
-      ...budgetAnalysis,
-    };
+    try {
+      const level = functionalCode.length === 2 ? "functional" : "economic";
+      const result = await svcGetEntityBudgetAnalysis({
+        entityCui,
+        year,
+        level,
+        fnCode: level === "functional" ? functionalCode : undefined,
+        ecCode: level === "economic" ? functionalCode : undefined,
+      });
 
-    const type = budgetAnalysis.expenseGroups.length === 0 ? "income" : "expense";
-
-    const link = buildFunctionalLink(entity.cui, functionalCode, type, year);
-    return ok(reply, {
-      kind: "entities.budget-analysis-spending-by-functional",
-      query: { cui: entity.cui, year },
-      link,
-      item: details,
-    });
+      const type = result.item.expenseGroups.length === 0 ? "income" : "expense";
+      const link = buildFunctionalLink(result.query.cui, functionalCode, type, year);
+      return ok(reply, {
+        kind: "entities.budget-analysis-spending-by-functional",
+        query: result.query,
+        link,
+        item: result.item,
+      });
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      const code = message === "Entity not found" ? 404 : 400;
+      return reply.code(code).send({ ok: false, error: message });
+    }
   });
 
 
@@ -274,108 +234,28 @@ export default async function aiBasicRoutes(fastify: FastifyInstance) {
 
     if (!year) return reply.code(400).send({ ok: false, error: "year is required" });
 
-    const entity = await getEntity(entityCui);
-    if (!entity) return reply.code(404).send({ ok: false, error: "Entity not found" });
     if (!economicCode) return reply.code(400).send({ ok: false, error: "economicCode is required" });
 
-    const budgetAnalysis = await getBudgetAnalysis({ entity, year, level: "economic", ecCode: economicCode });
-    const details = {
-      cui: entity.cui,
-      name: (entity as any).name,
-      ...budgetAnalysis,
-    };
-
-    const type = budgetAnalysis.expenseGroups.length === 0 ? "income" : "expense";
-
-    const link = buildEconomicLink(entity.cui, economicCode, type, year);
-    return ok(reply, {
-      kind: "entities.budget-analysis-spending-by-economic",
-      query: { cui: entity.cui, year },
-      link,
-      item: details,
-    });
+    try {
+      const result = await svcGetEntityBudgetAnalysis({ entityCui, year, level: "economic", ecCode: economicCode });
+      const type = result.item.expenseGroups.length === 0 ? "income" : "expense";
+      const link = buildEconomicLink(result.query.cui, economicCode, type, year);
+      return ok(reply, {
+        kind: "entities.budget-analysis-spending-by-economic",
+        query: result.query,
+        link,
+        item: result.item,
+      });
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      const code = message === "Entity not found" ? 404 : 400;
+      return reply.code(code).send({ ok: false, error: message });
+    }
   });
   return fastify;
 }
 
-
-interface GetBudgetAnalysisParams {
-  entity: Entity;
-  year: number;
-  level: "group" | "functional" | "economic";
-  fnCode?: string;
-  ecCode?: string;
-}
-
-async function getBudgetAnalysis({ entity, year, level, fnCode, ecCode }: GetBudgetAnalysisParams) {
-
-  const report_period = { type: 'YEAR', selection: { interval: { start: `${year}-01`, end: `${year}-01` } } } as const;
-  const default_report_type = 'Executie bugetara agregata la nivel de ordonator principal';
-  const [expenseLineItems, incomeLineItems] = await Promise.all([
-    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], report_period, report_type: default_report_type, account_category: "ch" } as any, { by: "ytd_amount", order: "DESC" }, 1000, 0),
-    executionLineItemRepository.getAll({ entity_cuis: [entity.cui], report_period, report_type: default_report_type, account_category: "vn" } as any, { by: "ytd_amount", order: "DESC" }, 1000, 0),
-  ]);
-
-
-  // Get the functional and economic names for the income line items
-  const detailedLineItems = await Promise.all(expenseLineItems.map(async (li: ExecutionLineItem) => {
-    const functionalClassification = li.functional_code ? await functionalClassificationRepository.getByCode(li.functional_code) : undefined;
-    const economicClassification = li.economic_code ? await economicClassificationRepository.getByCode(li.economic_code) : undefined;
-    return {
-      ...li,
-      functional_name: functionalClassification?.functional_name,
-      economic_name: economicClassification?.economic_name,
-    };
-  }));
-
-  const detailedIncomeLineItems = await Promise.all(incomeLineItems.map(async (li: ExecutionLineItem) => {
-    const functionalClassification = li.functional_code ? await functionalClassificationRepository.getByCode(li.functional_code) : undefined;
-    const economicClassification = li.economic_code ? await economicClassificationRepository.getByCode(li.economic_code) : undefined;
-    return {
-      ...li,
-      functional_name: functionalClassification?.functional_name,
-      economic_name: economicClassification?.economic_name,
-    };
-  }));
-
-
-  let expenseGroups = groupByFunctional(detailedLineItems, entity.cui, "expense", year);
-  let incomeGroups = groupByFunctional(detailedIncomeLineItems, entity.cui, "income", year);
-
-  expenseGroups = filterGroups({ initialGroups: expenseGroups, fnCode, ecCode, level, type: "expense" });
-  incomeGroups = filterGroups({ initialGroups: incomeGroups, fnCode, ecCode, level, type: "income" });
-
-  let expenseGroupSummary: string | undefined = undefined;
-  let incomeGroupSummary: string | undefined = undefined;
-
-  if (expenseGroups.length > 0) {
-    const total = expenseGroups.reduce((sum, ch) => sum + ch.totalAmount, 0);
-    expenseGroupSummary = `The total expenses for ${entity.name} in ${year} were ${formatCurrency(total, 'compact')} (${formatCurrency(total, 'standard')})`;
-  }
-  if (incomeGroups.length > 0) {
-    const total = incomeGroups.reduce((sum, ch) => sum + ch.totalAmount, 0);
-    incomeGroupSummary = `The total income for ${entity.name} in ${year} were ${formatCurrency(total, 'compact')} (${formatCurrency(total, 'standard')})`;
-  }
-
-  return {
-    expenseGroups,
-    incomeGroups,
-    expenseGroupSummary,
-    incomeGroupSummary,
-  };
-}
-
-async function getEntity(cui?: string, search?: string) {
-  let entity = cui ? await entityRepository.getById(cui) : undefined;
-  if (!entity && search) {
-    const results = await entityRepository.getAll({ search }, 1, 0);
-    entity = results[0];
-  }
-  if (!entity) {
-    return null;
-  }
-  return entity;
-}
+ 
 
 /**
  * http://localhost:5173/entities/4305857?view=overview&year=2024

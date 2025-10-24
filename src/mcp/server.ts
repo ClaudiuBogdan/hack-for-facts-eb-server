@@ -1,11 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { entityRepository } from "../db/repositories/entityRepository";
-import { executionLineItemRepository } from "../db/repositories/executionLineItemRepository";
-import { buildEntityDetailsLink } from "../utils/link";
-import { formatCurrency } from "../utils/formatter";
+import {
+  getEntityDetails as svcGetEntityDetails,
+  searchEntities as svcSearchEntities,
+  searchEconomicClassifications as svcSearchEconomicClassifications,
+  getEntityBudgetAnalysis as svcGetEntityBudgetAnalysis,
+} from "../services/ai-basic";
 
 export function createMcpServer() {
+  const currentYear = new Date().getFullYear();
+  
   const server = new McpServer(
     {
       name: "Hack for Facts – AI Basic MCP",
@@ -63,71 +67,226 @@ export function createMcpServer() {
     },
     async ({ entityCui, entitySearch, year }) => {
       if (!year) {
-        const error = { ok: false, error: "year is required" };
+        const error = { ok: false, error: "year is required" } as const;
         return {
           content: [{ type: "text", text: JSON.stringify(error) }],
           structuredContent: error,
           isError: true,
         };
       }
-
-      let entity = entityCui ? await entityRepository.getById(entityCui) : undefined;
-      if (!entity && entitySearch) {
-        const results = await entityRepository.getAll({ search: entitySearch }, 1, 0);
-        entity = results[0];
-      }
-      if (!entity) {
-        const error = { ok: false, error: "Entity not found" };
+      try {
+        const result = await svcGetEntityDetails({ entityCui, entitySearch, year });
+        const response = { ok: true, ...result } as const;
         return {
-          content: [{ type: "text", text: JSON.stringify(error) }],
-          structuredContent: error,
-          isError: true,
+          content: [{ type: "text", text: JSON.stringify(response) }],
+          structuredContent: response,
         };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
       }
+    }
+  );
 
-      const yearlySnapshot = await executionLineItemRepository.getYearlySnapshotTotals(
-        entity.cui,
-        year,
-        entity.default_report_type
-      );
+  // Search entities
+  server.registerTool(
+    "searchEntities",
+    {
+      title: "Search Entities",
+      description: "Find public institutions (by name keywords or CUI).",
+      inputSchema: {
+        search: z.string().min(1),
+        limit: z.number().int().min(1).max(10).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.literal("entities.search"),
+        query: z.object({ search: z.string(), limit: z.number(), offset: z.number() }),
+        link: z.string().optional(),
+        items: z.array(z.any()),
+        pageInfo: z.object({ totalCount: z.number(), limit: z.number(), offset: z.number() }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ search, limit, offset }) => {
+      try {
+        const result = await svcSearchEntities({ search, limit, offset });
+        const response = { ok: true, ...result } as const;
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
 
-      const details = {
-        cui: entity.cui,
-        name: (entity as any).name,
-        address: (entity as any).address ?? null,
-        totalIncome: yearlySnapshot.totalIncome,
-        totalExpenses: yearlySnapshot.totalExpenses,
-        totalIncomeHumanReadable: `The total income for ${entity.name} in ${year} was ${formatCurrency(
-          yearlySnapshot.totalIncome,
-          "compact"
-        )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")})`,
-        totalExpensesHumanReadable: `The total expenses for ${entity.name} in ${year} was ${formatCurrency(
-          yearlySnapshot.totalExpenses,
-          "compact"
-        )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")})`,
-        summary: `In ${year}, ${
-          entity.name
-        } had a total income of ${formatCurrency(
-          yearlySnapshot.totalIncome,
-          "compact"
-        )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")}) and a total expenses of ${formatCurrency(
-          yearlySnapshot.totalExpenses,
-          "compact"
-        )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
-      };
+  // Search economic classifications
+  server.registerTool(
+    "searchEconomicClassifications",
+    {
+      title: "Search Economic Classifications",
+      description: "Search economic classifications (code prefix or Romanian keywords).",
+      inputSchema: {
+        search: z.string().min(1),
+        limit: z.number().int().min(1).max(50).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.literal("economic-classifications.search"),
+        query: z.object({ search: z.string(), limit: z.number(), offset: z.number() }),
+        items: z.array(z.any()),
+        pageInfo: z.object({ totalCount: z.number(), limit: z.number(), offset: z.number() }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ search, limit, offset }) => {
+      try {
+        const result = await svcSearchEconomicClassifications({ search, limit, offset });
+        const response = { ok: true, ...result } as const;
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
 
-      const link = buildEntityDetailsLink(entity.cui, { year });
-      const response = {
-        ok: true,
-        kind: "entities.details",
-        query: { cui: entity.cui, year },
-        link,
-        item: details,
-      };
-      return {
-        content: [{ type: "text", text: JSON.stringify(response) }],
-        structuredContent: response,
-      };
+  // Entity budget analysis (group level)
+  server.registerTool(
+    "getEntityBudgetAnalysis",
+    {
+      title: "Get Entity Budget Analysis",
+      description: "Income and spending grouped by functional category (overview).",
+      inputSchema: {
+        entityCui: z.string().optional(),
+        entitySearch: z.string().optional(),
+        year: z.number().int().min(2016).max(currentYear),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.literal("entities.budget-analysis"),
+        query: z.object({ cui: z.string(), year: z.number() }),
+        link: z.string(),
+        item: z.object({
+          cui: z.string(),
+          name: z.string(),
+          expenseGroups: z.array(z.any()),
+          incomeGroups: z.array(z.any()),
+          expenseGroupSummary: z.string().optional(),
+          incomeGroupSummary: z.string().optional(),
+        }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ entityCui, entitySearch, year }) => {
+      if (!year) {
+        const error = { ok: false, error: "year is required" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      try {
+        const result = await svcGetEntityBudgetAnalysis({ entityCui, entitySearch, year, level: "group" });
+        const response = { ok: true, ...result } as const;
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
+
+  // Budget analysis by functional
+  server.registerTool(
+    "getEntityBudgetAnalysisByFunctional",
+    {
+      title: "Get Entity Budget Analysis by Functional",
+      description: "Deep dive by functional code (chapter or full code).",
+      inputSchema: {
+        entityCui: z.string(),
+        year: z.number().int().min(2016).max(currentYear),
+        functionalCode: z.string(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.literal("entities.budget-analysis-spending-by-functional"),
+        query: z.object({ cui: z.string(), year: z.number() }),
+        link: z.string(),
+        item: z.object({
+          cui: z.string(),
+          name: z.string(),
+          expenseGroups: z.array(z.any()),
+          incomeGroups: z.array(z.any()),
+          expenseGroupSummary: z.string().optional(),
+          incomeGroupSummary: z.string().optional(),
+        }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ entityCui, year, functionalCode }) => {
+      if (!year) {
+        const error = { ok: false, error: "year is required" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      if (!functionalCode) {
+        const error = { ok: false, error: "functionalCode is required" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      try {
+        const result = await svcGetEntityBudgetAnalysis({ entityCui, year, level: "functional", fnCode: functionalCode });
+        const response = { ok: true, ...result } as const;
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
+
+  // Budget analysis by economic
+  server.registerTool(
+    "getEntityBudgetAnalysisByEconomic",
+    {
+      title: "Get Entity Budget Analysis by Economic",
+      description: "Deep dive by economic code (dotted code e.g. '10.01.01').",
+      inputSchema: {
+        entityCui: z.string(),
+        year: z.number().int().min(2016).max(currentYear),
+        economicCode: z.string(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.literal("entities.budget-analysis-spending-by-economic"),
+        query: z.object({ cui: z.string(), year: z.number() }),
+        link: z.string(),
+        item: z.object({
+          cui: z.string(),
+          name: z.string(),
+          expenseGroups: z.array(z.any()),
+          incomeGroups: z.array(z.any()),
+          expenseGroupSummary: z.string().optional(),
+          incomeGroupSummary: z.string().optional(),
+        }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ entityCui, year, economicCode }) => {
+      if (!year) {
+        const error = { ok: false, error: "year is required" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      if (!economicCode) {
+        const error = { ok: false, error: "economicCode is required" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      try {
+        const result = await svcGetEntityBudgetAnalysis({ entityCui, year, level: "economic", ecCode: economicCode });
+        const response = { ok: true, ...result } as const;
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
     }
   );
 

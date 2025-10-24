@@ -32,9 +32,10 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
 
     if (!transport) {
       if (!isInitializeRequest(body)) {
-        reply.code(400).type("application/json").send({
+        reply.header("Mcp-Reinit-Required", "true");
+        reply.code(409).type("application/json").send({
           jsonrpc: "2.0",
-          error: { code: -32000, message: "Bad Request: No valid session ID provided" },
+          error: { code: -32002, message: "MCP connection session not found or expired. Please reinitialize the MCP connection." },
           id: null,
         });
         return;
@@ -65,7 +66,8 @@ export default async function mcpRoutes(fastify: FastifyInstance) {
     const sessionId = String(request.headers["mcp-session-id"] || "");
     const transport = sessionId ? transports[sessionId] : undefined;
     if (!transport) {
-      reply.code(400).send("Invalid or missing session ID");
+      reply.header("Mcp-Reinit-Required", "true");
+      reply.code(409).send("Invalid or missing session ID");
       return;
     }
 
