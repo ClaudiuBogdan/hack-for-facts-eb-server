@@ -30,8 +30,10 @@ export async function registerCors(fastify: FastifyInstance) {
 			"authorization",
 			"x-api-key",
 			"accept",
+			"mcp-session-id",
+			"last-event-id",
 		],
-		exposedHeaders: ["content-length"],
+		exposedHeaders: ["content-length", "mcp-session-id", "Mcp-Session-Id"],
 		credentials: true,
 	});
 }

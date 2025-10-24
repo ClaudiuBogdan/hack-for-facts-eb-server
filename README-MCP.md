@@ -37,9 +37,8 @@ This directory contains configuration files for connecting MCP clients to the Ha
 
 3. Add a new MCP server with:
    - **Name:** Hack for Facts AI Basic
-   - **Type:** HTTP SSE
-   - **URL:** http://localhost:3000/mcp/sse
-   - **Message URL:** http://localhost:3000/mcp/messages
+   - **Type:** Streamable HTTP
+   - **URL:** http://localhost:3000/mcp
    - **Auth Header:** x-api-key (optional)
 
 Or use the JSON config format in `mcp-cursor-config.json`
@@ -49,9 +48,8 @@ Or use the JSON config format in `mcp-cursor-config.json`
 1. Install an MCP extension (e.g., "MCP Client" or similar)
 
 2. Configure the extension with:
-   - **Server Type:** HTTP SSE
-   - **SSE URL:** http://localhost:3000/mcp/sse
-   - **Message URL:** http://localhost:3000/mcp/messages
+   - **Server Type:** Streamable HTTP
+   - **URL:** http://localhost:3000/mcp
    - **Auth Header:** x-api-key (if enabled)
 
 ### Generic MCP Clients
@@ -92,17 +90,18 @@ Get high-level financial totals for a Romanian public entity.
 
 3. **Tool Not Available:**
    - Verify server started successfully
-   - Check `/mcp/definition` endpoint returns tool list
-   - Ensure client supports HTTP SSE transport
+   - Ensure client supports Streamable HTTP transport
 
 ## Development
 
 To test the MCP server directly:
 
 ```bash
-# Check if server is responding
-curl http://localhost:3000/mcp/definition
+# Initialize session (returns Mcp-Session-Id header)
+curl -i -X POST http://localhost:3000/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"curl","version":"0"},"capabilities":{}}}'
 
-# Test SSE connection
-curl -N http://localhost:3000/mcp/sse
+# Open SSE stream using the returned session id
+curl -N -H 'mcp-session-id: <paste-session-id>' http://localhost:3000/mcp
 ```

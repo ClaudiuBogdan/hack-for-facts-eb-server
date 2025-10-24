@@ -20,33 +20,53 @@ export function createMcpServer() {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "getEntityDetails",
-    "Get high-level financial totals for an entity (ai-basic: getEntityDetails).",
     {
-      entityCui: z
-        .string()
-        .describe(
-          "Exact CUI (fiscal identifier) of the entity. Prefer over search if known."
-        )
-        .optional(),
-      entitySearch: z
-        .string()
-        .describe(
-          "Free-text fuzzy search when the CUI is unknown. Returns best match and may be ambiguous."
-        )
-        .optional(),
-      year: z
-        .number()
-        .int()
-        .min(2016)
-        .max(2100)
-        .describe("Reporting year for snapshot totals and execution lines"),
+      title: "Get Entity Details",
+      description: "Get high-level financial totals for an entity (ai-basic: getEntityDetails).",
+      inputSchema: {
+        entityCui: z
+          .string()
+          .describe("Exact CUI (fiscal identifier) of the entity. Prefer over search if known.")
+          .optional(),
+        entitySearch: z
+          .string()
+          .describe("Free-text fuzzy search when the CUI is unknown. Returns best match and may be ambiguous.")
+          .optional(),
+        year: z
+          .number()
+          .int()
+          .min(2016)
+          .max(2100)
+          .describe("Reporting year for snapshot totals and execution lines"),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        kind: z.string().optional(),
+        query: z.object({ cui: z.string(), year: z.number() }).optional(),
+        link: z.string().optional(),
+        item: z
+          .object({
+            cui: z.string(),
+            name: z.string(),
+            address: z.string().nullable(),
+            totalIncome: z.number(),
+            totalExpenses: z.number(),
+            totalIncomeHumanReadable: z.string(),
+            totalExpensesHumanReadable: z.string(),
+            summary: z.string(),
+          })
+          .optional(),
+        error: z.string().optional(),
+      },
     },
     async ({ entityCui, entitySearch, year }) => {
       if (!year) {
+        const error = { ok: false, error: "year is required" };
         return {
-          content: [{ type: "text", text: JSON.stringify({ ok: false, error: "year is required" }) }],
+          content: [{ type: "text", text: JSON.stringify(error) }],
+          structuredContent: error,
           isError: true,
         };
       }
@@ -57,8 +77,10 @@ export function createMcpServer() {
         entity = results[0];
       }
       if (!entity) {
+        const error = { ok: false, error: "Entity not found" };
         return {
-          content: [{ type: "text", text: JSON.stringify({ ok: false, error: "Entity not found" }) }],
+          content: [{ type: "text", text: JSON.stringify(error) }],
+          structuredContent: error,
           isError: true,
         };
       }
@@ -75,9 +97,23 @@ export function createMcpServer() {
         address: (entity as any).address ?? null,
         totalIncome: yearlySnapshot.totalIncome,
         totalExpenses: yearlySnapshot.totalExpenses,
-        totalIncomeHumanReadable: `The total income for ${entity.name} in ${year} was ${formatCurrency(yearlySnapshot.totalIncome, "compact")} (${formatCurrency(yearlySnapshot.totalIncome, "standard")})`,
-        totalExpensesHumanReadable: `The total expenses for ${entity.name} in ${year} was ${formatCurrency(yearlySnapshot.totalExpenses, "compact")} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")})`,
-        summary: `In ${year}, ${entity.name} had a total income of ${formatCurrency(yearlySnapshot.totalIncome, "compact")} (${formatCurrency(yearlySnapshot.totalIncome, "standard")}) and a total expenses of ${formatCurrency(yearlySnapshot.totalExpenses, "compact")} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
+        totalIncomeHumanReadable: `The total income for ${entity.name} in ${year} was ${formatCurrency(
+          yearlySnapshot.totalIncome,
+          "compact"
+        )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")})`,
+        totalExpensesHumanReadable: `The total expenses for ${entity.name} in ${year} was ${formatCurrency(
+          yearlySnapshot.totalExpenses,
+          "compact"
+        )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")})`,
+        summary: `In ${year}, ${
+          entity.name
+        } had a total income of ${formatCurrency(
+          yearlySnapshot.totalIncome,
+          "compact"
+        )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")}) and a total expenses of ${formatCurrency(
+          yearlySnapshot.totalExpenses,
+          "compact"
+        )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
       };
 
       const link = buildEntityDetailsLink(entity.cui, { year });
@@ -90,35 +126,12 @@ export function createMcpServer() {
       };
       return {
         content: [{ type: "text", text: JSON.stringify(response) }],
+        structuredContent: response,
       };
     }
   );
 
   return server;
 }
-
-export const mcpDefinition = {
-  name: "Hack for Facts – AI Basic MCP",
-  version: "1.0.0",
-  tools: [
-    {
-      name: "getEntityDetails",
-      description:
-        "Get high-level financial totals for an entity in a specific year (mirrors /ai/v1/entities/details).",
-      args: {
-        entityCui: { type: "string", optional: true },
-        entitySearch: { type: "string", optional: true },
-        year: { type: "number", min: 2016, max: 2100 },
-      },
-    },
-  ],
-  transport: {
-    sse: {
-      streamEndpoint: "/mcp/sse",
-      postEndpoint: "/mcp/messages",
-      auth: "optional api key via x-api-key if MCP_API_KEY is set",
-    },
-  },
-};
 
 
