@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+// TODO: remove this when mcp deps update zod to v4
+import { z } from "@modelcontextprotocol/sdk/node_modules/zod";
 import {
   getEntityDetails as svcGetEntityDetails,
   searchEntities as svcSearchEntities,
@@ -9,7 +10,7 @@ import {
 
 export function createMcpServer() {
   const currentYear = new Date().getFullYear();
-  
+
   const server = new McpServer(
     {
       name: "Hack for Facts – AI Basic MCP",
