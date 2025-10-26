@@ -3,6 +3,14 @@ import { entityRepository } from "../db/repositories/entityRepository";
 import { executionLineItemRepository } from "../db/repositories/executionLineItemRepository";
 import { functionalClassificationRepository } from "../db/repositories/functionalClassificationRepository";
 import { economicClassificationRepository } from "../db/repositories/economicClassificationRepository";
+import { uatRepository } from "../db/repositories/uatRepository";
+import {
+  computeNameMatchBoost,
+  findEconomicCodesByName,
+  findFunctionalCodesByName,
+  getEconomicLevelInfo,
+  getFunctionalLevelInfo,
+} from "./data-analytics-agent/utils/classificationIndex";
 import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink } from "../utils/link";
 import { filterGroups, groupByFunctional } from "../utils/grouping";
 import { formatCurrency } from "../utils/formatter";
@@ -253,4 +261,219 @@ async function computeBudgetGroups({
   };
 }
 
+
+// -------------------------------------------------------------
+// Unified Search Filters Tool (service layer)
+// -------------------------------------------------------------
+
+type SearchFiltersCategory =
+  | "entity"
+  | "uat"
+  | "functional_classification"
+  | "economic_classification";
+
+type FilterKey =
+  | "entity_cuis"
+  | "uat_ids"
+  | "functional_prefixes"
+  | "functional_codes"
+  | "economic_prefixes"
+  | "economic_codes";
+
+interface SearchFiltersInput {
+  category: SearchFiltersCategory;
+  query: string;
+  limit?: number;
+}
+
+interface BaseResult {
+  name: string;
+  category: SearchFiltersCategory;
+  context?: string;
+  score: number;
+  filterKey: FilterKey;
+  filterValue: string;
+  metadata?: any;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function toScore(v: any): number {
+  const n = typeof v === "number" ? v : undefined;
+  if (n === undefined || Number.isNaN(n)) return 1;
+  return Math.max(0, Math.min(1, n));
+}
+
+function keyForFunctional(code: string): FilterKey {
+  return code.endsWith(".") ? "functional_prefixes" : "functional_codes";
+}
+
+function keyForEconomic(code: string): FilterKey {
+  return code.endsWith(".") ? "economic_prefixes" : "economic_codes";
+}
+
+export async function searchFilters(input: SearchFiltersInput): Promise<{
+  ok: boolean;
+  results: BaseResult[];
+  bestMatch?: BaseResult;
+  totalMatches?: number;
+}> {
+  const category = input.category;
+  const query = (input.query ?? "").trim();
+  const limit = clamp(typeof input.limit === "number" ? input.limit : 3, 1, 50);
+
+  if (!query) {
+    throw new Error("query is required");
+  }
+
+  if (category === "entity") {
+    const rows = await entityRepository.getAll({ search: query }, limit, 0);
+    const results: BaseResult[] = rows.map((r: any) => ({
+      name: String(r.name ?? r.cui ?? ""),
+      category,
+      context: r.address ? `Address: ${r.address}` : undefined,
+      score: toScore(r.relevance),
+      filterKey: "entity_cuis",
+      filterValue: String(r.cui),
+      metadata: { cui: r.cui, entityType: r.entity_type ?? undefined, uatId: r.uat_id ?? undefined },
+    }));
+
+    const sorted = results.sort((a, b) => b.score - a.score);
+    const bestMatch = sorted[0] && sorted[0].score >= 0.85 ? sorted[0] : undefined;
+    return { ok: true, results: sorted, bestMatch };
+  }
+
+  if (category === "uat") {
+    const rows = await uatRepository.getAll({ search: query }, limit, 0);
+    const results: BaseResult[] = rows.map((r: any) => ({
+      name: String(r.name ?? r.id ?? ""),
+      category,
+      context: r.county_code ? `County: ${r.county_code}` : undefined,
+      score: toScore(r.relevance),
+      filterKey: "uat_ids",
+      filterValue: String(r.id),
+      metadata: { uatId: String(r.id), countyCode: r.county_code ?? undefined, population: r.population ?? undefined },
+    }));
+
+    const sorted = results.sort((a, b) => b.score - a.score);
+    const bestMatch = sorted[0] && sorted[0].score >= 0.85 ? sorted[0] : undefined;
+    return { ok: true, results: sorted, bestMatch };
+  }
+
+  if (category === "functional_classification") {
+    // Expand with chapter/subchapter name matches
+    const nameCodes = await findFunctionalCodesByName(query);
+    const prefQueries = Array.from(new Set(nameCodes.map((c) => `fn:${c}`)));
+
+    const primary = await functionalClassificationRepository.getAll({ search: query }, limit, 0);
+    const expanded: any[] = [...primary];
+    // Optionally fetch more by code prefixes derived from names
+    for (const p of prefQueries) {
+      const more = await functionalClassificationRepository.getAll({ search: p }, Math.max(0, limit - expanded.length), 0);
+      for (const m of more) {
+        if (!expanded.find((e) => e.functional_code === m.functional_code)) expanded.push(m);
+      }
+      if (expanded.length >= limit) break;
+    }
+
+    const enriched: BaseResult[] = [];
+    for (const r of expanded.slice(0, limit)) {
+      const code: string = String(r.functional_code);
+      const key = keyForFunctional(code);
+      const info = await getFunctionalLevelInfo(code);
+      const contextParts = [`COFOG: ${code}`];
+      if (info?.chapterCode && info?.chapterName) contextParts.push(`Chapter: ${info.chapterCode} ${info.chapterName}`);
+      if (info?.subchapterCode && info?.subchapterName) contextParts.push(`Subchapter: ${info.subchapterCode} ${info.subchapterName}`);
+
+      const base = toScore(r.relevance);
+      let score = base;
+      // Boosts when query matches known names
+      score += computeNameMatchBoost(r.functional_name, query);
+      score += computeNameMatchBoost(info?.chapterName, query);
+      score += computeNameMatchBoost(info?.subchapterName, query);
+      // Slight penalty for pure code-only when no names present
+      if (!r.functional_name) score = Math.max(0, score - 0.05);
+      score = Math.min(1, score);
+
+      enriched.push({
+        name: String(r.functional_name ?? info?.subchapterName ?? info?.chapterName ?? code),
+        category,
+        context: contextParts.join(" | "),
+        score,
+        filterKey: key,
+        filterValue: code,
+        metadata: {
+          code,
+          codeKind: key === "functional_prefixes" ? "prefix" : "exact",
+          chapterCode: info?.chapterCode,
+          chapterName: info?.chapterName,
+          subchapterCode: info?.subchapterCode,
+          subchapterName: info?.subchapterName,
+        },
+      });
+    }
+
+    const sorted = enriched.sort((a, b) => b.score - a.score);
+    const bestMatch = sorted[0] && sorted[0].score >= 0.85 ? sorted[0] : undefined;
+    return { ok: true, results: sorted, bestMatch };
+  }
+
+  if (category === "economic_classification") {
+    const nameCodes = await findEconomicCodesByName(query);
+    const prefQueries = Array.from(new Set(nameCodes.map((c) => `ec:${c}`)));
+
+    const primary = await economicClassificationRepository.getAll({ search: query }, limit, 0);
+    const expanded: any[] = [...primary];
+    for (const p of prefQueries) {
+      const more = await economicClassificationRepository.getAll({ search: p }, Math.max(0, limit - expanded.length), 0);
+      for (const m of more) {
+        if (!expanded.find((e) => e.economic_code === m.economic_code)) expanded.push(m);
+      }
+      if (expanded.length >= limit) break;
+    }
+
+    const enriched: BaseResult[] = [];
+    for (const r of expanded.slice(0, limit)) {
+      const code: string = String(r.economic_code);
+      const key = keyForEconomic(code);
+      const info = await getEconomicLevelInfo(code);
+      const contextParts = [`Economic: ${code}`];
+      if (info?.chapterCode && info?.chapterName) contextParts.push(`Chapter: ${info.chapterCode} ${info.chapterName}`);
+      if (info?.subchapterCode && info?.subchapterName) contextParts.push(`Subchapter: ${info.subchapterCode} ${info.subchapterName}`);
+
+      const base = toScore(r.relevance);
+      let score = base;
+      score += computeNameMatchBoost(r.economic_name, query);
+      score += computeNameMatchBoost(info?.chapterName, query);
+      score += computeNameMatchBoost(info?.subchapterName, query);
+      if (!r.economic_name) score = Math.max(0, score - 0.05);
+      score = Math.min(1, score);
+
+      enriched.push({
+        name: String(r.economic_name ?? info?.subchapterName ?? info?.chapterName ?? code),
+        category,
+        context: contextParts.join(" | "),
+        score,
+        filterKey: key,
+        filterValue: code,
+        metadata: {
+          code,
+          codeKind: key === "economic_prefixes" ? "prefix" : "exact",
+          chapterCode: info?.chapterCode,
+          chapterName: info?.chapterName,
+          subchapterCode: info?.subchapterCode,
+          subchapterName: info?.subchapterName,
+        },
+      });
+    }
+
+    const sorted = enriched.sort((a, b) => b.score - a.score);
+    const bestMatch = sorted[0] && sorted[0].score >= 0.85 ? sorted[0] : undefined;
+    return { ok: true, results: sorted, bestMatch };
+  }
+
+  throw new Error(`Unsupported category: ${category}`);
+}
 

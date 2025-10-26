@@ -6,6 +6,7 @@ import {
   searchEconomicClassifications as svcSearchEconomicClassifications,
   getEntityBudgetAnalysis as svcGetEntityBudgetAnalysis,
 } from "../services/ai-basic";
+import { searchFilters as svcSearchFilters } from "../services/ai-basic";
 
 export function createMcpServer() {
   const currentYear = new Date().getFullYear();
@@ -88,66 +89,65 @@ export function createMcpServer() {
     }
   );
 
-  // Search entities
+  // Unified search filters
   server.registerTool(
-    "searchEntities",
+    "search_filters",
     {
-      title: "Search Entities",
-      description: "Find public institutions (by name keywords or CUI).",
+      title: "Search Filters",
+      description: "Find machine-usable filter values for analytics (entity, uat, functional, economic).",
       inputSchema: {
-        search: z.string().min(1),
-        limit: z.number().int().min(1).max(10).optional(),
-        offset: z.number().int().min(0).optional(),
-      },
-      outputSchema: {
-        ok: z.boolean(),
-        kind: z.literal("entities.search"),
-        query: z.object({ search: z.string(), limit: z.number(), offset: z.number() }),
-        link: z.string().optional(),
-        items: z.array(z.any()),
-        pageInfo: z.object({ totalCount: z.number(), limit: z.number(), offset: z.number() }),
-        error: z.string().optional(),
-      },
-    },
-    async ({ search, limit, offset }) => {
-      try {
-        const result = await svcSearchEntities({ search, limit, offset });
-        const response = { ok: true, ...result } as const;
-        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
-      } catch (e: any) {
-        const error = { ok: false, error: String(e?.message ?? e) };
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-    }
-  );
-
-  // Search economic classifications
-  server.registerTool(
-    "searchEconomicClassifications",
-    {
-      title: "Search Economic Classifications",
-      description: "Search economic classifications (code prefix or Romanian keywords).",
-      inputSchema: {
-        search: z.string().min(1),
+        category: z.enum(["entity", "uat", "functional_classification", "economic_classification"]),
+        query: z.string().min(1),
         limit: z.number().int().min(1).max(50).optional(),
-        offset: z.number().int().min(0).optional(),
       },
       outputSchema: {
         ok: z.boolean(),
-        kind: z.literal("economic-classifications.search"),
-        query: z.object({ search: z.string(), limit: z.number(), offset: z.number() }),
-        items: z.array(z.any()),
-        pageInfo: z.object({ totalCount: z.number(), limit: z.number(), offset: z.number() }),
+        results: z.array(
+          z.object({
+            name: z.string(),
+            category: z.enum(["entity", "uat", "functional_classification", "economic_classification"]),
+            context: z.string().optional(),
+            score: z.number(),
+            filterKey: z.enum([
+              "entity_cuis",
+              "uat_ids",
+              "functional_prefixes",
+              "functional_codes",
+              "economic_prefixes",
+              "economic_codes",
+            ]),
+            filterValue: z.string(),
+            metadata: z.any().optional(),
+          })
+        ),
+        bestMatch: z
+          .object({
+            name: z.string(),
+            category: z.enum(["entity", "uat", "functional_classification", "economic_classification"]),
+            context: z.string().optional(),
+            score: z.number(),
+            filterKey: z.enum([
+              "entity_cuis",
+              "uat_ids",
+              "functional_prefixes",
+              "functional_codes",
+              "economic_prefixes",
+              "economic_codes",
+            ]),
+            filterValue: z.string(),
+            metadata: z.any().optional(),
+          })
+          .optional(),
+        totalMatches: z.number().optional(),
         error: z.string().optional(),
       },
     },
-    async ({ search, limit, offset }) => {
+    async ({ category, query, limit }) => {
       try {
-        const result = await svcSearchEconomicClassifications({ search, limit, offset });
-        const response = { ok: true, ...result } as const;
+        const response = await svcSearchFilters({ category, query, limit });
         return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
       } catch (e: any) {
-        const error = { ok: false, error: String(e?.message ?? e) };
+        const error = { ok: false, error: String(e?.message ?? e) } as const;
         return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
       }
     }
