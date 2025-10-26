@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-// TODO: remove this when mcp deps update zod to v4
-import { z } from "@modelcontextprotocol/sdk/node_modules/zod";
+import {z} from "zod-v3";
 import {
   getEntityDetails as svcGetEntityDetails,
   searchEntities as svcSearchEntities,
