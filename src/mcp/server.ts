@@ -120,7 +120,7 @@ Output fields:
 - results[].metadata: category-specific details. For classifications includes { codeKind: 'prefix' | 'exact', chapterCode/chapterName, subchapterCode/subchapterName }. For UAT includes { uatId, countyCode, population }. For entities includes { cui, entityType }.
 
 Usage patterns:
-- Entities: { category: 'entity', query: 'Municipiul Cluj-Napoca' } → filterKey 'entity_cuis', filterValue '<CUI>'. Use the name convention used by ANAF: Comuna, Oras,Municipiul, Consiliul, Ministerul, etc
+- Entities: { category: 'entity', query: 'Municipiul Cluj-Napoca' } → filterKey 'entity_cuis', filterValue '<CUI>'. Use the name convention used by ANAF: Comuna, Oras, Municipiul, Judetul, Ministerul, Scoala, etc
 - UATs: { category: 'uat', query: 'Cluj' } → filterKey 'uat_ids', filterValue '<UAT_ID_AS_STRING>' (IMPORTANT: keep as string).
 - Functional classifications: query by name or code (using fn: prefix); use filterKey "functional_prefixes" for categories (trailing dot).
 - Economic classifications: query by name or code (using ec: prefix); use filterKey "economic_prefixes" (trailing dot).

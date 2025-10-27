@@ -16,6 +16,7 @@ import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFuncti
 import { filterGroups, groupByFunctional } from "../utils/grouping";
 import { formatCurrency } from "../utils/formatter";
 import { AnalyticsFilter, ReportPeriodInput } from "../types";
+import { getSeriesColor } from "./data-analytics-agent/schemas/utils";
 
 export async function getEntityOrNull(entityCui?: string, entitySearch?: string): Promise<Entity | null> {
   let entity = entityCui ? await entityRepository.getById(entityCui) : undefined;
@@ -775,7 +776,9 @@ export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<
   const chartSeries = input.series.map((def, i) => {
     const seriesLabel = results[i]?.label || `Series ${i + 1}`;
     const unit = getNormalizationUnit(def.filter.normalization);
-
+    const filter = toAnalyticsFilter(def.filter, input.period);
+    const color = getSeriesColor(filter);
+    
     return {
       id: `series-${chartId}-${i}`,
       type: 'line-items-aggregated-yearly' as const,
@@ -785,9 +788,9 @@ export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<
       config: {
         visible: true,
         showDataLabels: false,
-        color: i === 0 ? '#0062ff' : undefined, // Let other series use defaults
+        color,
       },
-      filter: toAnalyticsFilter(def.filter, input.period),
+      filter,
       createdAt: now,
       updatedAt: now,
     };
