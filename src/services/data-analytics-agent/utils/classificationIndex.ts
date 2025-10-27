@@ -1,7 +1,7 @@
 import * as fs from "fs-extra";
 import * as path from "path";
 
-type AnyNode = { description?: string; code?: string; children?: AnyNode[] };
+type AnyNode = { description?: string; code?: string; children?: AnyNode[], keywords?: string[] };
 
 export interface LevelInfo {
   code: string;
@@ -56,7 +56,7 @@ async function loadJson(fileName: string): Promise<AnyNode[] | null> {
   }
 }
 
-function buildIndexes(tree: AnyNode[] | null): Indexes {
+function buildIndexes(tree: AnyNode[] | null, codePrefix?: string): Indexes {
   const byCode = new Map<string, LevelInfo>();
   const names = new Map<string, Set<string>>();
 
@@ -77,6 +77,7 @@ function buildIndexes(tree: AnyNode[] | null): Indexes {
     for (const node of nodes) {
       const code = node.code;
       const desc = node.description;
+      const keywords = node.keywords;
       const currCodes = [...parentCodes];
       const currNames = [...parentNames];
       if (code) {
@@ -108,9 +109,28 @@ function buildIndexes(tree: AnyNode[] | null): Indexes {
           subchapterName,
         });
 
+        // Add description and hierarchical names
         addName(desc, code);
         if (chapterName) addName(chapterName, code);
         if (subchapterName) addName(subchapterName, code);
+
+        // Add code itself for direct code search (with dots)
+        addName(codePrefix ? `${codePrefix}:${code}` : code, code);
+
+        // Add code without dots for flexible matching (e.g., "8401" matches "84.01")
+        const codeNoDots = code.replace(/\./g, "");
+        if (codeNoDots !== code) {
+          addName(codeNoDots, code);
+        }
+
+        // Add each keyword to the searchable index
+        if (keywords && Array.isArray(keywords)) {
+          for (const keyword of keywords) {
+            if (keyword) {
+              addName(keyword, code);
+            }
+          }
+        }
       }
       if (node.children && node.children.length) {
         walk(node.children, currCodes, currNames);
@@ -125,14 +145,14 @@ function buildIndexes(tree: AnyNode[] | null): Indexes {
 async function ensureFunctional() {
   if (functionalIdx) return functionalIdx;
   const data = await loadJson("functional-classifications-general-ro.json");
-  functionalIdx = buildIndexes(data);
+  functionalIdx = buildIndexes(data, "fn");
   return functionalIdx!;
 }
 
 async function ensureEconomic() {
   if (economicIdx) return economicIdx;
   const data = await loadJson("economic-classifications-general-ro.json");
-  economicIdx = buildIndexes(data);
+  economicIdx = buildIndexes(data, "ec");
   return economicIdx!;
 }
 

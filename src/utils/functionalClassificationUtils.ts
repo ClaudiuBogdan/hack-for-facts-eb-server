@@ -99,3 +99,35 @@ export const getFilterDescription = (filteredBy?: { fnCode?: string, ecCode?: st
     const ecDescription = filteredBy.ecCode ? ` economic category "${filteredBy.ecCode}"` : "";
     return `${filterDescription}${fnDescription}${ecDescription}`;
 };
+
+/**
+ * Normalizes classification codes by removing trailing .00 segments.
+ * This converts codes to their prefix form by removing unnecessary trailing zeros.
+ *
+ * Examples:
+ * - "70.00.00" -> "70."
+ * - "10.01.00" -> "10.01."
+ * - "50." -> "50."
+ * - "65.02.01" -> "65.02.01."
+ *
+ * @param code The classification code to normalize
+ * @returns The normalized code with trailing .00 segments removed and ending with a dot
+ */
+export const normalizeClassificationCode = (code: string): string => {
+    if (!code) return code;
+
+    // Remove trailing dot if present for processing
+    let normalized = code.endsWith('.') ? code.slice(0, -1) : code;
+
+    // Remove trailing .00 segments repeatedly
+    while (normalized.endsWith('.00')) {
+        normalized = normalized.slice(0, -3);
+    }
+
+    // Ensure it ends with a dot for prefix codes
+    if (!normalized.endsWith('.')) {
+        normalized += '.';
+    }
+
+    return normalized;
+};

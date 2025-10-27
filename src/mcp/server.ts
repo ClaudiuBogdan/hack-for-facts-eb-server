@@ -8,6 +8,7 @@ import {
 } from "../services/ai-basic";
 import { searchFilters as svcSearchFilters } from "../services/ai-basic";
 import { generateAnalytics as svcGenerateAnalytics } from "../services/ai-basic";
+import { normalizeClassificationCode } from "../utils/functionalClassificationUtils";
 
 export function createMcpServer() {
   const currentYear = new Date().getFullYear();
@@ -97,15 +98,17 @@ export function createMcpServer() {
       title: "Search Filters",
       description: `High-precision discovery tool for resolving machine-usable filter values used by analytics.
 
+Search in Romanian as the data is in Romanian only. You can call the search_filters tool as many times as you need to find the relevant filters. This is important to provide an accurate and quality analytics using the filters, so you need to make sure you find all the relevant filters and then decide how to use them.
+
 Inputs:
 - category (required): one of "entity" | "uat" | "functional_classification" | "economic_classification".
-- query (required): natural language or code-like search term. Supports diacritics and fuzzy matching.
-- limit (optional): max results to return (1..50, default 10).
+- query (required): natural language or code-like search term. Use romanian only. Supports diacritics and fuzzy matching.
+- limit (optional): max results to return (1..50, default 3).
 
 Behavior:
 - Single-category search per call for precision.
 - Results are sorted by relevance score (0..1). "bestMatch" is included when the score is high (>=0.85).
-- For classifications, both prefix and exact code matches are supported.
+- For classifications, both prefix and exact code matches are supported. Use classification search to find relevant classification to the query. If you want to check the code, use the fn: or ec: prefix on the query. Eg: fn:70. or ec:10.
 
 Output fields:
 - results[].name: human-readable item name.
@@ -117,10 +120,10 @@ Output fields:
 - results[].metadata: category-specific details. For classifications includes { codeKind: 'prefix' | 'exact', chapterCode/chapterName, subchapterCode/subchapterName }. For UAT includes { uatId, countyCode, population }. For entities includes { cui, entityType }.
 
 Usage patterns:
-- Entities: { category: 'entity', query: 'Primăria Cluj' } → filterKey 'entity_cuis', filterValue '<CUI>'.
+- Entities: { category: 'entity', query: 'Municipiul Cluj-Napoca' } → filterKey 'entity_cuis', filterValue '<CUI>'. Use the name convention used by ANAF: Comuna, Oras,Municipiul, Consiliul, Ministerul, etc
 - UATs: { category: 'uat', query: 'Cluj' } → filterKey 'uat_ids', filterValue '<UAT_ID_AS_STRING>' (IMPORTANT: keep as string).
-- Functional classifications: query by name or code; use filterKey "functional_prefixes" for categories (trailing dot) or "functional_codes" for exact.
-- Economic classifications: query by name or code; use filterKey "economic_prefixes" (trailing dot) or "economic_codes" for exact.
+- Functional classifications: query by name or code (using fn: prefix); use filterKey "functional_prefixes" for categories (trailing dot).
+- Economic classifications: query by name or code (using ec: prefix); use filterKey "economic_prefixes" (trailing dot).
 `,
       inputSchema: {
         category: z.enum(["entity", "uat", "functional_classification", "economic_classification"]),
@@ -335,7 +338,22 @@ Tips:
     },
     async ({ title, description, period, series }) => {
       try {
-        const response = await svcGenerateAnalytics({ title, description, period, series });
+        // Normalize classification codes by removing trailing .00 segments
+        const normalizedSeries = series.map(s => ({
+          ...s,
+          filter: {
+            ...s.filter,
+            functionalPrefixes: s.filter.functionalPrefixes?.map(normalizeClassificationCode),
+            economicPrefixes: s.filter.economicPrefixes?.map(normalizeClassificationCode),
+            exclude: s.filter.exclude ? {
+              ...s.filter.exclude,
+              functionalPrefixes: s.filter.exclude.functionalPrefixes?.map(normalizeClassificationCode),
+              economicPrefixes: s.filter.exclude.economicPrefixes?.map(normalizeClassificationCode),
+            } : undefined,
+          },
+        }));
+
+        const response = await svcGenerateAnalytics({ title, description, period, series: normalizedSeries });
         return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
       } catch (e: any) {
         const error = { ok: false, error: String(e?.message ?? e) } as const;

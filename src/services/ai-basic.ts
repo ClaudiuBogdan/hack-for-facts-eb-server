@@ -582,19 +582,14 @@ function toReportPeriod(period: AnalyticsPeriodIn): ReportPeriodInput {
   } as ReportPeriodInput;
 }
 
-function parseUatIds(uatIds: string[] | undefined): number[] | undefined {
+function parseUatIds(uatIds: string[] | undefined): string[] | undefined {
   if (!uatIds || uatIds.length === 0) return undefined;
 
   const parsed = uatIds.map((s) => {
-    const num = parseInt(s, 10);
-    if (Number.isNaN(num)) {
-      console.warn(`Invalid UAT ID '${s}' - cannot parse as integer`);
-      return null;
-    }
-    return num;
-  }).filter((n): n is number => n !== null);
+    return String(s);
+  });
 
-  return parsed.length > 0 ? parsed : undefined;
+  return parsed;
 }
 
 function toAnalyticsFilter(series: AnalyticsSeriesFilterIn, period: AnalyticsPeriodIn): AnalyticsFilter {
