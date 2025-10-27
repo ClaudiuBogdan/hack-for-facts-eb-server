@@ -11,9 +11,11 @@ import {
   getEconomicLevelInfo,
   getFunctionalLevelInfo,
 } from "./data-analytics-agent/utils/classificationIndex";
+import { ShortLinkService } from "./short-link";
 import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink } from "../utils/link";
 import { filterGroups, groupByFunctional } from "../utils/grouping";
 import { formatCurrency } from "../utils/formatter";
+import { AnalyticsFilter, ReportPeriodInput } from "../types";
 
 export async function getEntityOrNull(entityCui?: string, entitySearch?: string): Promise<Entity | null> {
   let entity = entityCui ? await entityRepository.getById(entityCui) : undefined;
@@ -88,15 +90,14 @@ export async function getEntityDetails(params: { entityCui?: string; entitySearc
       yearlySnapshot.totalExpenses,
       "compact"
     )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")})`,
-    summary: `In ${year}, ${
-      entity.name
-    } had a total income of ${formatCurrency(
-      yearlySnapshot.totalIncome,
-      "compact"
-    )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")}) and a total expenses of ${formatCurrency(
-      yearlySnapshot.totalExpenses,
-      "compact"
-    )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
+    summary: `In ${year}, ${entity.name
+      } had a total income of ${formatCurrency(
+        yearlySnapshot.totalIncome,
+        "compact"
+      )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")}) and a total expenses of ${formatCurrency(
+        yearlySnapshot.totalExpenses,
+        "compact"
+      )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
   };
 
   const link = buildEntityDetailsLink(entity.cui, { year });
@@ -475,5 +476,380 @@ export async function searchFilters(input: SearchFiltersInput): Promise<{
   }
 
   throw new Error(`Unsupported category: ${category}`);
+}
+
+// -------------------------------------------------------------
+// Analytics generation (generate_analytics)
+// -------------------------------------------------------------
+
+type Granularity = 'YEAR' | 'MONTH' | 'QUARTER';
+type AccountCategoryIn = 'ch' | 'vn';
+type NormalizationIn = 'total' | 'per_capita' | 'total_euro' | 'per_capita_euro';
+
+interface AnalyticsPeriodIn {
+  type: Granularity;
+  selection:
+  | { interval: { start: string; end: string }; dates?: undefined }
+  | { dates: string[]; interval?: undefined };
+}
+
+interface AnalyticsSeriesFilterIn {
+  accountCategory: AccountCategoryIn;
+  entityCuis?: string[];
+  uatIds?: string[]; // strings on input; will be converted to number[]
+  countyCodes?: string[];
+  regions?: string[];
+  isUat?: boolean;
+  functionalCodes?: string[];
+  functionalPrefixes?: string[];
+  economicCodes?: string[];
+  economicPrefixes?: string[];
+  expenseTypes?: ("dezvoltare" | "functionare")[];
+  fundingSourceIds?: number[];
+  budgetSectorIds?: number[];
+  programCodes?: string[];
+  exclude?: {
+    entityCuis?: string[];
+    uatIds?: string[];
+    countyCodes?: string[];
+    functionalCodes?: string[];
+    functionalPrefixes?: string[];
+    economicCodes?: string[];
+    economicPrefixes?: string[];
+  };
+  normalization?: NormalizationIn;
+  reportType?: string;
+}
+
+interface AnalyticsSeriesDefinitionIn {
+  label?: string;
+  filter: AnalyticsSeriesFilterIn;
+}
+
+interface GenerateAnalyticsInput {
+  title?: string;
+  description?: string;
+  period: AnalyticsPeriodIn;
+  series: AnalyticsSeriesDefinitionIn[];
+}
+
+interface DataPointOut { x: string; y: number }
+interface SeriesStatisticsOut { min: number; max: number; avg: number; sum: number; count: number }
+type AxisUnitOut = 'year' | 'month' | 'quarter';
+type ValueUnitOut = 'RON' | 'RON/capita' | 'EUR' | 'EUR/capita';
+
+interface AnalyticsSeriesResultOut {
+  label: string;
+  seriesId: string;
+  xAxis: { name: string; unit: AxisUnitOut };
+  yAxis: { name: string; unit: ValueUnitOut };
+  dataPoints: DataPointOut[];
+  statistics: SeriesStatisticsOut;
+}
+
+function getNormalizationUnit(norm?: NormalizationIn): ValueUnitOut {
+  switch (norm) {
+    case 'per_capita': return 'RON/capita';
+    case 'total_euro': return 'EUR';
+    case 'per_capita_euro': return 'EUR/capita';
+    default: return 'RON';
+  }
+}
+
+function axisUnitFromGranularity(g: Granularity): AxisUnitOut {
+  return g === 'YEAR' ? 'year' : g === 'MONTH' ? 'month' : 'quarter';
+}
+
+function computeStats(points: DataPointOut[]): SeriesStatisticsOut {
+  if (!points.length) return { min: 0, max: 0, avg: 0, sum: 0, count: 0 };
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let sum = 0;
+  for (const p of points) {
+    min = Math.min(min, p.y);
+    max = Math.max(max, p.y);
+    sum += p.y;
+  }
+  const count = points.length;
+  const avg = count ? sum / count : 0;
+  return { min, max, avg, sum, count };
+}
+
+function toReportPeriod(period: AnalyticsPeriodIn): ReportPeriodInput {
+  return {
+    type: period.type,
+    selection: period.selection,
+  } as ReportPeriodInput;
+}
+
+function parseUatIds(uatIds: string[] | undefined): number[] | undefined {
+  if (!uatIds || uatIds.length === 0) return undefined;
+
+  const parsed = uatIds.map((s) => {
+    const num = parseInt(s, 10);
+    if (Number.isNaN(num)) {
+      console.warn(`Invalid UAT ID '${s}' - cannot parse as integer`);
+      return null;
+    }
+    return num;
+  }).filter((n): n is number => n !== null);
+
+  return parsed.length > 0 ? parsed : undefined;
+}
+
+function toAnalyticsFilter(series: AnalyticsSeriesFilterIn, period: AnalyticsPeriodIn): AnalyticsFilter {
+  return {
+    account_category: series.accountCategory,
+    report_type: series.reportType ?? 'Executie bugetara agregata la nivel de ordonator principal',
+    report_period: toReportPeriod(period),
+    entity_cuis: series.entityCuis,
+    functional_codes: series.functionalCodes,
+    functional_prefixes: series.functionalPrefixes,
+    economic_codes: series.economicCodes,
+    economic_prefixes: series.economicPrefixes,
+    funding_source_ids: series.fundingSourceIds,
+    budget_sector_ids: series.budgetSectorIds,
+    expense_types: series.expenseTypes,
+    program_codes: series.programCodes,
+    county_codes: series.countyCodes,
+    regions: series.regions,
+    uat_ids: parseUatIds(series.uatIds),
+    is_uat: series.isUat,
+    normalization: series.normalization ?? 'total',
+    exclude: {
+      entity_cuis: series.exclude?.entityCuis,
+      uat_ids: parseUatIds(series.exclude?.uatIds),
+      county_codes: series.exclude?.countyCodes,
+      functional_codes: series.exclude?.functionalCodes,
+      functional_prefixes: series.exclude?.functionalPrefixes,
+      economic_codes: series.exclude?.economicCodes,
+      economic_prefixes: series.exclude?.economicPrefixes,
+    },
+  } as AnalyticsFilter;
+}
+
+interface EntityWithName {
+  name?: string;
+  [key: string]: any;
+}
+
+async function synthesizeLabel(def: AnalyticsSeriesDefinitionIn): Promise<string> {
+  if (def.label && def.label.trim()) return def.label.trim();
+  const parts: string[] = [];
+  const f = def.filter;
+
+  // Entities / UATs
+  if (f.uatIds && f.uatIds.length) {
+    const ids = f.uatIds.map((s) => parseInt(s, 10)).filter((n) => !Number.isNaN(n));
+    if (ids.length) {
+      try {
+        const uats = await uatRepository.getAll({ ids }, Math.min(ids.length, 5), 0);
+        if (Array.isArray(uats) && uats.length > 0) {
+          const names = uats
+            .map((u: EntityWithName) => u?.name)
+            .filter((name): name is string => typeof name === 'string' && name.length > 0)
+            .join(" + ");
+          if (names) parts.push(names);
+        }
+      } catch (error) {
+        console.error('Error fetching UAT names for label:', error);
+      }
+    }
+  } else if (f.entityCuis && f.entityCuis.length) {
+    try {
+      const entities = await entityRepository.getAll({ cuis: f.entityCuis }, Math.min(f.entityCuis.length, 5), 0);
+      if (Array.isArray(entities) && entities.length > 0) {
+        const names = entities
+          .map((e: EntityWithName) => e?.name)
+          .filter((name): name is string => typeof name === 'string' && name.length > 0)
+          .join(" + ");
+        if (names) parts.push(names);
+      }
+    } catch (error) {
+      console.error('Error fetching entity names for label:', error);
+    }
+  }
+
+  // Classifications
+  let fnNames: string[] = [];
+  if (f.functionalCodes && f.functionalCodes.length) {
+    const info = await getFunctionalLevelInfo(f.functionalCodes[0]);
+    if (info?.subchapterName || info?.chapterName) fnNames.push(info.subchapterName ?? info.chapterName!);
+  } else if (f.functionalPrefixes && f.functionalPrefixes.length) {
+    const code = f.functionalPrefixes[0].replace(/\.$/, '');
+    const info = await getFunctionalLevelInfo(code);
+    if (info?.chapterName) fnNames.push(info.chapterName);
+  }
+  let ecNames: string[] = [];
+  if (f.economicCodes && f.economicCodes.length) {
+    const info = await getEconomicLevelInfo(f.economicCodes[0]);
+    if (info?.subchapterName || info?.chapterName) ecNames.push(info.subchapterName ?? info.chapterName!);
+  } else if (f.economicPrefixes && f.economicPrefixes.length) {
+    const code = f.economicPrefixes[0].replace(/\.$/, '');
+    const info = await getEconomicLevelInfo(code);
+    if (info?.chapterName) ecNames.push(info.chapterName);
+  }
+  const cls = [...fnNames, ...ecNames].filter(Boolean).join(" — ");
+  if (cls) parts.push(cls);
+
+  // Normalization suffix
+  if (f.normalization && f.normalization !== 'total') {
+    const normText = f.normalization === 'per_capita' ? 'per capita' : (f.normalization === 'total_euro' ? 'EUR' : 'EUR per capita');
+    parts.push(`(${normText})`);
+  }
+
+  if (!parts.length) {
+    return `Series (${f.accountCategory.toUpperCase()})`;
+  }
+  return parts.join(" — ");
+}
+
+function pointsFromTrend(periodType: Granularity, rows: any[]): DataPointOut[] {
+  if (periodType === 'YEAR') {
+    return rows.map((r) => ({ x: String(r.year), y: Number(r.value) }));
+  }
+  if (periodType === 'MONTH') {
+    return rows.map((r) => ({
+      x: `${r.year}-${String(r.month).padStart(2, '0')}`,
+      y: Number(r.value),
+    }));
+  }
+  // QUARTER
+  return rows.map((r) => ({ x: `${r.year}-Q${Number(r.quarter)}`, y: Number(r.value) }));
+}
+
+function suggestChartType(periodType: Granularity, seriesCount: number): 'line' | 'bar' | 'area' | 'pie' {
+  if (periodType !== 'YEAR' || seriesCount > 1) return 'line';
+  return 'line';
+}
+
+function makeChartId(): string {
+  const rnd = Math.random().toString(36).slice(2, 8);
+  return `chart-${Date.now()}-${rnd}`;
+}
+
+export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<{
+  ok: boolean;
+  title: string;
+  dataLink: string;
+  dataSeries: AnalyticsSeriesResultOut[];
+}> {
+  const periodType = input.period.type;
+  const xUnit = axisUnitFromGranularity(periodType);
+  const suggested = suggestChartType(periodType, input.series.length);
+
+  // Parallelize series processing for better performance
+  const results: AnalyticsSeriesResultOut[] = await Promise.all(
+    input.series.map(async (def, i) => {
+      try {
+        const label = await synthesizeLabel(def);
+        const unit = getNormalizationUnit(def.filter.normalization);
+        const xAxis = { name: periodType === 'YEAR' ? 'Year' : (periodType === 'MONTH' ? 'Month' : 'Quarter'), unit: xUnit };
+        const yAxis = { name: 'Amount', unit };
+
+        const filters = toAnalyticsFilter(def.filter, input.period);
+
+        // Select trend function by period type
+        let rows: any[] = [];
+        if (periodType === 'YEAR') {
+          rows = await executionLineItemRepository.getYearlyTrend(filters);
+        } else if (periodType === 'MONTH') {
+          rows = await executionLineItemRepository.getMonthlyTrend(filters);
+        } else {
+          rows = await executionLineItemRepository.getQuarterlyTrend(filters);
+        }
+
+        const dataPoints = pointsFromTrend(periodType, rows);
+        const statistics = computeStats(dataPoints);
+        const seriesId = `${i + 1}-${Math.random().toString(36).slice(2, 7)}`;
+
+        return { label, seriesId, xAxis, yAxis, dataPoints, statistics };
+      } catch (error) {
+        console.error(`Error processing series ${i}:`, error);
+        throw new Error(`Failed to process series ${i}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    })
+  );
+
+  const chartId = makeChartId();
+  const title = input.title?.trim() || 'Analytics';
+  const now = new Date().toISOString();
+
+  // Build chart schema following the ChartSchema specification from charts.ts
+  // Convert input series to proper SeriesConfiguration objects
+  const chartSeries = input.series.map((def, i) => {
+    const seriesLabel = results[i]?.label || `Series ${i + 1}`;
+    const unit = getNormalizationUnit(def.filter.normalization);
+
+    return {
+      id: `series-${chartId}-${i}`,
+      type: 'line-items-aggregated-yearly' as const,
+      enabled: true,
+      label: seriesLabel,
+      unit,
+      config: {
+        visible: true,
+        showDataLabels: false,
+        color: i === 0 ? '#0062ff' : undefined, // Let other series use defaults
+      },
+      filter: toAnalyticsFilter(def.filter, input.period),
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+
+  // Build proper ChartSchema object
+  const chartSchema = {
+    id: chartId,
+    title,
+    description: input.description,
+    config: {
+      chartType: suggested,
+      showGridLines: true,
+      showLegend: input.series.length > 1, // Show legend for multi-series charts
+      showTooltip: true,
+      editAnnotations: false, // MCP-generated charts are read-only
+      showAnnotations: true,
+    },
+    series: chartSeries,
+    annotations: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Serialize and URL-encode the chart schema
+  const chartSchemaJson = JSON.stringify(chartSchema);
+  const chartSchemaEncoded = encodeURIComponent(chartSchemaJson);
+
+  // Validate environment variables
+  const clientBase = (process.env.PUBLIC_CLIENT_BASE_URL || process.env.CLIENT_BASE_URL || '').replace(/\/$/, '');
+  if (!clientBase) {
+    console.warn('PUBLIC_CLIENT_BASE_URL or CLIENT_BASE_URL not configured - using localhost');
+  }
+
+  // Construct chart URL with embedded schema
+  const chartUrl = `${clientBase || 'http://localhost:3000'}/charts/${chartId}?chart=${chartSchemaEncoded}`;
+
+  let shortLinkUrl: string | undefined = undefined;
+
+  try {
+    // Use a system user for MCP-created links
+    const res = await ShortLinkService.createShortLink('mcp-system', chartUrl);
+    if (res && res.success && res.code) {
+      shortLinkUrl = `${clientBase || 'https://transparenta.eu'}/share/${res.code}`;
+    } else {
+      console.warn('Short link creation did not return success:', res);
+    }
+  } catch (error) {
+    // Log but don't fail - fallback to direct chartUrl
+    console.error('Failed to create short link:', error instanceof Error ? error.message : String(error));
+  }
+
+  return {
+    ok: true,
+    dataLink: shortLinkUrl ?? chartUrl,
+    title,
+    dataSeries: results,
+  };
 }
 

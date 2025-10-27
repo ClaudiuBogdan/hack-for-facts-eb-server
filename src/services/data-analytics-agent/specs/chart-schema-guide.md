@@ -32,17 +32,17 @@ The chart system follows a declarative schema-based approach where charts are de
 ### Data Flow
 
 ```
-Chart Schema → Analytics API → GraphQL Backend → Data Processing → Visualization
-     ↓              ↓                                      ↓
-   Filters    Transform filters              Calculate/aggregate series
-                to GraphQL                    Apply normalizations
+Chart Schema → MCP Tools → Analytics API → GraphQL Backend → Data Processing → Visualization
+     ↓            ↓              ↓                                      ↓
+ Resolve IDs   Build filters   Transform filters              Calculate/aggregate series
+(search_filters)                to GraphQL                    Apply normalizations
 ```
 
 ### Key Components
 
 - **Chart**: The root object containing all configuration
 - **Series**: Individual data series with filters and configuration
-- **AnalyticsFilter**: The filter object that controls what data is fetched
+- **AnalyticsFilter**: The filter object that controls what data is fetched. TIP: Resolve IDs and codes via MCP `search_filters` (use returned filterKey/filterValue) before assembling filters.
 - **ChartConfig**: Global chart visualization settings
 - **SeriesConfig**: Per-series visualization overrides
 
@@ -1013,6 +1013,11 @@ The system supports three period granularities with automatic aggregation:
 
 Romanian public spending is classified by **function** using a COFOG-derived hierarchical system.
 
+#### TIP for Agents
+- Use MCP `search_filters` with `category: "functional_classification"`.
+- If the result `metadata.codeKind` is `"prefix"`, use `filterKey: "functional_prefixes"` and ensure the code ends with a dot (e.g., `"70."`).
+- If `"exact"`, use `filterKey: "functional_codes"`.
+
 #### Hierarchy Levels
 
 ```
@@ -1067,6 +1072,10 @@ Level 3 (Class):    70.01.01 - Pre-primary education
 ### Economic Classifications
 
 Budget items are also classified by **economic nature** (what the money is spent on).
+
+#### TIP for Agents
+- Use MCP `search_filters` with `category: "economic_classification"`.
+- `metadata.codeKind == "prefix"` → use `economic_prefixes` with trailing dot; `"exact"` → use `economic_codes`.
 
 #### Hierarchy Levels
 
