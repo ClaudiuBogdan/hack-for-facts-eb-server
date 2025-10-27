@@ -1,0 +1,1357 @@
+[
+    {
+        "description": "TOTAL EXPENDITURES",
+        "children": [
+            {
+                "description": "Personnel expenses",
+                "code": "10",
+                "children": [
+                    {
+                        "description": "Salary expenses in cash",
+                        "code": "10.01"
+                    },
+                    {
+                        "description": "Salary expenses in kind",
+                        "code": "10.02"
+                    },
+                    {
+                        "description": "Contributions",
+                        "code": "10.03"
+                    }
+                ]
+            },
+            {
+                "description": "Goods and services",
+                "code": "20",
+                "children": [
+                    {
+                        "description": "Goods and services",
+                        "code": "20.01"
+                    },
+                    {
+                        "description": "Current repairs",
+                        "code": "20.02"
+                    },
+                    {
+                        "description": "Food",
+                        "code": "20.03"
+                    },
+                    {
+                        "description": "Medicines and sanitary materials",
+                        "code": "20.04"
+                    },
+                    {
+                        "description": "Inventory items",
+                        "code": "20.05"
+                    },
+                    {
+                        "description": "Travel, secondments, transfers",
+                        "code": "20.06"
+                    },
+                    {
+                        "description": "Technical maintenance and equipment for defense, public order, and national security",
+                        "code": "20.07"
+                    },
+                    {
+                        "description": "Laboratory materials",
+                        "code": "20.09"
+                    },
+                    {
+                        "description": "Research and development",
+                        "code": "20.10"
+                    },
+                    {
+                        "description": "Books, publications, and documentary materials",
+                        "code": "20.11"
+                    },
+                    {
+                        "description": "Consulting and expertise",
+                        "code": "20.12"
+                    },
+                    {
+                        "description": "Professional training",
+                        "code": "20.13"
+                    },
+                    {
+                        "description": "Work protection",
+                        "code": "20.14"
+                    },
+                    {
+                        "description": "Ammunition, supplies, and weaponry of the nature of fixed assets for the army",
+                        "code": "20.15"
+                    },
+                    {
+                        "description": "Studies and research",
+                        "code": "20.16"
+                    },
+                    {
+                        "description": "Payments for financing the genetic heritage of animals",
+                        "code": "20.18"
+                    },
+                    {
+                        "description": "Contributions of the local public administration to the realization of works and services of local public interest, based on conventions or association contracts",
+                        "code": "20.19"
+                    },
+                    {
+                        "description": "Infrastructure rehabilitation flood program for local public authorities",
+                        "code": "20.20"
+                    },
+                    {
+                        "description": "Meteorology",
+                        "code": "20.21"
+                    },
+                    {
+                        "description": "Financing of actions in the field of water",
+                        "code": "20.22"
+                    },
+                    {
+                        "description": "Prevention and control of floods and frosts",
+                        "code": "20.23"
+                    },
+                    {
+                        "description": "Commissions and other costs related to loans",
+                        "code": "20.24"
+                    },
+                    {
+                        "description": "Judicial and extrajudicial expenses derived from actions representing the interests of the state, according to legal provisions",
+                        "code": "20.25"
+                    },
+                    {
+                        "description": "Gift vouchers",
+                        "code": "20.27"
+                    },
+                    {
+                        "description": "Public legal aid",
+                        "code": "20.28"
+                    },
+                    {
+                        "description": "Other expenses",
+                        "code": "20.30"
+                    },
+                    {
+                        "description": "Financing of health actions within the sanitary units in the network of the local public administration ***",
+                        "code": "20.31"
+                    },
+                    {
+                        "description": "Financing of national health programs carried out by the sanitary units in the network of the local public administration ***",
+                        "code": "20.32"
+                    },
+                    {
+                        "description": "Financing of medical assistance carried out in the medical offices of the educational units ***",
+                        "code": "20.33"
+                    },
+                    {
+                        "description": "Financing from the own revenues of the Ministry of Health for health actions within the sanitary units in the network of the local public administration ***",
+                        "code": "20.34"
+                    },
+                    {
+                        "description": "Financing from the own revenues of the Ministry of Health for the national health programs carried out by the sanitary units in the network of the local public administration ***",
+                        "code": "20.35"
+                    },
+                    {
+                        "description": "Financing of forensic medicine offices within the sanitary units in the local administration network ***",
+                        "code": "20.36"
+                    },
+                    {
+                        "description": "Financing the risk incentive for the personnel within the sanitary units in the network of the local public administration",
+                        "code": "20.37"
+                    }
+                ]
+            },
+            {
+                "description": "Interest",
+                "code": "30",
+                "children": [
+                    {
+                        "description": "Interest related to domestic public debt",
+                        "code": "30.01"
+                    },
+                    {
+                        "description": "Interest related to external public debt",
+                        "code": "30.02"
+                    },
+                    {
+                        "description": "Other interest",
+                        "code": "30.03"
+                    },
+                    {
+                        "description": "Interest related to loans taken over/contracted by the MFP based on GEO 64/2007",
+                        "code": "30.04"
+                    }
+                ]
+            },
+            {
+                "description": "Subsidies",
+                "code": "40",
+                "children": [
+                    {
+                        "description": "Subsidies on products",
+                        "code": "40.01"
+                    },
+                    {
+                        "description": "Subsidies on activities",
+                        "code": "40.02"
+                    },
+                    {
+                        "description": "Subsidies to cover price and tariff differences",
+                        "code": "40.03"
+                    },
+                    {
+                        "description": "Subsidies to support public passenger rail transport",
+                        "code": "40.04"
+                    },
+                    {
+                        "description": "Subsidies for passenger transport by metro",
+                        "code": "40.05"
+                    },
+                    {
+                        "description": "Ecological actions",
+                        "code": "40.06"
+                    },
+                    {
+                        "description": "Valorization of pyrite ashes",
+                        "code": "40.07"
+                    },
+                    {
+                        "description": "Subsidies for interest on bank loans",
+                        "code": "40.08"
+                    },
+                    {
+                        "description": "Payments to employers for the professional training of employees",
+                        "code": "40.09"
+                    },
+                    {
+                        "description": "Non-reimbursable funds for the creation of new jobs",
+                        "code": "40.10"
+                    },
+                    {
+                        "description": "Premiums granted to agricultural producers",
+                        "code": "40.11"
+                    },
+                    {
+                        "description": "Subsidies for completing insurance premiums for risk factors in agriculture",
+                        "code": "40.12"
+                    },
+                    {
+                        "description": "Support for export, the business environment, and international transactions",
+                        "code": "40.13"
+                    },
+                    {
+                        "description": "Support for transport infrastructure",
+                        "code": "40.14"
+                    },
+                    {
+                        "description": "Support for agricultural producers",
+                        "code": "40.15"
+                    },
+                    {
+                        "description": "Mine conservation or closure programs",
+                        "code": "40.16"
+                    },
+                    {
+                        "description": "Social protection and socio-professional integration programs for people with disabilities",
+                        "code": "40.17"
+                    },
+                    {
+                        "description": "Social protection in the mining sector",
+                        "code": "40.18"
+                    },
+                    {
+                        "description": "Payments to stimulate job creation",
+                        "code": "40.19"
+                    },
+                    {
+                        "description": "Subsidies to compensate for unforeseen increases in fuel prices",
+                        "code": "40.20"
+                    },
+                    {
+                        "description": "Compensation scheme for the consumption of electricity and natural gas by non-household consumers",
+                        "code": "40.21"
+                    },
+                    {
+                        "description": "Other subsidies",
+                        "code": "40.30"
+                    }
+                ]
+            },
+            {
+                "description": "Reserve funds",
+                "code": "50",
+                "children": [
+                    {
+                        "description": "Budget reserve fund at the disposal of the Government",
+                        "code": "50.01"
+                    },
+                    {
+                        "description": "Intervention fund at the disposal of the Government",
+                        "code": "50.02"
+                    },
+                    {
+                        "description": "Budget reserve fund at the disposal of local authorities",
+                        "code": "50.04"
+                    }
+                ]
+            },
+            {
+                "description": "Transfers between public administration units",
+                "code": "51",
+                "children": [
+                    {
+                        "description": "Current transfers",
+                        "code": "51.01"
+                    },
+                    {
+                        "description": "Capital transfers",
+                        "code": "51.02"
+                    }
+                ]
+            },
+            {
+                "description": "Other transfers",
+                "code": "55",
+                "children": [
+                    {
+                        "description": "A. Internal transfers.",
+                        "code": "55.01"
+                    },
+                    {
+                        "description": "B. Current transfers abroad (to international organizations)",
+                        "code": "55.02"
+                    },
+                    {
+                        "description": "C. Romania's contribution to the EU budget.",
+                        "code": "55.03"
+                    },
+                    {
+                        "description": "D. Other payments to the EU",
+                        "code": "55.04"
+                    }
+                ]
+            },
+            {
+                "description": "Projects with financing from non-reimbursable external funds (fen) post-accession",
+                "code": "56",
+                "children": [
+                    {
+                        "description": "Programs from the European Regional Development Fund (ERDF)",
+                        "code": "56.01"
+                    },
+                    {
+                        "description": "Programs from the European Social Fund (ESF)",
+                        "code": "56.02"
+                    },
+                    {
+                        "description": "Programs from the Cohesion Fund (CF)",
+                        "code": "56.03"
+                    },
+                    {
+                        "description": "Programs from the European Agricultural Fund for Rural Development (EAFRD)",
+                        "code": "56.04"
+                    },
+                    {
+                        "description": "Programs from the European Fisheries Fund (EFF)",
+                        "code": "56.05"
+                    },
+                    {
+                        "description": "Programs from the European Agricultural Guarantee Fund (EAGF)",
+                        "code": "56.06"
+                    },
+                    {
+                        "description": "Instrument for Pre-Accession Assistance (IPA) Programs",
+                        "code": "56.07"
+                    },
+                    {
+                        "description": "European Neighborhood and Partnership Instrument (ENPI) Programs",
+                        "code": "56.08"
+                    },
+                    {
+                        "description": "Amounts related to the European Refugee Fund",
+                        "code": "56.09"
+                    },
+                    {
+                        "description": "Amounts related to the European Return Fund",
+                        "code": "56.10"
+                    },
+                    {
+                        "description": "Amounts related to the European Fund for the Integration of third-country nationals",
+                        "code": "56.11"
+                    },
+                    {
+                        "description": "Amounts related to the External Borders Fund",
+                        "code": "56.12"
+                    },
+                    {
+                        "description": "Programs financed under the Schengen facility",
+                        "code": "56.13"
+                    },
+                    {
+                        "description": "Programs financed from the Transition Facility",
+                        "code": "56.14"
+                    },
+                    {
+                        "description": "Other community programs financed in the period 2007-2013",
+                        "code": "56.15"
+                    },
+                    {
+                        "description": "Other post-accession facilities and instruments",
+                        "code": "56.16"
+                    },
+                    {
+                        "description": "EEA financial mechanism",
+                        "code": "56.17"
+                    },
+                    {
+                        "description": "Norwegian financial mechanism",
+                        "code": "56.18"
+                    },
+                    {
+                        "description": "Technical assistance within the Operational Program Technical Assistance",
+                        "code": "56.19"
+                    },
+                    {
+                        "description": "Technical assistance within the operational programs, other than the Operational Program Technical Assistance",
+                        "code": "56.20"
+                    },
+                    {
+                        "description": "Transfers of funds from the state budget to local budgets necessary to support the implementation of projects financed from post-accession FEN",
+                        "code": "56.21"
+                    },
+                    {
+                        "description": "Transfers from the state budget to NGOs, commercial companies, public institutions financed partially or entirely from own revenues and other beneficiaries of public or private law necessary to support the implementation of projects financed from post-accession FEN",
+                        "code": "56.22"
+                    },
+                    {
+                        "description": "Other expenses incurred by the implementation of programs with financing from FEN",
+                        "code": "56.23"
+                    },
+                    {
+                        "description": "Co-financing of post-accession non-reimbursable financial assistance from the European Community",
+                        "code": "56.24"
+                    },
+                    {
+                        "description": "Swiss-Romanian cooperation program aimed at reducing economic and social disparities within the European Union",
+                        "code": "56.25"
+                    },
+                    {
+                        "description": "European Globalization Adjustment Fund",
+                        "code": "56.26"
+                    },
+                    {
+                        "description": "Technical assistance for the EEA financial mechanisms",
+                        "code": "56.27"
+                    },
+                    {
+                        "description": "National fund for bilateral relations related to the EEA financial mechanisms",
+                        "code": "56.28"
+                    },
+                    {
+                        "description": "Expenses from the amounts received within the top-up mechanism",
+                        "code": "56.29"
+                    },
+                    {
+                        "description": "Transfers from the state budget from the amounts received within the top-up mechanism to local budgets",
+                        "code": "56.30"
+                    },
+                    {
+                        "description": "Transfers from the state budget to NGOs, commercial companies, public institutions partially or fully financed from own revenues and other public or private law beneficiaries necessary to support the implementation of projects financed from post-accession FEN, from the amounts collected within the top-up procedure",
+                        "code": "56.31"
+                    },
+                    {
+                        "description": "Transfers representing public co-financing within the EEA mechanism, for project promoters/beneficiaries of public institutions",
+                        "code": "56.35"
+                    },
+                    {
+                        "description": "Transfers representing public co-financing within the Norwegian financial mechanism, for project promoters/beneficiaries of public institutions",
+                        "code": "56.36"
+                    },
+                    {
+                        "description": "Transfers representing public co-financing within the EEA mechanism, for project promoters/beneficiaries other than public institutions",
+                        "code": "56.37"
+                    },
+                    {
+                        "description": "Transfers representing public co-financing within the Norwegian financial mechanism, for project promoters/beneficiaries other than public institutions",
+                        "code": "56.38"
+                    },
+                    {
+                        "description": "Amounts related to financial corrections borne by the state budget",
+                        "code": "56.39"
+                    },
+                    {
+                        "description": "Amounts related to the European Union Solidarity Fund",
+                        "code": "56.40"
+                    },
+                    {
+                        "description": "Amounts related to the interest difference on the availabilities of the operational programs financed by structural funds",
+                        "code": "56.41"
+                    },
+                    {
+                        "description": "Transfers from the state budget to local budgets, from other amounts received from EU funds for the operational programs financed under the convergence objective",
+                        "code": "56.42"
+                    },
+                    {
+                        "description": "Transfers from the state budget to NGOs, commercial companies, public institutions financed partially or fully from own revenues and other beneficiaries of public or private law, from other amounts received from EU funds for the operational programs financed under the convergence objective",
+                        "code": "56.43"
+                    },
+                    {
+                        "description": "Amounts related to the payment to the European Commission considered ineligible within the expenses incurred by Romania in the TSE surveillance and eradication programs in the years 2010 - 2011",
+                        "code": "56.44"
+                    },
+                    {
+                        "description": "Transfers from amounts from interest intended for the co-financing of operational programs financed within the convergence objective of the Cohesion Policy 2007-2013 as well as cross-border cooperation programs",
+                        "code": "56.45"
+                    },
+                    {
+                        "description": "Transfers from the state budget from the FEC balance granted to beneficiaries for co-financing within the Poor Cities Program",
+                        "code": "56.46"
+                    },
+                    {
+                        "description": "Transfers for the financing program Sustainable Energy Management Action Fund",
+                        "code": "56.47"
+                    },
+                    {
+                        "description": "Programs financed from the European Regional Development Fund (ERDF), related to the financial framework 2021-2027",
+                        "code": "56.48"
+                    },
+                    {
+                        "description": "Programs financed from the European Social Fund Plus (ESF+), related to the financial framework 2021-2027",
+                        "code": "56.49"
+                    },
+                    {
+                        "description": "Programs financed from the Cohesion Fund (CF), related to the financial framework 2021-2027",
+                        "code": "56.50"
+                    },
+                    {
+                        "description": "Programs financed from the Just Transition Fund (JTF), related to the financial framework 2021-2027",
+                        "code": "56.51"
+                    },
+                    {
+                        "description": "European Agricultural Guarantee Fund (EAGF) for the financial framework 2023-2027",
+                        "code": "56.52"
+                    },
+                    {
+                        "description": "European Agricultural Fund for Rural Development (EAFRD) for the financial framework 2023-2027",
+                        "code": "56.53"
+                    },
+                    {
+                        "description": "Transfers from the state budget to AFIR to support projects from the PS 2023 – 2027",
+                        "code": "56.54"
+                    },
+                    {
+                        "description": "Technical assistance within the Operational Program Technical Assistance, related to the financial framework 2021-2027",
+                        "code": "56.55"
+                    },
+                    {
+                        "description": "Technical assistance within the operational programs, other than the Operational Program Technical Assistance, related to the financial framework 2021-2027",
+                        "code": "56.56"
+                    },
+                    {
+                        "description": "Transfers from the state budget necessary to support the implementation of projects financed from post-accession FEN, related to the financial framework 2021-2027",
+                        "code": "56.57"
+                    },
+                    {
+                        "description": "Asylum, Migration and Integration Fund 2021-2027 (AMIF)",
+                        "code": "56.58"
+                    },
+                    {
+                        "description": "Internal Security Fund 2021-2027 (ISF)",
+                        "code": "56.59"
+                    },
+                    {
+                        "description": "Instrument for financial support for border management and visa policy 2021-2027 (BMVI)",
+                        "code": "56.60"
+                    },
+                    {
+                        "description": "Technical assistance and financing not related to costs for the funds in the field of home affairs 2021-2027",
+                        "code": "56.61"
+                    },
+                    {
+                        "description": "Transfers from the state budget representing public co-financing related to projects financed from European funds dedicated to Home Affairs for the programming period 2021 – 2027",
+                        "code": "56.62"
+                    },
+                    {
+                        "description": "Transfers with the title of pre-financing from the state budget to the beneficiaries of projects financed from European funds dedicated to Home Affairs for the programming period 2021 – 2027, in case of temporary unavailability of European funds",
+                        "code": "56.63"
+                    },
+                    {
+                        "description": "Other expenses incurred by the implementation of programs with financing from FEN, related to the financial framework 2021-2027",
+                        "code": "56.64"
+                    },
+                    {
+                        "description": "Instrument for Pre-Accession Assistance (IPA III) programs",
+                        "code": "56.65"
+                    },
+                    {
+                        "description": "Neighborhood, Development and International Cooperation Instrument - Global Europe (NDICI) programs",
+                        "code": "56.66"
+                    },
+                    {
+                        "description": "European Maritime, Fisheries and Aquaculture Fund (EMFAF)",
+                        "code": "56.67"
+                    },
+                    {
+                        "description": "Transfers from the state budget necessary to support the implementation of projects financed within the Connecting Europe Facility",
+                        "code": "56.68"
+                    },
+                    {
+                        "description": "Transfers from the state budget through the Ministry of Finance representing public co-financing related to projects financed from European funds implemented by the RDA as MA, for the programming period 2021–2027",
+                        "code": "56.69"
+                    },
+                    {
+                        "description": "Transfers from the state budget through the Ministry of Finance representing ineligible expenses related to projects financed from European funds implemented by the RDA as MA, for the programming period 2021–2027",
+                        "code": "56.70"
+                    },
+                    {
+                        "description": "Amounts related to the non-reimbursable financial assistance allocated by the European Union in the programming period 2021-2027",
+                        "code": "56.71"
+                    },
+                    {
+                        "description": "Other community programs financed in the period 2021-2027",
+                        "code": "56.72"
+                    },
+                    {
+                        "description": "Transfers to support administrative-territorial units for the implementation in partnership of infrastructure and transport projects",
+                        "code": "56.73"
+                    },
+                    {
+                        "description": "Transfers to support inter-community development associations for the implementation in partnership of transport infrastructure projects",
+                        "code": "56.74"
+                    },
+                    {
+                        "description": "Expenses related to transport infrastructure projects implemented in partnership",
+                        "code": "56.75"
+                    },
+                    {
+                        "description": "Amounts related to the financing contracts concluded under the conditions of GEO 109/2022, according to art. III of GO 22/2023",
+                        "code": "56.76"
+                    },
+                    {
+                        "description": "Connecting Europe Facility, related to the financial framework 2021-2027",
+                        "code": "56.77"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to local budgets to support projects from the PS 2023-2027",
+                        "code": "56.78"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to public institutions financed partially or entirely from own revenues to support projects from the PS 2023-2027",
+                        "code": "56.79"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to NGOs, commercial companies and other beneficiaries of public or private law to support projects from the PS 2023-2027”",
+                        "code": "56.80"
+                    },
+                    {
+                        "description": "Amounts related to financial corrections borne by the state budget, related to the financial framework 2021-2027",
+                        "code": "56.81"
+                    },
+                    {
+                        "description": "Public co-financing provided from the state budget related to the financial instruments",
+                        "code": "56.82"
+                    }
+                ]
+            },
+            {
+                "description": "Social assistance",
+                "code": "57",
+                "children": [
+                    {
+                        "description": "Social insurance",
+                        "code": "57.01"
+                    },
+                    {
+                        "description": "Social aid",
+                        "code": "57.02"
+                    },
+                    {
+                        "description": "Allowances for former state dignitaries",
+                        "code": "57.03"
+                    },
+                    {
+                        "description": "Allowances granted during the temporary suspension of the individual employment contract at the initiative of the employer",
+                        "code": "57.04"
+                    },
+                    {
+                        "description": "Allowances granted to other professionals as well as to persons who have concluded individual work agreements who interrupt their activity as a result of the effects of the SARS-CoV-2 coronavirus",
+                        "code": "57.05"
+                    },
+                    {
+                        "description": "Amounts granted to employers for the settlement of part of the gross salary of employees kept in work",
+                        "code": "57.06"
+                    },
+                    {
+                        "description": "Amounts granted to employers for hiring certain categories of people",
+                        "code": "57.07"
+                    },
+                    {
+                        "description": "Allowances granted during the temporary reduction of activity for professionals as well as for persons who have concluded individual work agreements based on Law no. 1/2005",
+                        "code": "57.08"
+                    }
+                ]
+            },
+            {
+                "description": "Projects with financing from non-reimbursable external funds related to the 2014-2020 financial framework and from the modernization fund",
+                "code": "58",
+                "children": [
+                    {
+                        "description": "Programs from the European Regional Development Fund (ERDF)",
+                        "code": "58.01"
+                    },
+                    {
+                        "description": "Programs from the European Social Fund (ESF)",
+                        "code": "58.02"
+                    },
+                    {
+                        "description": "Programs from the Cohesion Fund (CF)",
+                        "code": "58.03"
+                    },
+                    {
+                        "description": "Programs from the European Agricultural Fund for Rural Development (EAFRD)",
+                        "code": "58.04"
+                    },
+                    {
+                        "description": "Programs from the European Maritime and Fisheries Fund (EMFF)",
+                        "code": "58.05"
+                    },
+                    {
+                        "description": "Fund for European Aid to the Most Deprived",
+                        "code": "58.06"
+                    },
+                    {
+                        "description": "Asylum, Migration and Integration Fund (AMIF)",
+                        "code": "58.07"
+                    },
+                    {
+                        "description": "Internal Security Fund (ISF)",
+                        "code": "58.08"
+                    },
+                    {
+                        "description": "Technical assistance for the funds in the field of home affairs",
+                        "code": "58.09"
+                    },
+                    {
+                        "description": "Transfers to public/private beneficiaries for projects financed from the Asylum, Migration and Integration Fund",
+                        "code": "58.10"
+                    },
+                    {
+                        "description": "Instrument for Pre-Accession Assistance (IPA II) Programs",
+                        "code": "58.11"
+                    },
+                    {
+                        "description": "European Neighborhood Instrument (ENI) Programs",
+                        "code": "58.12"
+                    },
+                    {
+                        "description": "European Agricultural Guarantee Fund (EAGF)",
+                        "code": "58.13"
+                    },
+                    {
+                        "description": "Technical assistance within the Operational Program Technical Assistance",
+                        "code": "58.14"
+                    },
+                    {
+                        "description": "Other community programs financed in the period 2014-2020 (APC)",
+                        "code": "58.15"
+                    },
+                    {
+                        "description": "Other post-accession facilities and instruments (AFIP)",
+                        "code": "58.16"
+                    },
+                    {
+                        "description": "Technical assistance within the operational programs, other than the Operational Program Technical Assistance",
+                        "code": "58.17"
+                    },
+                    {
+                        "description": "Transfers from the state budget necessary to support the implementation of projects approved for financing within the Connecting Europe Facility",
+                        "code": "58.19"
+                    },
+                    {
+                        "description": "Amounts related to the interest difference on the availabilities of the operational programs financed by structural funds",
+                        "code": "58.20"
+                    },
+                    {
+                        "description": "Transfers of funds from the state budget to local budgets necessary to support the implementation of projects financed from FEN related to the financial framework 2014-2020",
+                        "code": "58.21"
+                    },
+                    {
+                        "description": "Transfers from the state budget to NGOs, commercial companies, public institutions financed partially or entirely from own revenues and other beneficiaries of public or private law necessary to support the implementation of projects financed from FEN related to the financial framework 2014-2020",
+                        "code": "58.22"
+                    },
+                    {
+                        "description": "Other expenses incurred by the implementation of programs with financing from FEN",
+                        "code": "58.23"
+                    },
+                    {
+                        "description": "Amounts related to the non-reimbursable financial assistance allocated by the European Union in the programming period 2014-2020",
+                        "code": "58.24"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to local budgets to support projects from the NRDP 2014 – 2020",
+                        "code": "58.25"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to public institutions financed partially or entirely from own revenues to support projects from the NRDP 2014 – 2020",
+                        "code": "58.26"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget to NGOs, commercial companies and other beneficiaries of public or private law to support projects from the NRDP 2014 – 2020",
+                        "code": "58.27"
+                    },
+                    {
+                        "description": "Transfers from the state budget to AFIR to support projects from the NRDP 2014 – 2020",
+                        "code": "58.28"
+                    },
+                    {
+                        "description": "Public co-financing provided from the state budget related to the financial instruments",
+                        "code": "58.29"
+                    },
+                    {
+                        "description": "Connecting Europe Facility",
+                        "code": "58.30"
+                    },
+                    {
+                        "description": "European Economic Area and Norwegian financial mechanisms 2014-2021",
+                        "code": "58.31"
+                    },
+                    {
+                        "description": "Fund for bilateral relations related to the European Economic Area and Norwegian financial mechanisms 2014-2021",
+                        "code": "58.32"
+                    },
+                    {
+                        "description": "Technical assistance related to the European Economic Area and Norwegian financial mechanisms 2014-2021",
+                        "code": "58.33"
+                    },
+                    {
+                        "description": "Transfers representing public co-financing related to the European Economic Area and Norwegian financial mechanisms 2014-2021",
+                        "code": "58.34"
+                    },
+                    {
+                        "description": "Amounts related to financial corrections borne by the state budget",
+                        "code": "58.35"
+                    },
+                    {
+                        "description": "Transfers from the state budget to the beneficiaries of monopoly projects financed from the Asylum, Migration and Integration Fund and the Internal Security Fund, in case of temporary unavailability of European funds",
+                        "code": "58.36"
+                    },
+                    {
+                        "description": "Transfers from the state budget to AFIR representing amounts on account of the funds from the European Union recovery instrument (EURI)",
+                        "code": "58.37"
+                    },
+                    {
+                        "description": "Transfers from the AFIR budget from the amounts allocated from the state budget on account of the funds from the European Union recovery instrument (EURI)",
+                        "code": "58.38"
+                    },
+                    {
+                        "description": "Amounts borne by the budget related to the eligible projects within the state aid scheme in the context of the crisis caused by COVID-19 whose value exceeds the ceiling of the financing contract",
+                        "code": "58.39"
+                    },
+                    {
+                        "description": "Transfers to support administrative-territorial units and inter-community development associations for the implementation of transport infrastructure projects",
+                        "code": "58.40"
+                    },
+                    {
+                        "description": "European Union Recovery Instrument (EURI)",
+                        "code": "58.41"
+                    },
+                    {
+                        "description": "Amounts related to projects financed from the Modernization Fund",
+                        "code": "58.42"
+                    }
+                ]
+            },
+            {
+                "description": "Other expenses",
+                "code": "59",
+                "children": [
+                    {
+                        "description": "Scholarships",
+                        "code": "59.01"
+                    },
+                    {
+                        "description": "Aid for damages caused by natural disasters",
+                        "code": "59.02"
+                    },
+                    {
+                        "description": "Financing of political parties",
+                        "code": "59.03"
+                    },
+                    {
+                        "description": "Support for the organizations of citizens belonging to national minorities other than those receiving subsidies from the state budget",
+                        "code": "59.04"
+                    },
+                    {
+                        "description": "Financing of interethnic programs and projects and combating intolerance",
+                        "code": "59.05"
+                    },
+                    {
+                        "description": "Production and distribution of films",
+                        "code": "59.06"
+                    },
+                    {
+                        "description": "Support for the activity of Romanians everywhere and their representative organizations",
+                        "code": "59.07"
+                    },
+                    {
+                        "description": "Youth programs",
+                        "code": "59.08"
+                    },
+                    {
+                        "description": "Compensation granted to agricultural producers in case of natural calamities in agriculture",
+                        "code": "59.09"
+                    },
+                    {
+                        "description": "Fund at the disposal of the prime minister to support Romanian communities everywhere",
+                        "code": "59.10"
+                    },
+                    {
+                        "description": "Associations and foundations",
+                        "code": "59.11"
+                    },
+                    {
+                        "description": "Support of cults",
+                        "code": "59.12"
+                    },
+                    {
+                        "description": "The state's contribution to supporting Romanian religious settlements outside the borders",
+                        "code": "59.13"
+                    },
+                    {
+                        "description": "The state's contribution to the salaries of the clergy",
+                        "code": "59.14"
+                    },
+                    {
+                        "description": "Contributions to the salaries of non-clerical personnel",
+                        "code": "59.15"
+                    },
+                    {
+                        "description": "Communication, public information and promotion projects of the Romanian image and interests abroad",
+                        "code": "59.16"
+                    },
+                    {
+                        "description": "Civil damages",
+                        "code": "59.17"
+                    },
+                    {
+                        "description": "Compensation for animals slaughtered for the prevention and control of epizootics",
+                        "code": "59.18"
+                    },
+                    {
+                        "description": "Merit allowance",
+                        "code": "59.19"
+                    },
+                    {
+                        "description": "Amounts intended for financing sports programs carried out by private sports structures",
+                        "code": "59.20"
+                    },
+                    {
+                        "description": "State orders for books and publications",
+                        "code": "59.21"
+                    },
+                    {
+                        "description": "Actions of a scientific and socio-cultural nature",
+                        "code": "59.22"
+                    },
+                    {
+                        "description": "Financing of the \"Memorial of the victims of communism and of the resistance Sighet\" Ensemble",
+                        "code": "59.23"
+                    },
+                    {
+                        "description": "Financing of the \"Memorial of the revolution - December 1989\" ensemble from the Municipality of Timisoara",
+                        "code": "59.24"
+                    },
+                    {
+                        "description": "Amounts related to the payment of salary claims",
+                        "code": "59.25"
+                    },
+                    {
+                        "description": "Amounts granted to members of academies",
+                        "code": "59.26"
+                    },
+                    {
+                        "description": "Agricultural life annuity",
+                        "code": "59.27"
+                    },
+                    {
+                        "description": "Financing of the Romanian Skete Prodromu from Mount Athos",
+                        "code": "59.28"
+                    },
+                    {
+                        "description": "Programs and projects on preventing and combating discrimination",
+                        "code": "59.30"
+                    },
+                    {
+                        "description": "Amounts related to the funds administered by Eximbank",
+                        "code": "59.31"
+                    },
+                    {
+                        "description": "Reimbursement of the value of certain air navigation services",
+                        "code": "59.32"
+                    },
+                    {
+                        "description": "Amounts intended for maintaining the airworthiness of aircraft for special flights",
+                        "code": "59.33"
+                    },
+                    {
+                        "description": "Amounts allocated for the preparation of cadastral documentation and real estate advertising for real estate assets under the concession of the company that manages the railway infrastructure",
+                        "code": "59.34"
+                    },
+                    {
+                        "description": "Amounts allocated to support the construction of housing",
+                        "code": "59.35"
+                    },
+                    {
+                        "description": "Compensation for the release of radio frequency bands",
+                        "code": "59.36"
+                    },
+                    {
+                        "description": "Amounts related to the restitution of the value of confiscated goods and amounts",
+                        "code": "59.37"
+                    },
+                    {
+                        "description": "Reimbursement of expenses for election campaigns",
+                        "code": "59.38"
+                    },
+                    {
+                        "description": "Reimbursement of amounts related to requests for correction, clarification, or completion of the court judgment",
+                        "code": "59.39"
+                    },
+                    {
+                        "description": "Amounts related to people with disabilities not employed",
+                        "code": "59.40"
+                    },
+                    {
+                        "description": "Internship allowance",
+                        "code": "59.41"
+                    },
+                    {
+                        "description": "Allowances granted to parents for supervising children during the temporary closure of educational units",
+                        "code": "59.42"
+                    },
+                    {
+                        "description": "Reimbursement of certain amounts withheld by Eurocontrol",
+                        "code": "59.43"
+                    },
+                    {
+                        "description": "Taxes, duties, and fines owed to the consolidated general budget",
+                        "code": "59.44"
+                    }
+                ]
+            },
+            {
+                "description": "Projects financed from the amounts representing the non-reimbursable financial assistance related to the PNRR",
+                "code": "60",
+                "children": [
+                    {
+                        "description": "Non-reimbursable European funds",
+                        "code": "60.01"
+                    },
+                    {
+                        "description": "National public funding",
+                        "code": "60.02"
+                    },
+                    {
+                        "description": "Amounts related to VAT",
+                        "code": "60.03"
+                    },
+                    {
+                        "description": "Transfers from the state budget to beneficiaries of public institutions financed partially or entirely from own revenues for the implementation of PNRR projects",
+                        "code": "60.04"
+                    },
+                    {
+                        "description": "Transfers from the state budget to local budgets to support projects related to the PNRR",
+                        "code": "60.05"
+                    },
+                    {
+                        "description": "Transfers from the state budget to public enterprises and national research-development institutes to support projects related to the PNRR",
+                        "code": "60.06"
+                    },
+                    {
+                        "description": "Transfers from the state budget to the National Authority for Administration and Regulation in Communications to support projects related to the PNRR",
+                        "code": "60.07"
+                    },
+                    {
+                        "description": "Transfers from the state budget to private law entities and to beneficiaries other than public institutions to support projects related to the PNRR",
+                        "code": "60.08"
+                    },
+                    {
+                        "description": "Other expenses incurred by the implementation of the PNRR",
+                        "code": "60.09"
+                    },
+                    {
+                        "description": "Transfers from the state budget to those responsible for implementing specific local investments for the implementation of PNRR projects",
+                        "code": "60.10"
+                    },
+                    {
+                        "description": "Transfers from the budget of public institutions and activities financed entirely or partially from own revenues to private entities to support projects related to the PNRR",
+                        "code": "60.11"
+                    },
+                    {
+                        "description": "Transfers from the state budget to the implementing agencies of public institutions financed entirely or partially from own revenues",
+                        "code": "60.12"
+                    },
+                    {
+                        "description": "Transfers from the implementing agencies to the beneficiaries of public institutions financed partially or entirely from own revenues for the implementation of PNRR projects",
+                        "code": "60.13"
+                    },
+                    {
+                        "description": "Transfers from the implementing agencies to local budgets to support PNRR projects",
+                        "code": "60.14"
+                    },
+                    {
+                        "description": "Allocations from the state budget to entities that have the quality of investment implementation structures within the PNRR",
+                        "code": "60.15"
+                    },
+                    {
+                        "description": "Decommitted amounts associated with milestones and targets in the PNRR",
+                        "code": "60.16"
+                    }
+                ]
+            },
+            {
+                "description": "Projects financed from the amounts related to the loan component of the PNRR",
+                "code": "61",
+                "children": [
+                    {
+                        "description": "Funds from a reimbursable loan",
+                        "code": "61.01"
+                    },
+                    {
+                        "description": "National public funding",
+                        "code": "61.02"
+                    },
+                    {
+                        "description": "Amounts related to VAT",
+                        "code": "61.03"
+                    },
+                    {
+                        "description": "Transfers from the state budget to beneficiaries of public institutions financed partially or entirely from own revenues for the implementation of PNRR projects",
+                        "code": "61.04"
+                    },
+                    {
+                        "description": "Transfers from the state budget to local budgets to support projects related to the PNRR",
+                        "code": "61.05"
+                    },
+                    {
+                        "description": "Transfers from the state budget to public enterprises and national research-development institutes to support projects related to the PNRR",
+                        "code": "61.06"
+                    },
+                    {
+                        "description": "Transfers from the state budget to the National Authority for Administration and Regulation in Communications to support projects related to the PNRR",
+                        "code": "61.07"
+                    },
+                    {
+                        "description": "Transfers from the state budget to private law entities to support projects related to the PNRR",
+                        "code": "61.08"
+                    },
+                    {
+                        "description": "Other expenses incurred by the implementation of the PNRR",
+                        "code": "61.09"
+                    },
+                    {
+                        "description": "Transfers from the state budget to those responsible for implementing specific local investments for the implementation of PNRR projects",
+                        "code": "61.10"
+                    },
+                    {
+                        "description": "Amounts related to investment 2 \"Financial instruments for the private sector\"",
+                        "code": "61.11"
+                    },
+                    {
+                        "description": "Transfers from the state budget to the implementing agencies of public institutions financed entirely or partially from own revenues",
+                        "code": "61.12"
+                    },
+                    {
+                        "description": "Transfers from the implementing agencies to the beneficiaries of public institutions financed partially or entirely from own revenues for the implementation of PNRR projects",
+                        "code": "61.13"
+                    },
+                    {
+                        "description": "Transfers from the implementing agencies to the beneficiaries of economic operators for the implementation of PNRR projects",
+                        "code": "61.14"
+                    },
+                    {
+                        "description": "Transfers from the implementing agencies to local budgets to support PNRR projects",
+                        "code": "61.15"
+                    }
+                ]
+            },
+            {
+                "description": "Expenditures related to programs with reimbursable financing",
+                "code": "65",
+                "children": [
+                    {
+                        "description": "Expenditures related to programs with reimbursable financing",
+                        "code": "65.01"
+                    },
+                    {
+                        "description": "Expenditures related to programs with reimbursable financing from the contribution of the final beneficiaries of the projects",
+                        "code": "65.02"
+                    }
+                ]
+            },
+            {
+                "description": "70. capital expenditures (70=71+72+75)",
+                "code": "70"
+            },
+            {
+                "description": "Non-financial assets (71.01+71.02)",
+                "code": "71",
+                "children": [
+                    {
+                        "description": "Fixed assets",
+                        "code": "71.01"
+                    },
+                    {
+                        "description": "Inventories",
+                        "code": "71.02"
+                    },
+                    {
+                        "description": "Capital repairs related to fixed assets",
+                        "code": "71.03"
+                    }
+                ]
+            },
+            {
+                "description": "Financial assets",
+                "code": "72",
+                "children": [
+                    {
+                        "description": "Financial assets",
+                        "code": "72.01"
+                    }
+                ]
+            },
+            {
+                "description": "National development fund",
+                "code": "75"
+            },
+            {
+                "description": "79. financial operations (79=80+81)",
+                "code": "79"
+            },
+            {
+                "description": "Loans",
+                "code": "80",
+                "children": [
+                    {
+                        "description": "Loans granted for objectives approved by bilateral and intergovernmental agreements",
+                        "code": "80.01"
+                    },
+                    {
+                        "description": "Loans for persons with refugee status",
+                        "code": "80.02"
+                    },
+                    {
+                        "description": "Loans for public institutions and services or activities fully financed from own revenues",
+                        "code": "80.03"
+                    },
+                    {
+                        "description": "Loans from the unemployment insurance budget",
+                        "code": "80.04"
+                    },
+                    {
+                        "description": "Loans granted for the construction, purchase, rehabilitation, consolidation and extension of housing",
+                        "code": "80.05"
+                    },
+                    {
+                        "description": "Microcredits granted to self-employed individuals engaged in income-generating activities for their material support",
+                        "code": "80.06"
+                    },
+                    {
+                        "description": "Loans granted for the protection of historical monuments",
+                        "code": "80.07"
+                    },
+                    {
+                        "description": "Working capital fund to cover temporary cash shortages",
+                        "code": "80.08"
+                    },
+                    {
+                        "description": "Loans granted by government agencies and administered through credit agencies",
+                        "code": "80.09"
+                    },
+                    {
+                        "description": "Expenditures from amounts unused in the previous year",
+                        "code": "80.10"
+                    },
+                    {
+                        "description": "Funds from the state budget made available to EXIMBANK",
+                        "code": "80.11"
+                    },
+                    {
+                        "description": "Subordinated loan granted to CEC Bank-S.A.",
+                        "code": "80.12"
+                    },
+                    {
+                        "description": "Subordinated loan to the Investment and Development Bank-S.A.",
+                        "code": "80.13"
+                    },
+                    {
+                        "description": "Other loans",
+                        "code": "80.30"
+                    }
+                ]
+            },
+            {
+                "description": "Loan repayments",
+                "code": "81",
+                "children": [
+                    {
+                        "description": "External loan repayments",
+                        "code": "81.01"
+                    },
+                    {
+                        "description": "Internal loan repayments",
+                        "code": "81.02"
+                    },
+                    {
+                        "description": "Loan repayments on loans taken over/contracted by the MFP based on GEO 64/2007",
+                        "code": "81.03"
+                    },
+                    {
+                        "description": "Repayment of loans contracted to finance EU-funded projects",
+                        "code": "81.04"
+                    },
+                    {
+                        "description": "Amounts reimbursed related to allocations from the Development and Investment Fund",
+                        "code": "81.05"
+                    }
+                ]
+            },
+            {
+                "description": "Operations pending clarification",
+                "code": "82",
+                "children": [
+                    {
+                        "description": "Expenditures from the available funds of public institutions, pending clarification",
+                        "code": "82.01"
+                    }
+                ]
+            },
+            {
+                "description": "Payments made in previous years and recovered in the current year",
+                "code": "85",
+                "children": [
+                    {
+                        "description": "Payments made in previous years and recovered in the current year",
+                        "code": "85.01"
+                    }
+                ]
+            },
+            {
+                "description": "Reserves, surplus/deficit",
+                "code": "90",
+                "children": [
+                    {
+                        "description": "Reserves",
+                        "code": "91.01"
+                    },
+                    {
+                        "description": "Surplus",
+                        "code": "92.01"
+                    },
+                    {
+                        "description": "Deficit",
+                        "code": "93.01"
+                    }
+                ]
+            }
+        ]
+    }
+]

@@ -1,0 +1,1367 @@
+[
+    {
+        "description": "TOTAL CHELTUIELI",
+        "children": [
+            {
+                "description": "No economic classification",
+                "code": "00",
+                "children": [
+                    {
+                        "description": "No economic classification",
+                        "code": "00.00"
+                    }
+                ]
+            },
+            {
+                "description": "Cheltuieli de personal",
+                "code": "10",
+                "children": [
+                    {
+                        "description": "Cheltuieli salariale in bani",
+                        "code": "10.01"
+                    },
+                    {
+                        "description": "Cheltuieli salariale in natura",
+                        "code": "10.02"
+                    },
+                    {
+                        "description": "Contributii",
+                        "code": "10.03"
+                    }
+                ]
+            },
+            {
+                "description": "Bunuri si servicii",
+                "code": "20",
+                "children": [
+                    {
+                        "description": "Bunuri si servicii",
+                        "code": "20.01"
+                    },
+                    {
+                        "description": "Reparatii curente",
+                        "code": "20.02"
+                    },
+                    {
+                        "description": "Hrana",
+                        "code": "20.03"
+                    },
+                    {
+                        "description": "Medicamente si materiale sanitare",
+                        "code": "20.04"
+                    },
+                    {
+                        "description": "Bunuri de natura obiectelor de inventar",
+                        "code": "20.05"
+                    },
+                    {
+                        "description": "Deplasari, detasari, transferari",
+                        "code": "20.06"
+                    },
+                    {
+                        "description": "Mentenanţă tehnică şi echipamente destinate apărării, ordinii publice şi siguranţei naţionale",
+                        "code": "20.07"
+                    },
+                    {
+                        "description": "Materiale de laborator",
+                        "code": "20.09"
+                    },
+                    {
+                        "description": "Cercetare-dezvoltare",
+                        "code": "20.10"
+                    },
+                    {
+                        "description": "Carti, publicatii si materiale documentare",
+                        "code": "20.11"
+                    },
+                    {
+                        "description": "Consultanta si expertiza",
+                        "code": "20.12"
+                    },
+                    {
+                        "description": "Pregatire profesionala",
+                        "code": "20.13"
+                    },
+                    {
+                        "description": "Protectia muncii",
+                        "code": "20.14"
+                    },
+                    {
+                        "description": "Munitie, furnituri si armament de natura activelor fixe pentru armată",
+                        "code": "20.15"
+                    },
+                    {
+                        "description": "Studii si cercetari",
+                        "code": "20.16"
+                    },
+                    {
+                        "description": "Plati pentru finantarea patrimoniului genetic al animalelor",
+                        "code": "20.18"
+                    },
+                    {
+                        "description": "Contribuţii ale administratiei publice locale la realizarea unor lucrări şi servicii de interes public local, în baza unor convenţii sau contracte de asociere",
+                        "code": "20.19"
+                    },
+                    {
+                        "description": "Reabilitare infrastructura program inundatii pentru autoritati publice locale",
+                        "code": "20.20"
+                    },
+                    {
+                        "description": "Meteorologie",
+                        "code": "20.21"
+                    },
+                    {
+                        "description": "Finantarea actiunilor din domeniul apelor",
+                        "code": "20.22"
+                    },
+                    {
+                        "description": "Prevenirea si combaterea inundatiilor si ingheturilor",
+                        "code": "20.23"
+                    },
+                    {
+                        "description": "Comisioane si alte costuri aferente imprumuturilor",
+                        "code": "20.24"
+                    },
+                    {
+                        "description": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale",
+                        "code": "20.25"
+                    },
+                    {
+                        "description": "Tichete cadou",
+                        "code": "20.27"
+                    },
+                    {
+                        "description": "Ajutor public judiciar",
+                        "code": "20.28"
+                    },
+                    {
+                        "description": "Alte cheltuieli",
+                        "code": "20.30"
+                    },
+                    {
+                        "description": "Finanţarea unor actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale  ***)",
+                        "code": "20.31"
+                    },
+                    {
+                        "description": "Finanţarea programelor nationale de sanatate derulate de unitatile sanitare din reteaua administratiei publice locale  ***)",
+                        "code": "20.32"
+                    },
+                    {
+                        "description": "Finanţarea asistenţei medicale desfasurate în cabinetele medicale din unitatile de invatamant ***)",
+                        "code": "20.33"
+                    },
+                    {
+                        "description": "Finantarea din veniturile proprii ale Ministerului Sanatatii pentru actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale ***)",
+                        "code": "20.34"
+                    },
+                    {
+                        "description": "Finanţarea din veniturile proprii ale Ministerului Sanatatii pentru programele nationale de sanatate derulate de unitatile sanitare din reteaua administratiei publice locale ***)",
+                        "code": "20.35"
+                    },
+                    {
+                        "description": "Finantarea cabinetelor de medicina legala din cadrul unitatilor sanitare din reteaua administratiei locale ***)",
+                        "code": "20.36"
+                    },
+                    {
+                        "description": "Finantarea stimulentului de risc pentru personalul din cadrul unitatilor sanitare din reteaua administratiei publice locale",
+                        "code": "20.37"
+                    }
+                ]
+            },
+            {
+                "description": "Dobanzi",
+                "code": "30",
+                "children": [
+                    {
+                        "description": "Dobanzi aferente datoriei publice interne",
+                        "code": "30.01"
+                    },
+                    {
+                        "description": "Dobanzi aferente datoriei publice externe",
+                        "code": "30.02"
+                    },
+                    {
+                        "description": "Alte dobanzi",
+                        "code": "30.03"
+                    },
+                    {
+                        "description": "Dobanzi aferente  imprumuturilor preluate/contractate de MFP in baza OUG 64/2007",
+                        "code": "30.04"
+                    }
+                ]
+            },
+            {
+                "description": "Subventii",
+                "code": "40",
+                "children": [
+                    {
+                        "description": "Subvenţii pe produse",
+                        "code": "40.01"
+                    },
+                    {
+                        "description": "Subvenţii pe activităţi",
+                        "code": "40.02"
+                    },
+                    {
+                        "description": "Subvenţii pentru acoperirea diferenţelor de preţ şi tarif",
+                        "code": "40.03"
+                    },
+                    {
+                        "description": "Subventii pentru sustinerea transportului feroviar public de calatori",
+                        "code": "40.04"
+                    },
+                    {
+                        "description": "Subventii pentru transportul de calatori cu metroul",
+                        "code": "40.05"
+                    },
+                    {
+                        "description": "Actiuni de ecologizare",
+                        "code": "40.06"
+                    },
+                    {
+                        "description": "Valorificarea cenusilor de pirita",
+                        "code": "40.07"
+                    },
+                    {
+                        "description": "Subvenţii pentru dobânzi la credite bancare",
+                        "code": "40.08"
+                    },
+                    {
+                        "description": "Plati catre angajatori pentru formarea profesionala a angajatilor",
+                        "code": "40.09"
+                    },
+                    {
+                        "description": "Fonduri nerambursabile pentru crearea de noi locuri de munca",
+                        "code": "40.10"
+                    },
+                    {
+                        "description": "Prime acordate producătorilor agricoli",
+                        "code": "40.11"
+                    },
+                    {
+                        "description": "Subventii pentru completarea primelor de asigurare pentru factorii de risc din agricultura",
+                        "code": "40.12"
+                    },
+                    {
+                        "description": "Susţinerea exportului, a mediului de afaceri şi a tranzacţiilor internaţionale",
+                        "code": "40.13"
+                    },
+                    {
+                        "description": "Sustinerea infrastructurii de transport",
+                        "code": "40.14"
+                    },
+                    {
+                        "description": "Sprijinirea producatorilor agricoli",
+                        "code": "40.15"
+                    },
+                    {
+                        "description": "Programe de conservare sau de inchidere a minelor",
+                        "code": "40.16"
+                    },
+                    {
+                        "description": "Programe de protectie sociala si integrare socioprofesionala a persoanelor cu handicap",
+                        "code": "40.17"
+                    },
+                    {
+                        "description": "Protectie sociala in sectorul minier",
+                        "code": "40.18"
+                    },
+                    {
+                        "description": "Plati pentru stimularea crearii de locuri de munca",
+                        "code": "40.19"
+                    },
+                    {
+                        "description": "Subventii pentru compensarea cresterilor neprevizionate ale preturilor la combustibili",
+                        "code": "40.20"
+                    },
+                    {
+                        "description": "Schemă de compensare pentru consumul de energie electrică și gaze naturale al consumatorilor noncasnici",
+                        "code": "40.21"
+                    },
+                    {
+                        "description": "Alte subvenţii",
+                        "code": "40.30"
+                    }
+                ]
+            },
+            {
+                "description": "Fonduri de rezerva",
+                "code": "50",
+                "children": [
+                    {
+                        "description": "Fond de rezerva bugetara la dispozitia Guvernului",
+                        "code": "50.01"
+                    },
+                    {
+                        "description": "Fond de interventie la dispozitia Guvernului",
+                        "code": "50.02"
+                    },
+                    {
+                        "description": "Fond de rezerva bugetara la dispozitia autoritatilor locale",
+                        "code": "50.04"
+                    }
+                ]
+            },
+            {
+                "description": "Transferuri intre unitati ale administratiei publice",
+                "code": "51",
+                "children": [
+                    {
+                        "description": "Transferuri curente",
+                        "code": "51.01"
+                    },
+                    {
+                        "description": "Transferuri de capital",
+                        "code": "51.02"
+                    }
+                ]
+            },
+            {
+                "description": "Alte transferuri",
+                "code": "55",
+                "children": [
+                    {
+                        "description": "A. Transferuri interne.",
+                        "code": "55.01"
+                    },
+                    {
+                        "description": "B. Transferuri curente in strainatate (catre organizatii internationale)",
+                        "code": "55.02"
+                    },
+                    {
+                        "description": "C. Contributia Romaniei la bugetul U.E.",
+                        "code": "55.03"
+                    },
+                    {
+                        "description": "D. Alte plati catre UE",
+                        "code": "55.04"
+                    }
+                ]
+            },
+            {
+                "description": "Proiecte cu finantare din fonduri externe nerambursabile (fen) postaderare",
+                "code": "56",
+                "children": [
+                    {
+                        "description": "Programe din Fondul European de Dezvoltare Regională (FEDR )",
+                        "code": "56.01"
+                    },
+                    {
+                        "description": "Programe din Fondul Social European (FSE)",
+                        "code": "56.02"
+                    },
+                    {
+                        "description": "Programe din Fondul de Coeziune (FC)",
+                        "code": "56.03"
+                    },
+                    {
+                        "description": "Programe din Fondul European Agricol de Dezvoltare Rurala  (FEADR)",
+                        "code": "56.04"
+                    },
+                    {
+                        "description": "Programe din Fondul European pentru Pescuit (FEP)",
+                        "code": "56.05"
+                    },
+                    {
+                        "description": "Programe din Fondul European de Garantare Agricola (FEGA)",
+                        "code": "56.06"
+                    },
+                    {
+                        "description": "Programe Instrumentul de Asistenţă pentru Preaderare (IPA)",
+                        "code": "56.07"
+                    },
+                    {
+                        "description": "Programe Instrumentul European de Vecinătate şi Parteneriat (ENPI)",
+                        "code": "56.08"
+                    },
+                    {
+                        "description": "Sume aferente Fondului European pentru Refugiati",
+                        "code": "56.09"
+                    },
+                    {
+                        "description": "Sume aferente Fondului European de Returnare",
+                        "code": "56.10"
+                    },
+                    {
+                        "description": "Sume aferente Fondului European de integrare a resortisantilor tarilor terte",
+                        "code": "56.11"
+                    },
+                    {
+                        "description": "Sume aferente Fondului Frontierelor Externe",
+                        "code": "56.12"
+                    },
+                    {
+                        "description": "Programe finantate in cadrul facilitatii Schengen",
+                        "code": "56.13"
+                    },
+                    {
+                        "description": "Programele finantate din Facilitatea de Tranzitie",
+                        "code": "56.14"
+                    },
+                    {
+                        "description": "Alte programe comunitare finantate in perioada 2007-2013",
+                        "code": "56.15"
+                    },
+                    {
+                        "description": "Alte facilitati si instrumente postaderare",
+                        "code": "56.16"
+                    },
+                    {
+                        "description": "Mecanismul financiar SEE",
+                        "code": "56.17"
+                    },
+                    {
+                        "description": "Mecanismul financiar norvegian",
+                        "code": "56.18"
+                    },
+                    {
+                        "description": "Asistenta tehnica în cadrul Programului Operational Asistenta Tehnica",
+                        "code": "56.19"
+                    },
+                    {
+                        "description": "Asistenţă tehnică în cadrul programelor operaţionale, altele decât Programul Operaţional Asistenţă Tehnică",
+                        "code": "56.20"
+                    },
+                    {
+                        "description": "Transferuri de fonduri din bugetul de stat  catre bugetele locale  necesare sustinerii derulării proiectelor finantate din FEN postaderare",
+                        "code": "56.21"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către ONG-uri, societăţi comerciale, instituţii publice finanţate parţial sau integral din venituri proprii si alţi beneficiari de drept public sau privat necesare susţinerii derulării proiectelor finanţate din FEN postaderare",
+                        "code": "56.22"
+                    },
+                    {
+                        "description": "Alte cheltuieli ocazionate de implementarea programelor cu finanţare din FEN",
+                        "code": "56.23"
+                    },
+                    {
+                        "description": "Cofinantarea asistentei financiare nerambursabile post aderare de la Comunitatea Europeana",
+                        "code": "56.24"
+                    },
+                    {
+                        "description": "Programul de cooperare elveţiano-român vizând reducerea disparităţilor economice şi sociale în cadrul Uniunii Europene",
+                        "code": "56.25"
+                    },
+                    {
+                        "description": "Fondul European de Ajustare la Globalizare",
+                        "code": "56.26"
+                    },
+                    {
+                        "description": "Asistenţă tehnică pentru mecanismele financiare SEE",
+                        "code": "56.27"
+                    },
+                    {
+                        "description": "Fondul naţional pentru relaţii bilaterale aferent mecanismelor financiare SEE",
+                        "code": "56.28"
+                    },
+                    {
+                        "description": "Cheltuieli din sumele primite în cadrul mecanismului top up",
+                        "code": "56.29"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat din sumele primite în cadrul mecanismului top up către bugetele locale",
+                        "code": "56.30"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către ONG-uri, societăţi comerciale, instituţii publice finanţate parţial sau integral din venituri proprii şi alţi beneficiari de drept public sau privat necesare susţinerii derulării proiectelor finanţate din FEN postaderare, din sumele încasate în cadrul procedurii top up",
+                        "code": "56.31"
+                    },
+                    {
+                        "description": "Transferuri reprezentând cofinanţarea publică în cadrul mecanismului SEE, pentru promotorii de proiect/beneficiarii instituţii publice",
+                        "code": "56.35"
+                    },
+                    {
+                        "description": "Transferuri reprezentând cofinanţarea publică în cadru mecanismului financiar norvegian, pentru promotorii de proiect/beneficiarii instituţii publice",
+                        "code": "56.36"
+                    },
+                    {
+                        "description": "Transferuri reprezentând cofinanţarea publică în cadrul mecanismului SEE, pentru promotorii de proiect/beneficiarii alţii decât instituţii publice",
+                        "code": "56.37"
+                    },
+                    {
+                        "description": "Transferuri reprezentând cofinanţarea publică în cadru mecanismului financiar norvegian, pentru promotorii de proiect/beneficiarii alţii decât instituţii publice",
+                        "code": "56.38"
+                    },
+                    {
+                        "description": "Sume aferente corecţiilor financiare suportate de la bugetul de stat",
+                        "code": "56.39"
+                    },
+                    {
+                        "description": "Sume aferente Fondului de Solidaritate al Uniunii Europene",
+                        "code": "56.40"
+                    },
+                    {
+                        "description": "Sume aferente diferenței de dobândă la disponibilitățile aferente programelor operaționale finanțate prin fonduri structurale",
+                        "code": "56.41"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat către bugetele locale, din alte sume primite din fonduri de la U.E. pentru programele operaţionale finanţate în cadrul obiectivului convergenţă",
+                        "code": "56.42"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat către ONG-uri, societăţi comerciale, instituţii publice finanţate parţial sau integral din venituri proprii şi alţi beneficiari de drept public sau privat, din alte sume primite din fonduri de la U.E. pentru programele operaţionale finanţate în cadrul obiectivului convergenţă",
+                        "code": "56.43"
+                    },
+                    {
+                        "description": "Sume aferente plății către Comisia Europeană considerate ca neeligibile în cadrul cheltuielilor realizate de România în cadrul programelor de supraveghere şi eradicare a EST în anii 2010 - 2011",
+                        "code": "56.44"
+                    },
+                    {
+                        "description": "Transferuri din sume din dobânzi destinate cofinanţării programelor operaţionale finanţate în cadrul obiectivului convergenţă al Politicii de Coeziune 2007-2013 precum şi programelor de cooperare transfrontalieră",
+                        "code": "56.45"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat din soldul FEC acordate beneficiarilor pentru cofinanțare în cadrul Programului oraşe sărace",
+                        "code": "56.46"
+                    },
+                    {
+                        "description": "Transferuri pentru Programul de finanţare Fondul de acţiune în domeniul managementului energiei durabile",
+                        "code": "56.47"
+                    },
+                    {
+                        "description": "Programe finanțate din Fondul European de Dezvoltare Regională (FEDR), aferente cadrului financiar 2021-2027",
+                        "code": "56.48"
+                    },
+                    {
+                        "description": "Programe finanțate din Fondul Social European Plus (FSE+), aferente cadrului financiar 2021-2027",
+                        "code": "56.49"
+                    },
+                    {
+                        "description": "Programe finanțate din Fondul de Coeziune (FC), aferente cadrului financiar 2021-2027",
+                        "code": "56.50"
+                    },
+                    {
+                        "description": "Programe finanțate din Fondul pentru o Tranziție Justă (FTJ), aferente cadrului financiar 2021-2027",
+                        "code": "56.51"
+                    },
+                    {
+                        "description": "Fondul European de Garantare Agricolă (FEGA) aferent cadrului financiar 2023-2027",
+                        "code": "56.52"
+                    },
+                    {
+                        "description": "Fondul European Agricol de Dezvoltare Rurala (FEADR) aferente cadrului financiar 2023-2027",
+                        "code": "56.53"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către AFIR pentru susținerea proiectelor din PS 2023 – 2027",
+                        "code": "56.54"
+                    },
+                    {
+                        "description": "Asistenta tehnica în cadrul Programului Operational Asistenta Tehnica,  aferentă cadrului financiar 2021-2027",
+                        "code": "56.55"
+                    },
+                    {
+                        "description": "Asistenţă tehnică în cadrul programelor operaţionale, altele decât Programul Operaţional Asistenţă Tehnică, aferentă cadrului financiar 2021-2027",
+                        "code": "56.56"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat necesare susţinerii derulării proiectelor finanţate din FEN postaderare, aferente cadrului financiar 2021-2027",
+                        "code": "56.57"
+                    },
+                    {
+                        "description": "Fondul pentru azil, migraţie şi integrare 2021-2027(FAMI)",
+                        "code": "56.58"
+                    },
+                    {
+                        "description": "Fondul pentru securitate internă 2021-2027 (FSI)",
+                        "code": "56.59"
+                    },
+                    {
+                        "description": "Instrumentul de sprijin financiar pentru managementul frontierelor şi politica de vize 2021-2027 (IMFV)",
+                        "code": "56.60"
+                    },
+                    {
+                        "description": "Asistență tehnică și finanțare nelegată de costuri pentru fondurile în domeniul afacerilor interne 2021-2027",
+                        "code": "56.61"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat reprezentând cofinanțare publică aferente proiectelor finanțate din fondurile europene dedicate Afacerilor interne pentru perioada de programare 2021 – 2027",
+                        "code": "56.62"
+                    },
+                    {
+                        "description": "Transferuri cu titlul de prefinanțare din bugetul de stat către beneficiarii proiectelor finanțate din fondurile europene dedicate Afacerilor interne pentru perioada de programare 2021 – 2027, în cazul indisponibilităţii temporare a fondurilor europene",
+                        "code": "56.63"
+                    },
+                    {
+                        "description": "Alte cheltuieli ocazionate de implementarea programelor cu finanţare din FEN, aferente cadrului financiar 2021-2027",
+                        "code": "56.64"
+                    },
+                    {
+                        "description": "Programe Instrumentul de asistenţă pentru preaderare (IPA III)",
+                        "code": "56.65"
+                    },
+                    {
+                        "description": "Programe Instrumentul de vecinătate, cooperare pentru dezvoltare şi cooperare internaţională - Europa globală (NDICI)",
+                        "code": "56.66"
+                    },
+                    {
+                        "description": "Fondul european pentru afaceri maritime, pescuit şi acvacultură(FEAMPA)",
+                        "code": "56.67"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat necesare susţinerii derulării proiectelor finanțate în cadrul Mecanismului pentru Interconectarea Europei",
+                        "code": "56.68"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat prin Ministerul Finantelor reprezentând cofinanțare publică aferente proiectelor finanțate din fondurile europene derulate prin ADR în calitate de AM, pentru perioada de programare 2021–2027",
+                        "code": "56.69"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat prin Ministerul Finantelor reprezentând cheltuieli neeligibile aferente proiectelor finanțate din fondurile europene derulate prin ADR în calitate de AM, pentru perioada de programare 2021–2027",
+                        "code": "56.70"
+                    },
+                    {
+                        "description": "Sume aferente asistenței financiare nerambursabile alocată de Uniunea Europeană în perioada de programare 2021-2027",
+                        "code": "56.71"
+                    },
+                    {
+                        "description": "Alte programe comunitare finantate in perioada 2021-2027",
+                        "code": "56.72"
+                    },
+                    {
+                        "description": "Transferuri pentru susținerea unităților administrativ teritoriale pentru implementarea în parteneriat a proiectelor de infrastructură și transport",
+                        "code": "56.73"
+                    },
+                    {
+                        "description": "Transferuri pentru susținerea asociațiilor de dezvoltare intercomunitară pentru implementarea în parteneriat a proiectelor de infrastructură de transport",
+                        "code": "56.74"
+                    },
+                    {
+                        "description": "Cheltuieli aferente proiectelor de infrastructură de transport implementate în parteneriat",
+                        "code": "56.75"
+                    },
+                    {
+                        "description": "Sume aferente contractelor de finanțare încheiate în condițiile O.U.G.109/2022, conform art.III din O.G. 22/2023",
+                        "code": "56.76"
+                    },
+                    {
+                        "description": "Mecanismul pentru Interconectarea Europei , aferent cadrului financiar 2021-2027",
+                        "code": "56.77"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către bugetele locale pentru susținerea proiectelor din PS 2023-2027",
+                        "code": "56.78"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către instituţii publice finanţate parţial sau integral din venituri proprii pentru susținerea proiectelor din PS 2023-2027",
+                        "code": "56.79"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către ONG-uri, societăţi comerciale si alţi beneficiari de drept public sau privat pentru susținerea proiectelor din PS 2023-2027”",
+                        "code": "56.80"
+                    },
+                    {
+                        "description": "Sume aferente corecţiilor financiare suportate de la bugetul de stat, aferente cadrului financiar 2021-2027",
+                        "code": "56.81"
+                    },
+                    {
+                        "description": "Cofinanţarea publică asigurată de la bugetul de stat aferentă instrumentelor financiare",
+                        "code": "56.82"
+                    }
+                ]
+            },
+            {
+                "description": "Asistenta sociala",
+                "code": "57",
+                "children": [
+                    {
+                        "description": "Asigurari sociale",
+                        "code": "57.01"
+                    },
+                    {
+                        "description": "Ajutoare sociale",
+                        "code": "57.02"
+                    },
+                    {
+                        "description": "Indemnizații pentru foști demnitari ai statului",
+                        "code": "57.03"
+                    },
+                    {
+                        "description": "Indemnizații acordate pe perioada suspendării temporare a contractului individual de muncă din inițiativa angajatorului",
+                        "code": "57.04"
+                    },
+                    {
+                        "description": "Indemnizații acordate pentru alţi profesionişti precum şi pentru persoanele care au încheiate convenţii individuale de muncă care întrerup activitatea ca urmare a efectelor coronavirusului SARS-CoV-2",
+                        "code": "57.05"
+                    },
+                    {
+                        "description": "Sume acordate angajatorilor pentru decontarea unei părți a salariului brut al angajatilor menținuti în muncă",
+                        "code": "57.06"
+                    },
+                    {
+                        "description": "Sume acordate angajatorilor pentru încadrarea în muncă a unor categorii de persoane",
+                        "code": "57.07"
+                    },
+                    {
+                        "description": "Indemnizații acordate pe perioada reducerii temporare a activității pentru profesionisti precum şi pentru persoanele care au încheiate convenţii individuale de muncă în baza Legii nr. 1/2005",
+                        "code": "57.08"
+                    }
+                ]
+            },
+            {
+                "description": "Proiecte cu finantare din fonduri externe nerambursabile aferente cadrului financiar 2014-2020 și din fondul de modernizare",
+                "code": "58",
+                "children": [
+                    {
+                        "description": "Programe din Fondul European de Dezvoltare Regională (FEDR)",
+                        "code": "58.01"
+                    },
+                    {
+                        "description": "Programe din Fondul Social European (FSE)",
+                        "code": "58.02"
+                    },
+                    {
+                        "description": "Programe din Fondul de Coeziune (FC)",
+                        "code": "58.03"
+                    },
+                    {
+                        "description": "Programe din Fondul European Agricol de Dezvoltare Rurala  (FEADR)",
+                        "code": "58.04"
+                    },
+                    {
+                        "description": "Programe din Fondul European pentru Pescuit și Afaceri Maritime (FEPAM)",
+                        "code": "58.05"
+                    },
+                    {
+                        "description": "Fondul de ajutor european destinat celor mai defavorizate persoane",
+                        "code": "58.06"
+                    },
+                    {
+                        "description": "Fondul pentru azil, migraţie şi integrare (FAMI)",
+                        "code": "58.07"
+                    },
+                    {
+                        "description": "Fondul pentru securitate internă (FSI)",
+                        "code": "58.08"
+                    },
+                    {
+                        "description": "Asistență tehnică pentru fondurile în domeniul afacerilor interne",
+                        "code": "58.09"
+                    },
+                    {
+                        "description": "Transferuri către beneficiari de drept public/privat pentru proiectele finanțate din Fondul pentru azil, migraţie şi integrare",
+                        "code": "58.10"
+                    },
+                    {
+                        "description": "Programe Instrumentul de Asistenţă pentru Preaderare (IPA II)",
+                        "code": "58.11"
+                    },
+                    {
+                        "description": "Programe Instrumentul European de Vecinătate (ENI)",
+                        "code": "58.12"
+                    },
+                    {
+                        "description": "Fondul European de Garantare Agricolă (FEGA)",
+                        "code": "58.13"
+                    },
+                    {
+                        "description": "Asistenta tehnica în cadrul Programului Operațional Asistenta Tehnica",
+                        "code": "58.14"
+                    },
+                    {
+                        "description": "Alte programe comunitare finantate în perioada 2014-2020 (APC)",
+                        "code": "58.15"
+                    },
+                    {
+                        "description": "Alte facilitati si instrumente postaderare (AFIP)",
+                        "code": "58.16"
+                    },
+                    {
+                        "description": "Asistenţă tehnică în cadrul programelor operaţionale, altele decât Programul Operaţional Asistenţă Tehnică",
+                        "code": "58.17"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat necesare susţinerii derulării proiectelor aprobate la finanțare în cadrul Mecanismului pentru Interconectarea Europei",
+                        "code": "58.19"
+                    },
+                    {
+                        "description": "Sume aferente diferenței de dobândă la disponibilitățile aferente programelor operaționale finanțate prin fonduri structurale",
+                        "code": "58.20"
+                    },
+                    {
+                        "description": "Transferuri de fonduri din bugetul de stat  catre bugetele locale  necesare sustinerii derulării proiectelor finantate din FEN  aferente cadrului financiar 2014-2020",
+                        "code": "58.21"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către ONG-uri, societăţi comerciale, instituţii publice finanţate parţial sau integral din venituri proprii si alţi beneficiari de drept public sau privat necesare susţinerii derulării proiectelor finanţate din FEN  aferente cadrului financiar 2014-2020",
+                        "code": "58.22"
+                    },
+                    {
+                        "description": "Alte cheltuieli ocazionate de implementarea programelor cu finanţare din FEN",
+                        "code": "58.23"
+                    },
+                    {
+                        "description": "Sume aferente asistenței financiare nerambursabile alocată de Uniunea Europeană in perioada de programare 2014-2020",
+                        "code": "58.24"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către bugetele locale pentru susținerea proiectelor din PNDR 2014 – 2020",
+                        "code": "58.25"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către instituţii publice finanţate parţial sau integral din venituri proprii pentru susținerea proiectelor din PNDR 2014 – 2020",
+                        "code": "58.26"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR către ONG-uri, societăţi comerciale si alţi beneficiari de drept public sau privat pentru susținerea proiectelor din PNDR 2014 – 2020",
+                        "code": "58.27"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către AFIR pentru susținerea proiectelor din PNDR 2014 – 2020",
+                        "code": "58.28"
+                    },
+                    {
+                        "description": "Cofinanţarea publică asigurată de la bugetul de stat aferentă instrumentelor financiare",
+                        "code": "58.29"
+                    },
+                    {
+                        "description": "Mecanismul pentru Interconectarea Europei",
+                        "code": "58.30"
+                    },
+                    {
+                        "description": "Mecanismele financiare Spaţiul Economic European și Norvegian 2014-2021",
+                        "code": "58.31"
+                    },
+                    {
+                        "description": "Fondul pentru relații bilaterale aferent Mecanismelor financiare Spaţiul Economic European și  Norvegian 2014-2021",
+                        "code": "58.32"
+                    },
+                    {
+                        "description": "Asistență tehnică aferentă Mecanismelor financiare Spaţiul Economic European și Norvegian 2014-2021",
+                        "code": "58.33"
+                    },
+                    {
+                        "description": "Transferuri reprezentând cofinanțare publică aferentă Mecanismelor financiare Spaţiul Economic European și Norvegian 2014-2021",
+                        "code": "58.34"
+                    },
+                    {
+                        "description": "Sume aferente corecţiilor financiare suportate de la bugetul de stat",
+                        "code": "58.35"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către beneficiarii proiectelor de monopol finanțate din Fondul pentru azil, migraţie şi integrare şi din Fondul pentru securitate internă, în cazul indisponibilităţii temporare a fondurilor europene",
+                        "code": "58.36"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat către AFIR reprezentând sume în contul fondurilor din cadrul instrumentului de redresare al Uniunii Europene(EURI)",
+                        "code": "58.37"
+                    },
+                    {
+                        "description": "Transferuri din bugetul AFIR din sumele alocate de la bugetul de stat în contul fondurilor din instrumentul de redresare al Uniunii Europene(EURI)",
+                        "code": "58.38"
+                    },
+                    {
+                        "description": "Sume suportate din buget aferente proiectelor eligibile din cadrul schemei de ajutor de stat în contextul crizei provocate de COVID-19 a căror valoare excedează plafonului contractului de finanţare",
+                        "code": "58.39"
+                    },
+                    {
+                        "description": "Transferuri pentru susținerea unităților administrativ teritoriale și asociațiilor de dezvoltare intercomunitară pentru implementarea proiectelor de infrastructură de transport",
+                        "code": "58.40"
+                    },
+                    {
+                        "description": "Instrumentului de redresare al Uniunii Europene(EURI)",
+                        "code": "58.41"
+                    },
+                    {
+                        "description": "Sume aferente proiectelor finanțate din Fondul de modernizare",
+                        "code": "58.42"
+                    }
+                ]
+            },
+            {
+                "description": "Alte cheltuieli",
+                "code": "59",
+                "children": [
+                    {
+                        "description": "Burse",
+                        "code": "59.01"
+                    },
+                    {
+                        "description": "Ajutoare pentru daune provocate de calamităţile naturale",
+                        "code": "59.02"
+                    },
+                    {
+                        "description": "Finantarea partidelor politice",
+                        "code": "59.03"
+                    },
+                    {
+                        "description": "Sprijinirea organizatiilor cetatenilor apartinand minoritatilor nationale altele decat cele care primesc subventii de la bugetul de stat",
+                        "code": "59.04"
+                    },
+                    {
+                        "description": "Finantarea unor programe si proiecte interetnice si combatere a intolerantei",
+                        "code": "59.05"
+                    },
+                    {
+                        "description": "Producerea si distribuirea filmelor",
+                        "code": "59.06"
+                    },
+                    {
+                        "description": "Sprijinirea  activitatii romanilor de pretutindeni si a organizatiilor reprezentative ale acestora",
+                        "code": "59.07"
+                    },
+                    {
+                        "description": "Programe pentru tineret",
+                        "code": "59.08"
+                    },
+                    {
+                        "description": "Despăgubiri acordate producatorilor agricoli în caz de calamităţi naturale în agricultură",
+                        "code": "59.09"
+                    },
+                    {
+                        "description": "Fond la dispozitia primului-ministru pentru sprijinirea comunitatilor romanesti de pretutindeni",
+                        "code": "59.10"
+                    },
+                    {
+                        "description": "Asociatii si fundatii",
+                        "code": "59.11"
+                    },
+                    {
+                        "description": "Sustinerea cultelor",
+                        "code": "59.12"
+                    },
+                    {
+                        "description": "Contributia statului,  pentru sprijinirea aşezămintelor religioase româneşti din afara granitelor",
+                        "code": "59.13"
+                    },
+                    {
+                        "description": "Contributia statului la salarizarea personalului de cult",
+                        "code": "59.14"
+                    },
+                    {
+                        "description": "Contributii la salarizarea personalului neclerical",
+                        "code": "59.15"
+                    },
+                    {
+                        "description": "Poiecte de comunicare, informare publica si promovarea imaginii şi intereselor româneşti peste hotare",
+                        "code": "59.16"
+                    },
+                    {
+                        "description": "Despagubiri civile",
+                        "code": "59.17"
+                    },
+                    {
+                        "description": "Despăgubiri pentru animale sacrificate în vederea prevenirii şi combaterii epizootiilor",
+                        "code": "59.18"
+                    },
+                    {
+                        "description": "Indemnizatia de merit",
+                        "code": "59.19"
+                    },
+                    {
+                        "description": "Sume destinate finantarii programelor sportive realizate de structurile sportive de drept privat",
+                        "code": "59.20"
+                    },
+                    {
+                        "description": "Comenzi de stat pentru carti si publicatii",
+                        "code": "59.21"
+                    },
+                    {
+                        "description": "Actiuni cu caracter stiintific  si social-cultural",
+                        "code": "59.22"
+                    },
+                    {
+                        "description": "Finantarea  Ansamblului  \"Memorialul  victimelor comunismului si al  rezistentei Sighet\"",
+                        "code": "59.23"
+                    },
+                    {
+                        "description": "Finantarea ansamblului \"Memorialul revolutiei - Decembrie 1989\" din Municipiul Timisoara",
+                        "code": "59.24"
+                    },
+                    {
+                        "description": "Sume aferente platii creantelor salariale",
+                        "code": "59.25"
+                    },
+                    {
+                        "description": "Sume acordate membrilor academiilor",
+                        "code": "59.26"
+                    },
+                    {
+                        "description": "Renta viagera agricola",
+                        "code": "59.27"
+                    },
+                    {
+                        "description": "Finantarea Schitului romanesc Prodromu de la Muntele Athos",
+                        "code": "59.28"
+                    },
+                    {
+                        "description": "Programe si proiecte privind prevenirea si combaterea discriminarii",
+                        "code": "59.30"
+                    },
+                    {
+                        "description": "Sume aferente fondurilor administrate de Eximbank",
+                        "code": "59.31"
+                    },
+                    {
+                        "description": "Rambursarea contravalorii unor servicii de navigaţie aeriană",
+                        "code": "59.32"
+                    },
+                    {
+                        "description": "Sume destinate mentinerii navigabilitatii aeronavelor pentru zboruri  speciale",
+                        "code": "59.33"
+                    },
+                    {
+                        "description": "Sume alocate pentru întocmirea documentaţiilor cadastrale şi a publicităţii imobiliare pentru bunurile imobiliare aflate în concesiunea companiei care administrază infrastructura feroviară",
+                        "code": "59.34"
+                    },
+                    {
+                        "description": "Sume alocate pentru sprijinirea construirii de locuinţe",
+                        "code": "59.35"
+                    },
+                    {
+                        "description": "Despăgubiri pentru eliberarea benzilor de frecvenţe radio",
+                        "code": "59.36"
+                    },
+                    {
+                        "description": "Sume aferente restituirii contravalorii bunurilor și sumelor confiscate",
+                        "code": "59.37"
+                    },
+                    {
+                        "description": "Rambursarea cheltuielilor pentru campaniile electorale",
+                        "code": "59.38"
+                    },
+                    {
+                        "description": "Rambursarea sumelor aferente cererilor de îndreptare, de lămurire sau de completare a hotărârii judecătorești",
+                        "code": "59.39"
+                    },
+                    {
+                        "description": "Sume aferente persoanelor cu handicap neîncadrate",
+                        "code": "59.40"
+                    },
+                    {
+                        "description": "Indemnizație pentru internship",
+                        "code": "59.41"
+                    },
+                    {
+                        "description": "Indemnizații acordate părinților pentru supravegherea copiilor pe perioada închiderii temporare a unităților de învățământ",
+                        "code": "59.42"
+                    },
+                    {
+                        "description": "Rambursarea unor sume reținute de către Eurocontrol",
+                        "code": "59.43"
+                    },
+                    {
+                        "description": "Impozite, taxe și amenzi datorate bugetului general consolidat",
+                        "code": "59.44"
+                    }
+                ]
+            },
+            {
+                "description": "Proiecte cu finanțare din sumele reprezentând asistența financiară nerambursabilă aferentă PNRR",
+                "code": "60",
+                "children": [
+                    {
+                        "description": "Fonduri europene nerambursabile",
+                        "code": "60.01"
+                    },
+                    {
+                        "description": "Finantare publica naționala",
+                        "code": "60.02"
+                    },
+                    {
+                        "description": "Sume aferente TVA",
+                        "code": "60.03"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către beneficiari instituții publice finanțate partial sau integral din venituri proprii pentru derularea proiectelor din PNRR",
+                        "code": "60.04"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către bugetele locale pentru susținerea proiectelor aferente PNRR",
+                        "code": "60.05"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către întreprinderi publice și institute naționale de cercetare-dezvoltare pentru susținerea proiectelor aferente PNRR",
+                        "code": "60.06"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către Autoritatea Naţională pentru Administrare şi Reglementare în Comunicaţii pentru susținerea proiectelor aferente PNRR",
+                        "code": "60.07"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către entități de drept privat și către beneficiari alții decât instituții publice pentru susținerea proiectelor aferente PNRR",
+                        "code": "60.08"
+                    },
+                    {
+                        "description": "Alte cheltuieli ocazionate de implementarea PNRR",
+                        "code": "60.09"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către responsabilii de implementare a investiţiilor specifice locale pentru derularea proiectelor din PNRR",
+                        "code": "60.10"
+                    },
+                    {
+                        "description": "Transferuri din bugetul institutiilor publice şi activitatilor finantate integral sau partial din venituri proprii către entități private pentru susținerea proiectelor aferente PNRR",
+                        "code": "60.11"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat către agențiile de implementare instituții publice finanțate integral sau parțial din venituri proprii",
+                        "code": "60.12"
+                    },
+                    {
+                        "description": "Transferuri de la agențiile de implementare către beneficiari instituții publice finanțate parțial sau integral din venituri proprii pentru derularea proiectelor din PNRR",
+                        "code": "60.13"
+                    },
+                    {
+                        "description": "Transferuri de la agențiile de implementare către bugetele locale pentru susținerea proiectelor din PNRR",
+                        "code": "60.14"
+                    },
+                    {
+                        "description": "Alocări de la bugetul de stat către entități care au calitatea de structuri de implementare a investițiilor din cadrul PNRR",
+                        "code": "60.15"
+                    },
+                    {
+                        "description": "Sume dezangajate asociate jaloanelor şi ţintelor din PNRR",
+                        "code": "60.16"
+                    }
+                ]
+            },
+            {
+                "description": "Proiecte cu finanțare din sumele aferente componentei de împrumut a PNRR",
+                "code": "61",
+                "children": [
+                    {
+                        "description": "Fonduri din împrumut rambursabil",
+                        "code": "61.01"
+                    },
+                    {
+                        "description": "Finantare publica naționala",
+                        "code": "61.02"
+                    },
+                    {
+                        "description": "Sume aferente TVA",
+                        "code": "61.03"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către beneficiari instituții publice finanțate partial sau integral din venituri proprii pentru derularea proiectelor din PNRR",
+                        "code": "61.04"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către bugetele locale pentru susținerea proiectelor aferente PNRR",
+                        "code": "61.05"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către întreprinderi publice și institute naționale de cercetare-dezvoltare pentru susținerea proiectelor aferente PNRR",
+                        "code": "61.06"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către Autoritatea Naţională pentru Administrare şi Reglementare în Comunicaţii pentru susținerea proiectelor aferente PNRR",
+                        "code": "61.07"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către entități de drept privat pentru susținerea proiectelor aferente PNRR",
+                        "code": "61.08"
+                    },
+                    {
+                        "description": "Alte cheltuieli ocazionate de implementarea PNRR",
+                        "code": "61.09"
+                    },
+                    {
+                        "description": "Transferuri din bugetul de stat către responsabilii de implementare a investiţiilor specifice locale pentru derularea proiectelor din PNRR",
+                        "code": "61.10"
+                    },
+                    {
+                        "description": "Sume aferente investiției 2 \"Instrumente financiare pentru sectorul privat",
+                        "code": "61.11"
+                    },
+                    {
+                        "description": "Transferuri de la bugetul de stat către agențiile de implementare instituții publice finanțate integral sau parțial din venituri proprii",
+                        "code": "61.12"
+                    },
+                    {
+                        "description": "Transferuri de la agențiile de implementare către beneficiari instituții publice finanțate parțial sau integral din venituri proprii pentru derularea proiectelor din PNRR",
+                        "code": "61.13"
+                    },
+                    {
+                        "description": "Transferuri de la agențiile de implementare către beneficiari operatori economici pentru derularea proiectelor din PNRR",
+                        "code": "61.14"
+                    },
+                    {
+                        "description": "Transferuri de la agențiile de implementare către bugetele locale pentru susținerea proiectelor din PNRR",
+                        "code": "61.15"
+                    }
+                ]
+            },
+            {
+                "description": "Cheltuieli aferente programelor cu finantare rambursabila",
+                "code": "65",
+                "children": [
+                    {
+                        "description": "Cheltuieli aferente programelor cu finantare rambursabila",
+                        "code": "65.01"
+                    },
+                    {
+                        "description": "Cheltuieli aferente programelor cu finantare rambursabilă din contribuția beneficiarilor finali ai proiectelor",
+                        "code": "65.02"
+                    }
+                ]
+            },
+            {
+                "description": "70.  cheltuieli de capital (70=71+72+75)",
+                "code": "70"
+            },
+            {
+                "description": "Active nefinanciare (71.01+71.02)",
+                "code": "71",
+                "children": [
+                    {
+                        "description": "Active fixe",
+                        "code": "71.01"
+                    },
+                    {
+                        "description": "Stocuri",
+                        "code": "71.02"
+                    },
+                    {
+                        "description": "Reparatii capitale aferente activelor fixe",
+                        "code": "71.03"
+                    }
+                ]
+            },
+            {
+                "description": "Active financiare",
+                "code": "72",
+                "children": [
+                    {
+                        "description": "Active financiare",
+                        "code": "72.01"
+                    }
+                ]
+            },
+            {
+                "description": "Fondul national de dezvoltare",
+                "code": "75"
+            },
+            {
+                "description": "79.  operatiuni financiare (79=80+81)",
+                "code": "79"
+            },
+            {
+                "description": "Împrumuturi",
+                "code": "80",
+                "children": [
+                    {
+                        "description": "Împrumuturi acordate pentru obiective aprobate prin conventii bilaterale si interguvernamentale",
+                        "code": "80.01"
+                    },
+                    {
+                        "description": "Împrumuturi pentru persoane cu statut de refugiat",
+                        "code": "80.02"
+                    },
+                    {
+                        "description": "Împrumuturi pentru institutii si servicii publice sau activitati finantate integral din venituri proprii",
+                        "code": "80.03"
+                    },
+                    {
+                        "description": "Imprumuturi din bugetul asigurarilor pentru somaj",
+                        "code": "80.04"
+                    },
+                    {
+                        "description": "Imprumuturi acordate pentru construirea, cumpararea, reabilitarea, consolidarea si extinderea unor locuinte",
+                        "code": "80.05"
+                    },
+                    {
+                        "description": "Microcredite  acordate persoanelor fizice care desfasoara activitati pe cont propriu, aducatoare de venituri, in vederea intretinerii materiale",
+                        "code": "80.06"
+                    },
+                    {
+                        "description": "Împrumuturi acordate pentru protejarea monumentelor istorice",
+                        "code": "80.07"
+                    },
+                    {
+                        "description": "Fondul de rulment pentru acoperirea golurilor temporare de casa",
+                        "code": "80.08"
+                    },
+                    {
+                        "description": "Imprumuturi acordate de agentiile guvernamentale si  administrate prin agentii de credit",
+                        "code": "80.09"
+                    },
+                    {
+                        "description": "Cheltuieli din sume rămase neutilizate în anul anterior",
+                        "code": "80.10"
+                    },
+                    {
+                        "description": "Fonduri de la bugetul de stat puse la dispoziția EXIMBANK",
+                        "code": "80.11"
+                    },
+                    {
+                        "description": "Imprumut subordonat acordat către CEC Bank-S.A.",
+                        "code": "80.12"
+                    },
+                    {
+                        "description": "Împrumut subordonat Băncii de Investiții și Dezvoltare-S.A.",
+                        "code": "80.13"
+                    },
+                    {
+                        "description": "Alte imprumuturi",
+                        "code": "80.30"
+                    }
+                ]
+            },
+            {
+                "description": "Rambursari de credite",
+                "code": "81",
+                "children": [
+                    {
+                        "description": "Rambursari de credite externe",
+                        "code": "81.01"
+                    },
+                    {
+                        "description": "Rambursari de credite interne",
+                        "code": "81.02"
+                    },
+                    {
+                        "description": "Rambursari de credite în contul imprumuturilor preluate/contractate  de MFP in baza OUG 64/2007",
+                        "code": "81.03"
+                    },
+                    {
+                        "description": "Rambursarea împrumuturilor contractate pentru finanţarea proiectelor cu finanţare UE",
+                        "code": "81.04"
+                    },
+                    {
+                        "description": "Sume rambursate aferente alocărilor din Fondul de Dezvoltare şi Investiţii",
+                        "code": "81.05"
+                    }
+                ]
+            },
+            {
+                "description": "Operaţiuni în curs de clarificare",
+                "code": "82",
+                "children": [
+                    {
+                        "description": "Cheltuieli din disponibilităţi ale instituţiilor publice, în curs de clarificare",
+                        "code": "82.01"
+                    }
+                ]
+            },
+            {
+                "description": "Plăţi efectuate în anii precedenţi şi recuperate în anul curent",
+                "code": "85",
+                "children": [
+                    {
+                        "description": "Plăţi efectuate în anii precedenţi şi recuperate în anul curent",
+                        "code": "85.01"
+                    }
+                ]
+            },
+            {
+                "description": "Rezerve, excedent/deficit",
+                "code": "90",
+                "children": [
+                    {
+                        "description": "Rezerve",
+                        "code": "91.01"
+                    },
+                    {
+                        "description": "Excedent",
+                        "code": "92.01"
+                    },
+                    {
+                        "description": "Deficit",
+                        "code": "93.01"
+                    }
+                ]
+            }
+        ]
+    }
+]
