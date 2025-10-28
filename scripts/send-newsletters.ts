@@ -10,7 +10,6 @@
  *   ts-node scripts/send-newsletters.ts --type newsletter_entity_monthly --clerk-token <token>
  *   ts-node scripts/send-newsletters.ts --type newsletter_entity_quarterly --clerk-token <token>
  *   ts-node scripts/send-newsletters.ts --type newsletter_entity_yearly --clerk-token <token> --user <user_id>
- *   ts-node scripts/send-newsletters.ts --type newsletter_entity_annual --clerk-token <token> --user <user_id>
  *   ts-node scripts/send-newsletters.ts --type alert_data_series --clerk-token <token>
  *
  * Options:

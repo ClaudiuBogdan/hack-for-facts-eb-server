@@ -5,7 +5,6 @@ export type NotificationType =
   | 'newsletter_entity_monthly'
   | 'newsletter_entity_quarterly'
   | 'newsletter_entity_yearly'
-  | 'newsletter_entity_annual'
   | 'alert_data_series';
 
 export type UUID = string;
@@ -102,14 +101,6 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     type: 'newsletter_entity_yearly',
     label: 'Yearly Entity Newsletter',
     description: 'Receive yearly summary of entity budget execution',
-    requiresEntity: true,
-    defaultConfig: null,
-    generatePeriodKey: generatePreviousYearKey,
-  },
-  newsletter_entity_annual: {
-    type: 'newsletter_entity_annual',
-    label: 'Annual Entity Newsletter',
-    description: 'Receive annual summary of entity budget execution',
     requiresEntity: true,
     defaultConfig: null,
     generatePeriodKey: generatePreviousYearKey,
