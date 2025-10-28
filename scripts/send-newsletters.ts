@@ -266,97 +266,7 @@ async function fetchUserEmails(userIds: string[], clerkToken: string): Promise<U
   return emailMap;
 }
 
-/**
- * Fetch data series alert data from analytics
- */
-async function fetchDataSeriesAlertData(
-  notification: Notification,
-  periodKey: string
-): Promise<NotificationData<DataSeriesAlertContent> | null> {
-  const config = notification.config;
-
-  if (!config?.filter) {
-    console.warn(`  Notification ${notification.id} missing analyticsInput config – skipping`);
-    return null;
-  }
-
-  if (!config.title) {
-    console.warn(`  Notification ${notification.id} missing title – skipping`);
-    return null;
-  }
-
-  try {
-    const filter = config.filter as any;
-    const unit = getNormalizationUnit(filter?.normalization);
-    const type = filter?.report_period?.type;
-
-    let series: AnalyticsSeries;
-
-    if (type === 'MONTH') {
-      const monthly = await executionLineItemRepository.getMonthlyTrend(filter);
-      series = {
-        seriesId: 'alert-series',
-        xAxis: { name: 'Month', type: 'STRING', unit: 'month' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit },
-        data: monthly.map(p => ({ x: `${p.year}-${String(p.month).padStart(2, '0')}`, y: p.value })),
-      };
-    } else if (type === 'QUARTER') {
-      const quarterly = await executionLineItemRepository.getQuarterlyTrend(filter);
-      series = {
-        seriesId: 'alert-series',
-        xAxis: { name: 'Quarter', type: 'STRING', unit: 'quarter' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit },
-        data: quarterly.map(p => ({ x: `${p.year}-Q${p.quarter}`, y: p.value })),
-      };
-    } else {
-      // Default: yearly
-      const yearly = await executionLineItemRepository.getYearlyTrend(filter);
-      series = {
-        seriesId: 'alert-series',
-        xAxis: { name: 'Year', type: 'INTEGER', unit: 'year' },
-        yAxis: { name: 'Amount', type: 'FLOAT', unit },
-        data: yearly.map(p => ({ x: String(p.year), y: p.value })),
-      };
-    }
-
-    // Check if there's any data
-    if (!series.data || series.data.length === 0) {
-      console.log(`  No data found for alert ${notification.id} – skipping`);
-      return null;
-    }
-
-    const content: DataSeriesAlertContent = {
-      title: config.title,
-      description: config.description,
-      series,
-      metadata: {
-        accountCategory: filter?.account_category === 'vn' ? 'Income' : 'Expenses',
-        periodType: type ?? 'YEAR',
-        normalization: filter?.normalization,
-      },
-    };
-
-    return {
-      notification,
-      data: content,
-      metadata: {
-        generatedAt: new Date().toISOString(),
-        periodKey,
-        seriesDataPointCount: series.data.length,
-        filterSummary: {
-          accountCategory: filter?.account_category,
-          periodType: type,
-          entityCuis: filter?.entity_cuis,
-          functionalCodes: filter?.functional_codes,
-          economicCodes: filter?.economic_codes,
-        },
-      },
-    };
-  } catch (error: any) {
-    console.error(`  Failed to fetch data series alert data: ${error.message}`);
-    return null;
-  }
-}
+// (removed) legacy analytics alert data fetcher replaced by provider registry
 
 /**
  * Fetch notification data based on type
@@ -368,9 +278,50 @@ async function fetchNotificationData(
 ): Promise<NotificationData<EntityNewsletterContent | DataSeriesAlertContent> | null> {
   console.log(`  Fetching data for notification ${notification.id} (${notification.notificationType})`);
 
-  // Handle data series alerts separately
-  if (notification.notificationType === 'alert_data_series') {
-    return fetchDataSeriesAlertData(notification, periodKey);
+  // Handle series alerts via provider registry
+  if (notification.notificationType === 'alert_series_analytics' || notification.notificationType === 'alert_series_static') {
+    const { fetchNotificationSeries } = await import('../src/services/notifications/providers/registry');
+
+    const result = await fetchNotificationSeries(notification, periodKey);
+    if (!result) return null;
+
+    const cfg = notification.config as any;
+    const conditions: Array<{ operator: 'gt'|'gte'|'lt'|'lte'|'eq'; threshold: number; unit?: string }> = Array.isArray(cfg?.conditions) ? cfg.conditions : [];
+    const last = result.series.data[result.series.data.length - 1];
+    if (conditions.length > 0 && last) {
+      const matchAll = conditions.every((c) => {
+        switch (c.operator) {
+          case 'gt': return last.y > c.threshold;
+          case 'gte': return last.y >= c.threshold;
+          case 'lt': return last.y < c.threshold;
+          case 'lte': return last.y <= c.threshold;
+          case 'eq': return last.y === c.threshold;
+        }
+      });
+      if (!matchAll) return null;
+    }
+
+    const content: DataSeriesAlertContent = {
+      title: cfg?.title,
+      description: cfg?.description,
+      series: result.series,
+      metadata: {
+        accountCategory: '',
+        periodType: String(result.metadata?.periodType ?? result.series.xAxis.unit),
+        normalization: undefined,
+      },
+    };
+
+    return {
+      notification,
+      data: content,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        periodKey,
+        seriesDataPointCount: result.series.data.length,
+        ...result.metadata,
+      },
+    };
   }
 
   if (
@@ -418,8 +369,7 @@ async function fetchNotificationData(
       entityPeriodParam = `${parsed.year}-Q${parsed.quarter}`;
       break;
     }
-    case 'newsletter_entity_yearly':
-    case 'newsletter_entity_annual': {
+    case 'newsletter_entity_yearly': {
       const parsed = parseAnnualPeriodKey(periodKey);
       if (!parsed) {
         console.warn(`  Period key "${periodKey}" is invalid – skipping notification ${notification.id}`);

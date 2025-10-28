@@ -173,9 +173,9 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     displayName: 'Raport Trimestrial - Entitate',
     description: 'Primește un raport trimestrial cu execuția bugetară a entității'
   },
-  newsletter_entity_annual: {
-    type: 'newsletter_entity_annual',
-    templateName: 'newsletter-entity-annual',
+  newsletter_entity_yearly: {
+    type: 'newsletter_entity_yearly',
+    templateName: 'newsletter-entity-yearly',
     displayName: 'Raport Anual - Entitate',
     description: 'Primește un raport anual cu execuția bugetară a entității'
   },

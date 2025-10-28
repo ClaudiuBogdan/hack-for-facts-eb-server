@@ -157,9 +157,9 @@ export class EmailService {
    * Generate section title based on notification type
    */
   private getSectionTitle(notification: Notification): string {
-    // For data series alerts, use the custom title from config
-    if (notification.notificationType === 'alert_data_series' && notification.config?.title) {
-      return notification.config.title;
+    // For series alerts, use the custom title from config if present
+    if ((notification.notificationType === 'alert_series_analytics' || notification.notificationType === 'alert_series_static') && notification.config && typeof (notification.config as any).title === 'string') {
+      return (notification.config as any).title;
     }
 
     switch (notification.notificationType) {
@@ -169,9 +169,8 @@ export class EmailService {
         return 'Quarterly Budget Execution Report';
       case 'newsletter_entity_yearly':
         return 'Yearly Budget Execution Summary';
-      case 'newsletter_entity_annual':
-        return 'Annual Budget Execution Summary';
-      case 'alert_data_series':
+      case 'alert_series_analytics':
+      case 'alert_series_static':
         return 'Budget Alert Notification';
       default:
         return 'Notification';

@@ -74,18 +74,18 @@ export const notificationsRepository = {
     return mapRowToNotification(result.rows[0]);
   },
 
-  async findUserAlerts(userId: string, activeOnly = false): Promise<Notification[]> {
+  async findUserSeriesAlerts(userId: string, activeOnly = false): Promise<Notification[]> {
     const query = activeOnly
       ? `SELECT *
          FROM Notifications
          WHERE user_id = $1
-           AND notification_type = 'alert_data_series'
+           AND notification_type IN ('alert_series_analytics','alert_series_static')
            AND is_active = TRUE
          ORDER BY created_at DESC`
       : `SELECT *
          FROM Notifications
          WHERE user_id = $1
-           AND notification_type = 'alert_data_series'
+           AND notification_type IN ('alert_series_analytics','alert_series_static')
          ORDER BY created_at DESC`;
 
     const result = await runQuery<NotificationRow>('userdata', query, [userId]);
@@ -93,26 +93,7 @@ export const notificationsRepository = {
     return result.rows.map(mapRowToNotification);
   },
 
-  async findUserAlertByClientId(
-    userId: string,
-    clientAlertId: string,
-    client?: PoolClient
-  ): Promise<Notification | null> {
-    const result = await runQuery<NotificationRow>(
-      'userdata',
-      `SELECT *
-       FROM Notifications
-       WHERE user_id = $1
-         AND notification_type = 'alert_data_series'
-         AND config ->> 'clientAlertId' = $2
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId, clientAlertId],
-      client
-    );
-
-    return result.rows[0] ? mapRowToNotification(result.rows[0]) : null;
-  },
+  // Legacy findUserAlertByClientId removed in breaking change; re-add if a client id dimension is required
 
   async findByHash(hash: string, client?: PoolClient): Promise<Notification | null> {
     const result = await runQuery<NotificationRow>(

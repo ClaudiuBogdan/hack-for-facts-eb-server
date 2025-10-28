@@ -1,49 +1,58 @@
 import { notificationsRepository } from '../../db/repositories/notificationsRepository';
 import { notificationDeliveriesRepository } from '../../db/repositories/notificationDeliveriesRepository';
-import type {
-  Notification,
-  NotificationType,
-  UUID,
-} from './types';
-import {
-  generateNotificationHash,
-  generateDeliveryKey,
-  generatePeriodKey,
-  NOTIFICATION_TYPE_CONFIGS,
-} from './types';
+import type { Notification, NotificationType, UUID, NotificationConfig } from './types';
+import { generateNotificationHash, generateDeliveryKey, generatePeriodKey, NOTIFICATION_TYPE_CONFIGS } from './types';
 import { ValidationError } from '../../utils/errors';
-import { AlertConfig } from '../../schemas/alerts';
 
-function ensureAlertConfig(
-  config: AlertConfig | null | undefined
-): asserts config is AlertConfig {
+function ensureAnalyticsAlertConfig(config: any): asserts config is any {
   if (!config) {
     throw new ValidationError('Alert configuration is required', [
-      { path: 'config', message: 'Provide alert config for alert notifications', code: 'missing_config' },
+      { path: 'config', message: 'Provide alert config for analytics alert', code: 'missing_config' },
     ]);
   }
-
   if (!config.filter) {
     throw new ValidationError('Analytics filter is required', [
       { path: 'config.filter', message: 'Analytics filter must be provided', code: 'missing_analytics_input' },
     ]);
   }
-
-  for (let i = 0; i < config.conditions.length; i++) {
-    const condition = config.conditions[i];
+  const conditions = Array.isArray(config.conditions) ? config.conditions : [];
+  for (let i = 0; i < conditions.length; i++) {
+    const condition = conditions[i];
     if (!condition.unit) {
       throw new ValidationError('Condition unit is required', [
         { path: `config.conditions[${i}].unit`, message: 'Provide a unit for the condition', code: 'missing_unit' },
       ]);
     }
-
     if (!Number.isFinite(condition.threshold)) {
       throw new ValidationError('Condition threshold must be a finite number', [
-        {
-          path: `config.conditions[${i}].threshold`,
-          message: 'Threshold must be a finite number',
-          code: 'invalid_threshold',
-        },
+        { path: `config.conditions[${i}].threshold`, message: 'Threshold must be a finite number', code: 'invalid_threshold' },
+      ]);
+    }
+  }
+}
+
+function ensureStaticAlertConfig(config: any): asserts config is any {
+  if (!config) {
+    throw new ValidationError('Alert configuration is required', [
+      { path: 'config', message: 'Provide alert config for static alert', code: 'missing_config' },
+    ]);
+  }
+  if (!config.datasetId) {
+    throw new ValidationError('Dataset id is required', [
+      { path: 'config.datasetId', message: 'Provide datasetId for static alert', code: 'missing_dataset_id' },
+    ]);
+  }
+  const conditions = Array.isArray(config.conditions) ? config.conditions : [];
+  for (let i = 0; i < conditions.length; i++) {
+    const condition = conditions[i];
+    if (!condition.unit) {
+      throw new ValidationError('Condition unit is required', [
+        { path: `config.conditions[${i}].unit`, message: 'Provide a unit for the condition', code: 'missing_unit' },
+      ]);
+    }
+    if (!Number.isFinite(condition.threshold)) {
+      throw new ValidationError('Condition threshold must be a finite number', [
+        { path: `config.conditions[${i}].threshold`, message: 'Threshold must be a finite number', code: 'invalid_threshold' },
       ]);
     }
   }
@@ -58,7 +67,7 @@ export class NotificationService {
     userId: string,
     notificationType: NotificationType,
     entityCui?: string | null,
-    configArg?: AlertConfig | null
+    configArg?: NotificationConfig | null
   ): Promise<Notification> {
     const typeConfig = NOTIFICATION_TYPE_CONFIGS[notificationType];
 
@@ -74,10 +83,12 @@ export class NotificationService {
     }
 
     const normalizedEntity = entityCui ?? null;
-    const defaultedConfig = configArg ?? typeConfig.defaultConfig ?? null;
+    const defaultedConfig = (configArg ?? typeConfig.defaultConfig ?? null) as NotificationConfig;
 
-    if (notificationType === 'alert_data_series') {
-      ensureAlertConfig(defaultedConfig);
+    if (notificationType === 'alert_series_analytics') {
+      ensureAnalyticsAlertConfig(defaultedConfig);
+    } else if (notificationType === 'alert_series_static') {
+      ensureStaticAlertConfig(defaultedConfig);
     }
 
     const existing = await notificationsRepository.findByUserTypeAndEntity(
@@ -86,7 +97,7 @@ export class NotificationService {
       normalizedEntity
     );
 
-    if (existing && ['newsletter_entity_monthly', 'newsletter_entity_quarterly', 'newsletter_entity_yearly', 'newsletter_entity_annual'].includes(notificationType)) {
+    if (existing && ['newsletter_entity_monthly', 'newsletter_entity_quarterly', 'newsletter_entity_yearly'].includes(notificationType)) {
       const resolvedConfig = configArg !== undefined ? configArg : existing.config;
       const resolvedConfigOrNull = resolvedConfig ?? null;
       const nextHash = generateNotificationHash(
@@ -96,7 +107,7 @@ export class NotificationService {
         resolvedConfigOrNull
       );
 
-      const updates: { isActive: boolean; config?: AlertConfig | null; hash?: string } = {
+      const updates: { isActive: boolean; config?: NotificationConfig | null; hash?: string } = {
         isActive: true,
       };
 
@@ -141,7 +152,7 @@ export class NotificationService {
 
   async update(
     notificationId: UUID,
-    updates: { isActive?: boolean; config?: AlertConfig | null }
+    updates: { isActive?: boolean; config?: NotificationConfig | null }
   ): Promise<Notification> {
     const existing = await notificationsRepository.findById(notificationId);
     if (!existing) {
@@ -151,11 +162,13 @@ export class NotificationService {
     }
 
     let resolvedConfig = existing.config;
-    const payload: { isActive?: boolean; config?: AlertConfig | null; hash?: string } = {};
+    const payload: { isActive?: boolean; config?: NotificationConfig | null; hash?: string } = {};
 
     if (updates.config !== undefined) {
-      if (existing.notificationType === 'alert_data_series') {
-        ensureAlertConfig(updates.config);
+      if (existing.notificationType === 'alert_series_analytics') {
+        ensureAnalyticsAlertConfig(updates.config);
+      } else if (existing.notificationType === 'alert_series_static') {
+        ensureStaticAlertConfig(updates.config);
       }
       resolvedConfig = updates.config;
       payload.config = updates.config;

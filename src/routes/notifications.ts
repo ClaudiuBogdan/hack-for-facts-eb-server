@@ -7,29 +7,46 @@ import { z } from 'zod';
 import type { NotificationType, NotificationConfig } from '../services/notifications/types';
 import { ValidationError } from '../utils/errors';
 import { formatZodError } from '../utils/validation';
-import { alertConfigSchema } from '../schemas/alerts';
+import { analyticsSeriesAlertConfigSchema, staticSeriesAlertConfigSchema } from '../schemas/alerts';
 
 // Validation schemas
 
-const createNotificationSchema = z.object({
-  notificationType: z.enum([
-    'newsletter_entity_monthly',
-    'newsletter_entity_quarterly',
-    'newsletter_entity_yearly',
-    'newsletter_entity_annual',
-    'alert_data_series',
-  ]),
-  entityCui: z.string().optional().nullable(),
-  config: z.union([alertConfigSchema, z.null()]).optional(),
-});
+// Strong, per-type request body validation using discriminated union
+const createNotificationBodySchema = z.discriminatedUnion('notificationType', [
+  z.object({
+    notificationType: z.literal('newsletter_entity_monthly'),
+    entityCui: z.string().min(1),
+    config: z.null().optional(),
+  }),
+  z.object({
+    notificationType: z.literal('newsletter_entity_quarterly'),
+    entityCui: z.string().min(1),
+    config: z.null().optional(),
+  }),
+  z.object({
+    notificationType: z.literal('newsletter_entity_yearly'),
+    entityCui: z.string().min(1),
+    config: z.null().optional(),
+  }),
+  z.object({
+    notificationType: z.literal('alert_series_analytics'),
+    entityCui: z.string().optional().nullable(),
+    config: analyticsSeriesAlertConfigSchema,
+  }),
+  z.object({
+    notificationType: z.literal('alert_series_static'),
+    entityCui: z.string().optional().nullable(),
+    config: staticSeriesAlertConfigSchema,
+  }),
+]);
 
 const updateNotificationSchema = z.object({
   isActive: z.boolean().optional(),
-  config: alertConfigSchema.optional(),
+  config: z.unknown().optional(),
 });
 
 const notificationIdParamsSchema = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
 });
 
 export default async function notificationRoutes(fastify: FastifyInstance) {
@@ -50,20 +67,20 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
         }
 
         try {
-          const parsed = createNotificationSchema.safeParse(request.body);
+          const parsed = createNotificationBodySchema.safeParse(request.body);
           if (!parsed.success) {
             return reply
               .code(400)
               .send({ ok: false, error: 'Invalid request body', details: formatZodError(parsed.error) });
           }
-
-          const { notificationType, entityCui, config } = parsed.data;
+          const { notificationType, entityCui } = parsed.data as any;
+          const config: NotificationConfig = (parsed.data as any).config ?? null;
 
           const notification = await notificationService.subscribe(
             userId,
             notificationType as NotificationType,
             entityCui,
-            config as NotificationConfig | null
+            config
           );
 
           return reply.code(200).send({ ok: true, data: notification });
@@ -180,7 +197,36 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
             return reply.code(403).send({ ok: false, error: 'Forbidden' });
           }
 
-          const updated = await notificationService.update(notificationId, parsed.data);
+          // If config provided, validate per notification type
+          let updates: { isActive?: boolean; config?: NotificationConfig | null } = {};
+          if (parsed.data.isActive !== undefined) {
+            updates.isActive = parsed.data.isActive;
+          }
+
+          if (parsed.data.config !== undefined) {
+            const cfg = parsed.data.config;
+            if (notification.notificationType === 'alert_series_analytics') {
+              const result = analyticsSeriesAlertConfigSchema.safeParse(cfg);
+              if (!result.success) {
+                return reply
+                  .code(400)
+                  .send({ ok: false, error: 'Invalid analytics alert config', details: formatZodError(result.error) });
+              }
+              updates.config = result.data;
+            } else if (notification.notificationType === 'alert_series_static') {
+              const result = staticSeriesAlertConfigSchema.safeParse(cfg);
+              if (!result.success) {
+                return reply
+                  .code(400)
+                  .send({ ok: false, error: 'Invalid static alert config', details: formatZodError(result.error) });
+              }
+              updates.config = result.data;
+            } else {
+              updates.config = null;
+            }
+          }
+
+          const updated = await notificationService.update(notificationId, updates);
 
           return reply.code(200).send({ ok: true, data: updated });
         } catch (err: any) {

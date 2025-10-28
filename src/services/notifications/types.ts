@@ -1,11 +1,12 @@
 import crypto from 'crypto';
-import { AlertConfig } from '../../schemas/alerts';
+import { AnalyticsSeriesAlertConfig, StaticSeriesAlertConfig } from '../../schemas/alerts';
 
 export type NotificationType =
   | 'newsletter_entity_monthly'
   | 'newsletter_entity_quarterly'
   | 'newsletter_entity_yearly'
-  | 'alert_data_series';
+  | 'alert_series_analytics'
+  | 'alert_series_static';
 
 export type UUID = string;
 
@@ -17,7 +18,7 @@ export interface DataSeriesConfiguration {
   [key: string]: unknown;
 }
 
-export type NotificationConfig = AlertConfig; // Add more config here if needed with |
+export type NotificationConfig = AnalyticsSeriesAlertConfig | StaticSeriesAlertConfig | null;
 
 export interface Notification {
   id: UUID;
@@ -105,17 +106,21 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     defaultConfig: null,
     generatePeriodKey: generatePreviousYearKey,
   },
-  alert_data_series: {
-    type: 'alert_data_series',
-    label: 'Data Series Alert',
-    description: 'Receive alerts based on custom data series queries',
+  alert_series_analytics: {
+    type: 'alert_series_analytics',
+    label: 'Analytics Series Alert',
+    description: 'Receive alerts based on analytics filter queries',
     requiresEntity: false,
     defaultConfig: null,
-    generatePeriodKey: (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      return `${year}-${month}`;
-    },
+    generatePeriodKey: generatePreviousMonthKey,
+  },
+  alert_series_static: {
+    type: 'alert_series_static',
+    label: 'Static Dataset Series Alert',
+    description: 'Receive alerts based on static datasets by ID',
+    requiresEntity: false,
+    defaultConfig: null,
+    generatePeriodKey: generatePreviousMonthKey,
   },
 };
 
