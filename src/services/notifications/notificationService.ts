@@ -58,7 +58,7 @@ export class NotificationService {
     userId: string,
     notificationType: NotificationType,
     entityCui?: string | null,
-    config?: AlertConfig | null
+    configArg?: AlertConfig | null
   ): Promise<Notification> {
     const typeConfig = NOTIFICATION_TYPE_CONFIGS[notificationType];
 
@@ -74,7 +74,7 @@ export class NotificationService {
     }
 
     const normalizedEntity = entityCui ?? null;
-    const defaultedConfig = config ?? typeConfig.defaultConfig ?? null;
+    const defaultedConfig = configArg ?? typeConfig.defaultConfig ?? null;
 
     if (notificationType === 'alert_data_series') {
       ensureAlertConfig(defaultedConfig);
@@ -87,7 +87,7 @@ export class NotificationService {
     );
 
     if (existing && ['newsletter_entity_monthly', 'newsletter_entity_quarterly', 'newsletter_entity_yearly', 'newsletter_entity_annual'].includes(notificationType)) {
-      const resolvedConfig = config !== undefined ? config : existing.config;
+      const resolvedConfig = configArg !== undefined ? configArg : existing.config;
       const resolvedConfigOrNull = resolvedConfig ?? null;
       const nextHash = generateNotificationHash(
         userId,
@@ -100,7 +100,7 @@ export class NotificationService {
         isActive: true,
       };
 
-      if (config !== undefined) {
+      if (configArg !== undefined) {
         updates.config = resolvedConfigOrNull;
       }
 
@@ -109,6 +109,19 @@ export class NotificationService {
       }
 
       return notificationsRepository.update(existing.id, updates);
+    }
+
+    const hash = generateNotificationHash(
+      userId,
+      notificationType,
+      normalizedEntity,
+      defaultedConfig
+    );
+
+    const notificationExists = await notificationsRepository.findByHash(hash);
+
+    if (notificationExists) {
+      return notificationExists;
     }
 
     return notificationsRepository.create({

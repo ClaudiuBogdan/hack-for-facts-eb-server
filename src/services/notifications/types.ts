@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { AnalyticsFilter } from '../../types';
 import { AlertConfig } from '../../schemas/alerts';
 
 export type NotificationType =
@@ -130,6 +129,24 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
 };
 
 /**
+ * Recursively sorts object keys for consistent JSON stringification
+ */
+function sortObjectKeys(obj: any): any {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    return obj;
+  }
+
+  const sorted: any = {};
+  const keys = Object.keys(obj).sort();
+
+  for (const key of keys) {
+    sorted[key] = sortObjectKeys(obj[key]);
+  }
+
+  return sorted;
+}
+
+/**
  * Generates a SHA-256 hash for notification uniqueness
  * Format: hash(user_id, notification_type, entity_cui, config)
  */
@@ -139,7 +156,7 @@ export function generateNotificationHash(
   entityCui: string | null,
   config: NotificationConfig | null
 ): string {
-  const configStr = config ? JSON.stringify(config, Object.keys(config).sort()) : '';
+  const configStr = config ? JSON.stringify(sortObjectKeys(config)) : '';
   const data = `${userId}:${notificationType}:${entityCui || ''}:${configStr}`;
   return crypto.createHash('sha256').update(data).digest('hex');
 }
