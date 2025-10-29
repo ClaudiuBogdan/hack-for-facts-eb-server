@@ -16,6 +16,7 @@
     "datasets:validate": "ts-node scripts/validate-datasets.ts"
   },
   "dependencies": {
+    "handlebars": "^4.7.8",
     "@clerk/backend": "^2.19.0",
     "@clerk/fastify": "^2.4.42",
     "@fastify/cors": "^11.1.0",

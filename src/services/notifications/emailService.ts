@@ -4,26 +4,18 @@ import { notificationDeliveriesRepository } from '../../db/repositories/notifica
 import { unsubscribeTokensRepository } from '../../db/repositories/unsubscribeTokensRepository';
 import type { Notification, UUID } from './types';
 import { generateDeliveryKey } from './types';
+import type {
+  ConsolidatedEmailData,
+  EmailSection,
+  EmailSectionContent,
+} from './emailTypes';
 
 export interface PendingNotification {
   notification: Notification;
   periodKey: string;
   deliveryKey: string;
-  data: any;
-  metadata?: Record<string, any>;
-}
-
-export interface EmailSection {
-  type: 'entity_newsletter' | 'alert';
-  title: string;
-  content: any;
-  unsubscribeUrl: string;
-}
-
-export interface ConsolidatedEmailData {
-  userEmail: string;
-  sections: EmailSection[];
-  baseUrl: string;
+  data: EmailSectionContent;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -114,9 +106,8 @@ export class EmailService {
     // 2. Send via email provider API
     // 3. Handle errors appropriately
 
-    console.log('Sending consolidated email to:', data.userEmail);
     console.log('Number of sections:', data.sections.length);
-    console.log('Sections:', data.sections.map(s => s.type));
+    console.log('Sections:', data.sections.map((s) => s.type));
 
     // Example structure for email provider integration:
     /*
@@ -158,8 +149,13 @@ export class EmailService {
    */
   private getSectionTitle(notification: Notification): string {
     // For series alerts, use the custom title from config if present
-    if ((notification.notificationType === 'alert_series_analytics' || notification.notificationType === 'alert_series_static') && notification.config && typeof (notification.config as any).title === 'string') {
-      return (notification.config as any).title;
+    if (
+      (notification.notificationType === 'alert_series_analytics' ||
+        notification.notificationType === 'alert_series_static') &&
+      notification.config &&
+      typeof (notification.config as { title?: unknown }).title === 'string'
+    ) {
+      return (notification.config as { title?: string }).title as string;
     }
 
     switch (notification.notificationType) {

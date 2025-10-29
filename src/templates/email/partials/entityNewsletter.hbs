@@ -45,21 +45,27 @@
 </div>
 {{/if}}
 
-{{#if content.topCreditors}}
-<h3>Top Creditors</h3>
+{{#if content.topFunctional}}
+<h3>Top Functional Categories</h3>
 <ul>
-  {{#each content.topCreditors}}
-  <li><strong>{{this.name}}</strong>: {{formatCurrency this.amount}}</li>
+  {{#each content.topFunctional}}
+  <li><strong>{{this.name}}{{#if this.code}} ({{this.code}}){{/if}}</strong>: {{formatCurrency this.amount 'compact'}}</li>
   {{/each}}
-</ul>
+  {{#unless content.topFunctional.length}}
+  <li>No functional category data available.</li>
+  {{/unless}}
+  </ul>
 {{/if}}
 
-{{#if content.topDebtors}}
-<h3>Top Debtors</h3>
+{{#if content.topEconomic}}
+<h3>Top Economic Categories</h3>
 <ul>
-  {{#each content.topDebtors}}
-  <li><strong>{{this.name}}</strong>: {{formatCurrency this.amount}}</li>
+  {{#each content.topEconomic}}
+  <li><strong>{{this.name}}{{#if this.code}} ({{this.code}}){{/if}}</strong>: {{formatCurrency this.amount 'compact'}}</li>
   {{/each}}
+  {{#unless content.topEconomic.length}}
+  <li>No economic category data available.</li>
+  {{/unless}}
 </ul>
 {{/if}}
 

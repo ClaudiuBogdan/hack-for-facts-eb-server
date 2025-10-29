@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Execution Updates</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: #ffffff;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header {
+      border-bottom: 3px solid #0066cc;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      margin: 0;
+      color: #0066cc;
+      font-size: 24px;
+    }
+    .section {
+      margin-bottom: 40px;
+      padding-bottom: 30px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .section:last-of-type {
+      border-bottom: none;
+    }
+    .section-title {
+      color: #0066cc;
+      font-size: 20px;
+      margin-bottom: 15px;
+    }
+    .entity-info {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+    }
+    .entity-name {
+      font-weight: bold;
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+    .entity-cui {
+      color: #666;
+      font-size: 14px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .metric {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+    }
+    .metric-label {
+      color: #666;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .metric-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+    }
+    .alert-box {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+    }
+    .alert-title {
+      font-weight: bold;
+      color: #856404;
+      margin-bottom: 5px;
+    }
+    .alert-message {
+      color: #856404;
+    }
+    .unsubscribe {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .unsubscribe a {
+      color: #666;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .unsubscribe a:hover {
+      text-decoration: underline;
+    }
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e0e0;
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+    }
+    .cta-button {
+      display: inline-block;
+      background-color: #0066cc;
+      color: #ffffff !important;
+      padding: 12px 24px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+      margin: 15px 0;
+    }
+    .cta-button:hover {
+      background-color: #0052a3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Budget Execution Updates</h1>
+    </div>
+
+      <div class="section">
+        <h2 class="section-title">Monthly Budget Execution Report</h2>
+
+          
+          <div class="entity-info">
+            <div class="entity-name">MUNICIPIUL SIBIU</div>
+            <div class="entity-cui">CUI: 4270740</div>
+          </div>
+          
+          <p><strong>Period:</strong> decembrie 2024</p>
+          
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Total Spending</div>
+              <div class="metric-value">98.635.994,03 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Total Income</div>
+              <div class="metric-value">-10.180.556,98 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Balance</div>
+              <div class="metric-value">-108.816.551,01 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Execution Rate</div>
+              <div class="metric-value">-968.87%</div>
+            </div>
+          </div>
+          
+          <h3>Top Functional Categories</h3>
+          <ul>
+            <li><strong>Alte cheltuieli in domeniul invatamantului (65.50.00)</strong>: 27,46 mil. RON</li>
+            <li><strong>Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement (67.05.03)</strong>: 11,74 mil. RON</li>
+            <li><strong>Spitale generale (66.06.01)</strong>: 10,5 mil. RON</li>
+            </ul>
+          
+          <h3>Top Economic Categories</h3>
+          <ul>
+            <li><strong>Constructii (71.01.01)</strong>: 26,96 mil. RON</li>
+            <li><strong>Salarii de baza (10.01.01)</strong>: 14,42 mil. RON</li>
+            <li><strong>Fonduri din imprumut rambursabil (61.01.00)</strong>: 12,04 mil. RON</li>
+          </ul>
+          
+          <a href="http://localhost:5173/entities/4270740?period&#x3D;2024-12" class="cta-button">View Full Report</a>
+
+        <div class="unsubscribe">
+          <a href="http://localhost:3000/api/notifications/unsubscribe/091718ef1bc89983fb211b401794719056f94e4c5d17da0ce356c6d119832132">Unsubscribe from this notification</a>
+        </div>
+      </div>
+      <div class="section">
+        <h2 class="section-title">Monthly Budget Execution Report</h2>
+
+          
+          <div class="entity-info">
+            <div class="entity-name">JUDETUL SIBIU</div>
+            <div class="entity-cui">CUI: 4406223</div>
+          </div>
+          
+          <p><strong>Period:</strong> decembrie 2024</p>
+          
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Total Spending</div>
+              <div class="metric-value">165.128.025,86 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Total Income</div>
+              <div class="metric-value">111.696.066,7 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Balance</div>
+              <div class="metric-value">-53.431.959,16 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Execution Rate</div>
+              <div class="metric-value">147.84%</div>
+            </div>
+          </div>
+          
+          <h3>Top Functional Categories</h3>
+          <ul>
+            <li><strong>Spitale generale (66.06.01)</strong>: 58,79 mil. RON</li>
+            <li><strong>Alte cheltuieli in domeniul invatamantului (65.50.00)</strong>: 28,55 mil. RON</li>
+            <li><strong>Alte institutii si actiuni sanitare (66.50.50)</strong>: 15,99 mil. RON</li>
+            </ul>
+          
+          <h3>Top Economic Categories</h3>
+          <ul>
+            <li><strong>Salarii de baza (10.01.01)</strong>: 39,81 mil. RON</li>
+            <li><strong>Fonduri europene nerambursabile (60.01.00)</strong>: 33,48 mil. RON</li>
+            <li><strong>Constructii (71.01.01)</strong>: 9,87 mil. RON</li>
+          </ul>
+          
+          <a href="http://localhost:5173/entities/4406223?period&#x3D;2024-12" class="cta-button">View Full Report</a>
+
+        <div class="unsubscribe">
+          <a href="http://localhost:3000/api/notifications/unsubscribe/571d8db0e6f9f9752337561db16916a90a8a3eb5a37bde92d2bb48b7fe1a979b">Unsubscribe from this notification</a>
+        </div>
+      </div>
+      <div class="section">
+        <h2 class="section-title">Quarterly Budget Execution Report</h2>
+
+          
+          <div class="entity-info">
+            <div class="entity-name">JUDETUL SIBIU</div>
+            <div class="entity-cui">CUI: 4406223</div>
+          </div>
+          
+          <p><strong>Period:</strong> Trimestrul 4, 2024</p>
+          
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Total Spending</div>
+              <div class="metric-value">420.327.184,12 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Total Income</div>
+              <div class="metric-value">413.614.759,58 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Balance</div>
+              <div class="metric-value">-6.712.424,54 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Execution Rate</div>
+              <div class="metric-value">101.62%</div>
+            </div>
+          </div>
+          
+          <h3>Top Functional Categories</h3>
+          <ul>
+            <li><strong>Spitale generale (66.06.01)</strong>: 186,96 mil. RON</li>
+            <li><strong>Alte institutii si actiuni sanitare (66.50.50)</strong>: 36,93 mil. RON</li>
+            <li><strong>Alte cheltuieli in domeniul invatamantului (65.50.00)</strong>: 29,84 mil. RON</li>
+            </ul>
+          
+          <h3>Top Economic Categories</h3>
+          <ul>
+            <li><strong>Salarii de baza (10.01.01)</strong>: 119,49 mil. RON</li>
+            <li><strong>Fonduri europene nerambursabile (60.01.00)</strong>: 44,74 mil. RON</li>
+            <li><strong>Medicamente (20.04.01)</strong>: 31,78 mil. RON</li>
+          </ul>
+          
+          <a href="http://localhost:5173/entities/4406223?period&#x3D;2024-Q4" class="cta-button">View Full Report</a>
+
+        <div class="unsubscribe">
+          <a href="http://localhost:3000/api/notifications/unsubscribe/d8c519570702f4b2c4734c340b1700bde4ec355cfd445cd1a06c233c46ba3a4c">Unsubscribe from this notification</a>
+        </div>
+      </div>
+      <div class="section">
+        <h2 class="section-title">Cluj - Datoria Publică alert</h2>
+
+          
+          
+          <div class="alert-box">
+            <div class="alert-title">Cluj - Datoria Publică alert</div>
+          
+            <div class="alert-message">Alert created from chart &quot;Cheltuieli Datoria Publică și Împrumuturi: Cluj, Sibiu și Brașov (2022-2024)&quot;</div>
+          </div>
+          
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Current Value</div>
+              <div class="metric-value">12.055.058,83 RON</div>
+            </div>
+          
+          
+            <div class="metric">
+              <div class="metric-label">Difference</div>
+              <div class="metric-value">-14.675.911,81 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Change</div>
+              <div class="metric-value">-54.9%</div>
+            </div>
+          </div>
+          
+          <p><strong>Period:</strong> 2024-12</p>
+          
+        
+        <div class="unsubscribe">
+          <a href="http://localhost:3000/api/notifications/unsubscribe/3b728d4ab729643d873df41bead699e242ac4f325d9836a4de6140a87933b09b">Unsubscribe from this notification</a>
+        </div>
+      </div>
+      <div class="section">
+        <h2 class="section-title">Budget Alert Notification</h2>
+
+          
+          
+          <div class="alert-box">
+          
+          </div>
+          
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Current Value</div>
+              <div class="metric-value">5,02 RON</div>
+            </div>
+          
+          
+            <div class="metric">
+              <div class="metric-label">Difference</div>
+              <div class="metric-value">0,05 RON</div>
+            </div>
+          
+            <div class="metric">
+              <div class="metric-label">Change</div>
+              <div class="metric-value">1%</div>
+            </div>
+          </div>
+          
+          <p><strong>Period:</strong> 2024-12</p>
+          
+        
+        <div class="unsubscribe">
+          <a href="http://localhost:3000/api/notifications/unsubscribe/2bd90db7f5295ef269bd1585285406fe27c8e47c616b70bbc3da08afe44d4c5a">Unsubscribe from this notification</a>
+        </div>
+      </div>
+
+    <div class="footer">
+      <p>You are receiving this email because you subscribed to budget execution notifications.</p>
+      <p>&copy; 2025 Budget Execution Platform. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
