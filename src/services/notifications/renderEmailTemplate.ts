@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import Handlebars, { TemplateDelegate } from 'handlebars';
 import type { ConsolidatedEmailData } from './emailTypes';
-import { formatCurrency as formatCurrencyRO } from '../../utils/formatter';
+import { formatCurrency as formatCurrencyRO, formatNumberRO } from '../../utils/formatter';
 
 // Cache compiled templates by absolute path
 const templateCache = new Map<string, TemplateDelegate<ConsolidatedEmailData & { year: number }>>();
@@ -38,6 +38,37 @@ function registerHelpersOnce() {
     // parameter is provided, notationArg will be that options object.
     const notation = typeof notationArg === 'string' ? (notationArg as 'standard' | 'compact') : undefined;
     return formatCurrencyRO(num, notation);
+  });
+
+  Handlebars.registerHelper('formatPercent', (value: number | string, digitsArg?: unknown) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return '';
+    const digits = typeof digitsArg === 'number' ? digitsArg : 2;
+    return `${num.toFixed(digits)}%`;
+  });
+
+  Handlebars.registerHelper('formatNumber', (value: number | string, notationArg?: unknown) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return '';
+    const notation = typeof notationArg === 'string' ? (notationArg as 'standard' | 'compact') : undefined;
+    return formatNumberRO(num, notation as any);
+  });
+
+  Handlebars.registerHelper('arrow', (value: number | string) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num) || num === 0) return '→';
+    return num > 0 ? '↑' : '↓';
+  });
+
+  Handlebars.registerHelper('changeClass', (value: number | string) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num) || num === 0) return 'neutral';
+    return num > 0 ? 'positive' : 'negative';
+  });
+
+  Handlebars.registerHelper('abs', (value: number | string) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    return Math.abs(num);
   });
 }
 

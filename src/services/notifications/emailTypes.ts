@@ -34,6 +34,16 @@ export interface SeriesAlertEmailContent {
   details?: SeriesAlertDetails;
   periodKey?: string;
   entityUrl?: string;
+  comparisons?: {
+    prev?: { abs?: number; pct?: number };
+    yoy?: { abs?: number; pct?: number };
+  };
+  stats?: { min: number; max: number; avg: number; count: number };
+  conditions?: Array<{ operator: 'gt'|'gte'|'lt'|'lte'|'eq'; threshold: number; unit: string; met: boolean }>;
+  series?: {
+    xAxis: { unit: string };
+    yAxis: { unit: string };
+  };
 }
 
 export type EmailSectionContent = EntityNewsletterContent | SeriesAlertEmailContent;
@@ -52,4 +62,3 @@ export interface ConsolidatedEmailData {
   sections: EmailSection[];
   baseUrl: string;
 }
-

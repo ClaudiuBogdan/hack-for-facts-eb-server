@@ -80,6 +80,15 @@
       font-weight: bold;
       color: #333;
     }
+    .subtext { color: #777; font-size: 12px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .chip { background: #eef4ff; color: #2b5db3; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+    .change { font-weight: 600; }
+    .change.positive { color: #0a7a2a; }
+    .change.negative { color: #b3261e; }
+    .change.neutral { color: #666; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .muted { color: #666; }
     .alert-box {
       background-color: #fff3cd;
       border-left: 4px solid #ffc107;
@@ -135,6 +144,7 @@
   <div class="container">
     <div class="header">
       <h1>Budget Execution Updates</h1>
+      <div class="subtext">You received 5 notifications</div>
     </div>
 
       <div class="section">
@@ -170,6 +180,32 @@
             </div>
           </div>
           
+          <div class="two-col">
+            <div>
+              <div class="muted">Vs previous period</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 23,04 mil. RON (30.47%)
+                </div>
+                <div class="chip change negative">
+                  ↓ Income: 73,97 mil. RON (-115.96%)
+                </div>
+              </div>
+            </div>
+          
+            <div>
+              <div class="muted">Vs same period last year</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 40,14 mil. RON (68.61%)
+                </div>
+                <div class="chip change positive">
+                  ↑ Income: 14,93 mil. RON (-59.46%)
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <h3>Top Functional Categories</h3>
           <ul>
             <li><strong>Alte cheltuieli in domeniul invatamantului (65.50.00)</strong>: 27,46 mil. RON</li>
@@ -187,7 +223,7 @@
           <a href="http://localhost:5173/entities/4270740?period&#x3D;2024-12" class="cta-button">View Full Report</a>
 
         <div class="unsubscribe">
-          <a href="http://localhost:3000/api/notifications/unsubscribe/091718ef1bc89983fb211b401794719056f94e4c5d17da0ce356c6d119832132">Unsubscribe from this notification</a>
+          <a href="http://localhost:3000/api/notifications/unsubscribe/9118237cb5b2ea36683e28fb0a5972f1cd2c8b28fa82585e88e7262b67249e16">Unsubscribe from this notification</a>
         </div>
       </div>
       <div class="section">
@@ -223,6 +259,32 @@
             </div>
           </div>
           
+          <div class="two-col">
+            <div>
+              <div class="muted">Vs previous period</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 43,04 mil. RON (35.26%)
+                </div>
+                <div class="chip change negative">
+                  ↓ Income: 60,69 mil. RON (-35.21%)
+                </div>
+              </div>
+            </div>
+          
+            <div>
+              <div class="muted">Vs same period last year</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 20,56 mil. RON (14.22%)
+                </div>
+                <div class="chip change positive">
+                  ↑ Income: 61,35 mil. RON (121.87%)
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <h3>Top Functional Categories</h3>
           <ul>
             <li><strong>Spitale generale (66.06.01)</strong>: 58,79 mil. RON</li>
@@ -240,7 +302,7 @@
           <a href="http://localhost:5173/entities/4406223?period&#x3D;2024-12" class="cta-button">View Full Report</a>
 
         <div class="unsubscribe">
-          <a href="http://localhost:3000/api/notifications/unsubscribe/571d8db0e6f9f9752337561db16916a90a8a3eb5a37bde92d2bb48b7fe1a979b">Unsubscribe from this notification</a>
+          <a href="http://localhost:3000/api/notifications/unsubscribe/d576b9adf3f85dca1edba8a0e57dd8ec8aba469c910bee6c19d9bd335bf6c543">Unsubscribe from this notification</a>
         </div>
       </div>
       <div class="section">
@@ -276,6 +338,32 @@
             </div>
           </div>
           
+          <div class="two-col">
+            <div>
+              <div class="muted">Vs previous period</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 96,07 mil. RON (29.63%)
+                </div>
+                <div class="chip change positive">
+                  ↑ Income: 86,55 mil. RON (26.46%)
+                </div>
+              </div>
+            </div>
+          
+            <div>
+              <div class="muted">Vs same period last year</div>
+              <div class="chips">
+                <div class="chip change positive">
+                  ↑ Expenses: 67,72 mil. RON (19.21%)
+                </div>
+                <div class="chip change positive">
+                  ↑ Income: 161,87 mil. RON (64.30%)
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <h3>Top Functional Categories</h3>
           <ul>
             <li><strong>Spitale generale (66.06.01)</strong>: 186,96 mil. RON</li>
@@ -293,82 +381,131 @@
           <a href="http://localhost:5173/entities/4406223?period&#x3D;2024-Q4" class="cta-button">View Full Report</a>
 
         <div class="unsubscribe">
-          <a href="http://localhost:3000/api/notifications/unsubscribe/d8c519570702f4b2c4734c340b1700bde4ec355cfd445cd1a06c233c46ba3a4c">Unsubscribe from this notification</a>
+          <a href="http://localhost:3000/api/notifications/unsubscribe/74583ddc1b4abe5b218ce8a9245109901f6afc8cca3009d59d974f49210c2839">Unsubscribe from this notification</a>
         </div>
       </div>
       <div class="section">
         <h2 class="section-title">Cluj - Datoria Publică alert</h2>
 
           
-          
           <div class="alert-box">
             <div class="alert-title">Cluj - Datoria Publică alert</div>
-          
             <div class="alert-message">Alert created from chart &quot;Cheltuieli Datoria Publică și Împrumuturi: Cluj, Sibiu și Brașov (2022-2024)&quot;</div>
           </div>
           
+          <p class="subtext"><strong>Period:</strong> 2024-12</p>
+          
           <div class="metrics">
             <div class="metric">
-              <div class="metric-label">Current Value</div>
+              <div class="metric-label">Current</div>
               <div class="metric-value">12.055.058,83 RON</div>
+              <div class="subtext">Unit: RON</div>
             </div>
           
           
             <div class="metric">
-              <div class="metric-label">Difference</div>
-              <div class="metric-value">-14.675.911,81 RON</div>
+              <div class="metric-label">Change vs prev</div>
+              <div class="metric-value change negative">
+                ↓ 14,68 mil. RON (-54.90%)
+              </div>
             </div>
           
             <div class="metric">
-              <div class="metric-label">Change</div>
-              <div class="metric-value">-54.9%</div>
+              <div class="metric-label">Change vs YoY</div>
+              <div class="metric-value change negative">
+                ↓ 14,68 mil. RON (-54.90%)
+              </div>
             </div>
           </div>
           
-          <p><strong>Period:</strong> 2024-12</p>
+          <div class="two-col">
+            <div>
+              <div class="muted">Min</div>
+              <div class="metric-value">12,06 mil. RON</div>
+            </div>
+            <div>
+              <div class="muted">Max</div>
+              <div class="metric-value">26,73 mil. RON</div>
+            </div>
+            <div>
+              <div class="muted">Avg</div>
+              <div class="metric-value">19,39 mil. RON</div>
+            </div>
+            <div>
+              <div class="muted">Points</div>
+              <div class="metric-value">2</div>
+            </div>
+            
+          </div>
+          
           
         
         <div class="unsubscribe">
-          <a href="http://localhost:3000/api/notifications/unsubscribe/3b728d4ab729643d873df41bead699e242ac4f325d9836a4de6140a87933b09b">Unsubscribe from this notification</a>
+          <a href="http://localhost:3000/api/notifications/unsubscribe/0e3afbdd8a0c0ec8e6d7fc901fe27f42fd54bf8628ee07b27d78d0fd58148bb1">Unsubscribe from this notification</a>
         </div>
       </div>
       <div class="section">
         <h2 class="section-title">Budget Alert Notification</h2>
 
           
-          
           <div class="alert-box">
-          
           </div>
+          
+          <p class="subtext"><strong>Period:</strong> 2024-12</p>
           
           <div class="metrics">
             <div class="metric">
-              <div class="metric-label">Current Value</div>
+              <div class="metric-label">Current</div>
               <div class="metric-value">5,02 RON</div>
+              <div class="subtext">Unit: RON/EUR</div>
             </div>
           
           
             <div class="metric">
-              <div class="metric-label">Difference</div>
-              <div class="metric-value">0,05 RON</div>
+              <div class="metric-label">Change vs prev</div>
+              <div class="metric-value change positive">
+                ↑ 0,05 RON (1.00%)
+              </div>
             </div>
           
             <div class="metric">
-              <div class="metric-label">Change</div>
-              <div class="metric-value">1%</div>
+              <div class="metric-label">Change vs YoY</div>
+              <div class="metric-value change positive">
+                ↑ 0,05 RON (1.00%)
+              </div>
             </div>
           </div>
           
-          <p><strong>Period:</strong> 2024-12</p>
+          <div class="two-col">
+            <div>
+              <div class="muted">Min</div>
+              <div class="metric-value">4,92 RON</div>
+            </div>
+            <div>
+              <div class="muted">Max</div>
+              <div class="metric-value">5,02 RON</div>
+            </div>
+            <div>
+              <div class="muted">Avg</div>
+              <div class="metric-value">4,96 RON</div>
+            </div>
+            <div>
+              <div class="muted">Points</div>
+              <div class="metric-value">5</div>
+            </div>
+            
+          </div>
+          
           
         
         <div class="unsubscribe">
-          <a href="http://localhost:3000/api/notifications/unsubscribe/2bd90db7f5295ef269bd1585285406fe27c8e47c616b70bbc3da08afe44d4c5a">Unsubscribe from this notification</a>
+          <a href="http://localhost:3000/api/notifications/unsubscribe/69648ba9ee3865c52b355d9e5adb7d54eb94a815d7414a123d927bf735e61dc8">Unsubscribe from this notification</a>
         </div>
       </div>
 
     <div class="footer">
       <p>You are receiving this email because you subscribed to budget execution notifications.</p>
+      <p><a href="http://localhost:3000/settings/notifications">Manage your notifications</a></p>
       <p>&copy; 2025 Budget Execution Platform. All rights reserved.</p>
     </div>
   </div>

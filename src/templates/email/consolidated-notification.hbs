@@ -80,6 +80,15 @@
       font-weight: bold;
       color: #333;
     }
+    .subtext { color: #777; font-size: 12px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .chip { background: #eef4ff; color: #2b5db3; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+    .change { font-weight: 600; }
+    .change.positive { color: #0a7a2a; }
+    .change.negative { color: #b3261e; }
+    .change.neutral { color: #666; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .muted { color: #666; }
     .alert-box {
       background-color: #fff3cd;
       border-left: 4px solid #ffc107;
@@ -135,6 +144,7 @@
   <div class="container">
     <div class="header">
       <h1>Budget Execution Updates</h1>
+      <div class="subtext">You received {{sections.length}} notification{{#if (eq sections.length 1)}}{{else}}s{{/if}}</div>
     </div>
 
     {{#each sections}}
@@ -155,6 +165,7 @@
 
     <div class="footer">
       <p>You are receiving this email because you subscribed to budget execution notifications.</p>
+      {{#if baseUrl}}<p><a href="{{baseUrl}}/settings/notifications">Manage your notifications</a></p>{{/if}}
       <p>&copy; {{year}} Budget Execution Platform. All rights reserved.</p>
     </div>
   </div>

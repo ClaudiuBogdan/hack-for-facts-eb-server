@@ -18,21 +18,21 @@
   {{#if content.summary.totalSpending}}
   <div class="metric">
     <div class="metric-label">Total Spending</div>
-    <div class="metric-value">{{formatCurrency content.summary.totalSpending}}</div>
+    <div class="metric-value">{{formatCurrency content.summary.totalSpending 'standard'}}</div>
   </div>
   {{/if}}
 
   {{#if content.summary.totalIncome}}
   <div class="metric">
     <div class="metric-label">Total Income</div>
-    <div class="metric-value">{{formatCurrency content.summary.totalIncome}}</div>
+    <div class="metric-value">{{formatCurrency content.summary.totalIncome 'standard'}}</div>
   </div>
   {{/if}}
 
   {{#if content.summary.balance}}
   <div class="metric">
     <div class="metric-label">Balance</div>
-    <div class="metric-value">{{formatCurrency content.summary.balance}}</div>
+    <div class="metric-value">{{formatCurrency content.summary.balance 'standard'}}</div>
   </div>
   {{/if}}
 
@@ -40,6 +40,38 @@
   <div class="metric">
     <div class="metric-label">Execution Rate</div>
     <div class="metric-value">{{content.summary.executionRate}}%</div>
+  </div>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if content.comparisons}}
+<div class="two-col">
+  {{#if content.comparisons.vsPrevious}}
+  <div>
+    <div class="muted">Vs previous period</div>
+    <div class="chips">
+      <div class="chip change {{changeClass content.comparisons.vsPrevious.expensesAbs}}">
+        {{arrow content.comparisons.vsPrevious.expensesAbs}} Expenses: {{formatCurrency (abs content.comparisons.vsPrevious.expensesAbs) 'compact'}} ({{formatPercent content.comparisons.vsPrevious.expensesPct 2}})
+      </div>
+      <div class="chip change {{changeClass content.comparisons.vsPrevious.incomeAbs}}">
+        {{arrow content.comparisons.vsPrevious.incomeAbs}} Income: {{formatCurrency (abs content.comparisons.vsPrevious.incomeAbs) 'compact'}} ({{formatPercent content.comparisons.vsPrevious.incomePct 2}})
+      </div>
+    </div>
+  </div>
+  {{/if}}
+
+  {{#if content.comparisons.vsYoY}}
+  <div>
+    <div class="muted">Vs same period last year</div>
+    <div class="chips">
+      <div class="chip change {{changeClass content.comparisons.vsYoY.expensesAbs}}">
+        {{arrow content.comparisons.vsYoY.expensesAbs}} Expenses: {{formatCurrency (abs content.comparisons.vsYoY.expensesAbs) 'compact'}} ({{formatPercent content.comparisons.vsYoY.expensesPct 2}})
+      </div>
+      <div class="chip change {{changeClass content.comparisons.vsYoY.incomeAbs}}">
+        {{arrow content.comparisons.vsYoY.incomeAbs}} Income: {{formatCurrency (abs content.comparisons.vsYoY.incomeAbs) 'compact'}} ({{formatPercent content.comparisons.vsYoY.incomePct 2}})
+      </div>
+    </div>
   </div>
   {{/if}}
 </div>

@@ -1,58 +1,83 @@
 {{!-- Alert Notification Partial --}}
 
-{{#if content.entityName}}
-<div class="entity-info">
-  <div class="entity-name">{{content.entityName}}</div>
-  {{#if content.entityCui}}
-  <div class="entity-cui">CUI: {{content.entityCui}}</div>
-  {{/if}}
-</div>
-{{/if}}
-
 <div class="alert-box">
   {{#if content.alertTitle}}
   <div class="alert-title">{{content.alertTitle}}</div>
   {{/if}}
-
   {{#if content.alertMessage}}
   <div class="alert-message">{{content.alertMessage}}</div>
   {{/if}}
 </div>
 
-{{#if content.details}}
+{{#if content.periodKey}}
+<p class="subtext"><strong>Period:</strong> {{content.periodKey}}</p>
+{{/if}}
+
 <div class="metrics">
   {{#if content.details.currentValue}}
   <div class="metric">
-    <div class="metric-label">Current Value</div>
-    <div class="metric-value">{{formatCurrency content.details.currentValue}}</div>
+    <div class="metric-label">Current</div>
+    <div class="metric-value">{{formatCurrency content.details.currentValue 'standard'}}</div>
+    {{#if content.series.yAxis.unit}}<div class="subtext">Unit: {{content.series.yAxis.unit}}</div>{{/if}}
   </div>
   {{/if}}
 
   {{#if content.details.threshold}}
   <div class="metric">
     <div class="metric-label">Threshold</div>
-    <div class="metric-value">{{formatCurrency content.details.threshold}}</div>
+    <div class="metric-value">{{formatCurrency content.details.threshold 'standard'}}</div>
   </div>
   {{/if}}
 
-  {{#if content.details.difference}}
+  {{#if content.comparisons.prev}}
   <div class="metric">
-    <div class="metric-label">Difference</div>
-    <div class="metric-value">{{formatCurrency content.details.difference}}</div>
+    <div class="metric-label">Change vs prev</div>
+    <div class="metric-value change {{changeClass content.comparisons.prev.abs}}">
+      {{arrow content.comparisons.prev.abs}} {{formatCurrency (abs content.comparisons.prev.abs) 'compact'}} {{#if content.comparisons.prev.pct}}({{formatPercent content.comparisons.prev.pct 2}}){{/if}}
+    </div>
   </div>
   {{/if}}
 
-  {{#if content.details.percentChange}}
+  {{#if content.comparisons.yoy}}
   <div class="metric">
-    <div class="metric-label">Change</div>
-    <div class="metric-value">{{content.details.percentChange}}%</div>
+    <div class="metric-label">Change vs YoY</div>
+    <div class="metric-value change {{changeClass content.comparisons.yoy.abs}}">
+      {{arrow content.comparisons.yoy.abs}} {{formatCurrency (abs content.comparisons.yoy.abs) 'compact'}} {{#if content.comparisons.yoy.pct}}({{formatPercent content.comparisons.yoy.pct 2}}){{/if}}
+    </div>
   </div>
   {{/if}}
 </div>
+
+{{#if content.stats}}
+<div class="two-col">
+  <div>
+    <div class="muted">Min</div>
+    <div class="metric-value">{{formatCurrency content.stats.min 'compact'}}</div>
+  </div>
+  <div>
+    <div class="muted">Max</div>
+    <div class="metric-value">{{formatCurrency content.stats.max 'compact'}}</div>
+  </div>
+  <div>
+    <div class="muted">Avg</div>
+    <div class="metric-value">{{formatCurrency content.stats.avg 'compact'}}</div>
+  </div>
+  <div>
+    <div class="muted">Points</div>
+    <div class="metric-value">{{content.stats.count}}</div>
+  </div>
+  
+</div>
 {{/if}}
 
-{{#if content.periodKey}}
-<p><strong>Period:</strong> {{content.periodKey}}</p>
+{{#if content.conditions}}
+<div class="chips">
+  {{#each content.conditions}}
+  <div class="chip {{#if this.met}}change positive{{else}}change negative{{/if}}">
+    {{#if this.met}}✔{{else}}✖{{/if}} {{this.operator}} {{formatNumber this.threshold}} {{this.unit}}
+  </div>
+  {{/each}}
+</div>
 {{/if}}
 
 {{#if content.entityUrl}}

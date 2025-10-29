@@ -53,15 +53,7 @@ interface UserEmailMap {
 
 // Use shared email content payload types
 type EntityNewsletterContent = EntityNewsletterEmailContent;
-type DataSeriesAlertContent = SeriesAlertEmailContent & {
-  // Keep series around for potential future template enhancements
-  series?: {
-    seriesId: string;
-    xAxis: { name: string; type: string; unit: string };
-    yAxis: { name: string; type: string; unit: string };
-    data: Array<{ x: string; y: number }>;
-  };
-};
+type DataSeriesAlertContent = SeriesAlertEmailContent;
 
 interface NotificationData<TContent = unknown> {
   notification: Notification;
@@ -333,7 +325,10 @@ async function fetchNotificationData(
       },
       periodKey,
       // entityUrl could be a deep link to chart; omitted for now
-      series: result.series,
+      series: { xAxis: { unit: result.series.xAxis.unit }, yAxis: { unit: result.series.yAxis.unit } },
+      comparisons: result.metadata?.comparisons,
+      stats: result.metadata?.stats,
+      conditions: result.metadata?.conditions,
     };
 
     return {
