@@ -8,10 +8,89 @@ import {
 } from "../services/ai-basic";
 import { searchFilters as svcSearchFilters } from "../services/ai-basic";
 import { generateAnalytics as svcGenerateAnalytics } from "../services/ai-basic";
+import { generateEntityAnalyticsHierarchy as svcGenerateEntityAnalyticsHierarchy } from "../services/ai-basic";
 import { normalizeClassificationCode } from "../utils/functionalClassificationUtils";
 
 export function createMcpServer() {
   const currentYear = new Date().getFullYear();
+
+  // Reusable filter schema for analytics tools
+  const analyticsFilterSchema = z.object({
+    accountCategory: z.enum(["ch", "vn"]),
+    entityCuis: z.array(z.string()).optional(),
+    uatIds: z.array(z.string()).optional(),
+    countyCodes: z.array(z.string()).optional(),
+    isUat: z.boolean().optional(),
+    functionalPrefixes: z.array(z.string()).optional(),
+    functionalCodes: z.array(z.string()).optional(),
+    economicPrefixes: z.array(z.string()).optional(),
+    economicCodes: z.array(z.string()).optional(),
+    expenseTypes: z.array(z.enum(["dezvoltare", "functionare"])).optional(),
+    fundingSourceIds: z.array(z.number().int()).optional(),
+    budgetSectorIds: z.array(z.number().int()).optional(),
+    programCodes: z.array(z.string()).optional(),
+    exclude: z
+      .object({
+        entityCuis: z.array(z.string()).optional(),
+        uatIds: z.array(z.string()).optional(),
+        countyCodes: z.array(z.string()).optional(),
+        functionalPrefixes: z.array(z.string()).optional(),
+        functionalCodes: z.array(z.string()).optional(),
+        economicPrefixes: z.array(z.string()).optional(),
+        economicCodes: z.array(z.string()).optional(),
+      })
+      .optional(),
+    normalization: z.enum(["total", "per_capita", "total_euro", "per_capita_euro"]).optional(),
+    reportType: z.string().optional(),
+  });
+
+  // Reusable period schema for analytics tools
+  const analyticsPeriodSchema = z.object({
+    type: z.enum(["YEAR", "MONTH", "QUARTER"], {
+      errorMap: () => ({ message: "period.type must be one of: YEAR, MONTH, or QUARTER" })
+    }),
+    selection: z.union([
+      z.object({
+        interval: z.object({
+          start: z.string().min(1, "start date is required"),
+          end: z.string().min(1, "end date is required")
+        }),
+        dates: z.never().optional()
+      }),
+      z.object({
+        dates: z.array(z.string()).min(1, "dates array must contain at least one date"),
+        interval: z.never().optional()
+      }),
+    ], {
+      errorMap: () => ({ message: "period.selection must contain either 'interval' (with start and end) or 'dates' array" })
+    }),
+  }).refine((period) => {
+    const patterns = {
+      YEAR: /^\d{4}$/,
+      MONTH: /^\d{4}-\d{2}$/,
+      QUARTER: /^\d{4}-Q[1-4]$/,
+    };
+    const pattern = patterns[period.type];
+
+    if ('interval' in period.selection && period.selection.interval) {
+      const { start, end } = period.selection.interval;
+      if (!pattern.test(start) || !pattern.test(end)) {
+        return false;
+      }
+    } else if ('dates' in period.selection && period.selection.dates) {
+      if (!period.selection.dates.every(date => pattern.test(date))) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+    return true;
+  }, (period) => {
+    const format = period.type === 'YEAR' ? 'YYYY (e.g., "2023")' :
+      period.type === 'MONTH' ? 'YYYY-MM (e.g., "2023-01")' :
+        'YYYY-Qn (e.g., "2023-Q1")';
+    return { message: `Date format must match period type ${period.type}. Expected: ${format}` };
+  });
 
   const server = new McpServer(
     {
@@ -243,79 +322,11 @@ Tips:
       inputSchema: {
         title: z.string().optional(),
         description: z.string().optional(),
-        period: z.object({
-          type: z.enum(["YEAR", "MONTH", "QUARTER"], {
-            errorMap: () => ({ message: "period.type must be one of: YEAR, MONTH, or QUARTER" })
-          }),
-          selection: z.union([
-            z.object({
-              interval: z.object({
-                start: z.string().min(1, "start date is required"),
-                end: z.string().min(1, "end date is required")
-              }),
-              dates: z.never().optional()
-            }),
-            z.object({
-              dates: z.array(z.string()).min(1, "dates array must contain at least one date"),
-              interval: z.never().optional()
-            }),
-          ], {
-            errorMap: () => ({ message: "period.selection must contain either 'interval' (with start and end) or 'dates' array" })
-          }),
-        }).refine((period) => {
-          // Validate date format matches period type
-          const patterns = {
-            YEAR: /^\d{4}$/,
-            MONTH: /^\d{4}-\d{2}$/,
-            QUARTER: /^\d{4}-Q[1-4]$/,
-          };
-          const pattern = patterns[period.type];
-
-          if ('interval' in period.selection && period.selection.interval) {
-            const { start, end } = period.selection.interval;
-            if (!pattern.test(start) || !pattern.test(end)) {
-              return false;
-            }
-          } else if ('dates' in period.selection && period.selection.dates) {
-            if (!period.selection.dates.every(date => pattern.test(date))) {
-              return false;
-            }
-          } else {
-            return false;
-          }
-          return true;
-        }, (period) => {
-          const format = period.type === 'YEAR' ? 'YYYY (e.g., "2023")' :
-            period.type === 'MONTH' ? 'YYYY-MM (e.g., "2023-01")' :
-              'YYYY-Qn (e.g., "2023-Q1")';
-          return { message: `Date format must match period type ${period.type}. Expected: ${format}` };
-        }),
+        period: analyticsPeriodSchema,
         series: z.array(
           z.object({
             label: z.string().optional(),
-            filter: z.object({
-              accountCategory: z.enum(["ch", "vn"]),
-              entityCuis: z.array(z.string()).optional(),
-              uatIds: z.array(z.string()).optional(),
-              countyCodes: z.array(z.string()).optional(),
-              isUat: z.boolean().optional(),
-              functionalPrefixes: z.array(z.string()).optional(),
-              economicPrefixes: z.array(z.string()).optional(),
-              expenseTypes: z.array(z.enum(["dezvoltare", "functionare"])).optional(),
-              fundingSourceIds: z.array(z.number().int()).optional(),
-              budgetSectorIds: z.array(z.number().int()).optional(),
-              exclude: z
-                .object({
-                  entityCuis: z.array(z.string()).optional(),
-                  uatIds: z.array(z.string()).optional(),
-                  countyCodes: z.array(z.string()).optional(),
-                  functionalPrefixes: z.array(z.string()).optional(),
-                  economicPrefixes: z.array(z.string()).optional(),
-                })
-                .optional(),
-              normalization: z.enum(["total", "per_capita", "total_euro", "per_capita_euro"]).optional(),
-              reportType: z.string().optional(),
-            }),
+            filter: analyticsFilterSchema,
           })
         ).min(1).max(10),
       },
@@ -494,6 +505,154 @@ Tips:
         return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
       } catch (e: any) {
         const error = { ok: false, error: String(e?.message ?? e) };
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
+
+  // Generate analytics hierarchy tool
+  server.registerTool(
+    "generate_analytics_hierarchy",
+    {
+      title: "Generate Analytics Hierarchy",
+      description: `Generate hierarchical budget analytics with progressive drill-down capability.
+
+This tool provides flat groupings at specific classification depths, similar to a treemap visualization.
+Use it for interactive drill-down analysis across any filter scope (entities, UATs, regions, etc.).
+
+Purpose:
+- Group budget data by classification codes at a specific depth
+- Support progressive drill-down through classification hierarchy
+- Enable cross-dimensional pivoting (functional → economic or vice versa)
+- Apply exclusions and constraints to shape results
+
+Inputs:
+- period (required): Time period selection (YEAR/MONTH/QUARTER format)
+- filter (required): Base analytics filter (entities, UATs, classifications, etc.)
+- categories?: ('ch'|'vn')[] (default both: expenses and income)
+- classification?: 'fn' | 'ec' (classification dimension to group by, default 'fn')
+  • 'fn': Group by functional classification
+  • 'ec': Group by economic classification
+- path?: string[] (drill-down path, e.g., ["54"] or ["54", "5402"])
+  • Each element is a formatted code (with dots: "54", "54.02", "54.02.01")
+  • Empty array = root level grouping
+- excludeEcCodes?: string[] (economic chapter codes to exclude, e.g., ["51", "80", "81"])
+- rootDepth?: 'chapter' | 'subchapter' | 'paragraph' (grouping depth at root level, default 'chapter')
+  • 'chapter' = chapter level (e.g., "54")
+  • 'subchapter' = subchapter level (e.g., "54.02")
+  • 'paragraph' = classification level (e.g., "54.02.01")
+- limit?, offset?: number (pagination for underlying data query)
+
+Outputs:
+- ok: boolean
+- link: string (deep-link to client analytics page)
+- item: {
+    expenseGroups?: GroupedItem[] (expense data groups)
+    incomeGroups?: GroupedItem[] (income data groups)
+    expenseGroupSummary?: string
+    incomeGroupSummary?: string
+  }
+- error?: string
+
+GroupedItem structure:
+- code: string (classification code at current depth)
+- name: string (human-readable label)
+- value: number (aggregated amount)
+- count: number (number of line items)
+- isLeaf: boolean (whether this is a leaf node, depth >= 6)
+- percentage: number (share of total, 0..1)
+- humanSummary: string (formatted summary text)
+- link: string (drilldown link with refined filter)
+
+Usage patterns:
+1. Root level grouping:
+   { classification: 'fn', path: [] } → Returns chapters (54, 66, 67, ...)
+
+2. Drill-down to subchapters:
+   { classification: 'fn', path: ['54'] } → Returns subchapters (54.02, 54.03, ...)
+
+3. Drill-down to classifications:
+   { classification: 'fn', path: ['54', '54.02'] } → Returns classifications (54.02.01, 54.02.02, ...)
+
+4. Pivot to economic after reaching functional leaf:
+   { classification: 'ec', path: [] } + constraint on functional code via filter
+
+5. With exclusions:
+   { classification: 'fn', path: [], excludeEcCodes: ['51', '80', '81'] }
+
+Tips:
+- Resolve all filter values via search_filters first
+- If you want to analyze a specific chapter or subchapter from economic of functional classification, you can use the prefix filter to filter the data at the chapter or subchapter level.
+- Use path array for progressive drill-down (append codes as user clicks)
+- When isLeaf=true, consider pivoting to opposite dimension
+- excludeEcCodes is useful for filtering out transfers/internal operations
+`,
+      inputSchema: {
+        period: analyticsPeriodSchema,
+        filter: analyticsFilterSchema,
+        classification: z.enum(["fn", "ec"]).optional(),
+        rootDepth: z.union([z.literal('chapter'), z.literal('subchapter'), z.literal('paragraph')]).optional(),
+        path: z.array(z.string()).optional(),
+        excludeEcCodes: z.array(z.string()).optional(),
+        limit: z.number().int().positive().optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        link: z.string(),
+        item: z.object({
+          expenseGroups: z.array(z.object({
+            code: z.string(),
+            name: z.string(),
+            value: z.number(),
+            count: z.number(),
+            isLeaf: z.boolean(),
+            percentage: z.number(),
+            humanSummary: z.string().optional(),
+          })).optional(),
+          incomeGroups: z.array(z.object({
+            code: z.string(),
+            name: z.string(),
+            value: z.number(),
+            count: z.number(),
+            isLeaf: z.boolean(),
+            percentage: z.number(),
+            humanSummary: z.string().optional(),
+          })).optional(),
+          expenseGroupSummary: z.string().optional(),
+          incomeGroupSummary: z.string().optional(),
+        }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ period, filter, classification = 'fn', path = [], excludeEcCodes, rootDepth, limit, offset }) => {
+      try {
+        // Normalize classification codes
+        const normalizedFilter = {
+          ...filter,
+          functionalPrefixes: filter.functionalPrefixes?.map(normalizeClassificationCode),
+          economicPrefixes: filter.economicPrefixes?.map(normalizeClassificationCode),
+          exclude: filter.exclude ? {
+            ...filter.exclude,
+            functionalPrefixes: filter.exclude.functionalPrefixes?.map(normalizeClassificationCode),
+            economicPrefixes: filter.exclude.economicPrefixes?.map(normalizeClassificationCode),
+          } : undefined,
+        };
+
+        const response = await svcGenerateEntityAnalyticsHierarchy({
+          period,
+          filter: normalizedFilter,
+          classification,
+          path,
+          excludeEcCodes,
+          rootDepth,
+          limit,
+          offset,
+        });
+
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) } as const;
         return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
       }
     }
