@@ -11,6 +11,16 @@ import { generateAnalytics as svcGenerateAnalytics } from "../services/ai-basic"
 import { generateEntityAnalyticsHierarchy as svcGenerateEntityAnalyticsHierarchy } from "../services/ai-basic";
 import { listEntityAnalytics as svcListEntityAnalytics } from "../services/ai-basic";
 import { normalizeClassificationCode } from "../utils/functionalClassificationUtils";
+// MCP Prompts
+import { getEntityHealthCheckPrompt } from "./prompts/entity-health-check";
+import { getPeerComparisonPrompt } from "./prompts/peer-comparison";
+import { getOutlierHunterPrompt } from "./prompts/outlier-hunter";
+import { getTrendTrackerPrompt } from "./prompts/trend-tracker";
+// MCP Resources
+import { getFunctionalClassificationGuide } from "./resources/functional-classification-guide";
+import { getEconomicClassificationGuide } from "./resources/economic-classification-guide";
+import { getFinancialTermsGlossary } from "./resources/financial-terms-glossary";
+import { getBudgetLegislationIndex } from "./resources/budget-legislation-index";
 
 export function createMcpServer() {
   const currentYear = new Date().getFullYear();
@@ -1025,7 +1035,194 @@ Note: total_amount and per_capita_amount fields are ALWAYS in RON regardless of 
     }
   );
 
+  // Register static resources (markdown guides and glossaries)
+  server.registerResource(
+    "functional_classification_guide",
+    "hff://guides/functional-classification",
+    {
+      title: "Ghid Clasificare Funcțională",
+      description: "COFOG-based functional budget classifications guide (RO)",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: getFunctionalClassificationGuide(),
+          mimeType: "text/markdown",
+        },
+      ],
+    })
+  );
+
+  server.registerResource(
+    "economic_classification_guide",
+    "hff://guides/economic-classification",
+    {
+      title: "Ghid Clasificare Economică",
+      description: "Economic budget classifications guide (RO)",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: getEconomicClassificationGuide(),
+          mimeType: "text/markdown",
+        },
+      ],
+    })
+  );
+
+  server.registerResource(
+    "financial_terms_glossary",
+    "hff://glossary/financial-terms",
+    {
+      title: "Glosar Termeni Financiari",
+      description: "Glosar accesibil de termeni pentru finanțe publice (RO)",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: getFinancialTermsGlossary(),
+          mimeType: "text/markdown",
+        },
+      ],
+    })
+  );
+
+  server.registerResource(
+    "budget_legislation_index",
+    "hff://index/budget-legislation",
+    {
+      title: "Index Legislativ Bugetar",
+      description: "Legislație cheie pentru bugetul public (RO)",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: getBudgetLegislationIndex(),
+          mimeType: "text/markdown",
+        },
+      ],
+    })
+  );
+
+  // Register prompts
+  server.registerPrompt(
+    "entity_health_check",
+    {
+      title: "Analiză Sănătate Financiară Entitate",
+      description: "Analiză completă a sănătății financiare pentru o entitate publică",
+      argsSchema: {
+        entity_cui: z.string(),
+        year: z.string().optional(),
+      },
+    },
+    ({ entity_cui, year }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: getEntityHealthCheckPrompt({ entity_cui, year: year ? Number(year) : undefined }),
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
+    "peer_comparison",
+    {
+      title: "Comparație cu Entități Similare",
+      description: "Benchmarking pentru o entitate față de peers",
+      argsSchema: {
+        entity_cui: z.string(),
+        comparison_dimension: z.enum(["per_capita", "total", "by_category"]).optional(),
+        year: z.string().optional(),
+      },
+    },
+    ({ entity_cui, comparison_dimension, year }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: getPeerComparisonPrompt({
+              entity_cui,
+              comparison_dimension: comparison_dimension as "per_capita" | "total" | "by_category" | undefined,
+              year: year ? Number(year) : undefined,
+            }),
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
+    "outlier_hunter",
+    {
+      title: "Detectare Anomalii Bugetare",
+      description: "Identifică entități cu pattern-uri atipice de cheltuieli",
+      argsSchema: {
+        entity_type: z.string().optional(),
+        functional_category: z.string().optional(),
+        year: z.string().optional(),
+        region: z.string().optional(),
+      },
+    },
+    ({ entity_type, functional_category, year, region }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: getOutlierHunterPrompt({
+              entity_type,
+              functional_category,
+              year: year ? Number(year) : undefined,
+              region,
+            }),
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
+    "trend_tracker",
+    {
+      title: "Analiză Tendințe Multi-Anuale",
+      description: "Analizează evoluția bugetară multi-anuală și schimbările majore",
+      argsSchema: {
+        entity_cui: z.string(),
+        start_year: z.string(),
+        end_year: z.string(),
+        focus_area: z.string().optional(),
+      },
+    },
+    ({ entity_cui, start_year, end_year, focus_area }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: getTrendTrackerPrompt({
+              entity_cui,
+              start_year: Number(start_year),
+              end_year: Number(end_year),
+              focus_area,
+            }),
+          },
+        },
+      ],
+    })
+  );
+
   return server;
 }
-
-
