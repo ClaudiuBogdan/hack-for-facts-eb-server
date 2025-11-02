@@ -74,7 +74,7 @@ patches:
         value: hack-for-facts-dev
       - op: replace
         path: /spec/hosts/0
-        value: "api.dev.transparenta.eu"
+        value: "api_dev.transparenta.eu"
 
   - target:
       kind: ConfigMap
