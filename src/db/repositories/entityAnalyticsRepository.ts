@@ -59,6 +59,10 @@ function buildEntityAnalyticsWhere(
     throw new Error("report_period is required for entity analytics.");
   }
 
+  if (!filter.report_type) {
+    throw new Error("report_type is required for entity analytics.");
+  }
+
   const periodFlag = getPeriodFlagCondition(filter.report_period);
   if (periodFlag) {
     conditions.push(periodFlag);

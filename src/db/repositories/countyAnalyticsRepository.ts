@@ -49,6 +49,10 @@ export const countyAnalyticsRepository = {
             throw new Error("report_period is required for heatmap data.");
         }
 
+        if (!filter.report_type) {
+            throw new Error("report_type is required for heatmap data.");
+        }
+
         const periodFlag = getPeriodFlagCondition(filter.report_period);
         if (periodFlag) {
             conditions.push(periodFlag);

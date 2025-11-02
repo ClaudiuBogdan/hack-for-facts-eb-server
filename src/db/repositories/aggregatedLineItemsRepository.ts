@@ -46,6 +46,10 @@ function buildWhereClause(
     throw new Error("report_period is required for analytics.");
   }
 
+  if(!filter.report_type) {
+    throw new Error("report_type is required for analytics.");
+  }
+
   // Add period flags (is_yearly/is_quarterly) first for index usage
   if (filter.report_period.type === 'YEAR') {
     conditions.push(`eli.is_yearly = true`);
