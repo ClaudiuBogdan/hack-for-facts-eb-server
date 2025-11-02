@@ -30,3 +30,17 @@ export function getMonthLabel(month: number): string {
 export function getQuarterLabel(quarter: number): string {
     return `Q${quarter}`;
 }
+
+/**
+ * Builds a bilingual formatted amount string using both short (compact) and long (standard) formats.
+ * The output looks like:
+ *   "<roLabel>: <compact> (<standard>) | <enLabel>: <compact> (<standard>)"
+ *
+ * Notes:
+ * - Uses international (en-US) number formatting while preserving RON currency.
+ */
+export function formatAmountBilingual(amount: number, roLabel: string, enLabel: string): string {
+    const shortFmt = formatCurrency(amount, "compact");
+    const longFmt = formatCurrency(amount, "standard");
+    return `${roLabel}: ${shortFmt} (${longFmt}) | ${enLabel}: ${shortFmt} (${longFmt})`;
+}

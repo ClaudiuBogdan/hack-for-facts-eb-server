@@ -2,8 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod-v3";
 import {
   getEntityDetails as svcGetEntityDetails,
-  searchEntities as svcSearchEntities,
-  searchEconomicClassifications as svcSearchEconomicClassifications,
   getEntityBudgetAnalysis as svcGetEntityBudgetAnalysis,
 } from "../services/ai-basic";
 import { searchFilters as svcSearchFilters } from "../services/ai-basic";
@@ -32,6 +30,8 @@ export function createMcpServer() {
     uatIds: z.array(z.string()).optional(),
     countyCodes: z.array(z.string()).optional(),
     isUat: z.boolean().optional(),
+    minPopulation: z.number().int().min(0).optional(),
+    maxPopulation: z.number().int().min(0).optional(),
     functionalPrefixes: z.array(z.string()).optional(),
     functionalCodes: z.array(z.string()).optional(),
     economicPrefixes: z.array(z.string()).optional(),
@@ -52,7 +52,7 @@ export function createMcpServer() {
       })
       .optional(),
     normalization: z.enum(["total", "per_capita", "total_euro", "per_capita_euro"]).optional(),
-    reportType: z.string().optional(),
+    reportType: z.enum(['PRINCIPAL_AGGREGATED', 'SECONDARY_AGGREGATED', 'DETAILED']).default('PRINCIPAL_AGGREGATED').optional(),
   });
 
   // Reusable period schema for analytics tools
@@ -218,8 +218,8 @@ export function createMcpServer() {
             address: z.string().nullable(),
             totalIncome: z.number(),
             totalExpenses: z.number(),
-            totalIncomeHumanReadable: z.string(),
-            totalExpensesHumanReadable: z.string(),
+            totalIncomeFormatted: z.string(),
+            totalExpensesFormatted: z.string(),
             summary: z.string(),
           })
           .optional(),
@@ -406,8 +406,10 @@ export function createMcpServer() {
 - accountCategory (required): "ch" (cheltuieli/expenses) | "vn" (venituri/revenues)
 - entityCuis (optional): Array of CUI strings - from discover_filters with category="entity"
 - uatIds (optional): Array of UAT ID strings - from discover_filters with category="uat" (MUST BE STRINGS)
-- countyCodes (optional): Array of county codes (e.g., ["B", "CJ", "TM"])
+- countyCodes (optional): Array of county codes (e.g., ["B", "CJ", "TM"]) 
 - isUat (optional): Filter only UAT entities (true/false)
+- minPopulation (optional): Minimum population threshold (inclusive)
+- maxPopulation (optional): Maximum population threshold (inclusive)
 - functionalPrefixes (optional): Functional classification prefixes with TRAILING DOT (e.g., ["65.", "66."])
 - functionalCodes (optional): Exact functional codes (e.g., ["65.10.03"])
 - economicPrefixes (optional): Economic classification prefixes with TRAILING DOT (e.g., ["10.", "20."])
@@ -418,7 +420,7 @@ export function createMcpServer() {
 - programCodes (optional): Array of program codes
 - exclude (optional): Negative filters with same structure as above (e.g., exclude.functionalPrefixes: ["70."])
 - normalization (optional): "total" (default) | "per_capita" | "total_euro" | "per_capita_euro"
-- reportType (optional): Report type - defaults to principal aggregated
+- reportType (optional): Accepts "PRINCIPAL_AGGREGATED" | "SECONDARY_AGGREGATED" | "DETAILED"; defaults to "PRINCIPAL_AGGREGATED".
 
 **Normalization Options:**
 - "total" → Values in RON (Romanian Lei), unit: "RON"
@@ -881,6 +883,25 @@ export function createMcpServer() {
 - filter (required): Analytics filter (same as query_timeseries_data)
   - Use discover_filters to find entity CUIs, UAT IDs, classification codes
   - All standard filter parameters apply (entityCuis, uatIds, classifications, etc.)
+  - accountCategory (required): "ch" (cheltuieli/expenses) | "vn" (venituri/revenues)
+  - entityCuis (optional): Array of CUI strings - from discover_filters with category="entity"
+  - uatIds (optional): Array of UAT ID strings - from discover_filters with category="uat" (MUST BE STRINGS)
+  - countyCodes (optional): Array of county codes (e.g., ["B", "CJ", "TM"]) 
+  - isUat (optional): Filter only UAT entities (true/false)
+  - minPopulation (optional): Minimum population threshold (inclusive)
+  - maxPopulation (optional): Maximum population threshold (inclusive)
+  - functionalPrefixes (optional): Functional classification prefixes with TRAILING DOT (e.g., ["65.", "66."])
+  - functionalCodes (optional): Exact functional codes (e.g., ["65.10.03"])
+  - economicPrefixes (optional): Economic classification prefixes with TRAILING DOT (e.g., ["10.", "20."])
+  - economicCodes (optional): Exact economic codes (e.g., ["10.01.01"])
+  - expenseTypes (optional): ["dezvoltare"] (development) and/or ["functionare"] (operational)
+  - fundingSourceIds (optional): Array of funding source IDs
+  - budgetSectorIds (optional): Array of budget sector IDs
+  - programCodes (optional): Array of program codes
+  - exclude (optional): Negative filters with same structure as above (e.g., exclude.functionalPrefixes: ["70."])
+  - normalization (optional): "total" (default) | "per_capita" | "total_euro" | "per_capita_euro"
+  - reportType (optional): Accepts "PRINCIPAL_AGGREGATED" | "SECONDARY_AGGREGATED" | "DETAILED"; defaults to "PRINCIPAL_AGGREGATED".
+P
 - sort (optional): Sorting configuration (default: by amount DESC)
   - by: Sort field name
   - order: "ASC" (ascending) | "DESC" (descending)

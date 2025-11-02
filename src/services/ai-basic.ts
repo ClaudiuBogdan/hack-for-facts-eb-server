@@ -17,7 +17,7 @@ import { makeShareLink } from "../utils/shortLink";
 import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink, buildEntityAnalyticsLink } from "../utils/link";
 import { groupByFunctional, filterGroups } from "../utils/grouping";
 import { groupAggregatedLineItems, type ClassificationDimension, type CrossConstraint, type GroupedItem } from "../utils/groupingNodes";
-import { formatCurrency } from "../utils/formatter";
+import { formatCurrency, formatAmountBilingual } from "../utils/formatter";
 import { AnalyticsFilter, ReportPeriodInput } from "../types";
 import { getSeriesColor } from "./data-analytics-agent/schemas/utils";
 
@@ -86,14 +86,16 @@ export async function getEntityDetails(params: { entityCui?: string; entitySearc
     address: (entity as any).address ?? null,
     totalIncome: yearlySnapshot.totalIncome,
     totalExpenses: yearlySnapshot.totalExpenses,
-    totalIncomeHumanReadable: `The total income for ${entity.name} in ${year} was ${formatCurrency(
+    totalIncomeFormatted: formatAmountBilingual(
       yearlySnapshot.totalIncome,
-      "compact"
-    )} (${formatCurrency(yearlySnapshot.totalIncome, "standard")})`,
-    totalExpensesHumanReadable: `The total expenses for ${entity.name} in ${year} was ${formatCurrency(
+      "Venituri totale",
+      "Total income"
+    ),
+    totalExpensesFormatted: formatAmountBilingual(
       yearlySnapshot.totalExpenses,
-      "compact"
-    )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")})`,
+      "Cheltuieli totale",
+      "Total expenses"
+    ),
     summary: `In ${year}, ${entity.name
       } had a total income of ${formatCurrency(
         yearlySnapshot.totalIncome,
@@ -514,6 +516,8 @@ interface AnalyticsSeriesFilterIn {
   countyCodes?: string[];
   regions?: string[];
   isUat?: boolean;
+  minPopulation?: number;
+  maxPopulation?: number;
   functionalCodes?: string[];
   functionalPrefixes?: string[];
   economicCodes?: string[];
@@ -606,10 +610,37 @@ function parseUatIds(uatIds: string[] | undefined): string[] | undefined {
   return parsed;
 }
 
+function normalizeReportType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const raw = value.trim();
+  // Pass-through for exact DB enum values
+  const DB_PRINCIPAL = 'Executie bugetara agregata la nivel de ordonator principal';
+  const DB_SECONDARY = 'Executie bugetara agregata la nivel de ordonator secundar';
+  const DB_DETAILED = 'Executie bugetara detaliata';
+  if (raw === DB_PRINCIPAL || raw === DB_SECONDARY || raw === DB_DETAILED) return raw;
+
+  const lc = raw.toLowerCase().replace(/\s+/g, '_');
+  // Support GQL constants and common aliases
+  if (lc === 'principal_aggregated') {
+    return DB_PRINCIPAL;
+  }
+  if (lc === 'secondary_aggregated') {
+    return DB_SECONDARY;
+  }
+  if (lc === 'detailed') {
+    return DB_DETAILED;
+  }
+  // Uppercase GraphQL style tokens
+  if (raw === 'PRINCIPAL_AGGREGATED') return DB_PRINCIPAL;
+  if (raw === 'SECONDARY_AGGREGATED') return DB_SECONDARY;
+  if (raw === 'DETAILED') return DB_DETAILED;
+  return raw; // fallback on provided string
+}
+
 function toAnalyticsFilter(series: AnalyticsSeriesFilterIn, period: AnalyticsPeriodIn): AnalyticsFilter {
   return {
     account_category: series.accountCategory,
-    report_type: series.reportType ?? 'Executie bugetara agregata la nivel de ordonator principal',
+    report_type: normalizeReportType(series.reportType) ?? 'Executie bugetara agregata la nivel de ordonator principal',
     report_period: toReportPeriod(period),
     entity_cuis: series.entityCuis,
     functional_codes: series.functionalCodes,
@@ -624,6 +655,8 @@ function toAnalyticsFilter(series: AnalyticsSeriesFilterIn, period: AnalyticsPer
     regions: series.regions,
     uat_ids: parseUatIds(series.uatIds),
     is_uat: series.isUat,
+    min_population: series.minPopulation ?? undefined,
+    max_population: series.maxPopulation ?? undefined,
     normalization: series.normalization ?? 'total',
     exclude: {
       entity_cuis: series.exclude?.entityCuis,
