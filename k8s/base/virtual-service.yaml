@@ -1,23 +1,23 @@
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
-  name: istio-hack-for-facts-eb-server-virtualservice
+  name: istio-transparenta-api-virtualservice
   namespace: hack-for-facts
 spec:
   hosts:
-  - "hack-for-facts-api.devostack.com"
+    - "api.transparenta.eu"
   gateways:
-  - istio-system/istio-https-gateway
+    - istio-system/istio-https-gateway
   http:
-  - match:
-    - uri:
-        prefix: /
-    route:
-    - destination:
-        port:
-          number: 80
-        host: hack-for-facts-eb-server
-    retries:
-      attempts: 3
-      perTryTimeout: 30s
-    timeout: 30s
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            port:
+              number: 80
+            host: hack-for-facts-eb-server
+      retries:
+        attempts: 3
+        perTryTimeout: 30s
+      timeout: 30s
