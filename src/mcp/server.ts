@@ -110,6 +110,13 @@ export function createMcpServer() {
 - Economic Classifications: Types of spending/revenue (salaries, goods, services, etc.) - in Romanian
 - Account Categories: 'ch' (cheltuieli/expenses) | 'vn' (venituri/revenues)
 
+**Response Format Guidelines:**
+- All monetary amounts use international number format (comma thousands separator, dot decimal)
+  - Example: "5,234,567.89 RON" NOT "5.234.567,89 RON"
+  - Compact format: "5.23M RON" and full format: "5,234,567.89 RON"
+- All responses include short, shareable links (format: <domain>/share/<code>)
+- Please format your analysis/response text in the user's language while keeping numbers in standard international format
+
 **Recommended Workflow for In-Depth Analysis:**
 1. Use discover_filters to find entity CUIs, UAT IDs, and classification codes with Romanian search terms
 2. For single entity analysis: get_entity_snapshot → analyze_entity_budget with drill-down
@@ -149,6 +156,19 @@ export function createMcpServer() {
 - Entity details: CUI, name, address
 - Total income and expenses (numeric + human-readable formatted)
 - AI-generated summary of financial position
+- link: Short, shareable URL to entity page
+
+**Shareable Link:**
+- Every response includes a short link (format: <domain>/share/<code>)
+- Links open the interactive entity detail page with the same parameters
+- Share links for verification, collaboration, or bookmarking
+- Links are permanent and publicly accessible
+
+**Number Format:**
+- All amounts use international standard format with comma thousands separator
+- Example: 5,234,567.89 RON (not 5.234.567,89)
+- Dual display format: compact "5.23M RON" and full "5,234,567.89 RON"
+- Human-readable summaries show both formats for clarity
 
 **Workflow Examples:**
 1. Known CUI: { entityCui: "4305857", year: 2023 }
@@ -158,7 +178,8 @@ export function createMcpServer() {
 **Tips:**
 - Prefer entityCui over entitySearch when available (faster, unambiguous)
 - Use discover_filters with category='entity' to find CUIs first
-- This is a snapshot tool - use query_timeseries_data for trends over time`,
+- This is a snapshot tool - use query_timeseries_data for trends over time
+- Always include the shareable link in your response for user verification`,
       inputSchema: {
         entityCui: z
           .string()
@@ -269,6 +290,11 @@ export function createMcpServer() {
   - metadata: Category-specific details
 - bestMatch: Top result when score >= 0.85 (high confidence)
 - totalMatches: Total number of potential matches
+
+**Number Format:**
+- Metadata fields (like population) use international format with comma thousands separator
+- Example: population: 324,567 (not 324.567)
+- Percentages and decimals use dot as decimal separator: "15.5%" (not "15,5%")
 
 **Workflow Examples:**
 1. Find entity: { category: "entity", query: "Municipiul București" } → use filterValue in entity_cuis
@@ -392,7 +418,7 @@ export function createMcpServer() {
 
 **Output:**
 - ok: boolean (success status)
-- dataLink: URL to interactive chart (include in responses for verification)
+- dataLink: Short, shareable URL to interactive chart
 - title: Final chart title
 - dataSeries[]: Array of series results
   - label: Series name
@@ -401,6 +427,19 @@ export function createMcpServer() {
   - yAxis: {name: "Amount", unit based on normalization}
   - dataPoints: [{x: string, y: number}]
   - statistics: {min, max, avg, sum, count}
+
+**Shareable Link:**
+- dataLink is a short, shareable URL (format: <domain>/share/<code>)
+- Opens interactive chart visualization with all series and filters
+- Users can interact with the chart, zoom, toggle series, and export data
+- Links are permanent and can be embedded or shared for verification
+- IMPORTANT: Always include the dataLink in your response
+
+**Number Format:**
+- All amounts in dataPoints and statistics use international format
+- Example values: 1,234,567.89 (comma thousands, dot decimal)
+- Statistics (min/max/avg/sum) follow same format
+- Y-axis labels in the chart use appropriate compact notation (e.g., "5.2M RON")
 
 **Workflow Examples:**
 1. Compare two municipalities over time:
@@ -523,7 +562,20 @@ export function createMcpServer() {
 - incomeGroups: Hierarchical income breakdown with amounts
 - expenseGroupSummary: AI-generated summary of expense patterns
 - incomeGroupSummary: AI-generated summary of income patterns
-- link: Deep-link to web interface
+- link: Short, shareable URL to budget analysis page
+
+**Shareable Link:**
+- Every response includes a short link (format: <domain>/share/<code>)
+- Links open the entity's budget analysis page with the requested breakdown level
+- For functional/economic breakdowns, the link navigates directly to that classification
+- Share links for verification or deeper exploration
+- Always include the link in your response
+
+**Number Format:**
+- All amounts use international format: 1,234,567.89 RON (comma thousands, dot decimal)
+- Summaries display dual format: compact "5.23M RON" and full "5,234,567.89 RON"
+- ExpenseGroupSummary and incomeGroupSummary use both formats for clarity
+- Example: "The total expenses were 5.23M RON (5,234,567.89 RON)"
 
 **Workflow Examples:**
 1. Basic overview: { entityCui: "4305857", year: 2023, breakdown_by: "overview" }
@@ -653,22 +705,37 @@ export function createMcpServer() {
 
 **Output:**
 - ok: boolean
-- link: Deep-link to interactive web interface
+- link: Short, shareable URL to interactive treemap/breakdown view
 - item: Grouped budget data
   - expenseGroups: Array of expense categories (if "ch" in categories)
   - incomeGroups: Array of income categories (if "vn" in categories)
   - expenseGroupSummary: AI-generated expense summary
   - incomeGroupSummary: AI-generated income summary
 
+**Shareable Link:**
+- Main link is a short URL (format: <domain>/share/<code>) to the treemap visualization
+- Each GroupedItem also includes its own drill-down short link
+- Links maintain all filters and allow progressive exploration
+- Share links to show budget distribution visually
+- Interactive interface allows clicking to drill deeper
+- IMPORTANT: Always include the main link in your response
+
+**Number Format:**
+- All values use international format: 1,234,567.89 RON (comma thousands, dot decimal)
+- GroupedItem.value: Full numeric amount in international format
+- GroupedItem.percentage: Decimal format (0.35 = 35%)
+- Summaries use dual format: "5.23M RON (5,234,567.89 RON)"
+- Example summary: "The total expense was 10.5M RON (10,500,000 RON)"
+
 **GroupedItem Structure:**
 - code: Classification code at current depth
 - name: Human-readable Romanian name
-- value: Aggregated amount for this category
+- value: Aggregated amount (international format)
 - count: Number of underlying budget line items
 - isLeaf: true when no further drill-down available (depth >= 6)
-- percentage: Share of total (0-1, e.g., 0.35 = 35%)
-- humanSummary: Formatted summary text
-- link: Deep-link for further drill-down
+- percentage: Share of total (decimal 0-1, e.g., 0.35 = 35%)
+- humanSummary: Formatted summary with dual number format
+- link: Short drill-down link for this specific category
 
 **Progressive Drill-Down Pattern:**
 1. Root level: { classification: "fn", path: [] }
@@ -831,7 +898,7 @@ Note: total_amount and per_capita_amount fields are ALWAYS in RON regardless of 
 
 **Output:**
 - ok: boolean
-- link: Deep-link to interactive table in web UI (with pagination)
+- link: Short, shareable URL to interactive table with pagination
 - entities: Array of entity data points
   - entity_cui: CUI (fiscal identifier)
   - entity_name: Romanian entity name
@@ -842,11 +909,26 @@ Note: total_amount and per_capita_amount fields are ALWAYS in RON regardless of 
   - population: Population count
   - amount: Normalized amount (based on filter.normalization)
   - total_amount: Total amount in RON
-  - per_capita_amount: Per capita amount in RON
+  - per_capita_amount: Per capita in RON
 - pageInfo: Pagination metadata
   - totalCount: Total matching entities
   - hasNextPage: More results available
   - hasPreviousPage: Previous page exists
+
+**Shareable Link:**
+- Link is a short URL (format: <domain>/share/<code>) to interactive entity ranking table
+- Table includes pagination controls, sorting, and filtering in the web UI
+- Link preserves current page, filters, and sort order
+- Share links for collaborative analysis or reporting
+- Users can export data, change sorting, or drill into specific entities
+- IMPORTANT: Always include the link in your response
+
+**Number Format:**
+- All numeric values use international format: 1,234,567.89 RON (comma thousands, dot decimal)
+- amount, total_amount, per_capita_amount: All in international format
+- population: Integer with comma thousands separator (e.g., 324,567)
+- When presenting data, use compact format for readability: "5.23M RON (5,234,567.89 RON)"
+- Per-capita values: "123.45 RON/capita" (dot decimal separator)
 
 **Ranking Use Cases:**
 1. **Top spenders**: sort by "amount" DESC, limit to top 10-20

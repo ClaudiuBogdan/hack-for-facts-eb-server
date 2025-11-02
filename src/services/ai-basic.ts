@@ -13,7 +13,7 @@ import {
   getEconomicLevelInfo,
   getFunctionalLevelInfo,
 } from "./data-analytics-agent/utils/classificationIndex";
-import { ShortLinkService } from "./short-link";
+import { makeShareLink } from "../utils/shortLink";
 import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink, buildEntityAnalyticsLink } from "../utils/link";
 import { groupByFunctional, filterGroups } from "../utils/grouping";
 import { groupAggregatedLineItems, type ClassificationDimension, type CrossConstraint, type GroupedItem } from "../utils/groupingNodes";
@@ -104,7 +104,9 @@ export async function getEntityDetails(params: { entityCui?: string; entitySearc
       )} (${formatCurrency(yearlySnapshot.totalExpenses, "standard")}).`,
   };
 
-  const link = buildEntityDetailsLink(entity.cui, { year });
+  const fullLink = buildEntityDetailsLink(entity.cui, { year });
+  const link = await makeShareLink(fullLink, { context: 'entity details' });
+
   return {
     kind: "entities.details" as const,
     query: { cui: entity.cui, year },
@@ -148,7 +150,8 @@ export async function getEntityBudgetAnalysis(params: {
 
   if (level === "functional") {
     const type = expenseGroups.length === 0 ? "income" : "expense";
-    const link = buildFunctionalLink(entity.cui, fnCode ?? "", type, year);
+    const fullLink = buildFunctionalLink(entity.cui, fnCode ?? "", type, year);
+    const link = await makeShareLink(fullLink, { context: 'functional budget' });
     return {
       kind: "entities.budget-analysis-spending-by-functional" as const,
       query: { cui: entity.cui, year },
@@ -159,7 +162,8 @@ export async function getEntityBudgetAnalysis(params: {
 
   if (level === "economic") {
     const type = expenseGroups.length === 0 ? "income" : "expense";
-    const link = buildEconomicLink(entity.cui, ecCode ?? "", type, year);
+    const fullLink = buildEconomicLink(entity.cui, ecCode ?? "", type, year);
+    const link = await makeShareLink(fullLink, { context: 'economic budget' });
     return {
       kind: "entities.budget-analysis-spending-by-economic" as const,
       query: { cui: entity.cui, year },
@@ -169,7 +173,8 @@ export async function getEntityBudgetAnalysis(params: {
   }
 
   // level === "group"
-  const link = buildEntityDetailsLink(entity.cui, { year });
+  const fullLink = buildEntityDetailsLink(entity.cui, { year });
+  const link = await makeShareLink(fullLink, { context: 'budget analysis' });
   return {
     kind: "entities.budget-analysis" as const,
     query: { cui: entity.cui, year },
@@ -835,25 +840,11 @@ export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<
 
   // Construct chart URL with embedded schema
   const chartUrl = `${clientBase || 'http://localhost:3000'}/charts/${chartId}?chart=${chartSchemaEncoded}`;
-
-  let shortLinkUrl: string | undefined = undefined;
-
-  try {
-    // Use a system user for MCP-created links
-    const res = await ShortLinkService.createShortLink('mcp-system', chartUrl);
-    if (res && res.success && res.code) {
-      shortLinkUrl = `${clientBase || 'https://transparenta.eu'}/share/${res.code}`;
-    } else {
-      console.warn('Short link creation did not return success:', res);
-    }
-  } catch (error) {
-    // Log but don't fail - fallback to direct chartUrl
-    console.error('Failed to create short link:', error instanceof Error ? error.message : String(error));
-  }
+  const dataLinkFinal = await makeShareLink(chartUrl, { context: 'analytics chart' });
 
   return {
     ok: true,
-    dataLink: shortLinkUrl ?? chartUrl,
+    dataLink: dataLinkFinal,
     title,
     dataSeries: results,
   };
@@ -997,7 +988,10 @@ export async function generateEntityAnalyticsHierarchy(input: GenerateEntityAnal
     { ...filter, accountCategory: categoriesToProcess[0] as AccountCategoryIn } as AnalyticsSeriesFilterIn,
     period
   );
-  const link = buildEntityAnalyticsLink({ view: 'line-items', filter: fullFilter, treemapPrimary: classification, treemapDepth: rootDepth });
+  const fullLink = buildEntityAnalyticsLink({ view: 'line-items', filter: fullFilter, treemapPrimary: classification, treemapDepth: rootDepth });
+
+  // Generate short link
+  const link = await makeShareLink(fullLink, { context: 'analytics hierarchy' });
 
   return {
     ok: true,
@@ -1051,12 +1045,15 @@ export async function listEntityAnalytics(input: ListEntityAnalyticsInput): Prom
   const page = Math.floor(offset / limit) + 1;
 
   // Build client link
-  const link = buildEntityAnalyticsLink({
+  const fullLink = buildEntityAnalyticsLink({
     view: 'table',
     filter: analyticsFilter,
     page,
     pageSize,
   });
+
+  // Generate short link
+  const link = await makeShareLink(fullLink, { context: 'entity analytics list' });
 
   return {
     ok: true,
