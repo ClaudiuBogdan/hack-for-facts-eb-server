@@ -72,8 +72,22 @@ export function buildEntityDetailsLink(cui: string, search?: Record<string, stri
   return link;
 }
 
-export function buildEntityAnalyticsLink(opts: { view: 'line-items' | 'table', filter: any, treemapPrimary?: 'fn' | 'ec', treemapDepth?: 'chapter' | 'subchapter' | 'paragraph' }): string {
-  const query = buildQuery({ view: opts.view, filter: JSON.stringify(opts.filter), treemapPrimary: opts.treemapPrimary ?? undefined, treemapDepth: opts.treemapDepth ?? undefined });
+export function buildEntityAnalyticsLink(opts: {
+  view: 'line-items' | 'table',
+  filter: any,
+  treemapPrimary?: 'fn' | 'ec',
+  treemapDepth?: 'chapter' | 'subchapter' | 'paragraph',
+  page?: number,
+  pageSize?: number
+}): string {
+  const query = buildQuery({
+    view: opts.view,
+    filter: JSON.stringify(opts.filter),
+    treemapPrimary: opts.treemapPrimary ?? undefined,
+    treemapDepth: opts.treemapDepth ?? undefined,
+    page: opts.page ?? undefined,
+    pageSize: opts.pageSize ?? undefined
+  });
   const clientBase = process.env.CLIENT_BASE_URL || process.env.PUBLIC_CLIENT_BASE_URL || "http://localhost:5173";
   return `${clientBase.replace(/\/$/, "")}/entity-analytics${query}`;
 }

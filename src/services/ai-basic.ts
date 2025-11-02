@@ -5,6 +5,7 @@ import { functionalClassificationRepository } from "../db/repositories/functiona
 import { economicClassificationRepository } from "../db/repositories/economicClassificationRepository";
 import { uatRepository } from "../db/repositories/uatRepository";
 import { aggregatedLineItemsRepository } from "../db/repositories/aggregatedLineItemsRepository";
+import { entityAnalyticsRepository } from "../db/repositories/entityAnalyticsRepository";
 import {
   computeNameMatchBoost,
   findEconomicCodesByName,
@@ -1006,6 +1007,65 @@ export async function generateEntityAnalyticsHierarchy(input: GenerateEntityAnal
       incomeGroups,
       expenseGroupSummary,
       incomeGroupSummary,
+    },
+  };
+}
+
+// -------------------------------------------------------------
+// Entity Analytics List (list_entity_analytics)
+// -------------------------------------------------------------
+
+interface ListEntityAnalyticsInput {
+  period: AnalyticsPeriodIn;
+  filter: AnalyticsSeriesFilterIn;
+  sort?: { by: string; order: 'ASC' | 'DESC' };
+  limit?: number;
+  offset?: number;
+}
+
+export async function listEntityAnalytics(input: ListEntityAnalyticsInput): Promise<{
+  ok: boolean;
+  link: string;
+  entities: any[];
+  pageInfo: {
+    totalCount: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+}> {
+  const { period, filter, sort, limit = 50, offset = 0 } = input;
+
+  // Convert to AnalyticsFilter
+  const analyticsFilter = toAnalyticsFilter(filter, period);
+
+  // Query repository
+  const { rows, totalCount } = await entityAnalyticsRepository.getEntityAnalytics(
+    analyticsFilter,
+    sort as any,
+    limit,
+    offset
+  );
+
+  // Calculate page and pageSize for client URL
+  const pageSize = limit;
+  const page = Math.floor(offset / limit) + 1;
+
+  // Build client link
+  const link = buildEntityAnalyticsLink({
+    view: 'table',
+    filter: analyticsFilter,
+    page,
+    pageSize,
+  });
+
+  return {
+    ok: true,
+    link,
+    entities: rows,
+    pageInfo: {
+      totalCount,
+      hasNextPage: offset + limit < totalCount,
+      hasPreviousPage: offset > 0,
     },
   };
 }

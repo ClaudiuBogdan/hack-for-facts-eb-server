@@ -9,6 +9,7 @@ import {
 import { searchFilters as svcSearchFilters } from "../services/ai-basic";
 import { generateAnalytics as svcGenerateAnalytics } from "../services/ai-basic";
 import { generateEntityAnalyticsHierarchy as svcGenerateEntityAnalyticsHierarchy } from "../services/ai-basic";
+import { listEntityAnalytics as svcListEntityAnalytics } from "../services/ai-basic";
 import { normalizeClassificationCode } from "../utils/functionalClassificationUtils";
 
 export function createMcpServer() {
@@ -646,6 +647,139 @@ Tips:
           path,
           excludeEcCodes,
           rootDepth,
+          limit,
+          offset,
+        });
+
+        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
+      } catch (e: any) {
+        const error = { ok: false, error: String(e?.message ?? e) } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+    }
+  );
+
+  // List entity analytics tool
+  server.registerTool(
+    "list_entity_analytics",
+    {
+      title: "List Entity Analytics",
+      description: `Query entity-level budget analytics with flexible filtering, sorting, and pagination.
+
+This tool returns a paginated list of entities with their aggregated budget data.
+Use it to compare entities across various dimensions (functional/economic classifications,
+geographic regions, entity types, etc.).
+
+Purpose:
+- Get a tabular view of entities with their budget aggregations
+- Compare entities by various metrics (total amount, per capita, etc.)
+- Support sorting by different fields
+- Enable pagination for large result sets
+
+Inputs:
+- period (required): Time period selection (YEAR/MONTH/QUARTER format)
+- filter (required): Analytics filter (entities, UATs, classifications, etc.)
+- sort?: { by: string, order: 'ASC'|'DESC' } (default: by amount DESC)
+  • Available sort fields: "amount", "total_amount", "per_capita_amount", "entity_name", "entity_type", "population", "county_name", "county_code"
+- limit?: number (default: 50, max: 500)
+- offset?: number (default: 0)
+
+Outputs:
+- ok: boolean
+- link: string (deep-link to client analytics table page with pagination)
+- entities: EntityAnalyticsDataPoint[] (list of entities with their data)
+  • Each entity contains: entity_cui, entity_name, entity_type, uat_id, county_code, county_name, population, amount, total_amount, per_capita_amount
+- pageInfo: { totalCount, hasNextPage, hasPreviousPage }
+- error?: string
+
+Sort field descriptions:
+- amount: Normalized amount based on filter.normalization setting
+- total_amount: Raw total amount in RON
+- per_capita_amount: Amount per capita in RON
+- entity_name: Alphabetical by entity name
+- entity_type: Alphabetical by entity type
+- population: By population count
+- county_name: Alphabetical by county name
+
+Filter normalization options (affects 'amount' field):
+- 'total' (default): Total amount in RON
+- 'per_capita': Amount per capita in RON
+- 'total_euro': Total amount in EUR
+- 'per_capita_euro': Amount per capita in EUR
+
+Usage patterns:
+1. Get top entities by spending:
+   { sort: { by: 'amount', order: 'DESC' }, limit: 10 }
+
+2. Get entities sorted by name:
+   { sort: { by: 'entity_name', order: 'ASC' } }
+
+3. Paginate through results:
+   First page: { limit: 50, offset: 0 }
+   Second page: { limit: 50, offset: 50 }
+   Third page: { limit: 50, offset: 100 }
+
+4. Filter by county and get per-capita comparison:
+   { filter: { accountCategory: 'ch', countyCodes: ['B'], normalization: 'per_capita' }, sort: { by: 'per_capita_amount', order: 'DESC' } }
+
+Tips:
+- Resolve filter values via search_filters first
+- Use normalization='per_capita' for fair comparisons between entities of different sizes
+- Combine with generate_analytics_hierarchy for detailed drill-down workflows
+- The 'amount' field changes based on normalization setting, while 'total_amount' and 'per_capita_amount' are always available
+- Client link includes page and pageSize parameters for proper pagination in the UI
+`,
+      inputSchema: {
+        period: analyticsPeriodSchema,
+        filter: analyticsFilterSchema,
+        sort: z.object({
+          by: z.string(),
+          order: z.enum(["ASC", "DESC"])
+        }).optional(),
+        limit: z.number().int().positive().max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      outputSchema: {
+        ok: z.boolean(),
+        link: z.string(),
+        entities: z.array(z.object({
+          entity_cui: z.string(),
+          entity_name: z.string(),
+          entity_type: z.string().nullable(),
+          uat_id: z.number().nullable(),
+          county_code: z.string().nullable(),
+          county_name: z.string().nullable(),
+          population: z.number().nullable(),
+          amount: z.number(),
+          total_amount: z.number(),
+          per_capita_amount: z.number(),
+        })),
+        pageInfo: z.object({
+          totalCount: z.number(),
+          hasNextPage: z.boolean(),
+          hasPreviousPage: z.boolean(),
+        }),
+        error: z.string().optional(),
+      },
+    },
+    async ({ period, filter, sort, limit = 50, offset = 0 }) => {
+      try {
+        // Normalize classification codes
+        const normalizedFilter = {
+          ...filter,
+          functionalPrefixes: filter.functionalPrefixes?.map(normalizeClassificationCode),
+          economicPrefixes: filter.economicPrefixes?.map(normalizeClassificationCode),
+          exclude: filter.exclude ? {
+            ...filter.exclude,
+            functionalPrefixes: filter.exclude.functionalPrefixes?.map(normalizeClassificationCode),
+            economicPrefixes: filter.exclude.economicPrefixes?.map(normalizeClassificationCode),
+          } : undefined,
+        };
+
+        const response = await svcListEntityAnalytics({
+          period,
+          filter: normalizedFilter,
+          sort,
           limit,
           offset,
         });
