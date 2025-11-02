@@ -67,14 +67,14 @@ patches:
 
   - target:
       kind: VirtualService
-      name: istio-hack-for-facts-eb-server-virtualservice
+      name: istio-transparenta-api-virtualservice
     patch: |-
       - op: replace
         path: /metadata/namespace
         value: hack-for-facts-dev
       - op: replace
         path: /spec/hosts/0
-        value: "hack-for-facts-api-dev.devostack.com"
+        value: "api.dev.transparenta.eu"
 
   - target:
       kind: ConfigMap
