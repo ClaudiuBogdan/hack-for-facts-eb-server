@@ -9,6 +9,8 @@
  */
 
 import { functionalTree } from "./functional-classificatinos-general";
+import * as fs from "fs-extra";
+import * as path from "path";
 
 interface BudgetNode {
     description: string;
@@ -81,15 +83,113 @@ const buildChapterNameMapFromTree = (roots: BudgetNode[]): Map<string, string> =
 
 // Lazy singleton cache for chapter map
 let chapterMapCache: Map<string, string> | null = null;
+let subchapterMapCache: Map<string, string> | null = null;
+let ecoChapterMapCache: Map<string, string> | null = null;
+let ecoSubchapterMapCache: Map<string, string> | null = null;
+
+// --- JSON loading helpers (sync, lazy) ---
+const resolveDataPath = (fileName: string): string | null => {
+    const candidates = [
+        path.resolve(__dirname, "..", "services", "data-analytics-agent", "data", fileName),
+        path.resolve(process.cwd(), "src", "services", "data-analytics-agent", "data", fileName),
+    ];
+    for (const p of candidates) {
+        try {
+            if (fs.existsSync(p)) return p;
+        } catch {}
+    }
+    return null;
+};
+
+const loadJsonSync = (fileName: string): BudgetNode[] | null => {
+    const p = resolveDataPath(fileName);
+    if (!p) return null;
+    try {
+        const txt = fs.readFileSync(p, "utf8");
+        const data = JSON.parse(txt);
+        return Array.isArray(data) ? (data as BudgetNode[]) : null;
+    } catch {
+        return null;
+    }
+};
 
 /**
  * Returns a memoized chapter name map: 2-digit prefix -> chapter description.
  */
 export const getChapterMap = (): Map<string, string> => {
     if (chapterMapCache) return chapterMapCache;
-    const tree: BudgetNode[] = Array.isArray(functionalTree) ? functionalTree : [];
+    // Prefer JSON dataset if available; fall back to TS tree
+    const jsonTree = loadJsonSync("functional-classifications-general-ro.json");
+    const tree: BudgetNode[] = jsonTree ?? (Array.isArray(functionalTree) ? functionalTree : []);
     chapterMapCache = buildChapterNameMapFromTree(tree);
     return chapterMapCache;
+};
+
+/**
+ * Builds and returns a memoized subchapter map: "XX.XX" -> subchapter description.
+ * Prefers exact "XX.XX" code matches found higher in the tree when duplicates occur.
+ */
+export const getSubchapterMap = (): Map<string, string> => {
+    if (subchapterMapCache) return subchapterMapCache;
+
+    const map = new Map<string, { name: string; depth: number }>();
+
+    const visit = (node: BudgetNode, depth: number) => {
+        const code = node.code?.trim();
+        const desc = normalizeText(node.description);
+        if (code && /^\d{2}\.\d{2}$/.test(code)) {
+            const existing = map.get(code);
+            if (!existing || depth < existing.depth) {
+                map.set(code, { name: desc || code, depth });
+            }
+        }
+        if (node.children?.length) for (const child of node.children) visit(child, depth + 1);
+    };
+
+    // Prefer JSON dataset if available
+    const roots: BudgetNode[] = loadJsonSync("functional-classifications-general-ro.json")
+        ?? (Array.isArray(functionalTree) ? functionalTree : []);
+    for (const root of roots) visit(root, 0);
+
+    // Flatten to code -> name map
+    const result = new Map<string, string>();
+    for (const [code, { name }] of map.entries()) {
+        result.set(code, name);
+    }
+    subchapterMapCache = result;
+    return subchapterMapCache;
+};
+
+/** Economic: chapter map (2-digit) */
+export const getEconomicChapterMap = (): Map<string, string> => {
+    if (ecoChapterMapCache) return ecoChapterMapCache;
+    const tree: BudgetNode[] = loadJsonSync("economic-classifications-general-ro.json") ?? [];
+    ecoChapterMapCache = buildChapterNameMapFromTree(tree);
+    return ecoChapterMapCache;
+};
+
+/** Economic: subchapter map (XX.XX) */
+export const getEconomicSubchapterMap = (): Map<string, string> => {
+    if (ecoSubchapterMapCache) return ecoSubchapterMapCache;
+
+    const map = new Map<string, { name: string; depth: number }>();
+    const visit = (node: BudgetNode, depth: number) => {
+        const code = node.code?.trim();
+        const desc = normalizeText(node.description);
+        if (code && /^\d{2}\.\d{2}$/.test(code)) {
+            const existing = map.get(code);
+            if (!existing || depth < existing.depth) {
+                map.set(code, { name: desc || code, depth });
+            }
+        }
+        if (node.children?.length) for (const child of node.children) visit(child, depth + 1);
+    };
+    const roots: BudgetNode[] = loadJsonSync("economic-classifications-general-ro.json") ?? [];
+    for (const root of roots) visit(root, 0);
+    const result = new Map<string, string>();
+    for (const [code, { name }] of map.entries()) result.set(code, name);
+    ecoSubchapterMapCache = result;
+    return ecoSubchapterMapCache;
 };
 
 export const getFilterDescription = (filteredBy?: { fnCode?: string, ecCode?: string }): string => {

@@ -4,6 +4,7 @@ import { executionLineItemRepository } from "../db/repositories/executionLineIte
 import { functionalClassificationRepository } from "../db/repositories/functionalClassificationRepository";
 import { economicClassificationRepository } from "../db/repositories/economicClassificationRepository";
 import { uatRepository } from "../db/repositories/uatRepository";
+import { aggregatedLineItemsRepository } from "../db/repositories/aggregatedLineItemsRepository";
 import {
   computeNameMatchBoost,
   findEconomicCodesByName,
@@ -12,8 +13,9 @@ import {
   getFunctionalLevelInfo,
 } from "./data-analytics-agent/utils/classificationIndex";
 import { ShortLinkService } from "./short-link";
-import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink } from "../utils/link";
-import { filterGroups, groupByFunctional } from "../utils/grouping";
+import { buildClientLink, buildEconomicLink, buildEntityDetailsLink, buildFunctionalLink, buildEntityAnalyticsLink } from "../utils/link";
+import { groupByFunctional, filterGroups } from "../utils/grouping";
+import { groupAggregatedLineItems, type ClassificationDimension, type CrossConstraint, type GroupedItem } from "../utils/groupingNodes";
 import { formatCurrency } from "../utils/formatter";
 import { AnalyticsFilter, ReportPeriodInput } from "../types";
 import { getSeriesColor } from "./data-analytics-agent/schemas/utils";
@@ -190,6 +192,8 @@ async function computeBudgetGroups({
 }) {
   const report_period = { type: "YEAR", selection: { interval: { start: `${year}-01`, end: `${year}-01` } } } as const;
   const default_report_type = "Executie bugetara agregata la nivel de ordonator principal";
+
+  // Fetch execution line items (using old API)
   const [expenseLineItems, incomeLineItems] = await Promise.all([
     executionLineItemRepository.getAll(
       { entity_cuis: [entity.cui], report_period, report_type: default_report_type, account_category: "ch" } as any,
@@ -205,6 +209,7 @@ async function computeBudgetGroups({
     ),
   ]);
 
+  // Enrich with classification names
   const detailedExpenseLineItems = await Promise.all(
     expenseLineItems.map(async (li: ExecutionLineItem) => {
       const functionalClassification = li.functional_code
@@ -237,9 +242,11 @@ async function computeBudgetGroups({
     })
   );
 
+  // Group using old nested hierarchy API
   let expenseGroups = groupByFunctional(detailedExpenseLineItems, entity.cui, "expense", year);
   let incomeGroups = groupByFunctional(detailedIncomeLineItems, entity.cui, "income", year);
 
+  // Apply filters using old API
   expenseGroups = filterGroups({ initialGroups: expenseGroups, fnCode, ecCode, level, type: "expense" });
   incomeGroups = filterGroups({ initialGroups: incomeGroups, fnCode, ecCode, level, type: "income" });
 
@@ -778,7 +785,7 @@ export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<
     const unit = getNormalizationUnit(def.filter.normalization);
     const filter = toAnalyticsFilter(def.filter, input.period);
     const color = getSeriesColor(filter);
-    
+
     return {
       id: `series-${chartId}-${i}`,
       type: 'line-items-aggregated-yearly' as const,
@@ -851,3 +858,154 @@ export async function generateAnalytics(input: GenerateAnalyticsInput): Promise<
   };
 }
 
+// -------------------------------------------------------------
+// Entity Analytics Hierarchy (generate_analytics_hierarchy)
+// -------------------------------------------------------------
+
+interface GenerateEntityAnalyticsHierarchyInput {
+  period: AnalyticsPeriodIn;
+  filter: AnalyticsSeriesFilterIn;
+  classification?: ClassificationDimension;
+  rootDepth?: 'chapter' | 'subchapter' | 'paragraph';
+  path?: string[];
+  excludeEcCodes?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+export async function generateEntityAnalyticsHierarchy(input: GenerateEntityAnalyticsHierarchyInput): Promise<{
+  ok: boolean;
+  link: string;
+  item: {
+    expenseGroups?: GroupedItem[];
+    incomeGroups?: GroupedItem[];
+    expenseGroupSummary?: string;
+    incomeGroupSummary?: string;
+  };
+}> {
+  const {
+    period,
+    filter,
+    classification: classification = 'fn',
+    path = [],
+    excludeEcCodes = [],
+    rootDepth = 'chapter',
+    limit,
+    offset
+  } = input;
+
+  // Default to both categories if not specified
+  const categoriesToProcess = [filter.accountCategory];
+
+  let expenseGroups: GroupedItem[] | undefined;
+  let incomeGroups: GroupedItem[] | undefined;
+  let expenseGroupSummary: string | undefined;
+  let incomeGroupSummary: string | undefined;
+
+  // Process both expense and income categories
+  for (const accountCategory of categoriesToProcess) {
+    // Build base analytics filter
+    const analyticsFilter = toAnalyticsFilter(
+      { ...filter, accountCategory } as AnalyticsSeriesFilterIn,
+      period
+    );
+
+    // Apply path-based filters to narrow database query
+    if (path.length > 0) {
+      const lastPathCode = path[path.length - 1];
+      const pathParts = lastPathCode.split('.').filter(p => p);
+
+      if (classification === 'fn') {
+        // For functional classification, add functional filter
+        if (pathParts.length === 1) {
+          // Chapter level - use prefix
+          analyticsFilter.functional_prefixes = [
+            ...(analyticsFilter.functional_prefixes || []),
+            `${lastPathCode}.`
+          ];
+        } else {
+          // Subchapter or classification - use exact code
+          analyticsFilter.functional_codes = [
+            ...(analyticsFilter.functional_codes || []),
+            lastPathCode
+          ];
+        }
+      } else {
+        // For economic classification, add economic filter
+        if (pathParts.length === 1) {
+          // Chapter level - use prefix
+          analyticsFilter.economic_prefixes = [
+            ...(analyticsFilter.economic_prefixes || []),
+            `${lastPathCode}.`
+          ];
+        } else {
+          // Subchapter or classification - use exact code
+          analyticsFilter.economic_codes = [
+            ...(analyticsFilter.economic_codes || []),
+            lastPathCode
+          ];
+        }
+      }
+    }
+
+    // Apply excludeEcCodes filter at database level for better performance
+    if (excludeEcCodes && excludeEcCodes.length > 0) {
+      analyticsFilter.exclude = analyticsFilter.exclude || {};
+      analyticsFilter.exclude.economic_prefixes = [
+        ...(analyticsFilter.exclude.economic_prefixes || []),
+        ...excludeEcCodes.map(code => `${code}.`)
+      ];
+    }
+
+    // Fetch all rows for accurate grouping; apply limit/offset only after grouping
+    const { rows } = await aggregatedLineItemsRepository.getAggregatedLineItems(
+      analyticsFilter
+    );
+
+    const categoryType = accountCategory === 'ch' ? 'expense' : 'income';
+    const groups = groupAggregatedLineItems(rows, analyticsFilter, {
+      classification,
+      category: categoryType,
+      path,
+      constraint: undefined,
+      rootDepth,
+      excludeEcCodes,
+    });
+
+    if (groups.length > 0) {
+      const total = groups.reduce((sum, group) => sum + (Number(group.value) || 0), 0);
+      const summary = `The total ${categoryType} was ${formatCurrency(total, 'compact')} (${formatCurrency(total, 'standard')})`;
+
+      // Apply limit/offset to the final grouped output only
+      const start = Math.max(0, offset ?? 0);
+      const end = limit !== undefined ? start + Math.max(0, limit) : undefined;
+      const pagedGroups = groups.slice(start, end);
+
+      if (accountCategory === 'ch') {
+        expenseGroups = pagedGroups;
+        expenseGroupSummary = summary;
+      } else {
+        incomeGroups = pagedGroups;
+        incomeGroupSummary = summary;
+      }
+    }
+  }
+
+  // Build top-level link with full filter (no narrowing)
+  const fullFilter = toAnalyticsFilter(
+    { ...filter, accountCategory: categoriesToProcess[0] as AccountCategoryIn } as AnalyticsSeriesFilterIn,
+    period
+  );
+  const link = buildEntityAnalyticsLink({ view: 'line-items', filter: fullFilter, treemapPrimary: classification, treemapDepth: rootDepth });
+
+  return {
+    ok: true,
+    link,
+    item: {
+      expenseGroups,
+      incomeGroups,
+      expenseGroupSummary,
+      incomeGroupSummary,
+    },
+  };
+}
