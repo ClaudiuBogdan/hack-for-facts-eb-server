@@ -99,8 +99,28 @@ export function createMcpServer() {
       version: "1.0.0",
     },
     {
-      instructions:
-        "Use search_filters to resolve machine-usable IDs and codes (entity_cuis, uat_ids as strings, functional/economic prefixes or exact codes). Then call generate_analytics to fetch data series and a chart link. For specific entity snapshots, use getEntityDetails.",
+      instructions: `Romanian Public Budget Transparency Platform - provides access to detailed budget execution data for Romanian public entities (municipalities, counties, ministries, schools, etc.).
+
+**Language Requirement:** All entity names, classifications, and data are in Romanian. Always use Romanian terms when searching or querying.
+
+**Key Concepts:**
+- UAT: Unitate Administrativ-Teritorială (Territorial Administrative Unit - municipalities, cities, communes)
+- CUI: Cod Unic de Identificare (Tax ID / Fiscal Identifier for entities)
+- Functional Classifications: COFOG-based budget categories (education, health, transport, etc.) - in Romanian
+- Economic Classifications: Types of spending/revenue (salaries, goods, services, etc.) - in Romanian
+- Account Categories: 'ch' (cheltuieli/expenses) | 'vn' (venituri/revenues)
+
+**Recommended Workflow for In-Depth Analysis:**
+1. Use discover_filters to find entity CUIs, UAT IDs, and classification codes with Romanian search terms
+2. For single entity analysis: get_entity_snapshot → analyze_entity_budget with drill-down
+3. For comparisons: query_timeseries_data (time-series charts) or rank_entities (tabular comparison)
+4. For hierarchical exploration: explore_budget_breakdown with progressive drill-down
+
+**Common Patterns:**
+- Comparative analysis: discover_filters → query_timeseries_data (multiple series)
+- Entity deep-dive: get_entity_snapshot → analyze_entity_budget → drill by functional/economic codes
+- Regional analysis: discover_filters (UAT/county) → rank_entities or explore_budget_breakdown
+- Classification analysis: discover_filters (functional/economic codes) → explore_budget_breakdown with path navigation`,
       capabilities: {
         tools: {},
       },
@@ -108,10 +128,37 @@ export function createMcpServer() {
   );
 
   server.registerTool(
-    "getEntityDetails",
+    "get_entity_snapshot",
     {
-      title: "Get Entity Details",
-      description: "Get high-level financial totals for an entity (ai-basic: getEntityDetails).",
+      title: "Get Entity Snapshot",
+      description: `Get a point-in-time financial snapshot for a specific Romanian public entity.
+
+**Purpose:**
+- Retrieve high-level budget totals (income and expenses) for a single entity in a specific year
+- Quick overview before detailed analysis
+- Validate entity identity when CUI is uncertain
+
+**Language Note:** Entity names are in Romanian. Use Romanian entity naming conventions (Municipiul, Județul, Orașul, Comuna, etc.).
+
+**Input Parameters:**
+- entityCui (optional): Exact CUI (fiscal identifier) - use when known for precise lookup
+- entitySearch (optional): Free-text Romanian search term - fuzzy matching, may be ambiguous
+- year (required): Reporting year (2016-${currentYear})
+
+**Output:**
+- Entity details: CUI, name, address
+- Total income and expenses (numeric + human-readable formatted)
+- AI-generated summary of financial position
+
+**Workflow Examples:**
+1. Known CUI: { entityCui: "4305857", year: 2023 }
+2. Search by name: { entitySearch: "Municipiul Cluj-Napoca", year: 2023 }
+3. Follow up with analyze_entity_budget for detailed breakdown
+
+**Tips:**
+- Prefer entityCui over entitySearch when available (faster, unambiguous)
+- Use discover_filters with category='entity' to find CUIs first
+- This is a snapshot tool - use query_timeseries_data for trends over time`,
       inputSchema: {
         entityCui: z
           .string()
@@ -173,38 +220,68 @@ export function createMcpServer() {
 
   // Unified search filters
   server.registerTool(
-    "search_filters",
+    "discover_filters",
     {
-      title: "Search Filters",
-      description: `High-precision discovery tool for resolving machine-usable filter values used by analytics.
+      title: "Discover Filters",
+      description: `Discover and resolve machine-usable filter values for use in analytics queries.
 
-Search in Romanian as the data is in Romanian only. You can call the search_filters tool as many times as you need to find the relevant filters. This is important to provide an accurate and quality analytics using the filters, so you need to make sure you find all the relevant filters and then decide how to use them.
+**Purpose:**
+- Find entity CUIs, UAT IDs, and classification codes needed for other tools
+- Resolve Romanian names/terms to exact identifiers
+- Essential first step before running analytics queries
 
-Inputs:
-- category (required): one of "entity" | "uat" | "functional_classification" | "economic_classification".
-- query (required): natural language or code-like search term. Use romanian only. Supports diacritics and fuzzy matching.
-- limit (optional): max results to return (1..50, default 3).
+**Language Requirement:** All searches must use Romanian terms. The tool supports diacritics and fuzzy matching for Romanian text.
 
-Behavior:
-- Single-category search per call for precision.
-- Results are sorted by relevance score (0..1). "bestMatch" is included when the score is high (>=0.85).
-- For classifications, both prefix and exact code matches are supported. Use classification search to find relevant classification to the query. If you want to check the code, use the fn: or ec: prefix on the query. Eg: fn:70. or ec:10.
+**Input Parameters:**
+- category (required): "entity" | "uat" | "functional_classification" | "economic_classification"
+- query (required): Romanian search term (name or code). For code lookup, use "fn:" or "ec:" prefix (e.g., "fn:70.", "ec:10.")
+- limit (optional): Maximum results (1-50, default 3)
 
-Output fields:
-- results[].name: human-readable item name.
-- results[].category: mirrors the input category.
-- results[].context: short descriptor (e.g., county, chapter/subchapter info).
-- results[].score: relevance (0..1), higher means better match.
-- results[].filterKey: which analytics filter field to use ("entity_cuis" | "uat_ids" | "functional_prefixes" | "functional_codes" | "economic_prefixes" | "economic_codes").
-- results[].filterValue: the exact string to pass into that filter array.
-- results[].metadata: category-specific details. For classifications includes { codeKind: 'prefix' | 'exact', chapterCode/chapterName, subchapterCode/subchapterName }. For UAT includes { uatId, countyCode, population }. For entities includes { cui, entityType }.
+**Search Categories:**
+1. **entity**: Romanian public institutions
+   - Query example: "Municipiul Cluj-Napoca", "Județul Alba", "Primăria Sector 1"
+   - Returns: filterKey="entity_cuis", filterValue=CUI, metadata includes entityType
 
-Usage patterns:
-- Entities: { category: 'entity', query: 'Municipiul Cluj-Napoca' } → filterKey 'entity_cuis', filterValue '<CUI>'. Use the name convention used by ANAF: Comuna, Oras, Municipiul, Judetul, Ministerul, Scoala, etc
-- UATs: { category: 'uat', query: 'Cluj' } → filterKey 'uat_ids', filterValue '<UAT_ID_AS_STRING>' (IMPORTANT: keep as string).
-- Functional classifications: query by name or code (using fn: prefix); use filterKey "functional_prefixes" for categories (trailing dot).
-- Economic classifications: query by name or code (using ec: prefix); use filterKey "economic_prefixes" (trailing dot).
-`,
+2. **uat**: Territorial administrative units (municipalities, cities, communes)
+   - Query example: "Cluj-Napoca", "Brașov", "Comuna Fundulea"
+   - Returns: filterKey="uat_ids", filterValue=UAT_ID (as string), metadata includes countyCode, population
+
+3. **functional_classification**: COFOG budget categories (education, health, transport, etc.)
+   - Query by name: "educație", "sănătate", "transport"
+   - Query by code: "fn:65.", "fn:65.10", "fn:65.10.03"
+   - Returns: filterKey="functional_prefixes" (for categories with trailing dot) or "functional_codes" (exact)
+   - Metadata includes: codeKind ('prefix'|'exact'), chapterCode/Name, subchapterCode/Name
+
+4. **economic_classification**: Spending/revenue types (salaries, goods, services, etc.)
+   - Query by name: "cheltuieli de personal", "bunuri și servicii"
+   - Query by code: "ec:10.", "ec:20.01.01"
+   - Returns: filterKey="economic_prefixes" (categories) or "economic_codes" (exact)
+   - Metadata includes: codeKind ('prefix'|'exact'), chapter/subchapter info
+
+**Output:**
+- results[]: Array of matches, sorted by relevance score (0-1, higher is better)
+  - name: Human-readable Romanian name
+  - category: Input category echoed back
+  - context: Additional info (county, chapter/subchapter details)
+  - score: Relevance score (0-1)
+  - filterKey: Which parameter to use in analytics tools
+  - filterValue: Exact value to pass to that parameter (as string)
+  - metadata: Category-specific details
+- bestMatch: Top result when score >= 0.85 (high confidence)
+- totalMatches: Total number of potential matches
+
+**Workflow Examples:**
+1. Find entity: { category: "entity", query: "Municipiul București" } → use filterValue in entity_cuis
+2. Find county: { category: "uat", query: "Cluj" } → use filterValue in uat_ids
+3. Find education spending: { category: "functional_classification", query: "educație" } → use in functional_prefixes
+4. Check specific code: { category: "functional_classification", query: "fn:65." } → verify chapter 65
+
+**Tips:**
+- Call multiple times to gather all needed filters before running analytics
+- Use Romanian diacritics for better matching (ă, â, î, ș, ț)
+- For classifications, prefer prefixes (trailing dot) for category-level analysis
+- UAT IDs are returned as strings - keep them as strings in subsequent queries
+- High score (>0.85) with bestMatch indicates confident match`,
       inputSchema: {
         category: z.enum(["entity", "uat", "functional_classification", "economic_classification"]),
         query: z.string().min(1),
@@ -263,63 +340,91 @@ Usage patterns:
     }
   );
 
-  // Generate analytics tool
+  // Query time-series analytics tool
   server.registerTool(
-    "generate_analytics",
+    "query_timeseries_data",
     {
-      title: "Generate Analytics",
-      description: `Retrieve one or more analytics data series for a specified period and filters, and get a ready-to-use chart link.
+      title: "Query Time-Series Data",
+      description: `Retrieve time-series budget data for comparative analysis across entities, regions, or classifications.
 
-Purpose:
-- Minimal, agent-friendly input that mirrors core chart filter semantics without UI-only fields.
-- The tool auto-derives axis metadata, units (from normalization), and a suggested chart type.
+**Purpose:**
+- Compare budget trends over time (yearly, monthly, or quarterly)
+- Analyze 1-10 data series simultaneously
+- Generate interactive chart visualizations
+- Support complex filtering across multiple dimensions
 
-Inputs:
-- title (optional): A descriptive title. If missing, a generic title is generated.
-- description (optional): Free text for context; forwarded as metadata.
-- period (required): { type: 'YEAR' | 'MONTH' | 'QUARTER', selection: { interval { start, end } | dates[] } }.
-  • YEAR: 'YYYY' (e.g., '2023')
-  • MONTH: 'YYYY-MM'
-  • QUARTER: 'YYYY-Qn'
-- series (1..N): each item has:
-  • label (optional): Series label; auto-generated if omitted (entity/UAT + classification + normalization suffix).
-  • filter (required):
-    - accountCategory (required): 'ch' (expenses) | 'vn' (revenues)
-    - entityCuis?: string[] (resolve via search_filters category='entity')
-    - uatIds?: string[] (IMPORTANT: strings; resolve via search_filters category='uat')
-    - countyCodes?: string[]
-    - isUat?: boolean
-    - functionalPrefixes?: string[] (TRAILING DOT; resolve via search_filters with metadata.codeKind=='prefix')
-    - economicPrefixes?: string[] (TRAILING DOT; resolve via search_filters with metadata.codeKind=='prefix')
-    - expenseTypes?: ('dezvoltare'|'functionare')[]
-    - fundingSourceIds?: number[]
-    - budgetSectorIds?: number[]
-    - exclude?: same shape as include fields for negative filtering (e.g., exclude.functional_prefixes: ['70.'])
-    - normalization?: 'total' | 'per_capita' | 'total_euro' | 'per_capita_euro' (default 'total')
-    - reportType?: string (defaults to principal aggregated when omitted)
+**Language Note:** Classification names and Romanian-specific terms (dezvoltare/functionare) are in Romanian.
 
-Normalization & Units:
-- total → unit 'RON'
-- per_capita → unit 'RON/capita'
-- total_euro → unit 'EUR'
-- per_capita_euro → unit 'EUR/capita'
+**Input Parameters:**
+- title (optional): Chart title - auto-generated if omitted
+- description (optional): Additional context for the analysis
+- period (required): Time period specification
+  - type: "YEAR" | "MONTH" | "QUARTER"
+  - selection: Either interval {start, end} OR dates array
+  - Formats: YEAR="2023", MONTH="2023-01", QUARTER="2023-Q1"
+- series (required): Array of 1-10 data series, each with:
+  - label (optional): Series name - auto-generated from filters if omitted
+  - filter (required): Budget data filter
 
-Outputs:
-- ok: boolean
-- dataLink: link to data source. Please provide the url in your report or response, as this allow verifying the data you provide.
-- title: final title (auto if omitted)
-- dataSeries[]: per-series results with:
-  • label, seriesId
-  • xAxis { name: 'Year'|'Month'|'Quarter', unit: 'year'|'month'|'quarter' }
-  • yAxis { name: 'Amount', unit as per normalization }
-  • dataPoints: [{ x: string, y: number }]
-  • statistics: { min, max, avg, sum, count }
+**Filter Parameters (per series):**
+- accountCategory (required): "ch" (cheltuieli/expenses) | "vn" (venituri/revenues)
+- entityCuis (optional): Array of CUI strings - from discover_filters with category="entity"
+- uatIds (optional): Array of UAT ID strings - from discover_filters with category="uat" (MUST BE STRINGS)
+- countyCodes (optional): Array of county codes (e.g., ["B", "CJ", "TM"])
+- isUat (optional): Filter only UAT entities (true/false)
+- functionalPrefixes (optional): Functional classification prefixes with TRAILING DOT (e.g., ["65.", "66."])
+- functionalCodes (optional): Exact functional codes (e.g., ["65.10.03"])
+- economicPrefixes (optional): Economic classification prefixes with TRAILING DOT (e.g., ["10.", "20."])
+- economicCodes (optional): Exact economic codes (e.g., ["10.01.01"])
+- expenseTypes (optional): ["dezvoltare"] (development) and/or ["functionare"] (operational)
+- fundingSourceIds (optional): Array of funding source IDs
+- budgetSectorIds (optional): Array of budget sector IDs
+- programCodes (optional): Array of program codes
+- exclude (optional): Negative filters with same structure as above (e.g., exclude.functionalPrefixes: ["70."])
+- normalization (optional): "total" (default) | "per_capita" | "total_euro" | "per_capita_euro"
+- reportType (optional): Report type - defaults to principal aggregated
 
-Tips:
-- Resolve all IDs/codes via MCP search_filters first and plug filterKey/filterValue directly into filters.
-- Keep uatIds as strings; the backend converts to numeric IDs internally.
-- Prefer prefixes (functional/economic) for category-level analyses; use exact codes for precise slices.
-`,
+**Normalization Options:**
+- "total" → Values in RON (Romanian Lei), unit: "RON"
+- "per_capita" → Values per capita in RON, unit: "RON/capita"
+- "total_euro" → Values in EUR, unit: "EUR"
+- "per_capita_euro" → Values per capita in EUR, unit: "EUR/capita"
+
+**Output:**
+- ok: boolean (success status)
+- dataLink: URL to interactive chart (include in responses for verification)
+- title: Final chart title
+- dataSeries[]: Array of series results
+  - label: Series name
+  - seriesId: Unique identifier
+  - xAxis: {name: "Year"|"Month"|"Quarter", unit}
+  - yAxis: {name: "Amount", unit based on normalization}
+  - dataPoints: [{x: string, y: number}]
+  - statistics: {min, max, avg, sum, count}
+
+**Workflow Examples:**
+1. Compare two municipalities over time:
+   - Use discover_filters to find entity CUIs
+   - Create two series with different entityCuis filters
+   - Period: yearly interval 2020-2024
+
+2. Education spending trend by county:
+   - Use discover_filters for functional classification (educație → "65.")
+   - One series per county with functionalPrefixes: ["65."]
+   - Normalization: "per_capita" for fair comparison
+
+3. Revenue vs expenses for single entity:
+   - Series 1: accountCategory="ch" (expenses)
+   - Series 2: accountCategory="vn" (revenues)
+   - Same entityCuis in both
+
+**Tips:**
+- Always use discover_filters first to resolve entity CUIs, UAT IDs, and classification codes
+- UAT IDs MUST be strings (the backend handles conversion)
+- Use prefixes (trailing dot) for category-level analysis, exact codes for specific items
+- Normalization="per_capita" recommended when comparing entities of different sizes
+- Include dataLink in your responses - users can verify data independently
+- Maximum 10 series per query - create multiple queries if needed`,
       inputSchema: {
         title: z.string().optional(),
         description: z.string().optional(),
@@ -374,20 +479,79 @@ Tips:
     }
   );
 
-  // Entity budget analysis (group level)
+  // Entity budget analysis (consolidated tool)
   server.registerTool(
-    "getEntityBudgetAnalysis",
+    "analyze_entity_budget",
     {
-      title: "Get Entity Budget Analysis",
-      description: "Income and spending grouped by functional category (overview).",
+      title: "Analyze Entity Budget",
+      description: `Analyze a single entity's budget with optional drill-down by functional or economic classifications.
+
+**Purpose:**
+- Get detailed breakdown of entity income and expenses
+- Group by functional categories (what the money is spent on: education, health, transport, etc.)
+- Drill down into specific functional or economic classification codes
+- Progressive analysis: overview → category → specific code
+
+**Language Note:** Entity names and classification names are in Romanian.
+
+**Input Parameters:**
+- entityCui (optional): Exact CUI (fiscal identifier) - preferred for precision
+- entitySearch (optional): Romanian entity name for fuzzy search
+- year (required): Reporting year (2016-${currentYear})
+- breakdown_by (optional): Analysis level - "overview" (default), "functional", or "economic"
+- functionalCode (optional): Required when breakdown_by="functional" (e.g., "65", "65.10", "65.10.03")
+- economicCode (optional): Required when breakdown_by="economic" (e.g., "10.", "10.01", "10.01.01")
+
+**Breakdown Types:**
+1. **overview** (default): High-level grouping by functional chapters
+   - Use for initial entity analysis
+   - Shows major spending categories
+
+2. **functional**: Drill down by functional classification code
+   - Requires functionalCode parameter
+   - Use discover_filters to find relevant codes
+   - Example: functionalCode="65" for education spending breakdown
+
+3. **economic**: Drill down by economic classification code
+   - Requires economicCode parameter
+   - Analyzes types of spending (salaries, goods, services, etc.)
+   - Example: economicCode="10." for personnel expenses
+
+**Output:**
+- Entity details: CUI, name
+- expenseGroups: Hierarchical expense breakdown with amounts
+- incomeGroups: Hierarchical income breakdown with amounts
+- expenseGroupSummary: AI-generated summary of expense patterns
+- incomeGroupSummary: AI-generated summary of income patterns
+- link: Deep-link to web interface
+
+**Workflow Examples:**
+1. Basic overview: { entityCui: "4305857", year: 2023, breakdown_by: "overview" }
+2. Education drill-down: { entityCui: "4305857", year: 2023, breakdown_by: "functional", functionalCode: "65" }
+3. Personnel costs: { entityCui: "4305857", year: 2023, breakdown_by: "economic", economicCode: "10." }
+
+**Progressive Analysis Pattern:**
+1. Start with get_entity_snapshot for totals
+2. Call with breakdown_by="overview" to see main categories
+3. Use discover_filters to find specific functional/economic codes
+4. Drill down with breakdown_by="functional" or "economic" for details
+
+**Tips:**
+- Default breakdown_by="overview" provides best starting point
+- Use discover_filters with category="functional_classification" or "economic_classification" to find codes
+- Functional codes analyze "what" (purpose), economic codes analyze "how" (type of expense)
+- Can combine both: analyze by functional first, then by economic within that category`,
       inputSchema: {
         entityCui: z.string().optional(),
         entitySearch: z.string().optional(),
         year: z.number().int().min(2016).max(currentYear),
+        breakdown_by: z.enum(["overview", "functional", "economic"]).optional(),
+        functionalCode: z.string().optional(),
+        economicCode: z.string().optional(),
       },
       outputSchema: {
         ok: z.boolean(),
-        kind: z.literal("entities.budget-analysis"),
+        kind: z.string(),
         query: z.object({ cui: z.string(), year: z.number() }),
         link: z.string(),
         item: z.object({
@@ -401,13 +565,45 @@ Tips:
         error: z.string().optional(),
       },
     },
-    async ({ entityCui, entitySearch, year }) => {
+    async ({ entityCui, entitySearch, year, breakdown_by = "overview", functionalCode, economicCode }) => {
       if (!year) {
         const error = { ok: false, error: "year is required" } as const;
         return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
       }
+
+      // Validate breakdown_by requirements
+      if (breakdown_by === "functional" && !functionalCode) {
+        const error = { ok: false, error: "functionalCode is required when breakdown_by is 'functional'" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+      if (breakdown_by === "economic" && !economicCode) {
+        const error = { ok: false, error: "economicCode is required when breakdown_by is 'economic'" } as const;
+        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
+      }
+
       try {
-        const result = await svcGetEntityBudgetAnalysis({ entityCui, entitySearch, year, level: "group" });
+        let level: "group" | "functional" | "economic";
+        let fnCode: string | undefined;
+        let ecCode: string | undefined;
+
+        if (breakdown_by === "functional") {
+          level = "functional";
+          fnCode = functionalCode;
+        } else if (breakdown_by === "economic") {
+          level = "economic";
+          ecCode = economicCode;
+        } else {
+          level = "group";
+        }
+
+        const result = await svcGetEntityBudgetAnalysis({
+          entityCui,
+          entitySearch,
+          year,
+          level,
+          fnCode,
+          ecCode
+        });
         const response = { ok: true, ...result } as const;
         return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
       } catch (e: any) {
@@ -417,177 +613,104 @@ Tips:
     }
   );
 
-  // Budget analysis by functional
+  // Explore budget breakdown tool
   server.registerTool(
-    "getEntityBudgetAnalysisByFunctional",
+    "explore_budget_breakdown",
     {
-      title: "Get Entity Budget Analysis by Functional",
-      description: "Deep dive by functional code (chapter or full code).",
-      inputSchema: {
-        entityCui: z.string(),
-        year: z.number().int().min(2016).max(currentYear),
-        functionalCode: z.string(),
-      },
-      outputSchema: {
-        ok: z.boolean(),
-        kind: z.literal("entities.budget-analysis-spending-by-functional"),
-        query: z.object({ cui: z.string(), year: z.number() }),
-        link: z.string(),
-        item: z.object({
-          cui: z.string(),
-          name: z.string(),
-          expenseGroups: z.array(z.any()),
-          incomeGroups: z.array(z.any()),
-          expenseGroupSummary: z.string().optional(),
-          incomeGroupSummary: z.string().optional(),
-        }),
-        error: z.string().optional(),
-      },
-    },
-    async ({ entityCui, year, functionalCode }) => {
-      if (!year) {
-        const error = { ok: false, error: "year is required" } as const;
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-      if (!functionalCode) {
-        const error = { ok: false, error: "functionalCode is required" } as const;
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-      try {
-        const result = await svcGetEntityBudgetAnalysis({ entityCui, year, level: "functional", fnCode: functionalCode });
-        const response = { ok: true, ...result } as const;
-        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
-      } catch (e: any) {
-        const error = { ok: false, error: String(e?.message ?? e) };
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-    }
-  );
+      title: "Explore Budget Breakdown",
+      description: `Interactive hierarchical budget exploration with progressive drill-down by classification codes.
 
-  // Budget analysis by economic
-  server.registerTool(
-    "getEntityBudgetAnalysisByEconomic",
-    {
-      title: "Get Entity Budget Analysis by Economic",
-      description: "Deep dive by economic code (dotted code e.g. '10.01.01').",
-      inputSchema: {
-        entityCui: z.string(),
-        year: z.number().int().min(2016).max(currentYear),
-        economicCode: z.string(),
-      },
-      outputSchema: {
-        ok: z.boolean(),
-        kind: z.literal("entities.budget-analysis-spending-by-economic"),
-        query: z.object({ cui: z.string(), year: z.number() }),
-        link: z.string(),
-        item: z.object({
-          cui: z.string(),
-          name: z.string(),
-          expenseGroups: z.array(z.any()),
-          incomeGroups: z.array(z.any()),
-          expenseGroupSummary: z.string().optional(),
-          incomeGroupSummary: z.string().optional(),
-        }),
-        error: z.string().optional(),
-      },
-    },
-    async ({ entityCui, year, economicCode }) => {
-      if (!year) {
-        const error = { ok: false, error: "year is required" } as const;
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-      if (!economicCode) {
-        const error = { ok: false, error: "economicCode is required" } as const;
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-      try {
-        const result = await svcGetEntityBudgetAnalysis({ entityCui, year, level: "economic", ecCode: economicCode });
-        const response = { ok: true, ...result } as const;
-        return { content: [{ type: "text", text: JSON.stringify(response) }], structuredContent: response };
-      } catch (e: any) {
-        const error = { ok: false, error: String(e?.message ?? e) };
-        return { content: [{ type: "text", text: JSON.stringify(error) }], structuredContent: error, isError: true };
-      }
-    }
-  );
+**Purpose:**
+- Group budget data by classification hierarchies (functional or economic)
+- Progressive drill-down: chapters → subchapters → classifications
+- Treemap-style visualization of budget distribution
+- Cross-dimensional pivoting (analyze by function, then pivot to economic view)
+- Works across any scope: single entity, multiple entities, regions, UATs
 
-  // Generate analytics hierarchy tool
-  server.registerTool(
-    "generate_analytics_hierarchy",
-    {
-      title: "Generate Analytics Hierarchy",
-      description: `Generate hierarchical budget analytics with progressive drill-down capability.
+**Language Note:** Classification names and categories are in Romanian.
 
-This tool provides flat groupings at specific classification depths, similar to a treemap visualization.
-Use it for interactive drill-down analysis across any filter scope (entities, UATs, regions, etc.).
+**Input Parameters:**
+- period (required): Time period selection
+  - type: "YEAR" | "MONTH" | "QUARTER"
+  - selection: interval {start, end} OR dates array
+- filter (required): Analytics filter (same structure as query_timeseries_data)
+  - Use discover_filters to resolve entity CUIs, UAT IDs, and classification codes first
+- classification (optional): "fn" (functional, default) | "ec" (economic)
+  - "fn": Group by functional classification (what: education, health, etc.)
+  - "ec": Group by economic classification (how: salaries, goods, services, etc.)
+- path (optional): Drill-down path array (default: empty array = root level)
+  - Each element is a classification code with dots: ["54"], ["54", "54.02"], ["54", "54.02", "54.02.01"]
+  - Empty array shows top-level chapters
+  - Append codes to drill deeper into hierarchy
+- categories (optional): ["ch"] (expenses) and/or ["vn"] (revenues) - default: both
+- excludeEcCodes (optional): Economic chapter codes to exclude (e.g., ["51", "80", "81"] to filter transfers)
+- rootDepth (optional): "chapter" (default) | "subchapter" | "paragraph"
+  - Controls grouping granularity at root level
+  - "chapter": Groups like "54", "65", "66"
+  - "subchapter": Groups like "54.02", "65.10"
+  - "paragraph": Groups like "54.02.01", "65.10.03"
+- limit, offset (optional): Pagination parameters
 
-Purpose:
-- Group budget data by classification codes at a specific depth
-- Support progressive drill-down through classification hierarchy
-- Enable cross-dimensional pivoting (functional → economic or vice versa)
-- Apply exclusions and constraints to shape results
-
-Inputs:
-- period (required): Time period selection (YEAR/MONTH/QUARTER format)
-- filter (required): Base analytics filter (entities, UATs, classifications, etc.)
-- categories?: ('ch'|'vn')[] (default both: expenses and income)
-- classification?: 'fn' | 'ec' (classification dimension to group by, default 'fn')
-  • 'fn': Group by functional classification
-  • 'ec': Group by economic classification
-- path?: string[] (drill-down path, e.g., ["54"] or ["54", "5402"])
-  • Each element is a formatted code (with dots: "54", "54.02", "54.02.01")
-  • Empty array = root level grouping
-- excludeEcCodes?: string[] (economic chapter codes to exclude, e.g., ["51", "80", "81"])
-- rootDepth?: 'chapter' | 'subchapter' | 'paragraph' (grouping depth at root level, default 'chapter')
-  • 'chapter' = chapter level (e.g., "54")
-  • 'subchapter' = subchapter level (e.g., "54.02")
-  • 'paragraph' = classification level (e.g., "54.02.01")
-- limit?, offset?: number (pagination for underlying data query)
-
-Outputs:
+**Output:**
 - ok: boolean
-- link: string (deep-link to client analytics page)
-- item: {
-    expenseGroups?: GroupedItem[] (expense data groups)
-    incomeGroups?: GroupedItem[] (income data groups)
-    expenseGroupSummary?: string
-    incomeGroupSummary?: string
-  }
-- error?: string
+- link: Deep-link to interactive web interface
+- item: Grouped budget data
+  - expenseGroups: Array of expense categories (if "ch" in categories)
+  - incomeGroups: Array of income categories (if "vn" in categories)
+  - expenseGroupSummary: AI-generated expense summary
+  - incomeGroupSummary: AI-generated income summary
 
-GroupedItem structure:
-- code: string (classification code at current depth)
-- name: string (human-readable label)
-- value: number (aggregated amount)
-- count: number (number of line items)
-- isLeaf: boolean (whether this is a leaf node, depth >= 6)
-- percentage: number (share of total, 0..1)
-- humanSummary: string (formatted summary text)
-- link: string (drilldown link with refined filter)
+**GroupedItem Structure:**
+- code: Classification code at current depth
+- name: Human-readable Romanian name
+- value: Aggregated amount for this category
+- count: Number of underlying budget line items
+- isLeaf: true when no further drill-down available (depth >= 6)
+- percentage: Share of total (0-1, e.g., 0.35 = 35%)
+- humanSummary: Formatted summary text
+- link: Deep-link for further drill-down
 
-Usage patterns:
-1. Root level grouping:
-   { classification: 'fn', path: [] } → Returns chapters (54, 66, 67, ...)
+**Progressive Drill-Down Pattern:**
+1. Root level: { classification: "fn", path: [] }
+   → Returns chapters: 54 (Sport), 65 (Învățământ/Education), 66 (Sănătate/Health), etc.
 
-2. Drill-down to subchapters:
-   { classification: 'fn', path: ['54'] } → Returns subchapters (54.02, 54.03, ...)
+2. Drill into education: { classification: "fn", path: ["65"] }
+   → Returns subchapters: 65.10 (Învățământ primar), 65.20 (Învățământ secundar), etc.
 
-3. Drill-down to classifications:
-   { classification: 'fn', path: ['54', '54.02'] } → Returns classifications (54.02.01, 54.02.02, ...)
+3. Drill deeper: { classification: "fn", path: ["65", "65.10"] }
+   → Returns classifications: 65.10.01, 65.10.02, 65.10.03, etc.
 
-4. Pivot to economic after reaching functional leaf:
-   { classification: 'ec', path: [] } + constraint on functional code via filter
+4. Pivot to economic view: { classification: "ec", path: [], filter: {functionalPrefixes: ["65."]} }
+   → Shows HOW education money is spent (salaries, goods, services)
 
-5. With exclusions:
-   { classification: 'fn', path: [], excludeEcCodes: ['51', '80', '81'] }
+**Use Cases:**
+1. **Entity budget overview**: Filter by single entityCui, explore functional breakdown
+2. **Regional comparison**: Filter by county, see which functions get most funding
+3. **Classification deep-dive**: Start broad, drill into specific categories
+4. **Exclude transfers**: Use excludeEcCodes: ["51", "80", "81"] to filter internal operations
+5. **Multi-dimensional analysis**: Explore by function, then pivot to economic dimension
 
-Tips:
-- Resolve all filter values via search_filters first
-- If you want to analyze a specific chapter or subchapter from economic of functional classification, you can use the prefix filter to filter the data at the chapter or subchapter level.
-- Use path array for progressive drill-down (append codes as user clicks)
-- When isLeaf=true, consider pivoting to opposite dimension
-- excludeEcCodes is useful for filtering out transfers/internal operations
-`,
+**Workflow Examples:**
+1. Explore Cluj-Napoca education spending:
+   - discover_filters: Find Cluj-Napoca CUI
+   - explore_budget_breakdown: { filter: {accountCategory: "ch", entityCuis: ["CUI"]}, classification: "fn", path: ["65"] }
+
+2. Compare functional spending across county:
+   - discover_filters: Find county code
+   - explore_budget_breakdown: { filter: {accountCategory: "ch", countyCodes: ["CJ"]}, classification: "fn", path: [] }
+   - Drill into top category from results
+
+3. Analyze economic breakdown for health:
+   - First get functional code: discover_filters with query="sănătate"
+   - explore_budget_breakdown: { filter: {accountCategory: "ch", functionalPrefixes: ["66."]}, classification: "ec", path: [] }
+
+**Tips:**
+- Start with empty path for overview, progressively append to drill down
+- Use classification="fn" to analyze WHAT (purpose), classification="ec" to analyze HOW (type)
+- When isLeaf=true, consider pivoting to opposite dimension for deeper insight
+- excludeEcCodes useful for removing transfers, technical operations
+- Combine with filter.functionalPrefixes or filter.economicPrefixes to constrain scope before drilling
+- Use rootDepth for initial granularity control without building path array`,
       inputSchema: {
         period: analyticsPeriodSchema,
         filter: analyticsFilterSchema,
@@ -659,76 +782,104 @@ Tips:
     }
   );
 
-  // List entity analytics tool
+  // Rank entities tool
   server.registerTool(
-    "list_entity_analytics",
+    "rank_entities",
     {
-      title: "List Entity Analytics",
-      description: `Query entity-level budget analytics with flexible filtering, sorting, and pagination.
+      title: "Rank Entities",
+      description: `Retrieve and rank entities by budget metrics with flexible sorting and pagination.
 
-This tool returns a paginated list of entities with their aggregated budget data.
-Use it to compare entities across various dimensions (functional/economic classifications,
-geographic regions, entity types, etc.).
+**Purpose:**
+- Tabular comparison of multiple entities side-by-side
+- Rank entities by spending, revenue, per-capita values, or other metrics
+- Find top/bottom performers across any dimension
+- Export-ready data format for further analysis
 
-Purpose:
-- Get a tabular view of entities with their budget aggregations
-- Compare entities by various metrics (total amount, per capita, etc.)
-- Support sorting by different fields
-- Enable pagination for large result sets
+**Language Note:** Entity names and types are in Romanian.
 
-Inputs:
-- period (required): Time period selection (YEAR/MONTH/QUARTER format)
-- filter (required): Analytics filter (entities, UATs, classifications, etc.)
-- sort?: { by: string, order: 'ASC'|'DESC' } (default: by amount DESC)
-  • Available sort fields: "amount", "total_amount", "per_capita_amount", "entity_name", "entity_type", "population", "county_name", "county_code"
-- limit?: number (default: 50, max: 500)
-- offset?: number (default: 0)
+**Input Parameters:**
+- period (required): Time period for aggregation
+  - type: "YEAR" | "MONTH" | "QUARTER"
+  - selection: interval {start, end} OR dates array
+- filter (required): Analytics filter (same as query_timeseries_data)
+  - Use discover_filters to find entity CUIs, UAT IDs, classification codes
+  - All standard filter parameters apply (entityCuis, uatIds, classifications, etc.)
+- sort (optional): Sorting configuration (default: by amount DESC)
+  - by: Sort field name
+  - order: "ASC" (ascending) | "DESC" (descending)
+- limit (optional): Results per page (default: 50, max: 500)
+- offset (optional): Pagination offset (default: 0)
 
-Outputs:
+**Available Sort Fields:**
+- **amount**: Normalized amount based on filter.normalization (primary metric)
+- **total_amount**: Raw total in RON (always available)
+- **per_capita_amount**: Amount per capita in RON (always available)
+- **entity_name**: Alphabetical by Romanian entity name
+- **entity_type**: Alphabetical by entity type (Municipiu, Oraș, Comună, etc.)
+- **population**: By population count
+- **county_name**: Alphabetical by county (județ)
+- **county_code**: Alphabetical by county code
+
+**Normalization Impact:**
+The filter.normalization parameter affects the "amount" field:
+- "total" (default): Total amount in RON
+- "per_capita": Amount per capita in RON
+- "total_euro": Total amount in EUR
+- "per_capita_euro": Amount per capita in EUR
+
+Note: total_amount and per_capita_amount fields are ALWAYS in RON regardless of normalization.
+
+**Output:**
 - ok: boolean
-- link: string (deep-link to client analytics table page with pagination)
-- entities: EntityAnalyticsDataPoint[] (list of entities with their data)
-  • Each entity contains: entity_cui, entity_name, entity_type, uat_id, county_code, county_name, population, amount, total_amount, per_capita_amount
-- pageInfo: { totalCount, hasNextPage, hasPreviousPage }
-- error?: string
+- link: Deep-link to interactive table in web UI (with pagination)
+- entities: Array of entity data points
+  - entity_cui: CUI (fiscal identifier)
+  - entity_name: Romanian entity name
+  - entity_type: Type (Municipiu, Oraș, Comună, Județ, etc.)
+  - uat_id: UAT identifier (if applicable)
+  - county_code: County code (e.g., "B", "CJ", "TM")
+  - county_name: County name in Romanian
+  - population: Population count
+  - amount: Normalized amount (based on filter.normalization)
+  - total_amount: Total amount in RON
+  - per_capita_amount: Per capita amount in RON
+- pageInfo: Pagination metadata
+  - totalCount: Total matching entities
+  - hasNextPage: More results available
+  - hasPreviousPage: Previous page exists
 
-Sort field descriptions:
-- amount: Normalized amount based on filter.normalization setting
-- total_amount: Raw total amount in RON
-- per_capita_amount: Amount per capita in RON
-- entity_name: Alphabetical by entity name
-- entity_type: Alphabetical by entity type
-- population: By population count
-- county_name: Alphabetical by county name
+**Ranking Use Cases:**
+1. **Top spenders**: sort by "amount" DESC, limit to top 10-20
+2. **Per-capita comparison**: normalization="per_capita", sort by "per_capita_amount" DESC
+3. **Alphabetical listing**: sort by "entity_name" ASC
+4. **Regional analysis**: filter by county, sort by amount to see distribution
+5. **Population-weighted**: sort by "population" to analyze by entity size
 
-Filter normalization options (affects 'amount' field):
-- 'total' (default): Total amount in RON
-- 'per_capita': Amount per capita in RON
-- 'total_euro': Total amount in EUR
-- 'per_capita_euro': Amount per capita in EUR
+**Workflow Examples:**
+1. Top 10 education spenders nationwide:
+   - discover_filters: Find education code (65.)
+   - rank_entities: { filter: {accountCategory: "ch", functionalPrefixes: ["65."]}, sort: {by: "amount", order: "DESC"}, limit: 10 }
 
-Usage patterns:
-1. Get top entities by spending:
-   { sort: { by: 'amount', order: 'DESC' }, limit: 10 }
+2. Per-capita health spending in Cluj county:
+   - discover_filters: Find Cluj county and health code
+   - rank_entities: { filter: {accountCategory: "ch", countyCodes: ["CJ"], functionalPrefixes: ["66."], normalization: "per_capita"}, sort: {by: "per_capita_amount", order: "DESC"} }
 
-2. Get entities sorted by name:
-   { sort: { by: 'entity_name', order: 'ASC' } }
+3. All municipalities alphabetically:
+   - discover_filters: Find município entity type if needed
+   - rank_entities: { filter: {accountCategory: "ch"}, sort: {by: "entity_name", order: "ASC"} }
 
-3. Paginate through results:
-   First page: { limit: 50, offset: 0 }
-   Second page: { limit: 50, offset: 50 }
-   Third page: { limit: 50, offset: 100 }
+4. Paginated results (50 per page):
+   - Page 1: { limit: 50, offset: 0 }
+   - Page 2: { limit: 50, offset: 50 }
+   - Page 3: { limit: 50, offset: 100 }
 
-4. Filter by county and get per-capita comparison:
-   { filter: { accountCategory: 'ch', countyCodes: ['B'], normalization: 'per_capita' }, sort: { by: 'per_capita_amount', order: 'DESC' } }
-
-Tips:
-- Resolve filter values via search_filters first
-- Use normalization='per_capita' for fair comparisons between entities of different sizes
-- Combine with generate_analytics_hierarchy for detailed drill-down workflows
-- The 'amount' field changes based on normalization setting, while 'total_amount' and 'per_capita_amount' are always available
-- Client link includes page and pageSize parameters for proper pagination in the UI
-`,
+**Tips:**
+- Use normalization="per_capita" for fair size-adjusted comparisons
+- Combine with discover_filters to build precise filter criteria
+- pageInfo.totalCount helps determine total pages needed
+- The "amount" field respects normalization, but total_amount and per_capita_amount are always in RON
+- Use with explore_budget_breakdown for drill-down after identifying interesting entities
+- Link provides sharable URL to web interface with same filters`,
       inputSchema: {
         period: analyticsPeriodSchema,
         filter: analyticsFilterSchema,
