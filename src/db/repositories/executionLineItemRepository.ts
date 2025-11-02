@@ -3,6 +3,7 @@ import { ExecutionLineItem } from "../models";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter, NormalizationMode, ReportPeriodInput, ReportPeriodType } from "../../types";
 import { buildPeriodFilterSql, getEurRateMap } from "./utils";
+import { computeDenominatorPopulation } from "./population";
 
 const analyticsCache = createCache({
   name: 'executionLineItemAnalytics',
@@ -732,168 +733,19 @@ export const executionLineItemRepository = {
     const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
     const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
-    let query: string;
-
-    if (!needsPerCapita) {
-      // Simple total by year
-      query = `SELECT eli.year, COALESCE(SUM(eli.ytd_amount), 0) AS value
-        FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-        ${joinClauses ? " " + joinClauses : ""}
-        ${whereClause}
-        GROUP BY eli.year
-        ORDER BY eli.year ASC`;
-    } else {
-      // ─────────────────────────────────────────────────────────────────────────────
-      // Per-capita mode
-      //
-      // Goal: compute denominator from **filters**, not from fiscal line presence.
-      //  • If entity-like filters exist → sum populations of the selected units
-      //    (dedup UAT vs county vs country scopes).
-      //  • If no such filter exists     → use full country population.
-      //  • Keep the amounts aggregation separate and join by year at the end.
-      // ─────────────────────────────────────────────────────────────────────────────
-
-      // Do we have any entity-oriented selector that should shape the denominator?
-      const hasEntityFilter = Boolean(
-        (filters.entity_cuis && filters.entity_cuis.length) ||
-        (filters.uat_ids && filters.uat_ids.length) ||
-        (filters.county_codes && filters.county_codes.length) ||
-        typeof filters.is_uat === "boolean" ||
-        (filters.entity_types && filters.entity_types.length)
-      );
-
-      // Build an entity-only WHERE clause (and its parameter list) used **only**
-      // to compute the population denominator. This must not depend on line items.
-      let paramIndex = values.length + 1;
-      const entityConds: string[] = [];
-      const entityValues: any[] = [];
-
-      if (filters.entity_cuis?.length) {
-        entityConds.push(`e.cui = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_cuis);
-      }
-      if (filters.entity_types?.length) {
-        entityConds.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_types);
-      }
-      if (filters.is_uat !== undefined) {
-        entityConds.push(`e.is_uat = $${paramIndex++}`);
-        entityValues.push(filters.is_uat);
-      }
-      if (filters.uat_ids?.length) {
-        entityConds.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-        entityValues.push(filters.uat_ids);
-      }
-      // County filter applies on the UAT join, because a county is represented by its UAT rows.
-      if (filters.county_codes?.length) {
-        entityConds.push(`ul.county_code = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.county_codes);
-      }
-
-      const entityWhereClause = entityConds.length ? `WHERE ${entityConds.join(" AND ")}` : "";
-
-      // Country population logic: sum one representative row per county.
-      //  • For each county, use the county aggregate row where siruta_code == county_code
-      //  • Special case: Bucharest → county_code 'B' with SIRUTA 179132
-      const countryPopulationSql = `(
-        SELECT SUM(pop_val) FROM (
-          SELECT MAX(CASE
-            WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-            WHEN u2.siruta_code = u2.county_code THEN u2.population
-            ELSE 0
-          END) AS pop_val
-          FROM ${TABLES.UATS} u2
-          GROUP BY u2.county_code
-        ) cp
-      )`;
-
-      // CTE pipeline:
-      //  1) amounts          → yearly sums of fiscal amounts (isolated from denominator logic)
-      //  2) years            → distinct years to ensure we produce a row for each year present in amounts
-      //  3) population_units → the set of unique population units implied by the filters
-      //  4) denominator      → for each year, choose country pop if present, otherwise sum distinct unit pops
-      query = `
-        WITH amounts AS (
-          -- (1) Sum amounts per year under the fiscal filters
-          SELECT eli.year, COALESCE(SUM(eli.ytd_amount), 0) AS total_amount
-          FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-          ${joinClauses ? " " + joinClauses : ""}
-          ${whereClause}
-          GROUP BY eli.year
-        ),
-        years AS (
-          -- (2) All years appearing in the amounts CTE
-          SELECT DISTINCT year FROM amounts
-        ),
-        population_units AS (
-          -- (3) Units contributing to the denominator
-          ${hasEntityFilter
-          ? `
-          SELECT
-            -- A stable key to deduplicate population units
-            CASE
-              WHEN e.is_uat THEN 'uat:' || ul.id::text
-              WHEN e.entity_type = 'admin_county_council' THEN 'county:' || ul.county_code
-              ELSE 'country:RO'
-            END AS pop_unit_key,
-            -- The numeric population value for the unit
-            CASE
-              WHEN e.is_uat THEN COALESCE(ul.population, 0)
-              WHEN e.entity_type = 'admin_county_council' THEN (
-                SELECT MAX(CASE
-                  WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-                  WHEN u2.siruta_code = u2.county_code THEN u2.population
-                  ELSE 0
-                END)
-                FROM ${TABLES.UATS} u2
-                WHERE u2.county_code = ul.county_code
-              )
-              ELSE ${countryPopulationSql}
-            END AS pop_value,
-            -- Helpful for logic and diagnostics
-            CASE
-              WHEN e.is_uat THEN 'uat'
-              WHEN e.entity_type = 'admin_county_council' THEN 'county'
-              ELSE 'country'
-            END AS scope
-          FROM ${TABLES.ENTITIES} e
-          LEFT JOIN ${TABLES.UATS} ul
-            ON (ul.id = e.uat_id) OR (ul.uat_code = e.cui)
-          ${entityWhereClause}
-          `
-          : `
-          -- No entity filter: denominator is country population
-          SELECT 'country:RO' AS pop_unit_key, ${countryPopulationSql} AS pop_value, 'country' AS scope
-          `
-        }
-        ),
-        denominator AS (
-          -- (4) Choose denominator: country pop if present, else sum distinct units
-          SELECT y.year,
-                 CASE WHEN EXISTS (SELECT 1 FROM population_units pu WHERE pu.scope = 'country')
-                      THEN (SELECT MAX(pop_value) FROM population_units pu WHERE pu.scope = 'country')
-                      ELSE (
-                        SELECT COALESCE(SUM(pop_value), 0)
-                        FROM (SELECT DISTINCT pop_unit_key, pop_value FROM population_units) d
-                      )
-                 END AS population
-          FROM years y
-        )
-        SELECT a.year,
-               -- Final per-capita value with divide-by-zero protection
-               COALESCE(a.total_amount / NULLIF(d.population, 0), 0) AS value
-        FROM amounts a
-        JOIN denominator d ON d.year = a.year
-        ORDER BY a.year ASC
-      `;
-
-      // Append the entity-only filter values at the **end** so that SQL placeholders stay aligned
-      values.push(...entityValues);
-    }
+    const query = `SELECT eli.year, COALESCE(SUM(eli.ytd_amount), 0) AS value
+      FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
+      ${joinClauses ? " " + joinClauses : ""}
+      ${whereClause}
+      GROUP BY eli.year
+      ORDER BY eli.year ASC`;
 
     const result = await pool.query(query, values);
     let yearlyTrend = result.rows.map(row => ({ year: parseInt(row.year, 10), value: parseFloat(row.value) }));
-
+    if (needsPerCapita) {
+      const denom = await computeDenominatorPopulation(filters);
+      yearlyTrend = yearlyTrend.map(({ year, value }) => ({ year, value: denom > 0 ? value / denom : 0 }));
+    }
     if (needsEuro) {
       const rateByYear = getEurRateMap();
       yearlyTrend = yearlyTrend.map(({ year, value }) => {
@@ -924,132 +776,12 @@ export const executionLineItemRepository = {
     const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
     const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
-    let query: string;
-
-    if (!needsPerCapita) {
-      // Simple total by year, month
-      query = `SELECT eli.year, eli.month, COALESCE(SUM(eli.monthly_amount), 0) AS value
-        FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-        ${joinClauses ? " " + joinClauses : ""}
-        ${whereClause}
-        GROUP BY eli.year, eli.month
-        ORDER BY eli.year ASC, eli.month ASC`;
-    } else {
-      const hasEntityFilter = Boolean(
-        (filters.entity_cuis && filters.entity_cuis.length) ||
-        (filters.uat_ids && filters.uat_ids.length) ||
-        (filters.county_codes && filters.county_codes.length) ||
-        typeof filters.is_uat === "boolean" ||
-        (filters.entity_types && filters.entity_types.length)
-      );
-
-      let paramIndex = values.length + 1;
-      const entityConds: string[] = [];
-      const entityValues: any[] = [];
-
-      if (filters.entity_cuis?.length) {
-        entityConds.push(`e.cui = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_cuis);
-      }
-      if (filters.entity_types?.length) {
-        entityConds.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_types);
-      }
-      if (filters.is_uat !== undefined) {
-        entityConds.push(`e.is_uat = $${paramIndex++}`);
-        entityValues.push(filters.is_uat);
-      }
-      if (filters.uat_ids?.length) {
-        entityConds.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-        entityValues.push(filters.uat_ids);
-      }
-      if (filters.county_codes?.length) {
-        entityConds.push(`ul.county_code = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.county_codes);
-      }
-
-      const entityWhereClause = entityConds.length ? `WHERE ${entityConds.join(" AND ")}` : "";
-
-      const countryPopulationSql = `(
-        SELECT SUM(pop_val) FROM (
-          SELECT MAX(CASE
-            WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-            WHEN u2.siruta_code = u2.county_code THEN u2.population
-            ELSE 0
-          END) AS pop_val
-          FROM ${TABLES.UATS} u2
-          GROUP BY u2.county_code
-        ) cp
-      )`;
-
-      query = `
-        WITH amounts AS (
-          SELECT eli.year, eli.month, COALESCE(SUM(eli.monthly_amount), 0) AS total_amount
-          FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-          ${joinClauses ? " " + joinClauses : ""}
-          ${whereClause}
-          GROUP BY eli.year, eli.month
-        ),
-        months AS (
-          SELECT DISTINCT year, month FROM amounts
-        ),
-        population_units AS (
-          ${hasEntityFilter
-          ? `
-          SELECT
-            CASE
-              WHEN e.is_uat THEN 'uat:' || ul.id::text
-              WHEN e.entity_type = 'admin_county_council' THEN 'county:' || ul.county_code
-              ELSE 'country:RO'
-            END AS pop_unit_key,
-            CASE
-              WHEN e.is_uat THEN COALESCE(ul.population, 0)
-              WHEN e.entity_type = 'admin_county_council' THEN (
-                SELECT MAX(CASE
-                  WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-                  WHEN u2.siruta_code = u2.county_code THEN u2.population
-                  ELSE 0
-                END)
-                FROM ${TABLES.UATS} u2
-                WHERE u2.county_code = ul.county_code
-              )
-              ELSE ${countryPopulationSql}
-            END AS pop_value,
-            CASE
-              WHEN e.is_uat THEN 'uat'
-              WHEN e.entity_type = 'admin_county_council' THEN 'county'
-              ELSE 'country'
-            END AS scope
-          FROM ${TABLES.ENTITIES} e
-          LEFT JOIN ${TABLES.UATS} ul
-            ON (ul.id = e.uat_id) OR (ul.uat_code = e.cui)
-          ${entityWhereClause}
-          `
-          : `
-          SELECT 'country:RO' AS pop_unit_key, ${countryPopulationSql} AS pop_value, 'country' AS scope
-          `
-        }
-        ),
-        denominator AS (
-          SELECT m.year, m.month,
-                 CASE WHEN EXISTS (SELECT 1 FROM population_units pu WHERE pu.scope = 'country')
-                      THEN (SELECT MAX(pop_value) FROM population_units pu WHERE pu.scope = 'country')
-                      ELSE (
-                        SELECT COALESCE(SUM(pop_value), 0)
-                        FROM (SELECT DISTINCT pop_unit_key, pop_value FROM population_units) d
-                      )
-                 END AS population
-          FROM months m
-        )
-        SELECT a.year, a.month,
-               COALESCE(a.total_amount / NULLIF(d.population, 0), 0) AS value
-        FROM amounts a
-        JOIN denominator d ON d.year = a.year AND d.month = a.month
-        ORDER BY a.year ASC, a.month ASC
-      `;
-
-      values.push(...entityValues);
-    }
+    const query = `SELECT eli.year, eli.month, COALESCE(SUM(eli.monthly_amount), 0) AS value
+      FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
+      ${joinClauses ? " " + joinClauses : ""}
+      ${whereClause}
+      GROUP BY eli.year, eli.month
+      ORDER BY eli.year ASC, eli.month ASC`;
 
     const result = await pool.query(query, values);
     let monthlyTrend: { year: number; month: number; value: number }[] = result.rows.map((row) => ({
@@ -1058,6 +790,10 @@ export const executionLineItemRepository = {
       value: parseFloat(row.value),
     }));
 
+    if (needsPerCapita) {
+      const denom = await computeDenominatorPopulation(filters);
+      monthlyTrend = monthlyTrend.map(({ year, month, value }) => ({ year, month, value: denom > 0 ? value / denom : 0 }));
+    }
     if (needsEuro) {
       const rateByYear = getEurRateMap();
       monthlyTrend = monthlyTrend.map(({ year, month, value }) => {
@@ -1089,131 +825,12 @@ export const executionLineItemRepository = {
     const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
     const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
-    let query: string;
-
-    if (!needsPerCapita) {
-      query = `SELECT eli.year, eli.quarter, COALESCE(SUM(eli.quarterly_amount), 0) AS value
-        FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-        ${joinClauses ? " " + joinClauses : ""}
-        ${whereClause}
-        GROUP BY eli.year, eli.quarter
-        ORDER BY eli.year ASC, eli.quarter ASC`;
-    } else {
-      const hasEntityFilter = Boolean(
-        (filters.entity_cuis && filters.entity_cuis.length) ||
-        (filters.uat_ids && filters.uat_ids.length) ||
-        (filters.county_codes && filters.county_codes.length) ||
-        typeof filters.is_uat === "boolean" ||
-        (filters.entity_types && filters.entity_types.length)
-      );
-
-      let paramIndex = values.length + 1;
-      const entityConds: string[] = [];
-      const entityValues: any[] = [];
-
-      if (filters.entity_cuis?.length) {
-        entityConds.push(`e.cui = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_cuis);
-      }
-      if (filters.entity_types?.length) {
-        entityConds.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.entity_types);
-      }
-      if (filters.is_uat !== undefined) {
-        entityConds.push(`e.is_uat = $${paramIndex++}`);
-        entityValues.push(filters.is_uat);
-      }
-      if (filters.uat_ids?.length) {
-        entityConds.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-        entityValues.push(filters.uat_ids);
-      }
-      if (filters.county_codes?.length) {
-        entityConds.push(`ul.county_code = ANY($${paramIndex++}::text[])`);
-        entityValues.push(filters.county_codes);
-      }
-
-      const entityWhereClause = entityConds.length ? `WHERE ${entityConds.join(" AND ")}` : "";
-
-      const countryPopulationSql = `(
-        SELECT SUM(pop_val) FROM (
-          SELECT MAX(CASE
-            WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-            WHEN u2.siruta_code = u2.county_code THEN u2.population
-            ELSE 0
-          END) AS pop_val
-          FROM ${TABLES.UATS} u2
-          GROUP BY u2.county_code
-        ) cp
-      )`;
-
-      query = `
-        WITH amounts AS (
-          SELECT eli.year, eli.quarter, COALESCE(SUM(eli.quarterly_amount), 0) AS total_amount
-          FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
-          ${joinClauses ? " " + joinClauses : ""}
-          ${whereClause}
-          GROUP BY eli.year, eli.quarter
-        ),
-        quarters AS (
-          SELECT DISTINCT year, quarter FROM amounts
-        ),
-        population_units AS (
-          ${hasEntityFilter
-          ? `
-          SELECT
-            CASE
-              WHEN e.is_uat THEN 'uat:' || ul.id::text
-              WHEN e.entity_type = 'admin_county_council' THEN 'county:' || ul.county_code
-              ELSE 'country:RO'
-            END AS pop_unit_key,
-            CASE
-              WHEN e.is_uat THEN COALESCE(ul.population, 0)
-              WHEN e.entity_type = 'admin_county_council' THEN (
-                SELECT MAX(CASE
-                  WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-                  WHEN u2.siruta_code = u2.county_code THEN u2.population
-                  ELSE 0
-                END)
-                FROM ${TABLES.UATS} u2
-                WHERE u2.county_code = ul.county_code
-              )
-              ELSE ${countryPopulationSql}
-            END AS pop_value,
-            CASE
-              WHEN e.is_uat THEN 'uat'
-              WHEN e.entity_type = 'admin_county_council' THEN 'county'
-              ELSE 'country'
-            END AS scope
-          FROM ${TABLES.ENTITIES} e
-          LEFT JOIN ${TABLES.UATS} ul
-            ON (ul.id = e.uat_id) OR (ul.uat_code = e.cui)
-          ${entityWhereClause}
-          `
-          : `
-          SELECT 'country:RO' AS pop_unit_key, ${countryPopulationSql} AS pop_value, 'country' AS scope
-          `
-        }
-        ),
-        denominator AS (
-          SELECT q.year, q.quarter,
-                 CASE WHEN EXISTS (SELECT 1 FROM population_units pu WHERE pu.scope = 'country')
-                      THEN (SELECT MAX(pop_value) FROM population_units pu WHERE pu.scope = 'country')
-                      ELSE (
-                        SELECT COALESCE(SUM(pop_value), 0)
-                        FROM (SELECT DISTINCT pop_unit_key, pop_value FROM population_units) d
-                      )
-                 END AS population
-          FROM quarters q
-        )
-        SELECT a.year, a.quarter,
-               COALESCE(a.total_amount / NULLIF(d.population, 0), 0) AS value
-        FROM amounts a
-        JOIN denominator d ON d.year = a.year AND d.quarter = a.quarter
-        ORDER BY a.year ASC, a.quarter ASC
-      `;
-
-      values.push(...entityValues);
-    }
+    const query = `SELECT eli.year, eli.quarter, COALESCE(SUM(eli.quarterly_amount), 0) AS value
+      FROM ${TABLES.EXECUTION_LINE_ITEMS} eli
+      ${joinClauses ? " " + joinClauses : ""}
+      ${whereClause}
+      GROUP BY eli.year, eli.quarter
+      ORDER BY eli.year ASC, eli.quarter ASC`;
 
     const result = await pool.query(query, values);
     let quarterlyTrend: { year: number; quarter: number; value: number }[] = result.rows.map((row) => ({
@@ -1222,6 +839,10 @@ export const executionLineItemRepository = {
       value: parseFloat(row.value),
     }));
 
+    if (needsPerCapita) {
+      const denom = await computeDenominatorPopulation(filters);
+      quarterlyTrend = quarterlyTrend.map(({ year, quarter, value }) => ({ year, quarter, value: denom > 0 ? value / denom : 0 }));
+    }
     if (needsEuro) {
       const rateByYear = getEurRateMap();
       quarterlyTrend = quarterlyTrend.map(({ year, quarter, value }) => {

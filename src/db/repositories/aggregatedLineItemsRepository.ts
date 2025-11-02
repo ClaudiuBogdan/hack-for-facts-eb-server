@@ -2,6 +2,7 @@ import pool from "../connection";
 import { createCache, getCacheKey } from "../../utils/cache";
 import { AnalyticsFilter } from "../../types";
 import { buildPeriodFilterSql, getAmountSqlFragments, getEurRateMap } from "./utils";
+import { computeDenominatorPopulation } from "./population";
 
 // Fallback bucket for items missing an economic classification
 const DEFAULT_ECONOMIC_CODE = "00.00.00";
@@ -440,106 +441,3 @@ export const aggregatedLineItemsRepository = {
     return { rows: pagedRows, totalCount: rows.length };
   },
 };
-
-// --- Helpers for normalization ---
-
-async function computeDenominatorPopulation(filter: AnalyticsFilter): Promise<number> {
-  // Determine whether to scope denominator to selected entities or country
-  const hasEntityFilter = Boolean(
-    (filter.entity_cuis && filter.entity_cuis.length) ||
-    (filter.uat_ids && filter.uat_ids.length) ||
-    (filter.county_codes && filter.county_codes.length) ||
-    typeof filter.is_uat === "boolean" ||
-    (filter.entity_types && filter.entity_types.length)
-  );
-
-  const countryPopulationSql = `(
-    SELECT SUM(pop_val) FROM (
-      SELECT MAX(CASE
-        WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-        WHEN u2.siruta_code = u2.county_code THEN u2.population
-        ELSE 0
-      END) AS pop_val
-      FROM UATs u2
-      GROUP BY u2.county_code
-    ) cp
-  )`;
-
-  if (!hasEntityFilter) {
-    const res = await pool.query(`SELECT ${countryPopulationSql} AS population`);
-    return parseInt(res.rows[0]?.population ?? 0, 10) || 0;
-  }
-
-  let paramIndex = 1;
-  const entityConds: string[] = [];
-  const entityValues: any[] = [];
-
-  if (filter.entity_cuis?.length) {
-    entityConds.push(`e.cui = ANY($${paramIndex++}::text[])`);
-    entityValues.push(filter.entity_cuis);
-  }
-  if (filter.entity_types?.length) {
-    entityConds.push(`e.entity_type = ANY($${paramIndex++}::text[])`);
-    entityValues.push(filter.entity_types);
-  }
-  if (typeof filter.is_uat === "boolean") {
-    entityConds.push(`e.is_uat = $${paramIndex++}`);
-    entityValues.push(filter.is_uat);
-  }
-  if (filter.uat_ids?.length) {
-    entityConds.push(`e.uat_id = ANY($${paramIndex++}::int[])`);
-    entityValues.push(filter.uat_ids);
-  }
-  if (filter.county_codes?.length) {
-    entityConds.push(`ul.county_code = ANY($${paramIndex++}::text[])`);
-    entityValues.push(filter.county_codes);
-  }
-
-  const entityWhereClause = entityConds.length ? `WHERE ${entityConds.join(" AND ")}` : "";
-
-  const query = `
-    WITH population_units AS (
-      SELECT
-        CASE
-          WHEN e.is_uat THEN 'uat:' || ul.id::text
-          WHEN e.entity_type = 'admin_county_council' THEN 'county:' || ul.county_code
-          ELSE 'country:RO'
-        END AS pop_unit_key,
-        CASE
-          WHEN e.is_uat THEN COALESCE(ul.population, 0)
-          WHEN e.entity_type = 'admin_county_council' THEN (
-            SELECT MAX(CASE
-              WHEN u2.county_code = 'B' AND u2.siruta_code = '179132' THEN u2.population
-              WHEN u2.siruta_code = u2.county_code THEN u2.population
-              ELSE 0
-            END)
-            FROM UATs u2
-            WHERE u2.county_code = ul.county_code
-          )
-          ELSE ${countryPopulationSql}
-        END AS pop_value,
-        CASE
-          WHEN e.is_uat THEN 'uat'
-          WHEN e.entity_type = 'admin_county_council' THEN 'county'
-          ELSE 'country'
-        END AS scope
-      FROM Entities e
-      LEFT JOIN UATs ul
-        ON (ul.id = e.uat_id) OR (ul.uat_code = e.cui)
-      ${entityWhereClause}
-    ),
-    denominator AS (
-      SELECT CASE WHEN EXISTS (SELECT 1 FROM population_units pu WHERE pu.scope = 'country')
-                  THEN (SELECT MAX(pop_value) FROM population_units pu WHERE pu.scope = 'country')
-                  ELSE (
-                    SELECT COALESCE(SUM(pop_value), 0)
-                    FROM (SELECT DISTINCT pop_unit_key, pop_value FROM population_units) d
-                  )
-             END AS population
-    )
-    SELECT population FROM denominator
-  `;
-
-  const res = await pool.query(query, entityValues);
-  return parseInt(res.rows[0]?.population ?? 0, 10) || 0;
-}
