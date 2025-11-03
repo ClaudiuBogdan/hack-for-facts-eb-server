@@ -14,6 +14,7 @@ import { getEntityHealthCheckPrompt } from "./prompts/entity-health-check";
 import { getPeerComparisonPrompt } from "./prompts/peer-comparison";
 import { getOutlierHunterPrompt } from "./prompts/outlier-hunter";
 import { getTrendTrackerPrompt } from "./prompts/trend-tracker";
+import { getDeepDiveInvestigationPrompt } from "./prompts/deep-dive-investigation";
 // MCP Resources
 import { getFunctionalClassificationGuide } from "./resources/functional-classification-guide";
 import { getEconomicClassificationGuide } from "./resources/economic-classification-guide";
@@ -1243,6 +1244,48 @@ Note: total_amount and per_capita_amount fields are ALWAYS in RON regardless of 
         },
       ],
     })
+  );
+
+  server.registerPrompt(
+    "deep_dive_investigation",
+    {
+      title: "Investigație de Profunzime",
+      description: "Investigație detaliată a unei categorii specifice de cheltuieli sau venituri",
+      argsSchema: {
+        entity_cui: z.string().optional(),
+        region: z.string().optional(),
+        investigation_focus: z.string(),
+        years: z.string().optional(),
+      },
+    },
+    ({ entity_cui, region, investigation_focus, years }) => {
+      // Parse years parameter - can be single year "2023" or comma-separated "2020,2021,2022,2023"
+      let parsedYears: number | number[] | undefined;
+      if (years) {
+        if (years.includes(',')) {
+          parsedYears = years.split(',').map(y => Number(y.trim()));
+        } else {
+          parsedYears = Number(years);
+        }
+      }
+
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: getDeepDiveInvestigationPrompt({
+                entity_cui,
+                region,
+                investigation_focus: investigation_focus || '',
+                years: parsedYears,
+              }),
+            },
+          },
+        ],
+      };
+    }
   );
 
   return server;
