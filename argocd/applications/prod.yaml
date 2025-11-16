@@ -4,7 +4,7 @@ metadata:
   name: hack-for-facts-eb-server-prod
   namespace: argocd
 spec:
-  project: hack-for-facts
+  project: transparenta.eu
   source:
     kustomize:
       commonAnnotationsEnvsubst: true
