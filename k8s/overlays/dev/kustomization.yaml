@@ -20,9 +20,6 @@ patches:
         path: /metadata/namespace
         value: hack-for-facts-dev
       - op: replace
-        path: /spec/imageName
-        value: ghcr.io/cloudnative-pg/postgresql:17.2
-      - op: replace
         path: /spec/storage/size
         value: 100Gi
       - op: replace
