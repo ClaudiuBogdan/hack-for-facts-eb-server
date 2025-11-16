@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: bitnami/redis:7.2
+          image: bitnami/redis:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: ALLOW_EMPTY_PASSWORD
