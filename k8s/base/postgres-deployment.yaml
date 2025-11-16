@@ -23,5 +23,4 @@ spec:
       shared_buffers: "256MB"
       
   storage:
-    size: 10Gi
-    storageClass: "microk8s-hostpath"
+    size: 100Gi

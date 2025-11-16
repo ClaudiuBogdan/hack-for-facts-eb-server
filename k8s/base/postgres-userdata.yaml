@@ -22,7 +22,6 @@ spec:
       shared_buffers: "256MB"
       password_encryption: "scram-sha-256"
   storage:
-    size: 20Gi
-    storageClass: "microk8s-hostpath"
+    size: 50Gi
 
 
