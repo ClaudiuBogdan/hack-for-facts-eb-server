@@ -8,6 +8,7 @@ metadata:
     argocd.argoproj.io/sync-options: Delete=false
 spec:
   instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.0-202511100807-standard-trixie
   bootstrap:
     initdb:
       owner: database-user
