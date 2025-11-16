@@ -28,8 +28,7 @@ patches:
       - op: add
         path: /spec/walStorage
         value:
-          size: 20Gi
-          storageClass: "microk8s-hostpath"
+          size: 50Gi
       - op: replace
         path: /spec/bootstrap/initdb/database
         value: hack-for-facts-prod
@@ -43,8 +42,8 @@ patches:
             memory: "4Gi"
             cpu: "1"
           limits:
-            memory: "8Gi"
-            cpu: "4"
+            memory: "16Gi"
+            cpu: "8"
       - op: replace
         path: /spec/postgresql/shared_preload_libraries
         value:
