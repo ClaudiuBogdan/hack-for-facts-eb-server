@@ -237,8 +237,10 @@ patches:
         value: hack-for-facts-prod
       - op: replace
         path: /spec/hosts/0
-        # value: "api.transparenta.eu"
         value: "hack-for-facts.devostack.com"
+      - op: replace
+        path: /spec/hosts/1
+        value: "api.transparenta.eu"
 
   - target:
       kind: ConfigMap
