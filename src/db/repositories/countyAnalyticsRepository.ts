@@ -36,6 +36,7 @@ export const countyAnalyticsRepository = {
         if (cached) return cached;
 
         const normalization = filter.normalization ?? 'total';
+        const applyEconomicExclusions = filter.account_category !== 'vn';
         const needsPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
         const needsEuro = normalization === 'total_euro' || normalization === 'per_capita_euro';
 
@@ -218,11 +219,11 @@ export const countyAnalyticsRepository = {
                 conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
                 params.push(patterns);
             }
-            if (exclude.economic_codes && exclude.economic_codes.length > 0) {
+            if (applyEconomicExclusions && exclude.economic_codes && exclude.economic_codes.length > 0) {
                 conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
                 params.push(exclude.economic_codes);
             }
-            if (exclude.economic_prefixes && exclude.economic_prefixes.length > 0) {
+            if (applyEconomicExclusions && exclude.economic_prefixes && exclude.economic_prefixes.length > 0) {
                 const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
                 conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
                 params.push(patterns);
