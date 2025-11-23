@@ -53,6 +53,7 @@ function buildEntityAnalyticsWhere(
   let paramIndex = initialParamIndex;
   let requireReportsJoin = false;
   let requireEntitiesJoin = false;
+  const applyEconomicExclusions = filter.account_category !== "vn";
 
   // CRITICAL: Add period flags FIRST to match index prefix (is_yearly, is_quarterly, ...)
   if (!filter.report_period) {
@@ -181,11 +182,11 @@ function buildEntityAnalyticsWhere(
       conditions.push(`NOT (eli.functional_code LIKE ANY($${paramIndex++}::text[]))`);
       values.push(patterns);
     }
-    if (exclude.economic_codes?.length) {
+    if (applyEconomicExclusions && exclude.economic_codes?.length) {
       conditions.push(`NOT (eli.economic_code = ANY($${paramIndex++}::text[]))`);
       values.push(exclude.economic_codes);
     }
-    if (exclude.economic_prefixes?.length) {
+    if (applyEconomicExclusions && exclude.economic_prefixes?.length) {
       const patterns = exclude.economic_prefixes.map((p) => `${p}%`);
       conditions.push(`NOT (eli.economic_code LIKE ANY($${paramIndex++}::text[]))`);
       values.push(patterns);
