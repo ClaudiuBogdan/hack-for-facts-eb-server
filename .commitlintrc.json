@@ -14,14 +14,14 @@
         "auth",
         "health",
         "database",
+        "datasets",
         "redis",
         "logging",
         "tracing",
         "tests",
         "deps",
         "config",
-        "husky",
-        "database"
+        "husky"
       ]
     ],
     "scope-empty": [1, "never"],

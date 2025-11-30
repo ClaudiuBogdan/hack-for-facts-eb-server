@@ -23,6 +23,7 @@
     "test:integration": "vitest run --dir tests/integration",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "validate-datasets": "tsx scripts/validate-datasets.ts",
     "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "prepare": "husky",
     "clean": "rm -rf dist coverage"
@@ -35,6 +36,7 @@
   "dependencies": {
     "@sinclair/typebox": "^0.34.41",
     "bullmq": "^5.65.0",
+    "decimal.js": "^10.6.0",
     "fastify": "^5.6.2",
     "fastify-plugin": "^5.1.0",
     "graphql": "^16.12.0",
@@ -43,7 +45,8 @@
     "mercurius": "^16.6.0",
     "neverthrow": "^8.2.0",
     "pg": "^8.16.3",
-    "pino": "^10.1.0"
+    "pino": "^10.1.0",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.1.0",
