@@ -1,7 +1,3 @@
-/**
- * Health module types and schemas
- */
-
 import { Type, type Static } from '@sinclair/typebox';
 
 /**

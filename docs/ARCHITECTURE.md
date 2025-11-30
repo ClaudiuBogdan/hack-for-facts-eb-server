@@ -12,12 +12,12 @@ This document defines the architectural decisions, patterns, and standards for t
 
 ### 1.2 Design Principles
 
-| Principle | What It Means |
-|:----------|:--------------|
-| **Simplicity** | Prefer straightforward solutions. Avoid abstractions until they're clearly needed. |
-| **Testability** | Business logic must be testable without databases, networks, or external services. |
-| **Explicitness** | Make errors, dependencies, and data flow visible. No hidden magic. |
-| **Reliability** | Financial data requires precision and traceability. Every output must be reproducible. |
+| Principle        | What It Means                                                                          |
+| :--------------- | :------------------------------------------------------------------------------------- |
+| **Simplicity**   | Prefer straightforward solutions. Avoid abstractions until they're clearly needed.     |
+| **Testability**  | Business logic must be testable without databases, networks, or external services.     |
+| **Explicitness** | Make errors, dependencies, and data flow visible. No hidden magic.                     |
+| **Reliability**  | Financial data requires precision and traceability. Every output must be reproducible. |
 
 ### 1.3 Scope
 
@@ -35,26 +35,26 @@ The platform ingests Romanian public budget data from 13,000+ institutions, norm
 
 ### 2.1 Core Technologies
 
-| Purpose | Technology | Why |
-|:--------|:-----------|:----|
-| Package Manager | pnpm | Fast, deterministic, secure package management |
-| Runtime | Node.js LTS | Stable, excellent async I/O, large ecosystem |
-| Language | TypeScript (strict mode) | Type safety across the entire stack |
-| Framework | Fastify | Fast, low overhead, excellent plugin system |
-| Database | PostgreSQL 16+ | Robust NUMERIC types, partitioning, mature tooling |
-| Query Builder | Kysely | Type-safe SQL, no ORM overhead |
-| Validation | TypeBox | JSON Schema with TypeScript inference |
-| Queue | BullMQ + Redis | Reliable job processing |
-| Cache | Redis | Query caching, pub/sub for invalidation |
+| Purpose         | Technology               | Why                                                |
+| :-------------- | :----------------------- | :------------------------------------------------- |
+| Package Manager | pnpm                     | Fast, deterministic, secure package management     |
+| Runtime         | Node.js LTS              | Stable, excellent async I/O, large ecosystem       |
+| Language        | TypeScript (strict mode) | Type safety across the entire stack                |
+| Framework       | Fastify                  | Fast, low overhead, excellent plugin system        |
+| Database        | PostgreSQL 16+           | Robust NUMERIC types, partitioning, mature tooling |
+| Query Builder   | Kysely                   | Type-safe SQL, no ORM overhead                     |
+| Validation      | TypeBox                  | JSON Schema with TypeScript inference              |
+| Queue           | BullMQ + Redis           | Reliable job processing                            |
+| Cache           | Redis                    | Query caching, pub/sub for invalidation            |
 
 ### 2.2 Critical Libraries
 
-| Purpose | Library | Why |
-|:--------|:--------|:----|
-| Decimal Math | decimal.js | **Mandatory** for financial calculations |
-| Error Handling | neverthrow | Explicit Result types, no thrown exceptions in business logic |
-| GraphQL | Mercurius | Native Fastify integration, performant |
-| MCP | @modelcontextprotocol/sdk | Standard protocol for AI agent access |
+| Purpose        | Library                   | Why                                                           |
+| :------------- | :------------------------ | :------------------------------------------------------------ |
+| Decimal Math   | decimal.js                | **Mandatory** for financial calculations                      |
+| Error Handling | neverthrow                | Explicit Result types, no thrown exceptions in business logic |
+| GraphQL        | Mercurius                 | Native Fastify integration, performant                        |
+| MCP            | @modelcontextprotocol/sdk | Standard protocol for AI agent access                         |
 
 ### 2.3 The "No Float" Rule
 
@@ -125,12 +125,12 @@ modules/
 
 ### 3.3 Layer Responsibilities
 
-| Layer | Responsibility | Rules |
-|:------|:---------------|:------|
-| **Core** | Business logic, domain rules, calculations | No I/O. Pure functions. Returns Result types. |
-| **Shell/Repo** | Database access | Converts DB types ↔ Domain types. SQL lives here. |
-| **Shell/API** | HTTP/GraphQL/MCP handlers | Request parsing, response formatting, error mapping. |
-| **Shell/Workers** | Background job processing | Queue consumption, orchestration. |
+| Layer             | Responsibility                             | Rules                                                |
+| :---------------- | :----------------------------------------- | :--------------------------------------------------- |
+| **Core**          | Business logic, domain rules, calculations | No I/O. Pure functions. Returns Result types.        |
+| **Shell/Repo**    | Database access                            | Converts DB types ↔ Domain types. SQL lives here.    |
+| **Shell/API**     | HTTP/GraphQL/MCP handlers                  | Request parsing, response formatting, error mapping. |
+| **Shell/Workers** | Background job processing                  | Queue consumption, orchestration.                    |
 
 ---
 
@@ -147,38 +147,43 @@ modules/{feature}/
 │   ├── logic.ts       # Pure business functions
 │   └── errors.ts      # Domain-specific errors
 ├── shell/
-│   ├── repo.ts        # Database operations
-│   ├── api.graphql.ts # GraphQL resolvers (if applicable)
-│   ├── api.rest.ts    # REST handlers (if applicable)
-│   └── worker.ts      # Queue workers (if applicable)
+│   ├── graphql/       # GraphQL resolvers
+│   ├── rest/          # REST handlers
+│   └── repo/        # Database operations
 └── index.ts           # Public exports
 ```
 
 ### 4.2 What Goes Where
 
-| File | Contains | Does NOT Contain |
-|:-----|:---------|:-----------------|
-| `core/types.ts` | Domain types, TypeBox schemas, enums | Database types, API DTOs |
-| `core/logic.ts` | Business rules, calculations, validations | Database calls, HTTP requests |
-| `core/errors.ts` | Domain error types (discriminated unions) | Infrastructure errors |
-| `shell/repo.ts` | Kysely queries, type conversions | Business logic |
-| `shell/api.*.ts` | Request handling, response mapping | Business logic, raw SQL |
+| File             | Contains                                  | Does NOT Contain                                  |
+| :--------------- | :---------------------------------------- | :------------------------------------------------ |
+| `core/types.ts`  | Domain types, TypeBox schemas, enums      | Database types, API DTOs                          |
+| `core/logic.ts`  | Business rules, calculations, validations | Database calls, HTTP requests                     |
+| `core/errors.ts` | Domain error types (discriminated unions) | Infrastructure errors                             |
+| `shell/repo/`    | Kysely queries, type conversions          | Business logic                                    |
+| `shell/graphql/` | GraphQL resolvers                         | Business logic                                    |
+| `shell/rest/`    | REST handlers                             | Business logic                                    |
+| `index.ts`       | Public exports                            | Business logic, database operations, API handlers |
 
 ### 4.3 Dependency Rules
 
 ```
-api.*.ts  ──→  core/logic.ts  ←──  repo.ts
-    │              │                  │
-    │              ▼                  │
-    │         core/types.ts           │
-    │              ▲                  │
-    └──────────────┴──────────────────┘
+    ┌──────────────────┐
+    │      SHELL       │
+    │  (API, Repo)     │
+    └────────┬─────────┘
+             │ Calls / Uses Types
+             ▼
+    ┌──────────────────┐
+    │       CORE       │
+    │  (Logic, Types)  │
+    └──────────────────┘
 ```
 
-- **Core has no dependencies** on Shell
-- **Shell depends on Core** for types and logic
-- **Repos return domain types**, not raw DB rows
-- **APIs call Core functions**, not repos directly (for complex operations)
+- **Core has NO dependencies** on Shell or infrastructure.
+- **Shell depends on Core** for types and business logic functions.
+- **API (Shell)** orchestrates: fetches data from Repo (Shell), passes it to Logic (Core), maps result to response.
+- **Repo (Shell)** returns domain types defined in Core, but does not call business logic.
 
 ---
 
@@ -196,22 +201,22 @@ Business logic uses `Result<T, E>` from neverthrow. No thrown exceptions in the 
 
 **When to use Result vs throw:**
 
-| Situation | Approach |
-|:----------|:---------|
-| Business rule violation | Return `Result.err()` |
-| Expected failure (not found, invalid input) | Return `Result.err()` |
-| Programmer error (bug) | Throw |
-| Infrastructure failure | Throw (caught at shell boundary) |
+| Situation                                   | Approach                         |
+| :------------------------------------------ | :------------------------------- |
+| Business rule violation                     | Return `Result.err()`            |
+| Expected failure (not found, invalid input) | Return `Result.err()`            |
+| Programmer error (bug)                      | Throw                            |
+| Infrastructure failure                      | Throw (caught at shell boundary) |
 
 ### 5.2 Error Mapping
 
 Each transport maps domain errors to its format:
 
-| Domain Error | REST | GraphQL | MCP |
-|:-------------|:-----|:--------|:----|
-| NotFound | 404 | NOT_FOUND extension | isError: true |
-| ValidationError | 400 | BAD_USER_INPUT | isError: true |
-| DataUnavailable | 422 | DATA_UNAVAILABLE | isError: true |
+| Domain Error    | REST | GraphQL             | MCP           |
+| :-------------- | :--- | :------------------ | :------------ |
+| NotFound        | 404  | NOT_FOUND extension | isError: true |
+| ValidationError | 400  | BAD_USER_INPUT      | isError: true |
+| DataUnavailable | 422  | DATA_UNAVAILABLE    | isError: true |
 
 ---
 
@@ -221,13 +226,13 @@ Each transport maps domain errors to its format:
 
 // TODO: this needs to be updated based on the database schema
 
-| Entity | Description | Key Field |
-|:-------|:------------|:----------|
-| **Entity** | Public institution | CUI (fiscal code) |
-| **UAT** | Administrative territorial unit | SIRUTA code |
-| **Classification** | Budget category (Functional/Economic) | Hierarchical code |
-| **ExecutionLineItem** | Single budget line item | Composite (entity + period + codes) |
-| **Dataset** | Macro indicator time series | Dataset key + period |
+| Entity                | Description                           | Key Field                           |
+| :-------------------- | :------------------------------------ | :---------------------------------- |
+| **Entity**            | Public institution                    | CUI (fiscal code)                   |
+| **UAT**               | Administrative territorial unit       | SIRUTA code                         |
+| **Classification**    | Budget category (Functional/Economic) | Hierarchical code                   |
+| **ExecutionLineItem** | Single budget line item               | Composite (entity + period + codes) |
+| **Dataset**           | Macro indicator time series           | Dataset key + period                |
 
 ### 6.2 ExecutionLineItem Dimensions
 
@@ -243,6 +248,7 @@ Each ExecutionLineItem record has these dimensions:
 - **Report Type:** Detailed, Secondary Aggregated, Principal Aggregated
 
 ---
+
 // TODO: update this based on the database schema
 
 ## 7. Database Strategy
@@ -256,14 +262,14 @@ Each ExecutionLineItem record has these dimensions:
 
 ### 7.2 Key Tables
 
-| Table | Purpose | Partitioning |
-|:------|:--------|:-------------|
-| `budget_facts` | Core fact table | By year |
-| `entities` | Institution registry | None |
-| `uats` | Geographic units | None |
-| `classification_closure` | Hierarchy relationships | None |
-| `import_batches` | Ingestion lineage | None |
-| `rollups_*` | Pre-aggregated summaries | By scope |
+| Table                    | Purpose                  | Partitioning |
+| :----------------------- | :----------------------- | :----------- |
+| `budget_facts`           | Core fact table          | By year      |
+| `entities`               | Institution registry     | None         |
+| `uats`                   | Geographic units         | None         |
+| `classification_closure` | Hierarchy relationships  | None         |
+| `import_batches`         | Ingestion lineage        | None         |
+| `rollups_*`              | Pre-aggregated summaries | By scope     |
 
 ### 7.3 Rollup Strategy
 
@@ -276,6 +282,7 @@ Pre-compute common aggregations to avoid full table scans:
 **Rollups are projections, not source of truth.** They can be rebuilt from facts.
 
 ---
+
 // TODO: this is done in a different repo. Can be integrated at a later stage.
 
 ## 8. Ingestion Pipeline
@@ -286,15 +293,15 @@ Pre-compute common aggregations to avoid full table scans:
 Acquire → Parse → Validate → Canonicalize → Persist → Refresh Rollups → Publish Event
 ```
 
-| Stage | Responsibility |
-|:------|:---------------|
-| **Acquire** | Fetch source files, store metadata |
-| **Parse** | Convert format to raw rows |
-| **Validate** | Check structure, codes, required fields |
-| **Canonicalize** | Normalize codes, attach lineage |
-| **Persist** | Upsert to fact tables |
-| **Refresh** | Update affected rollups |
-| **Publish** | Emit event for cache invalidation, alerts |
+| Stage            | Responsibility                            |
+| :--------------- | :---------------------------------------- |
+| **Acquire**      | Fetch source files, store metadata        |
+| **Parse**        | Convert format to raw rows                |
+| **Validate**     | Check structure, codes, required fields   |
+| **Canonicalize** | Normalize codes, attach lineage           |
+| **Persist**      | Upsert to fact tables                     |
+| **Refresh**      | Update affected rollups                   |
+| **Publish**      | Emit event for cache invalidation, alerts |
 
 ### 8.2 Idempotency
 
@@ -330,11 +337,11 @@ MCP      ─┘
 
 ### 9.2 Transport Purposes
 
-| Transport | Optimized For | Caching |
-|:----------|:--------------|:--------|
-| **GraphQL** | Interactive exploration, dashboards | DataLoader batching |
-| **REST** | Stable URLs, CDN caching | ETag, Cache-Control headers |
-| **MCP** | AI agent access | Rate limited |
+| Transport   | Optimized For                       | Caching                     |
+| :---------- | :---------------------------------- | :-------------------------- |
+| **GraphQL** | Interactive exploration, dashboards | DataLoader batching         |
+| **REST**    | Stable URLs, CDN caching            | ETag, Cache-Control headers |
+| **MCP**     | AI agent access                     | Rate limited                |
 
 ### 9.3 API Design Rules
 
@@ -351,10 +358,10 @@ MCP      ─┘
 
 // TODO: update this. The caching is using some input params, like the filters to generate a key.
 
-| Layer | Scope | TTL | Invalidation |
-|:------|:------|:----|:-------------|
-| **HTTP** | REST responses | 24h | ETag mismatch |
-| **Redis** | Service results | 1h | Pub/sub on import |
+| Layer     | Scope           | TTL | Invalidation      |
+| :-------- | :-------------- | :-- | :---------------- |
+| **HTTP**  | REST responses  | 24h | ETag mismatch     |
+| **Redis** | Service results | 1h  | Pub/sub on import |
 
 ### 10.2 Cache Keys
 
@@ -387,11 +394,11 @@ We can have granular, based on the cache prefix.
 
 ### 11.2 What to Test Where
 
-| Test Type | What | How |
-|:----------|:-----|:----|
-| **Unit** | Core functions, business rules | Direct function calls, no mocks needed |
-| **Integration** | Repositories, DB queries | Dockerized Postgres, real SQL |
-| **E2E** | Full request/response | HTTP calls to running server |
+| Test Type       | What                           | How                                    |
+| :-------------- | :----------------------------- | :------------------------------------- |
+| **Unit**        | Core functions, business rules | Direct function calls, no mocks needed |
+| **Integration** | Repositories, DB queries       | Dockerized Postgres, real SQL          |
+| **E2E**         | Full request/response          | HTTP calls to running server           |
 
 ### 11.3 Testing Rules
 
@@ -402,12 +409,12 @@ We can have granular, based on the cache prefix.
 
 ### 11.4 What Makes Code Testable
 
-| Practice | Why It Helps |
-|:---------|:-------------|
-| Pure functions | Test with inputs/outputs, no setup |
-| Explicit dependencies | Easy to substitute in tests |
-| Result types | Error paths are explicit |
-| Small functions | Fewer test cases per function |
+| Practice              | Why It Helps                       |
+| :-------------------- | :--------------------------------- |
+| Pure functions        | Test with inputs/outputs, no setup |
+| Explicit dependencies | Easy to substitute in tests        |
+| Result types          | Error paths are explicit           |
+| Small functions       | Fewer test cases per function      |
 
 ---
 
@@ -428,13 +435,13 @@ We can have granular, based on the cache prefix.
 
 ### 12.2 Naming Conventions
 
-| Thing | Convention | Example |
-|:------|:-----------|:--------|
-| Files | kebab-case | `budget-summary.ts` |
-| Types/Interfaces | PascalCase | `BudgetEntry` |
-| Functions | camelCase | `calculateTotal` |
-| Constants | UPPER_SNAKE | `MAX_BATCH_SIZE` |
-| Database tables | snake_case | `budget_facts` |
+| Thing            | Convention  | Example             |
+| :--------------- | :---------- | :------------------ |
+| Files            | kebab-case  | `budget-summary.ts` |
+| Types/Interfaces | PascalCase  | `BudgetEntry`       |
+| Functions        | camelCase   | `calculateTotal`    |
+| Constants        | UPPER_SNAKE | `MAX_BATCH_SIZE`    |
+| Database tables  | snake_case  | `budget_facts`      |
 
 ### 12.3 Code Organization Rules
 
@@ -518,8 +525,8 @@ Essential metrics:
 
 ### 15.1 Workloads
 
-| Service | Scaling | Notes |
-|:--------|:--------|:------|
+| Service | Scaling                  | Notes     |
+| :------ | :----------------------- | :-------- |
 | **API** | Horizontal by CPU/memory | Stateless |
 
 ### 15.2 Configuration
@@ -538,29 +545,29 @@ Essential metrics:
 
 ## 16. Key Decisions Summary
 
-| Decision | Choice | Rationale |
-|:---------|:-------|:----------|
-| Architecture pattern | Functional Core / Imperative Shell | Testability, simplicity |
-| Code organization | Vertical slices | Feature cohesion |
-| Error handling | Result types (neverthrow) | Explicit error flow |
-| Financial math | decimal.js | Precision required |
-| Database | PostgreSQL + Kysely | Type safety, mature tooling |
-| API framework | Fastify | Performance, plugin system |
-| Job processing | BullMQ | Reliability, Redis-based |
-| Multi-protocol | Shared service layer | No logic duplication |
+| Decision             | Choice                             | Rationale                   |
+| :------------------- | :--------------------------------- | :-------------------------- |
+| Architecture pattern | Functional Core / Imperative Shell | Testability, simplicity     |
+| Code organization    | Vertical slices                    | Feature cohesion            |
+| Error handling       | Result types (neverthrow)          | Explicit error flow         |
+| Financial math       | decimal.js                         | Precision required          |
+| Database             | PostgreSQL + Kysely                | Type safety, mature tooling |
+| API framework        | Fastify                            | Performance, plugin system  |
+| Job processing       | BullMQ                             | Reliability, Redis-based    |
+| Multi-protocol       | Shared service layer               | No logic duplication        |
 
 ---
 
 ## 17. What This Architecture Avoids
 
-| Anti-pattern | Why We Avoid It |
-|:-------------|:----------------|
-| Business logic in handlers | Untestable, duplicated |
-| Business logic in SQL | Hard to test, hidden |
-| Thrown exceptions for control flow | Unclear error paths |
-| Deep abstraction layers | Complexity without benefit |
-| Magic/implicit behavior | Hard to debug and understand |
-| Floating point for money | Precision errors |
+| Anti-pattern                       | Why We Avoid It              |
+| :--------------------------------- | :--------------------------- |
+| Business logic in handlers         | Untestable, duplicated       |
+| Business logic in SQL              | Hard to test, hidden         |
+| Thrown exceptions for control flow | Unclear error paths          |
+| Deep abstraction layers            | Complexity without benefit   |
+| Magic/implicit behavior            | Hard to debug and understand |
+| Floating point for money           | Precision errors             |
 
 ---
 

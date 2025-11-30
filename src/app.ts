@@ -9,7 +9,15 @@ import fastifyLib, {
   type FastifyError,
 } from 'fastify';
 
-import { makeHealthRoutes, type HealthChecker } from './modules/health/index.js';
+import { makeGraphQLPlugin } from './infra/graphql/index.js';
+import { BaseSchema } from './infra/graphql/schema.js';
+import { mergeResolvers } from './infra/graphql/utils.js';
+import {
+  makeHealthRoutes,
+  makeHealthResolvers,
+  healthSchema,
+  type HealthChecker,
+} from './modules/health/index.js';
 
 /**
  * Application dependencies that can be injected
@@ -44,6 +52,23 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     makeHealthRoutes({
       ...(version !== undefined && { version }),
       checkers: deps.healthCheckers,
+    })
+  );
+
+  // Setup GraphQL
+  const healthResolvers = makeHealthResolvers({
+    ...(version !== undefined && { version }),
+    checkers: deps.healthCheckers,
+  });
+
+  // Combine schemas and resolvers
+  const schema = [BaseSchema, healthSchema];
+  const resolvers = mergeResolvers([healthResolvers]);
+
+  await app.register(
+    makeGraphQLPlugin({
+      schema,
+      resolvers,
     })
   );
 

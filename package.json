@@ -23,6 +23,7 @@
     "test:integration": "vitest run --dir tests/integration",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "prepare": "husky",
     "clean": "rm -rf dist coverage"
   },
@@ -36,8 +37,10 @@
     "bullmq": "^5.65.0",
     "fastify": "^5.6.2",
     "fastify-plugin": "^5.1.0",
+    "graphql": "^16.12.0",
     "ioredis": "^5.8.2",
     "kysely": "^0.28.8",
+    "mercurius": "^16.6.0",
     "neverthrow": "^8.2.0",
     "pg": "^8.16.3",
     "pino": "^10.1.0"

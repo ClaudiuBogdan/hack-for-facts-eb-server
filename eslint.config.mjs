@@ -139,6 +139,7 @@ export default defineConfig(
       ],
       'import-x/no-duplicates': ['error', { 'prefer-inline': true }],
       'import-x/no-cycle': 'error',
+      'import-x/no-named-as-default-member': 'off',
 
       // Unused Vars
       '@typescript-eslint/no-unused-vars': [
@@ -236,7 +237,7 @@ export default defineConfig(
   // C. API HANDLERS (Shell/API)
   {
     // API handlers often need to be async to satisfy Fastify types, even if they strictly await services
-    files: ['src/modules/*/shell/api.*.ts', 'src/app.ts', 'src/modules/*/routes.ts'],
+    files: ['src/modules/*/shell/api.*.ts', 'src/app.ts', 'src/modules/*/shell/rest/routes.ts'],
     rules: {
       '@typescript-eslint/require-await': 'off',
     },

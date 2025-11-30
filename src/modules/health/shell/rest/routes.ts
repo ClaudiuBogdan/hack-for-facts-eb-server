@@ -3,14 +3,14 @@
  * Provides liveness and readiness endpoints for Kubernetes probes
  */
 
+import { evaluateReadiness, mapCheckResults } from '../../core/logic.js';
 import {
   LivenessResponseSchema,
   ReadinessResponseSchema,
   type HealthDeps,
-  type HealthCheckResult,
   type LivenessResponse,
   type ReadinessResponse,
-} from './types.js';
+} from '../../core/types.js';
 
 import type { FastifyPluginAsync } from 'fastify';
 
@@ -55,40 +55,20 @@ export const makeHealthRoutes = (deps: HealthDeps = {}): FastifyPluginAsync => {
         },
       },
       async (_request, reply) => {
-        const checks: HealthCheckResult[] = [];
+        // Run all health checkers in parallel (IO / Side Effects)
+        const results = await Promise.allSettled(checkers.map((checker) => checker()));
 
-        // Run all health checkers in parallel
-        if (checkers.length > 0) {
-          const results = await Promise.allSettled(checkers.map((checker) => checker()));
+        // Map results (Core Logic)
+        const checks = mapCheckResults(results);
 
-          for (const result of results) {
-            if (result.status === 'fulfilled') {
-              checks.push(result.value);
-            } else {
-              checks.push({
-                name: 'unknown',
-                status: 'unhealthy',
-                message: result.reason instanceof Error ? result.reason.message : 'Check failed',
-              });
-            }
-          }
-        }
-
-        // Determine overall status
-        const hasUnhealthy = checks.some((c) => c.status === 'unhealthy');
-        const status = hasUnhealthy ? 'unhealthy' : 'ok';
-        const httpStatus = hasUnhealthy ? 503 : 200;
-
+        // Calculate derived data
         const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
+        const timestamp = new Date().toISOString();
 
-        // Build response, only including version if defined
-        const response: ReadinessResponse = {
-          status,
-          timestamp: new Date().toISOString(),
-          uptime: uptimeSeconds,
-          checks,
-          ...(version !== undefined && { version }),
-        };
+        // Evaluate overall status (Core Logic)
+        const response = evaluateReadiness(checks, uptimeSeconds, timestamp, version);
+
+        const httpStatus = response.status === 'unhealthy' ? 503 : 200;
 
         return reply.status(httpStatus).send(response);
       }

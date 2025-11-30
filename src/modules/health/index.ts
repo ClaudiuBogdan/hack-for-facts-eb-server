@@ -2,11 +2,14 @@
  * Health module exports
  */
 
-export { makeHealthRoutes } from './routes.js';
+export { makeHealthRoutes } from './shell/rest/routes.js';
+export { makeHealthResolvers } from './shell/graphql/resolvers.js';
+export { schema as healthSchema } from './shell/graphql/schema.js';
+
 export type {
   HealthDeps,
   HealthChecker,
   HealthCheckResult,
   LivenessResponse,
   ReadinessResponse,
-} from './types.js';
+} from './core/types.js';
