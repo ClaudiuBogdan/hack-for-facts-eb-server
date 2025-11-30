@@ -20,7 +20,8 @@
         "tests",
         "deps",
         "config",
-        "husky"
+        "husky",
+        "database"
       ]
     ],
     "scope-empty": [1, "never"],

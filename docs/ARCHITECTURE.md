@@ -224,73 +224,69 @@ Each transport maps domain errors to its format:
 
 ### 6.1 Core Entities
 
-// TODO: this needs to be updated based on the database schema
-
-| Entity                | Description                           | Key Field                           |
-| :-------------------- | :------------------------------------ | :---------------------------------- |
-| **Entity**            | Public institution                    | CUI (fiscal code)                   |
-| **UAT**               | Administrative territorial unit       | SIRUTA code                         |
-| **Classification**    | Budget category (Functional/Economic) | Hierarchical code                   |
-| **ExecutionLineItem** | Single budget line item               | Composite (entity + period + codes) |
-| **Dataset**           | Macro indicator time series           | Dataset key + period                |
+| Entity                       | Description                                 | Key Field                          |
+| :--------------------------- | :------------------------------------------ | :--------------------------------- |
+| **Entity**                   | Public institution                          | CUI (fiscal code)                  |
+| **UAT**                      | Administrative territorial unit             | UAT Code (SIRUTA / CIF)            |
+| **Report**                   | Metadata for imported budget files          | Report ID                          |
+| **FunctionalClassification** | COFOG functional code                       | Functional Code                    |
+| **EconomicClassification**   | Economic nature code                        | Economic Code                      |
+| **ExecutionLineItem**        | Single budget line item                     | Composite (Year + ReportType + ID) |
+| **Tag**                      | Arbitrary label for grouping entities/codes | Tag ID                             |
 
 ### 6.2 ExecutionLineItem Dimensions
 
-Each ExecutionLineItem record has these dimensions:
-// TODO: update this based on the database schema
+Each `ExecutionLineItem` record is a fact in the main partitioned table, with these dimensions:
 
 - **Time:** Year, Quarter, Month
-- **Entity:** CUI of reporting institution
-- **Flow:** Income or Expense
-- **Functional Code:** What purpose (COFOG hierarchy)
-- **Economic Code:** What type of transaction
-- **Funding Source:** State, Local, EU, etc.
-- **Report Type:** Detailed, Secondary Aggregated, Principal Aggregated
+- **Reporting Entity:** CUI of the institution submitting the report
+- **Main Creditor:** CUI of the supervising entity (if applicable)
+- **Account Category:** Income (`vn`) or Expense (`ch`)
+- **Classifications:** Functional Code (COFOG) and Economic Code
+- **Sources:** Funding Source ID (State, Local, EU) and Budget Sector ID
+- **Report Type:** Detailed, Secondary Aggregated, or Principal Aggregated
+- **Expense Type:** Development vs. Operational
+- **Amounts:** YTD, Monthly, and Quarterly values
 
 ---
-
-// TODO: update this based on the database schema
 
 ## 7. Database Strategy
 
 ### 7.1 Schema Design Principles
 
-- **Facts are partitioned by year** for query performance
-- **Hierarchies use closure tables** for efficient ancestor/descendant queries
-- **Lineage is preserved** (batch ID, source document, row hash)
-- **Money uses NUMERIC(18,2)** never FLOAT
+- **Partitioning:** `ExecutionLineItems` is partitioned by **Year** (Range) and sub-partitioned by **Report Type** (List) for query performance.
+- **Materialized Views:** Pre-aggregated views (`mv_summary_monthly`, `mv_summary_quarterly`, `mv_summary_annual`) are used to speed up high-level dashboard queries.
+- **Text Search:** `pg_trgm` (trigram) indexes are used for fuzzy search on names (Entities, UATs) and descriptions.
+- **Money:** Uses `NUMERIC(18,2)` to ensure precision (no floats).
 
 ### 7.2 Key Tables
 
-| Table                    | Purpose                  | Partitioning |
-| :----------------------- | :----------------------- | :----------- |
-| `budget_facts`           | Core fact table          | By year      |
-| `entities`               | Institution registry     | None         |
-| `uats`                   | Geographic units         | None         |
-| `classification_closure` | Hierarchy relationships  | None         |
-| `import_batches`         | Ingestion lineage        | None         |
-| `rollups_*`              | Pre-aggregated summaries | By scope     |
+| Table                | Purpose                                       | Partitioning |
+| :------------------- | :-------------------------------------------- | :----------- |
+| `ExecutionLineItems` | Core fact table (budget lines)                | Year / Type  |
+| `Entities`           | Institution registry                          | None         |
+| `UATs`               | Geographic units (counties, cities, communes) | None         |
+| `Reports`            | Metadata for imported files                   | None         |
+| `Tags`               | Dynamic labeling system                       | None         |
+| `mv_summary_*`       | Materialized views for fast aggregation       | N/A          |
 
 ### 7.3 Rollup Strategy
 
-Pre-compute common aggregations to avoid full table scans:
+Materialized views (`mv_*`) are the primary source for dashboard totals to avoid scanning the massive `ExecutionLineItems` table for every request.
 
-- National totals by month/year
-- Entity summaries by year
-- UAT/County summaries
-
-**Rollups are projections, not source of truth.** They can be rebuilt from facts.
+- **Refresh:** Materialized views are refreshed after significant data ingestion events.
+- **Indices:** Views have unique indexes to support fast lookups by Entity/Year.
 
 ---
 
-// TODO: this is done in a different repo. Can be integrated at a later stage.
+## 8. Ingestion Pipeline (External)
 
-## 8. Ingestion Pipeline
+_Note: The ingestion pipeline is managed in a separate repository/system but is integral to the data flow._
 
 ### 8.1 Pipeline Stages
 
 ```
-Acquire → Parse → Validate → Canonicalize → Persist → Refresh Rollups → Publish Event
+Acquire → Parse → Validate → Canonicalize → Persist → Refresh Views → Publish Event
 ```
 
 | Stage            | Responsibility                            |
@@ -300,24 +296,16 @@ Acquire → Parse → Validate → Canonicalize → Persist → Refresh Rollups 
 | **Validate**     | Check structure, codes, required fields   |
 | **Canonicalize** | Normalize codes, attach lineage           |
 | **Persist**      | Upsert to fact tables                     |
-| **Refresh**      | Update affected rollups                   |
+| **Refresh**      | Refresh Materialized Views                |
 | **Publish**      | Emit event for cache invalidation, alerts |
 
 ### 8.2 Idempotency
 
-Ingestion is idempotent: re-running the same source produces the same result.
-
-- Each import batch has a unique ID
-- Each row has a stable hash
-- Upsert logic based on natural key + report type
+Ingestion is designed to be idempotent. Re-importing the same report updates the existing records (based on report metadata and line item uniqueness) rather than duplicating them.
 
 ### 8.3 Processing Model
 
-Use BullMQ for reliable job processing:
-
-- Jobs are persisted (survive restarts)
-- Failed jobs are retried with backoff
-- Concurrency is controlled per worker
+Relies on reliable job queues (BullMQ) to handle large file processing, with persistence and retries.
 
 ---
 
@@ -356,25 +344,29 @@ MCP      ─┘
 
 ### 10.1 Cache Layers
 
-// TODO: update this. The caching is using some input params, like the filters to generate a key.
-
-| Layer     | Scope           | TTL | Invalidation      |
-| :-------- | :-------------- | :-- | :---------------- |
-| **HTTP**  | REST responses  | 24h | ETag mismatch     |
-| **Redis** | Service results | 1h  | Pub/sub on import |
+| Layer     | Scope           | TTL    | Invalidation      |
+| :-------- | :-------------- | :----- | :---------------- |
+| **HTTP**  | REST responses  | 24h    | ETag mismatch     |
+| **Redis** | Service results | 1h-24h | Pub/sub on import |
 
 ### 10.2 Cache Keys
 
-Keys include all parameters that affect the result:
+Cache keys must uniquely identify the data slice. Common parameters used in keys:
 
-- Entity/UAT identifiers
-- Time range
-- Normalization options (currency, per-capita)
+- `year`, `quarter`, `month`
+- `entity_cui`, `main_creditor_cui`
+- `report_type`
+- `account_category` (income/expense)
+- Filters: `functional_code`, `economic_code`, `funding_source`
+
+Example Key: `summary:year:2024:entity:123456:type:detailed`
 
 ### 10.3 Invalidation
 
-// We need to create an endpoint in the app that is protected and is used to invalidate the cache. This can be triggered by a cron job or manually when new data is added.
-We can have granular, based on the cache prefix.
+- **Triggers:** Ingestion events (new reports loaded), manual administrative actions.
+- **Mechanism:**
+  - An authenticated internal endpoint (e.g., `/admin/cache/invalidate`) can trigger invalidation patterns.
+  - Invalidation can be broad (flush all) or targeted (by entity or year) depending on the ingestion scope.
 
 ---
 

@@ -34,6 +34,8 @@ export const EnvSchema = Type.Object({
 
   // Database (optional for now, will be required later)
   DATABASE_URL: Type.Optional(Type.String()),
+  BUDGET_DATABASE_URL: Type.Optional(Type.String()),
+  USER_DATABASE_URL: Type.Optional(Type.String()),
 
   // Redis (optional for now, will be required later)
   REDIS_URL: Type.Optional(Type.String()),
@@ -51,6 +53,8 @@ export const parseEnv = (env: NodeJS.ProcessEnv = process.env): Env => {
     HOST: env['HOST'] ?? '0.0.0.0',
     LOG_LEVEL: env['LOG_LEVEL'] ?? 'info',
     DATABASE_URL: env['DATABASE_URL'],
+    BUDGET_DATABASE_URL: env['BUDGET_DATABASE_URL'],
+    USER_DATABASE_URL: env['USER_DATABASE_URL'],
     REDIS_URL: env['REDIS_URL'],
   };
 
@@ -81,6 +85,8 @@ export const createConfig = (env: Env) => ({
   },
   database: {
     url: env.DATABASE_URL,
+    budgetUrl: env.BUDGET_DATABASE_URL,
+    userUrl: env.USER_DATABASE_URL,
   },
   redis: {
     url: env.REDIS_URL,
