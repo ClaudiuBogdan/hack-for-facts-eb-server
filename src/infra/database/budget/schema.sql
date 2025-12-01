@@ -464,7 +464,7 @@ BEGIN
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-COMMENT ON FUNCTION get_entity_population(entity_cui_param, entity_type_param, uat_id_param) IS 'Returns population for an entity based on its type and UAT association';
+COMMENT ON FUNCTION get_entity_population(VARCHAR(20), VARCHAR(50), INT) IS 'Returns population for an entity based on its type and UAT association';
 
 -- Function 2: Computes and stores the quarterly amount
 CREATE OR REPLACE FUNCTION compute_quarterly_amounts() RETURNS void AS $$
