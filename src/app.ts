@@ -9,9 +9,15 @@ import fastifyLib, {
   type FastifyError,
 } from 'fastify';
 
+import { CommonGraphQLSchema } from './common/graphql/index.js';
+import { commonGraphQLResolvers } from './common/graphql/schema.js';
 import { makeGraphQLPlugin } from './infra/graphql/index.js';
 import { BaseSchema } from './infra/graphql/schema.js';
-import { mergeResolvers } from './infra/graphql/utils.js';
+import {
+  makeExecutionAnalyticsResolvers,
+  ExecutionAnalyticsSchema,
+  makeAnalyticsRepo,
+} from './modules/execution-analytics/index.js';
 import {
   makeHealthRoutes,
   makeHealthResolvers,
@@ -19,11 +25,16 @@ import {
   type HealthChecker,
 } from './modules/health/index.js';
 
+import type { BudgetDbClient } from './infra/database/client.js';
+import type { DatasetRepo } from './modules/datasets/index.js';
+
 /**
  * Application dependencies that can be injected
  */
 export interface AppDeps {
   healthCheckers?: HealthChecker[];
+  budgetDb: BudgetDbClient;
+  datasetRepo: DatasetRepo;
 }
 
 /**
@@ -31,7 +42,7 @@ export interface AppDeps {
  */
 export interface AppOptions {
   fastifyOptions?: FastifyServerOptions;
-  deps?: AppDeps;
+  deps?: Partial<AppDeps>; // Allow partial for tests/defaults, but runtime needs them
   version?: string | undefined;
 }
 
@@ -41,6 +52,13 @@ export interface AppOptions {
  */
 export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstance> => {
   const { fastifyOptions = {}, deps = {}, version } = options;
+
+  if (deps.budgetDb === undefined || deps.datasetRepo === undefined) {
+    throw new Error('Missing required dependencies: budgetDb, datasetRepo');
+  }
+
+  const budgetDb = deps.budgetDb;
+  const datasetRepo = deps.datasetRepo;
 
   // Create Fastify instance
   const app = fastifyLib({
@@ -61,9 +79,16 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     checkers: deps.healthCheckers,
   });
 
+  // Setup Analytics Module
+  const analyticsRepo = makeAnalyticsRepo(budgetDb);
+  const analyticsResolvers = makeExecutionAnalyticsResolvers({
+    analyticsRepo,
+    datasetRepo,
+  });
+
   // Combine schemas and resolvers
-  const schema = [BaseSchema, healthSchema];
-  const resolvers = mergeResolvers([healthResolvers]);
+  const schema = [BaseSchema, CommonGraphQLSchema, healthSchema, ExecutionAnalyticsSchema];
+  const resolvers = [commonGraphQLResolvers, healthResolvers, analyticsResolvers];
 
   await app.register(
     makeGraphQLPlugin({

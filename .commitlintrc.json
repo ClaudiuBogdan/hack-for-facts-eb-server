@@ -14,6 +14,7 @@
         "auth",
         "health",
         "database",
+        "graphql",
         "datasets",
         "redis",
         "logging",
@@ -21,7 +22,8 @@
         "tests",
         "deps",
         "config",
-        "husky"
+        "husky",
+        "execution-analytics"
       ]
     ],
     "scope-empty": [1, "never"],

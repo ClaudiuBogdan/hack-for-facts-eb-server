@@ -5,7 +5,9 @@
 
 import { buildApp } from './app.js';
 import { parseEnv, createConfig } from './infra/config/index.js';
+import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
+import { createDatasetRepo } from './modules/datasets/index.js';
 
 // Read package.json for version (optional, won't fail if not available)
 const getVersion = (): string | undefined => {
@@ -19,7 +21,7 @@ const getVersion = (): string | undefined => {
 
 const main = async (): Promise<void> => {
   // Parse and validate environment
-  const env = parseEnv();
+  const env = parseEnv(process.env);
   const config = createConfig(env);
 
   // Create logger
@@ -30,6 +32,12 @@ const main = async (): Promise<void> => {
   });
 
   logger.info({ config: { server: config.server } }, 'Starting API server');
+
+  // Initialize dependencies
+  const { budgetDb } = initDatabases(config);
+  const datasetRepo = createDatasetRepo({
+    rootDir: './datasets/yaml',
+  });
 
   // Build application - let Fastify create its own logger based on config
   const app = await buildApp({
@@ -51,6 +59,8 @@ const main = async (): Promise<void> => {
     },
     deps: {
       healthCheckers: [],
+      budgetDb,
+      datasetRepo,
     },
     version: getVersion(),
   });
