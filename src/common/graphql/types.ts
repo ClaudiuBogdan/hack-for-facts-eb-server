@@ -82,4 +82,23 @@ export const CommonTypes = /* GraphQL */ `
     "Value is not in the provided list"
     notIn: [String!]
   }
+
+  # ---------------------------------------------------------------------------
+  # Temporal Data
+  # ---------------------------------------------------------------------------
+  "A single data point in a time series"
+  type DataPoint {
+    "ISO 8601 date (YYYY-MM-DD)"
+    date: Date!
+    "Decimal value as string"
+    value: String!
+  }
+
+  "Time series data with consistent frequency"
+  type DataSeries {
+    "Frequency of the data points"
+    frequency: Frequency!
+    "Ordered array of data points"
+    data: [DataPoint!]!
+  }
 `;

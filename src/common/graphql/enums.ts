@@ -40,4 +40,17 @@ export const CommonEnums = /* GraphQL */ `
     "Executie bugetara detaliata"
     DETAILED
   }
+
+  # ---------------------------------------------------------------------------
+  # Frequency
+  # ---------------------------------------------------------------------------
+  "Frequency of temporal data points"
+  enum Frequency {
+    "Monthly data points"
+    MONTHLY
+    "Quarterly data points"
+    QUARTERLY
+    "Yearly data points"
+    YEARLY
+  }
 `;
