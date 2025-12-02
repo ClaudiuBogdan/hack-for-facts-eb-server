@@ -113,15 +113,7 @@ export default defineConfig(
       '@typescript-eslint/naming-convention': [
         'error',
         { selector: 'default', format: ['camelCase'], leadingUnderscore: 'allow' },
-        {
-          selector: 'variable',
-          format: ['PascalCase'],
-          filter: {
-            regex: 'Schema$',
-            match: true
-          }
-        },
-        { selector: 'variable', format: ['camelCase', 'UPPER_CASE'] },
+        { selector: 'variable', format: ['camelCase', 'PascalCase', 'UPPER_CASE'] },
         { selector: 'typeLike', format: ['PascalCase'] },
         { selector: 'enumMember', format: ['UPPER_CASE'] },
         { selector: 'typeProperty', filter: 'Reply', format: null },

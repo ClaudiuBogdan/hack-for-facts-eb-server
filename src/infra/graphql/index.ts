@@ -1,10 +1,11 @@
+import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql-tools/schema';
 import mercuriusPlugin, { type IResolvers } from 'mercurius';
 
 import type { FastifyPluginAsync } from 'fastify';
 
 export interface GraphQLOptions {
   schema: string[];
-  resolvers: IResolvers;
+  resolvers: IResolvers[];
   enableGraphiQL?: boolean;
 }
 
@@ -12,12 +13,20 @@ export interface GraphQLOptions {
  * Creates the GraphQL plugin with the provided resolvers
  */
 export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync => {
-  const { schema, resolvers, enableGraphiQL = process.env['NODE_ENV'] !== 'production' } = options;
+  const {
+    schema: baseSchema,
+    resolvers,
+    enableGraphiQL = process.env['NODE_ENV'] !== 'production',
+  } = options;
+
+  const schema = makeExecutableSchema({
+    typeDefs: baseSchema,
+    resolvers, // TODO: fix conflic with mercurius IResolvers
+  } as IExecutableSchemaDefinition);
 
   return async (fastify) => {
     await fastify.register(mercuriusPlugin, {
       schema,
-      resolvers,
       graphiql: enableGraphiQL,
       path: '/graphql',
       errorFormatter: (execution, context) => {

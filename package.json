@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a",
   "scripts": {
-    "dev": "tsx watch --clear-screen=false src/api.ts",
+    "dev": "tsx watch --clear-screen=false --env-file=.env src/api.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/api.js",
     "typecheck": "tsc --noEmit",
@@ -34,6 +34,7 @@
     ]
   },
   "dependencies": {
+    "@graphql-tools/schema": "^10.0.30",
     "@sinclair/typebox": "^0.34.41",
     "bullmq": "^5.65.0",
     "decimal.js": "^10.6.0",
