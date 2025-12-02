@@ -1,0 +1,36 @@
+metadata:
+  id: 'ro.economics.exchange.ron_eur.annual'
+  source: 'BNR'
+  sourceUrl: 'https://bnr.ro'
+  lastUpdated: '2024-01-01'
+  units: 'ron_per_eur'
+i18n:
+  ro:
+    title: 'Curs de Schimb RON/EUR (Medie Anuală)'
+    xAxisLabel: 'An'
+    yAxisLabel: 'RON/EUR'
+  en:
+    title: 'RON/EUR Exchange Rate (Annual Average)'
+    xAxisLabel: 'Year'
+    yAxisLabel: 'RON/EUR'
+axes:
+  x:
+    label: 'An'
+    type: 'date'
+    granularity: 'annual'
+    format: 'YYYY'
+  y:
+    label: 'RON/EUR'
+    type: 'number'
+    unit: 'ron_per_eur'
+data:
+  - { x: '2015', y: '4.4450' }
+  - { x: '2016', y: '4.4908' }
+  - { x: '2017', y: '4.5681' }
+  - { x: '2018', y: '4.6535' }
+  - { x: '2019', y: '4.7452' }
+  - { x: '2020', y: '4.8371' }
+  - { x: '2021', y: '4.9204' }
+  - { x: '2022', y: '4.9315' }
+  - { x: '2023', y: '4.9465' }
+  - { x: '2024', y: '4.9700' }

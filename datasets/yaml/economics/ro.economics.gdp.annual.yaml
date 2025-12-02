@@ -1,0 +1,35 @@
+metadata:
+  id: 'ro.economics.gdp.annual'
+  source: 'INSSE'
+  sourceUrl: 'https://insse.ro'
+  lastUpdated: '2024-01-01'
+  units: 'million_ron'
+i18n:
+  ro:
+    title: 'Produsul Intern Brut (PIB)'
+    xAxisLabel: 'An'
+    yAxisLabel: 'Milioane RON'
+  en:
+    title: 'Gross Domestic Product (GDP)'
+    xAxisLabel: 'Year'
+    yAxisLabel: 'Million RON'
+axes:
+  x:
+    label: 'An'
+    type: 'date'
+    granularity: 'annual'
+    format: 'YYYY'
+  y:
+    label: 'PIB'
+    type: 'number'
+    unit: 'million_ron'
+data:
+  - { x: '2015', y: '712560' }
+  - { x: '2016', y: '765135' }
+  - { x: '2017', y: '856352' }
+  - { x: '2018', y: '951728' }
+  - { x: '2019', y: '1059802' }
+  - { x: '2020', y: '1058918' }
+  - { x: '2021', y: '1187402' }
+  - { x: '2022', y: '1409783' }
+  - { x: '2023', y: '1598500' }

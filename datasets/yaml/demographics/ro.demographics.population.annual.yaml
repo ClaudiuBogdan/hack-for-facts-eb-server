@@ -1,0 +1,35 @@
+metadata:
+  id: 'ro.demographics.population.annual'
+  source: 'INSSE'
+  sourceUrl: 'https://insse.ro'
+  lastUpdated: '2024-01-01'
+  units: 'persons'
+i18n:
+  ro:
+    title: 'Populația Rezidentă'
+    xAxisLabel: 'An'
+    yAxisLabel: 'Persoane'
+  en:
+    title: 'Resident Population'
+    xAxisLabel: 'Year'
+    yAxisLabel: 'Persons'
+axes:
+  x:
+    label: 'An'
+    type: 'date'
+    granularity: 'annual'
+    format: 'YYYY'
+  y:
+    label: 'Persoane'
+    type: 'number'
+    unit: 'persons'
+data:
+  - { x: '2015', y: '19870000' }
+  - { x: '2016', y: '19760000' }
+  - { x: '2017', y: '19640000' }
+  - { x: '2018', y: '19530000' }
+  - { x: '2019', y: '19410000' }
+  - { x: '2020', y: '19200000' }
+  - { x: '2021', y: '19050000' }
+  - { x: '2022', y: '19050000' }
+  - { x: '2023', y: '19050000' }
