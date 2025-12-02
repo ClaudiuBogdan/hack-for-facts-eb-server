@@ -4,7 +4,7 @@ import { describe, expect, it, afterEach, vi, beforeEach } from 'vitest';
 import { createApp } from '@/app.js';
 import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 
-import { makeHealthChecker } from '../fixtures/builders.js';
+import { makeHealthChecker, makeTestConfig } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
 import type {
@@ -34,6 +34,7 @@ describe('GraphQL API', () => {
       deps: {
         budgetDb: makeFakeBudgetDb(),
         datasetRepo: makeFakeDatasetRepo(),
+        config: makeTestConfig(),
       },
     });
 
@@ -63,6 +64,7 @@ describe('GraphQL API', () => {
         healthCheckers: [dbChecker],
         budgetDb: makeFakeBudgetDb(),
         datasetRepo: makeFakeDatasetRepo(),
+        config: makeTestConfig(),
       },
     });
 
@@ -121,6 +123,7 @@ describe('GraphQL API', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -173,6 +176,7 @@ describe('GraphQL API', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -224,6 +228,7 @@ describe('GraphQL API', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 

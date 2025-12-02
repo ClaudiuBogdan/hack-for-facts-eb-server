@@ -35,6 +35,11 @@ export const EnvSchema = Type.Object({
   BUDGET_DATABASE_URL: Type.String(),
   USER_DATABASE_URL: Type.String(),
   REDIS_URL: Type.Optional(Type.String()),
+
+  // CORS
+  ALLOWED_ORIGINS: Type.Optional(Type.String()),
+  CLIENT_BASE_URL: Type.Optional(Type.String()),
+  PUBLIC_CLIENT_BASE_URL: Type.Optional(Type.String()),
 });
 
 export type Env = Static<typeof EnvSchema>;
@@ -51,6 +56,9 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     BUDGET_DATABASE_URL: env['BUDGET_DATABASE_URL'],
     USER_DATABASE_URL: env['USER_DATABASE_URL'],
     REDIS_URL: env['REDIS_URL'],
+    ALLOWED_ORIGINS: env['ALLOWED_ORIGINS'],
+    CLIENT_BASE_URL: env['CLIENT_BASE_URL'],
+    PUBLIC_CLIENT_BASE_URL: env['PUBLIC_CLIENT_BASE_URL'],
   };
 
   // Validate against schema
@@ -84,6 +92,11 @@ export const createConfig = (env: Env) => ({
   },
   redis: {
     url: env.REDIS_URL,
+  },
+  cors: {
+    allowedOrigins: env.ALLOWED_ORIGINS,
+    clientBaseUrl: env.CLIENT_BASE_URL,
+    publicClientBaseUrl: env.PUBLIC_CLIENT_BASE_URL,
   },
 });
 

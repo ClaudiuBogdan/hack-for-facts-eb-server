@@ -3,6 +3,7 @@
  * Provides sensible defaults for test entities
  */
 
+import type { AppConfig } from '@/infra/config/env.js';
 import type { HealthCheckResult, HealthChecker } from '@/modules/health/index.js';
 
 /**
@@ -48,5 +49,46 @@ export const makeSlowHealthChecker = (
 export const makeFailingHealthChecker = (errorMessage: string): HealthChecker => {
   return async () => {
     throw new Error(errorMessage);
+  };
+};
+
+/**
+ * Create a test configuration with defaults
+ */
+export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig => {
+  const defaults: AppConfig = {
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
+      isDevelopment: true,
+      isProduction: false,
+      isTest: true,
+    },
+    logger: {
+      level: 'silent',
+      pretty: false,
+    },
+    database: {
+      budgetUrl: 'postgresql://test:test@localhost:5432/test',
+      userUrl: 'postgresql://test:test@localhost:5432/test-user',
+    },
+    redis: {
+      url: undefined,
+    },
+    cors: {
+      allowedOrigins: undefined,
+      clientBaseUrl: undefined,
+      publicClientBaseUrl: undefined,
+    },
+  };
+
+  return {
+    ...defaults,
+    ...overrides,
+    server: { ...defaults.server, ...overrides.server },
+    logger: { ...defaults.logger, ...overrides.logger },
+    database: { ...defaults.database, ...overrides.database },
+    redis: { ...defaults.redis, ...overrides.redis },
+    cors: { ...defaults.cors, ...overrides.cors },
   };
 };

@@ -10,6 +10,7 @@ import {
   makeHealthChecker,
   makeSlowHealthChecker,
   makeFailingHealthChecker,
+  makeTestConfig,
 } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
@@ -31,6 +32,7 @@ describe('Health Endpoints', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
     });
@@ -63,6 +65,7 @@ describe('Health Endpoints', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -89,6 +92,7 @@ describe('Health Endpoints', () => {
           healthCheckers: [dbChecker, redisChecker],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -123,6 +127,7 @@ describe('Health Endpoints', () => {
           healthCheckers: [dbChecker, redisChecker],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -153,6 +158,7 @@ describe('Health Endpoints', () => {
           healthCheckers: [dbChecker, failingChecker],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -185,6 +191,7 @@ describe('Health Endpoints', () => {
           healthCheckers: [slowChecker],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -209,6 +216,7 @@ describe('Health Endpoints', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -228,6 +236,7 @@ describe('Health Endpoints', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -256,6 +265,7 @@ describe('Health Endpoints', () => {
           healthCheckers: [slowChecker1, slowChecker2],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 

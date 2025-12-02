@@ -61,6 +61,7 @@ const main = async (): Promise<void> => {
       healthCheckers: [],
       budgetDb,
       datasetRepo,
+      config,
     },
     version: getVersion(),
   });

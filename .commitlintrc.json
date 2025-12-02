@@ -15,6 +15,7 @@
         "health",
         "database",
         "graphql",
+        "cors",
         "datasets",
         "redis",
         "logging",

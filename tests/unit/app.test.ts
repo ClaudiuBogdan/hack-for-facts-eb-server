@@ -6,6 +6,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import { buildApp, createApp } from '@/app.js';
 
+import { makeTestConfig } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
 describe('App Factory', () => {
@@ -16,6 +17,7 @@ describe('App Factory', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -31,6 +33,7 @@ describe('App Factory', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -46,6 +49,7 @@ describe('App Factory', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
       await app.ready();
@@ -67,6 +71,7 @@ describe('App Factory', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
 
@@ -91,6 +96,7 @@ describe('App Factory', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
         },
       });
     });

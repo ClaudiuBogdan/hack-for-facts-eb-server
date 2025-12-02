@@ -13,6 +13,7 @@ import { CommonGraphQLSchema } from './common/graphql/index.js';
 import { commonGraphQLResolvers } from './common/graphql/schema.js';
 import { makeGraphQLPlugin } from './infra/graphql/index.js';
 import { BaseSchema } from './infra/graphql/schema.js';
+import { registerCors } from './infra/plugins/index.js';
 import {
   makeExecutionAnalyticsResolvers,
   ExecutionAnalyticsSchema,
@@ -25,6 +26,7 @@ import {
   type HealthChecker,
 } from './modules/health/index.js';
 
+import type { AppConfig } from './infra/config/env.js';
 import type { BudgetDbClient } from './infra/database/client.js';
 import type { DatasetRepo } from './modules/datasets/index.js';
 
@@ -35,6 +37,7 @@ export interface AppDeps {
   healthCheckers?: HealthChecker[];
   budgetDb: BudgetDbClient;
   datasetRepo: DatasetRepo;
+  config: AppConfig;
 }
 
 /**
@@ -53,17 +56,21 @@ export interface AppOptions {
 export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstance> => {
   const { fastifyOptions = {}, deps = {}, version } = options;
 
-  if (deps.budgetDb === undefined || deps.datasetRepo === undefined) {
-    throw new Error('Missing required dependencies: budgetDb, datasetRepo');
+  if (deps.budgetDb === undefined || deps.datasetRepo === undefined || deps.config === undefined) {
+    throw new Error('Missing required dependencies: budgetDb, datasetRepo, config');
   }
 
   const budgetDb = deps.budgetDb;
   const datasetRepo = deps.datasetRepo;
+  const config = deps.config;
 
   // Create Fastify instance
   const app = fastifyLib({
     ...fastifyOptions,
   });
+
+  // Register CORS plugin
+  await registerCors(app, config);
 
   // Register health routes
   await app.register(
