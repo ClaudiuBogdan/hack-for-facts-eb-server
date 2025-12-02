@@ -44,7 +44,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
   // Functional Classifications
   for (const [code, name] of Object.entries(data.nameLookups.functional)) {
     await db
-      .insertInto('FunctionalClassifications')
+      .insertInto('functionalclassifications')
       .values({ functional_code: code, functional_name: name })
       .onConflict((oc) => oc.column('functional_code').doUpdateSet({ functional_name: name }))
       .execute();
@@ -53,7 +53,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
   // Economic Classifications
   for (const [code, name] of Object.entries(data.nameLookups.economic)) {
     await db
-      .insertInto('EconomicClassifications')
+      .insertInto('economicclassifications')
       .values({ economic_code: code, economic_name: name })
       .onConflict((oc) => oc.column('economic_code').doUpdateSet({ economic_name: name }))
       .execute();
@@ -63,13 +63,13 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
   const fundingSourceMap = new Map<string, number>();
   for (const [code, desc] of Object.entries(data.nameLookups.fundingSource)) {
     let row = await db
-      .selectFrom('FundingSources')
+      .selectFrom('fundingsources')
       .select('source_id')
       .where('source_description', '=', desc)
       .executeTakeFirst();
 
     row ??= await db
-      .insertInto('FundingSources')
+      .insertInto('fundingsources')
       .values({ source_description: desc })
       .returning('source_id')
       .executeTakeFirst();
@@ -111,7 +111,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
   // Upsert Sectors
   for (const [id, desc] of sectors.entries()) {
     await db
-      .insertInto('BudgetSectors')
+      .insertInto('budgetsectors')
       .values({
         sector_id: id,
         sector_description: desc,
@@ -121,14 +121,14 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
   }
 
   // Update sequence for sectors
-  await sql`SELECT setval('BudgetSectors_sector_id_seq', (SELECT MAX(sector_id) FROM BudgetSectors))`.execute(
+  await sql`SELECT setval('budgetsectors_sector_id_seq', (SELECT MAX(sector_id) FROM budgetsectors))`.execute(
     db
   );
 
   // 3. Upsert Entities
   // Main Entity
   await db
-    .insertInto('Entities')
+    .insertInto('entities')
     .values({
       cui: data.cui,
       name: data.entityName,
@@ -145,7 +145,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
     // Upsert Main Creditor if it's not the main entity
     if (mainCreditorCui !== data.cui) {
       await db
-        .insertInto('Entities')
+        .insertInto('entities')
         .values({
           cui: mainCreditorCui,
           name: `Creditor ${mainCreditorCui}`, // Placeholder
@@ -171,7 +171,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
 
     // Insert Report
     await db
-      .insertInto('Reports')
+      .insertInto('reports')
       .values({
         report_id: report.reportInfo.id,
         entity_cui: data.cui,
@@ -229,7 +229,7 @@ export async function seedDatabase(db: Kysely<BudgetDatabase>, filePath: string)
       const chunkSize = 1000;
       for (let i = 0; i < lineItemsToInsert.length; i += chunkSize) {
         await db
-          .insertInto('ExecutionLineItems')
+          .insertInto('executionlineitems')
           .values(lineItemsToInsert.slice(i, i + chunkSize))
           .execute();
       }

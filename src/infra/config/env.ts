@@ -32,12 +32,8 @@ export const EnvSchema = Type.Object({
     { default: 'info' }
   ),
 
-  // Database (optional for now, will be required later)
-  DATABASE_URL: Type.Optional(Type.String()),
-  BUDGET_DATABASE_URL: Type.Optional(Type.String()),
-  USER_DATABASE_URL: Type.Optional(Type.String()),
-
-  // Redis (optional for now, will be required later)
+  BUDGET_DATABASE_URL: Type.String(),
+  USER_DATABASE_URL: Type.String(),
   REDIS_URL: Type.Optional(Type.String()),
 });
 
@@ -46,13 +42,12 @@ export type Env = Static<typeof EnvSchema>;
 /**
  * Parse and validate environment variables
  */
-export const parseEnv = (env: NodeJS.ProcessEnv = process.env): Env => {
+export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
   const rawEnv = {
     NODE_ENV: env['NODE_ENV'] ?? 'development',
     PORT: env['PORT'] != null && env['PORT'] !== '' ? Number.parseInt(env['PORT'], 10) : 3000,
     HOST: env['HOST'] ?? '0.0.0.0',
     LOG_LEVEL: env['LOG_LEVEL'] ?? 'info',
-    DATABASE_URL: env['DATABASE_URL'],
     BUDGET_DATABASE_URL: env['BUDGET_DATABASE_URL'],
     USER_DATABASE_URL: env['USER_DATABASE_URL'],
     REDIS_URL: env['REDIS_URL'],
@@ -84,7 +79,6 @@ export const createConfig = (env: Env) => ({
     pretty: env.NODE_ENV !== 'production',
   },
   database: {
-    url: env.DATABASE_URL,
     budgetUrl: env.BUDGET_DATABASE_URL,
     userUrl: env.USER_DATABASE_URL,
   },

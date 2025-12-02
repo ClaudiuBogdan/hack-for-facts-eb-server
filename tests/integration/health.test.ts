@@ -11,6 +11,7 @@ import {
   makeSlowHealthChecker,
   makeFailingHealthChecker,
 } from '../fixtures/builders.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -27,6 +28,10 @@ describe('Health Endpoints', () => {
     beforeEach(async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
     });
 
@@ -55,6 +60,10 @@ describe('Health Endpoints', () => {
     it('returns 200 when no health checkers are configured', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       const response = await app.inject({
@@ -78,6 +87,8 @@ describe('Health Endpoints', () => {
         fastifyOptions: { logger: false },
         deps: {
           healthCheckers: [dbChecker, redisChecker],
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
         },
       });
 
@@ -110,6 +121,8 @@ describe('Health Endpoints', () => {
         fastifyOptions: { logger: false },
         deps: {
           healthCheckers: [dbChecker, redisChecker],
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
         },
       });
 
@@ -138,6 +151,8 @@ describe('Health Endpoints', () => {
         fastifyOptions: { logger: false },
         deps: {
           healthCheckers: [dbChecker, failingChecker],
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
         },
       });
 
@@ -168,6 +183,8 @@ describe('Health Endpoints', () => {
         fastifyOptions: { logger: false },
         deps: {
           healthCheckers: [slowChecker],
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
         },
       });
 
@@ -189,6 +206,10 @@ describe('Health Endpoints', () => {
       app = await createApp({
         fastifyOptions: { logger: false },
         version: '1.2.3',
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       const response = await app.inject({
@@ -204,6 +225,10 @@ describe('Health Endpoints', () => {
     it('includes uptime in seconds', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       // Wait a bit to have measurable uptime
@@ -229,6 +254,8 @@ describe('Health Endpoints', () => {
         fastifyOptions: { logger: false },
         deps: {
           healthCheckers: [slowChecker1, slowChecker2],
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
         },
       });
 

@@ -173,19 +173,20 @@ export interface MvSummaryAnnual {
 }
 
 // Database Schema Interface
+// Note: PostgreSQL converts unquoted identifiers to lowercase, so table names here must be lowercase
 export interface BudgetDatabase {
-  UATs: UATs;
-  Entities: Entities;
-  FunctionalClassifications: FunctionalClassifications;
-  EconomicClassifications: EconomicClassifications;
-  FundingSources: FundingSources;
-  BudgetSectors: BudgetSectors;
-  Tags: Tags;
-  Reports: Reports;
-  ExecutionLineItems: ExecutionLineItems;
-  EntityTags: EntityTags;
-  FunctionalClassificationTags: FunctionalClassificationTags;
-  EconomicClassificationTags: EconomicClassificationTags;
+  uats: UATs;
+  entities: Entities;
+  functionalclassifications: FunctionalClassifications;
+  economicclassifications: EconomicClassifications;
+  fundingsources: FundingSources;
+  budgetsectors: BudgetSectors;
+  tags: Tags;
+  reports: Reports;
+  executionlineitems: ExecutionLineItems;
+  entitytags: EntityTags;
+  functionalclassificationtags: FunctionalClassificationTags;
+  economicclassificationtags: EconomicClassificationTags;
   mv_report_availability: MvReportAvailability;
   mv_summary_quarterly: MvSummaryQuarterly;
   mv_summary_monthly: MvSummaryMonthly;

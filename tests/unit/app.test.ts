@@ -6,11 +6,17 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import { buildApp, createApp } from '@/app.js';
 
+import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
+
 describe('App Factory', () => {
   describe('buildApp', () => {
     it('creates a Fastify instance', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       expect(app).toBeDefined();
@@ -22,6 +28,10 @@ describe('App Factory', () => {
     it('accepts custom logger', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: { level: 'silent' } },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       expect(app).toBeDefined();
@@ -33,6 +43,10 @@ describe('App Factory', () => {
     it('registers health routes', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
       await app.ready();
 
@@ -50,6 +64,10 @@ describe('App Factory', () => {
     it('returns a ready app instance', async () => {
       const app = await createApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
 
       // App should be ready (all plugins loaded)
@@ -70,11 +88,15 @@ describe('App Factory', () => {
     beforeEach(async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+        },
       });
     });
 
     afterEach(async () => {
-      await app.close();
+      if (app != null) await app.close();
     });
 
     it('returns 404 for unknown routes', async () => {

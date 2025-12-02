@@ -37,23 +37,7 @@ export const initDatabases = (config: AppConfig): DatabaseClients => {
 
   // Determine connection strings
   // Prioritize specific URLs, fallback to generic DATABASE_URL, or throw if missing
-  const budgetUrl = database.budgetUrl ?? database.url;
-  const userUrl = database.userUrl ?? database.url; // Fallback to same DB if not specified? Or throw?
-
-  if (budgetUrl === undefined || budgetUrl === '') {
-    throw new Error(
-      'Missing configuration for Budget Database (BUDGET_DATABASE_URL or DATABASE_URL)'
-    );
-  }
-
-  // If USER_DATABASE_URL is not provided, we might assume it's on the same DB instance
-  // or simply not available. Given the requirement "allow access to different db",
-  // we should instantiate it if possible.
-  // If userUrl is missing, we can either throw or point to budgetUrl (if meant to be shared)
-  // For safety, I'll throw if strictly no URL is found.
-  if (userUrl === undefined || userUrl === '') {
-    throw new Error('Missing configuration for User Database (USER_DATABASE_URL)');
-  }
+  const { budgetUrl, userUrl } = database;
 
   const budgetDb = createClient<BudgetDatabase>(budgetUrl);
   const userDb = createClient<UserDatabase>(userUrl);
