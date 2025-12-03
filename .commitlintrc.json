@@ -14,6 +14,7 @@
         "auth",
         "health",
         "database",
+        "common",
         "graphql",
         "cors",
         "datasets",
@@ -31,7 +32,7 @@
     "subject-case": [2, "always", "sentence-case"],
     "subject-empty": [2, "never"],
     "subject-full-stop": [2, "never", "."],
-    "header-max-length": [2, "always", 100],
+    "header-max-length": [2, "always", 150],
     "body-leading-blank": [2, "always"],
     "body-max-line-length": [2, "always", 100],
     "footer-leading-blank": [2, "always"]
