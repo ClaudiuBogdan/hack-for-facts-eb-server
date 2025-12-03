@@ -1,26 +1,77 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-nullish-coalescing -- Kysely query builder requires dynamic typing and conditional checks */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/restrict-template-expressions -- Kysely query builder requires dynamic typing and conditional checks */
+import { Decimal } from 'decimal.js';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { Frequency, type DataSeries, type DataPoint } from '@/common/types/temporal.js';
+
 import type { AnalyticsError } from '../../core/errors.js';
-import type {
-  AnalyticsFilter,
-  RawAnalyticsDataPoint,
-  AnalyticsRepository,
-} from '../../core/types.js';
+import type { AnalyticsFilter, AnalyticsRepository } from '../../core/types.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
+
+/**
+ * Formats database row to date string based on period type.
+ *
+ * Output format matches the DataPoint.date specification:
+ * - YEAR: YYYY (e.g., 2024)
+ * - MONTH: YYYY-MM (e.g., 2024-03)
+ * - QUARTER: YYYY-QN (e.g., 2024-Q1)
+ */
+function formatDateFromRow(
+  year: number,
+  periodValue: number,
+  periodType: 'MONTH' | 'QUARTER' | 'YEAR'
+): string {
+  if (periodType === 'MONTH') {
+    const month = String(periodValue).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+
+  if (periodType === 'QUARTER') {
+    return `${year}-Q${periodValue}`;
+  }
+
+  // YEAR
+  return `${year}`;
+}
+
+/**
+ * Maps period type to Frequency enum
+ */
+function getFrequency(periodType: 'MONTH' | 'QUARTER' | 'YEAR'): Frequency {
+  if (periodType === 'MONTH') return Frequency.MONTHLY;
+  if (periodType === 'QUARTER') return Frequency.QUARTERLY;
+  return Frequency.YEARLY;
+}
 
 /**
  * Kysely-based implementation of AnalyticsRepository.
  *
- * Uses strict typing and dynamic query building.
+ * IMPORTANT: This repository implements the "aggregate-after-normalize" pattern.
+ *
+ * It ALWAYS returns data as a time series (DataSeries) with individual
+ * data points per period. This is critical because:
+ *
+ * 1. Normalization factors (CPI, exchange rates) vary by year
+ * 2. To correctly normalize multi-year data, we must apply factors per-point
+ * 3. Any cross-period aggregation must happen AFTER normalization
+ *
+ * DATA FORMAT
+ * -----------
+ * - Values are in nominal RON (no inflation adjustment)
+ * - Each point represents the SUM of matching records for that period
+ * - Points are ordered chronologically
+ *
+ * SINGLE-PERIOD QUERIES
+ * ---------------------
+ * When the filter specifies a single year/quarter/month, the result
+ * is still a DataSeries with one data point. This maintains consistency
+ * and allows the normalization pipeline to work uniformly.
  */
 export class KyselyAnalyticsRepo implements AnalyticsRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
-  async getAggregatedSeries(
-    filter: AnalyticsFilter
-  ): Promise<Result<RawAnalyticsDataPoint[], AnalyticsError>> {
+  async getAggregatedSeries(filter: AnalyticsFilter): Promise<Result<DataSeries, AnalyticsError>> {
     try {
       // Start building the query on executionlineitems (lowercase, as PostgreSQL converts unquoted table names)
       // We define the base query. Note: We use 'any' for intermediate query builder
@@ -195,13 +246,23 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       // Execute
       const rows = await query.execute();
 
-      return ok(
-        rows.map((r: any) => ({
-          year: r.year,
-          period_value: r.period_value != null ? Number(r.period_value) : 0,
-          amount: r.amount,
-        }))
-      );
+      // Convert rows to DataPoint array
+      const dataPoints: DataPoint[] = rows.map((r: any) => ({
+        date: formatDateFromRow(
+          r.year,
+          r.period_value != null ? Number(r.period_value) : r.year,
+          periodType
+        ),
+        value: new Decimal(r.amount),
+      }));
+
+      // Build DataSeries
+      const series: DataSeries = {
+        frequency: getFrequency(periodType),
+        data: dataPoints,
+      };
+
+      return ok(series);
     } catch (error) {
       return err({
         type: 'DatabaseError',

@@ -1,54 +1,95 @@
 import { Decimal } from 'decimal.js';
 
-/**
- * Supported currencies for normalization.
- */
-export type Currency = 'RON' | 'EUR' | 'USD';
+import type { FactorMap } from './factor-maps.js';
+import type { Currency, NormalizationMode } from '@/common/types/analytics.js';
+import type { NormalizableDataPoint } from '@/common/types/temporal.js';
 
-/**
- * Normalization modes.
- * - 'total': Standard value (possibly adjusted for inflation/currency).
- * - 'per_capita': Value divided by population.
- * - 'percent_gdp': Value divided by nominal GDP.
- */
-export type NormalizationMode = 'total' | 'per_capita' | 'percent_gdp';
+// Re-export canonical types from analytics
+export type { Currency, NormalizationMode } from '@/common/types/analytics.js';
 
-/**
- * Granularity of the data.
- * Used to parse year from period labels.
- */
-export type Granularity = 'ANNUAL' | 'QUARTERLY' | 'MONTHLY';
+// Re-export NormalizableDataPoint from temporal
+export type { NormalizableDataPoint } from '@/common/types/temporal.js';
 
 /**
  * Configuration for the transformation pipeline.
+ *
+ * IMPORTANT: This interface uses camelCase for internal processing.
+ * The GraphQL layer uses snake_case (inflation_adjusted, show_period_growth)
+ * which gets mapped to this interface by the resolvers.
  */
 export interface TransformationOptions {
+  /** Whether to adjust values for inflation to a reference year (typically 2024) */
   inflationAdjusted: boolean;
+  /** Target currency for the output */
   currency: Currency;
+  /** Normalization mode (total, per_capita, percent_gdp) */
   normalization: NormalizationMode;
+  /** Whether to show period-over-period growth percentage */
   showPeriodGrowth?: boolean;
 }
 
 /**
- * External factors required for normalization.
- * These should be loaded by the Shell and passed to Core.
+ * Frequency-matched normalization factors.
  *
- * All maps are Key: Year (number) -> Value: Factor (Decimal).
+ * Each FactorMap is keyed by period label matching the data frequency:
+ * - YEARLY: "2023", "2024"
+ * - QUARTERLY: "2023-Q1", "2023-Q2"
+ * - MONTHLY: "2023-01", "2023-02"
+ *
+ * Factor maps are generated at query time using generateFactorMap(),
+ * which applies fallback logic (monthly → yearly) to ensure complete maps.
+ *
+ * These factors are applied per-period to each data point in a time series
+ * BEFORE any aggregation is performed.
  */
 export interface NormalizationFactors {
-  cpi: Map<number, Decimal>; // Consumer Price Index (Inflation factor)
-  eur: Map<number, Decimal>; // EUR Exchange Rate
-  usd: Map<number, Decimal>; // USD Exchange Rate
-  gdp: Map<number, Decimal>; // Nominal GDP
-  population: Map<number, Decimal>; // Population
+  /** CPI factors for inflation adjustment (reference year has factor 1.0) */
+  cpi: FactorMap;
+  /** RON to EUR exchange rates */
+  eur: FactorMap;
+  /** RON to USD exchange rates */
+  usd: FactorMap;
+  /** Nominal GDP values (for percent_gdp normalization) */
+  gdp: FactorMap;
+  /** Population values (for per_capita normalization) */
+  population: FactorMap;
 }
 
 /**
  * A data point in the normalization pipeline.
- * 'y' is always a Decimal to ensure precision.
+ *
+ * This type uses field names optimized for the normalization logic:
+ * - x: period label for output/display
+ * - year: pre-parsed for factor lookup efficiency
+ * - y: value being transformed
+ *
+ * For new code, consider using NormalizableDataPoint from @/common/types/temporal.js
+ * which uses more descriptive field names (date, year, value).
  */
 export interface DataPoint {
   x: string; // Period label (e.g., "2023", "2023-Q1")
   year: number; // Extracted year for factor lookup
   y: Decimal; // The value
+}
+
+/**
+ * Converts NormalizableDataPoint to legacy DataPoint format.
+ */
+export function toLegacyDataPoint(point: NormalizableDataPoint): DataPoint {
+  return {
+    x: point.date,
+    year: point.year,
+    y: point.value,
+  };
+}
+
+/**
+ * Converts legacy DataPoint to NormalizableDataPoint format.
+ */
+export function fromLegacyDataPoint(point: DataPoint): NormalizableDataPoint {
+  return {
+    date: point.x,
+    year: point.year,
+    value: point.y,
+  };
 }

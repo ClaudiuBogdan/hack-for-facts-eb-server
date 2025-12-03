@@ -1,14 +1,13 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
-import { formatPeriodLabel, getPreviousPeriodLabel } from '@/common/modules/period-labels/index.js';
+import { getPreviousPeriodLabel } from '@/common/modules/period-labels/index.js';
 
 import type { AnalyticsError } from './errors.js';
 import type {
   AnalyticsRepository,
   AnalyticsSeries,
   AnalyticsInput,
-  RawAnalyticsDataPoint,
   ProcessingContext,
   IntermediatePoint,
   NormalizationOptions,
@@ -19,6 +18,7 @@ import type {
   PeriodType,
 } from './types.js';
 import type { DatasetRepo, Dataset } from '../../datasets/index.js';
+import type { DataSeries } from '@/common/types/temporal.js';
 
 export interface AnalyticsServiceDeps {
   analyticsRepo: AnalyticsRepository;
@@ -31,14 +31,45 @@ const getDatasetValue = (dataset: Dataset, year: number): Decimal | null => {
   return point !== undefined ? point.y : null;
 };
 
+/**
+ * Normalization service for transforming time series data.
+ *
+ * TRANSFORMATION PIPELINE
+ * -----------------------
+ * This service implements the "aggregate-after-normalize" pattern:
+ *
+ * 1. Input: DataSeries with raw nominal RON values per period
+ * 2. Transform: Apply normalization factors PER DATA POINT
+ * 3. Output: Normalized IntermediatePoints ready for aggregation
+ *
+ * Each transformation (inflation, currency, per-capita) uses year-specific
+ * factors. This ensures correct results when data spans multiple years.
+ *
+ * BRANCH LOGIC
+ * ------------
+ * - Path A (Standard): inflation → currency → per_capita → growth
+ * - Path B (% GDP): Uses nominal values divided by nominal GDP
+ *   (no inflation adjustment, as both numerator and denominator are nominal)
+ */
 class NormalizationService {
-  transform(rawRows: RawAnalyticsDataPoint[], ctx: ProcessingContext): IntermediatePoint[] {
-    // 1. Map DB rows to Intermediate format
-    let data: IntermediatePoint[] = rawRows.map((row) => ({
-      x: formatPeriodLabel(row.year, row.period_value, ctx.granularity),
-      year: row.year,
-      y: new Decimal(row.amount).toNumber(), // Convert using decimal.js first for safety
-    }));
+  /**
+   * Transforms a DataSeries by applying normalization based on context options.
+   *
+   * @param series - Raw time series data in nominal RON
+   * @param ctx - Processing context with options and loaded datasets
+   * @returns Array of normalized IntermediatePoints
+   */
+  transform(series: DataSeries, ctx: ProcessingContext): IntermediatePoint[] {
+    // 1. Map DataSeries to Intermediate format
+    let data: IntermediatePoint[] = series.data.map((point) => {
+      // Extract year from ISO date string (YYYY-MM-DD)
+      const year = parseInt(point.date.substring(0, 4), 10);
+      return {
+        x: point.date, // Keep ISO date as x label
+        year,
+        y: point.value.toNumber(), // Convert Decimal to number for processing
+      };
+    });
 
     // 2. Apply Branch Logic
     if (ctx.filter.normalization === 'percent_gdp') {
@@ -158,11 +189,42 @@ function getResultAxis(filter: NormalizationOptions): Axis {
   };
 }
 
+/**
+ * Creates the analytics service with the aggregate-after-normalize pattern.
+ *
+ * DATA FLOW
+ * ---------
+ * 1. GraphQL receives input with filter + normalization options
+ * 2. Repository fetches raw time series (DataSeries) in nominal RON
+ * 3. NormalizationService transforms each point using year-specific factors
+ * 4. Result is returned as AnalyticsSeries[] for GraphQL
+ *
+ * POINT-IN-TIME DATA
+ * ------------------
+ * For single-point queries (e.g., total for year 2023):
+ * - Repository still returns a single-point DataSeries
+ * - Normalization applies correctly to that single point
+ * - Works seamlessly with the same pipeline
+ *
+ * MULTI-YEAR AGGREGATION
+ * ----------------------
+ * If aggregation across years is needed (e.g., sum 2020-2023):
+ * - Repository returns time series with all years
+ * - Normalization adjusts each year with its specific factors
+ * - Client or additional logic can sum the normalized values
+ */
 export const makeAnalyticsService = (deps: AnalyticsServiceDeps) => {
   const { analyticsRepo, datasetRepo } = deps;
   const normalizationService = new NormalizationService();
 
   return {
+    /**
+     * Fetches and normalizes analytics series based on input filters.
+     *
+     * Each input generates one AnalyticsSeries in the output.
+     * Normalization is applied per data point to ensure correct
+     * inflation and currency adjustments across years.
+     */
     async getAnalyticsSeries(
       inputs: AnalyticsInput[]
     ): Promise<Result<AnalyticsSeries[], AnalyticsError>> {
@@ -194,11 +256,11 @@ export const makeAnalyticsService = (deps: AnalyticsServiceDeps) => {
           show_period_growth: input.filter.show_period_growth,
         };
 
-        // 1. Fetch Raw Data (Nominal RON)
+        // 1. Fetch Raw Data (Nominal RON) - returns DataSeries
         // Note: The repo expects AnalyticsFilter, which is satisfied by strictFilter
-        const rawResult = await analyticsRepo.getAggregatedSeries(strictFilter);
-        if (rawResult.isErr()) return err(rawResult.error);
-        const rawData = rawResult.value;
+        const seriesResult = await analyticsRepo.getAggregatedSeries(strictFilter);
+        if (seriesResult.isErr()) return err(seriesResult.error);
+        const rawSeries = seriesResult.value;
 
         // 2. Prepare Context (Datasets)
         const ctx: ProcessingContext = {
@@ -227,14 +289,15 @@ export const makeAnalyticsService = (deps: AnalyticsServiceDeps) => {
           }
         }
 
-        // 3. Transform
-        const processedPoints = normalizationService.transform(rawData, ctx);
+        // 3. Transform (apply normalization)
+        const processedPoints = normalizationService.transform(rawSeries, ctx);
 
-        // Sort by X (Date)
+        // Sort by X (ISO date string)
         processedPoints.sort((a, b) => a.x.localeCompare(b.x));
 
         const finalAxis = getResultAxis(strictFilter);
 
+        // 4. Convert to AnalyticsSeries for GraphQL
         results.push({
           seriesId: seriesId ?? 'default',
           xAxis: {

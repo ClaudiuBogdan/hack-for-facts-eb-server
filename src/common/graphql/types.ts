@@ -88,8 +88,8 @@ export const CommonTypes = /* GraphQL */ `
   # ---------------------------------------------------------------------------
   "A single data point in a time series"
   type DataPoint {
-    "ISO 8601 date (YYYY-MM-DD)"
-    date: Date!
+    "Date string: YYYY, YYYY-MM, or YYYY-QN"
+    date: String!
     "Decimal value as string"
     value: String!
   }

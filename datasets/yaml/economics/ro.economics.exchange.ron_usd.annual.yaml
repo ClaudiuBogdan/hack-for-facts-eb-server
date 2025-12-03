@@ -1,0 +1,29 @@
+metadata:
+  id: 'ro.economics.exchange.ron_usd.annual'
+  source: 'BNR'
+  sourceUrl: 'https://bnr.ro'
+  lastUpdated: '2024-01-01'
+  units: 'ron_per_usd'
+i18n:
+  ro:
+    title: 'Curs de Schimb RON/USD (Medie Anuală)'
+    xAxisLabel: 'An'
+    yAxisLabel: 'RON/USD'
+  en:
+    title: 'RON/USD Exchange Rate (Annual Average)'
+    xAxisLabel: 'Year'
+    yAxisLabel: 'RON/USD'
+axes:
+  x:
+    label: 'An'
+    type: 'date'
+    granularity: 'annual'
+    format: 'YYYY'
+  y:
+    label: 'RON/USD'
+    type: 'number'
+    unit: 'ron_per_usd'
+data:
+  # Mock data - to be updated with real values
+  - { x: '2023', y: '4.5000' }
+  - { x: '2024', y: '4.6000' }

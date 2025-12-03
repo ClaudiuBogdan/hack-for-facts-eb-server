@@ -4,6 +4,7 @@
  */
 
 import { buildApp } from './app.js';
+import { NormalizationService } from './common/modules/normalization/index.js';
 import { parseEnv, createConfig } from './infra/config/index.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
@@ -38,6 +39,12 @@ const main = async (): Promise<void> => {
   const datasetRepo = createDatasetRepo({
     rootDir: './datasets/yaml',
   });
+
+  // Validate required normalization datasets exist
+  // This will throw NormalizationDatasetError if any are missing
+  logger.info('Validating normalization datasets...');
+  await NormalizationService.create(datasetRepo);
+  logger.info('Normalization datasets validated successfully');
 
   // Build application - let Fastify create its own logger based on config
   const app = await buildApp({

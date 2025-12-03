@@ -25,7 +25,8 @@
         "deps",
         "config",
         "husky",
-        "execution-analytics"
+        "execution-analytics",
+        "normalization"
       ]
     ],
     "scope-empty": [1, "never"],

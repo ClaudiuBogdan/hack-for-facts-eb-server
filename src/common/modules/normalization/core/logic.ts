@@ -1,21 +1,30 @@
 import { Decimal } from 'decimal.js';
 
-import { DataPoint, NormalizationFactors, TransformationOptions, Currency } from './types.js';
+import { getFactorOrDefault, type FactorMap } from './factor-maps.js';
+
+import type { DataPoint, NormalizationFactors, TransformationOptions, Currency } from './types.js';
 
 /**
- * Applies inflation adjustment.
- * Multiplies value by CPI factor for the year.
+ * Applies inflation adjustment using period-matched CPI factors.
+ * Multiplies value by CPI factor for the period.
+ *
+ * @param data - Data points with x (period label) and y (value)
+ * @param cpiMap - CPI factors keyed by period label
  */
-export function applyInflation(data: DataPoint[], cpiMap: Map<number, Decimal>): DataPoint[] {
+export function applyInflation(data: DataPoint[], cpiMap: FactorMap): DataPoint[] {
   return data.map((point) => {
-    const factor = cpiMap.get(point.year) ?? new Decimal(1);
+    const factor = getFactorOrDefault(cpiMap, point.x);
     return { ...point, y: point.y.mul(factor) };
   });
 }
 
 /**
- * Applies currency conversion.
+ * Applies currency conversion using period-matched exchange rates.
  * Divides value by exchange rate.
+ *
+ * @param data - Data points with x (period label) and y (value in RON)
+ * @param currency - Target currency (EUR or USD)
+ * @param factors - Normalization factors containing exchange rate maps
  */
 export function applyCurrency(
   data: DataPoint[],
@@ -27,34 +36,37 @@ export function applyCurrency(
   const rateMap = currency === 'EUR' ? factors.eur : factors.usd;
 
   return data.map((point) => {
-    const rate = rateMap.get(point.year) ?? new Decimal(1);
+    const rate = getFactorOrDefault(rateMap, point.x);
     if (rate.isZero()) return point;
     return { ...point, y: point.y.div(rate) };
   });
 }
 
 /**
- * Applies per capita scaling.
+ * Applies per capita scaling using period-matched population.
  * Divides value by population.
+ *
+ * @param data - Data points with x (period label) and y (value)
+ * @param populationMap - Population values keyed by period label
  */
-export function applyPerCapita(
-  data: DataPoint[],
-  populationMap: Map<number, Decimal>
-): DataPoint[] {
+export function applyPerCapita(data: DataPoint[], populationMap: FactorMap): DataPoint[] {
   return data.map((point) => {
-    const pop = populationMap.get(point.year);
+    const pop = populationMap.get(point.x);
     if (pop === undefined || pop.isZero()) return point;
     return { ...point, y: point.y.div(pop) };
   });
 }
 
 /**
- * Applies % of GDP scaling.
+ * Applies % of GDP scaling using period-matched GDP.
  * Divides value by Nominal GDP.
+ *
+ * @param data - Data points with x (period label) and y (value)
+ * @param gdpMap - GDP values keyed by period label
  */
-export function applyPercentGDP(data: DataPoint[], gdpMap: Map<number, Decimal>): DataPoint[] {
+export function applyPercentGDP(data: DataPoint[], gdpMap: FactorMap): DataPoint[] {
   return data.map((point) => {
-    const gdp = gdpMap.get(point.year);
+    const gdp = gdpMap.get(point.x);
     if (gdp === undefined || gdp.isZero()) return { ...point, y: new Decimal(0) };
     // Result is percentage (0-100)
     return { ...point, y: point.y.div(gdp).mul(100) };
@@ -63,7 +75,9 @@ export function applyPercentGDP(data: DataPoint[], gdpMap: Map<number, Decimal>)
 
 /**
  * Calculates period-over-period growth.
- * Returns percentage change.
+ * Returns percentage change from previous period.
+ *
+ * Note: This assumes data is sorted chronologically.
  */
 export function applyGrowth(data: DataPoint[]): DataPoint[] {
   const result: DataPoint[] = [];
@@ -85,6 +99,17 @@ export function applyGrowth(data: DataPoint[]): DataPoint[] {
 
 /**
  * Main transformation pipeline.
+ *
+ * Applies normalization transformations in the correct order:
+ * 1. Inflation adjustment (if requested and not percent_gdp mode)
+ * 2. Currency conversion (if not RON and not percent_gdp mode)
+ * 3. Per capita scaling (if per_capita mode)
+ * 4. Percent of GDP (if percent_gdp mode - mutually exclusive with above)
+ * 5. Growth calculation (if requested)
+ *
+ * @param data - Data points to transform
+ * @param options - Transformation options
+ * @param factors - Normalization factors (period-matched FactorMaps)
  */
 export function normalizeData(
   data: DataPoint[],

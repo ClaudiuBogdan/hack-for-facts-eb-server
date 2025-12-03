@@ -2,6 +2,7 @@ import { ok } from 'neverthrow';
 import { describe, expect, it, afterEach, vi, beforeEach } from 'vitest';
 
 import { createApp } from '@/app.js';
+import { Frequency, type DataSeries } from '@/common/types/temporal.js';
 import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 
 import { makeHealthChecker, makeTestConfig } from '../fixtures/builders.js';
@@ -10,7 +11,6 @@ import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 import type {
   AnalyticsFilter,
   AnalyticsRepository,
-  RawAnalyticsDataPoint,
 } from '@/modules/execution-analytics/core/types.js';
 import type { FastifyInstance } from 'fastify';
 
@@ -105,7 +105,12 @@ describe('GraphQL API', () => {
       const mockRepo: AnalyticsRepository = {
         getAggregatedSeries: vi.fn(async (filter: AnalyticsFilter) => {
           capturedFilter = filter;
-          return ok([] as RawAnalyticsDataPoint[]);
+          // Return empty DataSeries
+          const emptySeries: DataSeries = {
+            frequency: Frequency.MONTHLY,
+            data: [],
+          };
+          return ok(emptySeries);
         }),
       };
 
