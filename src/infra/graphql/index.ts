@@ -3,6 +3,17 @@ import mercuriusPlugin, { type IResolvers } from 'mercurius';
 
 import type { FastifyPluginAsync } from 'fastify';
 
+// Re-export common GraphQL utilities
+export {
+  CommonDirectives,
+  CommonEnums,
+  CommonScalars,
+  CommonTypes,
+  CommonGraphQLSchema,
+  commonGraphQLResolvers,
+  EnumResolvers,
+} from './common/index.js';
+
 export interface GraphQLOptions {
   schema: string[];
   resolvers: IResolvers[];

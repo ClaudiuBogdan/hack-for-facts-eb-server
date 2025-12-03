@@ -1,8 +1,8 @@
 /**
  * Database Seeding Module
- * Provides two main functionalities:
- * 1. seedDatabase() - Seeds actual PostgreSQL database with data from JSON files
- * 2. loadSeedData() - Loads data into in-memory database for testing/mocking
+ * Seeds actual PostgreSQL database with data from JSON files
+ *
+ * Note: For in-memory database testing utilities, use tests/fixtures/in-memory-db.ts
  */
 
 import fs from 'node:fs';
@@ -12,20 +12,6 @@ import { fromThrowable } from 'neverthrow';
 
 import type { SeedJson, ReportGroup } from './types.js';
 import type { BudgetDatabase, ReportType } from '../budget/types.js';
-
-// Re-export in-memory database functionality
-export { createInMemoryDatabase, InMemoryDatabaseQuery } from './in-memory-db.js';
-export type {
-  InMemoryDatabase,
-  InMemoryEntity,
-  InMemoryFunctionalClassification,
-  InMemoryEconomicClassification,
-  InMemoryFundingSource,
-  InMemoryBudgetSector,
-  InMemoryReport,
-  InMemoryExecutionLineItem,
-} from './in-memory-db.js';
-export { loadSeedData, loadSeedFile } from './seed-loader.js';
 
 const safeJsonParse = fromThrowable(JSON.parse);
 

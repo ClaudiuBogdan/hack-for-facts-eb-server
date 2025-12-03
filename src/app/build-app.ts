@@ -9,9 +9,11 @@ import fastifyLib, {
   type FastifyError,
 } from 'fastify';
 
-import { CommonGraphQLSchema } from '../common/graphql/index.js';
-import { commonGraphQLResolvers } from '../common/graphql/schema.js';
-import { makeGraphQLPlugin } from '../infra/graphql/index.js';
+import {
+  makeGraphQLPlugin,
+  CommonGraphQLSchema,
+  commonGraphQLResolvers,
+} from '../infra/graphql/index.js';
 import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors } from '../infra/plugins/index.js';
 import {

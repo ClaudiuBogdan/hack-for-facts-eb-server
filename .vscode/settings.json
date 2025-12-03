@@ -5,5 +5,15 @@
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "typescript.preferences.importModuleSpecifier": "relative",
-  "files.eol": "\n"
+  "files.eol": "\n",
+  "cSpell.words": [
+    "executie",
+    "agregata",
+    "bugetara",
+    "detaliata",
+    "nivel",
+    "ordonator",
+    "principal",
+    "secundar"
+  ]
 }

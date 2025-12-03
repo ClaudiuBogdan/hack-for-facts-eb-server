@@ -4,7 +4,7 @@
  * populated from seed files for testing and development
  */
 
-import type { ReportType } from '../budget/types.js';
+import type { ReportType } from '@/infra/database/budget/types.js';
 
 // ========= In-Memory Data Structures =========
 

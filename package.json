@@ -25,9 +25,12 @@
     "test:watch": "vitest --exclude 'tests/e2e/**'",
     "test:coverage": "vitest run --coverage --exclude 'tests/e2e/**'",
     "validate-datasets": "tsx scripts/validate-datasets.ts",
-    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "deps:check": "madge --circular --extensions ts src/",
+    "deps:summary": "madge --extensions ts --json src/ | node -e \"const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log('Files:',Object.keys(d).length);console.log('Imports:',Object.values(d).flat().length)\"",
+    "deps:graph": "echo 'Requires Graphviz: brew install graphviz (macOS) or apt install graphviz (Linux)' && madge --image deps-graph.svg --extensions ts src/",
+    "ci": "pnpm typecheck && pnpm lint && pnpm deps:check && pnpm test && pnpm run deps:check && pnpm build",
     "prepare": "husky",
-    "clean": "rm -rf dist coverage"
+    "clean": "rm -rf dist coverage deps-graph.svg"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -74,6 +77,7 @@
     "husky": "^9.1.7",
     "kysely-codegen": "^0.19.0",
     "lint-staged": "^16.2.7",
+    "madge": "^8.0.0",
     "pino-pretty": "^13.0.0",
     "prettier": "^3.7.1",
     "testcontainers": "^11.9.0",

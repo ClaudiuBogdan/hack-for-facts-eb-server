@@ -1,4 +1,3 @@
-// cSpell:disable
 /**
  * Enum resolvers for common GraphQL enums
  * Provides bidirectional mapping between GraphQL enum values and internal values

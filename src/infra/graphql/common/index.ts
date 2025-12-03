@@ -7,5 +7,5 @@ export { CommonDirectives } from './directives.js';
 export { CommonEnums } from './enums.js';
 export { CommonScalars } from './scalars.js';
 export { CommonTypes } from './types.js';
-export { CommonGraphQLSchema } from './schema.js';
+export { CommonGraphQLSchema, commonGraphQLResolvers } from './schema.js';
 export { EnumResolvers } from './resolvers.js';

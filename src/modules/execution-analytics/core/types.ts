@@ -5,7 +5,6 @@ import type {
   AnalyticsFilter,
   PeriodType,
 } from '@/common/types/analytics.js';
-import type { BudgetDbClient } from '@/infra/database/client.js';
 
 // Re-export common types
 export type {
@@ -68,12 +67,4 @@ export interface IntermediatePoint {
   x: string; // Original label (YYYY, YYYY-MM, or YYYY-QN)
   year: number; // Parsed year for factor lookups
   y: number; // Value (number for GraphQL output)
-}
-
-// -----------------------------------------
-// Dependencies
-// -----------------------------------------
-
-export interface AnalyticsDeps {
-  budgetDb: BudgetDbClient;
 }

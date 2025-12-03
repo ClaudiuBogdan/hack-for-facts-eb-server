@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { describe, it, expect } from 'vitest';
 
-import { loadSeedData, InMemoryDatabaseQuery } from '../../../src/infra/database/seeds/index.js';
+import { loadSeedData, InMemoryDatabaseQuery } from '../../fixtures/index.js';
 
 describe('Seed Data Loader', () => {
   it('should load seed data from directory', () => {

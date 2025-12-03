@@ -1,33 +1,8 @@
 # Database Seeds Module
 
-This module provides two main functionalities for working with budget data:
+This module provides database seeding functionality for PostgreSQL.
 
-## 1. In-Memory Database (for Testing & Mocking)
-
-Load seed data into an in-memory database for fast testing without needing PostgreSQL:
-
-```typescript
-import { loadSeedData, InMemoryDatabaseQuery } from '@/infra/database/seeds';
-import path from 'node:path';
-
-// Load all seed files from directory
-const seedDir = path.join(process.cwd(), 'src/infra/database/seeds/entities');
-const db = await loadSeedData(seedDir);
-
-// Create query helper
-const query = new InMemoryDatabaseQuery(db);
-
-// Query the data
-const entity = query.getEntityByCui('4270740');
-const reports = query.getReportsByEntityAndYear('4270740', 2023);
-const lineItems = query.getLineItemsByEntity('4270740');
-
-// Get aggregated totals
-const totals = query.getTotalsByEntityAndYear('4270740', 2023, 'Executie bugetara detaliata');
-console.log(totals); // { totalIncome, totalExpense, balance }
-```
-
-## 2. Database Seeding (for PostgreSQL)
+## Database Seeding (for PostgreSQL)
 
 Seed actual PostgreSQL database with data from JSON files:
 
@@ -49,6 +24,31 @@ const files = fs.readdirSync('src/infra/database/seeds/entities');
 for (const file of files) {
   await seedDatabase(budgetDb, path.join('src/infra/database/seeds/entities', file));
 }
+```
+
+## In-Memory Database (for Testing)
+
+For testing purposes, use the in-memory database from `tests/fixtures`:
+
+```typescript
+import { loadSeedData, InMemoryDatabaseQuery } from '@/tests/fixtures';
+import path from 'node:path';
+
+// Load all seed files from directory
+const seedDir = path.join(process.cwd(), 'src/infra/database/seeds/entities');
+const db = loadSeedData(seedDir);
+
+// Create query helper
+const query = new InMemoryDatabaseQuery(db);
+
+// Query the data
+const entity = query.getEntityByCui('4270740');
+const reports = query.getReportsByEntityAndYear('4270740', 2023);
+const lineItems = query.getLineItemsByEntity('4270740');
+
+// Get aggregated totals
+const totals = query.getTotalsByEntityAndYear('4270740', 2023, 'Executie bugetara detaliata');
+console.log(totals); // { totalIncome, totalExpense, balance }
 ```
 
 ## Data Structure
@@ -126,24 +126,3 @@ The data maps to these database tables:
 - **ExecutionLineItems** - Individual budget line items (partitioned by year and report_type)
 
 See `src/infra/database/budget/schema.sql` for the complete schema definition.
-
-## Testing Example
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import { loadSeedData, InMemoryDatabaseQuery } from '@/infra/database/seeds';
-
-describe('Budget Data', () => {
-  it('should load and query seed data', async () => {
-    const db = await loadSeedData('./src/infra/database/seeds/entities');
-    const query = new InMemoryDatabaseQuery(db);
-
-    const entity = query.getEntityByCui('4270740');
-    expect(entity).toBeDefined();
-    expect(entity?.name).toBe('MUNICIPIUL SIBIU');
-
-    const reports = query.getReportsByEntity('4270740');
-    expect(reports.length).toBeGreaterThan(0);
-  });
-});
-```

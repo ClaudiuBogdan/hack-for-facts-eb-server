@@ -85,6 +85,9 @@ dump.rdb
 # Optional eslint cache
 .eslintcache
 
+# Dependency graph output
+deps-graph.svg
+
 # Optional stylelint cache
 .stylelintcache
 

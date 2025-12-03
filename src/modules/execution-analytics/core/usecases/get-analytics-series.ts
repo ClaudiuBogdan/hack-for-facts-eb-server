@@ -1,7 +1,7 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
-import { getPreviousPeriodLabel } from '@/common/period-labels/index.js';
+import { getPreviousPeriodLabel } from '../period-labels.js';
 
 import type { DatasetRepo, Dataset, DataPoint } from '../../../datasets/index.js';
 import type { AnalyticsError } from '../errors.js';
