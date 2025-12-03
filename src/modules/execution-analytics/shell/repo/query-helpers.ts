@@ -1,43 +1,28 @@
 import { Frequency } from '@/common/types/temporal.js';
 
-/**
- * Period type for analytics queries.
- */
-export type PeriodType = 'MONTH' | 'QUARTER' | 'YEAR';
+// Re-export Frequency for convenience
+export { Frequency } from '@/common/types/temporal.js';
 
 /**
- * Formats database row to date string based on period type.
+ * Formats database row to date string based on frequency.
  *
  * Output format matches the DataPoint.date specification:
- * - YEAR: YYYY (e.g., 2024)
- * - MONTH: YYYY-MM (e.g., 2024-03)
- * - QUARTER: YYYY-QN (e.g., 2024-Q1)
+ * - YEARLY: YYYY (e.g., 2024)
+ * - MONTHLY: YYYY-MM (e.g., 2024-03)
+ * - QUARTERLY: YYYY-QN (e.g., 2024-Q1)
  */
-export function formatDateFromRow(
-  year: number,
-  periodValue: number,
-  periodType: PeriodType
-): string {
-  if (periodType === 'MONTH') {
+export function formatDateFromRow(year: number, periodValue: number, frequency: Frequency): string {
+  if (frequency === Frequency.MONTH) {
     const month = String(periodValue).padStart(2, '0');
     return `${String(year)}-${month}`;
   }
 
-  if (periodType === 'QUARTER') {
+  if (frequency === Frequency.QUARTER) {
     return `${String(year)}-Q${String(periodValue)}`;
   }
 
-  // YEAR
+  // YEARLY
   return String(year);
-}
-
-/**
- * Maps period type to Frequency enum.
- */
-export function getFrequency(periodType: PeriodType): Frequency {
-  if (periodType === 'MONTH') return Frequency.MONTHLY;
-  if (periodType === 'QUARTER') return Frequency.QUARTERLY;
-  return Frequency.YEARLY;
 }
 
 /**

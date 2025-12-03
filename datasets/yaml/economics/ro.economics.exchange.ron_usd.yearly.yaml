@@ -1,5 +1,5 @@
 metadata:
-  id: 'ro.economics.exchange.ron_usd.annual'
+  id: 'ro.economics.exchange.ron_usd.yearly'
   source: 'BNR'
   sourceUrl: 'https://bnr.ro'
   lastUpdated: '2024-01-01'
@@ -17,7 +17,7 @@ axes:
   x:
     label: 'An'
     type: 'date'
-    granularity: 'annual'
+    frequency: 'yearly'
     format: 'YYYY'
   y:
     label: 'RON/USD'

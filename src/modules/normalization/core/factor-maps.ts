@@ -121,7 +121,7 @@ export function generateFactorMap(
   let previousValue: Decimal | undefined;
 
   switch (frequency) {
-    case Frequency.MONTHLY: {
+    case Frequency.MONTH: {
       const labels = generateMonthLabels(startYear, endYear);
       for (const label of labels) {
         let value: Decimal | undefined;
@@ -149,7 +149,7 @@ export function generateFactorMap(
       break;
     }
 
-    case Frequency.QUARTERLY: {
+    case Frequency.QUARTER: {
       const labels = generateQuarterLabels(startYear, endYear);
       for (const label of labels) {
         let value: Decimal | undefined;
@@ -177,7 +177,7 @@ export function generateFactorMap(
       break;
     }
 
-    case Frequency.YEARLY: {
+    case Frequency.YEAR: {
       const labels = generateYearLabels(startYear, endYear);
       for (const label of labels) {
         let value = datasets.yearly.get(label);

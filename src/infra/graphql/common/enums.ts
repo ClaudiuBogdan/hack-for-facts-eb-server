@@ -42,15 +42,15 @@ export const CommonEnums = /* GraphQL */ `
   }
 
   # ---------------------------------------------------------------------------
-  # Frequency
+  # Period Type
   # ---------------------------------------------------------------------------
-  "Frequency of temporal data points"
-  enum Frequency {
-    "Monthly data points"
-    MONTHLY
-    "Quarterly data points"
-    QUARTERLY
-    "Yearly data points"
-    YEARLY
+  "Period type for temporal filtering"
+  enum PeriodType {
+    "Monthly period"
+    MONTH
+    "Quarterly period"
+    QUARTER
+    "Yearly period"
+    YEAR
   }
 `;

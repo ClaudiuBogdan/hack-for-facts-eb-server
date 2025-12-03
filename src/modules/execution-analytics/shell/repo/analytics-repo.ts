@@ -7,12 +7,11 @@ import { type DataSeries, type DataPoint } from '@/common/types/temporal.js';
 
 import {
   formatDateFromRow,
-  getFrequency,
+  Frequency,
   extractYear,
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
-  type PeriodType,
 } from './query-helpers.js';
 
 import type { AnalyticsError } from '../../core/errors.js';
@@ -83,7 +82,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
   async getAggregatedSeries(filter: AnalyticsFilter): Promise<Result<DataSeries, AnalyticsError>> {
-    const periodType = filter.report_period.type;
+    const frequency = filter.report_period.frequency;
 
     try {
       // Set statement timeout for this transaction
@@ -96,7 +95,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
         .selectFrom('executionlineitems as eli')
         .select(['eli.year']);
 
-      query = this.applyPeriodAggregation(query, periodType);
+      query = this.applyPeriodAggregation(query, frequency);
       query = this.applyPeriodFilters(query, filter);
       query = this.applyDimensionFilters(query, filter);
       query = this.applyCodeFilters(query, filter);
@@ -111,10 +110,10 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       const rows: AggregatedRow[] = await query.execute();
 
       // Transform to DataSeries
-      const dataPoints = this.transformRowsToDataPoints(rows, periodType);
+      const dataPoints = this.transformRowsToDataPoints(rows, frequency);
 
       const series: DataSeries = {
-        frequency: getFrequency(periodType),
+        frequency,
         data: dataPoints,
       };
 
@@ -131,8 +130,8 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
   /**
    * Applies period-specific SELECT, GROUP BY, and ORDER BY clauses.
    */
-  private applyPeriodAggregation(query: DynamicQuery, periodType: PeriodType): DynamicQuery {
-    if (periodType === 'MONTH') {
+  private applyPeriodAggregation(query: DynamicQuery, frequency: Frequency): DynamicQuery {
+    if (frequency === Frequency.MONTH) {
       return query
         .select('eli.month as period_value')
         .select(sql<string>`COALESCE(SUM(eli.monthly_amount), 0)`.as('amount'))
@@ -141,7 +140,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
         .orderBy('eli.month', 'asc');
     }
 
-    if (periodType === 'QUARTER') {
+    if (frequency === Frequency.QUARTER) {
       return query
         .select('eli.quarter as period_value')
         .select(sql<string>`COALESCE(SUM(eli.quarterly_amount), 0)`.as('amount'))
@@ -151,7 +150,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
         .where('eli.is_quarterly', '=', true);
     }
 
-    // YEAR
+    // YEARLY
     return query
       .select('eli.year as period_value')
       .select(sql<string>`COALESCE(SUM(eli.ytd_amount), 0)`.as('amount'))
@@ -377,9 +376,9 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
   /**
    * Transforms raw database rows to DataPoint array.
    */
-  private transformRowsToDataPoints(rows: AggregatedRow[], periodType: PeriodType): DataPoint[] {
+  private transformRowsToDataPoints(rows: AggregatedRow[], frequency: Frequency): DataPoint[] {
     return rows.map((r) => ({
-      date: formatDateFromRow(r.year, r.period_value, periodType),
+      date: formatDateFromRow(r.year, r.period_value, frequency),
       value: new Decimal(r.amount),
     }));
   }

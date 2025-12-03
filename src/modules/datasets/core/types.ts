@@ -1,4 +1,4 @@
-import { Static, Type } from '@sinclair/typebox';
+import { type Static, Type } from '@sinclair/typebox';
 import { Decimal } from 'decimal.js';
 
 const I18nContentSchema = Type.Object({
@@ -8,8 +8,12 @@ const I18nContentSchema = Type.Object({
   yAxisLabel: Type.String({ description: 'Translated label for Y Axis' }),
 });
 
-const GranularitySchema = Type.Union([
-  Type.Literal('annual'),
+/**
+ * Frequency schema for dataset files.
+ * Uses lowercase values in YAML files for readability (annual, monthly, quarterly).
+ */
+const DatasetFrequencySchema = Type.Union([
+  Type.Literal('yearly'),
   Type.Literal('monthly'),
   Type.Literal('quarterly'),
 ]);
@@ -24,7 +28,7 @@ const AxisSchema = Type.Object({
   label: Type.String(),
   type: AxesTypeSchema,
   unit: Type.Optional(Type.String()),
-  granularity: Type.Optional(GranularitySchema),
+  frequency: Type.Optional(DatasetFrequencySchema),
   format: Type.Optional(Type.String({ description: 'Display format hint, e.g. YYYY' })),
 });
 
@@ -40,7 +44,7 @@ export const DatasetFileSchema = Type.Object({
     sourceUrl: Type.Optional(Type.String()),
     lastUpdated: Type.String(),
     units: Type.String(),
-    granularity: Type.Optional(GranularitySchema),
+    frequency: Type.Optional(DatasetFrequencySchema),
   }),
 
   i18n: Type.Object({
@@ -59,7 +63,12 @@ export const DatasetFileSchema = Type.Object({
 export type DatasetFileDTO = Static<typeof DatasetFileSchema>;
 
 export type DatasetAxesType = Static<typeof AxesTypeSchema>;
-export type DatasetGranularity = Static<typeof GranularitySchema>;
+
+/**
+ * Dataset frequency type (lowercase for YAML files).
+ * Maps to Frequency enum: annual -> YEARLY, monthly -> MONTHLY, quarterly -> QUARTERLY
+ */
+export type DatasetFrequency = Static<typeof DatasetFrequencySchema>;
 
 export interface DataPoint {
   x: string;

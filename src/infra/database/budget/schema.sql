@@ -298,7 +298,7 @@ SELECT
     eli.entity_cui,
     eli.main_creditor_cui,
     eli.report_type,
-    -- The monthly amounts are already at the correct granularity, so we just sum them up by category
+    -- The monthly amounts are already at the correct frequency, so we just sum them up by category
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE 0 END) AS total_income,
     SUM(CASE WHEN eli.account_category = 'ch' THEN eli.monthly_amount ELSE 0 END) AS total_expense,
     SUM(CASE WHEN eli.account_category = 'vn' THEN eli.monthly_amount ELSE -eli.monthly_amount END) AS budget_balance

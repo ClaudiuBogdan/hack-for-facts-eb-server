@@ -15,15 +15,15 @@ import {
 describe('Dataset Registry', () => {
   describe('frequencyToDatasetFrequency', () => {
     it('should map MONTHLY to monthly', () => {
-      expect(frequencyToDatasetFrequency(Frequency.MONTHLY)).toBe('monthly');
+      expect(frequencyToDatasetFrequency(Frequency.MONTH)).toBe('monthly');
     });
 
     it('should map QUARTERLY to quarterly', () => {
-      expect(frequencyToDatasetFrequency(Frequency.QUARTERLY)).toBe('quarterly');
+      expect(frequencyToDatasetFrequency(Frequency.QUARTER)).toBe('quarterly');
     });
 
     it('should map YEARLY to yearly', () => {
-      expect(frequencyToDatasetFrequency(Frequency.YEARLY)).toBe('yearly');
+      expect(frequencyToDatasetFrequency(Frequency.YEAR)).toBe('yearly');
     });
   });
 
@@ -37,11 +37,11 @@ describe('Dataset Registry', () => {
     });
 
     it('should have yearly datasets for all dimensions', () => {
-      expect(NORMALIZATION_DATASETS.cpi.yearly).toBe('ro.economics.cpi.annual');
-      expect(NORMALIZATION_DATASETS.eur.yearly).toBe('ro.economics.exchange.ron_eur.annual');
-      expect(NORMALIZATION_DATASETS.usd.yearly).toBe('ro.economics.exchange.ron_usd.annual');
-      expect(NORMALIZATION_DATASETS.gdp.yearly).toBe('ro.economics.gdp.annual');
-      expect(NORMALIZATION_DATASETS.population.yearly).toBe('ro.demographics.population.annual');
+      expect(NORMALIZATION_DATASETS.cpi.yearly).toBe('ro.economics.cpi.yearly');
+      expect(NORMALIZATION_DATASETS.eur.yearly).toBe('ro.economics.exchange.ron_eur.yearly');
+      expect(NORMALIZATION_DATASETS.usd.yearly).toBe('ro.economics.exchange.ron_usd.yearly');
+      expect(NORMALIZATION_DATASETS.gdp.yearly).toBe('ro.economics.gdp.yearly');
+      expect(NORMALIZATION_DATASETS.population.yearly).toBe('ro.demographics.population.yearly');
     });
   });
 
@@ -50,11 +50,11 @@ describe('Dataset Registry', () => {
       const ids = getRequiredDatasetIds();
 
       expect(ids).toHaveLength(5);
-      expect(ids).toContain('ro.economics.cpi.annual');
-      expect(ids).toContain('ro.economics.exchange.ron_eur.annual');
-      expect(ids).toContain('ro.economics.exchange.ron_usd.annual');
-      expect(ids).toContain('ro.economics.gdp.annual');
-      expect(ids).toContain('ro.demographics.population.annual');
+      expect(ids).toContain('ro.economics.cpi.yearly');
+      expect(ids).toContain('ro.economics.exchange.ron_eur.yearly');
+      expect(ids).toContain('ro.economics.exchange.ron_usd.yearly');
+      expect(ids).toContain('ro.economics.gdp.yearly');
+      expect(ids).toContain('ro.demographics.population.yearly');
     });
 
     it('should return only yearly datasets (minimum required)', () => {
@@ -62,7 +62,7 @@ describe('Dataset Registry', () => {
 
       // Verify no quarterly or monthly datasets in required list
       for (const id of ids) {
-        expect(id).toMatch(/\.annual$/);
+        expect(id).toMatch(/\.yearly$/);
       }
     });
   });
@@ -72,7 +72,7 @@ describe('Dataset Registry', () => {
       const ids = getDimensionDatasetIds('population');
 
       expect(ids).toHaveLength(1);
-      expect(ids).toContain('ro.demographics.population.annual');
+      expect(ids).toContain('ro.demographics.population.yearly');
     });
 
     it('should return all available frequency IDs for dimension', () => {
@@ -80,7 +80,7 @@ describe('Dataset Registry', () => {
       const cpiIds = getDimensionDatasetIds('cpi');
 
       expect(cpiIds).toHaveLength(1);
-      expect(cpiIds).toContain('ro.economics.cpi.annual');
+      expect(cpiIds).toContain('ro.economics.cpi.yearly');
     });
   });
 
@@ -153,7 +153,7 @@ describe('Dataset Registry', () => {
 
       for (const id of allIds) {
         // Dataset IDs should follow format: region.category[.subcategory].name.frequency
-        // e.g., ro.economics.cpi.annual or ro.economics.exchange.ron_eur.annual
+        // e.g., ro.economics.cpi.yearly or ro.economics.exchange.ron_eur.yearly
         expect(id).toMatch(/^[a-z]+(\.[a-z_]+)+$/);
       }
     });

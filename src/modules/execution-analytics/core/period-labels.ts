@@ -1,18 +1,18 @@
-import { PeriodType } from '@/common/types/analytics.js';
+import { Frequency } from '@/common/types/temporal.js';
 
 /**
  * Formats a year and sub-period into a standard label string.
  * @param year - The year (e.g. 2023)
  * @param subPeriod - The sub-period value (Month 1-12, Quarter 1-4, or ignored for Year)
- * @param type - The type of period (YEAR, QUARTER, MONTH)
+ * @param frequency - The frequency (YEAR, QUARTER, MONTH)
  */
-export function formatPeriodLabel(year: number, subPeriod: number, type: PeriodType): string {
-  switch (type) {
-    case 'YEAR':
+export function formatPeriodLabel(year: number, subPeriod: number, frequency: Frequency): string {
+  switch (frequency) {
+    case Frequency.YEAR:
       return year.toString();
-    case 'QUARTER':
+    case Frequency.QUARTER:
       return `${year.toString()}-Q${subPeriod.toString()}`;
-    case 'MONTH':
+    case Frequency.MONTH:
       return `${year.toString()}-${subPeriod.toString().padStart(2, '0')}`;
     default:
       // This should never happen due to type safety, but provides a fallback
@@ -25,16 +25,16 @@ export function formatPeriodLabel(year: number, subPeriod: number, type: PeriodT
  * Useful for growth calculations.
  *
  * @param currentLabel - The current period label (e.g. "2023-Q1")
- * @param type - The granularity
+ * @param frequency - The frequency
  * @returns The label of the previous period, or null if parsing fails.
  */
-export function getPreviousPeriodLabel(currentLabel: string, type: PeriodType): string | null {
-  if (type === 'YEAR') {
+export function getPreviousPeriodLabel(currentLabel: string, frequency: Frequency): string | null {
+  if (frequency === Frequency.YEAR) {
     const year = parseInt(currentLabel, 10);
     return isNaN(year) ? null : (year - 1).toString();
   }
 
-  if (type === 'QUARTER') {
+  if (frequency === Frequency.QUARTER) {
     // Format: YYYY-Qx
     const match = /^(\d{4})-Q(\d)$/.exec(currentLabel);
     if (match !== null) {
@@ -50,7 +50,7 @@ export function getPreviousPeriodLabel(currentLabel: string, type: PeriodType): 
     }
   }
 
-  if (type === 'MONTH') {
+  if (frequency === Frequency.MONTH) {
     // Format: YYYY-MM
     const match = /^(\d{4})-(\d{2})$/.exec(currentLabel);
     if (match !== null) {

@@ -39,7 +39,7 @@ function createMockDataset(id: string, points: { x: string; y: string }[]): Data
       },
     },
     axes: {
-      x: { label: 'Period', type: 'date', granularity: 'annual', format: 'YYYY' },
+      x: { label: 'Period', type: 'date', frequency: 'yearly', format: 'YYYY' },
       y: { label: 'Value', type: 'number', unit: 'test' },
     },
     points: points.map((p) => ({ x: p.x, y: new Decimal(p.y) })),
@@ -51,29 +51,29 @@ function createMockDataset(id: string, points: { x: string; y: string }[]): Data
  */
 function createAllRequiredDatasets(): Record<string, Dataset> {
   return {
-    'ro.economics.cpi.annual': createMockDataset('ro.economics.cpi.annual', [
+    'ro.economics.cpi.yearly': createMockDataset('ro.economics.cpi.yearly', [
       { x: '2023', y: '1.1' },
       { x: '2024', y: '1.0' },
     ]),
-    'ro.economics.exchange.ron_eur.annual': createMockDataset(
-      'ro.economics.exchange.ron_eur.annual',
+    'ro.economics.exchange.ron_eur.yearly': createMockDataset(
+      'ro.economics.exchange.ron_eur.yearly',
       [
         { x: '2023', y: '5.0' },
         { x: '2024', y: '5.0' },
       ]
     ),
-    'ro.economics.exchange.ron_usd.annual': createMockDataset(
-      'ro.economics.exchange.ron_usd.annual',
+    'ro.economics.exchange.ron_usd.yearly': createMockDataset(
+      'ro.economics.exchange.ron_usd.yearly',
       [
         { x: '2023', y: '4.5' },
         { x: '2024', y: '4.6' },
       ]
     ),
-    'ro.economics.gdp.annual': createMockDataset('ro.economics.gdp.annual', [
+    'ro.economics.gdp.yearly': createMockDataset('ro.economics.gdp.yearly', [
       { x: '2023', y: '1000000' },
       { x: '2024', y: '1100000' },
     ]),
-    'ro.demographics.population.annual': createMockDataset('ro.demographics.population.annual', [
+    'ro.demographics.population.yearly': createMockDataset('ro.demographics.population.yearly', [
       { x: '2023', y: '19000000' },
       { x: '2024', y: '19000000' },
     ]),
@@ -118,7 +118,7 @@ describe('NormalizationService', () => {
     it('should throw when only some datasets are missing', async () => {
       // Only provide CPI dataset
       const datasets = {
-        'ro.economics.cpi.annual': createMockDataset('ro.economics.cpi.annual', [
+        'ro.economics.cpi.yearly': createMockDataset('ro.economics.cpi.yearly', [
           { x: '2023', y: '1.1' },
         ]),
       };
@@ -133,8 +133,8 @@ describe('NormalizationService', () => {
 
         // Should be missing 4 datasets (all except CPI)
         expect(datasetError.missingDatasets).toHaveLength(4);
-        expect(datasetError.missingDatasets).not.toContain('ro.economics.cpi.annual');
-        expect(datasetError.missingDatasets).toContain('ro.economics.exchange.ron_eur.annual');
+        expect(datasetError.missingDatasets).not.toContain('ro.economics.cpi.yearly');
+        expect(datasetError.missingDatasets).toContain('ro.economics.exchange.ron_eur.yearly');
       }
     });
 
@@ -169,8 +169,8 @@ describe('NormalizationService', () => {
         // Error message should contain all missing dataset IDs
         const message = datasetError.message;
         expect(message).toContain('Required normalization datasets are missing');
-        expect(message).toContain('ro.economics.cpi.annual');
-        expect(message).toContain('ro.demographics.population.annual');
+        expect(message).toContain('ro.economics.cpi.yearly');
+        expect(message).toContain('ro.demographics.population.yearly');
       }
     });
   });
@@ -181,7 +181,7 @@ describe('NormalizationService', () => {
       const repo = makeFakeDatasetRepo(datasets);
       const service = await NormalizationService.create(repo);
 
-      const factors = await service.generateFactors(Frequency.YEARLY, 2023, 2024);
+      const factors = await service.generateFactors(Frequency.YEAR, 2023, 2024);
 
       expect(factors.cpi.get('2023')?.toNumber()).toBe(1.1);
       expect(factors.cpi.get('2024')?.toNumber()).toBe(1);
@@ -196,7 +196,7 @@ describe('NormalizationService', () => {
       const repo = makeFakeDatasetRepo(datasets);
       const service = await NormalizationService.create(repo);
 
-      const factors = await service.generateFactors(Frequency.MONTHLY, 2023, 2023);
+      const factors = await service.generateFactors(Frequency.MONTH, 2023, 2023);
 
       // Should have 12 months
       expect(factors.cpi.size).toBe(12);
@@ -212,7 +212,7 @@ describe('NormalizationService', () => {
       const repo = makeFakeDatasetRepo(datasets);
       const service = await NormalizationService.create(repo);
 
-      const factors = await service.generateFactors(Frequency.QUARTERLY, 2023, 2024);
+      const factors = await service.generateFactors(Frequency.QUARTER, 2023, 2024);
 
       // Should have 8 quarters (2 years)
       expect(factors.cpi.size).toBe(8);
@@ -231,9 +231,9 @@ describe('NormalizationService', () => {
       const service = await NormalizationService.create(repo);
 
       // First call loads datasets
-      const factors1 = await service.generateFactors(Frequency.YEARLY, 2023, 2024);
+      const factors1 = await service.generateFactors(Frequency.YEAR, 2023, 2024);
       // Second call should use cache
-      const factors2 = await service.generateFactors(Frequency.YEARLY, 2023, 2024);
+      const factors2 = await service.generateFactors(Frequency.YEAR, 2023, 2024);
 
       expect(factors1.cpi.get('2023')?.toNumber()).toBe(factors2.cpi.get('2023')?.toNumber());
     });
@@ -255,7 +255,7 @@ describe('NormalizationService', () => {
         inflationAdjusted: true,
       };
 
-      const result = await service.normalize(data, options, Frequency.YEARLY, [2023, 2024]);
+      const result = await service.normalize(data, options, Frequency.YEAR, [2023, 2024]);
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
@@ -278,7 +278,7 @@ describe('NormalizationService', () => {
         inflationAdjusted: false,
       };
 
-      const result = await service.normalize(data, options, Frequency.YEARLY, [2023, 2023]);
+      const result = await service.normalize(data, options, Frequency.YEAR, [2023, 2023]);
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
@@ -299,7 +299,7 @@ describe('NormalizationService', () => {
         inflationAdjusted: false,
       };
 
-      const result = await service.normalize(data, options, Frequency.YEARLY, [2023, 2023]);
+      const result = await service.normalize(data, options, Frequency.YEAR, [2023, 2023]);
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
@@ -320,7 +320,7 @@ describe('NormalizationService', () => {
         inflationAdjusted: false,
       };
 
-      const result = await service.normalize(data, options, Frequency.YEARLY, [2023, 2023]);
+      const result = await service.normalize(data, options, Frequency.YEAR, [2023, 2023]);
 
       expect(result.isOk()).toBe(true);
       expect(result.isErr()).toBe(false);
@@ -334,14 +334,14 @@ describe('NormalizationService', () => {
       const service = await NormalizationService.create(repo);
 
       // Generate factors to populate cache
-      await service.generateFactors(Frequency.YEARLY, 2023, 2024);
+      await service.generateFactors(Frequency.YEAR, 2023, 2024);
 
       // Invalidate cache
       service.invalidateCache();
 
       // Next call should reload datasets (we can't easily test this without more complex mocking,
       // but at least verify the method doesn't throw)
-      const factors = await service.generateFactors(Frequency.YEARLY, 2023, 2024);
+      const factors = await service.generateFactors(Frequency.YEAR, 2023, 2024);
       expect(factors.cpi.get('2023')?.toNumber()).toBe(1.1);
     });
   });

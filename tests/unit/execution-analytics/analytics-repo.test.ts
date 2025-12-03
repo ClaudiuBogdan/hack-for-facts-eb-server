@@ -5,7 +5,6 @@ import { Frequency } from '@/common/types/temporal.js';
 import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 import {
   formatDateFromRow,
-  getFrequency,
   extractYear,
   toNumericIds,
   needsEntityJoin,
@@ -43,7 +42,7 @@ describe('Analytics Repo Data Transformation', () => {
         ];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'YEAR'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.YEAR),
           value: new Decimal(r.amount ?? '0'),
         }));
 
@@ -61,10 +60,6 @@ describe('Analytics Repo Data Transformation', () => {
           value: new Decimal('3000.00'),
         });
       });
-
-      it('returns YEARLY frequency for YEAR period type', () => {
-        expect(getFrequency('YEAR')).toBe(Frequency.YEARLY);
-      });
     });
 
     describe('monthly data transformation', () => {
@@ -76,7 +71,7 @@ describe('Analytics Repo Data Transformation', () => {
         ];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'MONTH'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.MONTH),
           value: new Decimal(r.amount ?? '0'),
         }));
 
@@ -84,10 +79,6 @@ describe('Analytics Repo Data Transformation', () => {
         expect(dataPoints[0]?.date).toBe('2024-01');
         expect(dataPoints[1]?.date).toBe('2024-06');
         expect(dataPoints[2]?.date).toBe('2024-12');
-      });
-
-      it('returns MONTHLY frequency for MONTH period type', () => {
-        expect(getFrequency('MONTH')).toBe(Frequency.MONTHLY);
       });
     });
 
@@ -101,7 +92,7 @@ describe('Analytics Repo Data Transformation', () => {
         ];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'QUARTER'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.QUARTER),
           value: new Decimal(r.amount ?? '0'),
         }));
 
@@ -110,10 +101,6 @@ describe('Analytics Repo Data Transformation', () => {
         expect(dataPoints[1]?.date).toBe('2024-Q2');
         expect(dataPoints[2]?.date).toBe('2024-Q3');
         expect(dataPoints[3]?.date).toBe('2024-Q4');
-      });
-
-      it('returns QUARTERLY frequency for QUARTER period type', () => {
-        expect(getFrequency('QUARTER')).toBe(Frequency.QUARTERLY);
       });
     });
 
@@ -125,7 +112,7 @@ describe('Analytics Repo Data Transformation', () => {
         ];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'YEAR'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.YEAR),
           value: new Decimal(r.amount ?? '0'),
         }));
 
@@ -137,7 +124,7 @@ describe('Analytics Repo Data Transformation', () => {
         const rows: { year: number; period_value: number; amount: string }[] = [];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'YEAR'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.YEAR),
           value: new Decimal(r.amount ?? '0'),
         }));
 
@@ -148,7 +135,7 @@ describe('Analytics Repo Data Transformation', () => {
         const rows = [{ year: 2024, period_value: 2024, amount: '1234567890.123456789' }];
 
         const dataPoints = rows.map((r) => ({
-          date: formatDateFromRow(r.year, r.period_value, 'YEAR'),
+          date: formatDateFromRow(r.year, r.period_value, Frequency.YEAR),
           value: new Decimal(r.amount ?? '0'),
         }));
 

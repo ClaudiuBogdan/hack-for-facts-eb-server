@@ -30,9 +30,9 @@ This ensures accurate normalization because factors (especially exchange rates) 
 
 **Availability**:
 
-- Yearly: Always available
-- Monthly: Often available from statistical agencies
-- Quarterly: Can be derived from monthly or yearly
+- Year: Always available
+- Month: Often available from statistical agencies
+- Quarter: Can be derived from monthly or yearly
 
 ### 2. Exchange Rates - Currency Conversion
 
@@ -42,9 +42,9 @@ This ensures accurate normalization because factors (especially exchange rates) 
 
 **Availability**:
 
-- Yearly: Average rate for the year
-- Monthly: Average rate for the month
-- Quarterly: Average rate for the quarter
+- Year: Average rate for the year
+- Month: Average rate for the month
+- Quarter: Average rate for the quarter
 
 **Note**: Exchange rates fluctuate significantly, so monthly factors provide much better accuracy than yearly for monthly data.
 
@@ -56,11 +56,11 @@ This ensures accurate normalization because factors (especially exchange rates) 
 
 **Availability**:
 
-- Yearly: Always available
-- Quarterly: Sometimes available
+- Year: Always available
+- Quarter: Sometimes available
 - Monthly: Not available (GDP is not a monthly concept)
 
-**Note**: For monthly/quarterly data, we use the annual GDP. This is standard practice.
+**Note**: For month/quarter data, we use the annual GDP. This is standard practice.
 
 ### 4. Population - Per Capita Normalization
 
@@ -70,26 +70,26 @@ This ensures accurate normalization because factors (especially exchange rates) 
 
 **Availability**:
 
-- Yearly: Always available
-- Monthly/Quarterly: Use yearly (population doesn't change significantly within a year)
+- Year: Always available
+- Month/Quarter: Use yearly (population doesn't change significantly within a year)
 
 ## Fallback Strategy
 
 When a factor is not available at the requested frequency, we use a cascading fallback with **carry-forward** semantics:
 
 ```
-MONTHLY requested:
+MONTH requested:
   1. Try monthly factor for that month
-  2. Fallback: Use yearly factor for that year
+  2. Fallback: Use year factor for that year
   3. Fallback: Use previous period's value (carry forward)
 
-QUARTERLY requested:
+QUARTER requested:
   1. Try quarterly factor for that quarter
-  2. Fallback: Use yearly factor for that year
+  2. Fallback: Use year factor for that year
   3. Fallback: Use previous period's value (carry forward)
 
-YEARLY requested:
-  1. Try yearly factor for that year
+YEAR requested:
+  1. Try year factor for that year
   2. Fallback: Use previous year's value (carry forward)
 ```
 
@@ -107,13 +107,13 @@ Financial factors like CPI and exchange rates don't suddenly reset to 1 - they e
 The system generates factor maps at the requested frequency using carry-forward:
 
 ```
-Input:  Frequency = MONTHLY, Years = [2023, 2024]
-        Yearly data: { 2023: 1.1 }
+Input:  Frequency = MONTH, Years = [2023, 2024]
+        Year data: { 2023: 1.1 }
         Monthly data: { 2024-01: 1.02, 2024-02: 1.01 }
 
 Output: Map with 24 entries
 
-  2023-01 through 2023-12: 1.1   (from yearly)
+  2023-01 through 2023-12: 1.1   (from year)
   2024-01: 1.02                   (from monthly)
   2024-02: 1.01                   (from monthly)
   2024-03 through 2024-12: 1.01  (carry-forward from 2024-02)
@@ -147,9 +147,9 @@ type FactorMap = Map<string, Decimal>;
 ```typescript
 // Source data for generating factor maps
 interface FactorDatasets {
-  yearly: FactorMap; // Required - key format: "YYYY"
-  quarterly?: FactorMap; // Optional - key format: "YYYY-QN"
-  monthly?: FactorMap; // Optional - key format: "YYYY-MM"
+  year: FactorMap; // Required - key format: "YYYY"
+  quarter?: FactorMap; // Optional - key format: "YYYY-QN"
+  month?: FactorMap; // Optional - key format: "YYYY-MM"
 }
 ```
 
@@ -202,7 +202,7 @@ Example with gap at start:
 
 ```text
 Input:  Frequency = MONTHLY, Years = [2023, 2024]
-        Yearly data: { 2024: 1.0 }  // No 2023 data!
+        Year data: { 2024: 1.0 }  // No 2023 data!
 
 Output: Map with 12 entries (only 2024)
   2023-01 through 2023-12: NOT INCLUDED (no data, no previous)
@@ -233,7 +233,7 @@ Generated map for 2024:
 
 GDP is only meaningful at yearly frequency:
 
-- For monthly/quarterly data with `percent_gdp` normalization
+- For month/quarter data with `percent_gdp` normalization
 - Always use the yearly GDP for the corresponding year
 - Example: March 2023 data uses 2023 GDP
 

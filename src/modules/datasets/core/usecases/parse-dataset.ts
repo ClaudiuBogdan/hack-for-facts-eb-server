@@ -6,7 +6,7 @@ import type {
   Dataset,
   DatasetFileDTO,
   DatasetAxesType,
-  DatasetGranularity,
+  DatasetFrequency,
   DataPoint,
 } from '../types.js';
 
@@ -14,9 +14,9 @@ const YEAR_RE = /^\d{4}$/;
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const QUARTER_RE = /^\d{4}-Q[1-4]$/;
 
-const validateDate = (value: string, granularity?: DatasetGranularity): boolean => {
-  switch (granularity) {
-    case 'annual':
+const validateDate = (value: string, frequency?: DatasetFrequency): boolean => {
+  switch (frequency) {
+    case 'yearly':
       return YEAR_RE.test(value);
     case 'monthly':
       return MONTH_RE.test(value);
@@ -29,14 +29,14 @@ const validateDate = (value: string, granularity?: DatasetGranularity): boolean 
 
 const validateX = (
   type: DatasetAxesType,
-  granularity: DatasetGranularity | undefined,
+  frequency: DatasetFrequency | undefined,
   value: string
 ): Result<string, DatasetValidationError> => {
   if (type === 'date') {
-    if (!validateDate(value, granularity)) {
+    if (!validateDate(value, frequency)) {
       return err({
         type: 'InvalidFormat',
-        message: `Expected ${granularity ?? 'granularity::unknown'} date for x-axis, got '${value}'`,
+        message: `Expected ${frequency ?? 'frequency::unknown'} date for x-axis, got '${value}'`,
       });
     }
     return ok(value);
@@ -83,7 +83,7 @@ export const parseDataset = (dto: DatasetFileDTO): Result<Dataset, DatasetValida
   const points: DataPoint[] = [];
 
   for (const point of dto.data) {
-    const validatedX = validateX(dto.axes.x.type, dto.axes.x.granularity, point.x);
+    const validatedX = validateX(dto.axes.x.type, dto.axes.x.frequency, point.x);
     if (validatedX.isErr()) {
       return err(validatedX.error);
     }

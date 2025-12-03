@@ -96,8 +96,8 @@ export const CommonTypes = /* GraphQL */ `
 
   "Time series data with consistent frequency"
   type DataSeries {
-    "Frequency of the data points"
-    frequency: Frequency!
+    "Period type of the data points"
+    frequency: PeriodType!
     "Ordered array of data points"
     data: [DataPoint!]!
   }

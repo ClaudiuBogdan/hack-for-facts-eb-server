@@ -6,7 +6,7 @@ This module implements a **File-Based Data Store** for macro-economic and demogr
 
 ### 1.1 Design Decisions
 
-- **Granularity-Based Files:** Data is split into separate files by frequency (annual, monthly) to optimize payload size (Lazy Loading).
+- **Frequency-Based Files:** Data is split into separate files by frequency (yearly, monthly, quarterly) to optimize payload size (Lazy Loading).
 - **Strict Schema:** `x`/`y` coordinates are strictly typed, and axis labels are internationalized.
 - **No Float Rule:** All numerical values are stored as strings and parsed into `decimal.js` to prevent precision loss.
 - **Data as Code:** Datasets are versioned in Git, ensuring audit trails, peer review, and rollbacks.
@@ -26,9 +26,9 @@ All datasets reside in the project root to separate data assets from source code
 /datasets
 └── yaml/
     ├── economics/
-    │   └── ro.economics.fdi.annual.yaml
+    │   └── ro.economics.fdi.yearly.yaml
     ├── demographics/
-    │   └── ro.demographics.population.annual.yaml
+    │   └── ro.demographics.population.yearly.yaml
     └── ro.economics.fdi.monthly.yaml
 ```
 
@@ -45,9 +45,9 @@ We use a **4-Part Dot Notation** to ensure files are predictable, sortable, and 
 | **Country**   | 2-letter ISO code (lowercase) | `ro`, `eu`                       |
 | **Category**  | Domain grouping               | `economics`, `demographics`      |
 | **Metric**    | Specific indicator slug       | `fdi`, `gdp`, `cpi`              |
-| **Frequency** | Time granularity              | `annual`, `monthly`, `quarterly` |
+| **Frequency** | Time frequency                | `yearly`, `monthly`, `quarterly` |
 
-**Constraint:** The `frequency` in the filename **must** match the `axes.x.granularity` defined inside the file.
+**Constraint:** The `frequency` in the filename **must** match the `axes.x.frequency` defined inside the file.
 
 ---
 
@@ -55,11 +55,11 @@ We use a **4-Part Dot Notation** to ensure files are predictable, sortable, and 
 
 The file structure is designed for direct consumption by frontend charting libraries after parsing. Data points are simplified to `x` (label/date) and `y` (value).
 
-### Example: `ro.economics.fdi.annual.yaml`
+### Example: `ro.economics.fdi.yearly.yaml`
 
 ```yaml
 metadata:
-  id: 'ro.economics.fdi.annual'
+  id: 'ro.economics.fdi.yearly'
   source: 'National Bank of Romania (BNR)'
   sourceUrl: 'https://bnr.ro/...'
   lastUpdated: '2024-12-31'
@@ -83,7 +83,7 @@ axes:
   x:
     label: 'An'
     type: 'date' # enum: date, category, number
-    granularity: 'annual' # enum: annual, monthly, quarterly
+    frequency: 'yearly' # enum: yearly, monthly, quarterly
     format: 'YYYY' # Formatting hint for frontend
   y:
     label: 'Milioane Euro'
@@ -143,8 +143,8 @@ export const DatasetFileSchema = Type.Object({
     sourceUrl: Type.Optional(Type.String({ format: 'uri' })),
     lastUpdated: Type.String({ format: 'date' }),
     units: Type.String(),
-    granularity: Type.Optional(
-      Type.Union([Type.Literal('annual'), Type.Literal('monthly'), Type.Literal('quarterly')])
+    frequency: Type.Optional(
+      Type.Union([Type.Literal('yearly'), Type.Literal('monthly'), Type.Literal('quarterly')])
     ),
   }),
 
@@ -157,8 +157,8 @@ export const DatasetFileSchema = Type.Object({
     x: Type.Object({
       label: Type.String(),
       type: Type.Union([Type.Literal('date'), Type.Literal('category'), Type.Literal('number')]),
-      granularity: Type.Union([
-        Type.Literal('annual'),
+      frequency: Type.Union([
+        Type.Literal('yearly'),
         Type.Literal('monthly'),
         Type.Literal('quarterly'),
       ]),
@@ -207,8 +207,8 @@ import { DatasetFileDTO, Dataset } from './types';
 import { DatasetValidationError } from './errors';
 
 export function parseDataset(dto: DatasetFileDTO): Result<Dataset, DatasetValidationError> {
-  // 1. Validate X-Axis Format Consistency based on Granularity
-  const granularity = dto.axes.x.granularity;
+  // 1. Validate X-Axis Format Consistency based on Frequency
+  const frequency = dto.axes.x.frequency;
 
   const isYear = (s: string) => /^\d{4}$/.test(s);
   const isMonth = (s: string) => /^\d{4}-\d{2}$/.test(s);
@@ -218,10 +218,10 @@ export function parseDataset(dto: DatasetFileDTO): Result<Dataset, DatasetValida
 
   for (const p of dto.data) {
     // A. Validate Date Format
-    if (granularity === 'annual' && !isYear(p.x)) {
+    if (frequency === 'yearly' && !isYear(p.x)) {
       return err({ type: 'InvalidFormat', message: `Expected YYYY for annual data, got ${p.x}` });
     }
-    if (granularity === 'monthly' && !isMonth(p.x)) {
+    if (frequency === 'monthly' && !isMonth(p.x)) {
       return err({
         type: 'InvalidFormat',
         message: `Expected YYYY-MM for monthly data, got ${p.x}`,
@@ -287,7 +287,7 @@ The API serializes the `Decimal` values back to strings for transport to ensure 
     },
     "en": { "xAxisLabel": "Year", ... }
   },
-  "axes": { "x": { "granularity": "annual", ... }, ... },
+  "axes": { "x": { "frequency": "yearly", ... }, ... },
   "data": [
     { "x": "2020", "y": "3010" },
     { "x": "2021", "y": "7400" }
@@ -312,9 +312,9 @@ A script `scripts/validate-datasets.ts` runs on pre-commit and CI.
 
 ## 7. Workflow Summary
 
-1. **Analyst** adds a new year to `ro.economics.fdi.annual.yaml`.
+1. **Analyst** adds a new year to `ro.economics.fdi.yearly.yaml`.
 2. **Analyst** runs `npm run validate-datasets` locally.
 3. **Analyst** pushes to Git.
 4. **CI** verifies data integrity.
 5. **Deployment** updates the server.
-6. **Frontend** requests `ro.economics.fdi.annual` and renders the chart using `i18n.ro.xAxisLabel` ("An") and data `{ x: "2024", y: "..." }`.
+6. **Frontend** requests `ro.economics.fdi.yearly` and renders the chart using `i18n.ro.xAxisLabel` ("An") and data `{ x: "2024", y: "..." }`.

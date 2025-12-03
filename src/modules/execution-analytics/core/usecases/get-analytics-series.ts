@@ -2,22 +2,22 @@ import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
 import { getPreviousPeriodLabel } from '../period-labels.js';
+import {
+  Frequency,
+  type AnalyticsSeries,
+  type AnalyticsInput,
+  type ProcessingContext,
+  type IntermediatePoint,
+  type NormalizationOptions,
+  type Axis,
+  type AnalyticsFilter,
+  type Currency,
+  type NormalizationMode,
+} from '../types.js';
 
 import type { DatasetRepo, Dataset, DataPoint } from '../../../datasets/index.js';
 import type { AnalyticsError } from '../errors.js';
 import type { AnalyticsRepository } from '../ports.js';
-import type {
-  AnalyticsSeries,
-  AnalyticsInput,
-  ProcessingContext,
-  IntermediatePoint,
-  NormalizationOptions,
-  Axis,
-  AnalyticsFilter,
-  Currency,
-  NormalizationMode,
-  PeriodType,
-} from '../types.js';
 import type { DataSeries } from '@/common/types/temporal.js';
 
 export interface GetAnalyticsSeriesDeps {
@@ -73,7 +73,7 @@ class NormalizationService {
 
     // 3. Apply Growth (Optional)
     if (ctx.filter.show_period_growth) {
-      data = this.applyGrowth(data, ctx.granularity);
+      data = this.applyGrowth(data, ctx.frequency);
     }
 
     return data;
@@ -123,12 +123,12 @@ class NormalizationService {
     });
   }
 
-  private applyGrowth(data: IntermediatePoint[], granularity: PeriodType): IntermediatePoint[] {
+  private applyGrowth(data: IntermediatePoint[], frequency: Frequency): IntermediatePoint[] {
     const lookup = new Map(data.map((p) => [p.x, p.y]));
 
     return data.map((curr) => {
       // Use common module for label logic
-      const prevKey = getPreviousPeriodLabel(curr.x, granularity);
+      const prevKey = getPreviousPeriodLabel(curr.x, frequency);
       if (prevKey === null) return { ...curr, y: 0 };
 
       const prevValue = lookup.get(prevKey);
@@ -216,7 +216,7 @@ export async function getAnalyticsSeries(
     // 2. Prepare Context (Datasets)
     const ctx: ProcessingContext = {
       filter: strictFilter,
-      granularity: strictFilter.report_period.type,
+      frequency: strictFilter.report_period.frequency,
       datasets: {},
     };
 
@@ -254,7 +254,7 @@ export async function getAnalyticsSeries(
       xAxis: {
         name: 'Time',
         type: 'DATE',
-        unit: strictFilter.report_period.type.toLowerCase(),
+        unit: strictFilter.report_period.frequency.toLowerCase(),
       },
       yAxis: finalAxis,
       data: processedPoints.map((p) => ({ x: p.x, y: p.y })),

@@ -1,10 +1,10 @@
 metadata:
-  id: "ro.economics.fdi.annual"
+  id: "ro.economics.fdi.yearly"
   source: "National Bank of Romania (BNR)"
   sourceUrl: "https://bnr.ro/..."
   lastUpdated: "2024-12-31"
   units: "million_eur"
-  granularity: "annual"
+  frequency: "yearly"
 
 # Internationalization Block (includes Axis Labels)
 i18n:
@@ -24,7 +24,7 @@ axes:
   x:
     label: "An"
     type: "date" # enum: date, category, number
-    granularity: "annual" # enum: annual, monthly, quarterly
+    frequency: "yearly" # enum: yearly, monthly, quarterly
     format: "YYYY" # Formatting hint for frontend
   y:
     label: "Milioane Euro"

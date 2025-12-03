@@ -4,9 +4,9 @@ import { Decimal } from 'decimal.js';
  * Frequency of temporal data points
  */
 export enum Frequency {
-  MONTHLY = 'MONTHLY',
-  QUARTERLY = 'QUARTERLY',
-  YEARLY = 'YEARLY',
+  MONTH = 'MONTH',
+  QUARTER = 'QUARTER',
+  YEAR = 'YEAR',
 }
 
 /**

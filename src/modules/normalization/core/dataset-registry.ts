@@ -28,11 +28,11 @@ export type DatasetFrequency = 'yearly' | 'quarterly' | 'monthly';
  */
 export function frequencyToDatasetFrequency(frequency: Frequency): DatasetFrequency {
   switch (frequency) {
-    case Frequency.MONTHLY:
+    case Frequency.MONTH:
       return 'monthly';
-    case Frequency.QUARTERLY:
+    case Frequency.QUARTER:
       return 'quarterly';
-    case Frequency.YEARLY:
+    case Frequency.YEAR:
       return 'yearly';
   }
 }
@@ -73,7 +73,7 @@ export const NORMALIZATION_DATASETS: NormalizationDatasetRegistry = {
    * Source: INSSE (Romanian National Institute of Statistics)
    */
   cpi: {
-    yearly: 'ro.economics.cpi.annual',
+    yearly: 'ro.economics.cpi.yearly',
     // quarterly: 'ro.economics.cpi.quarterly', // Future
     // monthly: 'ro.economics.cpi.monthly', // Future
   },
@@ -83,7 +83,7 @@ export const NORMALIZATION_DATASETS: NormalizationDatasetRegistry = {
    * Source: BNR (National Bank of Romania)
    */
   eur: {
-    yearly: 'ro.economics.exchange.ron_eur.annual',
+    yearly: 'ro.economics.exchange.ron_eur.yearly',
     // quarterly: 'ro.economics.exchange.ron_eur.quarterly', // Future
     // monthly: 'ro.economics.exchange.ron_eur.monthly', // Future
   },
@@ -93,7 +93,7 @@ export const NORMALIZATION_DATASETS: NormalizationDatasetRegistry = {
    * Source: BNR (National Bank of Romania)
    */
   usd: {
-    yearly: 'ro.economics.exchange.ron_usd.annual',
+    yearly: 'ro.economics.exchange.ron_usd.yearly',
     // quarterly: 'ro.economics.exchange.ron_usd.quarterly', // Future
     // monthly: 'ro.economics.exchange.ron_usd.monthly', // Future
   },
@@ -104,7 +104,7 @@ export const NORMALIZATION_DATASETS: NormalizationDatasetRegistry = {
    * Note: GDP is only available yearly (sometimes quarterly)
    */
   gdp: {
-    yearly: 'ro.economics.gdp.annual',
+    yearly: 'ro.economics.gdp.yearly',
     // quarterly: 'ro.economics.gdp.quarterly', // Future
     // Monthly GDP doesn't exist
   },
@@ -115,7 +115,7 @@ export const NORMALIZATION_DATASETS: NormalizationDatasetRegistry = {
    * Note: Population is typically only available yearly
    */
   population: {
-    yearly: 'ro.demographics.population.annual',
+    yearly: 'ro.demographics.population.yearly',
     // Population doesn't change significantly within a year
   },
 };

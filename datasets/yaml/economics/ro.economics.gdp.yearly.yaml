@@ -1,5 +1,5 @@
 metadata:
-  id: 'ro.economics.gdp.annual'
+  id: 'ro.economics.gdp.yearly'
   source: 'INSSE'
   sourceUrl: 'https://insse.ro'
   lastUpdated: '2024-01-01'
@@ -17,7 +17,7 @@ axes:
   x:
     label: 'An'
     type: 'date'
-    granularity: 'annual'
+    frequency: 'yearly'
     format: 'YYYY'
   y:
     label: 'PIB'

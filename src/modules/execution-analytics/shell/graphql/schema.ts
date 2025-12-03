@@ -34,12 +34,6 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
     MISSING_LINE_ITEM
   }
 
-  enum ReportPeriodType {
-    MONTH
-    QUARTER
-    YEAR
-  }
-
   # ---------------------------------------------------------------------------
   # Shared Utility Types
   # ---------------------------------------------------------------------------
@@ -76,7 +70,8 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
   }
 
   input ReportPeriodInput {
-    type: ReportPeriodType!
+    "Uses PeriodType enum from common/graphql (MONTH, QUARTER, YEAR)"
+    type: PeriodType!
     selection: PeriodSelection!
   }
 

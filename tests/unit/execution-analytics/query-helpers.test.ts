@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { Frequency } from '@/common/types/temporal.js';
 import {
   formatDateFromRow,
-  getFrequency,
   extractYear,
   toNumericIds,
   needsEntityJoin,
@@ -15,67 +14,49 @@ import {
 // ============================================================================
 
 describe('formatDateFromRow', () => {
-  describe('MONTH period type', () => {
+  describe('MONTHLY frequency', () => {
     it('formats single-digit months with leading zero', () => {
-      expect(formatDateFromRow(2024, 1, 'MONTH')).toBe('2024-01');
-      expect(formatDateFromRow(2024, 9, 'MONTH')).toBe('2024-09');
+      expect(formatDateFromRow(2024, 1, Frequency.MONTH)).toBe('2024-01');
+      expect(formatDateFromRow(2024, 9, Frequency.MONTH)).toBe('2024-09');
     });
 
     it('formats double-digit months correctly', () => {
-      expect(formatDateFromRow(2024, 10, 'MONTH')).toBe('2024-10');
-      expect(formatDateFromRow(2024, 12, 'MONTH')).toBe('2024-12');
+      expect(formatDateFromRow(2024, 10, Frequency.MONTH)).toBe('2024-10');
+      expect(formatDateFromRow(2024, 12, Frequency.MONTH)).toBe('2024-12');
     });
 
     it('handles different years', () => {
-      expect(formatDateFromRow(2020, 6, 'MONTH')).toBe('2020-06');
-      expect(formatDateFromRow(1999, 3, 'MONTH')).toBe('1999-03');
+      expect(formatDateFromRow(2020, 6, Frequency.MONTH)).toBe('2020-06');
+      expect(formatDateFromRow(1999, 3, Frequency.MONTH)).toBe('1999-03');
     });
   });
 
-  describe('QUARTER period type', () => {
+  describe('QUARTERLY frequency', () => {
     it('formats quarters correctly', () => {
-      expect(formatDateFromRow(2024, 1, 'QUARTER')).toBe('2024-Q1');
-      expect(formatDateFromRow(2024, 2, 'QUARTER')).toBe('2024-Q2');
-      expect(formatDateFromRow(2024, 3, 'QUARTER')).toBe('2024-Q3');
-      expect(formatDateFromRow(2024, 4, 'QUARTER')).toBe('2024-Q4');
+      expect(formatDateFromRow(2024, 1, Frequency.QUARTER)).toBe('2024-Q1');
+      expect(formatDateFromRow(2024, 2, Frequency.QUARTER)).toBe('2024-Q2');
+      expect(formatDateFromRow(2024, 3, Frequency.QUARTER)).toBe('2024-Q3');
+      expect(formatDateFromRow(2024, 4, Frequency.QUARTER)).toBe('2024-Q4');
     });
 
     it('handles different years', () => {
-      expect(formatDateFromRow(2020, 2, 'QUARTER')).toBe('2020-Q2');
-      expect(formatDateFromRow(1999, 4, 'QUARTER')).toBe('1999-Q4');
+      expect(formatDateFromRow(2020, 2, Frequency.QUARTER)).toBe('2020-Q2');
+      expect(formatDateFromRow(1999, 4, Frequency.QUARTER)).toBe('1999-Q4');
     });
   });
 
-  describe('YEAR period type', () => {
+  describe('YEARLY frequency', () => {
     it('returns year as string', () => {
-      expect(formatDateFromRow(2024, 2024, 'YEAR')).toBe('2024');
-      expect(formatDateFromRow(2020, 2020, 'YEAR')).toBe('2020');
-      expect(formatDateFromRow(1999, 1999, 'YEAR')).toBe('1999');
+      expect(formatDateFromRow(2024, 2024, Frequency.YEAR)).toBe('2024');
+      expect(formatDateFromRow(2020, 2020, Frequency.YEAR)).toBe('2020');
+      expect(formatDateFromRow(1999, 1999, Frequency.YEAR)).toBe('1999');
     });
 
     it('ignores period_value and uses year directly', () => {
-      // For YEAR type, period_value should equal year, but we test it ignores period_value
-      expect(formatDateFromRow(2024, 1, 'YEAR')).toBe('2024');
-      expect(formatDateFromRow(2024, 999, 'YEAR')).toBe('2024');
+      // For YEARLY frequency, period_value should equal year, but we test it ignores period_value
+      expect(formatDateFromRow(2024, 1, Frequency.YEAR)).toBe('2024');
+      expect(formatDateFromRow(2024, 999, Frequency.YEAR)).toBe('2024');
     });
-  });
-});
-
-// ============================================================================
-// getFrequency
-// ============================================================================
-
-describe('getFrequency', () => {
-  it('maps MONTH to MONTHLY', () => {
-    expect(getFrequency('MONTH')).toBe(Frequency.MONTHLY);
-  });
-
-  it('maps QUARTER to QUARTERLY', () => {
-    expect(getFrequency('QUARTER')).toBe(Frequency.QUARTERLY);
-  });
-
-  it('maps YEAR to YEARLY', () => {
-    expect(getFrequency('YEAR')).toBe(Frequency.YEARLY);
   });
 });
 

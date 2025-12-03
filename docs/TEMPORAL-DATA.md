@@ -17,7 +17,7 @@ Provide a standardized interface for modules to return time-series data from the
 
 ### 2. Frequency Model
 
-- **Decision**: Use enum with three values: MONTHLY, QUARTERLY, YEARLY
+- **Decision**: Use enum with three values: MONTH, QUARTER, YEAR
 - **Rationale**:
   - Matches budget execution data patterns in database
   - Clear contract - all points in a series have the same frequency
@@ -52,9 +52,9 @@ Provide a standardized interface for modules to return time-series data from the
 ### Frequency Enum
 
 ```
-MONTHLY   - One data point per month
-QUARTERLY - One data point per quarter
-YEARLY    - One data point per year
+MONTH   - One data point per month
+QUARTER   - One data point per quarter
+YEAR      - One data point per year
 ```
 
 ### DataPoint

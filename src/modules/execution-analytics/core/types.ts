@@ -1,22 +1,27 @@
+import { Frequency } from '@/common/types/temporal.js';
+
 import type { Dataset } from '../../datasets/index.js';
 import type {
   NormalizationMode,
   NormalizationOptions,
   AnalyticsFilter,
-  PeriodType,
+  GqlReportPeriodInput,
 } from '@/common/types/analytics.js';
 
 // Re-export common types
 export type {
   AnalyticsFilter,
   NormalizationOptions,
-  PeriodType,
   AnalyticsSeries,
   Axis,
   AnalyticsDataPoint,
   NormalizationMode,
   Currency,
+  PeriodType,
+  GqlReportPeriodInput,
+  PeriodSelection,
 } from '@/common/types/analytics.js';
+export { Frequency } from '@/common/types/temporal.js';
 
 // -----------------------------------------
 // Extended Types for Input (Handling Legacy)
@@ -35,6 +40,21 @@ export interface AnalyticsInput {
 }
 
 // -----------------------------------------
+// GraphQL Input Types
+// -----------------------------------------
+
+/** GraphQL filter input - uses GqlReportPeriodInput with type field */
+export interface GqlAnalyticsFilterInput extends Omit<AnalyticsFilter, 'report_period'> {
+  report_period: GqlReportPeriodInput;
+}
+
+/** GraphQL analytics input */
+export interface GqlAnalyticsInput {
+  seriesId?: string;
+  filter: GqlAnalyticsFilterInput & InputNormalizationOptions;
+}
+
+// -----------------------------------------
 // Internal Types
 // -----------------------------------------
 
@@ -46,7 +66,7 @@ export interface AnalyticsInput {
  */
 export interface ProcessingContext {
   filter: NormalizationOptions;
-  granularity: PeriodType;
+  frequency: Frequency;
   population?: number;
   datasets: {
     cpi?: Dataset;

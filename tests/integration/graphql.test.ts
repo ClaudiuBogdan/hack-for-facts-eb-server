@@ -105,7 +105,7 @@ describe('GraphQL API', () => {
           capturedFilter = filter;
           // Return empty DataSeries
           const emptySeries: DataSeries = {
-            frequency: Frequency.MONTHLY,
+            frequency: Frequency.MONTH,
             data: [],
           };
           return ok(emptySeries);

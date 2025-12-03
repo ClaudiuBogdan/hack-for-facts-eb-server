@@ -15,12 +15,12 @@ const writeDatasetFile = async (dir: string, name: string, contents: string): Pr
 };
 
 const validYaml = `metadata:
-  id: "ro.test.metric.annual"
+  id: "ro.test.metric.yearly"
   source: "Test"
   sourceUrl: "https://example.com"
   lastUpdated: "2024-12-31"
   units: "million_eur"
-  granularity: "annual"
+  frequency: "yearly"
 i18n:
   ro:
     title: "Titlu"
@@ -31,7 +31,7 @@ axes:
   x:
     label: "An"
     type: "date"
-    granularity: "annual"
+    frequency: "yearly"
     format: "YYYY"
   y:
     label: "Milioane"
@@ -44,10 +44,10 @@ data:
 describe('fs dataset repo', () => {
   it('loads a dataset from disk', async () => {
     const dir = await makeTempDir();
-    await writeDatasetFile(dir, 'ro.test.metric.annual', validYaml);
+    await writeDatasetFile(dir, 'ro.test.metric.yearly', validYaml);
 
     const repo = createDatasetRepo({ rootDir: dir });
-    const result = await repo.getById('ro.test.metric.annual');
+    const result = await repo.getById('ro.test.metric.yearly');
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap().points).toHaveLength(1);
@@ -57,12 +57,12 @@ describe('fs dataset repo', () => {
     const dir = await makeTempDir();
     await writeDatasetFile(
       dir,
-      'ro.test.metric.annual',
-      validYaml.replace('ro.test.metric.annual', 'ro.other.metric.annual')
+      'ro.test.metric.yearly',
+      validYaml.replace('ro.test.metric.yearly', 'ro.other.metric.yearly')
     );
 
     const repo = createDatasetRepo({ rootDir: dir });
-    const result = await repo.getById('ro.test.metric.annual');
+    const result = await repo.getById('ro.test.metric.yearly');
 
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().type).toBe('IdMismatch');
@@ -73,11 +73,11 @@ describe('fs dataset repo', () => {
     const nestedDir = path.join(dir, 'economics');
     await mkdir(nestedDir);
 
-    await writeDatasetFile(dir, 'ro.test.metric.annual', validYaml);
+    await writeDatasetFile(dir, 'ro.test.metric.yearly', validYaml);
     await writeDatasetFile(
       nestedDir,
-      'ro.test.metric2.annual',
-      validYaml.replace(/ro\.test\.metric\.annual/g, 'ro.test.metric2.annual')
+      'ro.test.metric2.yearly',
+      validYaml.replace(/ro\.test\.metric\.yearly/g, 'ro.test.metric2.yearly')
     );
 
     const repo = createDatasetRepo({ rootDir: dir });
@@ -86,11 +86,11 @@ describe('fs dataset repo', () => {
     expect(listResult.isOk()).toBe(true);
     const entries = listResult._unsafeUnwrap();
     expect(entries.map((entry) => entry.relativePath)).toEqual([
-      'economics/ro.test.metric2.annual.yaml',
-      'ro.test.metric.annual.yaml',
+      'economics/ro.test.metric2.yearly.yaml',
+      'ro.test.metric.yearly.yaml',
     ]);
 
-    const nestedResult = await repo.getById('ro.test.metric2.annual');
+    const nestedResult = await repo.getById('ro.test.metric2.yearly');
     expect(nestedResult.isOk()).toBe(true);
   });
 
@@ -99,8 +99,8 @@ describe('fs dataset repo', () => {
     const copyDir = path.join(dir, 'copy');
     await mkdir(copyDir);
 
-    await writeDatasetFile(dir, 'ro.test.metric.annual', validYaml);
-    await writeDatasetFile(copyDir, 'ro.test.metric.annual', validYaml);
+    await writeDatasetFile(dir, 'ro.test.metric.yearly', validYaml);
+    await writeDatasetFile(copyDir, 'ro.test.metric.yearly', validYaml);
 
     const repo = createDatasetRepo({ rootDir: dir });
     const listResult = await repo.listAvailable();

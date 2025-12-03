@@ -87,7 +87,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.YEARLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.YEAR, 2023, 2024, datasets);
 
       expect(result.size).toBe(2);
       expect(result.get('2023')?.toNumber()).toBe(1.1);
@@ -99,7 +99,7 @@ describe('Factor Maps', () => {
         yearly: new Map([['2023', new Decimal('1.1')]]),
       };
 
-      const result = generateFactorMap(Frequency.YEARLY, 2023, 2025, datasets);
+      const result = generateFactorMap(Frequency.YEAR, 2023, 2025, datasets);
 
       expect(result.size).toBe(3);
       expect(result.get('2023')?.toNumber()).toBe(1.1);
@@ -112,7 +112,7 @@ describe('Factor Maps', () => {
         yearly: new Map([['2024', new Decimal('1.1')]]),
       };
 
-      const result = generateFactorMap(Frequency.YEARLY, 2023, 2025, datasets);
+      const result = generateFactorMap(Frequency.YEAR, 2023, 2025, datasets);
 
       // 2023 has no data and no previous value, so not included
       expect(result.size).toBe(2);
@@ -132,7 +132,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2023, datasets);
 
       // Should have all 12 months
       expect(result.size).toBe(12);
@@ -153,7 +153,7 @@ describe('Factor Maps', () => {
         // No monthly data
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2024, datasets);
 
       // Should have 24 months (2 years)
       expect(result.size).toBe(24);
@@ -176,7 +176,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2024, datasets);
 
       expect(result.size).toBe(24);
       // 2023 months fallback to yearly
@@ -196,7 +196,7 @@ describe('Factor Maps', () => {
         monthly: new Map(),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2024, datasets);
 
       expect(result.size).toBe(24);
       // 2023 months use yearly
@@ -215,7 +215,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2024, datasets);
 
       // 2023 months before Nov use yearly
       expect(result.get('2023-01')?.toNumber()).toBe(1.1);
@@ -239,7 +239,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.QUARTERLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.QUARTER, 2023, 2023, datasets);
 
       // Should have all 4 quarters
       expect(result.size).toBe(4);
@@ -260,7 +260,7 @@ describe('Factor Maps', () => {
         // No quarterly data
       };
 
-      const result = generateFactorMap(Frequency.QUARTERLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.QUARTER, 2023, 2024, datasets);
 
       // Should have 8 quarters (2 years)
       expect(result.size).toBe(8);
@@ -281,7 +281,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.QUARTERLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.QUARTER, 2023, 2024, datasets);
 
       expect(result.size).toBe(8);
       // 2023 quarters fallback to yearly
@@ -302,7 +302,7 @@ describe('Factor Maps', () => {
         yearly: new Map([['2023', new Decimal('1')]]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2023, datasets);
 
       // Check zero-padding for single-digit months
       expect(result.has('2023-01')).toBe(true);
@@ -318,7 +318,7 @@ describe('Factor Maps', () => {
         yearly: new Map([['2023', new Decimal('1')]]),
       };
 
-      const result = generateFactorMap(Frequency.QUARTERLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.QUARTER, 2023, 2023, datasets);
 
       expect(result.has('2023-Q1')).toBe(true);
       expect(result.has('2023-Q2')).toBe(true);
@@ -337,7 +337,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.YEARLY, 2020, 2024, datasets);
+      const result = generateFactorMap(Frequency.YEAR, 2020, 2024, datasets);
 
       expect(result.size).toBe(5);
       expect(result.get('2020')?.toNumber()).toBe(1.2);
@@ -351,7 +351,7 @@ describe('Factor Maps', () => {
         yearly: new Map([['2020', new Decimal('1.1')]]),
       };
 
-      const result = generateFactorMap(Frequency.YEARLY, 2023, 2024, datasets);
+      const result = generateFactorMap(Frequency.YEAR, 2023, 2024, datasets);
 
       // No data for 2023-2024 and no previous value to carry forward
       expect(result.size).toBe(0);
@@ -365,7 +365,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2023, datasets);
 
       // Jan and Feb have no data (no yearly, no monthly, no previous)
       expect(result.has('2023-01')).toBe(false);
@@ -386,7 +386,7 @@ describe('Factor Maps', () => {
         ]),
       };
 
-      const result = generateFactorMap(Frequency.MONTHLY, 2023, 2023, datasets);
+      const result = generateFactorMap(Frequency.MONTH, 2023, 2023, datasets);
 
       expect(result.get('2023-01')?.toNumber()).toBe(1.1); // yearly
       expect(result.get('2023-05')?.toNumber()).toBe(1.1); // yearly
