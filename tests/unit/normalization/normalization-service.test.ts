@@ -1,20 +1,17 @@
 import { Decimal } from 'decimal.js';
 import { describe, it, expect } from 'vitest';
 
+import { Frequency } from '@/common/types/temporal.js';
 import {
   NormalizationService,
   NormalizationDatasetError,
   getRequiredDatasetIds,
-} from '@/common/modules/normalization/index.js';
-import { Frequency } from '@/common/types/temporal.js';
+} from '@/modules/normalization/index.js';
 
 import { makeFakeDatasetRepo } from '../../fixtures/fakes.js';
 
-import type {
-  DataPoint,
-  TransformationOptions,
-} from '@/common/modules/normalization/core/types.js';
 import type { Dataset } from '@/modules/datasets/index.js';
+import type { DataPoint, TransformationOptions } from '@/modules/normalization/core/types.js';
 
 /**
  * Creates a mock dataset with the given points.

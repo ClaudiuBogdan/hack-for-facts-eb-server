@@ -116,7 +116,9 @@ export default defineConfig(
         { selector: 'variable', format: ['camelCase', 'PascalCase', 'UPPER_CASE'] },
         { selector: 'typeLike', format: ['PascalCase'] },
         { selector: 'enumMember', format: ['UPPER_CASE'] },
-        { selector: 'typeProperty', filter: 'Reply', format: null },
+        // Allow snake_case for type properties (GraphQL schema, DB columns)
+        // Allow PascalCase for Fastify route generics (Reply, Body, Params, etc.)
+        { selector: 'typeProperty', format: ['camelCase', 'snake_case', 'PascalCase'] },
         { selector: 'objectLiteralProperty', format: null },
       ],
 

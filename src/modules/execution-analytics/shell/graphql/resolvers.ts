@@ -1,11 +1,12 @@
-import { makeAnalyticsService, type AnalyticsServiceDeps } from '../../core/logic.js';
+import {
+  getAnalyticsSeries,
+  type GetAnalyticsSeriesDeps,
+} from '../../core/usecases/get-analytics-series.js';
 
 import type { AnalyticsInput } from '../../core/types.js';
 import type { IResolvers } from 'mercurius';
 
-export const makeExecutionAnalyticsResolvers = (deps: AnalyticsServiceDeps): IResolvers => {
-  const service = makeAnalyticsService(deps);
-
+export const makeExecutionAnalyticsResolvers = (deps: GetAnalyticsSeriesDeps): IResolvers => {
   return {
     PeriodDate: {
       // Simple scalar implementation, treating as string for now
@@ -16,7 +17,7 @@ export const makeExecutionAnalyticsResolvers = (deps: AnalyticsServiceDeps): IRe
     },
     Query: {
       executionAnalytics: async (_: unknown, { inputs }: { inputs: AnalyticsInput[] }) => {
-        const result = await service.getAnalyticsSeries(inputs);
+        const result = await getAnalyticsSeries(deps, inputs);
         if (result.isErr()) {
           throw new Error(result.error.message);
         }

@@ -1,11 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export interface DatasetFileEntry {
-  id: string;
-  absolutePath: string;
-  relativePath: string;
-}
+import type { DatasetFileEntry } from '../../core/types.js';
 
 const toPosixPath = (filePath: string): string => filePath.split(path.sep).join(path.posix.sep);
 

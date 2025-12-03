@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseDataset } from '@/modules/datasets/core/logic.js';
+import { parseDataset } from '@/modules/datasets/core/usecases/parse-dataset.js';
 
 import type { DatasetFileDTO } from '@/modules/datasets/core/types.js';
 

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention -- Database schema uses snake_case and PascalCase to match SQL conventions */
 import { Generated, ColumnType, JSONColumnType } from 'kysely';
 
 // Helper for timestamps which can be strings or Dates depending on driver config

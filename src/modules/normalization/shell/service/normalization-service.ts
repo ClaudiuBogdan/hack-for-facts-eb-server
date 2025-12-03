@@ -6,16 +6,16 @@ import {
   NORMALIZATION_DATASETS,
   getRequiredDatasetIds,
   type NormalizationDimension,
-} from '../core/dataset-registry.js';
+} from '../../core/dataset-registry.js';
 import {
   generateFactorMap,
   datasetToFactorMap,
   type FactorDatasets,
   type FactorMap,
-} from '../core/factor-maps.js';
-import { normalizeData } from '../core/logic.js';
+} from '../../core/factor-maps.js';
+import { normalizeData } from '../../core/logic.js';
 
-import type { DataPoint, NormalizationFactors, TransformationOptions } from '../core/types.js';
+import type { DataPoint, NormalizationFactors, TransformationOptions } from '../../core/types.js';
 import type { DatasetRepo } from '@/modules/datasets/index.js';
 
 /**

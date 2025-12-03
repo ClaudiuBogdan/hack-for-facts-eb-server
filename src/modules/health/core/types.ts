@@ -33,16 +33,3 @@ export const ReadinessResponseSchema = Type.Object({
 });
 
 export type ReadinessResponse = Static<typeof ReadinessResponseSchema>;
-
-/**
- * Health check function type
- */
-export type HealthChecker = () => Promise<HealthCheckResult>;
-
-/**
- * Health check dependencies
- */
-export interface HealthDeps {
-  version?: string | undefined;
-  checkers?: HealthChecker[] | undefined;
-}

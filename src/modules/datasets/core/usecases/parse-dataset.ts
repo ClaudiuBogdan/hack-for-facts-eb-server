@@ -1,14 +1,14 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
-import type { DatasetValidationError } from './errors.js';
+import type { DatasetValidationError } from '../errors.js';
 import type {
   Dataset,
   DatasetFileDTO,
   DatasetAxesType,
   DatasetGranularity,
   DataPoint,
-} from './types.js';
+} from '../types.js';
 
 const YEAR_RE = /^\d{4}$/;
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;

@@ -55,42 +55,107 @@ pnpm ci                    # Full pipeline: typecheck → lint → test → buil
 
 ### Core Principles
 
-This codebase follows **Hexagonal Architecture** with strict enforcement via ESLint:
+This codebase follows **Functional Core / Imperative Shell** (Hexagonal Architecture) with strict enforcement via ESLint:
 
 1. **Core/** - Pure business logic, no I/O, must use Result<T,E> pattern (no throws)
 2. **Shell/** - Adapters for Core (GraphQL/REST resolvers, repositories)
 3. **Infra/** - Generic infrastructure (database clients, config, logger, GraphQL setup)
-4. **Common/** - Shared types and schemas
+4. **Common/** - Shared types and utilities (pure, no business logic)
+
+**Detailed architecture docs:** See `docs/ARCHITECTURE.md` and `docs/TECHNICAL-REFERENCE.md`
 
 ### Directory Structure
 
 ```
 src/
 ├── api.ts                    # Server entry point
-├── app.ts                    # Fastify app factory (composition root)
+├── app/                      # COMPOSITION ROOT
+│   └── build-app.ts          # Fastify app factory (wires all deps)
 ├── common/
-│   ├── schemas/              # TypeBox schemas
-│   └── types/                # Result pattern, error types
+│   ├── types/                # Result pattern, error types
+│   └── period-labels/        # Shared utilities (pure)
 ├── infra/
 │   ├── config/               # Environment validation (TypeBox)
 │   ├── database/             # Kysely clients (budget/user DBs)
 │   ├── graphql/              # Mercurius plugin setup
 │   └── logger/               # Pino logger factory
 └── modules/
-    ├── health/               # Health check module (example)
-    │   ├── core/             # Pure logic + types
-    │   └── shell/            # GraphQL + REST adapters
-    └── datasets/             # Dataset management
-        ├── core/             # Dataset validation logic
-        └── shell/            # FS repository implementation
+    └── {feature}/            # e.g., health, datasets, execution-analytics
+        ├── core/
+        │   ├── types.ts      # Domain types + TypeBox schemas
+        │   ├── errors.ts     # Domain error unions (optional)
+        │   ├── ports.ts      # Interfaces for dependencies
+        │   └── usecases/     # Pure business logic (one file per use-case)
+        │       └── *.ts
+        ├── shell/
+        │   ├── repo/         # Database adapters (implement ports)
+        │   ├── rest/         # Fastify route handlers
+        │   └── graphql/      # Mercurius resolvers + schema
+        └── index.ts          # Public API exports
 ```
 
-### Module Pattern (Example: `modules/health/`)
+### Module Anatomy
 
-Each module exports a single `index.ts` that exposes:
+Each module follows a strict structure:
+
+| File                 | Contains                                     | Does NOT Contain      |
+| :------------------- | :------------------------------------------- | :-------------------- |
+| `core/types.ts`      | Domain types, branded types, TypeBox schemas | DB types, API DTOs    |
+| `core/errors.ts`     | Domain error unions (discriminated unions)   | Infrastructure errors |
+| `core/ports.ts`      | Interfaces for external dependencies         | Implementations       |
+| `core/usecases/*.ts` | Pure functions with deps as first argument   | DB calls, HTTP        |
+| `shell/repo/*.ts`    | Kysely queries, type conversions             | Business logic        |
+| `shell/rest/*.ts`    | Fastify routes, request validation           | Business logic        |
+| `shell/graphql/*.ts` | Resolvers, schema                            | Business logic        |
+
+### Ports Pattern
+
+Core defines **ports** (interfaces) for external dependencies. Shell provides **adapters** (implementations).
+
+```typescript
+// core/ports.ts - Define what we need
+export interface HealthChecker {
+  checkDatabase(): Promise<boolean>;
+  checkCache(): Promise<boolean>;
+}
+
+// shell/repo/health-checker.ts - Implement it
+export function createHealthChecker(db: Kysely<DB>, redis: Redis): HealthChecker {
+  return {
+    async checkDatabase() {
+      /* Kysely query */
+    },
+    async checkCache() {
+      /* Redis ping */
+    },
+  };
+}
+```
+
+### Use-Case Pattern
+
+Use-cases are pure functions with dependencies passed as the first argument:
+
+```typescript
+// core/usecases/get-readiness.ts
+export async function getReadiness(
+  deps: { healthChecker: HealthChecker },
+  input: { checkCache: boolean }
+): Promise<Result<ReadinessStatus, HealthError>> {
+  const dbOk = await deps.healthChecker.checkDatabase();
+  if (!dbOk) return err({ type: 'DATABASE_UNAVAILABLE' });
+  // ...
+  return ok({ status: 'ready' });
+}
+```
+
+### Module Exports
+
+Each module exports from `index.ts`:
 
 - Factory functions (`makeHealthRoutes`, `makeHealthResolvers`)
-- Type exports (used by `app.ts` composition root)
+- Types needed by composition root
+- GraphQL schema
 
 **GraphQL and REST coexist:**
 
@@ -202,20 +267,75 @@ kysely-codegen --out-file src/infra/database/budget/types.ts
 
 ## Testing Strategy
 
+### Testing Pyramid
+
+| Test Type       | Coverage | What                             | How                                    |
+| :-------------- | :------- | :------------------------------- | :------------------------------------- |
+| **Unit**        | 70-80%   | Core use-cases, business rules   | Direct function calls, in-memory fakes |
+| **Integration** | 15-25%   | API routes, HTTP/GraphQL mapping | Fastify inject with in-memory fakes    |
+| **E2E**         | 5-10%    | Full stack, DB queries           | Testcontainers Postgres, real HTTP     |
+
+### Unit Tests (No Mocking Libraries)
+
+Test core functions by passing **in-memory fakes** — no `jest.mock` or `sinon`:
+
+```typescript
+// tests/unit/health/get-readiness.test.ts
+const fakeChecker = {
+  checkDatabase: async () => true,
+  checkCache: async () => true,
+};
+
+const result = await getReadiness({ healthChecker: fakeChecker }, { checkCache: true });
+expect(result.isOk()).toBe(true);
+```
+
+### Integration Tests (Fast, No Real I/O)
+
+Test HTTP/GraphQL routes using `app.inject()` with in-memory fakes:
+
+```typescript
+// tests/integration/health.test.ts
+const app = await createApp({
+  deps: {
+    budgetDb: makeFakeBudgetDb(),
+    datasetRepo: makeFakeDatasetRepo(),
+  },
+});
+
+const response = await app.inject({ method: 'GET', url: '/health/ready' });
+expect(response.statusCode).toBe(200);
+```
+
+### E2E Tests (Testcontainers)
+
+Test full stack with real database using Testcontainers:
+
+```typescript
+// tests/e2e/repos.e2e.test.ts
+// Uses setupTestDatabase() from tests/infra/test-db.ts
+```
+
+### Test Files
+
 - **Unit tests** (`tests/unit/`) - Test pure logic (core/) without I/O
-- **Integration tests** (`tests/integration/`) - Full HTTP/GraphQL tests with Testcontainers
+- **Integration tests** (`tests/integration/`) - HTTP/GraphQL tests with in-memory fakes
+- **E2E tests** (`tests/e2e/`) - Full stack tests with Testcontainers
 - **Fixtures** (`tests/fixtures/`) - Builders and fakes for test data
 
 **Test helpers:**
 
-- `tests/infra/test-db.ts` - Testcontainers PostgreSQL setup
+- `tests/infra/test-db.ts` - Testcontainers PostgreSQL setup (for E2E only)
 - `tests/fixtures/builders.ts` - Factory functions for test objects
-- `tests/fixtures/fakes.ts` - Mock implementations
+- `tests/fixtures/fakes.ts` - In-memory implementations of ports
 
-**Running a single test:**
+**Running tests:**
 
 ```bash
-pnpm vitest run tests/unit/datasets/logic.test.ts
+pnpm test                  # Unit + Integration (fast)
+pnpm test:unit             # Unit only
+pnpm test:integration      # Integration only
+pnpm test:e2e              # E2E only (slow, requires Docker)
 ```
 
 ## Git Workflow
@@ -245,10 +365,13 @@ chore(deps): update fastify to 5.6.2
    ```
    src/modules/my-module/
    ├── core/
-   │   ├── logic.ts      # Pure business logic
-   │   ├── types.ts      # Domain types
-   │   └── errors.ts     # Error types (optional)
+   │   ├── types.ts      # Domain types + TypeBox schemas
+   │   ├── errors.ts     # Domain error unions (optional)
+   │   ├── ports.ts      # Interfaces for dependencies
+   │   └── usecases/     # Pure business logic (one file per use-case)
+   │       └── *.ts
    ├── shell/
+   │   ├── repo/         # Database adapters (implement ports)
    │   ├── graphql/
    │   │   ├── schema.ts
    │   │   └── resolvers.ts
@@ -266,7 +389,7 @@ chore(deps): update fastify to 5.6.2
    export type { MyModuleDeps } from './core/types.js';
    ```
 
-3. Wire in `app.ts`:
+3. Wire in `app/build-app.ts`:
 
    ```typescript
    import { makeMyModuleRoutes, makeMyModuleResolvers, myModuleSchema } from './modules/my-module/index.js';
@@ -306,7 +429,7 @@ pnpm validate-datasets
 
 - Base schema in `src/infra/graphql/schema.ts` (Query/Mutation roots)
 - Module schemas in `src/modules/*/shell/graphql/schema.ts`
-- Merge in `app.ts` using `mergeResolvers()`
+- Merge in `app/build-app.ts` using `mergeResolvers()`
 
 **Resolver pattern:**
 

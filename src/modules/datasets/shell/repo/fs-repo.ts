@@ -5,10 +5,17 @@ import { err, ok, type Result } from 'neverthrow';
 import { parse as parseYaml } from 'yaml';
 
 import { LruCache } from './cache.js';
-import { listDatasetFiles, type DatasetFileEntry } from './discovery.js';
+import { listDatasetFiles } from './discovery.js';
 import { formatSchemaErrors, type DatasetRepoError } from '../../core/errors.js';
-import { parseDataset } from '../../core/logic.js';
-import { DatasetFileSchema, type Dataset, type DatasetFileDTO } from '../../core/types.js';
+import {
+  DatasetFileSchema,
+  type Dataset,
+  type DatasetFileDTO,
+  type DatasetFileEntry,
+} from '../../core/types.js';
+import { parseDataset } from '../../core/usecases/parse-dataset.js';
+
+import type { DatasetRepo } from '../../core/ports.js';
 
 const validator = TypeCompiler.Compile(DatasetFileSchema);
 
@@ -16,11 +23,6 @@ export interface DatasetRepoOptions {
   rootDir: string;
   cacheMax?: number;
   cacheTtlMs?: number;
-}
-
-export interface DatasetRepo {
-  getById(id: string): Promise<Result<Dataset, DatasetRepoError>>;
-  listAvailable(): Promise<Result<DatasetFileEntry[], DatasetRepoError>>;
 }
 
 const readDatasetFile = async (

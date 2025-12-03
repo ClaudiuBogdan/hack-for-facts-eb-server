@@ -3,12 +3,12 @@
  * Starts the Fastify HTTP server
  */
 
-import { buildApp } from './app.js';
-import { NormalizationService } from './common/modules/normalization/index.js';
+import { buildApp } from './app/build-app.js';
 import { parseEnv, createConfig } from './infra/config/index.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
 import { createDatasetRepo } from './modules/datasets/index.js';
+import { NormalizationService } from './modules/normalization/index.js';
 
 // Read package.json for version (optional, won't fail if not available)
 const getVersion = (): string | undefined => {

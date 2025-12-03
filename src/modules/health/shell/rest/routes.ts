@@ -3,21 +3,20 @@
  * Provides liveness and readiness endpoints for Kubernetes probes
  */
 
-import { evaluateReadiness, mapCheckResults } from '../../core/logic.js';
 import {
   LivenessResponseSchema,
   ReadinessResponseSchema,
-  type HealthDeps,
   type LivenessResponse,
   type ReadinessResponse,
 } from '../../core/types.js';
+import { getReadiness, type GetReadinessDeps } from '../../core/usecases/get-readiness.js';
 
 import type { FastifyPluginAsync } from 'fastify';
 
 /**
  * Factory function to create health routes with dependencies
  */
-export const makeHealthRoutes = (deps: HealthDeps = {}): FastifyPluginAsync => {
+export const makeHealthRoutes = (deps: Partial<GetReadinessDeps> = {}): FastifyPluginAsync => {
   const { version, checkers = [] } = deps;
   const startTime = Date.now();
 
@@ -55,18 +54,14 @@ export const makeHealthRoutes = (deps: HealthDeps = {}): FastifyPluginAsync => {
         },
       },
       async (_request, reply) => {
-        // Run all health checkers in parallel (IO / Side Effects)
-        const results = await Promise.allSettled(checkers.map((checker) => checker()));
-
-        // Map results (Core Logic)
-        const checks = mapCheckResults(results);
-
-        // Calculate derived data
         const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
         const timestamp = new Date().toISOString();
 
-        // Evaluate overall status (Core Logic)
-        const response = evaluateReadiness(checks, uptimeSeconds, timestamp, version);
+        // Execute use case
+        const response = await getReadiness(
+          { version, checkers },
+          { uptime: uptimeSeconds, timestamp }
+        );
 
         const httpStatus = response.status === 'unhealthy' ? 503 : 200;
 

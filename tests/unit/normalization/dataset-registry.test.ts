@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
+import { Frequency } from '@/common/types/temporal.js';
 import {
   frequencyToDatasetFrequency,
   getRequiredDatasetIds,
@@ -9,8 +10,7 @@ import {
   hasHigherFrequencyData,
   NORMALIZATION_DATASETS,
   type NormalizationDimension,
-} from '@/common/modules/normalization/core/dataset-registry.js';
-import { Frequency } from '@/common/types/temporal.js';
+} from '@/modules/normalization/core/dataset-registry.js';
 
 describe('Dataset Registry', () => {
   describe('frequencyToDatasetFrequency', () => {

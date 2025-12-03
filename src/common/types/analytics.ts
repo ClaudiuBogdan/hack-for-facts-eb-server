@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention -- Matching database and GraphQL schema naming */
-
 // -----------------------------------------
 // Domain Types for Filtering
 // -----------------------------------------

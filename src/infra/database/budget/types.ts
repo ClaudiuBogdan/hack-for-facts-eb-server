@@ -1,5 +1,5 @@
 // Ignore naming conventions for database tables
-/* eslint-disable @typescript-eslint/naming-convention -- ignore naming conventions for database tables */
+
 import { Generated, ColumnType } from 'kysely';
 
 // Enum Types

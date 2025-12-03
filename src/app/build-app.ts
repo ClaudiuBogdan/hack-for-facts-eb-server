@@ -9,26 +9,26 @@ import fastifyLib, {
   type FastifyError,
 } from 'fastify';
 
-import { CommonGraphQLSchema } from './common/graphql/index.js';
-import { commonGraphQLResolvers } from './common/graphql/schema.js';
-import { makeGraphQLPlugin } from './infra/graphql/index.js';
-import { BaseSchema } from './infra/graphql/schema.js';
-import { registerCors } from './infra/plugins/index.js';
+import { CommonGraphQLSchema } from '../common/graphql/index.js';
+import { commonGraphQLResolvers } from '../common/graphql/schema.js';
+import { makeGraphQLPlugin } from '../infra/graphql/index.js';
+import { BaseSchema } from '../infra/graphql/schema.js';
+import { registerCors } from '../infra/plugins/index.js';
 import {
   makeExecutionAnalyticsResolvers,
   ExecutionAnalyticsSchema,
   makeAnalyticsRepo,
-} from './modules/execution-analytics/index.js';
+} from '../modules/execution-analytics/index.js';
 import {
   makeHealthRoutes,
   makeHealthResolvers,
   healthSchema,
   type HealthChecker,
-} from './modules/health/index.js';
+} from '../modules/health/index.js';
 
-import type { AppConfig } from './infra/config/env.js';
-import type { BudgetDbClient } from './infra/database/client.js';
-import type { DatasetRepo } from './modules/datasets/index.js';
+import type { AppConfig } from '../infra/config/env.js';
+import type { BudgetDbClient } from '../infra/database/client.js';
+import type { DatasetRepo } from '../modules/datasets/index.js';
 
 /**
  * Application dependencies that can be injected
@@ -76,14 +76,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(
     makeHealthRoutes({
       ...(version !== undefined && { version }),
-      checkers: deps.healthCheckers,
+      checkers: deps.healthCheckers ?? [],
     })
   );
 
   // Setup GraphQL
   const healthResolvers = makeHealthResolvers({
     ...(version !== undefined && { version }),
-    checkers: deps.healthCheckers,
+    checkers: deps.healthCheckers ?? [],
   });
 
   // Setup Analytics Module

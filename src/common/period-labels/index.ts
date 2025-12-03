@@ -1,4 +1,4 @@
-import { PeriodType } from '../../types/analytics.js';
+import { PeriodType } from '@/common/types/analytics.js';
 
 /**
  * Formats a year and sub-period into a standard label string.

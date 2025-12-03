@@ -1,48 +1,59 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/restrict-template-expressions -- Kysely query builder requires dynamic typing and conditional checks */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- Kysely dynamic query builder requires any typing */
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
+import { sql, type ExpressionBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
-import { Frequency, type DataSeries, type DataPoint } from '@/common/types/temporal.js';
+import { type DataSeries, type DataPoint } from '@/common/types/temporal.js';
+
+import {
+  formatDateFromRow,
+  getFrequency,
+  extractYear,
+  toNumericIds,
+  needsEntityJoin,
+  needsUatJoin,
+  type PeriodType,
+} from './query-helpers.js';
 
 import type { AnalyticsError } from '../../core/errors.js';
-import type { AnalyticsFilter, AnalyticsRepository } from '../../core/types.js';
+import type { AnalyticsRepository } from '../../core/ports.js';
+import type { AnalyticsFilter } from '../../core/types.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Maximum number of data points to return from a query */
+const MAX_DATA_POINTS = 10_000;
+
+/** Query timeout in milliseconds (30 seconds) */
+const QUERY_TIMEOUT_MS = 30_000;
+
+// ============================================================================
+// Types
+// ============================================================================
+
 /**
- * Formats database row to date string based on period type.
- *
- * Output format matches the DataPoint.date specification:
- * - YEAR: YYYY (e.g., 2024)
- * - MONTH: YYYY-MM (e.g., 2024-03)
- * - QUARTER: YYYY-QN (e.g., 2024-Q1)
+ * Raw row returned from aggregation query.
+ * Uses snake_case to match PostgreSQL column naming.
  */
-function formatDateFromRow(
-  year: number,
-  periodValue: number,
-  periodType: 'MONTH' | 'QUARTER' | 'YEAR'
-): string {
-  if (periodType === 'MONTH') {
-    const month = String(periodValue).padStart(2, '0');
-    return `${year}-${month}`;
-  }
-
-  if (periodType === 'QUARTER') {
-    return `${year}-Q${periodValue}`;
-  }
-
-  // YEAR
-  return `${year}`;
+interface AggregatedRow {
+  year: number;
+  period_value: number;
+  amount: string;
 }
 
 /**
- * Maps period type to Frequency enum
+ * Query builder type - using unknown to avoid blanket any disables.
+ * Kysely's dynamic query building requires type flexibility.
  */
-function getFrequency(periodType: 'MONTH' | 'QUARTER' | 'YEAR'): Frequency {
-  if (periodType === 'MONTH') return Frequency.MONTHLY;
-  if (periodType === 'QUARTER') return Frequency.QUARTERLY;
-  return Frequency.YEARLY;
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely dynamic query builder
+type DynamicQuery = any;
+
+// ============================================================================
+// Repository Implementation
+// ============================================================================
 
 /**
  * Kysely-based implementation of AnalyticsRepository.
@@ -72,191 +83,36 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
   async getAggregatedSeries(filter: AnalyticsFilter): Promise<Result<DataSeries, AnalyticsError>> {
+    const periodType = filter.report_period.type;
+
     try {
-      // Start building the query on executionlineitems (lowercase, as PostgreSQL converts unquoted table names)
-      // We define the base query. Note: We use 'any' for intermediate query builder
-      // to handle the complexity of conditional joins and selects without complex generic passing.
-      let query: any = this.db.selectFrom('executionlineitems as eli').select(['eli.year']);
+      // Set statement timeout for this transaction
+      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
+        this.db
+      );
 
-      // Determine aggregation and grouping based on period type
-      const periodType = filter.report_period.type;
+      // Build query step by step
+      let query: DynamicQuery = this.db
+        .selectFrom('executionlineitems as eli')
+        .select(['eli.year']);
 
-      if (periodType === 'MONTH') {
-        query = query
-          .select('eli.month as period_value')
-          .select(sql<string>`COALESCE(SUM(eli.monthly_amount), 0)`.as('amount'))
-          .groupBy(['eli.year', 'eli.month'])
-          .orderBy('eli.year', 'asc')
-          .orderBy('eli.month', 'asc');
-      } else if (periodType === 'QUARTER') {
-        query = query
-          .select('eli.quarter as period_value')
-          .select(sql<string>`COALESCE(SUM(eli.quarterly_amount), 0)`.as('amount'))
-          .groupBy(['eli.year', 'eli.quarter'])
-          .orderBy('eli.year', 'asc')
-          .orderBy('eli.quarter', 'asc');
+      query = this.applyPeriodAggregation(query, periodType);
+      query = this.applyPeriodFilters(query, filter);
+      query = this.applyDimensionFilters(query, filter);
+      query = this.applyCodeFilters(query, filter);
+      query = this.applyEntityJoinsAndFilters(query, filter);
+      query = this.applyExclusions(query, filter);
+      query = this.applyAmountConstraints(query, filter);
 
-        // Enforce quarterly data flag
-        query = query.where('eli.is_quarterly', '=', true);
-      } else {
-        // YEAR
-        query = query
-          .select('eli.year as period_value')
-          .select(sql<string>`COALESCE(SUM(eli.ytd_amount), 0)`.as('amount'))
-          .groupBy('eli.year')
-          .orderBy('eli.year', 'asc');
+      // Apply safety limit
+      query = query.limit(MAX_DATA_POINTS);
 
-        // Enforce yearly data flag
-        query = query.where('eli.is_yearly', '=', true);
-      }
+      // Execute query
+      const rows: AggregatedRow[] = await query.execute();
 
-      // Apply Filters
+      // Transform to DataSeries
+      const dataPoints = this.transformRowsToDataPoints(rows, periodType);
 
-      // 1. Account Category
-      query = query.where('eli.account_category', '=', filter.account_category);
-
-      // 2. Period Filter
-      const { selection } = filter.report_period;
-      if (selection.interval != null) {
-        const startYear = parseInt(selection.interval.start.substring(0, 4), 10);
-        const endYear = parseInt(selection.interval.end.substring(0, 4), 10);
-
-        if (!Number.isNaN(startYear)) query = query.where('eli.year', '>=', startYear);
-        if (!Number.isNaN(endYear)) query = query.where('eli.year', '<=', endYear);
-      }
-
-      if (selection.dates != null && selection.dates.length > 0) {
-        const years = selection.dates
-          .map((d) => parseInt(d.substring(0, 4), 10))
-          .filter((y) => !Number.isNaN(y));
-        if (years.length > 0) {
-          query = query.where('eli.year', 'in', years);
-        }
-      }
-
-      // 3. Dimensions & IDs
-      if (filter.report_type != null) {
-        query = query.where('eli.report_type', '=', filter.report_type);
-      }
-      if (filter.main_creditor_cui != null) {
-        query = query.where('eli.main_creditor_cui', '=', filter.main_creditor_cui);
-      }
-      if (filter.report_ids?.length) {
-        query = query.where('eli.report_id', 'in', filter.report_ids);
-      }
-      if (filter.entity_cuis?.length) {
-        query = query.where('eli.entity_cui', 'in', filter.entity_cuis);
-      }
-      if (filter.funding_source_ids?.length) {
-        query = query.where('eli.funding_source_id', 'in', filter.funding_source_ids.map(Number));
-      }
-      if (filter.budget_sector_ids?.length) {
-        query = query.where('eli.budget_sector_id', 'in', filter.budget_sector_ids.map(Number));
-      }
-
-      // 4. Codes (Functional/Economic/Program)
-      if (filter.functional_codes?.length) {
-        query = query.where('eli.functional_code', 'in', filter.functional_codes);
-      }
-      if (filter.functional_prefixes?.length) {
-        const prefixes = filter.functional_prefixes;
-        query = query.where((eb: any) => {
-          const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
-          return eb.or(ors);
-        });
-      }
-
-      if (filter.economic_codes?.length) {
-        query = query.where('eli.economic_code', 'in', filter.economic_codes);
-      }
-      if (filter.economic_prefixes?.length) {
-        const prefixes = filter.economic_prefixes;
-        query = query.where((eb: any) => {
-          const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
-          return eb.or(ors);
-        });
-      }
-      if (filter.program_codes?.length) {
-        query = query.where('eli.program_code', 'in', filter.program_codes);
-      }
-
-      // 5. Aggregation Constraints
-      if (filter.item_min_amount != null) {
-        query = query.where('eli.ytd_amount', '>=', String(filter.item_min_amount));
-      }
-      if (filter.item_max_amount != null) {
-        query = query.where('eli.ytd_amount', '<=', String(filter.item_max_amount));
-      }
-
-      // 6. Join Logic (Entities / UATs)
-      const needsEntityJoin =
-        filter.entity_types?.length ||
-        filter.is_uat != null ||
-        filter.uat_ids?.length ||
-        filter.county_codes?.length ||
-        (filter.exclude &&
-          (filter.exclude.entity_types?.length ||
-            filter.exclude.uat_ids?.length ||
-            filter.exclude.county_codes?.length));
-
-      if (needsEntityJoin) {
-        query = query.leftJoin('entities as e', 'eli.entity_cui', 'e.cui');
-      }
-
-      const needsUatJoin = filter.county_codes?.length || filter.exclude?.county_codes?.length;
-
-      if (needsUatJoin) {
-        query = query.leftJoin('uats as u', 'e.uat_id', 'u.id');
-      }
-
-      // Apply Entity/UAT Filters
-      if (filter.entity_types?.length) {
-        query = query.where('e.entity_type', 'in', filter.entity_types);
-      }
-      if (filter.is_uat != null) {
-        query = query.where('e.is_uat', '=', filter.is_uat);
-      }
-      if (filter.uat_ids?.length) {
-        query = query.where('e.uat_id', 'in', filter.uat_ids.map(Number));
-      }
-      if (filter.county_codes?.length) {
-        query = query.where('u.county_code', 'in', filter.county_codes);
-      }
-
-      // 7. Exclusions
-      if (filter.exclude) {
-        const ex = filter.exclude;
-        if (ex.report_ids?.length) query = query.where('eli.report_id', 'not in', ex.report_ids);
-        if (ex.entity_cuis?.length) query = query.where('eli.entity_cui', 'not in', ex.entity_cuis);
-
-        if (ex.functional_prefixes?.length) {
-          const prefixes = ex.functional_prefixes;
-          query = query.where((eb: any) => {
-            const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
-            return eb.not(eb.or(ors));
-          });
-        }
-
-        if (ex.entity_types?.length)
-          query = query.where('e.entity_type', 'not in', ex.entity_types);
-        if (ex.county_codes?.length)
-          query = query.where('u.county_code', 'not in', ex.county_codes);
-      }
-
-      // Execute
-      const rows = await query.execute();
-
-      // Convert rows to DataPoint array
-      const dataPoints: DataPoint[] = rows.map((r: any) => ({
-        date: formatDateFromRow(
-          r.year,
-          r.period_value != null ? Number(r.period_value) : r.year,
-          periodType
-        ),
-        value: new Decimal(r.amount),
-      }));
-
-      // Build DataSeries
       const series: DataSeries = {
         frequency: getFrequency(periodType),
         data: dataPoints,
@@ -264,16 +120,311 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
 
       return ok(series);
     } catch (error) {
+      return this.handleQueryError(error);
+    }
+  }
+
+  // ==========================================================================
+  // Query Building Methods
+  // ==========================================================================
+
+  /**
+   * Applies period-specific SELECT, GROUP BY, and ORDER BY clauses.
+   */
+  private applyPeriodAggregation(query: DynamicQuery, periodType: PeriodType): DynamicQuery {
+    if (periodType === 'MONTH') {
+      return query
+        .select('eli.month as period_value')
+        .select(sql<string>`COALESCE(SUM(eli.monthly_amount), 0)`.as('amount'))
+        .groupBy(['eli.year', 'eli.month'])
+        .orderBy('eli.year', 'asc')
+        .orderBy('eli.month', 'asc');
+    }
+
+    if (periodType === 'QUARTER') {
+      return query
+        .select('eli.quarter as period_value')
+        .select(sql<string>`COALESCE(SUM(eli.quarterly_amount), 0)`.as('amount'))
+        .groupBy(['eli.year', 'eli.quarter'])
+        .orderBy('eli.year', 'asc')
+        .orderBy('eli.quarter', 'asc')
+        .where('eli.is_quarterly', '=', true);
+    }
+
+    // YEAR
+    return query
+      .select('eli.year as period_value')
+      .select(sql<string>`COALESCE(SUM(eli.ytd_amount), 0)`.as('amount'))
+      .groupBy('eli.year')
+      .orderBy('eli.year', 'asc')
+      .where('eli.is_yearly', '=', true);
+  }
+
+  /**
+   * Applies period (date range) filters.
+   */
+  private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    const { selection } = filter.report_period;
+
+    // Interval-based filter
+    if (selection.interval !== undefined) {
+      const startYear = extractYear(selection.interval.start);
+      const endYear = extractYear(selection.interval.end);
+
+      if (startYear !== null) {
+        query = query.where('eli.year', '>=', startYear);
+      }
+      if (endYear !== null) {
+        query = query.where('eli.year', '<=', endYear);
+      }
+    }
+
+    // Discrete dates filter
+    if (selection.dates !== undefined && selection.dates.length > 0) {
+      const years = selection.dates
+        .map((d) => extractYear(d))
+        .filter((y): y is number => y !== null);
+
+      if (years.length > 0) {
+        query = query.where('eli.year', 'in', years);
+      }
+    }
+
+    return query;
+  }
+
+  /**
+   * Applies dimension filters (account category, report type, entity CUIs, etc.).
+   */
+  private applyDimensionFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    // Required filter
+    query = query.where('eli.account_category', '=', filter.account_category);
+
+    // Optional filters
+    if (filter.report_type !== undefined) {
+      query = query.where('eli.report_type', '=', filter.report_type);
+    }
+
+    if (filter.main_creditor_cui !== undefined) {
+      query = query.where('eli.main_creditor_cui', '=', filter.main_creditor_cui);
+    }
+
+    if (filter.report_ids !== undefined && filter.report_ids.length > 0) {
+      query = query.where('eli.report_id', 'in', filter.report_ids);
+    }
+
+    if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
+      query = query.where('eli.entity_cui', 'in', filter.entity_cuis);
+    }
+
+    if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
+      const numericIds = toNumericIds(filter.funding_source_ids);
+      if (numericIds.length > 0) {
+        query = query.where('eli.funding_source_id', 'in', numericIds);
+      }
+    }
+
+    if (filter.budget_sector_ids !== undefined && filter.budget_sector_ids.length > 0) {
+      const numericIds = toNumericIds(filter.budget_sector_ids);
+      if (numericIds.length > 0) {
+        query = query.where('eli.budget_sector_id', 'in', numericIds);
+      }
+    }
+
+    return query;
+  }
+
+  /**
+   * Applies code-based filters (functional, economic, program codes).
+   */
+  private applyCodeFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    // Exact functional codes
+    if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
+      query = query.where('eli.functional_code', 'in', filter.functional_codes);
+    }
+
+    // Functional code prefixes (LIKE patterns)
+    if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
+      const prefixes = filter.functional_prefixes;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) => {
+        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        return eb.or(ors);
+      });
+    }
+
+    // Exact economic codes
+    if (filter.economic_codes !== undefined && filter.economic_codes.length > 0) {
+      query = query.where('eli.economic_code', 'in', filter.economic_codes);
+    }
+
+    // Economic code prefixes
+    if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
+      const prefixes = filter.economic_prefixes;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) => {
+        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+        return eb.or(ors);
+      });
+    }
+
+    // Program codes
+    if (filter.program_codes !== undefined && filter.program_codes.length > 0) {
+      query = query.where('eli.program_code', 'in', filter.program_codes);
+    }
+
+    return query;
+  }
+
+  /**
+   * Applies entity/UAT joins and their dependent filters.
+   * Keeps joins and their filters together for clarity.
+   */
+  private applyEntityJoinsAndFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    const requiresEntityJoin = needsEntityJoin(filter);
+    const requiresUatJoin = needsUatJoin(filter);
+
+    // Apply entity join if needed
+    if (requiresEntityJoin) {
+      query = query.leftJoin('entities as e', 'eli.entity_cui', 'e.cui');
+
+      // Entity-specific filters
+      if (filter.entity_types !== undefined && filter.entity_types.length > 0) {
+        query = query.where('e.entity_type', 'in', filter.entity_types);
+      }
+
+      if (filter.is_uat !== undefined) {
+        query = query.where('e.is_uat', '=', filter.is_uat);
+      }
+
+      if (filter.uat_ids !== undefined && filter.uat_ids.length > 0) {
+        const numericIds = toNumericIds(filter.uat_ids);
+        if (numericIds.length > 0) {
+          query = query.where('e.uat_id', 'in', numericIds);
+        }
+      }
+    }
+
+    // Apply UAT join if needed (depends on entity join)
+    if (requiresUatJoin) {
+      query = query.leftJoin('uats as u', 'e.uat_id', 'u.id');
+
+      if (filter.county_codes !== undefined && filter.county_codes.length > 0) {
+        query = query.where('u.county_code', 'in', filter.county_codes);
+      }
+    }
+
+    return query;
+  }
+
+  /**
+   * Applies exclusion filters.
+   */
+  private applyExclusions(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    if (filter.exclude === undefined) {
+      return query;
+    }
+
+    const ex = filter.exclude;
+
+    if (ex.report_ids !== undefined && ex.report_ids.length > 0) {
+      query = query.where('eli.report_id', 'not in', ex.report_ids);
+    }
+
+    if (ex.entity_cuis !== undefined && ex.entity_cuis.length > 0) {
+      query = query.where('eli.entity_cui', 'not in', ex.entity_cuis);
+    }
+
+    if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
+      const prefixes = ex.functional_prefixes;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) => {
+        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        return eb.not(eb.or(ors));
+      });
+    }
+
+    if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
+      query = query.where('e.entity_type', 'not in', ex.entity_types);
+    }
+
+    if (ex.county_codes !== undefined && ex.county_codes.length > 0) {
+      query = query.where('u.county_code', 'not in', ex.county_codes);
+    }
+
+    return query;
+  }
+
+  /**
+   * Applies amount-based constraints.
+   */
+  private applyAmountConstraints(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
+    if (filter.item_min_amount !== undefined) {
+      query = query.where('eli.ytd_amount', '>=', String(filter.item_min_amount));
+    }
+
+    if (filter.item_max_amount !== undefined) {
+      query = query.where('eli.ytd_amount', '<=', String(filter.item_max_amount));
+    }
+
+    return query;
+  }
+
+  // ==========================================================================
+  // Result Transformation
+  // ==========================================================================
+
+  /**
+   * Transforms raw database rows to DataPoint array.
+   */
+  private transformRowsToDataPoints(rows: AggregatedRow[], periodType: PeriodType): DataPoint[] {
+    return rows.map((r) => ({
+      date: formatDateFromRow(r.year, r.period_value, periodType),
+      value: new Decimal(r.amount),
+    }));
+  }
+
+  // ==========================================================================
+  // Error Handling
+  // ==========================================================================
+
+  /**
+   * Handles query errors and returns appropriate AnalyticsError.
+   */
+  private handleQueryError(error: unknown): Result<DataSeries, AnalyticsError> {
+    const message = error instanceof Error ? error.message : 'Unknown database error';
+
+    // Check for timeout error (PostgreSQL error code 57014)
+    const isTimeout =
+      message.includes('statement timeout') ||
+      message.includes('57014') ||
+      message.includes('canceling statement due to statement timeout');
+
+    if (isTimeout) {
       return err({
-        type: 'DatabaseError',
-        message: error instanceof Error ? error.message : 'Unknown DB Error',
+        type: 'TimeoutError',
+        message: 'Analytics query timed out',
+        retryable: true,
         cause: error,
       });
     }
+
+    return err({
+      type: 'DatabaseError',
+      message: 'Failed to fetch analytics data',
+      retryable: true,
+      cause: error,
+    });
   }
 }
 
+// ============================================================================
 // Factory
+// ============================================================================
+
+/**
+ * Creates an AnalyticsRepository instance.
+ */
 export const makeAnalyticsRepo = (db: BudgetDbClient): AnalyticsRepository => {
   return new KyselyAnalyticsRepo(db);
 };

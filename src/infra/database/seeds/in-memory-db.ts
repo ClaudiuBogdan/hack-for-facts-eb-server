@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention -- ignore naming conventions for database tables */
 /**
  * In-Memory Database Mock
  * Provides an in-memory representation of the budget database

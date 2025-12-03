@@ -4,7 +4,7 @@
 
 import { describe, expect, it, afterEach } from 'vitest';
 
-import { createApp } from '@/app.js';
+import { createApp } from '@/app/build-app.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';

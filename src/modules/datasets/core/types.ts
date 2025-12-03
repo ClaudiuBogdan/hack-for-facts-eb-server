@@ -73,3 +73,9 @@ export interface Dataset {
   axes: DatasetFileDTO['axes'];
   points: DataPoint[];
 }
+
+export interface DatasetFileEntry {
+  id: string;
+  absolutePath: string;
+  relativePath: string;
+}

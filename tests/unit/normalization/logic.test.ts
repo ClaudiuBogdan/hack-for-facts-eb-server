@@ -8,13 +8,13 @@ import {
   applyPercentGDP,
   applyGrowth,
   normalizeData,
-} from '@/common/modules/normalization/core/logic.js';
+} from '@/modules/normalization/core/logic.js';
 
 import type {
   DataPoint,
   NormalizationFactors,
   TransformationOptions,
-} from '@/common/modules/normalization/core/types.js';
+} from '@/modules/normalization/core/types.js';
 
 describe('Normalization Logic', () => {
   // String-keyed factor maps (new format)

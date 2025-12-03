@@ -1,17 +1,15 @@
 import { ok } from 'neverthrow';
 import { describe, expect, it, afterEach, vi, beforeEach } from 'vitest';
 
-import { createApp } from '@/app.js';
+import { createApp } from '@/app/build-app.js';
 import { Frequency, type DataSeries } from '@/common/types/temporal.js';
 import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 
 import { makeHealthChecker, makeTestConfig } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
-import type {
-  AnalyticsFilter,
-  AnalyticsRepository,
-} from '@/modules/execution-analytics/core/types.js';
+import type { AnalyticsRepository } from '@/modules/execution-analytics/core/ports.js';
+import type { AnalyticsFilter } from '@/modules/execution-analytics/core/types.js';
 import type { FastifyInstance } from 'fastify';
 
 // Mock the analytics repo module

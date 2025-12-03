@@ -1,6 +1,7 @@
 import { Decimal } from 'decimal.js';
 import { describe, it, expect } from 'vitest';
 
+import { Frequency } from '@/common/types/temporal.js';
 import {
   generateFactorMap,
   datasetToFactorMap,
@@ -8,8 +9,7 @@ import {
   getFactorOrDefault,
   type FactorDatasets,
   type FactorMap,
-} from '@/common/modules/normalization/core/factor-maps.js';
-import { Frequency } from '@/common/types/temporal.js';
+} from '@/modules/normalization/core/factor-maps.js';
 
 describe('Factor Maps', () => {
   describe('datasetToFactorMap', () => {
