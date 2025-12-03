@@ -17,6 +17,11 @@ import {
 import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors } from '../infra/plugins/index.js';
 import {
+  makeAggregatedLineItemsResolvers,
+  AggregatedLineItemsSchema,
+  makeAggregatedLineItemsRepo,
+} from '../modules/aggregated-line-items/index.js';
+import {
   makeExecutionAnalyticsResolvers,
   ExecutionAnalyticsSchema,
   makeAnalyticsRepo,
@@ -27,6 +32,7 @@ import {
   healthSchema,
   type HealthChecker,
 } from '../modules/health/index.js';
+import { NormalizationService } from '../modules/normalization/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
 import type { BudgetDbClient } from '../infra/database/client.js';
@@ -95,9 +101,28 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     datasetRepo,
   });
 
+  // Setup Aggregated Line Items Module
+  const normalizationService = await NormalizationService.create(datasetRepo);
+  const aggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
+  const aggregatedLineItemsResolvers = makeAggregatedLineItemsResolvers({
+    repo: aggregatedLineItemsRepo,
+    normalization: normalizationService,
+  });
+
   // Combine schemas and resolvers
-  const schema = [BaseSchema, CommonGraphQLSchema, healthSchema, ExecutionAnalyticsSchema];
-  const resolvers = [commonGraphQLResolvers, healthResolvers, analyticsResolvers];
+  const schema = [
+    BaseSchema,
+    CommonGraphQLSchema,
+    healthSchema,
+    ExecutionAnalyticsSchema,
+    AggregatedLineItemsSchema,
+  ];
+  const resolvers = [
+    commonGraphQLResolvers,
+    healthResolvers,
+    analyticsResolvers,
+    aggregatedLineItemsResolvers,
+  ];
 
   await app.register(
     makeGraphQLPlugin({

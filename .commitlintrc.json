@@ -26,6 +26,7 @@
         "config",
         "husky",
         "execution-analytics",
+        "aggregated-line-items",
         "normalization"
       ]
     ],

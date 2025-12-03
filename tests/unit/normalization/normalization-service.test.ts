@@ -84,7 +84,7 @@ describe('NormalizationService', () => {
   describe('create() - Validation', () => {
     it('should create service successfully when all datasets exist', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
 
       const service = await NormalizationService.create(repo);
 
@@ -92,13 +92,13 @@ describe('NormalizationService', () => {
     });
 
     it('should throw NormalizationDatasetError when datasets are missing', async () => {
-      const repo = makeFakeDatasetRepo({}); // Empty repo
+      const repo = makeFakeDatasetRepo({ includeNormalizationDatasets: false }); // Empty repo
 
       await expect(NormalizationService.create(repo)).rejects.toThrow(NormalizationDatasetError);
     });
 
     it('should include all missing dataset IDs in error', async () => {
-      const repo = makeFakeDatasetRepo({});
+      const repo = makeFakeDatasetRepo({ includeNormalizationDatasets: false });
 
       try {
         await NormalizationService.create(repo);
@@ -122,7 +122,7 @@ describe('NormalizationService', () => {
           { x: '2023', y: '1.1' },
         ]),
       };
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
 
       try {
         await NormalizationService.create(repo);
@@ -139,7 +139,7 @@ describe('NormalizationService', () => {
     });
 
     it('should include error messages for each missing dataset', async () => {
-      const repo = makeFakeDatasetRepo({});
+      const repo = makeFakeDatasetRepo({ includeNormalizationDatasets: false });
 
       try {
         await NormalizationService.create(repo);
@@ -157,7 +157,7 @@ describe('NormalizationService', () => {
     });
 
     it('should format error message with all missing datasets', async () => {
-      const repo = makeFakeDatasetRepo({});
+      const repo = makeFakeDatasetRepo({ includeNormalizationDatasets: false });
 
       try {
         await NormalizationService.create(repo);
@@ -178,7 +178,7 @@ describe('NormalizationService', () => {
   describe('generateFactors()', () => {
     it('should generate yearly factors from datasets', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const factors = await service.generateFactors(Frequency.YEAR, 2023, 2024);
@@ -193,7 +193,7 @@ describe('NormalizationService', () => {
 
     it('should generate monthly factors with yearly fallback', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const factors = await service.generateFactors(Frequency.MONTH, 2023, 2023);
@@ -209,7 +209,7 @@ describe('NormalizationService', () => {
 
     it('should generate quarterly factors with yearly fallback', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const factors = await service.generateFactors(Frequency.QUARTER, 2023, 2024);
@@ -227,7 +227,7 @@ describe('NormalizationService', () => {
 
     it('should cache datasets between calls', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       // First call loads datasets
@@ -242,7 +242,7 @@ describe('NormalizationService', () => {
   describe('normalize()', () => {
     it('should normalize data with yearly factors', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const data: DataPoint[] = [
@@ -268,7 +268,7 @@ describe('NormalizationService', () => {
 
     it('should normalize percent_gdp', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const data: DataPoint[] = [{ x: '2023', year: 2023, y: new Decimal(10000) }];
@@ -289,7 +289,7 @@ describe('NormalizationService', () => {
 
     it('should normalize per_capita', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const data: DataPoint[] = [{ x: '2023', year: 2023, y: new Decimal(19000000) }];
@@ -310,7 +310,7 @@ describe('NormalizationService', () => {
 
     it('should return Result.ok with normalized data', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       const data: DataPoint[] = [{ x: '2023', year: 2023, y: new Decimal(100) }];
@@ -330,7 +330,7 @@ describe('NormalizationService', () => {
   describe('invalidateCache()', () => {
     it('should clear cached datasets', async () => {
       const datasets = createAllRequiredDatasets();
-      const repo = makeFakeDatasetRepo(datasets);
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
       const service = await NormalizationService.create(repo);
 
       // Generate factors to populate cache
