@@ -1,37 +1,42 @@
 metadata:
-  id: 'ro.economics.cpi.yearly'
-  source: 'INSSE'
-  sourceUrl: 'https://insse.ro'
-  lastUpdated: '2024-01-01'
-  units: 'index_2024'
+  id: "ro.economics.cpi.yearly"
+  source: "INSSE"
+  sourceUrl: "https://insse.ro/cms/ro/content/ipc%E2%80%93serie-de-date-anuala"
+  lastUpdated: "2025-12-04"
+  units: "index_2024"
+  notes: "Index calculat pe baza ratelor anuale de inflatie, rebazat cu 2024=100"
 i18n:
   ro:
-    title: 'Indicele Prețurilor de Consum (IPC)'
-    xAxisLabel: 'An'
-    yAxisLabel: 'Indice (2024 = 100)'
+    title: "Indicele Prețurilor de Consum (IPC)"
+    xAxisLabel: "An"
+    yAxisLabel: "Indice (2024 = 100)"
   en:
-    title: 'Consumer Price Index (CPI)'
-    xAxisLabel: 'Year'
-    yAxisLabel: 'Index (2024 = 100)'
+    title: "Consumer Price Index (CPI)"
+    xAxisLabel: "Year"
+    yAxisLabel: "Index (2024 = 100)"
 axes:
   x:
-    label: 'An'
-    type: 'date'
-    frequency: 'yearly'
-    format: 'YYYY'
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
   y:
-    label: 'Indice'
-    type: 'number'
-    unit: 'index_2024'
+    label: "Indice"
+    type: "number"
+    unit: "index_2024"
 data:
-  # Synthetic data roughly reflecting recent inflation in RO
-  - { x: '2015', y: '65.0' }
-  - { x: '2016', y: '64.0' }
-  - { x: '2017', y: '65.0' }
-  - { x: '2018', y: '68.0' }
-  - { x: '2019', y: '70.6' }
-  - { x: '2020', y: '72.5' }
-  - { x: '2021', y: '76.2' }
-  - { x: '2022', y: '86.7' }
-  - { x: '2023', y: '95.7' }
-  - { x: '2024', y: '100.0' }
+  - { x: "2010", y: "56.8" }
+  - { x: "2011", y: "60.1" }
+  - { x: "2012", y: "62.0" }
+  - { x: "2013", y: "64.5" }
+  - { x: "2014", y: "65.2" }
+  - { x: "2015", y: "64.8" }
+  - { x: "2016", y: "63.8" }
+  - { x: "2017", y: "64.6" }
+  - { x: "2018", y: "67.6" }
+  - { x: "2019", y: "70.2" }
+  - { x: "2020", y: "72.0" }
+  - { x: "2021", y: "75.6" }
+  - { x: "2022", y: "86.0" }
+  - { x: "2023", y: "95.0" }
+  - { x: "2024", y: "100.0" }

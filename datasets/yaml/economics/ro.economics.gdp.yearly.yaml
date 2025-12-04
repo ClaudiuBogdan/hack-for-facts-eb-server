@@ -1,35 +1,41 @@
 metadata:
-  id: 'ro.economics.gdp.yearly'
-  source: 'INSSE'
-  sourceUrl: 'https://insse.ro'
-  lastUpdated: '2024-01-01'
-  units: 'million_ron'
+  id: "ro.economics.gdp.yearly"
+  source: "INSSE"
+  sourceUrl: "https://insse.ro/cms/ro/content/produsul-intern-brut"
+  lastUpdated: "2025-12-04"
+  units: "milioane RON"
 i18n:
   ro:
-    title: 'Produsul Intern Brut (PIB)'
-    xAxisLabel: 'An'
-    yAxisLabel: 'Milioane RON'
+    title: "Produsul Intern Brut (PIB)"
+    xAxisLabel: "An"
+    yAxisLabel: "milioane RON"
   en:
-    title: 'Gross Domestic Product (GDP)'
-    xAxisLabel: 'Year'
-    yAxisLabel: 'Million RON'
+    title: "Gross Domestic Product (GDP)"
+    xAxisLabel: "Year"
+    yAxisLabel: "million RON"
 axes:
   x:
-    label: 'An'
-    type: 'date'
-    frequency: 'yearly'
-    format: 'YYYY'
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
   y:
-    label: 'PIB'
-    type: 'number'
-    unit: 'million_ron'
+    label: "PIB"
+    type: "number"
+    unit: "milioane RON"
 data:
-  - { x: '2015', y: '712560' }
-  - { x: '2016', y: '765135' }
-  - { x: '2017', y: '856352' }
-  - { x: '2018', y: '951728' }
-  - { x: '2019', y: '1059802' }
-  - { x: '2020', y: '1058918' }
-  - { x: '2021', y: '1187402' }
-  - { x: '2022', y: '1409783' }
-  - { x: '2023', y: '1598500' }
+  - { x: "2010", y: "513641" }
+  - { x: "2011", y: "557348" }
+  - { x: "2012", y: "587499" }
+  - { x: "2013", y: "628581" }
+  - { x: "2014", y: "668144" }
+  - { x: "2015", y: "712832" }
+  - { x: "2016", y: "759228" }
+  - { x: "2017", y: "858300" }
+  - { x: "2018", y: "940477" }
+  - { x: "2019", y: "1053880" }
+  - { x: "2020", y: "1053000" }
+  - { x: "2021", y: "1189089" }
+  - { x: "2022", y: "1409000" }
+  - { x: "2023", y: "1598576" }
+  - { x: "2024", y: "1766068" }

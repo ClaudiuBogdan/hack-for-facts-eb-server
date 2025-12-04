@@ -1,36 +1,47 @@
 metadata:
-  id: 'ro.economics.exchange.ron_eur.yearly'
-  source: 'BNR'
-  sourceUrl: 'https://bnr.ro'
-  lastUpdated: '2024-01-01'
-  units: 'ron_per_eur'
+  id: "ro.economics.exchange.ron_eur.yearly"
+  source: "BNR"
+  sourceUrl: "https://www.bnr.ro/Cursul-de-schimb-3544.aspx"
+  lastUpdated: "2025-12-04"
+  units: "ron_per_eur"
 i18n:
   ro:
-    title: 'Curs de Schimb RON/EUR (Medie Anuală)'
-    xAxisLabel: 'An'
-    yAxisLabel: 'RON/EUR'
+    title: "Curs de Schimb RON/EUR (Medie Anuală)"
+    xAxisLabel: "An"
+    yAxisLabel: "RON/EUR"
   en:
-    title: 'RON/EUR Exchange Rate (Annual Average)'
-    xAxisLabel: 'Year'
-    yAxisLabel: 'RON/EUR'
+    title: "RON/EUR Exchange Rate (Annual Average)"
+    xAxisLabel: "Year"
+    yAxisLabel: "RON/EUR"
 axes:
   x:
-    label: 'An'
-    type: 'date'
-    frequency: 'yearly'
-    format: 'YYYY'
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
   y:
-    label: 'RON/EUR'
-    type: 'number'
-    unit: 'ron_per_eur'
+    label: "RON/EUR"
+    type: "number"
+    unit: "ron_per_eur"
 data:
-  - { x: '2015', y: '4.4450' }
-  - { x: '2016', y: '4.4908' }
-  - { x: '2017', y: '4.5681' }
-  - { x: '2018', y: '4.6535' }
-  - { x: '2019', y: '4.7452' }
-  - { x: '2020', y: '4.8371' }
-  - { x: '2021', y: '4.9204' }
-  - { x: '2022', y: '4.9315' }
-  - { x: '2023', y: '4.9465' }
-  - { x: '2024', y: '4.9700' }
+  - { x: "2005", y: "3.6234" }
+  - { x: "2006", y: "3.5245" }
+  - { x: "2007", y: "3.3373" }
+  - { x: "2008", y: "3.6827" }
+  - { x: "2009", y: "4.2373" }
+  - { x: "2010", y: "4.2099" }
+  - { x: "2011", y: "4.2379" }
+  - { x: "2012", y: "4.4560" }
+  - { x: "2013", y: "4.4190" }
+  - { x: "2014", y: "4.4446" }
+  - { x: "2015", y: "4.4450" }
+  - { x: "2016", y: "4.4908" }
+  - { x: "2017", y: "4.5680" }
+  - { x: "2018", y: "4.6535" }
+  - { x: "2019", y: "4.7454" }
+  - { x: "2020", y: "4.8376" }
+  - { x: "2021", y: "4.9207" }
+  - { x: "2022", y: "4.9313" }
+  - { x: "2023", y: "4.9464" }
+  - { x: "2024", y: "4.9746" }
+  - { x: "2025", y: "5.0200" }
