@@ -726,6 +726,10 @@ if (cached) return cached;
 ## References
 
 - [PAGINATION-NORMALIZATION-PROBLEM.md](./PAGINATION-NORMALIZATION-PROBLEM.md) - Problem analysis
+- [NORMALIZATION-FACTORS.md](./NORMALIZATION-FACTORS.md) - Factor computation and dataset requirements
+- [PERFORMANCE-ANALYSIS.md](./PERFORMANCE-ANALYSIS.md) - Database index coverage for analytics queries
 - `src/modules/normalization/` - NormalizationService implementation
-- `src/modules/aggregated-line-items/` - Current implementation
+- `src/modules/aggregated-line-items/` - Classification-level aggregation with SQL normalization
+- `src/modules/entity-analytics/` - Entity-level aggregation with per-entity population
+- `src/modules/execution-analytics/` - Time-series aggregation
 - `datasets/yaml/` - Source YAML files for normalization factors

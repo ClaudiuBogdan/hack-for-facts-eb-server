@@ -436,6 +436,67 @@ describe('getAggregatedLineItems', () => {
         expect(result.value.nodes[0]?.amount).toBe(200);
       }
     });
+
+    it('should use carried-forward rates for years with missing data (2025 scenario)', async () => {
+      // Simulate data from 2025 when exchange rate dataset only has data through 2024
+      const rows = [
+        createRow('01.01', '10.01', 2024, 500), // 500 / 5 = 100 EUR
+        createRow('01.01', '10.01', 2025, 500), // 500 / 5 = 100 EUR (using carried-forward rate)
+      ];
+
+      // Normalization provider that returns factors WITH the carried-forward 2025 value
+      // This simulates what NormalizationService.generateFactors() would return
+      // when the year range includes 2025 but dataset only has data through 2024
+      const normalizationWithCarryForward: NormalizationFactorProvider = {
+        generateFactors: async () => ({
+          cpi: new Map([
+            ['2024', new Decimal(1)],
+            ['2025', new Decimal(1)], // Carried forward from 2024
+          ]),
+          eur: new Map([
+            ['2024', new Decimal(5)],
+            ['2025', new Decimal(5)], // Carried forward from 2024
+          ]),
+          usd: new Map([
+            ['2024', new Decimal(4.5)],
+            ['2025', new Decimal(4.5)], // Carried forward from 2024
+          ]),
+          gdp: new Map([
+            ['2024', new Decimal(1100000)],
+            ['2025', new Decimal(1100000)], // Carried forward from 2024
+          ]),
+          population: new Map([
+            ['2024', new Decimal(19000000)],
+            ['2025', new Decimal(19000000)], // Carried forward from 2024
+          ]),
+        }),
+      };
+
+      const deps: GetAggregatedLineItemsDeps = {
+        repo: createFakeRepo(rows),
+        normalization: normalizationWithCarryForward,
+        populationRepo: createFakePopulationRepo(),
+      };
+
+      const result = await getAggregatedLineItems(deps, {
+        filter: createFilter({
+          currency: 'EUR',
+          report_period: {
+            frequency: Frequency.YEAR,
+            selection: { interval: { start: '2024', end: '2025' } },
+          },
+        }),
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // Both years should use rate of 5:
+        // (500/5) + (500/5) = 100 + 100 = 200 EUR
+        // Bug scenario: if 2025 factor was missing and defaulted to 1.0,
+        // result would be (500/5) + (500/1) = 100 + 500 = 600 EUR (incorrect)
+        expect(result.value.nodes[0]?.amount).toBe(200);
+      }
+    });
   });
 
   describe('Normalization - Inflation Adjustment', () => {

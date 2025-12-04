@@ -303,6 +303,10 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       }
     }
 
+    if (filter.expense_types !== undefined && filter.expense_types.length > 0) {
+      query = query.where('eli.expense_type', 'in', filter.expense_types);
+    }
+
     return query;
   }
 
@@ -375,6 +379,17 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
           query = query.where('e.uat_id', 'in', numericIds);
         }
       }
+
+      // Search filter: case-insensitive substring match on entity name
+      // Escape LIKE special characters for exact substring matching
+      if (filter.search !== undefined && filter.search.trim() !== '') {
+        const escapedSearch = filter.search
+          .trim()
+          .replace(/\\/g, '\\\\') // Escape backslashes first
+          .replace(/%/g, '\\%') // Escape LIKE wildcard
+          .replace(/_/g, '\\_'); // Escape LIKE single-char wildcard
+        query = query.where('e.name', 'ilike', `%${escapedSearch}%`);
+      }
     }
 
     // Apply UAT join if needed (depends on entity join)
@@ -383,6 +398,19 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
 
       if (filter.county_codes !== undefined && filter.county_codes.length > 0) {
         query = query.where('u.county_code', 'in', filter.county_codes);
+      }
+
+      if (filter.regions !== undefined && filter.regions.length > 0) {
+        query = query.where('u.region', 'in', filter.regions);
+      }
+
+      // Population filters
+      if (filter.min_population !== undefined && filter.min_population !== null) {
+        query = query.where('u.population', '>=', filter.min_population);
+      }
+
+      if (filter.max_population !== undefined && filter.max_population !== null) {
+        query = query.where('u.population', '<=', filter.max_population);
       }
     }
 
@@ -468,6 +496,14 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) =>
         eb.or([eb('u.county_code', 'is', null), eb('u.county_code', 'not in', ex.county_codes)])
+      );
+    }
+
+    // Region exclusions - must preserve NULL region rows
+    if (ex.regions !== undefined && ex.regions.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) =>
+        eb.or([eb('u.region', 'is', null), eb('u.region', 'not in', ex.regions)])
       );
     }
 

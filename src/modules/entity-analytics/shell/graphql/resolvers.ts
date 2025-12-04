@@ -41,30 +41,26 @@ const VALID_SORT_FIELDS = new Set<EntityAnalyticsSortField>([
   'COUNTY_CODE',
 ]);
 
-/** Default sort: TOTAL_AMOUNT DESC */
-const DEFAULT_SORT: EntityAnalyticsSort = {
-  by: 'TOTAL_AMOUNT',
-  order: 'DESC',
-};
-
 /**
  * Maps GraphQL SortOrder to internal EntityAnalyticsSort.
- * Returns DEFAULT_SORT if sort is not provided or invalid.
+ * Returns undefined if sort is not provided, letting the use case apply its own default.
+ * Returns undefined if sort field or order is invalid.
  */
-const mapSortOrder = (gqlSort?: GqlSortOrder): EntityAnalyticsSort => {
+const mapSortOrder = (gqlSort?: GqlSortOrder): EntityAnalyticsSort | undefined => {
   if (gqlSort === undefined) {
-    return DEFAULT_SORT;
+    // Let the use case determine the default based on normalization mode
+    return undefined;
   }
 
   const sortField = gqlSort.by.toUpperCase() as EntityAnalyticsSortField;
   if (!VALID_SORT_FIELDS.has(sortField)) {
-    // Invalid sort field - use default
-    return DEFAULT_SORT;
+    // Invalid sort field - let use case apply default
+    return undefined;
   }
 
   const sortOrder = gqlSort.order.toUpperCase();
   if (sortOrder !== 'ASC' && sortOrder !== 'DESC') {
-    return DEFAULT_SORT;
+    return undefined;
   }
 
   return {

@@ -237,6 +237,65 @@ describe('NormalizationService', () => {
 
       expect(factors1.cpi.get('2023')?.toNumber()).toBe(factors2.cpi.get('2023')?.toNumber());
     });
+
+    it('should carry forward last known value when year data is missing (2025 scenario)', async () => {
+      // Simulate real-world scenario: datasets only have data through 2024
+      const datasets = createAllRequiredDatasets();
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
+      const service = await NormalizationService.create(repo);
+
+      // Request factors for 2023-2025, but dataset only has 2023-2024
+      const factors = await service.generateFactors(Frequency.YEAR, 2023, 2025);
+
+      // 2023 and 2024 should have their actual values
+      expect(factors.eur.get('2023')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2024')?.toNumber()).toBe(5.0);
+
+      // 2025 should carry forward from 2024 (NOT be undefined or default to 1.0)
+      expect(factors.eur.has('2025')).toBe(true);
+      expect(factors.eur.get('2025')?.toNumber()).toBe(5.0);
+
+      // Same for other factors
+      expect(factors.cpi.get('2025')?.toNumber()).toBe(1.0); // carried from 2024
+      expect(factors.usd.get('2025')?.toNumber()).toBe(4.6); // carried from 2024
+      expect(factors.gdp.get('2025')?.toNumber()).toBe(1100000); // carried from 2024
+      expect(factors.population.get('2025')?.toNumber()).toBe(19000000); // carried from 2024
+    });
+
+    it('should carry forward values for multiple missing future years', async () => {
+      const datasets = createAllRequiredDatasets();
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
+      const service = await NormalizationService.create(repo);
+
+      // Request factors for 2023-2027, but dataset only has 2023-2024
+      const factors = await service.generateFactors(Frequency.YEAR, 2023, 2027);
+
+      // All years from 2025-2027 should carry forward from 2024
+      expect(factors.eur.get('2025')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2026')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2027')?.toNumber()).toBe(5.0);
+    });
+
+    it('should carry forward monthly factors when yearly data ends before requested range', async () => {
+      const datasets = createAllRequiredDatasets();
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
+      const service = await NormalizationService.create(repo);
+
+      // Request monthly factors for 2024-2025, but dataset only has yearly data through 2024
+      const factors = await service.generateFactors(Frequency.MONTH, 2024, 2025);
+
+      // Should have 24 months (2 years)
+      expect(factors.eur.size).toBe(24);
+
+      // 2024 months should use 2024 yearly value
+      expect(factors.eur.get('2024-01')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2024-12')?.toNumber()).toBe(5.0);
+
+      // 2025 months should carry forward from 2024-12 (which used 2024 yearly value)
+      expect(factors.eur.get('2025-01')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2025-06')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2025-12')?.toNumber()).toBe(5.0);
+    });
   });
 
   describe('normalize()', () => {
@@ -324,6 +383,66 @@ describe('NormalizationService', () => {
 
       expect(result.isOk()).toBe(true);
       expect(result.isErr()).toBe(false);
+    });
+
+    it('should correctly convert currency for 2025 data using carried-forward rate', async () => {
+      // This is the key bug scenario: 2025 data exists but exchange rate dataset ends at 2024
+      const datasets = createAllRequiredDatasets();
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
+      const service = await NormalizationService.create(repo);
+
+      // Data includes 2025, but exchange rate dataset only has 2023-2024
+      const data: DataPoint[] = [
+        { x: '2024', year: 2024, y: new Decimal(100) },
+        { x: '2025', year: 2025, y: new Decimal(100) },
+      ];
+      const options: TransformationOptions = {
+        normalization: 'total',
+        currency: 'EUR',
+        inflationAdjusted: false,
+      };
+
+      // IMPORTANT: Year range must include 2025 for carry-forward to work
+      const result = await service.normalize(data, options, Frequency.YEAR, [2024, 2025]);
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // 2024: 100 / 5.0 (EUR rate from dataset) = 20
+        expect(result.value[0]!.y.toNumber()).toBe(20);
+        // 2025: 100 / 5.0 (EUR rate carried forward from 2024) = 20
+        // Bug: without carry-forward, this would be 100 / 1.0 = 100 (using default)
+        expect(result.value[1]!.y.toNumber()).toBe(20);
+      }
+    });
+
+    it('should handle multi-year normalization with missing future years', async () => {
+      const datasets = createAllRequiredDatasets();
+      const repo = makeFakeDatasetRepo({ datasets, includeNormalizationDatasets: false });
+      const service = await NormalizationService.create(repo);
+
+      // Data spans 2023-2025, but datasets only have 2023-2024
+      const data: DataPoint[] = [
+        { x: '2023', year: 2023, y: new Decimal(100) },
+        { x: '2024', year: 2024, y: new Decimal(110) },
+        { x: '2025', year: 2025, y: new Decimal(120) },
+      ];
+      const options: TransformationOptions = {
+        normalization: 'total',
+        currency: 'EUR',
+        inflationAdjusted: true,
+      };
+
+      const result = await service.normalize(data, options, Frequency.YEAR, [2023, 2025]);
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // 2023: 100 * 1.1 (CPI) / 5.0 (EUR) = 22
+        expect(result.value[0]!.y.toNumber()).toBe(22);
+        // 2024: 110 * 1.0 (CPI) / 5.0 (EUR) = 22
+        expect(result.value[1]!.y.toNumber()).toBe(22);
+        // 2025: 120 * 1.0 (CPI from 2024) / 5.0 (EUR from 2024) = 24
+        expect(result.value[2]!.y.toNumber()).toBe(24);
+      }
     });
   });
 

@@ -69,8 +69,10 @@ export interface GeographicFilter {
   is_uat?: boolean;
   uat_ids?: readonly string[];
   county_codes?: readonly string[];
+  regions?: readonly string[];
   min_population?: number | null;
   max_population?: number | null;
+  search?: string;
 }
 
 /**
@@ -94,6 +96,7 @@ export interface ExclusionFilter {
   entity_types?: readonly string[];
   uat_ids?: readonly string[];
   county_codes?: readonly string[];
+  regions?: readonly string[];
 }
 
 /**
@@ -294,6 +297,13 @@ function buildEntityConditions(filter: GeographicFilter, alias: string): string[
     }
   }
 
+  // Search filter: case-insensitive substring match on entity name
+  // Uses pg_trgm ILIKE for fuzzy matching (GIN index: idx_gin_entities_name)
+  if (filter.search !== undefined && filter.search.trim() !== '') {
+    const sanitizedSearch = escapeSearchString(filter.search.trim());
+    conditions.push(`${alias}.name ILIKE '%${sanitizedSearch}%'`);
+  }
+
   return conditions;
 }
 
@@ -302,6 +312,10 @@ function buildUatConditions(filter: GeographicFilter, alias: string): string[] {
 
   if (hasValues(filter.county_codes)) {
     conditions.push(`${alias}.county_code IN (${quoteStrings(filter.county_codes)})`);
+  }
+
+  if (hasValues(filter.regions)) {
+    conditions.push(`${alias}.region IN (${quoteStrings(filter.regions)})`);
   }
 
   if (filter.min_population !== undefined && filter.min_population !== null) {
@@ -423,6 +437,11 @@ function buildExclusionConditions(
       const values = quoteStrings(exclude.county_codes);
       conditions.push(`(${u}.county_code IS NULL OR ${u}.county_code NOT IN (${values}))`);
     }
+
+    if (hasValues(exclude.regions)) {
+      const values = quoteStrings(exclude.regions);
+      conditions.push(`(${u}.region IS NULL OR ${u}.region NOT IN (${values}))`);
+    }
   }
 
   return conditions;
@@ -444,4 +463,21 @@ function hasValues<T>(arr: readonly T[] | undefined): arr is readonly T[] {
  */
 function quoteStrings(values: readonly string[]): string {
   return values.map((v) => `'${v}'`).join(', ');
+}
+
+/**
+ * Escapes special characters in search strings for safe use in SQL ILIKE patterns.
+ *
+ * Escapes:
+ * - Single quotes (SQL injection prevention)
+ * - Percent signs (LIKE wildcard)
+ * - Underscores (LIKE single-char wildcard)
+ * - Backslashes (escape character)
+ */
+function escapeSearchString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\') // Escape backslashes first
+    .replace(/'/g, "''") // SQL standard: escape single quotes by doubling
+    .replace(/%/g, '\\%') // Escape LIKE wildcard
+    .replace(/_/g, '\\_'); // Escape LIKE single-char wildcard
 }

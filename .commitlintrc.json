@@ -25,6 +25,7 @@
         "deps",
         "config",
         "husky",
+        "analytics",
         "execution-analytics",
         "entity-analytics",
         "aggregated-line-items",

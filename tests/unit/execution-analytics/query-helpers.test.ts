@@ -216,6 +216,11 @@ describe('needsEntityJoin', () => {
     it('exclude.county_codes is non-empty', () => {
       expect(needsEntityJoin({ exclude: { county_codes: ['AB'] } })).toBe(true);
     });
+
+    it('search is non-empty', () => {
+      expect(needsEntityJoin({ search: 'test' })).toBe(true);
+      expect(needsEntityJoin({ search: 'test entity' })).toBe(true);
+    });
   });
 
   describe('returns false when', () => {
@@ -246,6 +251,11 @@ describe('needsEntityJoin', () => {
         })
       ).toBe(false);
     });
+
+    it('search is empty or whitespace', () => {
+      expect(needsEntityJoin({ search: '' })).toBe(false);
+      expect(needsEntityJoin({ search: '   ' })).toBe(false);
+    });
   });
 });
 
@@ -260,8 +270,25 @@ describe('needsUatJoin', () => {
       expect(needsUatJoin({ county_codes: ['AB', 'CD'] })).toBe(true);
     });
 
+    it('regions is non-empty', () => {
+      expect(needsUatJoin({ regions: ['Centru'] })).toBe(true);
+      expect(needsUatJoin({ regions: ['Centru', 'Nord-Est'] })).toBe(true);
+    });
+
+    it('min_population is specified', () => {
+      expect(needsUatJoin({ min_population: 10000 })).toBe(true);
+    });
+
+    it('max_population is specified', () => {
+      expect(needsUatJoin({ max_population: 100000 })).toBe(true);
+    });
+
     it('exclude.county_codes is non-empty', () => {
       expect(needsUatJoin({ exclude: { county_codes: ['AB'] } })).toBe(true);
+    });
+
+    it('exclude.regions is non-empty', () => {
+      expect(needsUatJoin({ exclude: { regions: ['Centru'] } })).toBe(true);
     });
   });
 
@@ -274,12 +301,24 @@ describe('needsUatJoin', () => {
       expect(needsUatJoin({ county_codes: [] })).toBe(false);
     });
 
+    it('regions is empty', () => {
+      expect(needsUatJoin({ regions: [] })).toBe(false);
+    });
+
+    it('population filters are null', () => {
+      expect(needsUatJoin({ min_population: null, max_population: null })).toBe(false);
+    });
+
     it('exclude is omitted', () => {
       expect(needsUatJoin({})).toBe(false);
     });
 
     it('exclude.county_codes is empty', () => {
       expect(needsUatJoin({ exclude: { county_codes: [] } })).toBe(false);
+    });
+
+    it('exclude.regions is empty', () => {
+      expect(needsUatJoin({ exclude: { regions: [] } })).toBe(false);
     });
 
     it('exclude.county_codes is omitted', () => {

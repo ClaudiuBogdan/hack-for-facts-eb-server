@@ -31,10 +31,43 @@ export interface GetAnalyticsSeriesDeps {
   populationRepo: PopulationRepository;
 }
 
-// Helper to get a value from a dataset for a specific year
+/**
+ * Helper to get a value from a dataset for a specific year.
+ *
+ * Implements carry-forward logic: if the exact year is not found,
+ * returns the value from the most recent available year before the requested year.
+ * This handles the case where datasets (e.g., exchange rates) only have data
+ * through a certain year but the user queries for future years.
+ *
+ * @param dataset - The dataset to search
+ * @param year - The year to look up
+ * @returns The value for that year, or carry-forward value, or null if no data before the year
+ */
 const getDatasetValue = (dataset: Dataset, year: number): Decimal | null => {
-  const point = dataset.points.find((p: DataPoint) => p.x === year.toString());
-  return point !== undefined ? point.y : null;
+  const yearStr = year.toString();
+
+  // First try exact match
+  const exactPoint = dataset.points.find((p: DataPoint) => p.x === yearStr);
+  if (exactPoint !== undefined) {
+    return exactPoint.y;
+  }
+
+  // Carry-forward: find the most recent year that has data before the requested year
+  // Dataset points are typically sorted, but we'll be safe and find the max
+  let bestYear: number | null = null;
+  let bestValue: Decimal | null = null;
+
+  for (const point of dataset.points) {
+    const pointYear = parseInt(point.x, 10);
+    if (!Number.isNaN(pointYear) && pointYear < year) {
+      if (bestYear === null || pointYear > bestYear) {
+        bestYear = pointYear;
+        bestValue = point.y;
+      }
+    }
+  }
+
+  return bestValue;
 };
 
 /**

@@ -155,6 +155,7 @@ interface EntityJoinFilter {
   is_uat?: boolean;
   uat_ids?: readonly string[];
   county_codes?: readonly string[];
+  search?: string;
   exclude?: {
     entity_types?: readonly string[];
     uat_ids?: readonly string[];
@@ -175,6 +176,7 @@ export function needsEntityJoin(filter: EntityJoinFilter): boolean {
   const hasEntityTypes = filter.entity_types !== undefined && filter.entity_types.length > 0;
   const hasUatIds = filter.uat_ids !== undefined && filter.uat_ids.length > 0;
   const hasCountyCodes = filter.county_codes !== undefined && filter.county_codes.length > 0;
+  const hasSearch = filter.search !== undefined && filter.search.trim() !== '';
 
   const hasExcludeEntityTypes =
     filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0;
@@ -188,6 +190,7 @@ export function needsEntityJoin(filter: EntityJoinFilter): boolean {
     hasUatFilter ||
     hasUatIds ||
     hasCountyCodes ||
+    hasSearch ||
     hasExcludeEntityTypes ||
     hasExcludeUatIds ||
     hasExcludeCountyCodes
@@ -200,8 +203,12 @@ export function needsEntityJoin(filter: EntityJoinFilter): boolean {
  */
 interface UatJoinFilter {
   county_codes?: readonly string[];
+  regions?: readonly string[];
+  min_population?: number | null;
+  max_population?: number | null;
   exclude?: {
     county_codes?: readonly string[];
+    regions?: readonly string[];
   };
 }
 
@@ -210,8 +217,21 @@ interface UatJoinFilter {
  */
 export function needsUatJoin(filter: UatJoinFilter): boolean {
   const hasCountyCodes = filter.county_codes !== undefined && filter.county_codes.length > 0;
+  const hasRegions = filter.regions !== undefined && filter.regions.length > 0;
+  const hasMinPopulation = filter.min_population !== undefined && filter.min_population !== null;
+  const hasMaxPopulation = filter.max_population !== undefined && filter.max_population !== null;
+
   const hasExcludeCountyCodes =
     filter.exclude?.county_codes !== undefined && filter.exclude.county_codes.length > 0;
+  const hasExcludeRegions =
+    filter.exclude?.regions !== undefined && filter.exclude.regions.length > 0;
 
-  return hasCountyCodes || hasExcludeCountyCodes;
+  return (
+    hasCountyCodes ||
+    hasRegions ||
+    hasMinPopulation ||
+    hasMaxPopulation ||
+    hasExcludeCountyCodes ||
+    hasExcludeRegions
+  );
 }

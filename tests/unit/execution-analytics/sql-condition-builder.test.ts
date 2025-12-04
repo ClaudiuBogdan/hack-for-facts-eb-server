@@ -290,6 +290,14 @@ describe('buildWhereConditions geographic filters', () => {
       expect(conditions).toContain("u.county_code IN ('AB', 'CJ')");
     });
 
+    it('adds regions when hasUatJoin is true', () => {
+      const filter = createMinimalFilter({ regions: ['Centru', 'Nord-Est'] });
+      const ctx = createContext({ hasUatJoin: true });
+      const conditions = buildWhereConditions(filter, ctx);
+
+      expect(conditions).toContain("u.region IN ('Centru', 'Nord-Est')");
+    });
+
     it('adds min_population when hasUatJoin is true', () => {
       const filter = createMinimalFilter({ min_population: 10000 });
       const ctx = createContext({ hasUatJoin: true });
@@ -309,6 +317,7 @@ describe('buildWhereConditions geographic filters', () => {
     it('does not add uat filters when hasUatJoin is false', () => {
       const filter = createMinimalFilter({
         county_codes: ['AB'],
+        regions: ['Centru'],
         min_population: 10000,
         max_population: 100000,
       });
@@ -316,6 +325,7 @@ describe('buildWhereConditions geographic filters', () => {
       const conditions = buildWhereConditions(filter, ctx);
 
       expect(conditions.some((c) => c.includes('county_code'))).toBe(false);
+      expect(conditions.some((c) => c.includes('region'))).toBe(false);
       expect(conditions.some((c) => c.includes('population'))).toBe(false);
     });
   });
@@ -500,6 +510,16 @@ describe('buildWhereConditions NULL-safe exclusions', () => {
     expect(conditions).toContain("(u.county_code IS NULL OR u.county_code NOT IN ('AB', 'CJ'))");
   });
 
+  it('uses NULL-safe exclusion for regions', () => {
+    const filter = createMinimalFilter({
+      exclude: { regions: ['Centru', 'Nord-Est'] },
+    });
+    const ctx = createContext({ hasUatJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("(u.region IS NULL OR u.region NOT IN ('Centru', 'Nord-Est'))");
+  });
+
   it('does not add entity exclusions when hasEntityJoin is false', () => {
     const filter = createMinimalFilter({
       exclude: { entity_types: ['primarie'], uat_ids: ['100'] },
@@ -513,12 +533,13 @@ describe('buildWhereConditions NULL-safe exclusions', () => {
 
   it('does not add uat exclusions when hasUatJoin is false', () => {
     const filter = createMinimalFilter({
-      exclude: { county_codes: ['AB'] },
+      exclude: { county_codes: ['AB'], regions: ['Centru'] },
     });
     const ctx = createContext({ hasUatJoin: false });
     const conditions = buildWhereConditions(filter, ctx);
 
     expect(conditions.some((c) => c.includes('county_code'))).toBe(false);
+    expect(conditions.some((c) => c.includes('region'))).toBe(false);
   });
 });
 
@@ -609,5 +630,91 @@ describe('buildWhereConditions integration', () => {
     // Should not throw and should have standard conditions
     expect(conditions.length).toBeGreaterThan(0);
     expect(conditions.some((c) => c.includes('NOT IN'))).toBe(false);
+  });
+});
+
+// ============================================================================
+// buildWhereConditions - Search Filter
+// ============================================================================
+
+describe('buildWhereConditions search filter', () => {
+  it('adds ILIKE condition for search when entity join exists', () => {
+    const filter = createMinimalFilter({ search: 'bucuresti' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%bucuresti%'");
+  });
+
+  it('does not add search condition when hasEntityJoin is false', () => {
+    const filter = createMinimalFilter({ search: 'bucuresti' });
+    const ctx = createContext({ hasEntityJoin: false });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions.some((c) => c.includes('ILIKE'))).toBe(false);
+  });
+
+  it('ignores empty search string', () => {
+    const filter = createMinimalFilter({ search: '' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions.some((c) => c.includes('ILIKE'))).toBe(false);
+  });
+
+  it('ignores whitespace-only search string', () => {
+    const filter = createMinimalFilter({ search: '   ' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions.some((c) => c.includes('ILIKE'))).toBe(false);
+  });
+
+  it('trims whitespace from search string', () => {
+    const filter = createMinimalFilter({ search: '  test  ' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%test%'");
+  });
+
+  it('escapes single quotes in search string', () => {
+    const filter = createMinimalFilter({ search: "test'value" });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%test''value%'");
+  });
+
+  it('escapes percent signs in search string', () => {
+    const filter = createMinimalFilter({ search: 'test%value' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%test\\%value%'");
+  });
+
+  it('escapes underscores in search string', () => {
+    const filter = createMinimalFilter({ search: 'test_value' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%test\\_value%'");
+  });
+
+  it('escapes backslashes in search string', () => {
+    const filter = createMinimalFilter({ search: 'test\\value' });
+    const ctx = createContext({ hasEntityJoin: true });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("e.name ILIKE '%test\\\\value%'");
+  });
+
+  it('uses custom entity alias for search', () => {
+    const filter = createMinimalFilter({ search: 'test' });
+    const ctx = createContext({ hasEntityJoin: true, entityAlias: 'ent' });
+    const conditions = buildWhereConditions(filter, ctx);
+
+    expect(conditions).toContain("ent.name ILIKE '%test%'");
   });
 });

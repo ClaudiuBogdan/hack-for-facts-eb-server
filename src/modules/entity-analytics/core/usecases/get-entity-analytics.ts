@@ -10,13 +10,13 @@ import {
 import { createNormalizationDataError, type EntityAnalyticsError } from '../errors.js';
 import {
   DEFAULT_LIMIT,
-  DEFAULT_SORT,
   MAX_LIMIT,
   type AggregateFilters,
   type EntityAnalyticsInput,
   type EntityAnalyticsConnection,
   type EntityAnalyticsDataPoint,
   type EntityAnalyticsSort,
+  type NormalizationMode,
   type NormalizationOptions,
   type PeriodFactorMap,
 } from '../types.js';
@@ -78,8 +78,9 @@ export async function getEntityAnalytics(
   const limit = Math.min(Math.max(rawLimit ?? DEFAULT_LIMIT, 0), MAX_LIMIT);
   const offset = Math.max(rawOffset ?? 0, 0);
 
-  // 2. Use default sort if not provided
-  const sort: EntityAnalyticsSort = inputSort ?? DEFAULT_SORT;
+  // 2. Compute default sort based on normalization mode
+  // When per_capita is active, sort by per_capita_amount by default
+  const sort: EntityAnalyticsSort = inputSort ?? getDefaultSort(filter.normalization);
 
   // 3. Extract year range from filter
   const { startYear, endYear } = extractYearRange(filter);
@@ -276,4 +277,20 @@ export function computeCombinedFactorMapWithoutPopulation(
  */
 export function extractYearRange(filter: AnalyticsFilter): { startYear: number; endYear: number } {
   return extractYearRangeFromSelection(filter.report_period.selection);
+}
+
+/**
+ * Returns the default sort configuration based on normalization mode.
+ *
+ * When per_capita normalization is active, the most relevant metric is per_capita_amount,
+ * so we sort by that. For all other modes, we sort by total_amount.
+ *
+ * @param normalization - The normalization mode from the filter
+ * @returns Default sort configuration
+ */
+export function getDefaultSort(normalization: NormalizationMode | undefined): EntityAnalyticsSort {
+  if (normalization === 'per_capita') {
+    return { by: 'PER_CAPITA_AMOUNT', order: 'DESC' };
+  }
+  return { by: 'TOTAL_AMOUNT', order: 'DESC' };
 }
