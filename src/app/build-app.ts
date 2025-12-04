@@ -20,6 +20,7 @@ import {
   makeAggregatedLineItemsResolvers,
   AggregatedLineItemsSchema,
   makeAggregatedLineItemsRepo,
+  makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
 import {
   makeExecutionAnalyticsResolvers,
@@ -104,9 +105,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Setup Aggregated Line Items Module
   const normalizationService = await NormalizationService.create(datasetRepo);
   const aggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
+  const populationRepo = makePopulationRepo(budgetDb);
   const aggregatedLineItemsResolvers = makeAggregatedLineItemsResolvers({
     repo: aggregatedLineItemsRepo,
     normalization: normalizationService,
+    populationRepo,
   });
 
   // Combine schemas and resolvers

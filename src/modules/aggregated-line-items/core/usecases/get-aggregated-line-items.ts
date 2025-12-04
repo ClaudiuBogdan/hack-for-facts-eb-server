@@ -7,15 +7,18 @@ import { createNormalizationDataError, type AggregatedLineItemsError } from '../
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
+  type AggregateFilters,
   type AggregatedLineItemsInput,
   type AggregatedLineItemConnection,
   type AggregatedLineItem,
   type ClassificationPeriodData,
   type AggregatedClassification,
   type NormalizationOptions,
+  type PeriodFactorMap,
 } from '../types.js';
 
-import type { AggregatedLineItemsRepository } from '../ports.js';
+import type { AggregatedLineItemsRepository, PopulationRepository } from '../ports.js';
+import type { AnalyticsFilter } from '@/common/types/analytics.js';
 import type { NormalizationFactors, TransformationOptions } from '@/modules/normalization/index.js';
 
 // -----------------------------------------
@@ -38,6 +41,7 @@ export interface NormalizationFactorProvider {
 export interface GetAggregatedLineItemsDeps {
   repo: AggregatedLineItemsRepository;
   normalization: NormalizationFactorProvider;
+  populationRepo: PopulationRepository;
 }
 
 // -----------------------------------------
@@ -47,13 +51,19 @@ export interface GetAggregatedLineItemsDeps {
 /**
  * Fetches aggregated line items with proper normalization.
  *
- * This use case implements the normalize-then-aggregate pattern:
- * 1. Fetch raw data grouped by (classification, year)
- * 2. Normalize each row using year-specific factors
- * 3. Aggregate by classification (sum across years)
- * 4. Apply HAVING-equivalent filters
- * 5. Sort by amount DESC
- * 6. Apply pagination
+ * This use case supports two execution paths:
+ *
+ * **SQL-Level Normalization** (when populationRepo is provided):
+ * - Pre-computes combined multipliers per period
+ * - Passes factors to SQL via VALUES CTE
+ * - SQL handles aggregation, sorting, and pagination
+ * - Best for large datasets where in-memory pagination is inefficient
+ *
+ * **In-Memory Normalization** (fallback):
+ * - Fetches raw data grouped by (classification, year)
+ * - Normalizes each row using year-specific factors
+ * - Aggregates by classification (sum across years)
+ * - Applies filters, sorting, and pagination in memory
  *
  * This ensures correct handling of multi-year data where
  * normalization factors (CPI, exchange rates) vary by year.
@@ -62,14 +72,123 @@ export async function getAggregatedLineItems(
   deps: GetAggregatedLineItemsDeps,
   input: AggregatedLineItemsInput
 ): Promise<Result<AggregatedLineItemConnection, AggregatedLineItemsError>> {
-  const { repo, normalization } = deps;
-  const { filter, limit: rawLimit, offset: rawOffset } = input;
+  const { repo } = deps;
+  const { limit: rawLimit, offset: rawOffset } = input;
 
-  // 1. Sanitize pagination params
+  // Sanitize pagination params
   const limit = Math.min(Math.max(rawLimit ?? DEFAULT_LIMIT, 0), MAX_LIMIT);
   const offset = Math.max(rawOffset ?? 0, 0);
 
-  // 2. Fetch raw data (per classification, per year)
+  // Use SQL-level normalization if repository supports it
+  // This enables correct pagination ordering for normalized amounts
+  if ('getNormalizedAggregatedItems' in repo) {
+    return getAggregatedLineItemsSqlNormalized(deps, input, limit, offset);
+  }
+
+  // Fallback to in-memory normalization
+  return getAggregatedLineItemsInMemory(deps, input, limit, offset);
+}
+
+/**
+ * SQL-level normalization path.
+ *
+ * Uses pre-computed combined multipliers passed to SQL via VALUES CTE.
+ * SQL handles aggregation, sorting, and pagination.
+ */
+export async function getAggregatedLineItemsSqlNormalized(
+  deps: GetAggregatedLineItemsDeps,
+  input: AggregatedLineItemsInput,
+  limit: number,
+  offset: number
+): Promise<Result<AggregatedLineItemConnection, AggregatedLineItemsError>> {
+  const { repo, normalization, populationRepo } = deps;
+  const { filter } = input;
+
+  // 1. Extract year range from filter
+  const { startYear, endYear } = extractYearRange(filter);
+
+  // 2. Generate normalization factors
+  let factors: NormalizationFactors;
+  try {
+    factors = await normalization.generateFactors(
+      filter.report_period.frequency,
+      startYear,
+      endYear
+    );
+  } catch (error) {
+    return err(
+      createNormalizationDataError(
+        `Failed to generate normalization factors: ${error instanceof Error ? error.message : String(error)}`
+      )
+    );
+  }
+
+  // 3. Compute denominator population for per_capita mode only
+  const denominatorPopulation =
+    filter.normalization === 'per_capita'
+      ? await getDenominatorPopulation(filter, populationRepo)
+      : undefined;
+
+  // 4. Compute combined factor map
+  const transformOptions = buildTransformOptions(filter);
+  const periodLabels = generatePeriodLabels(startYear, endYear);
+  const factorMap = computeCombinedFactorMap(
+    transformOptions,
+    factors,
+    periodLabels,
+    denominatorPopulation
+  );
+
+  // 5. Build aggregate filters (only include defined values)
+  const aggregateFilters = buildAggregateFilters(filter);
+
+  // 6. Call repository with SQL-level pagination
+  const result = await repo.getNormalizedAggregatedItems(
+    filter,
+    factorMap,
+    { limit, offset },
+    Object.keys(aggregateFilters).length > 0 ? aggregateFilters : undefined
+  );
+
+  if (result.isErr()) return err(result.error);
+
+  const { items, totalCount } = result.value;
+
+  // 7. Convert to output format
+  const nodes: AggregatedLineItem[] = items.map((row) => ({
+    functional_code: row.functional_code,
+    functional_name: row.functional_name,
+    economic_code: row.economic_code,
+    economic_name: row.economic_name,
+    amount: row.amount.toNumber(),
+    count: row.count,
+  }));
+
+  return ok({
+    nodes,
+    pageInfo: {
+      totalCount,
+      hasNextPage: offset + limit < totalCount,
+      hasPreviousPage: offset > 0,
+    },
+  });
+}
+
+/**
+ * In-memory normalization path (fallback).
+ *
+ * Fetches raw data, normalizes in memory, aggregates, filters, sorts, and paginates.
+ */
+export async function getAggregatedLineItemsInMemory(
+  deps: GetAggregatedLineItemsDeps,
+  input: AggregatedLineItemsInput,
+  limit: number,
+  offset: number
+): Promise<Result<AggregatedLineItemConnection, AggregatedLineItemsError>> {
+  const { repo, normalization, populationRepo } = deps;
+  const { filter } = input;
+
+  // 1. Fetch raw data (per classification, per year)
   const result = await repo.getClassificationPeriodData(filter);
   if (result.isErr()) return err(result.error);
 
@@ -87,12 +206,12 @@ export async function getAggregatedLineItems(
     });
   }
 
-  // 3. Extract year range for factor generation
+  // 2. Extract year range for factor generation
   const years = rows.map((r) => r.year);
   const minYear = Math.min(...years);
   const maxYear = Math.max(...years);
 
-  // 4. Generate normalization factors (if needed)
+  // 3. Generate normalization factors (if needed)
   const needsFactors = needsNormalization(filter);
   let factors: NormalizationFactors | null = null;
 
@@ -112,23 +231,30 @@ export async function getAggregatedLineItems(
     }
   }
 
+  // 4. Compute denominator population for per_capita mode only
+  // This is filter-based (constant per query), not year-specific
+  const denominatorPopulation =
+    filter.normalization === 'per_capita'
+      ? await getDenominatorPopulation(filter, populationRepo)
+      : undefined;
+
   // 5. Build transformation options
   const transformOptions = buildTransformOptions(filter);
 
   // 6. Normalize and aggregate
-  const aggregated = normalizeAndAggregate(rows, transformOptions, factors);
+  const aggregated = normalizeAndAggregate(rows, transformOptions, factors, denominatorPopulation);
 
-  // 7. Apply aggregate amount filters (HAVING equivalent)
+  // 6. Apply aggregate amount filters (HAVING equivalent)
   const filtered = applyAggregateFilters(aggregated, filter);
 
-  // 8. Sort by amount DESC
+  // 7. Sort by amount DESC
   filtered.sort((a, b) => b.amount.minus(a.amount).toNumber());
 
-  // 9. Apply pagination
+  // 8. Apply pagination
   const totalCount = filtered.length;
-  const paged = filtered.slice(offset, offset + limit); // TODO: fix this
+  const paged = filtered.slice(offset, offset + limit);
 
-  // 10. Convert to output format
+  // 9. Convert to output format
   const nodes: AggregatedLineItem[] = paged.map((row) => ({
     functional_code: row.functional_code,
     functional_name: row.functional_name,
@@ -178,17 +304,43 @@ function buildTransformOptions(filter: NormalizationOptions): TransformationOpti
 }
 
 /**
+ * Builds AggregateFilters from NormalizationOptions.
+ * Only includes properties that have defined values to satisfy exactOptionalPropertyTypes.
+ */
+function buildAggregateFilters(
+  filter: NormalizationOptions & {
+    aggregate_min_amount?: number | null;
+    aggregate_max_amount?: number | null;
+  }
+): AggregateFilters {
+  const result: AggregateFilters = {};
+
+  if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
+    result.minAmount = new Decimal(filter.aggregate_min_amount);
+  }
+
+  if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
+    result.maxAmount = new Decimal(filter.aggregate_max_amount);
+  }
+
+  return result;
+}
+
+/**
  * Normalizes each row and aggregates by classification.
  *
  * For each row:
  * 1. Look up year-specific factors
  * 2. Apply normalization transformations
  * 3. Accumulate into classification buckets
+ *
+ * @param denominatorPopulation - Filter-based population for per_capita mode (constant per query)
  */
 function normalizeAndAggregate(
   rows: ClassificationPeriodData[],
   options: TransformationOptions,
-  factors: NormalizationFactors | null
+  factors: NormalizationFactors | null,
+  denominatorPopulation?: Decimal
 ): AggregatedClassification[] {
   // Map: "functional_code|economic_code" -> aggregated data
   const aggregationMap = new Map<string, AggregatedClassification>();
@@ -198,7 +350,13 @@ function normalizeAndAggregate(
     const periodLabel = String(row.year);
 
     // Normalize the amount
-    const normalizedAmount = normalizeAmount(row.amount, periodLabel, options, factors);
+    const normalizedAmount = normalizeAmount(
+      row.amount,
+      periodLabel,
+      options,
+      factors,
+      denominatorPopulation
+    );
 
     // Generate aggregation key
     const key = `${row.functional_code}|${row.economic_code}`;
@@ -233,12 +391,17 @@ function normalizeAndAggregate(
  * 4. Percent GDP scaling (if percent_gdp mode - exclusive)
  *
  * Note: Growth calculation is not applicable for aggregated totals.
+ *
+ * @param denominatorPopulation - Filter-based population for per_capita mode.
+ *   If provided, uses this constant value. Otherwise, falls back to year-specific
+ *   population from factors (legacy behavior).
  */
 function normalizeAmount(
   amount: Decimal,
   periodLabel: string,
   options: TransformationOptions,
-  factors: NormalizationFactors | null
+  factors: NormalizationFactors | null,
+  denominatorPopulation?: Decimal
 ): Decimal {
   if (factors === null) {
     return amount;
@@ -278,10 +441,17 @@ function normalizeAmount(
     }
 
     // 3. Per capita scaling
+    // Use filter-based population if provided, otherwise fall back to year-specific
     if (options.normalization === 'per_capita') {
-      const pop = factors.population.get(periodLabel);
-      if (pop !== undefined && !pop.isZero()) {
-        result = result.div(pop);
+      if (denominatorPopulation !== undefined && !denominatorPopulation.isZero()) {
+        // Filter-based population (constant per query) - preferred
+        result = result.div(denominatorPopulation);
+      } else {
+        // Fallback to year-specific population from factors (legacy)
+        const pop = factors.population.get(periodLabel);
+        if (pop !== undefined && !pop.isZero()) {
+          result = result.div(pop);
+        }
       }
     }
   }
@@ -312,4 +482,194 @@ function applyAggregateFilters(
 
     return true;
   });
+}
+
+// -----------------------------------------
+// SQL Normalization Helpers
+// -----------------------------------------
+
+/**
+ * Computes a combined normalization multiplier for each period.
+ *
+ * All normalization transforms (CPI, currency, per_capita) are pre-composed
+ * into a single multiplier per period for efficient SQL-level computation.
+ *
+ * Supports any frequency (YEAR, QUARTER, MONTH) by using period labels.
+ *
+ * @param options - Transformation options (inflation, currency, normalization mode)
+ * @param factors - Year-specific factors from NormalizationService
+ * @param periodLabels - Period keys (e.g., ["2020", "2021", "2022"])
+ * @param denominatorPopulation - Filter-based population for per_capita mode (optional)
+ * @returns Map of period keys to combined multipliers
+ */
+export function computeCombinedFactorMap(
+  options: TransformationOptions,
+  factors: NormalizationFactors,
+  periodLabels: string[],
+  denominatorPopulation?: Decimal
+): PeriodFactorMap {
+  const result = new Map<string, Decimal>();
+
+  for (const label of periodLabels) {
+    let multiplier: Decimal;
+
+    if (options.normalization === 'percent_gdp') {
+      // Path B: Percent GDP (exclusive, ignores inflation/currency)
+      const gdp = factors.gdp.get(label);
+      if (gdp === undefined || gdp.isZero()) {
+        multiplier = new Decimal(0);
+      } else {
+        // GDP is in millions, result is percentage (0-100)
+        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+      }
+    } else {
+      // Path A: Standard normalization (composable)
+      multiplier = new Decimal(1);
+
+      // 1. Inflation adjustment (per-year factor)
+      if (options.inflationAdjusted) {
+        const cpi = factors.cpi.get(label);
+        if (cpi !== undefined && !cpi.isZero()) {
+          multiplier = multiplier.mul(cpi);
+        }
+      }
+
+      // 2. Currency conversion (per-year factor)
+      if (options.currency === 'EUR') {
+        const rate = factors.eur.get(label);
+        if (rate !== undefined && !rate.isZero()) {
+          multiplier = multiplier.div(rate);
+        }
+      } else if (options.currency === 'USD') {
+        const rate = factors.usd.get(label);
+        if (rate !== undefined && !rate.isZero()) {
+          multiplier = multiplier.div(rate);
+        }
+      }
+
+      // 3. Per capita scaling (filter-based constant, same for all years)
+      if (options.normalization === 'per_capita') {
+        if (denominatorPopulation !== undefined && !denominatorPopulation.isZero()) {
+          multiplier = multiplier.div(denominatorPopulation);
+        }
+        // If no denominator, per_capita is effectively disabled (multiplier unchanged)
+      }
+    }
+
+    result.set(label, multiplier);
+  }
+
+  return result;
+}
+
+/**
+ * Generates period labels for factor lookup.
+ *
+ * For yearly frequency, generates labels like ["2020", "2021", "2022"].
+ * Extend this function for monthly/quarterly support in the future.
+ *
+ * @param startYear - First year in range
+ * @param endYear - Last year in range (inclusive)
+ * @returns Array of period label strings
+ */
+export function generatePeriodLabels(startYear: number, endYear: number): string[] {
+  const labels: string[] = [];
+  for (let year = startYear; year <= endYear; year++) {
+    labels.push(String(year));
+  }
+  return labels;
+}
+
+/**
+ * Computes denominator population for per_capita mode.
+ *
+ * Population is filter-dependent (constant per query), unlike CPI/exchange
+ * rates which are year-specific.
+ *
+ * @param filter - Analytics filter to determine population scope
+ * @param populationRepo - Repository for population queries
+ * @returns Decimal population value, or undefined if not in per_capita mode
+ */
+export async function getDenominatorPopulation(
+  filter: AnalyticsFilter & NormalizationOptions,
+  populationRepo: PopulationRepository
+): Promise<Decimal | undefined> {
+  // Only needed for per_capita mode
+  if (filter.normalization !== 'per_capita') {
+    return undefined;
+  }
+
+  const hasEntityCuis = filter.entity_cuis !== undefined && filter.entity_cuis.length > 0;
+  const hasUatIds = filter.uat_ids !== undefined && filter.uat_ids.length > 0;
+  const hasCountyCodes = filter.county_codes !== undefined && filter.county_codes.length > 0;
+  const hasIsUat = filter.is_uat !== undefined;
+  const hasEntityTypes = filter.entity_types !== undefined && filter.entity_types.length > 0;
+
+  const hasEntityFilter =
+    hasEntityCuis || hasUatIds || hasCountyCodes || hasIsUat || hasEntityTypes;
+
+  if (!hasEntityFilter) {
+    const countryResult = await populationRepo.getCountryPopulation();
+    if (countryResult.isErr()) {
+      // Log error but don't fail - per_capita will be disabled
+      return undefined;
+    }
+    return countryResult.value;
+  }
+
+  const filteredResult = await populationRepo.getFilteredPopulation(filter);
+  if (filteredResult.isErr()) {
+    // Log error but don't fail - per_capita will be disabled
+    return undefined;
+  }
+  return filteredResult.value;
+}
+
+/**
+ * Extracts year range from analytics filter.
+ *
+ * @param filter - Analytics filter with report period
+ * @returns Object with startYear and endYear
+ */
+export function extractYearRange(filter: AnalyticsFilter): { startYear: number; endYear: number } {
+  const { selection } = filter.report_period;
+  const currentYear = new Date().getFullYear();
+
+  let startYear = currentYear;
+  let endYear = currentYear;
+
+  const yearPattern = /^(\d{4})/;
+
+  if (selection.interval !== undefined) {
+    const startMatch = yearPattern.exec(selection.interval.start);
+    const endMatch = yearPattern.exec(selection.interval.end);
+
+    const startYearStr = startMatch?.[1];
+    const endYearStr = endMatch?.[1];
+
+    if (startYearStr !== undefined) {
+      startYear = Number.parseInt(startYearStr, 10);
+    }
+    if (endYearStr !== undefined) {
+      endYear = Number.parseInt(endYearStr, 10);
+    }
+  } else if ('dates' in selection) {
+    const dates = selection.dates;
+    if (dates.length > 0) {
+      const years = dates
+        .map((d) => {
+          const match = yearPattern.exec(d);
+          const yearStr = match?.[1];
+          return yearStr === undefined ? null : Number.parseInt(yearStr, 10);
+        })
+        .filter((y): y is number => y !== null);
+
+      if (years.length > 0) {
+        startYear = Math.min(...years);
+        endYear = Math.max(...years);
+      }
+    }
+  }
+
+  return { startYear, endYear };
 }

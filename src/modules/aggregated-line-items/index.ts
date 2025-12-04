@@ -18,11 +18,13 @@ export type {
 export type { AggregatedLineItemsError, NormalizationDataError } from './core/errors.js';
 
 // Ports
-export type { AggregatedLineItemsRepository } from './core/ports.js';
+export type { AggregatedLineItemsRepository, PopulationRepository } from './core/ports.js';
 
 // Use case
 export {
   getAggregatedLineItems,
+  getAggregatedLineItemsSqlNormalized,
+  getAggregatedLineItemsInMemory,
   type GetAggregatedLineItemsDeps,
   type NormalizationFactorProvider,
 } from './core/usecases/get-aggregated-line-items.js';
@@ -36,3 +38,4 @@ export {
 
 // Repository
 export { makeAggregatedLineItemsRepo } from './shell/repo/aggregated-line-items-repo.js';
+export { makePopulationRepo } from './shell/repo/population-repo.js';

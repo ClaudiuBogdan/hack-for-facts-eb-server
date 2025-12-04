@@ -224,31 +224,239 @@ if (needsNormalization && hasMultipleYears) {
 - Code complexity
 - Inconsistent behavior
 
+### 5. App-Computed Factor Map Passed to SQL (Recommended)
+
+**Approach:** Compute a single combined multiplier per year in the app layer, pass it to SQL as a lightweight lookup structure.
+
+The key insight is that all normalization transforms can be **pre-combined into a single multiplier per year**:
+
+```typescript
+// App layer computes combined factor per year
+function computeCombinedFactors(
+  options: TransformationOptions,
+  factors: NormalizationFactors,
+  years: number[]
+): Map<number, Decimal> {
+  const combined = new Map<number, Decimal>();
+
+  for (const year of years) {
+    let multiplier = new Decimal(1);
+    const label = String(year);
+
+    // Compose all transforms into single multiplier
+    if (options.normalization === 'percent_gdp') {
+      const gdp = factors.gdp.get(label);
+      if (gdp && !gdp.isZero()) {
+        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+      }
+    } else {
+      if (options.inflationAdjusted) {
+        const cpi = factors.cpi.get(label);
+        if (cpi) multiplier = multiplier.mul(cpi);
+      }
+      if (options.currency === 'EUR') {
+        const rate = factors.eur.get(label);
+        if (rate && !rate.isZero()) multiplier = multiplier.div(rate);
+      }
+      if (options.currency === 'USD') {
+        const rate = factors.usd.get(label);
+        if (rate && !rate.isZero()) multiplier = multiplier.div(rate);
+      }
+      if (options.normalization === 'per_capita') {
+        const pop = factors.population.get(label);
+        if (pop && !pop.isZero()) multiplier = multiplier.div(pop);
+      }
+    }
+
+    combined.set(year, multiplier);
+  }
+
+  return combined;
+}
+```
+
+**SQL Implementation Options:**
+
+#### Option A: VALUES clause (PostgreSQL)
+
+Pass factors as a virtual table using VALUES:
+
+```sql
+WITH factors(year, multiplier) AS (
+  VALUES
+    (2020, 1.234567),
+    (2021, 1.198234),
+    (2022, 1.156789),
+    (2023, 1.089012),
+    (2024, 1.000000)
+)
+SELECT
+  e.cui,
+  e.name,
+  SUM(eli.ytd_amount * f.multiplier) AS normalized_amount
+FROM executionlineitems eli
+JOIN factors f ON eli.year = f.year
+JOIN entities e ON eli.entity_cui = e.cui
+WHERE eli.year BETWEEN 2020 AND 2024
+GROUP BY e.cui, e.name
+ORDER BY normalized_amount DESC
+LIMIT 50 OFFSET 0;
+```
+
+#### Option B: CASE expression (simpler, no CTE)
+
+For small year ranges, inline the factors:
+
+```sql
+SELECT
+  e.cui,
+  e.name,
+  SUM(eli.ytd_amount * CASE eli.year
+    WHEN 2020 THEN 1.234567
+    WHEN 2021 THEN 1.198234
+    WHEN 2022 THEN 1.156789
+    WHEN 2023 THEN 1.089012
+    WHEN 2024 THEN 1.000000
+    ELSE 1.0
+  END) AS normalized_amount
+FROM executionlineitems eli
+JOIN entities e ON eli.entity_cui = e.cui
+WHERE eli.year BETWEEN 2020 AND 2024
+GROUP BY e.cui, e.name
+ORDER BY normalized_amount DESC
+LIMIT 50 OFFSET 0;
+```
+
+#### Option C: JSONB parameter (most flexible)
+
+Pass factors as JSONB and extract in query:
+
+```sql
+-- Parameter: $factors = '{"2020": 1.234567, "2021": 1.198234, ...}'
+SELECT
+  e.cui,
+  e.name,
+  SUM(eli.ytd_amount * COALESCE(
+    ($factors::jsonb ->> eli.year::text)::numeric,
+    1.0
+  )) AS normalized_amount
+FROM executionlineitems eli
+JOIN entities e ON eli.entity_cui = e.cui
+WHERE eli.year BETWEEN 2020 AND 2024
+GROUP BY e.cui, e.name
+ORDER BY normalized_amount DESC
+LIMIT 50 OFFSET 0;
+```
+
+**Kysely Implementation Example (Option A - VALUES):**
+
+```typescript
+async function queryWithNormalization(
+  db: BudgetDbClient,
+  filter: AnalyticsFilter,
+  factorMap: Map<number, Decimal>,
+  limit: number,
+  offset: number
+) {
+  // Build VALUES clause dynamically
+  const factorValues = Array.from(factorMap.entries())
+    .map(([year, mult]) => sql`(${year}, ${mult.toNumber()})`)
+    .reduce((acc, val, i) => (i === 0 ? val : sql`${acc}, ${val}`));
+
+  const query = sql`
+    WITH factors(year, multiplier) AS (
+      VALUES ${factorValues}
+    )
+    SELECT
+      e.cui,
+      e.name,
+      SUM(eli.ytd_amount * f.multiplier) AS normalized_amount
+    FROM executionlineitems eli
+    JOIN factors f ON eli.year = f.year
+    JOIN entities e ON eli.entity_cui = e.cui
+    WHERE eli.account_category = ${filter.account_category}
+      AND eli.year BETWEEN ${startYear} AND ${endYear}
+      AND eli.is_yearly = true
+    GROUP BY e.cui, e.name
+    ORDER BY normalized_amount DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+
+  return query.execute(db);
+}
+```
+
+**Pros:**
+
+- True SQL-level pagination with correct ordering
+- No database schema changes required
+- Factors computed once in app, reused in SQL
+- Single multiplier per year = simple and fast
+- Datasets stay in YAML (single source of truth)
+- Works with existing Kysely patterns
+
+**Cons:**
+
+- Slightly more complex query building
+- VALUES clause has practical limits (~1000 rows, but we have ~10-20 years max)
+- JSONB option may have minor performance overhead
+
+**Why This Is The Best Approach:**
+
+1. **Separation of concerns**: App layer handles factor computation logic, SQL handles aggregation/pagination
+2. **No schema migration**: Factors are passed as query parameters, not stored in DB
+3. **Efficient**: Single multiplication per row, database optimizer handles the rest
+4. **Flexible**: Easy to add new normalization modes without SQL changes
+5. **Testable**: Factor computation is pure function, easily unit tested
+
 ## Recommended Path Forward
 
 ### Short-term (Current)
 
-Accept in-memory pagination for `aggregatedLineItems`. The classification space is bounded, and the current implementation is correct.
+Accept in-memory pagination for `aggregatedLineItems`. The classification space is bounded (~5K-20K combinations), and the current implementation is correct.
 
-### Medium-term
+### When Implementing Entity Queries (Top Spenders, etc.)
 
-When implementing entity-level queries (top spenders, etc.), evaluate:
+Use **Approach 5: App-Computed Factor Map** with the VALUES clause:
 
-1. **Cardinality**: How many entities exist? If bounded (<100K), in-memory may suffice.
-2. **Query patterns**: Do users need deep pagination? Often only top-N matters.
-3. **Caching opportunity**: Can we cache normalized results for common queries?
+1. **Compute combined factor map** in use case layer using existing `NormalizationService`
+2. **Pass factors to repository** as `Map<number, Decimal>`
+3. **Build SQL with VALUES CTE** for the factor lookup
+4. **Let PostgreSQL handle** sorting, pagination, and aggregation
 
-### Long-term
+Implementation steps:
 
-If SQL-level pagination becomes necessary:
+```typescript
+// 1. Add to ports.ts
+interface EntityRankingRepository {
+  getTopEntities(
+    filter: AnalyticsFilter,
+    factorMap: Map<number, Decimal>, // Pre-computed multipliers
+    limit: number,
+    offset: number
+  ): Promise<Result<EntityRanking[], Error>>;
+}
 
-1. Create `normalization_factors` table
-2. Build sync job from YAML datasets to DB (on startup or via migration)
-3. Implement SQL-side normalization for supported modes
-4. Keep app-level normalization as fallback for edge cases
+// 2. Use case computes factors, passes to repo
+async function getTopEntities(deps, input) {
+  const factors = await deps.normalization.generateFactors(...);
+  const factorMap = computeCombinedFactors(input.options, factors, years);
+  return deps.repo.getTopEntities(input.filter, factorMap, input.limit, input.offset);
+}
+
+// 3. Repository builds SQL with VALUES clause
+// (see Option A example above)
+```
+
+This approach:
+
+- Keeps normalization logic in the app layer (testable, uses existing code)
+- Enables true SQL-level pagination
+- Requires no database schema changes
+- Is efficient (single multiplication per row)
 
 ## References
 
-- `src/modules/aggregated-line-items/` - Current implementation
-- `src/modules/normalization/` - Normalization service and factors
+- `src/modules/aggregated-line-items/` - Current implementation (in-memory pagination)
+- `src/modules/normalization/` - NormalizationService for factor generation
 - `datasets/yaml/` - Source YAML files for normalization factors

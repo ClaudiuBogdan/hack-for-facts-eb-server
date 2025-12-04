@@ -22,6 +22,11 @@ import {
   MAX_DB_ROWS,
   type ClassificationPeriodData,
   type ClassificationPeriodResult,
+  type NormalizedAggregatedResult,
+  type PeriodFactorMap,
+  type AggregateFilters,
+  type PaginationParams,
+  type AggregatedClassification,
 } from '../../core/types.js';
 
 import type { AggregatedLineItemsRepository } from '../../core/ports.js';
@@ -50,6 +55,19 @@ interface RawAggregatedRow {
   year: number;
   amount: string; // NUMERIC comes as string
   count: string; // COUNT comes as string in some drivers
+}
+
+/**
+ * Raw row returned from the normalized aggregation query.
+ */
+interface RawNormalizedRow {
+  functional_code: string;
+  functional_name: string;
+  economic_code: string;
+  economic_name: string;
+  normalized_amount: string; // NUMERIC comes as string
+  count: string; // COUNT comes as string in some drivers
+  total_count: string; // Window function result
 }
 
 /**
@@ -152,9 +170,242 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     }
   }
 
+  /**
+   * Fetches aggregated line items with SQL-level normalization, sorting, and pagination.
+   *
+   * Uses a VALUES CTE to pass pre-computed multipliers to PostgreSQL:
+   * ```sql
+   * WITH factors(period_key, multiplier) AS (VALUES ...)
+   * SELECT ..., SUM(amount * f.multiplier) AS normalized_amount
+   * FROM ... INNER JOIN factors f ON eli.year = f.period_key
+   * GROUP BY ... ORDER BY normalized_amount DESC
+   * LIMIT $limit OFFSET $offset
+   * ```
+   */
+  async getNormalizedAggregatedItems(
+    filter: AnalyticsFilter,
+    factorMap: PeriodFactorMap,
+    pagination: PaginationParams,
+    aggregateFilters?: AggregateFilters
+  ): Promise<Result<NormalizedAggregatedResult, AggregatedLineItemsError>> {
+    const frequency = filter.report_period.frequency;
+
+    try {
+      // Set statement timeout
+      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
+        this.db
+      );
+
+      // Handle empty factor map
+      if (factorMap.size === 0) {
+        return ok({ items: [], totalCount: 0 });
+      }
+
+      // Build VALUES clause for factors CTE
+      const factorValues = this.buildFactorValuesCTE(factorMap);
+
+      // Get the appropriate amount column based on frequency
+      const amountColumn = this.getAmountColumnName(frequency);
+
+      // Build COALESCE expressions for economic code/name (identical to SELECT and GROUP BY)
+      const economicCodeCoalesce = `COALESCE(eli.economic_code, '${UNKNOWN_ECONOMIC_CODE}')`;
+      const economicNameCoalesce = `COALESCE(ec.economic_name, '${UNKNOWN_ECONOMIC_NAME}')`;
+
+      // Build normalized amount expression
+      const normalizedAmountExpr = `COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`;
+
+      // Build WHERE conditions
+      const whereConditions = this.buildNormalizedWhereConditions(filter, frequency);
+
+      // Build HAVING conditions
+      const havingConditions = this.buildHavingConditions(aggregateFilters);
+
+      // Build the complete query with CTE
+      const queryText = sql`
+        WITH factors(period_key, multiplier) AS (
+          VALUES ${factorValues}
+        )
+        SELECT
+          fc.functional_code,
+          fc.functional_name,
+          ${sql.raw(economicCodeCoalesce)} AS economic_code,
+          ${sql.raw(economicNameCoalesce)} AS economic_name,
+          ${sql.raw(normalizedAmountExpr)} AS normalized_amount,
+          COUNT(*) AS count,
+          COUNT(*) OVER() AS total_count
+        FROM executionlineitems eli
+        INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
+        LEFT JOIN economicclassifications ec ON eli.economic_code = ec.economic_code
+        INNER JOIN factors f ON eli.year::text = f.period_key
+        ${sql.raw(whereConditions)}
+        GROUP BY
+          fc.functional_code,
+          fc.functional_name,
+          ${sql.raw(economicCodeCoalesce)},
+          ${sql.raw(economicNameCoalesce)}
+        ${sql.raw(havingConditions)}
+        ORDER BY normalized_amount DESC
+        LIMIT ${pagination.limit} OFFSET ${pagination.offset}
+      `;
+
+      // Execute query
+      const result = await queryText.execute(this.db);
+      const rows = result.rows as RawNormalizedRow[];
+
+      // Transform to domain types
+      const items = this.transformNormalizedRows(rows);
+      const firstRow = rows[0];
+      const totalCount = firstRow !== undefined ? Number.parseInt(firstRow.total_count, 10) : 0;
+
+      return ok({ items, totalCount });
+    } catch (error) {
+      return this.handleNormalizedQueryError(error);
+    }
+  }
+
   // ==========================================================================
   // Query Building Methods
   // ==========================================================================
+
+  /**
+   * Builds a VALUES clause for the factors CTE.
+   *
+   * Creates: ('2020', 1.234567890123456789::numeric), ('2021', 1.198::numeric), ...
+   */
+  private buildFactorValuesCTE(factorMap: PeriodFactorMap): ReturnType<typeof sql> {
+    const entries = Array.from(factorMap.entries());
+
+    const valuesList = entries.map(
+      ([period, mult]) => sql`(${period}, ${mult.toString()}::numeric)`
+    );
+
+    return sql.join(valuesList, sql`, `);
+  }
+
+  /**
+   * Gets the amount column name based on frequency.
+   */
+  private getAmountColumnName(frequency: Frequency): string {
+    if (frequency === Frequency.MONTH) {
+      return 'monthly_amount';
+    }
+    if (frequency === Frequency.QUARTER) {
+      return 'quarterly_amount';
+    }
+    return 'ytd_amount';
+  }
+
+  /**
+   * Builds WHERE conditions for the normalized aggregation query.
+   *
+   * Returns a string starting with "WHERE" if there are conditions,
+   * or an empty string if no conditions.
+   */
+  private buildNormalizedWhereConditions(filter: AnalyticsFilter, frequency: Frequency): string {
+    const conditions: string[] = [];
+
+    // Frequency-based filter
+    if (frequency === Frequency.QUARTER) {
+      conditions.push('eli.is_quarterly = true');
+    } else if (frequency === Frequency.YEAR) {
+      conditions.push('eli.is_yearly = true');
+    }
+
+    // Required filter: account category
+    conditions.push(`eli.account_category = '${filter.account_category}'`);
+
+    // Period filters
+    const { selection } = filter.report_period;
+    if (selection.interval !== undefined) {
+      const startYear = extractYear(selection.interval.start);
+      const endYear = extractYear(selection.interval.end);
+      if (startYear !== null) {
+        conditions.push(`eli.year >= ${String(startYear)}`);
+      }
+      if (endYear !== null) {
+        conditions.push(`eli.year <= ${String(endYear)}`);
+      }
+    }
+    if (selection.dates !== undefined && selection.dates.length > 0) {
+      const years = selection.dates
+        .map((d) => extractYear(d))
+        .filter((y): y is number => y !== null);
+      if (years.length > 0) {
+        conditions.push(`eli.year IN (${years.join(', ')})`);
+      }
+    }
+
+    // Optional dimension filters
+    if (filter.report_type !== undefined) {
+      conditions.push(`eli.report_type = '${filter.report_type}'`);
+    }
+    if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
+      const cuis = filter.entity_cuis.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.entity_cui IN (${cuis})`);
+    }
+    if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
+      const codes = filter.functional_codes.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.functional_code IN (${codes})`);
+    }
+    if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
+      const prefixConditions = filter.functional_prefixes
+        .map((p) => `eli.functional_code LIKE '${p}%'`)
+        .join(' OR ');
+      conditions.push(`(${prefixConditions})`);
+    }
+    if (filter.economic_codes !== undefined && filter.economic_codes.length > 0) {
+      const codes = filter.economic_codes.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.economic_code IN (${codes})`);
+    }
+    if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
+      const prefixConditions = filter.economic_prefixes
+        .map((p) => `eli.economic_code LIKE '${p}%'`)
+        .join(' OR ');
+      conditions.push(`(${prefixConditions})`);
+    }
+
+    // Item amount constraints
+    const amountColumn = this.getAmountColumnName(frequency);
+    if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
+      conditions.push(`eli.${amountColumn} >= ${String(filter.item_min_amount)}`);
+    }
+    if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
+      conditions.push(`eli.${amountColumn} <= ${String(filter.item_max_amount)}`);
+    }
+
+    if (conditions.length === 0) {
+      return '';
+    }
+
+    return `WHERE ${conditions.join(' AND ')}`;
+  }
+
+  /**
+   * Builds HAVING conditions for aggregate filters.
+   *
+   * Returns a string starting with "HAVING" if there are conditions,
+   * or an empty string if no conditions.
+   */
+  private buildHavingConditions(aggregateFilters?: AggregateFilters): string {
+    if (aggregateFilters === undefined) {
+      return '';
+    }
+
+    const conditions: string[] = [];
+
+    if (aggregateFilters.minAmount !== undefined) {
+      conditions.push(`normalized_amount >= ${aggregateFilters.minAmount.toString()}`);
+    }
+    if (aggregateFilters.maxAmount !== undefined) {
+      conditions.push(`normalized_amount <= ${aggregateFilters.maxAmount.toString()}`);
+    }
+
+    if (conditions.length === 0) {
+      return '';
+    }
+
+    return `HAVING ${conditions.join(' AND ')}`;
+  }
 
   /**
    * Adds amount aggregation based on frequency.
@@ -459,6 +710,20 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     }));
   }
 
+  /**
+   * Transforms raw normalized rows to domain types.
+   */
+  private transformNormalizedRows(rows: RawNormalizedRow[]): AggregatedClassification[] {
+    return rows.map((row) => ({
+      functional_code: row.functional_code,
+      functional_name: row.functional_name,
+      economic_code: row.economic_code,
+      economic_name: row.economic_name,
+      amount: new Decimal(row.normalized_amount),
+      count: typeof row.count === 'string' ? Number.parseInt(row.count, 10) : Number(row.count),
+    }));
+  }
+
   // ==========================================================================
   // Error Handling
   // ==========================================================================
@@ -482,6 +747,27 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     }
 
     return err(createDatabaseError('Failed to fetch aggregated line items', error));
+  }
+
+  /**
+   * Handles normalized query errors and returns appropriate error types.
+   */
+  private handleNormalizedQueryError(
+    error: unknown
+  ): Result<NormalizedAggregatedResult, AggregatedLineItemsError> {
+    const message = error instanceof Error ? error.message : 'Unknown database error';
+
+    // Check for timeout error
+    const isTimeout =
+      message.includes('statement timeout') ||
+      message.includes('57014') ||
+      message.includes('canceling statement due to statement timeout');
+
+    if (isTimeout) {
+      return err(createTimeoutError('Normalized aggregation query timed out', error));
+    }
+
+    return err(createDatabaseError('Failed to fetch normalized aggregated line items', error));
   }
 }
 

@@ -9,7 +9,10 @@ import {
   type NormalizationFactorProvider,
 } from '@/modules/aggregated-line-items/core/usecases/get-aggregated-line-items.js';
 
-import type { AggregatedLineItemsRepository } from '@/modules/aggregated-line-items/core/ports.js';
+import type {
+  AggregatedLineItemsRepository,
+  PopulationRepository,
+} from '@/modules/aggregated-line-items/core/ports.js';
 import type {
   AggregatedLineItemsInput,
   ClassificationPeriodData,
@@ -63,11 +66,15 @@ function createFilter(
 
 /**
  * Creates a fake repository that returns the given rows.
+ * Uses only in-memory path (deliberately omits getNormalizedAggregatedItems
+ * to force the in-memory normalization path).
  */
 function createFakeRepo(
   rows: ClassificationPeriodData[],
   distinctCount?: number
 ): AggregatedLineItemsRepository {
+  // Cast to full interface via unknown - the getAggregatedLineItems function checks
+  // for 'getNormalizedAggregatedItems' presence and falls back to in-memory
   return {
     getClassificationPeriodData: async () =>
       ok({
@@ -75,11 +82,12 @@ function createFakeRepo(
         distinctClassificationCount:
           distinctCount ?? new Set(rows.map((r) => `${r.functional_code}|${r.economic_code}`)).size,
       }),
-  };
+  } as unknown as AggregatedLineItemsRepository;
 }
 
 /**
  * Creates a fake repo that returns an error.
+ * Uses only in-memory path (deliberately omits getNormalizedAggregatedItems).
  */
 function createFailingRepo(errorMessage: string): AggregatedLineItemsRepository {
   return {
@@ -89,6 +97,19 @@ function createFailingRepo(errorMessage: string): AggregatedLineItemsRepository 
         message: errorMessage,
         retryable: true,
       }),
+  } as unknown as AggregatedLineItemsRepository;
+}
+
+/**
+ * Creates a fake population repository for testing.
+ * Returns country population of 19M by default.
+ */
+function createFakePopulationRepo(
+  countryPopulation = new Decimal(19_000_000)
+): PopulationRepository {
+  return {
+    getCountryPopulation: async () => ok(countryPopulation),
+    getFilteredPopulation: async () => ok(countryPopulation),
   };
 }
 
@@ -169,6 +190,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo([]),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -194,6 +216,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -228,6 +251,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -257,6 +281,7 @@ describe('getAggregatedLineItems', () => {
       deps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
     });
 
@@ -351,6 +376,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           eur: new Map([['2023', new Decimal(5)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -372,6 +398,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           usd: new Map([['2023', new Decimal(4.5)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -399,6 +426,7 @@ describe('getAggregatedLineItems', () => {
             ['2024', new Decimal(6)],
           ]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -422,6 +450,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           cpi: new Map([['2023', new Decimal(1.1)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -443,6 +472,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           cpi: new Map([['2023', new Decimal(1.1)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -464,6 +494,7 @@ describe('getAggregatedLineItems', () => {
           cpi: new Map([['2023', new Decimal(1.1)]]),
           eur: new Map([['2023', new Decimal(5)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -487,6 +518,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           population: new Map([['2023', new Decimal(19000000)]]),
         }),
+        populationRepo: createFakePopulationRepo(new Decimal(19_000_000)),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -509,6 +541,7 @@ describe('getAggregatedLineItems', () => {
           eur: new Map([['2023', new Decimal(5)]]),
           population: new Map([['2023', new Decimal(19000000)]]),
         }),
+        populationRepo: createFakePopulationRepo(new Decimal(19_000_000)),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -532,6 +565,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           gdp: new Map([['2023', new Decimal(1000000)]]), // 1 trillion (in millions)
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -554,6 +588,7 @@ describe('getAggregatedLineItems', () => {
           cpi: new Map([['2023', new Decimal(2)]]), // Would double if applied
           gdp: new Map([['2023', new Decimal(1000000)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -579,6 +614,7 @@ describe('getAggregatedLineItems', () => {
           eur: new Map([['2023', new Decimal(5)]]), // Would divide if applied
           gdp: new Map([['2023', new Decimal(1000000)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -607,6 +643,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -630,6 +667,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -654,6 +692,7 @@ describe('getAggregatedLineItems', () => {
         normalization: createTestNormalization({
           eur: new Map([['2023', new Decimal(5)]]),
         }),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -677,6 +716,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFailingRepo('Connection failed'),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -702,6 +742,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: failingNormalization,
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -722,6 +763,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -742,6 +784,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -761,6 +804,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -782,6 +826,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: createIdentityNormalization(),
+        populationRepo: createFakePopulationRepo(),
       };
 
       const result = await getAggregatedLineItems(deps, {
@@ -811,6 +856,7 @@ describe('getAggregatedLineItems', () => {
       const deps: GetAggregatedLineItemsDeps = {
         repo: createFakeRepo(rows),
         normalization: neverCalledNormalization,
+        populationRepo: createFakePopulationRepo(),
       };
 
       // With normalization: 'total', currency: 'RON', inflation_adjusted: false

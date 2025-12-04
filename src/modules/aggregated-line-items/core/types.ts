@@ -65,6 +65,53 @@ export interface GqlAggregatedLineItemsInput {
 }
 
 // -----------------------------------------
+// SQL Normalization Types
+// -----------------------------------------
+
+/**
+ * Map of period keys to combined normalization multipliers.
+ *
+ * Key format depends on frequency:
+ * - YEAR: "2024"
+ * - QUARTER: "2024-Q1"
+ * - MONTH: "2024-01"
+ *
+ * Value: Pre-computed combined multiplier (Decimal for precision).
+ * All normalization transforms (CPI, currency, per_capita) are pre-composed
+ * into this single multiplier for efficient SQL-level computation.
+ */
+export type PeriodFactorMap = Map<string, Decimal>;
+
+/**
+ * Result from SQL-level normalized aggregation.
+ * Used when pagination and sorting happen in the database.
+ */
+export interface NormalizedAggregatedResult {
+  /** Aggregated items (normalized, sorted, paginated by SQL) */
+  items: AggregatedClassification[];
+  /** Total count of groups (for pagination info) */
+  totalCount: number;
+}
+
+/**
+ * Aggregate filters applied as SQL HAVING clause.
+ */
+export interface AggregateFilters {
+  /** Minimum normalized amount (inclusive) */
+  minAmount?: Decimal;
+  /** Maximum normalized amount (inclusive) */
+  maxAmount?: Decimal;
+}
+
+/**
+ * Pagination parameters for SQL queries.
+ */
+export interface PaginationParams {
+  limit: number;
+  offset: number;
+}
+
+// -----------------------------------------
 // Repository Types (Intermediate)
 // -----------------------------------------
 
@@ -182,7 +229,7 @@ export const UNKNOWN_ECONOMIC_CODE = '00.00.00';
 export const UNKNOWN_ECONOMIC_NAME = 'Unknown economic classification';
 
 /** Maximum items per page */
-export const MAX_LIMIT = 1000;
+export const MAX_LIMIT = 100_000;
 
 /** Default items per page */
 export const DEFAULT_LIMIT = 50;
