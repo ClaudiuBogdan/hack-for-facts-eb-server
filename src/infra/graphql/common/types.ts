@@ -12,7 +12,7 @@ export const CommonTypes = /* GraphQL */ `
     "Field name to sort by"
     by: String!
     "Sort direction (ASC or DESC)"
-    direction: SortDirection!
+    order: String!
   }
 
   # ---------------------------------------------------------------------------

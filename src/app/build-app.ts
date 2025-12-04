@@ -23,6 +23,11 @@ import {
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
 import {
+  makeEntityAnalyticsResolvers,
+  EntityAnalyticsSchema,
+  makeEntityAnalyticsRepo,
+} from '../modules/entity-analytics/index.js';
+import {
   makeExecutionAnalyticsResolvers,
   ExecutionAnalyticsSchema,
   makeAnalyticsRepo,
@@ -115,6 +120,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     populationRepo,
   });
 
+  // Setup Entity Analytics Module
+  const entityAnalyticsRepo = makeEntityAnalyticsRepo(budgetDb);
+  const entityAnalyticsResolvers = makeEntityAnalyticsResolvers({
+    repo: entityAnalyticsRepo,
+    normalization: normalizationService,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -122,12 +134,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     healthSchema,
     ExecutionAnalyticsSchema,
     AggregatedLineItemsSchema,
+    EntityAnalyticsSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
     healthResolvers,
     analyticsResolvers,
     aggregatedLineItemsResolvers,
+    entityAnalyticsResolvers,
   ];
 
   await app.register(

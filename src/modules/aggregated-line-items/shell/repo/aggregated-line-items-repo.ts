@@ -214,8 +214,23 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       // Build normalized amount expression
       const normalizedAmountExpr = `COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`;
 
+      // Determine required joins based on filter
+      const requiresEntityJoin = needsEntityJoin(filter);
+      const requiresUatJoin = needsUatJoin(filter);
+
+      // Build join clauses
+      const entityJoinClause = requiresEntityJoin
+        ? 'LEFT JOIN entities e ON eli.entity_cui = e.cui'
+        : '';
+      const uatJoinClause = requiresUatJoin ? 'LEFT JOIN uats u ON e.uat_id = u.id' : '';
+
       // Build WHERE conditions
-      const whereConditions = this.buildNormalizedWhereConditions(filter, frequency);
+      const whereConditions = this.buildNormalizedWhereConditions(
+        filter,
+        frequency,
+        requiresEntityJoin,
+        requiresUatJoin
+      );
 
       // Build HAVING conditions
       const havingConditions = this.buildHavingConditions(aggregateFilters);
@@ -237,6 +252,8 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
         INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
         LEFT JOIN economicclassifications ec ON eli.economic_code = ec.economic_code
         INNER JOIN factors f ON eli.year::text = f.period_key
+        ${sql.raw(entityJoinClause)}
+        ${sql.raw(uatJoinClause)}
         ${sql.raw(whereConditions)}
         GROUP BY
           fc.functional_code,
@@ -300,8 +317,16 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
    *
    * Returns a string starting with "WHERE" if there are conditions,
    * or an empty string if no conditions.
+   *
+   * @param hasEntityJoin - Whether entities table is joined (enables entity_type, is_uat, uat_id filters)
+   * @param hasUatJoin - Whether uats table is joined (enables county_code, population filters)
    */
-  private buildNormalizedWhereConditions(filter: AnalyticsFilter, frequency: Frequency): string {
+  private buildNormalizedWhereConditions(
+    filter: AnalyticsFilter,
+    frequency: Frequency,
+    hasEntityJoin: boolean,
+    hasUatJoin: boolean
+  ): string {
     const conditions: string[] = [];
 
     // Frequency-based filter
@@ -339,10 +364,35 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     if (filter.report_type !== undefined) {
       conditions.push(`eli.report_type = '${filter.report_type}'`);
     }
+    if (filter.main_creditor_cui !== undefined) {
+      conditions.push(`eli.main_creditor_cui = '${filter.main_creditor_cui}'`);
+    }
+    if (filter.report_ids !== undefined && filter.report_ids.length > 0) {
+      const ids = filter.report_ids.map((id) => `'${id}'`).join(', ');
+      conditions.push(`eli.report_id IN (${ids})`);
+    }
     if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
       const cuis = filter.entity_cuis.map((c) => `'${c}'`).join(', ');
       conditions.push(`eli.entity_cui IN (${cuis})`);
     }
+    if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
+      const numericIds = toNumericIds(filter.funding_source_ids);
+      if (numericIds.length > 0) {
+        conditions.push(`eli.funding_source_id IN (${numericIds.join(', ')})`);
+      }
+    }
+    if (filter.budget_sector_ids !== undefined && filter.budget_sector_ids.length > 0) {
+      const numericIds = toNumericIds(filter.budget_sector_ids);
+      if (numericIds.length > 0) {
+        conditions.push(`eli.budget_sector_id IN (${numericIds.join(', ')})`);
+      }
+    }
+    if (filter.expense_types !== undefined && filter.expense_types.length > 0) {
+      const types = filter.expense_types.map((t) => `'${t}'`).join(', ');
+      conditions.push(`eli.expense_type IN (${types})`);
+    }
+
+    // Code filters
     if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
       const codes = filter.functional_codes.map((c) => `'${c}'`).join(', ');
       conditions.push(`eli.functional_code IN (${codes})`);
@@ -363,6 +413,41 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
         .join(' OR ');
       conditions.push(`(${prefixConditions})`);
     }
+    if (filter.program_codes !== undefined && filter.program_codes.length > 0) {
+      const codes = filter.program_codes.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.program_code IN (${codes})`);
+    }
+
+    // Geographic filters (require entity join)
+    if (hasEntityJoin) {
+      if (filter.entity_types !== undefined && filter.entity_types.length > 0) {
+        const types = filter.entity_types.map((t) => `'${t}'`).join(', ');
+        conditions.push(`e.entity_type IN (${types})`);
+      }
+      if (filter.is_uat !== undefined) {
+        conditions.push(`e.is_uat = ${String(filter.is_uat)}`);
+      }
+      if (filter.uat_ids !== undefined && filter.uat_ids.length > 0) {
+        const numericIds = toNumericIds(filter.uat_ids);
+        if (numericIds.length > 0) {
+          conditions.push(`e.uat_id IN (${numericIds.join(', ')})`);
+        }
+      }
+    }
+
+    // Geographic filters (require UAT join)
+    if (hasUatJoin) {
+      if (filter.county_codes !== undefined && filter.county_codes.length > 0) {
+        const codes = filter.county_codes.map((c) => `'${c}'`).join(', ');
+        conditions.push(`u.county_code IN (${codes})`);
+      }
+      if (filter.min_population !== undefined && filter.min_population !== null) {
+        conditions.push(`u.population >= ${String(filter.min_population)}`);
+      }
+      if (filter.max_population !== undefined && filter.max_population !== null) {
+        conditions.push(`u.population <= ${String(filter.max_population)}`);
+      }
+    }
 
     // Item amount constraints
     const amountColumn = this.getAmountColumnName(frequency);
@@ -373,11 +458,86 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       conditions.push(`eli.${amountColumn} <= ${String(filter.item_max_amount)}`);
     }
 
+    // Exclusions
+    this.buildExclusionConditions(conditions, filter, hasEntityJoin, hasUatJoin);
+
     if (conditions.length === 0) {
       return '';
     }
 
     return `WHERE ${conditions.join(' AND ')}`;
+  }
+
+  /**
+   * Builds exclusion conditions and adds them to the conditions array.
+   */
+  private buildExclusionConditions(
+    conditions: string[],
+    filter: AnalyticsFilter,
+    hasEntityJoin: boolean,
+    hasUatJoin: boolean
+  ): void {
+    if (filter.exclude === undefined) {
+      return;
+    }
+
+    const ex = filter.exclude;
+
+    if (ex.report_ids !== undefined && ex.report_ids.length > 0) {
+      const ids = ex.report_ids.map((id) => `'${id}'`).join(', ');
+      conditions.push(`eli.report_id NOT IN (${ids})`);
+    }
+
+    if (ex.entity_cuis !== undefined && ex.entity_cuis.length > 0) {
+      const cuis = ex.entity_cuis.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.entity_cui NOT IN (${cuis})`);
+    }
+
+    if (ex.functional_codes !== undefined && ex.functional_codes.length > 0) {
+      const codes = ex.functional_codes.map((c) => `'${c}'`).join(', ');
+      conditions.push(`eli.functional_code NOT IN (${codes})`);
+    }
+
+    if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
+      const prefixConditions = ex.functional_prefixes
+        .map((p) => `eli.functional_code NOT LIKE '${p}%'`)
+        .join(' AND ');
+      conditions.push(`(${prefixConditions})`);
+    }
+
+    // Economic code exclusions apply only to non-VN accounts (per spec)
+    if (filter.account_category !== 'vn') {
+      if (ex.economic_codes !== undefined && ex.economic_codes.length > 0) {
+        const codes = ex.economic_codes.map((c) => `'${c}'`).join(', ');
+        conditions.push(`eli.economic_code NOT IN (${codes})`);
+      }
+
+      if (ex.economic_prefixes !== undefined && ex.economic_prefixes.length > 0) {
+        const prefixConditions = ex.economic_prefixes
+          .map((p) => `eli.economic_code NOT LIKE '${p}%'`)
+          .join(' AND ');
+        conditions.push(`(${prefixConditions})`);
+      }
+    }
+
+    // Geographic exclusions (require entity join)
+    if (hasEntityJoin && ex.entity_types !== undefined && ex.entity_types.length > 0) {
+      const types = ex.entity_types.map((t) => `'${t}'`).join(', ');
+      conditions.push(`(e.entity_type IS NULL OR e.entity_type NOT IN (${types}))`);
+    }
+
+    if (hasEntityJoin && ex.uat_ids !== undefined && ex.uat_ids.length > 0) {
+      const numericIds = toNumericIds(ex.uat_ids);
+      if (numericIds.length > 0) {
+        conditions.push(`(e.uat_id IS NULL OR e.uat_id NOT IN (${numericIds.join(', ')}))`);
+      }
+    }
+
+    // Geographic exclusions (require UAT join)
+    if (hasUatJoin && ex.county_codes !== undefined && ex.county_codes.length > 0) {
+      const codes = ex.county_codes.map((c) => `'${c}'`).join(', ');
+      conditions.push(`(u.county_code IS NULL OR u.county_code NOT IN (${codes}))`);
+    }
   }
 
   /**
