@@ -6,6 +6,7 @@ import { ok, err, type Result } from 'neverthrow';
 import { Frequency } from '@/common/types/temporal.js';
 import {
   extractYear,
+  parsePeriodDate,
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
@@ -339,24 +340,69 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     // Required filter: account category
     conditions.push(`eli.account_category = '${filter.account_category}'`);
 
-    // Period filters
+    // Period filters - must match frequency for correct results
     const { selection } = filter.report_period;
     if (selection.interval !== undefined) {
-      const startYear = extractYear(selection.interval.start);
-      const endYear = extractYear(selection.interval.end);
-      if (startYear !== null) {
-        conditions.push(`eli.year >= ${String(startYear)}`);
-      }
-      if (endYear !== null) {
-        conditions.push(`eli.year <= ${String(endYear)}`);
+      const start = parsePeriodDate(selection.interval.start);
+      const end = parsePeriodDate(selection.interval.end);
+
+      if (frequency === Frequency.MONTH && start?.month !== undefined && end?.month !== undefined) {
+        // Filter by (year, month) tuple
+        conditions.push(`(eli.year, eli.month) >= (${String(start.year)}, ${String(start.month)})`);
+        conditions.push(`(eli.year, eli.month) <= (${String(end.year)}, ${String(end.month)})`);
+      } else if (
+        frequency === Frequency.QUARTER &&
+        start?.quarter !== undefined &&
+        end?.quarter !== undefined
+      ) {
+        // Filter by (year, quarter) tuple
+        conditions.push(
+          `(eli.year, eli.quarter) >= (${String(start.year)}, ${String(start.quarter)})`
+        );
+        conditions.push(`(eli.year, eli.quarter) <= (${String(end.year)}, ${String(end.quarter)})`);
+      } else {
+        // YEAR frequency or fallback: filter by year only
+        const startYear = start?.year ?? extractYear(selection.interval.start);
+        const endYear = end?.year ?? extractYear(selection.interval.end);
+        if (startYear !== null) {
+          conditions.push(`eli.year >= ${String(startYear)}`);
+        }
+        if (endYear !== null) {
+          conditions.push(`eli.year <= ${String(endYear)}`);
+        }
       }
     }
     if (selection.dates !== undefined && selection.dates.length > 0) {
-      const years = selection.dates
-        .map((d) => extractYear(d))
-        .filter((y): y is number => y !== null);
-      if (years.length > 0) {
-        conditions.push(`eli.year IN (${years.join(', ')})`);
+      if (frequency === Frequency.MONTH) {
+        // Parse all dates and filter by (year, month) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; month: number } => p?.month !== undefined);
+        if (validPeriods.length > 0) {
+          const tupleConditions = validPeriods
+            .map((p) => `(eli.year = ${String(p.year)} AND eli.month = ${String(p.month)})`)
+            .join(' OR ');
+          conditions.push(`(${tupleConditions})`);
+        }
+      } else if (frequency === Frequency.QUARTER) {
+        // Parse all dates and filter by (year, quarter) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; quarter: number } => p?.quarter !== undefined);
+        if (validPeriods.length > 0) {
+          const tupleConditions = validPeriods
+            .map((p) => `(eli.year = ${String(p.year)} AND eli.quarter = ${String(p.quarter)})`)
+            .join(' OR ');
+          conditions.push(`(${tupleConditions})`);
+        }
+      } else {
+        // YEAR frequency: filter by years only
+        const years = selection.dates
+          .map((d) => extractYear(d))
+          .filter((y): y is number => y !== null);
+        if (years.length > 0) {
+          conditions.push(`eli.year IN (${years.join(', ')})`);
+        }
       }
     }
 
@@ -593,31 +639,103 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
 
   /**
    * Applies period (date range) filters.
+   *
+   * IMPORTANT: Filtering must match the frequency:
+   * - YEAR: Filter by year only
+   * - MONTH: Filter by (year, month) tuple
+   * - QUARTER: Filter by (year, quarter) tuple
+   *
+   * This ensures correct results when querying specific months or quarters.
    */
   private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const { selection } = filter.report_period;
+    const { selection, frequency } = filter.report_period;
 
     // Interval-based filter
     if (selection.interval !== undefined) {
-      const startYear = extractYear(selection.interval.start);
-      const endYear = extractYear(selection.interval.end);
+      const start = parsePeriodDate(selection.interval.start);
+      const end = parsePeriodDate(selection.interval.end);
 
-      if (startYear !== null) {
-        query = query.where('eli.year', '>=', startYear);
-      }
-      if (endYear !== null) {
-        query = query.where('eli.year', '<=', endYear);
+      if (frequency === Frequency.MONTH && start?.month !== undefined && end?.month !== undefined) {
+        // Filter by (year, month) tuple using row comparison
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.month)`, '>=', sql`(${start.year}, ${start.month})`)
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.month)`, '<=', sql`(${end.year}, ${end.month})`)
+        );
+      } else if (
+        frequency === Frequency.QUARTER &&
+        start?.quarter !== undefined &&
+        end?.quarter !== undefined
+      ) {
+        // Filter by (year, quarter) tuple using row comparison
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.quarter)`, '>=', sql`(${start.year}, ${start.quarter})`)
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.quarter)`, '<=', sql`(${end.year}, ${end.quarter})`)
+        );
+      } else {
+        // YEAR frequency or fallback: filter by year only
+        const startYear = start?.year ?? extractYear(selection.interval.start);
+        const endYear = end?.year ?? extractYear(selection.interval.end);
+
+        if (startYear !== null) {
+          query = query.where('eli.year', '>=', startYear);
+        }
+        if (endYear !== null) {
+          query = query.where('eli.year', '<=', endYear);
+        }
       }
     }
 
     // Discrete dates filter
     if (selection.dates !== undefined && selection.dates.length > 0) {
-      const years = selection.dates
-        .map((d) => extractYear(d))
-        .filter((y): y is number => y !== null);
+      if (frequency === Frequency.MONTH) {
+        // Parse all dates and filter by (year, month) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; month: number } => p?.month !== undefined);
 
-      if (years.length > 0) {
-        query = query.where('eli.year', 'in', years);
+        if (validPeriods.length > 0) {
+          // Use OR conditions for each (year, month) pair
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+          query = query.where((eb: ExpressionBuilder<any, any>) => {
+            const conditions = validPeriods.map((p) =>
+              eb.and([eb('eli.year', '=', p.year), eb('eli.month', '=', p.month)])
+            );
+            return eb.or(conditions);
+          });
+        }
+      } else if (frequency === Frequency.QUARTER) {
+        // Parse all dates and filter by (year, quarter) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; quarter: number } => p?.quarter !== undefined);
+
+        if (validPeriods.length > 0) {
+          // Use OR conditions for each (year, quarter) pair
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+          query = query.where((eb: ExpressionBuilder<any, any>) => {
+            const conditions = validPeriods.map((p) =>
+              eb.and([eb('eli.year', '=', p.year), eb('eli.quarter', '=', p.quarter)])
+            );
+            return eb.or(conditions);
+          });
+        }
+      } else {
+        // YEAR frequency: filter by years only
+        const years = selection.dates
+          .map((d) => extractYear(d))
+          .filter((y): y is number => y !== null);
+
+        if (years.length > 0) {
+          query = query.where('eli.year', 'in', years);
+        }
       }
     }
 

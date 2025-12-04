@@ -26,12 +26,60 @@ export function formatDateFromRow(year: number, periodValue: number, frequency: 
 }
 
 /**
+ * Parsed period components from a date string.
+ */
+export interface ParsedPeriod {
+  year: number;
+  month?: number;
+  quarter?: number;
+}
+
+/**
+ * Parses a period date string into its components.
+ *
+ * Handles formats:
+ * - YYYY (e.g., "2024") - returns { year: 2024 }
+ * - YYYY-MM (e.g., "2024-03") - returns { year: 2024, month: 3 }
+ * - YYYY-QN (e.g., "2024-Q1") - returns { year: 2024, quarter: 1 }
+ *
+ * @returns Parsed period components, or null if parsing fails
+ */
+export function parsePeriodDate(dateStr: string): ParsedPeriod | null {
+  // Try year-only format: YYYY
+  const yearOnlyMatch = /^(\d{4})$/.exec(dateStr);
+  if (yearOnlyMatch?.[1] !== undefined) {
+    return { year: parseInt(yearOnlyMatch[1], 10) };
+  }
+
+  // Try year-month format: YYYY-MM
+  const yearMonthMatch = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(dateStr);
+  if (yearMonthMatch?.[1] !== undefined && yearMonthMatch[2] !== undefined) {
+    return {
+      year: parseInt(yearMonthMatch[1], 10),
+      month: parseInt(yearMonthMatch[2], 10),
+    };
+  }
+
+  // Try year-quarter format: YYYY-QN
+  const yearQuarterMatch = /^(\d{4})-Q([1-4])$/.exec(dateStr);
+  if (yearQuarterMatch?.[1] !== undefined && yearQuarterMatch[2] !== undefined) {
+    return {
+      year: parseInt(yearQuarterMatch[1], 10),
+      quarter: parseInt(yearQuarterMatch[2], 10),
+    };
+  }
+
+  return null;
+}
+
+/**
  * Extracts year from a date string.
  *
  * Handles formats:
  * - YYYY (e.g., "2024")
  * - YYYY-MM (e.g., "2024-03")
  * - YYYY-QN (e.g., "2024-Q1")
+ * - Any string starting with 4 digits (e.g., "2024-01-15")
  *
  * @returns The year as a number, or null if parsing fails
  */
@@ -54,6 +102,30 @@ export function extractYear(dateStr: string): number | null {
   }
 
   return year;
+}
+
+/**
+ * Extracts month from a date string.
+ *
+ * Handles format: YYYY-MM (e.g., "2024-03")
+ *
+ * @returns The month as a number (1-12), or null if parsing fails or format is not YYYY-MM
+ */
+export function extractMonth(dateStr: string): number | null {
+  const parsed = parsePeriodDate(dateStr);
+  return parsed?.month ?? null;
+}
+
+/**
+ * Extracts quarter from a date string.
+ *
+ * Handles format: YYYY-QN (e.g., "2024-Q1")
+ *
+ * @returns The quarter as a number (1-4), or null if parsing fails or format is not YYYY-QN
+ */
+export function extractQuarter(dateStr: string): number | null {
+  const parsed = parsePeriodDate(dateStr);
+  return parsed?.quarter ?? null;
 }
 
 /**

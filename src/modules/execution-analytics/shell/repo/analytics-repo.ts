@@ -9,6 +9,7 @@ import {
   formatDateFromRow,
   Frequency,
   extractYear,
+  parsePeriodDate,
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
@@ -101,7 +102,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       query = this.applyCodeFilters(query, filter);
       query = this.applyEntityJoinsAndFilters(query, filter);
       query = this.applyExclusions(query, filter);
-      query = this.applyAmountConstraints(query, filter);
+      query = this.applyAmountConstraints(query, filter, frequency);
 
       // Apply safety limit
       query = query.limit(MAX_DATA_POINTS);
@@ -161,31 +162,103 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
 
   /**
    * Applies period (date range) filters.
+   *
+   * IMPORTANT: Filtering must match the frequency:
+   * - YEAR: Filter by year only
+   * - MONTH: Filter by (year, month) tuple
+   * - QUARTER: Filter by (year, quarter) tuple
+   *
+   * This ensures correct results when querying specific months or quarters.
    */
   private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const { selection } = filter.report_period;
+    const { selection, frequency } = filter.report_period;
 
     // Interval-based filter
     if (selection.interval !== undefined) {
-      const startYear = extractYear(selection.interval.start);
-      const endYear = extractYear(selection.interval.end);
+      const start = parsePeriodDate(selection.interval.start);
+      const end = parsePeriodDate(selection.interval.end);
 
-      if (startYear !== null) {
-        query = query.where('eli.year', '>=', startYear);
-      }
-      if (endYear !== null) {
-        query = query.where('eli.year', '<=', endYear);
+      if (frequency === Frequency.MONTH && start?.month !== undefined && end?.month !== undefined) {
+        // Filter by (year, month) tuple using row comparison
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.month)`, '>=', sql`(${start.year}, ${start.month})`)
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.month)`, '<=', sql`(${end.year}, ${end.month})`)
+        );
+      } else if (
+        frequency === Frequency.QUARTER &&
+        start?.quarter !== undefined &&
+        end?.quarter !== undefined
+      ) {
+        // Filter by (year, quarter) tuple using row comparison
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.quarter)`, '>=', sql`(${start.year}, ${start.quarter})`)
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb(sql`(eli.year, eli.quarter)`, '<=', sql`(${end.year}, ${end.quarter})`)
+        );
+      } else {
+        // YEAR frequency or fallback: filter by year only
+        const startYear = start?.year ?? extractYear(selection.interval.start);
+        const endYear = end?.year ?? extractYear(selection.interval.end);
+
+        if (startYear !== null) {
+          query = query.where('eli.year', '>=', startYear);
+        }
+        if (endYear !== null) {
+          query = query.where('eli.year', '<=', endYear);
+        }
       }
     }
 
     // Discrete dates filter
     if (selection.dates !== undefined && selection.dates.length > 0) {
-      const years = selection.dates
-        .map((d) => extractYear(d))
-        .filter((y): y is number => y !== null);
+      if (frequency === Frequency.MONTH) {
+        // Parse all dates and filter by (year, month) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; month: number } => p?.month !== undefined);
 
-      if (years.length > 0) {
-        query = query.where('eli.year', 'in', years);
+        if (validPeriods.length > 0) {
+          // Use OR conditions for each (year, month) pair
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+          query = query.where((eb: ExpressionBuilder<any, any>) => {
+            const conditions = validPeriods.map((p) =>
+              eb.and([eb('eli.year', '=', p.year), eb('eli.month', '=', p.month)])
+            );
+            return eb.or(conditions);
+          });
+        }
+      } else if (frequency === Frequency.QUARTER) {
+        // Parse all dates and filter by (year, quarter) tuples
+        const validPeriods = selection.dates
+          .map((d) => parsePeriodDate(d))
+          .filter((p): p is { year: number; quarter: number } => p?.quarter !== undefined);
+
+        if (validPeriods.length > 0) {
+          // Use OR conditions for each (year, quarter) pair
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+          query = query.where((eb: ExpressionBuilder<any, any>) => {
+            const conditions = validPeriods.map((p) =>
+              eb.and([eb('eli.year', '=', p.year), eb('eli.quarter', '=', p.quarter)])
+            );
+            return eb.or(conditions);
+          });
+        }
+      } else {
+        // YEAR frequency: filter by years only
+        const years = selection.dates
+          .map((d) => extractYear(d))
+          .filter((y): y is number => y !== null);
+
+        if (years.length > 0) {
+          query = query.where('eli.year', 'in', years);
+        }
       }
     }
 
@@ -318,6 +391,13 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
 
   /**
    * Applies exclusion filters.
+   *
+   * IMPORTANT: Entity and UAT exclusions must handle NULL values correctly.
+   * SQL's NOT IN does not match NULL values, so we need to explicitly include
+   * rows where the column IS NULL when using NOT IN.
+   *
+   * Example: `entity_type NOT IN ('A', 'B')` excludes rows where entity_type IS NULL
+   * Correct: `(entity_type IS NULL OR entity_type NOT IN ('A', 'B'))` preserves NULLs
    */
   private applyExclusions(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
     if (filter.exclude === undefined) {
@@ -334,6 +414,11 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       query = query.where('eli.entity_cui', 'not in', ex.entity_cuis);
     }
 
+    // Functional code exclusions
+    if (ex.functional_codes !== undefined && ex.functional_codes.length > 0) {
+      query = query.where('eli.functional_code', 'not in', ex.functional_codes);
+    }
+
     if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
       const prefixes = ex.functional_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
@@ -343,12 +428,47 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       });
     }
 
-    if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
-      query = query.where('e.entity_type', 'not in', ex.entity_types);
+    // Economic code exclusions - only for non-VN accounts (per spec)
+    if (filter.account_category !== 'vn') {
+      if (ex.economic_codes !== undefined && ex.economic_codes.length > 0) {
+        query = query.where('eli.economic_code', 'not in', ex.economic_codes);
+      }
+
+      if (ex.economic_prefixes !== undefined && ex.economic_prefixes.length > 0) {
+        const prefixes = ex.economic_prefixes;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) => {
+          const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+          return eb.not(eb.or(ors));
+        });
+      }
     }
 
+    // Entity type exclusions - must preserve NULL entity_type rows
+    if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) =>
+        eb.or([eb('e.entity_type', 'is', null), eb('e.entity_type', 'not in', ex.entity_types)])
+      );
+    }
+
+    // UAT ID exclusions - must preserve NULL uat_id rows
+    if (ex.uat_ids !== undefined && ex.uat_ids.length > 0) {
+      const numericIds = toNumericIds(ex.uat_ids);
+      if (numericIds.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+        query = query.where((eb: ExpressionBuilder<any, any>) =>
+          eb.or([eb('e.uat_id', 'is', null), eb('e.uat_id', 'not in', numericIds)])
+        );
+      }
+    }
+
+    // County code exclusions - must preserve NULL county_code rows
     if (ex.county_codes !== undefined && ex.county_codes.length > 0) {
-      query = query.where('u.county_code', 'not in', ex.county_codes);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
+      query = query.where((eb: ExpressionBuilder<any, any>) =>
+        eb.or([eb('u.county_code', 'is', null), eb('u.county_code', 'not in', ex.county_codes)])
+      );
     }
 
     return query;
@@ -356,14 +476,34 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
 
   /**
    * Applies amount-based constraints.
+   *
+   * IMPORTANT: The amount column must match the selected frequency:
+   * - MONTH: monthly_amount
+   * - QUARTER: quarterly_amount
+   * - YEAR: ytd_amount
+   *
+   * This ensures item_min_amount/item_max_amount filters work correctly
+   * for the selected period granularity.
    */
-  private applyAmountConstraints(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    if (filter.item_min_amount !== undefined) {
-      query = query.where('eli.ytd_amount', '>=', String(filter.item_min_amount));
+  private applyAmountConstraints(
+    query: DynamicQuery,
+    filter: AnalyticsFilter,
+    frequency: Frequency
+  ): DynamicQuery {
+    // Select the appropriate amount column based on frequency
+    const amountColumn =
+      frequency === Frequency.MONTH
+        ? 'eli.monthly_amount'
+        : frequency === Frequency.QUARTER
+          ? 'eli.quarterly_amount'
+          : 'eli.ytd_amount';
+
+    if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
+      query = query.where(sql.raw(amountColumn), '>=', String(filter.item_min_amount));
     }
 
-    if (filter.item_max_amount !== undefined) {
-      query = query.where('eli.ytd_amount', '<=', String(filter.item_max_amount));
+    if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
+      query = query.where(sql.raw(amountColumn), '<=', String(filter.item_max_amount));
     }
 
     return query;

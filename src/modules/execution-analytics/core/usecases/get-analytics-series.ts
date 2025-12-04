@@ -232,18 +232,21 @@ export async function getAnalyticsSeries(
     };
 
     if (strictFilter.normalization === 'percent_gdp') {
-      const res = await datasetRepo.getById('ro.economics.gdp.annual');
+      const res = await datasetRepo.getById('ro.economics.gdp.yearly');
       if (res.isOk()) ctx.datasets.gdp = res.value;
     } else {
       if (strictFilter.inflation_adjusted) {
-        const res = await datasetRepo.getById('ro.economics.cpi.annual');
+        const res = await datasetRepo.getById('ro.economics.cpi.yearly');
         if (res.isOk()) ctx.datasets.cpi = res.value;
       }
       if (strictFilter.currency === 'EUR') {
-        const res = await datasetRepo.getById('ro.economics.exchange.ron_eur.annual');
+        const res = await datasetRepo.getById('ro.economics.exchange.ron_eur.yearly');
         if (res.isOk()) ctx.datasets.exchange = res.value;
       }
-      // TODO: Add USD support
+      if (strictFilter.currency === 'USD') {
+        const res = await datasetRepo.getById('ro.economics.exchange.ron_usd.yearly');
+        if (res.isOk()) ctx.datasets.exchange = res.value;
+      }
 
       if (strictFilter.normalization === 'per_capita') {
         // Population comes from database via PopulationRepository, not from datasets.

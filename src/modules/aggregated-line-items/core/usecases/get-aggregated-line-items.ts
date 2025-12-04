@@ -1,7 +1,11 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
-import { Frequency } from '@/common/types/temporal.js';
+import {
+  Frequency,
+  generatePeriodLabels,
+  extractYearRangeFromSelection,
+} from '@/common/types/temporal.js';
 import {
   getDenominatorPopulation,
   type NormalizationFactors,
@@ -568,68 +572,13 @@ export function computeCombinedFactorMap(
 }
 
 /**
- * Generates period labels for factor lookup.
- *
- * For yearly frequency, generates labels like ["2020", "2021", "2022"].
- * Extend this function for monthly/quarterly support in the future.
- *
- * @param startYear - First year in range
- * @param endYear - Last year in range (inclusive)
- * @returns Array of period label strings
- */
-export function generatePeriodLabels(startYear: number, endYear: number): string[] {
-  const labels: string[] = [];
-  for (let year = startYear; year <= endYear; year++) {
-    labels.push(String(year));
-  }
-  return labels;
-}
-
-/**
  * Extracts year range from analytics filter.
+ *
+ * Delegates to the shared extractYearRangeFromSelection utility from common/types/temporal.
  *
  * @param filter - Analytics filter with report period
  * @returns Object with startYear and endYear
  */
 export function extractYearRange(filter: AnalyticsFilter): { startYear: number; endYear: number } {
-  const { selection } = filter.report_period;
-  const currentYear = new Date().getFullYear();
-
-  let startYear = currentYear;
-  let endYear = currentYear;
-
-  const yearPattern = /^(\d{4})/;
-
-  if (selection.interval !== undefined) {
-    const startMatch = yearPattern.exec(selection.interval.start);
-    const endMatch = yearPattern.exec(selection.interval.end);
-
-    const startYearStr = startMatch?.[1];
-    const endYearStr = endMatch?.[1];
-
-    if (startYearStr !== undefined) {
-      startYear = Number.parseInt(startYearStr, 10);
-    }
-    if (endYearStr !== undefined) {
-      endYear = Number.parseInt(endYearStr, 10);
-    }
-  } else if ('dates' in selection) {
-    const dates = selection.dates;
-    if (dates.length > 0) {
-      const years = dates
-        .map((d) => {
-          const match = yearPattern.exec(d);
-          const yearStr = match?.[1];
-          return yearStr === undefined ? null : Number.parseInt(yearStr, 10);
-        })
-        .filter((y): y is number => y !== null);
-
-      if (years.length > 0) {
-        startYear = Math.min(...years);
-        endYear = Math.max(...years);
-      }
-    }
-  }
-
-  return { startYear, endYear };
+  return extractYearRangeFromSelection(filter.report_period.selection);
 }

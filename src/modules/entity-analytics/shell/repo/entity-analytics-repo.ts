@@ -4,11 +4,14 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
 import {
-  extractYear,
-  toNumericIds,
   needsEntityJoin,
   needsUatJoin,
 } from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+import {
+  buildWhereConditions as buildSharedWhereConditions,
+  toWhereClause,
+  type SqlBuildContext,
+} from '@/modules/execution-analytics/shell/repo/sql-condition-builder.js';
 
 import {
   createDatabaseError,
@@ -327,13 +330,7 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
   /**
    * Builds WHERE conditions for the filtered_aggregates CTE.
    *
-   * Returns a string starting with "WHERE" if there are conditions,
-   * or an empty string if no conditions.
-   *
-   * @param filter - Analytics filter with all filter criteria
-   * @param frequency - Time frequency for amount column selection
-   * @param hasEntityJoin - Whether entities table is joined (for entity_type, is_uat, uat_ids filters)
-   * @param hasUatJoin - Whether uats table is joined (for county_codes, population filters)
+   * Delegates to the shared SQL condition builder for consistent filtering.
    */
   private buildWhereConditions(
     filter: AnalyticsFilter,
@@ -341,201 +338,27 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     hasEntityJoin: boolean,
     hasUatJoin: boolean
   ): string {
-    const conditions: string[] = [];
+    const ctx: SqlBuildContext = {
+      hasEntityJoin,
+      hasUatJoin,
+      lineItemAlias: 'eli',
+      entityAlias: 'e',
+      uatAlias: 'u',
+    };
 
-    // Frequency-based filter
-    if (frequency === Frequency.QUARTER) {
-      conditions.push('eli.is_quarterly = true');
-    } else if (frequency === Frequency.YEAR) {
-      conditions.push('eli.is_yearly = true');
-    }
+    // Cast filter to the expected interface (AnalyticsFilter is compatible)
+    const conditions = buildSharedWhereConditions(
+      {
+        ...filter,
+        report_period: {
+          frequency,
+          selection: filter.report_period.selection,
+        },
+      },
+      ctx
+    );
 
-    // Required filter: account category
-    conditions.push(`eli.account_category = '${filter.account_category}'`);
-
-    // Period filters
-    const { selection } = filter.report_period;
-    if (selection.interval !== undefined) {
-      const startYear = extractYear(selection.interval.start);
-      const endYear = extractYear(selection.interval.end);
-      if (startYear !== null) {
-        conditions.push(`eli.year >= ${String(startYear)}`);
-      }
-      if (endYear !== null) {
-        conditions.push(`eli.year <= ${String(endYear)}`);
-      }
-    }
-    if (selection.dates !== undefined && selection.dates.length > 0) {
-      const years = selection.dates
-        .map((d) => extractYear(d))
-        .filter((y): y is number => y !== null);
-      if (years.length > 0) {
-        conditions.push(`eli.year IN (${years.join(', ')})`);
-      }
-    }
-
-    // Optional dimension filters
-    if (filter.report_type !== undefined) {
-      conditions.push(`eli.report_type = '${filter.report_type}'`);
-    }
-    if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
-      const cuis = filter.entity_cuis.map((c) => `'${c}'`).join(', ');
-      conditions.push(`eli.entity_cui IN (${cuis})`);
-    }
-    if (filter.main_creditor_cui !== undefined) {
-      conditions.push(`eli.main_creditor_cui = '${filter.main_creditor_cui}'`);
-    }
-    if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
-      const codes = filter.functional_codes.map((c) => `'${c}'`).join(', ');
-      conditions.push(`eli.functional_code IN (${codes})`);
-    }
-    if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
-      const prefixConditions = filter.functional_prefixes
-        .map((p) => `eli.functional_code LIKE '${p}%'`)
-        .join(' OR ');
-      conditions.push(`(${prefixConditions})`);
-    }
-    if (filter.economic_codes !== undefined && filter.economic_codes.length > 0) {
-      const codes = filter.economic_codes.map((c) => `'${c}'`).join(', ');
-      conditions.push(`eli.economic_code IN (${codes})`);
-    }
-    if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
-      const prefixConditions = filter.economic_prefixes
-        .map((p) => `eli.economic_code LIKE '${p}%'`)
-        .join(' OR ');
-      conditions.push(`(${prefixConditions})`);
-    }
-    if (filter.program_codes !== undefined && filter.program_codes.length > 0) {
-      const codes = filter.program_codes.map((c) => `'${c}'`).join(', ');
-      conditions.push(`eli.program_code IN (${codes})`);
-    }
-    if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
-      const numericIds = toNumericIds(filter.funding_source_ids);
-      if (numericIds.length > 0) {
-        conditions.push(`eli.funding_source_id IN (${numericIds.join(', ')})`);
-      }
-    }
-    if (filter.budget_sector_ids !== undefined && filter.budget_sector_ids.length > 0) {
-      const numericIds = toNumericIds(filter.budget_sector_ids);
-      if (numericIds.length > 0) {
-        conditions.push(`eli.budget_sector_id IN (${numericIds.join(', ')})`);
-      }
-    }
-    if (filter.expense_types !== undefined && filter.expense_types.length > 0) {
-      const types = filter.expense_types.map((t) => `'${t}'`).join(', ');
-      conditions.push(`eli.expense_type IN (${types})`);
-    }
-
-    // Geographic filters (require entity join)
-    if (hasEntityJoin) {
-      if (filter.entity_types !== undefined && filter.entity_types.length > 0) {
-        const types = filter.entity_types.map((t) => `'${t}'`).join(', ');
-        conditions.push(`e.entity_type IN (${types})`);
-      }
-      if (filter.is_uat !== undefined) {
-        conditions.push(`e.is_uat = ${String(filter.is_uat)}`);
-      }
-      if (filter.uat_ids !== undefined && filter.uat_ids.length > 0) {
-        const numericIds = toNumericIds(filter.uat_ids);
-        if (numericIds.length > 0) {
-          conditions.push(`e.uat_id IN (${numericIds.join(', ')})`);
-        }
-      }
-    }
-
-    // Geographic filters (require UAT join)
-    if (hasUatJoin) {
-      if (filter.county_codes !== undefined && filter.county_codes.length > 0) {
-        const codes = filter.county_codes.map((c) => `'${c}'`).join(', ');
-        conditions.push(`u.county_code IN (${codes})`);
-      }
-      // Population constraints
-      if (filter.min_population !== undefined && filter.min_population !== null) {
-        conditions.push(`u.population >= ${String(filter.min_population)}`);
-      }
-      if (filter.max_population !== undefined && filter.max_population !== null) {
-        conditions.push(`u.population <= ${String(filter.max_population)}`);
-      }
-    }
-
-    // Item amount constraints
-    const amountColumn = this.getAmountColumnName(filter.report_period.frequency);
-    if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      conditions.push(`eli.${amountColumn} >= ${String(filter.item_min_amount)}`);
-    }
-    if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      conditions.push(`eli.${amountColumn} <= ${String(filter.item_max_amount)}`);
-    }
-
-    // Exclusion filters
-    if (filter.exclude !== undefined) {
-      const ex = filter.exclude;
-      if (ex.report_ids !== undefined && ex.report_ids.length > 0) {
-        const ids = ex.report_ids.map((id) => `'${id}'`).join(', ');
-        conditions.push(`eli.report_id NOT IN (${ids})`);
-      }
-      if (ex.entity_cuis !== undefined && ex.entity_cuis.length > 0) {
-        const cuis = ex.entity_cuis.map((c) => `'${c}'`).join(', ');
-        conditions.push(`eli.entity_cui NOT IN (${cuis})`);
-      }
-      if (ex.functional_codes !== undefined && ex.functional_codes.length > 0) {
-        const codes = ex.functional_codes.map((c) => `'${c}'`).join(', ');
-        conditions.push(`eli.functional_code NOT IN (${codes})`);
-      }
-      if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
-        const prefixConditions = ex.functional_prefixes
-          .map((p) => `eli.functional_code LIKE '${p}%'`)
-          .join(' OR ');
-        conditions.push(`NOT (${prefixConditions})`);
-      }
-      // Economic code exclusions apply only to non-VN accounts (per spec)
-      if (
-        filter.account_category !== 'vn' &&
-        ex.economic_codes !== undefined &&
-        ex.economic_codes.length > 0
-      ) {
-        const codes = ex.economic_codes.map((c) => `'${c}'`).join(', ');
-        conditions.push(`eli.economic_code NOT IN (${codes})`);
-      }
-      if (
-        filter.account_category !== 'vn' &&
-        ex.economic_prefixes !== undefined &&
-        ex.economic_prefixes.length > 0
-      ) {
-        const prefixConditions = ex.economic_prefixes
-          .map((p) => `eli.economic_code LIKE '${p}%'`)
-          .join(' OR ');
-        conditions.push(`NOT (${prefixConditions})`);
-      }
-
-      // Geographic exclusions (require entity join)
-      if (hasEntityJoin) {
-        if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
-          const types = ex.entity_types.map((t) => `'${t}'`).join(', ');
-          conditions.push(`(e.entity_type IS NULL OR e.entity_type NOT IN (${types}))`);
-        }
-        if (ex.uat_ids !== undefined && ex.uat_ids.length > 0) {
-          const numericIds = toNumericIds(ex.uat_ids);
-          if (numericIds.length > 0) {
-            conditions.push(`(e.uat_id IS NULL OR e.uat_id NOT IN (${numericIds.join(', ')}))`);
-          }
-        }
-      }
-
-      // Geographic exclusions (require UAT join)
-      if (hasUatJoin) {
-        if (ex.county_codes !== undefined && ex.county_codes.length > 0) {
-          const codes = ex.county_codes.map((c) => `'${c}'`).join(', ');
-          conditions.push(`(u.county_code IS NULL OR u.county_code NOT IN (${codes}))`);
-        }
-      }
-    }
-
-    if (conditions.length === 0) {
-      return '';
-    }
-
-    return `WHERE ${conditions.join(' AND ')}`;
+    return toWhereClause(conditions);
   }
 
   /**
