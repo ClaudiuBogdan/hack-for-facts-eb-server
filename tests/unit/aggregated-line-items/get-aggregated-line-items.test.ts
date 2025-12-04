@@ -9,15 +9,12 @@ import {
   type NormalizationFactorProvider,
 } from '@/modules/aggregated-line-items/core/usecases/get-aggregated-line-items.js';
 
-import type {
-  AggregatedLineItemsRepository,
-  PopulationRepository,
-} from '@/modules/aggregated-line-items/core/ports.js';
+import type { AggregatedLineItemsRepository } from '@/modules/aggregated-line-items/core/ports.js';
 import type {
   AggregatedLineItemsInput,
   ClassificationPeriodData,
 } from '@/modules/aggregated-line-items/core/types.js';
-import type { NormalizationFactors } from '@/modules/normalization/index.js';
+import type { NormalizationFactors, PopulationRepository } from '@/modules/normalization/index.js';
 
 // =============================================================================
 // Test Helpers

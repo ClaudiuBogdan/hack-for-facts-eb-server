@@ -2,6 +2,12 @@ import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
+import {
+  getDenominatorPopulation,
+  type NormalizationFactors,
+  type TransformationOptions,
+  type PopulationRepository,
+} from '@/modules/normalization/index.js';
 
 import { createNormalizationDataError, type AggregatedLineItemsError } from '../errors.js';
 import {
@@ -17,9 +23,8 @@ import {
   type PeriodFactorMap,
 } from '../types.js';
 
-import type { AggregatedLineItemsRepository, PopulationRepository } from '../ports.js';
+import type { AggregatedLineItemsRepository } from '../ports.js';
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
-import type { NormalizationFactors, TransformationOptions } from '@/modules/normalization/index.js';
 
 // -----------------------------------------
 // Dependencies
@@ -578,51 +583,6 @@ export function generatePeriodLabels(startYear: number, endYear: number): string
     labels.push(String(year));
   }
   return labels;
-}
-
-/**
- * Computes denominator population for per_capita mode.
- *
- * Population is filter-dependent (constant per query), unlike CPI/exchange
- * rates which are year-specific.
- *
- * @param filter - Analytics filter to determine population scope
- * @param populationRepo - Repository for population queries
- * @returns Decimal population value, or undefined if not in per_capita mode
- */
-export async function getDenominatorPopulation(
-  filter: AnalyticsFilter & NormalizationOptions,
-  populationRepo: PopulationRepository
-): Promise<Decimal | undefined> {
-  // Only needed for per_capita mode
-  if (filter.normalization !== 'per_capita') {
-    return undefined;
-  }
-
-  const hasEntityCuis = filter.entity_cuis !== undefined && filter.entity_cuis.length > 0;
-  const hasUatIds = filter.uat_ids !== undefined && filter.uat_ids.length > 0;
-  const hasCountyCodes = filter.county_codes !== undefined && filter.county_codes.length > 0;
-  const hasIsUat = filter.is_uat !== undefined;
-  const hasEntityTypes = filter.entity_types !== undefined && filter.entity_types.length > 0;
-
-  const hasEntityFilter =
-    hasEntityCuis || hasUatIds || hasCountyCodes || hasIsUat || hasEntityTypes;
-
-  if (!hasEntityFilter) {
-    const countryResult = await populationRepo.getCountryPopulation();
-    if (countryResult.isErr()) {
-      // Log error but don't fail - per_capita will be disabled
-      return undefined;
-    }
-    return countryResult.value;
-  }
-
-  const filteredResult = await populationRepo.getFilteredPopulation(filter);
-  if (filteredResult.isErr()) {
-    // Log error but don't fail - per_capita will be disabled
-    return undefined;
-  }
-  return filteredResult.value;
 }
 
 /**

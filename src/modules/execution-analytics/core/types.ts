@@ -7,6 +7,7 @@ import type {
   AnalyticsFilter,
   GqlReportPeriodInput,
 } from '@/common/types/analytics.js';
+import type { Decimal } from 'decimal.js';
 
 // Re-export common types
 export type {
@@ -63,16 +64,27 @@ export interface GqlAnalyticsInput {
  *
  * Contains the filter options and loaded datasets needed for transformation.
  * The datasets are loaded lazily based on which transformations are requested.
+ *
+ * Note: Population is NOT in datasets because it comes from the database
+ * (PopulationRepository), not from dataset files. Population is filter-dependent
+ * and constant per query, unlike CPI/exchange/GDP which vary by year.
  */
 export interface ProcessingContext {
   filter: NormalizationOptions;
   frequency: Frequency;
-  population?: number;
+  /**
+   * Filter-based population denominator for per_capita mode.
+   * Comes from database via PopulationRepository, not from datasets.
+   * This is constant per query (based on which entities/UATs are selected).
+   *
+   * - No entity filters → country population
+   * - With entity_cuis/uat_ids/county_codes → filtered entity population
+   */
+  filterPopulation?: Decimal;
   datasets: {
     cpi?: Dataset;
     exchange?: Dataset;
     gdp?: Dataset;
-    population?: Dataset;
   };
 }
 

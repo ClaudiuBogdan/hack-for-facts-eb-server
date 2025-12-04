@@ -5,9 +5,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { toNumericIds } from '@/modules/execution-analytics/shell/repo/query-helpers.js';
 
-import { createDatabaseError, type AggregatedLineItemsError } from '../../core/errors.js';
-
-import type { PopulationRepository } from '../../core/ports.js';
+import type { PopulationRepository, PopulationError } from '../../core/ports.js';
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 
@@ -61,7 +59,7 @@ export class KyselyPopulationRepo implements PopulationRepository {
    *
    * This avoids double-counting sub-municipal UATs within counties.
    */
-  async getCountryPopulation(): Promise<Result<Decimal, AggregatedLineItemsError>> {
+  async getCountryPopulation(): Promise<Result<Decimal, PopulationError>> {
     try {
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
         this.db
@@ -96,9 +94,7 @@ export class KyselyPopulationRepo implements PopulationRepository {
    *
    * Deduplication is handled automatically by using DISTINCT entity populations.
    */
-  async getFilteredPopulation(
-    filter: AnalyticsFilter
-  ): Promise<Result<Decimal, AggregatedLineItemsError>> {
+  async getFilteredPopulation(filter: AnalyticsFilter): Promise<Result<Decimal, PopulationError>> {
     try {
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
         this.db
@@ -297,8 +293,13 @@ export class KyselyPopulationRepo implements PopulationRepository {
   /**
    * Handles errors and returns appropriate error type.
    */
-  private handleError(message: string, error: unknown): Result<Decimal, AggregatedLineItemsError> {
-    return err(createDatabaseError(message, error));
+  private handleError(message: string, error: unknown): Result<Decimal, PopulationError> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return err({
+      type: 'DatabaseError',
+      message: `${message}: ${errorMessage}`,
+      retryable: true,
+    });
   }
 }
 

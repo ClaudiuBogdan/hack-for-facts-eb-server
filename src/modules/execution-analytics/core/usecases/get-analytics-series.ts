@@ -1,6 +1,11 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  getDenominatorPopulation,
+  type PopulationRepository,
+} from '@/modules/normalization/index.js';
+
 import { getPreviousPeriodLabel } from '../period-labels.js';
 import {
   Frequency,
@@ -23,6 +28,7 @@ import type { DataSeries } from '@/common/types/temporal.js';
 export interface GetAnalyticsSeriesDeps {
   analyticsRepo: AnalyticsRepository;
   datasetRepo: DatasetRepo;
+  populationRepo: PopulationRepository;
 }
 
 // Helper to get a value from a dataset for a specific year
@@ -66,8 +72,8 @@ class NormalizationService {
         data = this.applyCurrency(data, ctx.datasets.exchange);
       }
 
-      if (ctx.filter.normalization === 'per_capita' && ctx.datasets.population !== undefined) {
-        data = this.applyPerCapita(data, ctx.datasets.population);
+      if (ctx.filter.normalization === 'per_capita') {
+        data = this.applyPerCapita(data, ctx.filterPopulation);
       }
     }
 
@@ -114,13 +120,18 @@ class NormalizationService {
     });
   }
 
-  private applyPerCapita(data: IntermediatePoint[], populationData: Dataset): IntermediatePoint[] {
-    return data.map((p) => {
-      const popDec = getDatasetValue(populationData, p.year);
-      if (popDec === null || popDec.isZero()) return p;
-      const pop = popDec.toNumber();
-      return { ...p, y: p.y / pop };
-    });
+  private applyPerCapita(
+    data: IntermediatePoint[],
+    filterPopulation?: Decimal
+  ): IntermediatePoint[] {
+    // Population is constant per query (filter-based from database)
+    // No year-specific fallback - if no population, skip normalization
+    if (filterPopulation === undefined || filterPopulation.isZero()) {
+      return data;
+    }
+
+    const popValue = filterPopulation.toNumber();
+    return data.map((p) => ({ ...p, y: p.y / popValue }));
   }
 
   private applyGrowth(data: IntermediatePoint[], frequency: Frequency): IntermediatePoint[] {
@@ -235,8 +246,14 @@ export async function getAnalyticsSeries(
       // TODO: Add USD support
 
       if (strictFilter.normalization === 'per_capita') {
-        const res = await datasetRepo.getById('ro.demographics.population.annual');
-        if (res.isOk()) ctx.datasets.population = res.value;
+        // Population comes from database via PopulationRepository, not from datasets.
+        // It's filter-dependent (constant per query), not year-specific.
+        // - No entity filters → country population
+        // - With entity_cuis/uat_ids/county_codes → filtered entity population
+        const popResult = await getDenominatorPopulation(strictFilter, deps.populationRepo);
+        if (popResult !== undefined) {
+          ctx.filterPopulation = popResult;
+        }
       }
     }
 

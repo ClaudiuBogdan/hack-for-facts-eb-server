@@ -18,7 +18,9 @@ export type {
 export type { AggregatedLineItemsError, NormalizationDataError } from './core/errors.js';
 
 // Ports
-export type { AggregatedLineItemsRepository, PopulationRepository } from './core/ports.js';
+export type { AggregatedLineItemsRepository } from './core/ports.js';
+// Re-export PopulationRepository from normalization module for backward compatibility
+export type { PopulationRepository } from '@/modules/normalization/index.js';
 
 // Use case
 export {
@@ -38,4 +40,5 @@ export {
 
 // Repository
 export { makeAggregatedLineItemsRepo } from './shell/repo/aggregated-line-items-repo.js';
-export { makePopulationRepo } from './shell/repo/population-repo.js';
+// Re-export makePopulationRepo from normalization module for backward compatibility
+export { makePopulationRepo } from '@/modules/normalization/index.js';

@@ -245,11 +245,28 @@ The system requires specific datasets for normalization. These are validated at 
 
 | Dimension    | Dataset ID                             | Unit             | Description                                   |
 | ------------ | -------------------------------------- | ---------------- | --------------------------------------------- |
-| CPI          | `ro.economics.cpi.annual`              | Index (2024=100) | Consumer Price Index for inflation adjustment |
-| EUR Exchange | `ro.economics.exchange.ron_eur.annual` | RON per EUR      | RON to EUR conversion                         |
-| USD Exchange | `ro.economics.exchange.ron_usd.annual` | RON per USD      | RON to USD conversion                         |
-| GDP          | `ro.economics.gdp.annual`              | Million RON      | Gross Domestic Product                        |
-| Population   | `ro.demographics.population.annual`    | Persons          | Population count                              |
+| CPI          | `ro.economics.cpi.yearly`              | Index (2024=100) | Consumer Price Index for inflation adjustment |
+| EUR Exchange | `ro.economics.exchange.ron_eur.yearly` | RON per EUR      | RON to EUR conversion                         |
+| USD Exchange | `ro.economics.exchange.ron_usd.yearly` | RON per USD      | RON to USD conversion                         |
+| GDP          | `ro.economics.gdp.yearly`              | Million RON      | Gross Domestic Product                        |
+
+### Population Factor (Special Case)
+
+Unlike CPI/Exchange/GDP which come from datasets and vary by year, **population comes from the database** via `PopulationRepository` and is **constant per query**.
+
+Population is filter-dependent because:
+
+- If querying specific entities/UATs/counties, divide by THEIR population
+- If querying national data (no entity filters), divide by COUNTRY population
+- The denominator does NOT change year-to-year within a single query
+
+| Filter            | Population Source                                        |
+| ----------------- | -------------------------------------------------------- |
+| No entity filters | `getCountryPopulation()` - sum of all county populations |
+| `entity_cuis`     | Resolved to UATs → sum of UAT populations                |
+| `uat_ids`         | Sum of specified UAT populations                         |
+| `county_codes`    | Sum of county-level populations                          |
+| `entity_types`    | Based on type (e.g., county council → county population) |
 
 ### Startup Validation
 
@@ -265,8 +282,8 @@ If datasets are missing, the server fails to start with a descriptive error:
 
 ```text
 NormalizationDatasetError: Required normalization datasets are missing:
-  - ro.economics.cpi.annual: Dataset not found
-  - ro.economics.gdp.annual: Dataset not found
+  - ro.economics.cpi.yearly: Dataset not found
+  - ro.economics.gdp.yearly: Dataset not found
 ```
 
 ### Future Datasets (Optional)

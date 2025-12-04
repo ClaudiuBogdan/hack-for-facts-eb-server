@@ -95,17 +95,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     checkers: deps.healthCheckers ?? [],
   });
 
+  // Create shared population repo (used by both analytics and aggregated line items)
+  const populationRepo = makePopulationRepo(budgetDb);
+
   // Setup Analytics Module
   const analyticsRepo = makeAnalyticsRepo(budgetDb);
   const analyticsResolvers = makeExecutionAnalyticsResolvers({
     analyticsRepo,
     datasetRepo,
+    populationRepo,
   });
 
   // Setup Aggregated Line Items Module
   const normalizationService = await NormalizationService.create(datasetRepo);
   const aggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
-  const populationRepo = makePopulationRepo(budgetDb);
   const aggregatedLineItemsResolvers = makeAggregatedLineItemsResolvers({
     repo: aggregatedLineItemsRepo,
     normalization: normalizationService,

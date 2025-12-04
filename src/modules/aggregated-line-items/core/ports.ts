@@ -7,7 +7,6 @@ import type {
   PaginationParams,
 } from './types.js';
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
-import type { Decimal } from 'decimal.js';
 import type { Result } from 'neverthrow';
 
 /**
@@ -100,47 +99,8 @@ export interface AggregatedLineItemsRepository {
 }
 
 // -----------------------------------------
-// Population Repository
+// Population Repository (re-exported from normalization module)
 // -----------------------------------------
 
-/**
- * Repository interface for computing filter-based population denominators.
- *
- * Used for per_capita normalization where the population denominator
- * depends on the entities/UATs selected by the filter, not year-specific
- * population data from datasets.
- *
- * IMPORTANT: Population for per_capita is filter-dependent (constant per query),
- * unlike CPI/exchange rates which are year-specific.
- */
-export interface PopulationRepository {
-  /**
-   * Gets total country population (sum of county-level populations).
-   *
-   * Used when no entity-like filters are specified (default denominator).
-   *
-   * SQL logic:
-   * - Bucharest (county_code = 'B'): Use SIRUTA 179132 (municipality level)
-   * - Other counties: Use county-level UAT (where siruta_code = county_code)
-   * - Sum across all counties (avoids double-counting sub-municipal UATs)
-   *
-   * @returns Total country population as Decimal
-   */
-  getCountryPopulation(): Promise<Result<Decimal, AggregatedLineItemsError>>;
-
-  /**
-   * Gets population for entities/UATs matching the filter.
-   *
-   * Handles complex cases:
-   * - Entity CUIs → resolve to UAT IDs
-   * - County codes → use county-level populations
-   * - County councils → map to county population
-   * - Deduplication (UATs in already-selected counties)
-   *
-   * @param filter - Analytics filter with entity constraints
-   * @returns Sum of populations for matching UATs/counties
-   */
-  getFilteredPopulation(
-    filter: AnalyticsFilter
-  ): Promise<Result<Decimal, AggregatedLineItemsError>>;
-}
+// PopulationRepository is now defined in @/modules/normalization/core/ports.ts
+// and re-exported from this module's index.ts for backward compatibility

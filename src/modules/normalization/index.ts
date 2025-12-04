@@ -3,6 +3,8 @@ export type {
   NormalizationDatasetProvider,
   DatasetProviderError,
   NormalizationPort,
+  PopulationRepository,
+  PopulationError,
 } from './core/ports.js';
 
 // Types
@@ -57,3 +59,7 @@ export {
   NormalizationService,
   NormalizationDatasetError,
 } from './shell/service/normalization-service.js';
+
+// Population
+export { getDenominatorPopulation } from './core/population.js';
+export { makePopulationRepo } from './shell/repo/population-repo.js';
