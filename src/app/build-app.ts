@@ -34,6 +34,14 @@ import {
   makeDatasetsResolvers,
 } from '../modules/datasets/index.js';
 import {
+  makeEntityResolvers,
+  EntitySchema,
+  makeEntityRepo,
+  makeEntityAnalyticsSummaryRepo,
+  makeUATRepo,
+  makeReportRepo,
+} from '../modules/entity/index.js';
+import {
   makeEntityAnalyticsResolvers,
   EntityAnalyticsSchema,
   makeEntityAnalyticsRepo,
@@ -184,6 +192,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     executionLineItemRepo: executionLineItemsModuleRepo,
   });
 
+  // Setup Entity Module
+  const entityRepo = makeEntityRepo(budgetDb);
+  const entityAnalyticsSummaryRepo = makeEntityAnalyticsSummaryRepo(budgetDb);
+  const uatRepo = makeUATRepo(budgetDb);
+  const reportRepo = makeReportRepo(budgetDb);
+  const entityResolvers = makeEntityResolvers({
+    entityRepo,
+    uatRepo,
+    reportRepo,
+    executionLineItemRepo: executionLineItemsModuleRepo,
+    entityAnalyticsSummaryRepo,
+    normalizationService,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -196,6 +218,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     BudgetSectorSchema,
     FundingSourceSchema,
     ExecutionLineItemSchema,
+    EntitySchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -207,6 +230,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     budgetSectorResolvers,
     fundingSourceResolvers,
     executionLineItemsResolvers,
+    entityResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention
