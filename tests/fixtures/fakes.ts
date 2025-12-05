@@ -7,6 +7,12 @@ import { ok, err, type Result } from 'neverthrow';
 
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type {
+  BudgetSectorRepository,
+  BudgetSector,
+  BudgetSectorFilter,
+  BudgetSectorConnection,
+} from '@/modules/budget-sector/index.js';
+import type {
   DatasetRepo,
   Dataset,
   DatasetRepoError,
@@ -143,4 +149,73 @@ export const makeFakeBudgetDb = (): BudgetDbClient => {
   // For now, since we just need it to pass dependency injection checks,
   // we can cast an empty object or a partial mock.
   return {} as unknown as BudgetDbClient;
+};
+
+// =============================================================================
+// Budget Sector Fakes
+// =============================================================================
+
+/** Default budget sectors for testing */
+const defaultBudgetSectors: BudgetSector[] = [
+  { sector_id: 1, sector_description: 'Buget local' },
+  { sector_id: 2, sector_description: 'Buget de stat' },
+  { sector_id: 3, sector_description: 'Buget asigurari sociale' },
+  { sector_id: 4, sector_description: 'Fonduri externe nerambursabile' },
+];
+
+interface FakeBudgetSectorRepoOptions {
+  /** Custom sectors to use instead of defaults */
+  sectors?: BudgetSector[];
+}
+
+/**
+ * Creates a fake budget sector repository for testing.
+ *
+ * Uses simple substring matching for search filter (instead of pg_trgm).
+ * Sectors are sorted by sector_id for deterministic pagination.
+ */
+export const makeFakeBudgetSectorRepo = (
+  options: FakeBudgetSectorRepoOptions = {}
+): BudgetSectorRepository => {
+  const sectors = options.sectors ?? defaultBudgetSectors;
+
+  return {
+    findById: async (id: number) => {
+      const sector = sectors.find((s) => s.sector_id === id);
+      return ok(sector ?? null);
+    },
+
+    list: async (filter: BudgetSectorFilter | undefined, limit: number, offset: number) => {
+      let filtered = [...sectors];
+
+      // Apply search filter (simple substring match for fake)
+      if (filter?.search !== undefined && filter.search.trim() !== '') {
+        const searchLower = filter.search.toLowerCase();
+        filtered = filtered.filter((s) => s.sector_description.toLowerCase().includes(searchLower));
+      }
+
+      // Apply sector_ids filter
+      if (filter?.sector_ids !== undefined && filter.sector_ids.length > 0) {
+        const idsSet = new Set(filter.sector_ids);
+        filtered = filtered.filter((s) => idsSet.has(s.sector_id));
+      }
+
+      // Sort by ID for consistency
+      filtered.sort((a, b) => a.sector_id - b.sector_id);
+
+      const totalCount = filtered.length;
+      const nodes = filtered.slice(offset, offset + limit);
+
+      const connection: BudgetSectorConnection = {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
+
+      return ok(connection);
+    },
+  };
 };

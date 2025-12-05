@@ -23,6 +23,12 @@ import {
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
 import {
+  makeBudgetSectorResolvers,
+  BudgetSectorSchema,
+  makeBudgetSectorRepo,
+  type BudgetSectorRepository,
+} from '../modules/budget-sector/index.js';
+import {
   type DatasetRepo,
   DatasetsSchema,
   makeDatasetsResolvers,
@@ -55,6 +61,7 @@ export interface AppDeps {
   healthCheckers?: HealthChecker[];
   budgetDb: BudgetDbClient;
   datasetRepo: DatasetRepo;
+  budgetSectorRepo?: BudgetSectorRepository;
   config: AppConfig;
 }
 
@@ -136,6 +143,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     datasetRepo,
   });
 
+  // Setup Budget Sector Module
+  const budgetSectorRepo = deps.budgetSectorRepo ?? makeBudgetSectorRepo(budgetDb);
+  const budgetSectorResolvers = makeBudgetSectorResolvers({
+    budgetSectorRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -145,6 +158,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     AggregatedLineItemsSchema,
     EntityAnalyticsSchema,
     DatasetsSchema,
+    BudgetSectorSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -153,6 +167,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     aggregatedLineItemsResolvers,
     entityAnalyticsResolvers,
     datasetsResolvers,
+    budgetSectorResolvers,
   ];
 
   await app.register(

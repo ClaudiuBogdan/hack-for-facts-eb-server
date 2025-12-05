@@ -29,6 +29,7 @@
         "execution-analytics",
         "entity-analytics",
         "aggregated-line-items",
+        "budget-sector",
         "normalization"
       ]
     ],
