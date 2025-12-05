@@ -32,6 +32,9 @@ export {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   SIMILARITY_THRESHOLD,
+  DEFAULT_REPORT_LIMIT,
+  MAX_REPORT_LIMIT,
+  DEFAULT_REPORT_ELI_LIMIT,
   GQL_TO_DB_REPORT_TYPE,
   DB_TO_GQL_REPORT_TYPE,
 } from './core/types.js';
@@ -73,6 +76,14 @@ export {
   type ListEntitiesDeps,
   type ListEntitiesInput,
 } from './core/usecases/list-entities.js';
+
+export { getReport, type GetReportDeps, type GetReportInput } from './core/usecases/get-report.js';
+
+export {
+  listReports,
+  type ListReportsDeps,
+  type ListReportsInput,
+} from './core/usecases/list-reports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repositories

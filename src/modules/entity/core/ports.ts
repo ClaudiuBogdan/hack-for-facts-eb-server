@@ -11,6 +11,7 @@ import type {
   EntityFilter,
   EntityTotals,
   UAT,
+  Report,
   ReportConnection,
   ReportFilter,
   ReportSort,
@@ -101,19 +102,51 @@ export interface UATRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Report Repository (Stub)
+// Report Repository
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Repository interface for report data access.
- * Stub for now - full implementation in separate module.
  */
 export interface ReportRepository {
   /**
+   * Get a single report by ID.
+   *
+   * @param reportId - The report ID to look up
+   * @returns The report if found, null if not found, or an error
+   */
+  getById(reportId: string): Promise<Result<Report | null, EntityError>>;
+
+  /**
+   * Get a report by entity CUI and report date.
+   *
+   * @param entityCui - Entity CUI
+   * @param reportDate - Report date
+   * @returns The report if found, null if not found, or an error
+   */
+  getByEntityAndDate(
+    entityCui: string,
+    reportDate: Date
+  ): Promise<Result<Report | null, EntityError>>;
+
+  /**
    * List reports with filtering, sorting, and pagination.
    *
-   * @param filter - Filter criteria (entity_cui required)
-   * @param sort - Sort configuration
+   * Filtering:
+   * - entity_cui: exact match
+   * - reporting_year: exact match
+   * - reporting_period: exact match
+   * - report_date_start/end: date range (inclusive)
+   * - report_type: exact match (converted from GQL to DB enum)
+   * - main_creditor_cui: exact match
+   * - search: ILIKE on entity name and download_links
+   *
+   * Sorting:
+   * - Default: report_date DESC, report_id DESC
+   * - Only 'report_date' is allowed as sort field
+   *
+   * @param filter - Filter criteria
+   * @param sort - Sort configuration (optional)
    * @param limit - Maximum number of results
    * @param offset - Number of results to skip
    * @returns Paginated report connection
@@ -124,6 +157,14 @@ export interface ReportRepository {
     limit: number,
     offset: number
   ): Promise<Result<ReportConnection, EntityError>>;
+
+  /**
+   * Count reports matching filter.
+   *
+   * @param filter - Filter criteria
+   * @returns Total count of matching reports
+   */
+  count(filter: ReportFilter): Promise<Result<number, EntityError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -210,12 +210,12 @@ export const EntitySchema = /* GraphQL */ `
   }
 
   # ---------------------------------------------------------------------------
-  # Report Types (Stub)
+  # Report Types
   # ---------------------------------------------------------------------------
 
   """
   Budget execution report.
-  Note: Full implementation in separate module.
+  Represents metadata for an imported budget execution report file.
   """
   type Report {
     "Report ID"
@@ -244,6 +244,63 @@ export const EntitySchema = /* GraphQL */ `
 
     "File source path"
     file_source: String
+
+    "Download links for report files"
+    download_links: [String!]!
+
+    "Import timestamp"
+    import_timestamp: String!
+
+    # ---------------------------------------------------------------------------
+    # Relations
+    # ---------------------------------------------------------------------------
+
+    "The entity that owns this report"
+    entity: Entity!
+
+    "Main creditor entity (if applicable)"
+    main_creditor: Entity
+
+    "Budget sector for this report"
+    budgetSector: BudgetSector!
+
+    "Execution line items for this report"
+    executionLineItems(
+      limit: Int = 100
+      offset: Int = 0
+      functionalCode: String
+      economicCode: String
+      accountCategory: AccountCategory
+      minAmount: Float
+      maxAmount: Float
+    ): ExecutionLineItemConnection!
+  }
+
+  "Filter options for report queries"
+  input ReportFilterInput {
+    "Filter by entity CUI"
+    entity_cui: String
+
+    "Filter by reporting year"
+    reporting_year: Int
+
+    "Filter by reporting period"
+    reporting_period: String
+
+    "Filter by report date start (inclusive, ISO date string)"
+    report_date_start: String
+
+    "Filter by report date end (inclusive, ISO date string)"
+    report_date_end: String
+
+    "Filter by report type"
+    report_type: ReportType
+
+    "Filter by main creditor CUI"
+    main_creditor_cui: String
+
+    "Search across entity name and download links"
+    search: String
   }
 
   "Paginated connection of reports"
@@ -265,5 +322,11 @@ export const EntitySchema = /* GraphQL */ `
 
     "List entities with optional filtering and pagination"
     entities(filter: EntityFilter, limit: Int = 20, offset: Int = 0): EntityConnection!
+
+    "Get a single report by ID"
+    report(report_id: ID!): Report
+
+    "List reports with optional filtering and pagination"
+    reports(filter: ReportFilterInput, limit: Int = 20, offset: Int = 0): ReportConnection!
   }
 `;

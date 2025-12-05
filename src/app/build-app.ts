@@ -204,6 +204,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     executionLineItemRepo: executionLineItemsModuleRepo,
     entityAnalyticsSummaryRepo,
     normalizationService,
+    budgetSectorRepo,
   });
 
   // Combine schemas and resolvers

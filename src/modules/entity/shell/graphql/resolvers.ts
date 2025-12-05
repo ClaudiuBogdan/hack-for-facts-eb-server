@@ -6,8 +6,22 @@
 
 import { Frequency } from '@/common/types/temporal.js';
 
+import {
+  DEFAULT_REPORT_LIMIT,
+  DEFAULT_REPORT_ELI_LIMIT,
+  type Entity,
+  type EntityFilter,
+  type Report,
+  type ReportFilter,
+  type ReportSort,
+  type ReportPeriodInput,
+  type GqlReportType,
+  type DbReportType,
+} from '../../core/types.js';
 import { getEntity } from '../../core/usecases/get-entity.js';
+import { getReport } from '../../core/usecases/get-report.js';
 import { listEntities } from '../../core/usecases/list-entities.js';
+import { listReports } from '../../core/usecases/list-reports.js';
 
 import type {
   EntityRepository,
@@ -16,20 +30,13 @@ import type {
   EntityAnalyticsSummaryRepository,
 } from '../../core/ports.js';
 import type {
-  Entity,
-  EntityFilter,
-  ReportFilter,
-  ReportSort,
-  ReportPeriodInput,
-  GqlReportType,
-  DbReportType,
-} from '../../core/types.js';
-import type {
   PeriodType,
+  PeriodDate,
   AnalyticsFilter,
   NormalizationMode,
   PeriodSelection,
 } from '@/common/types/analytics.js';
+import type { BudgetSectorRepository } from '@/modules/budget-sector/index.js';
 import type {
   ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
   SortableField,
@@ -66,11 +73,21 @@ interface GqlEntityFilter {
   parents?: string[];
 }
 
+interface GqlReportFilterInput {
+  entity_cui?: string;
+  reporting_year?: number;
+  reporting_period?: string;
+  report_date_start?: string;
+  report_date_end?: string;
+  report_type?: GqlReportType;
+  main_creditor_cui?: string;
+  search?: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_REPORT_LIMIT = 10;
 const DEFAULT_ELI_LIMIT = 10_000;
 
 /** Map GraphQL ReportType to DB value */
@@ -124,7 +141,7 @@ const getDbReportType = (parent: Entity, gqlReportType?: GqlReportType): string 
 };
 
 /**
- * Converts internal EntityFilter to GraphQL-compatible format.
+ * Converts GraphQL EntityFilter to internal format.
  */
 const mapGqlFilterToEntityFilter = (gqlFilter?: GqlEntityFilter): EntityFilter => {
   if (gqlFilter === undefined) {
@@ -143,6 +160,28 @@ const mapGqlFilterToEntityFilter = (gqlFilter?: GqlEntityFilter): EntityFilter =
   return filter;
 };
 
+/**
+ * Converts GraphQL ReportFilterInput to internal ReportFilter.
+ */
+const mapGqlFilterToReportFilter = (gqlFilter?: GqlReportFilterInput): ReportFilter => {
+  if (gqlFilter === undefined) {
+    return {};
+  }
+  const filter: ReportFilter = {};
+  if (gqlFilter.entity_cui !== undefined) filter.entity_cui = gqlFilter.entity_cui;
+  if (gqlFilter.reporting_year !== undefined) filter.reporting_year = gqlFilter.reporting_year;
+  if (gqlFilter.reporting_period !== undefined)
+    filter.reporting_period = gqlFilter.reporting_period;
+  if (gqlFilter.report_date_start !== undefined)
+    filter.report_date_start = gqlFilter.report_date_start;
+  if (gqlFilter.report_date_end !== undefined) filter.report_date_end = gqlFilter.report_date_end;
+  if (gqlFilter.report_type !== undefined) filter.report_type = gqlFilter.report_type;
+  if (gqlFilter.main_creditor_cui !== undefined)
+    filter.main_creditor_cui = gqlFilter.main_creditor_cui;
+  if (gqlFilter.search !== undefined) filter.search = gqlFilter.search;
+  return filter;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Resolver Dependencies
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,6 +193,7 @@ export interface MakeEntityResolversDeps {
   executionLineItemRepo: ExecutionLineItemsModuleRepository;
   entityAnalyticsSummaryRepo: EntityAnalyticsSummaryRepository;
   normalizationService: NormalizationService;
+  budgetSectorRepo: BudgetSectorRepository;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +210,7 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
     reportRepo,
     executionLineItemRepo,
     entityAnalyticsSummaryRepo,
+    budgetSectorRepo,
     // Reserved for future normalization support
     // normalizationService,
   } = deps;
@@ -210,6 +251,50 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           {
             filter,
             limit: args.limit ?? 20,
+            offset: args.offset ?? 0,
+          }
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, filter },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      report: async (
+        _parent: unknown,
+        args: { report_id: string },
+        context: MercuriusContext
+      ): Promise<Report | null> => {
+        const result = await getReport({ reportRepo }, { reportId: args.report_id });
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, report_id: args.report_id },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      reports: async (
+        _parent: unknown,
+        args: { filter?: GqlReportFilterInput; limit?: number; offset?: number },
+        context: MercuriusContext
+      ) => {
+        const filter = mapGqlFilterToReportFilter(args.filter);
+        const result = await listReports(
+          { reportRepo },
+          {
+            filter,
+            limit: args.limit ?? DEFAULT_REPORT_LIMIT,
             offset: args.offset ?? 0,
           }
         );
@@ -300,9 +385,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         context: MercuriusContext
       ) => {
         const filter: ReportFilter = { entity_cui: parent.cui };
-        if (args.year !== undefined) filter.year = args.year;
-        if (args.period !== undefined) filter.period = args.period;
-        if (args.type !== undefined) filter.type = args.type;
+        if (args.year !== undefined) filter.reporting_year = args.year;
+        if (args.period !== undefined) filter.reporting_period = args.period;
+        if (args.type !== undefined) filter.report_type = args.type;
         if (args.main_creditor_cui !== undefined) filter.main_creditor_cui = args.main_creditor_cui;
 
         const sort: ReportSort | undefined =
@@ -635,6 +720,131 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
             y: point.value.toNumber(),
           })),
         };
+      },
+    },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Report Type Resolvers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    Report: {
+      // Map report_type to GraphQL enum
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
+      report_type: (parent: Report): GqlReportType => {
+        return DB_TO_GQL_REPORT_TYPE_MAP[parent.report_type];
+      },
+
+      // Entity relation
+      entity: async (parent: Report, _args: unknown, context: MercuriusContext) => {
+        const result = await entityRepo.getById(parent.entity_cui);
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, cui: parent.entity_cui },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+        return result.value;
+      },
+
+      // Main creditor relation
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
+      main_creditor: async (parent: Report, _args: unknown, context: MercuriusContext) => {
+        if (parent.main_creditor_cui === null) {
+          return null;
+        }
+        const result = await entityRepo.getById(parent.main_creditor_cui);
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, cui: parent.main_creditor_cui },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          return null;
+        }
+        return result.value;
+      },
+
+      // Budget sector relation
+      budgetSector: async (parent: Report, _args: unknown, context: MercuriusContext) => {
+        const result = await budgetSectorRepo.findById(parent.budget_sector_id);
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, budget_sector_id: parent.budget_sector_id },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+        return result.value;
+      },
+
+      // Execution line items relation
+      executionLineItems: async (
+        parent: Report,
+        args: {
+          limit?: number;
+          offset?: number;
+          functionalCode?: string;
+          economicCode?: string;
+          accountCategory?: 'vn' | 'ch';
+          minAmount?: number;
+          maxAmount?: number;
+        },
+        context: MercuriusContext
+      ) => {
+        // Build filter with report_id
+        const filter: AnalyticsFilter = {
+          report_ids: [parent.report_id],
+          account_category: args.accountCategory ?? 'vn',
+          report_type: parent.report_type,
+          report_period: {
+            frequency: Frequency.YEAR,
+            selection: {
+              interval: {
+                start: String(parent.reporting_year) as PeriodDate,
+                end: String(parent.reporting_year) as PeriodDate,
+              },
+            },
+          },
+        };
+
+        // Apply optional filters
+        if (args.functionalCode !== undefined) {
+          filter.functional_codes = [args.functionalCode];
+        }
+
+        if (args.economicCode !== undefined) {
+          filter.economic_codes = [args.economicCode];
+        }
+
+        if (args.minAmount !== undefined) {
+          filter.item_min_amount = args.minAmount;
+        }
+
+        if (args.maxAmount !== undefined) {
+          filter.item_max_amount = args.maxAmount;
+        }
+
+        const sort = { field: 'ytd_amount' as SortableField, order: 'DESC' as const };
+
+        const result = await executionLineItemRepo.list(
+          filter,
+          sort,
+          args.limit ?? DEFAULT_REPORT_ELI_LIMIT,
+          args.offset ?? 0
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, report_id: parent.report_id },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          return {
+            nodes: [],
+            pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
+          };
+        }
+
+        return result.value;
       },
     },
   };

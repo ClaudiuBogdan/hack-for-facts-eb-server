@@ -25,6 +25,15 @@ export const MAX_LIMIT = 500;
 /** Similarity threshold for pg_trgm search */
 export const SIMILARITY_THRESHOLD = 0.1;
 
+/** Default page size for report listing */
+export const DEFAULT_REPORT_LIMIT = 20;
+
+/** Maximum allowed page size for reports */
+export const MAX_REPORT_LIMIT = 500;
+
+/** Default page size for execution line items on Report */
+export const DEFAULT_REPORT_ELI_LIMIT = 100;
+
 /** Cache configuration for single entities */
 export const ENTITY_CACHE_CONFIG = {
   maxItems: 50_000,
@@ -192,19 +201,19 @@ export interface UAT {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Report Types (Stub)
+// Report Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Budget execution report.
- * Stub type for now - full implementation in separate module.
+ * Represents metadata for an imported budget execution report file.
  */
 export interface Report {
   /** Report ID */
   report_id: string;
   /** Entity CUI */
   entity_cui: string;
-  /** Report type */
+  /** Report type (DB enum value) */
   report_type: DbReportType;
   /** Main creditor CUI */
   main_creditor_cui: string | null;
@@ -218,22 +227,33 @@ export interface Report {
   budget_sector_id: number;
   /** File source path */
   file_source: string | null;
+  /** Download links for report files */
+  download_links: string[];
+  /** Import timestamp */
+  import_timestamp: Date;
 }
 
 /**
  * Filter options for report queries.
+ * All fields are optional for flexibility in top-level queries.
  */
 export interface ReportFilter {
-  /** Entity CUI */
-  entity_cui: string;
-  /** Filter by year */
-  year?: number;
-  /** Filter by period */
-  period?: string;
-  /** Filter by report type */
-  type?: GqlReportType;
+  /** Filter by entity CUI */
+  entity_cui?: string;
+  /** Filter by reporting year */
+  reporting_year?: number;
+  /** Filter by reporting period */
+  reporting_period?: string;
+  /** Filter by report date start (inclusive, ISO date string) */
+  report_date_start?: string;
+  /** Filter by report date end (inclusive, ISO date string) */
+  report_date_end?: string;
+  /** Filter by report type (GraphQL enum value) */
+  report_type?: GqlReportType;
   /** Filter by main creditor CUI */
   main_creditor_cui?: string;
+  /** Search across entity name and download links (ILIKE) */
+  search?: string;
 }
 
 /**
