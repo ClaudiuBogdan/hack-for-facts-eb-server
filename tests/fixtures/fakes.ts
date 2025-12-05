@@ -19,14 +19,21 @@ import type {
   DatasetFileEntry,
 } from '@/modules/datasets/index.js';
 import type {
-  FundingSourceRepository,
   ExecutionLineItemRepository,
-  FundingSource,
-  FundingSourceFilter,
-  FundingSourceConnection,
   ExecutionLineItem,
   ExecutionLineItemFilter,
   ExecutionLineItemConnection,
+  SortInput,
+} from '@/modules/execution-line-items/index.js';
+import type {
+  FundingSourceRepository,
+  ExecutionLineItemRepository as FundingSourceLineItemRepository,
+  FundingSource,
+  FundingSourceFilter,
+  FundingSourceConnection,
+  ExecutionLineItem as FundingSourceLineItem,
+  ExecutionLineItemFilter as FundingSourceLineItemFilter,
+  ExecutionLineItemConnection as FundingSourceLineItemConnection,
 } from '@/modules/funding-sources/index.js';
 
 /**
@@ -242,8 +249,8 @@ const defaultFundingSources: FundingSource[] = [
   { source_id: 4, source_description: 'Credite externe' },
 ];
 
-/** Default execution line items for testing */
-const defaultExecutionLineItems: ExecutionLineItem[] = [
+/** Default execution line items for funding source nested resolver testing */
+const defaultFundingSourceLineItems: FundingSourceLineItem[] = [
   {
     line_item_id: '1',
     report_id: 'report-1',
@@ -327,24 +334,28 @@ export const makeFakeFundingSourceRepo = (
   };
 };
 
-interface FakeExecutionLineItemRepoOptions {
+interface FakeFundingSourceLineItemRepoOptions {
   /** Custom line items to use instead of defaults */
-  lineItems?: ExecutionLineItem[];
+  lineItems?: FundingSourceLineItem[];
 }
 
 /**
- * Creates a fake execution line item repository for testing.
+ * Creates a fake execution line item repository for funding source nested resolvers.
  *
  * Line items are filtered by funding_source_id from the parent.
  * Additional filters (report_id, account_category) are applied if provided.
  */
-export const makeFakeExecutionLineItemRepo = (
-  options: FakeExecutionLineItemRepoOptions = {}
-): ExecutionLineItemRepository => {
-  const lineItems = options.lineItems ?? defaultExecutionLineItems;
+export const makeFakeFundingSourceLineItemRepo = (
+  options: FakeFundingSourceLineItemRepoOptions = {}
+): FundingSourceLineItemRepository => {
+  const lineItems = options.lineItems ?? defaultFundingSourceLineItems;
 
   return {
-    listByFundingSource: async (filter: ExecutionLineItemFilter, limit: number, offset: number) => {
+    listByFundingSource: async (
+      filter: FundingSourceLineItemFilter,
+      limit: number,
+      offset: number
+    ) => {
       // In real implementation, items would be filtered by funding_source_id
       // For fake, we just return all items or empty based on funding_source_id
       let filtered =
@@ -359,6 +370,146 @@ export const makeFakeExecutionLineItemRepo = (
       if (filter.account_category !== undefined) {
         filtered = filtered.filter((item) => item.account_category === filter.account_category);
       }
+
+      const totalCount = filtered.length;
+      const nodes = filtered.slice(offset, offset + limit);
+
+      const connection: FundingSourceLineItemConnection = {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
+
+      return ok(connection);
+    },
+  };
+};
+
+// =============================================================================
+// Execution Line Items Module Fakes
+// =============================================================================
+
+/** Default execution line items for comprehensive testing */
+const defaultExecutionLineItems: ExecutionLineItem[] = [
+  {
+    line_item_id: 'eli-1',
+    report_id: 'report-1',
+    entity_cui: '1234567',
+    funding_source_id: 1,
+    budget_sector_id: 1,
+    functional_code: '51.01',
+    economic_code: '10.01',
+    account_category: 'ch',
+    expense_type: 'functionare',
+    program_code: null,
+    year: 2024,
+    month: 6,
+    quarter: 2,
+    ytd_amount: new Decimal('1000000.00'),
+    monthly_amount: new Decimal('100000.00'),
+    quarterly_amount: new Decimal('300000.00'),
+  },
+  {
+    line_item_id: 'eli-2',
+    report_id: 'report-1',
+    entity_cui: '1234567',
+    funding_source_id: 1,
+    budget_sector_id: 1,
+    functional_code: '00.01',
+    economic_code: null,
+    account_category: 'vn',
+    expense_type: null,
+    program_code: null,
+    year: 2024,
+    month: 6,
+    quarter: 2,
+    ytd_amount: new Decimal('2000000.00'),
+    monthly_amount: new Decimal('200000.00'),
+    quarterly_amount: new Decimal('600000.00'),
+  },
+  {
+    line_item_id: 'eli-3',
+    report_id: 'report-2',
+    entity_cui: '7654321',
+    funding_source_id: 2,
+    budget_sector_id: 2,
+    functional_code: '54.02',
+    economic_code: '20.01',
+    account_category: 'ch',
+    expense_type: 'dezvoltare',
+    program_code: 'P001',
+    year: 2023,
+    month: 12,
+    quarter: 4,
+    ytd_amount: new Decimal('5000000.00'),
+    monthly_amount: new Decimal('500000.00'),
+    quarterly_amount: new Decimal('1500000.00'),
+  },
+];
+
+interface FakeExecutionLineItemRepoOptions {
+  /** Custom line items to use instead of defaults */
+  lineItems?: ExecutionLineItem[];
+}
+
+/**
+ * Creates a fake execution line item repository for testing.
+ *
+ * Supports findById and list operations with basic filtering.
+ * Filtering is simplified - doesn't implement all filter options.
+ */
+export const makeFakeExecutionLineItemRepo = (
+  options: FakeExecutionLineItemRepoOptions = {}
+): ExecutionLineItemRepository => {
+  const lineItems = options.lineItems ?? defaultExecutionLineItems;
+
+  return {
+    findById: async (id: string) => {
+      const item = lineItems.find((i) => i.line_item_id === id);
+      return ok(item ?? null);
+    },
+
+    list: async (
+      filter: ExecutionLineItemFilter,
+      _sort: SortInput,
+      limit: number,
+      offset: number
+    ) => {
+      let filtered = [...lineItems];
+
+      // Apply account_category filter (required)
+      if (filter.account_category !== undefined) {
+        filtered = filtered.filter((item) => item.account_category === filter.account_category);
+      }
+
+      // Apply entity_cuis filter
+      if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
+        const cuisSet = new Set(filter.entity_cuis);
+        filtered = filtered.filter((item) => cuisSet.has(item.entity_cui));
+      }
+
+      // Apply functional_codes filter
+      if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
+        const codesSet = new Set(filter.functional_codes);
+        filtered = filtered.filter((item) => codesSet.has(item.functional_code));
+      }
+
+      // Apply funding_source_ids filter (strings in filter, numbers in items)
+      if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
+        const idsSet = new Set(filter.funding_source_ids.map((id) => Number(id)));
+        filtered = filtered.filter((item) => idsSet.has(item.funding_source_id));
+      }
+
+      // Sort by year desc, ytd_amount desc (default)
+      filtered.sort((a, b) => {
+        if (a.year !== b.year) {
+          return b.year - a.year;
+        }
+        return b.ytd_amount.comparedTo(a.ytd_amount);
+      });
 
       const totalCount = filtered.length;
       const nodes = filtered.slice(offset, offset + limit);

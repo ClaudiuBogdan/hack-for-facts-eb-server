@@ -11,7 +11,7 @@ import {
   makeFakeBudgetDb,
   makeFakeDatasetRepo,
   makeFakeFundingSourceRepo,
-  makeFakeExecutionLineItemRepo,
+  makeFakeFundingSourceLineItemRepo,
 } from '../fixtures/fakes.js';
 
 import type { FundingSource } from '@/modules/funding-sources/index.js';
@@ -39,7 +39,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo({ sources }),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -75,7 +75,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo({ sources: [] }),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -107,7 +107,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -139,7 +139,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -173,7 +173,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -218,7 +218,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -259,7 +259,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -298,7 +298,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -337,7 +337,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -376,7 +376,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -411,7 +411,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -446,7 +446,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -483,7 +483,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -531,7 +531,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -573,7 +573,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });
@@ -612,7 +612,7 @@ describe('Funding Source GraphQL API', () => {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
-          executionLineItemRepo: makeFakeExecutionLineItemRepo(),
+          executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
           config: makeTestConfig(),
         },
       });

@@ -44,6 +44,13 @@ import {
   makeAnalyticsRepo,
 } from '../modules/execution-analytics/index.js';
 import {
+  makeExecutionLineItemResolvers,
+  ExecutionLineItemSchema,
+  makeExecutionLineItemRepo as makeExecutionLineItemsModuleRepo,
+  createExecutionLineItemLoaders,
+  type ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
+} from '../modules/execution-line-items/index.js';
+import {
   makeFundingSourceResolvers,
   FundingSourceSchema,
   makeFundingSourceRepo,
@@ -71,7 +78,10 @@ export interface AppDeps {
   datasetRepo: DatasetRepo;
   budgetSectorRepo?: BudgetSectorRepository;
   fundingSourceRepo?: FundingSourceRepository;
+  /** Repository for funding source nested resolver (funding-sources module) */
   executionLineItemRepo?: ExecutionLineItemRepository;
+  /** Repository for execution line items module (standalone queries) */
+  executionLineItemsModuleRepo?: ExecutionLineItemsModuleRepository;
   config: AppConfig;
 }
 
@@ -167,6 +177,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     executionLineItemRepo,
   });
 
+  // Setup Execution Line Items Module (standalone queries with DataLoaders)
+  const executionLineItemsModuleRepo =
+    deps.executionLineItemsModuleRepo ?? makeExecutionLineItemsModuleRepo(budgetDb);
+  const executionLineItemsResolvers = makeExecutionLineItemResolvers({
+    executionLineItemRepo: executionLineItemsModuleRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -178,6 +195,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     DatasetsSchema,
     BudgetSectorSchema,
     FundingSourceSchema,
+    ExecutionLineItemSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -188,12 +206,17 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     datasetsResolvers,
     budgetSectorResolvers,
     fundingSourceResolvers,
+    executionLineItemsResolvers,
   ];
+
+  // Create Mercurius loaders for N+1 prevention
+  const executionLineItemLoaders = createExecutionLineItemLoaders(budgetDb);
 
   await app.register(
     makeGraphQLPlugin({
       schema,
       resolvers,
+      loaders: executionLineItemLoaders,
     })
   );
 

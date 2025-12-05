@@ -1,5 +1,5 @@
 import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql-tools/schema';
-import mercuriusPlugin, { type IResolvers } from 'mercurius';
+import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercurius';
 
 import type { FastifyPluginAsync } from 'fastify';
 
@@ -18,6 +18,11 @@ export interface GraphQLOptions {
   schema: string[];
   resolvers: IResolvers[];
   enableGraphiQL?: boolean;
+  /**
+   * Optional Mercurius loaders for batching N+1 queries.
+   * @see https://github.com/mercurius-js/mercurius/blob/master/docs/loaders.md
+   */
+  loaders?: MercuriusLoaders;
 }
 
 /**
@@ -28,6 +33,7 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
     schema: baseSchema,
     resolvers,
     enableGraphiQL = process.env['NODE_ENV'] !== 'production',
+    loaders,
   } = options;
 
   const schema = makeExecutableSchema({
@@ -40,6 +46,8 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       schema,
       graphiql: enableGraphiQL,
       path: '/graphql',
+      // Mercurius loaders for batching N+1 queries (only add if defined)
+      ...(loaders !== undefined && { loaders }),
       errorFormatter: (execution, context) => {
         const response = mercuriusPlugin.defaultErrorFormatter(execution, context);
         // Here we could map domain errors to GraphQL errors as per Architecture spec
