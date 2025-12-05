@@ -38,6 +38,7 @@ const main = async (): Promise<void> => {
   const { budgetDb } = initDatabases(config);
   const datasetRepo = createDatasetRepo({
     rootDir: './datasets/yaml',
+    logger,
   });
 
   // Validate required normalization datasets exist

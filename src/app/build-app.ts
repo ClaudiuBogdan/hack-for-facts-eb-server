@@ -23,6 +23,11 @@ import {
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
 import {
+  type DatasetRepo,
+  DatasetsSchema,
+  makeDatasetsResolvers,
+} from '../modules/datasets/index.js';
+import {
   makeEntityAnalyticsResolvers,
   EntityAnalyticsSchema,
   makeEntityAnalyticsRepo,
@@ -42,7 +47,6 @@ import { NormalizationService } from '../modules/normalization/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
 import type { BudgetDbClient } from '../infra/database/client.js';
-import type { DatasetRepo } from '../modules/datasets/index.js';
 
 /**
  * Application dependencies that can be injected
@@ -127,6 +131,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     normalization: normalizationService,
   });
 
+  // Setup Datasets Module (GraphQL interface for static datasets)
+  const datasetsResolvers = makeDatasetsResolvers({
+    datasetRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -135,6 +144,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     ExecutionAnalyticsSchema,
     AggregatedLineItemsSchema,
     EntityAnalyticsSchema,
+    DatasetsSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -142,6 +152,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     analyticsResolvers,
     aggregatedLineItemsResolvers,
     entityAnalyticsResolvers,
+    datasetsResolvers,
   ];
 
   await app.register(

@@ -16,6 +16,7 @@ import {
 import { parseDataset } from '../../core/usecases/parse-dataset.js';
 
 import type { DatasetRepo } from '../../core/ports.js';
+import type { Logger } from 'pino';
 
 const validator = TypeCompiler.Compile(DatasetFileSchema);
 
@@ -23,6 +24,8 @@ export interface DatasetRepoOptions {
   rootDir: string;
   cacheMax?: number;
   cacheTtlMs?: number;
+  /** Optional logger for warning/error messages */
+  logger?: Logger;
 }
 
 const readDatasetFile = async (
@@ -192,6 +195,45 @@ export const createDatasetRepo = (options: DatasetRepoOptions): DatasetRepo => {
       }
 
       return ok(indexResult.value.entries);
+    },
+
+    async getByIds(ids: string[]): Promise<Result<Dataset[], DatasetRepoError>> {
+      // Remove duplicates
+      const uniqueIds = [...new Set(ids)];
+      const results: Dataset[] = [];
+
+      for (const id of uniqueIds) {
+        const result = await this.getById(id);
+        if (result.isOk()) {
+          results.push(result.value);
+        }
+        // Silently skip not found datasets
+      }
+
+      return ok(results);
+    },
+
+    async getAllWithMetadata(): Promise<Result<Dataset[], DatasetRepoError>> {
+      const entriesResult = await this.listAvailable();
+      if (entriesResult.isErr()) {
+        return err(entriesResult.error);
+      }
+
+      const datasets: Dataset[] = [];
+      for (const entry of entriesResult.value) {
+        const result = await this.getById(entry.id);
+        if (result.isOk()) {
+          datasets.push(result.value);
+        } else {
+          // Log warning for datasets that fail to load
+          options.logger?.warn(
+            { datasetId: entry.id, errorType: result.error.type },
+            `Failed to load dataset ${entry.id}: ${result.error.message}`
+          );
+        }
+      }
+
+      return ok(datasets);
     },
   };
 };

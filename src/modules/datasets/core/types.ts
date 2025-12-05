@@ -88,3 +88,104 @@ export interface DatasetFileEntry {
   absolutePath: string;
   relativePath: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GraphQL-oriented types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GraphQL axis data type enum.
+ * Mapped from internal 'date' | 'category' | 'number' types.
+ */
+export type AxisDataType = 'STRING' | 'INTEGER' | 'FLOAT' | 'DATE';
+
+/**
+ * Granularity of time-based axis data.
+ * Used for charts to determine appropriate display formatting.
+ */
+export type AxisGranularity = 'YEAR' | 'QUARTER' | 'MONTH' | 'CATEGORY';
+
+/**
+ * GraphQL axis representation for chart display.
+ */
+export interface GraphQLAxis {
+  name: string;
+  type: AxisDataType;
+  unit: string;
+  granularity?: AxisGranularity;
+}
+
+/**
+ * Dataset summary for listing (excludes data points).
+ */
+export interface DatasetSummary {
+  id: string;
+  name: string; // Mapped from i18n.{lang}.title
+  title: string; // Mapped from i18n.{lang}.title
+  description: string; // Mapped from i18n.{lang}.description ?? ''
+  sourceName: string | null;
+  sourceUrl: string | null;
+  xAxis: GraphQLAxis;
+  yAxis: GraphQLAxis;
+}
+
+/**
+ * Pagination metadata for dataset listing.
+ */
+export interface DatasetPageInfo {
+  totalCount: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+/**
+ * Paginated dataset listing result.
+ */
+export interface DatasetConnection {
+  nodes: DatasetSummary[];
+  pageInfo: DatasetPageInfo;
+}
+
+/**
+ * Filter input for dataset listing.
+ */
+export interface DatasetFilter {
+  search?: string;
+  ids?: string[];
+}
+
+/**
+ * Input for list datasets use case.
+ */
+export interface ListDatasetsInput {
+  filter?: DatasetFilter | undefined;
+  limit: number;
+  offset: number;
+  lang?: string | undefined;
+}
+
+/**
+ * Data point for analytics series (y as number for GraphQL).
+ */
+export interface AnalyticsDataPoint {
+  x: string;
+  y: number;
+}
+
+/**
+ * Analytics series for chart display.
+ */
+export interface AnalyticsSeries {
+  seriesId: string;
+  xAxis: GraphQLAxis;
+  yAxis: GraphQLAxis;
+  data: AnalyticsDataPoint[];
+}
+
+/**
+ * Input for get static chart analytics use case.
+ */
+export interface GetStaticChartAnalyticsInput {
+  seriesIds: string[];
+  lang?: string | undefined;
+}

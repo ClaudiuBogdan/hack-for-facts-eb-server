@@ -119,6 +119,20 @@ export const makeFakeDatasetRepo = (options: FakeDatasetRepoOptions = {}): Datas
       }));
       return ok(entries);
     },
+    getByIds: async (ids: string[]): Promise<Result<Dataset[], DatasetRepoError>> => {
+      const uniqueIds = [...new Set(ids)];
+      const results: Dataset[] = [];
+      for (const id of uniqueIds) {
+        const dataset = datasets[id];
+        if (dataset != null) {
+          results.push(dataset);
+        }
+      }
+      return ok(results);
+    },
+    getAllWithMetadata: async (): Promise<Result<Dataset[], DatasetRepoError>> => {
+      return ok(Object.values(datasets));
+    },
   };
 };
 
