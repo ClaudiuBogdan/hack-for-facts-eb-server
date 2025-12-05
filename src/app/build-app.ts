@@ -44,6 +44,14 @@ import {
   makeAnalyticsRepo,
 } from '../modules/execution-analytics/index.js';
 import {
+  makeFundingSourceResolvers,
+  FundingSourceSchema,
+  makeFundingSourceRepo,
+  makeExecutionLineItemRepo,
+  type FundingSourceRepository,
+  type ExecutionLineItemRepository,
+} from '../modules/funding-sources/index.js';
+import {
   makeHealthRoutes,
   makeHealthResolvers,
   healthSchema,
@@ -62,6 +70,8 @@ export interface AppDeps {
   budgetDb: BudgetDbClient;
   datasetRepo: DatasetRepo;
   budgetSectorRepo?: BudgetSectorRepository;
+  fundingSourceRepo?: FundingSourceRepository;
+  executionLineItemRepo?: ExecutionLineItemRepository;
   config: AppConfig;
 }
 
@@ -149,6 +159,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     budgetSectorRepo,
   });
 
+  // Setup Funding Source Module
+  const fundingSourceRepo = deps.fundingSourceRepo ?? makeFundingSourceRepo(budgetDb);
+  const executionLineItemRepo = deps.executionLineItemRepo ?? makeExecutionLineItemRepo(budgetDb);
+  const fundingSourceResolvers = makeFundingSourceResolvers({
+    fundingSourceRepo,
+    executionLineItemRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -159,6 +177,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     EntityAnalyticsSchema,
     DatasetsSchema,
     BudgetSectorSchema,
+    FundingSourceSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -168,6 +187,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     entityAnalyticsResolvers,
     datasetsResolvers,
     budgetSectorResolvers,
+    fundingSourceResolvers,
   ];
 
   await app.register(

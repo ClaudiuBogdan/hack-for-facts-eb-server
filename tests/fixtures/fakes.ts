@@ -18,6 +18,16 @@ import type {
   DatasetRepoError,
   DatasetFileEntry,
 } from '@/modules/datasets/index.js';
+import type {
+  FundingSourceRepository,
+  ExecutionLineItemRepository,
+  FundingSource,
+  FundingSourceFilter,
+  FundingSourceConnection,
+  ExecutionLineItem,
+  ExecutionLineItemFilter,
+  ExecutionLineItemConnection,
+} from '@/modules/funding-sources/index.js';
 
 /**
  * Creates minimal fake datasets for normalization.
@@ -207,6 +217,153 @@ export const makeFakeBudgetSectorRepo = (
       const nodes = filtered.slice(offset, offset + limit);
 
       const connection: BudgetSectorConnection = {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
+
+      return ok(connection);
+    },
+  };
+};
+
+// =============================================================================
+// Funding Source Fakes
+// =============================================================================
+
+/** Default funding sources for testing */
+const defaultFundingSources: FundingSource[] = [
+  { source_id: 1, source_description: 'Buget de stat' },
+  { source_id: 2, source_description: 'Fonduri externe nerambursabile' },
+  { source_id: 3, source_description: 'Venituri proprii' },
+  { source_id: 4, source_description: 'Credite externe' },
+];
+
+/** Default execution line items for testing */
+const defaultExecutionLineItems: ExecutionLineItem[] = [
+  {
+    line_item_id: '1',
+    report_id: 'report-1',
+    year: 2024,
+    month: 6,
+    entity_cui: '1234567',
+    account_category: 'ch',
+    functional_code: '51.01',
+    economic_code: '10.01',
+    ytd_amount: '1000000.00',
+    monthly_amount: '100000.00',
+  },
+  {
+    line_item_id: '2',
+    report_id: 'report-1',
+    year: 2024,
+    month: 6,
+    entity_cui: '1234567',
+    account_category: 'vn',
+    functional_code: '00.01',
+    economic_code: null,
+    ytd_amount: '2000000.00',
+    monthly_amount: '200000.00',
+  },
+];
+
+interface FakeFundingSourceRepoOptions {
+  /** Custom funding sources to use instead of defaults */
+  sources?: FundingSource[];
+}
+
+/**
+ * Creates a fake funding source repository for testing.
+ *
+ * Uses simple substring matching for search filter (instead of pg_trgm).
+ * Sources are sorted by source_id for deterministic pagination.
+ */
+export const makeFakeFundingSourceRepo = (
+  options: FakeFundingSourceRepoOptions = {}
+): FundingSourceRepository => {
+  const sources = options.sources ?? defaultFundingSources;
+
+  return {
+    findById: async (id: number) => {
+      const source = sources.find((s) => s.source_id === id);
+      return ok(source ?? null);
+    },
+
+    list: async (filter: FundingSourceFilter | undefined, limit: number, offset: number) => {
+      let filtered = [...sources];
+
+      // Apply search filter (simple substring match for fake)
+      if (filter?.search !== undefined && filter.search.trim() !== '') {
+        const searchLower = filter.search.toLowerCase();
+        filtered = filtered.filter((s) => s.source_description.toLowerCase().includes(searchLower));
+      }
+
+      // Apply source_ids filter
+      if (filter?.source_ids !== undefined && filter.source_ids.length > 0) {
+        const idsSet = new Set(filter.source_ids);
+        filtered = filtered.filter((s) => idsSet.has(s.source_id));
+      }
+
+      // Sort by ID for consistency
+      filtered.sort((a, b) => a.source_id - b.source_id);
+
+      const totalCount = filtered.length;
+      const nodes = filtered.slice(offset, offset + limit);
+
+      const connection: FundingSourceConnection = {
+        nodes,
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      };
+
+      return ok(connection);
+    },
+  };
+};
+
+interface FakeExecutionLineItemRepoOptions {
+  /** Custom line items to use instead of defaults */
+  lineItems?: ExecutionLineItem[];
+}
+
+/**
+ * Creates a fake execution line item repository for testing.
+ *
+ * Line items are filtered by funding_source_id from the parent.
+ * Additional filters (report_id, account_category) are applied if provided.
+ */
+export const makeFakeExecutionLineItemRepo = (
+  options: FakeExecutionLineItemRepoOptions = {}
+): ExecutionLineItemRepository => {
+  const lineItems = options.lineItems ?? defaultExecutionLineItems;
+
+  return {
+    listByFundingSource: async (filter: ExecutionLineItemFilter, limit: number, offset: number) => {
+      // In real implementation, items would be filtered by funding_source_id
+      // For fake, we just return all items or empty based on funding_source_id
+      let filtered =
+        filter.funding_source_id === 1 || filter.funding_source_id === 2 ? [...lineItems] : [];
+
+      // Apply report_id filter
+      if (filter.report_id !== undefined) {
+        filtered = filtered.filter((item) => item.report_id === filter.report_id);
+      }
+
+      // Apply account_category filter
+      if (filter.account_category !== undefined) {
+        filtered = filtered.filter((item) => item.account_category === filter.account_category);
+      }
+
+      const totalCount = filtered.length;
+      const nodes = filtered.slice(offset, offset + limit);
+
+      const connection: ExecutionLineItemConnection = {
         nodes,
         pageInfo: {
           totalCount,
