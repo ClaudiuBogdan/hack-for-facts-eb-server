@@ -34,6 +34,15 @@ export const MAX_REPORT_LIMIT = 500;
 /** Default page size for execution line items on Report */
 export const DEFAULT_REPORT_ELI_LIMIT = 100;
 
+/** Default page size for UAT listing */
+export const DEFAULT_UAT_LIMIT = 20;
+
+/** Maximum allowed page size for UATs */
+export const MAX_UAT_LIMIT = 500;
+
+/** Similarity threshold for UAT pg_trgm search */
+export const UAT_SIMILARITY_THRESHOLD = 0.1;
+
 /** Cache configuration for single entities */
 export const ENTITY_CACHE_CONFIG = {
   maxItems: 50_000,
@@ -172,12 +181,11 @@ export interface EntityConnection {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UAT Types (Stub)
+// UAT Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Administrative Territorial Unit (UAT).
- * Stub type for now - full implementation in separate module.
  */
 export interface UAT {
   /** UAT ID */
@@ -198,6 +206,54 @@ export interface UAT {
   region: string;
   /** Population count */
   population: number | null;
+}
+
+/**
+ * Filter options for UAT queries.
+ */
+export interface UATFilter {
+  /** Exact ID match */
+  id?: number;
+  /** Match any of these IDs */
+  ids?: number[];
+  /** Exact uat_key match */
+  uat_key?: string;
+  /** Exact uat_code match */
+  uat_code?: string;
+  /** Partial name match (ILIKE when no search) */
+  name?: string;
+  /** Exact county_code match */
+  county_code?: string;
+  /** Partial county_name match (ILIKE when no search) */
+  county_name?: string;
+  /** Exact region match */
+  region?: string;
+  /** Full-text search using pg_trgm (name + county_name) */
+  search?: string;
+  /** Filter to county-level UATs only */
+  is_county?: boolean;
+}
+
+/**
+ * Pagination metadata for UAT listing.
+ */
+export interface UATPageInfo {
+  /** Total number of UATs matching the filter */
+  totalCount: number;
+  /** Whether there are more pages after current */
+  hasNextPage: boolean;
+  /** Whether there are pages before current */
+  hasPreviousPage: boolean;
+}
+
+/**
+ * Paginated connection of UATs.
+ */
+export interface UATConnection {
+  /** List of UATs in current page */
+  nodes: UAT[];
+  /** Pagination metadata */
+  pageInfo: UATPageInfo;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { Frequency } from '@/common/types/temporal.js';
 import {
   DEFAULT_REPORT_LIMIT,
   DEFAULT_REPORT_ELI_LIMIT,
+  DEFAULT_UAT_LIMIT,
   type Entity,
   type EntityFilter,
   type Report,
@@ -17,11 +18,15 @@ import {
   type ReportPeriodInput,
   type GqlReportType,
   type DbReportType,
+  type UAT,
+  type UATFilter,
 } from '../../core/types.js';
 import { getEntity } from '../../core/usecases/get-entity.js';
 import { getReport } from '../../core/usecases/get-report.js';
+import { getUAT } from '../../core/usecases/get-uat.js';
 import { listEntities } from '../../core/usecases/list-entities.js';
 import { listReports } from '../../core/usecases/list-reports.js';
+import { listUATs } from '../../core/usecases/list-uats.js';
 
 import type {
   EntityRepository,
@@ -82,6 +87,19 @@ interface GqlReportFilterInput {
   report_type?: GqlReportType;
   main_creditor_cui?: string;
   search?: string;
+}
+
+interface GqlUATFilterInput {
+  id?: string;
+  ids?: string[];
+  uat_key?: string;
+  uat_code?: string;
+  name?: string;
+  county_code?: string;
+  county_name?: string;
+  region?: string;
+  search?: string;
+  is_county?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,6 +197,27 @@ const mapGqlFilterToReportFilter = (gqlFilter?: GqlReportFilterInput): ReportFil
   if (gqlFilter.main_creditor_cui !== undefined)
     filter.main_creditor_cui = gqlFilter.main_creditor_cui;
   if (gqlFilter.search !== undefined) filter.search = gqlFilter.search;
+  return filter;
+};
+
+/**
+ * Converts GraphQL UATFilterInput to internal UATFilter.
+ */
+const mapGqlFilterToUATFilter = (gqlFilter?: GqlUATFilterInput): UATFilter => {
+  if (gqlFilter === undefined) {
+    return {};
+  }
+  const filter: UATFilter = {};
+  if (gqlFilter.id !== undefined) filter.id = Number.parseInt(gqlFilter.id, 10);
+  if (gqlFilter.ids !== undefined) filter.ids = gqlFilter.ids.map((id) => Number.parseInt(id, 10));
+  if (gqlFilter.uat_key !== undefined) filter.uat_key = gqlFilter.uat_key;
+  if (gqlFilter.uat_code !== undefined) filter.uat_code = gqlFilter.uat_code;
+  if (gqlFilter.name !== undefined) filter.name = gqlFilter.name;
+  if (gqlFilter.county_code !== undefined) filter.county_code = gqlFilter.county_code;
+  if (gqlFilter.county_name !== undefined) filter.county_name = gqlFilter.county_name;
+  if (gqlFilter.region !== undefined) filter.region = gqlFilter.region;
+  if (gqlFilter.search !== undefined) filter.search = gqlFilter.search;
+  if (gqlFilter.is_county !== undefined) filter.is_county = gqlFilter.is_county;
   return filter;
 };
 
@@ -295,6 +334,55 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           {
             filter,
             limit: args.limit ?? DEFAULT_REPORT_LIMIT,
+            offset: args.offset ?? 0,
+          }
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, filter },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      uat: async (
+        _parent: unknown,
+        args: { id: string },
+        context: MercuriusContext
+      ): Promise<UAT | null> => {
+        const id = Number.parseInt(args.id, 10);
+        if (Number.isNaN(id)) {
+          throw new Error('[VALIDATION_ERROR] Invalid UAT ID');
+        }
+
+        const result = await getUAT({ uatRepo }, { id });
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, id: args.id },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      uats: async (
+        _parent: unknown,
+        args: { filter?: GqlUATFilterInput; limit?: number; offset?: number },
+        context: MercuriusContext
+      ) => {
+        const filter = mapGqlFilterToUATFilter(args.filter);
+        const result = await listUATs(
+          { uatRepo },
+          {
+            filter,
+            limit: args.limit ?? DEFAULT_UAT_LIMIT,
             offset: args.offset ?? 0,
           }
         );
@@ -845,6 +933,45 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         }
 
         return result.value;
+      },
+    },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // UAT Type Resolvers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    UAT: {
+      // County entity relation
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
+      county_entity: async (parent: UAT, _args: unknown, context: MercuriusContext) => {
+        // County UAT identification:
+        // - siruta_code = county_code, OR
+        // - county_code = 'B' AND siruta_code = '179132' (Bucharest special case)
+        const isCounty =
+          parent.siruta_code === parent.county_code ||
+          (parent.county_code === 'B' && parent.siruta_code === '179132');
+
+        if (isCounty) {
+          // This UAT is itself a county, no parent county
+          return null;
+        }
+
+        // Find the county UAT for this UAT's county_code
+        const result = await uatRepo.getAll(
+          { is_county: true, county_code: parent.county_code },
+          1,
+          0
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, parent_id: parent.id },
+            `[${result.error.type}] county_entity lookup failed`
+          );
+          return null;
+        }
+
+        return result.value.nodes[0] ?? null;
       },
     },
   };

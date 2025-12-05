@@ -14,6 +14,9 @@ export type {
   EntityConnection,
   EntityPageInfo,
   UAT,
+  UATFilter,
+  UATConnection,
+  UATPageInfo,
   Report,
   ReportConnection,
   ReportPageInfo,
@@ -35,6 +38,9 @@ export {
   DEFAULT_REPORT_LIMIT,
   MAX_REPORT_LIMIT,
   DEFAULT_REPORT_ELI_LIMIT,
+  DEFAULT_UAT_LIMIT,
+  MAX_UAT_LIMIT,
+  UAT_SIMILARITY_THRESHOLD,
   GQL_TO_DB_REPORT_TYPE,
   DB_TO_GQL_REPORT_TYPE,
 } from './core/types.js';
@@ -84,6 +90,10 @@ export {
   type ListReportsDeps,
   type ListReportsInput,
 } from './core/usecases/list-reports.js';
+
+export { getUAT, type GetUATDeps, type GetUATInput } from './core/usecases/get-uat.js';
+
+export { listUATs, type ListUATsDeps, type ListUATsInput } from './core/usecases/list-uats.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repositories

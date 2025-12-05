@@ -11,6 +11,8 @@ import type {
   EntityFilter,
   EntityTotals,
   UAT,
+  UATConnection,
+  UATFilter,
   Report,
   ReportConnection,
   ReportFilter,
@@ -84,12 +86,11 @@ export interface EntityRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UAT Repository (Stub)
+// UAT Repository
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Repository interface for UAT data access.
- * Stub for now - full implementation in separate module.
  */
 export interface UATRepository {
   /**
@@ -99,6 +100,44 @@ export interface UATRepository {
    * @returns The UAT if found, null if not found
    */
   getById(id: number): Promise<Result<UAT | null, EntityError>>;
+
+  /**
+   * List UATs with filtering and pagination.
+   *
+   * Filtering:
+   * - id: exact match
+   * - ids: match any of these IDs
+   * - uat_key: exact match
+   * - uat_code: exact match
+   * - name: ILIKE (when no search), or similarity (with search)
+   * - county_code: exact match
+   * - county_name: ILIKE (when no search), or similarity (with search)
+   * - region: exact match
+   * - search: pg_trgm similarity on name + county_name
+   * - is_county: filter to county-level UATs (siruta_code = county_code OR Bucharest special case)
+   *
+   * Sorting:
+   * - With search: ORDER BY similarity DESC, name ASC, id ASC
+   * - Without search: ORDER BY name ASC, id ASC
+   *
+   * @param filter - Filter criteria
+   * @param limit - Maximum number of results
+   * @param offset - Number of results to skip
+   * @returns Paginated UAT connection
+   */
+  getAll(
+    filter: UATFilter,
+    limit: number,
+    offset: number
+  ): Promise<Result<UATConnection, EntityError>>;
+
+  /**
+   * Count UATs matching filter.
+   *
+   * @param filter - Filter criteria
+   * @returns Total count of matching UATs
+   */
+  count(filter: UATFilter): Promise<Result<number, EntityError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
