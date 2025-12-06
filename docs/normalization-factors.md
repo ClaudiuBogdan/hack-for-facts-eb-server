@@ -294,3 +294,147 @@ When available, these will provide better accuracy for sub-annual data:
 - `ro.economics.cpi.quarterly`
 - `ro.economics.exchange.ron_eur.monthly`
 - `ro.economics.exchange.ron_usd.monthly`
+
+---
+
+## Known Limitation: Population Double-Counting Risk
+
+### Background: Romanian Administrative Structure
+
+Romania's UAT (Administrative Territorial Unit) system has a hierarchical structure:
+
+```
+County (Județ)
+  └── County-level UAT (siruta_code = county_code)
+        ├── Municipality (Municipiu)
+        ├── Town (Oraș)
+        └── Commune (Comună)
+              └── Village (Sat)
+```
+
+**Key concept**: Each county has a special "county-level UAT" where `siruta_code = county_code`. This UAT's `population` field contains the **total population for the entire county**, including all sub-municipal UATs.
+
+**Bucharest special case**: County code `'B'` uses `siruta_code = '179132'` for its county-level record.
+
+### The Problem: Mixed Entity Filters
+
+When a filter includes **both** a county-level entity (e.g., county council) **AND** sub-municipal UATs from that same county, the population calculation can double-count.
+
+#### Example Scenario
+
+```
+Filter: {
+  entity_cuis: ['CJ_COUNTY_COUNCIL', 'VILLAGE_X_IN_CJ']
+}
+Normalization: per_capita
+```
+
+**What happens:**
+
+1. `CJ_COUNTY_COUNCIL` entity has `uat_id` → county-level UAT → population: **700,000** (all of Cluj county)
+2. `VILLAGE_X_IN_CJ` entity has `uat_id` → village UAT → population: **5,000**
+3. Population repository sums: `700,000 + 5,000 = 705,000`
+
+**The bug**: Village X's 5,000 people are **already included** in the county's 700,000 total! The correct denominator should be 700,000, not 705,000.
+
+### Why `SUM(DISTINCT)` Doesn't Help
+
+The population repository uses `SUM(DISTINCT u.population)`:
+
+```sql
+SELECT COALESCE(SUM(DISTINCT u.population), 0) AS total_population
+FROM entities e
+INNER JOIN uats u ON e.uat_id = u.id
+WHERE e.cui IN ('CJ_COUNTY_COUNCIL', 'VILLAGE_X_IN_CJ')
+```
+
+This only deduplicates if the **same `uat_id`** appears twice. It does NOT detect that one UAT is geographically contained within another.
+
+### Priority-Based Resolution
+
+The population repository (`src/modules/normalization/shell/repo/population-repo.ts`) uses priority-based resolution:
+
+```typescript
+// Priority: entity_cuis > uat_ids > county_codes > entity_types > is_uat
+if (entityCuis !== undefined && entityCuis.length > 0) {
+  return this.getPopulationByEntityCuis(entityCuis); // Used
+}
+if (uatIds !== undefined && uatIds.length > 0) {
+  return this.getPopulationByUatIds(uatIds); // Ignored if entity_cuis present
+}
+if (countyCodes !== undefined && countyCodes.length > 0) {
+  return this.getPopulationByCountyCodes(countyCodes); // Ignored if above present
+}
+```
+
+This means when **multiple filter types** are combined:
+
+- Only the highest-priority filter determines population
+- Other filters may contribute to the budget data but NOT the population denominator
+
+### Affected Modules
+
+| Module                    | Risk Level | Why                                                                                                           |
+| ------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **Aggregated Line Items** | **HIGH**   | Uses single population denominator for ALL results. Mixed filters can give incorrect per-capita.              |
+| **UAT Analytics**         | Low        | Each UAT gets its own population. Per-capita is per-UAT.                                                      |
+| **Entity Analytics**      | Low        | Per-entity population computed in SQL. County councils get county population, UATs get individual population. |
+| **County Analytics**      | Low        | Per-county population (fixed to use county-level UAT only).                                                   |
+
+### Code Locations
+
+- **Population Repository**: `src/modules/normalization/shell/repo/population-repo.ts`
+  - `computeFilteredPopulation()` - priority-based resolution (lines 127-166)
+  - `getPopulationByEntityCuis()` - sums populations without hierarchy awareness (lines 172-181)
+  - `getPopulationByCountyCodes()` - correctly uses county-level populations (lines 205-223)
+
+- **Aggregated Line Items**: `src/modules/aggregated-line-items/core/usecases/get-aggregated-line-items.ts`
+  - `getDenominatorPopulation()` - called once, used for ALL results (lines 131-145)
+
+### Safe Patterns
+
+The **Entity Analytics** module handles this correctly by computing population **per-row** in SQL:
+
+```sql
+-- From entity-analytics-repo.ts
+CASE
+  WHEN e.is_uat = true THEN u.population              -- UAT's own population
+  WHEN e.entity_type = 'admin_county_council' THEN cp.county_population  -- County's total
+  ELSE NULL                                            -- Other entities: no per-capita
+END AS population
+```
+
+This ensures:
+
+- UAT entities use their individual population
+- County councils use the county-level population
+- No double-counting between different entity types
+
+### Recommendations for Future Fixes
+
+1. **For `getPopulationByEntityCuis`**: Detect when both a county-level entity AND sub-municipal UATs from that county are included, then deduplicate:
+
+   ```typescript
+   // Pseudocode:
+   // 1. Find all counties represented by entities
+   // 2. For each county: if county council is included, exclude its sub-municipal UATs
+   // 3. Sum remaining unique populations
+   ```
+
+2. **For aggregated-line-items**: Add validation/warning when mixed entity types are used with per_capita normalization.
+
+3. **Alternative**: Follow the entity-analytics pattern and compute population per-row in SQL rather than as a shared denominator.
+
+### Workarounds
+
+Until fixed, users should avoid combining filters that mix:
+
+- County council entities with UATs from the same county
+- `county_codes` filter with `uat_ids` from those counties
+- `entity_types: ['admin_county_council']` with specific `uat_ids`
+
+**Safe combinations:**
+
+- Only county councils (no UATs)
+- Only UATs (no county councils)
+- Single county with per-capita (uses county-level population correctly)

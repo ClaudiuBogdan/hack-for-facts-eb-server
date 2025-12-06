@@ -29,6 +29,11 @@ import {
   type BudgetSectorRepository,
 } from '../modules/budget-sector/index.js';
 import {
+  makeCountyAnalyticsResolvers,
+  CountyAnalyticsSchema,
+  makeCountyAnalyticsRepo,
+} from '../modules/county-analytics/index.js';
+import {
   type DatasetRepo,
   DatasetsSchema,
   makeDatasetsResolvers,
@@ -219,6 +224,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     normalizationService,
   });
 
+  // Setup County Analytics Module
+  const countyAnalyticsRepo = makeCountyAnalyticsRepo(budgetDb);
+  const countyAnalyticsResolvers = makeCountyAnalyticsResolvers({
+    repo: countyAnalyticsRepo,
+    normalizationService,
+    entityRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -233,6 +246,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     ExecutionLineItemSchema,
     EntitySchema,
     UATAnalyticsSchema,
+    CountyAnalyticsSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -246,6 +260,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     executionLineItemsResolvers,
     entityResolvers,
     uatAnalyticsResolvers,
+    countyAnalyticsResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention
