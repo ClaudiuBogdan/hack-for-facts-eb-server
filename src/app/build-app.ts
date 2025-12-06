@@ -73,6 +73,11 @@ import {
   type HealthChecker,
 } from '../modules/health/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
+import {
+  makeUATAnalyticsResolvers,
+  UATAnalyticsSchema,
+  makeUATAnalyticsRepo,
+} from '../modules/uat-analytics/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
 import type { BudgetDbClient } from '../infra/database/client.js';
@@ -207,6 +212,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     budgetSectorRepo,
   });
 
+  // Setup UAT Analytics Module
+  const uatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
+  const uatAnalyticsResolvers = makeUATAnalyticsResolvers({
+    repo: uatAnalyticsRepo,
+    normalizationService,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -220,6 +232,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     FundingSourceSchema,
     ExecutionLineItemSchema,
     EntitySchema,
+    UATAnalyticsSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -232,6 +245,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     fundingSourceResolvers,
     executionLineItemsResolvers,
     entityResolvers,
+    uatAnalyticsResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention
