@@ -71,6 +71,8 @@ export const EntitySchema = /* GraphQL */ `
       offset: Int = 0
       "Sort configuration. Accepts both new format (field/order) and old format (by/order) for backward compatibility."
       sort: SortOrder
+      "Normalization mode for amount fields (total, per_capita, etc.)"
+      normalization: Normalization
     ): ExecutionLineItemConnection!
 
     # ---------------------------------------------------------------------------

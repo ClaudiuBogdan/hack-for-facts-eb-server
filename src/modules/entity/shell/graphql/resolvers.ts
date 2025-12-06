@@ -47,6 +47,7 @@ import type { BudgetSectorRepository } from '@/modules/budget-sector/index.js';
 import type {
   ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
   SortableField,
+  ExecutionLineItem,
 } from '@/modules/execution-line-items/index.js';
 import type {
   NormalizationService,
@@ -347,6 +348,146 @@ const applyNormalizationToSeries = async (
   }));
 };
 
+/**
+ * Normalized execution line item output type.
+ * Amounts are numbers after normalization is applied.
+ */
+interface NormalizedExecutionLineItem {
+  line_item_id: string;
+  report_id: string;
+  entity_cui: string;
+  funding_source_id: number;
+  budget_sector_id: number;
+  functional_code: string;
+  economic_code: string | null;
+  account_category: string;
+  expense_type: string | null;
+  program_code: string | null;
+  year: number;
+  month: number;
+  quarter: number | null;
+  ytd_amount: number;
+  monthly_amount: number;
+  quarterly_amount: number | null;
+  anomaly: string | null;
+}
+
+/**
+ * Applies normalization to execution line items.
+ * Used for the executionLineItems field resolver.
+ *
+ * @param items - Raw execution line items with Decimal amounts
+ * @param gqlNorm - GraphQL normalization mode
+ * @param period - Report period for normalization factors
+ * @param population - Entity population for per_capita
+ * @param normService - Normalization service
+ * @returns Normalized items with number amounts
+ */
+const applyNormalizationToLineItems = async (
+  items: ExecutionLineItem[],
+  gqlNorm: GqlNormalization | undefined,
+  period: ReportPeriodInput,
+  population: number | null,
+  normService: NormalizationService
+): Promise<NormalizedExecutionLineItem[]> => {
+  if (items.length === 0) return [];
+
+  // If no normalization needed, just convert Decimal to number
+  if (gqlNorm === undefined || gqlNorm === 'total') {
+    return items.map((item) => ({
+      ...item,
+      account_category: item.account_category,
+      expense_type: item.expense_type,
+      anomaly: item.anomaly,
+      ytd_amount: item.ytd_amount.toNumber(),
+      monthly_amount: item.monthly_amount.toNumber(),
+      quarterly_amount: item.quarterly_amount !== null ? item.quarterly_amount.toNumber() : null,
+    }));
+  }
+
+  const { normalization, currency } = parseGqlNormalization(gqlNorm);
+  const [startYear, endYear] = getYearRangeFromPeriod(period);
+
+  // Build transformation options (handle per_capita separately after currency conversion)
+  const options: TransformationOptions = {
+    inflationAdjusted: false,
+    currency,
+    normalization: normalization === 'per_capita' ? 'total' : normalization,
+    showPeriodGrowth: false,
+  };
+
+  const normalizedItems: NormalizedExecutionLineItem[] = [];
+
+  for (const item of items) {
+    const yearLabel = String(item.year);
+
+    // Normalize ytd_amount
+    const ytdDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.ytd_amount };
+    const ytdResult = await normService.normalize([ytdDataPoint], options, Frequency.YEAR, [
+      startYear,
+      endYear,
+    ]);
+
+    // Normalize monthly_amount
+    const monthlyDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.monthly_amount };
+    const monthlyResult = await normService.normalize([monthlyDataPoint], options, Frequency.YEAR, [
+      startYear,
+      endYear,
+    ]);
+
+    // Normalize quarterly_amount if present
+    let normalizedQuarterly: number | null = null;
+    if (item.quarterly_amount !== null) {
+      const quarterlyDataPoint: DataPoint = {
+        x: yearLabel,
+        year: item.year,
+        y: item.quarterly_amount,
+      };
+      const quarterlyResult = await normService.normalize(
+        [quarterlyDataPoint],
+        options,
+        Frequency.YEAR,
+        [startYear, endYear]
+      );
+      if (quarterlyResult.isOk() && quarterlyResult.value.length > 0) {
+        const qPoint = quarterlyResult.value[0];
+        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toNumber() : null;
+      }
+    }
+
+    // Extract normalized values (fallback to original on error)
+    let normalizedYtd =
+      ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
+        ? ytdResult.value[0].y.toNumber()
+        : item.ytd_amount.toNumber();
+    let normalizedMonthly =
+      monthlyResult.isOk() && monthlyResult.value.length > 0 && monthlyResult.value[0] !== undefined
+        ? monthlyResult.value[0].y.toNumber()
+        : item.monthly_amount.toNumber();
+
+    // Apply per_capita division if needed
+    if (normalization === 'per_capita' && population !== null && population > 0) {
+      normalizedYtd = normalizedYtd / population;
+      normalizedMonthly = normalizedMonthly / population;
+      if (normalizedQuarterly !== null) {
+        normalizedQuarterly = normalizedQuarterly / population;
+      }
+    }
+
+    normalizedItems.push({
+      ...item,
+      account_category: item.account_category,
+      expense_type: item.expense_type,
+      anomaly: item.anomaly,
+      ytd_amount: normalizedYtd,
+      monthly_amount: normalizedMonthly,
+      quarterly_amount: normalizedQuarterly,
+    });
+  }
+
+  return normalizedItems;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -528,7 +669,7 @@ const getEntityPopulation = async (
     return null;
   }
 
-  // For county councils, sum all UAT populations in that county
+  // For county councils, get the county's total population
   if (entity.entity_type === 'admin_county_council' && entity.uat_id !== null) {
     const uatResult = await uatRepo.getById(entity.uat_id);
     if (uatResult.isOk() && uatResult.value !== null) {
@@ -541,7 +682,6 @@ const getEntityPopulation = async (
   }
 
   // For ministries and other national entities, per-capita doesn't make sense
-  // Return null to indicate no population-based normalization should be applied
   return null;
 };
 
@@ -836,6 +976,7 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           limit?: number;
           offset?: number;
           sort?: { field?: string; by?: string; order?: string };
+          normalization?: GqlNormalization;
         },
         context: MercuriusContext
       ) => {
@@ -886,7 +1027,31 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           };
         }
 
-        return result.value;
+        // Get normalization from args OR from filter (backwards compatibility)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- filter may contain normalization from older clients
+        const normalization =
+          args.normalization ??
+          ((args.filter as any)?.normalization as GqlNormalization | undefined);
+
+        // Get population for per_capita normalization
+        let population: number | null = null;
+        if (normalization === 'per_capita' || normalization === 'per_capita_euro') {
+          population = await getEntityPopulation(parent, uatRepo);
+        }
+
+        // Apply normalization to line items
+        const normalizedNodes = await applyNormalizationToLineItems(
+          result.value.nodes,
+          normalization,
+          filter.report_period,
+          population,
+          normalizationService
+        );
+
+        return {
+          nodes: normalizedNodes,
+          pageInfo: result.value.pageInfo,
+        };
       },
 
       // ─────────────────────────────────────────────────────────────────────────
