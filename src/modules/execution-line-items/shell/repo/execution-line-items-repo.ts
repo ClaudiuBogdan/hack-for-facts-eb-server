@@ -181,8 +181,8 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       // Apply amount constraints
       query = this.applyAmountConstraints(query, filter, frequency);
 
-      // Apply sorting
-      query = this.applySorting(query, sort);
+      // Apply sorting (pass frequency to map 'amount' to correct column)
+      query = this.applySorting(query, sort, frequency);
 
       // Apply pagination
       query = query.limit(limit).offset(offset);
@@ -615,9 +615,17 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
 
   /**
    * Applies sorting with secondary sort for stable pagination.
+   *
+   * The 'amount' field is a virtual field that maps to the correct amount column
+   * based on the query frequency:
+   * - MONTH: monthly_amount
+   * - QUARTER: quarterly_amount
+   * - YEAR: ytd_amount
    */
-  private applySorting(query: DynamicQuery, sort: SortInput): DynamicQuery {
-    const column = `eli.${sort.field}`;
+  private applySorting(query: DynamicQuery, sort: SortInput, frequency: Frequency): DynamicQuery {
+    // Map 'amount' to the appropriate column based on frequency
+    const sortField = this.mapSortField(sort.field, frequency);
+    const column = `eli.${sortField}`;
     query = query.orderBy(column, sort.order.toLowerCase() as 'asc' | 'desc');
 
     // Add secondary sort for deterministic pagination (if not already sorting by ytd_amount)
@@ -630,6 +638,23 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
     }
 
     return query;
+  }
+
+  /**
+   * Maps virtual sort fields to actual database columns.
+   *
+   * The 'amount' field is mapped based on frequency:
+   * - MONTH → monthly_amount
+   * - QUARTER → quarterly_amount
+   * - YEAR → ytd_amount
+   */
+  private mapSortField(field: string, frequency: Frequency): string {
+    if (field === 'amount') {
+      if (frequency === Frequency.MONTH) return 'monthly_amount';
+      if (frequency === Frequency.QUARTER) return 'quarterly_amount';
+      return 'ytd_amount';
+    }
+    return field;
   }
 
   // ==========================================================================

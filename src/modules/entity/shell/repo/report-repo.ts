@@ -35,6 +35,9 @@ const QUERY_TIMEOUT_MS = 30_000;
 /** Valid sort columns */
 const VALID_SORT_COLUMNS = new Set(['report_date']);
 
+/** Set of valid DB report type values */
+const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,9 +315,12 @@ class KyselyReportRepo implements ReportRepository {
       query = query.where('r.report_date', '<=', filter.report_date_end);
     }
 
-    // Report type filter (convert from GQL enum to DB value)
+    // Report type filter (handles both GQL enum and DB string values)
     if (filter.report_type !== undefined) {
-      const dbReportType = GQL_TO_DB_REPORT_TYPE[filter.report_type];
+      // Check if it's already a DB value (Romanian string)
+      const dbReportType = VALID_DB_REPORT_TYPES.has(filter.report_type)
+        ? filter.report_type
+        : GQL_TO_DB_REPORT_TYPE[filter.report_type];
       query = query.where('r.report_type', '=', dbReportType);
     }
 

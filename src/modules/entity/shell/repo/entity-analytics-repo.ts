@@ -493,8 +493,9 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
     // If interval is provided, apply range filters
     if (selection.interval !== undefined) {
-      const start = this.parseQuarterDate(selection.interval.start);
-      const end = this.parseQuarterDate(selection.interval.end);
+      // Parse start with Q1 default, end with Q4 default
+      const start = this.parseQuarterDate(selection.interval.start, 'start');
+      const end = this.parseQuarterDate(selection.interval.end, 'end');
 
       if (start !== null && end !== null) {
         // Use composite comparison: (year, quarter) >= (startYear, startQuarter)
@@ -544,8 +545,9 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
     // If interval is provided, apply range filters
     if (selection.interval !== undefined) {
-      const start = this.parseMonthDate(selection.interval.start);
-      const end = this.parseMonthDate(selection.interval.end);
+      // Parse start with month 1 default, end with month 12 default
+      const start = this.parseMonthDate(selection.interval.start, 'start');
+      const end = this.parseMonthDate(selection.interval.end, 'end');
 
       if (start !== null && end !== null) {
         // Use composite comparison
@@ -569,8 +571,15 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
   /**
    * Parses a quarter date string like "2023-Q2".
+   *
+   * @param date - Date string in YYYY-QN or YYYY format
+   * @param position - When parsing year-only format for intervals:
+   *                   'start' defaults to Q1, 'end' defaults to Q4
    */
-  private parseQuarterDate(date: string): { year: number; quarter: number } | null {
+  private parseQuarterDate(
+    date: string,
+    position: 'start' | 'end' = 'start'
+  ): { year: number; quarter: number } | null {
     const match = /^(\d{4})-Q([1-4])$/i.exec(date);
     if (match?.[1] !== undefined && match[2] !== undefined) {
       return {
@@ -578,18 +587,26 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
         quarter: Number.parseInt(match[2], 10),
       };
     }
-    // Also try parsing as just year
+    // Also try parsing as just year - use position to determine default quarter
     const yearMatch = /^(\d{4})$/.exec(date);
     if (yearMatch?.[1] !== undefined) {
-      return { year: Number.parseInt(yearMatch[1], 10), quarter: 1 };
+      const defaultQuarter = position === 'end' ? 4 : 1;
+      return { year: Number.parseInt(yearMatch[1], 10), quarter: defaultQuarter };
     }
     return null;
   }
 
   /**
    * Parses a month date string like "2023-06".
+   *
+   * @param date - Date string in YYYY-MM or YYYY format
+   * @param position - When parsing year-only format for intervals:
+   *                   'start' defaults to month 1, 'end' defaults to month 12
    */
-  private parseMonthDate(date: string): { year: number; month: number } | null {
+  private parseMonthDate(
+    date: string,
+    position: 'start' | 'end' = 'start'
+  ): { year: number; month: number } | null {
     const match = /^(\d{4})-(\d{2})$/.exec(date);
     if (match?.[1] !== undefined && match[2] !== undefined) {
       return {
@@ -597,10 +614,11 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
         month: Number.parseInt(match[2], 10),
       };
     }
-    // Also try parsing as just year
+    // Also try parsing as just year - use position to determine default month
     const yearMatch = /^(\d{4})$/.exec(date);
     if (yearMatch?.[1] !== undefined) {
-      return { year: Number.parseInt(yearMatch[1], 10), month: 1 };
+      const defaultMonth = position === 'end' ? 12 : 1;
+      return { year: Number.parseInt(yearMatch[1], 10), month: defaultMonth };
     }
     return null;
   }

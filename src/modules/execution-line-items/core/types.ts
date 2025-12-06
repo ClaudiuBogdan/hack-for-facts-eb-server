@@ -31,6 +31,9 @@ export const SORTABLE_FIELDS = [
   'economic_code',
   'account_category',
   'ytd_amount',
+  'monthly_amount',
+  'quarterly_amount',
+  'amount', // Virtual field - maps to ytd_amount/monthly_amount/quarterly_amount based on frequency
   'program_code',
   'year',
 ] as const;

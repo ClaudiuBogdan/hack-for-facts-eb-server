@@ -371,12 +371,175 @@ WHERE (eli.year, eli.month) >= (2023, 10)
   AND (eli.year, eli.month) <= (2024, 3)
 ```
 
+## Year-Only Date Parsing for Intervals
+
+When parsing year-only date strings (`"2024"`) for interval queries with QUARTER or MONTH frequency, the parser uses context-aware defaults:
+
+- **Start date**: Defaults to Q1 or Month 01 (first period of the year)
+- **End date**: Defaults to Q4 or Month 12 (last period of the year)
+
+This ensures that `{ start: '2020', end: '2024' }` correctly covers:
+
+- For QUARTER: Q1 2020 through Q4 2024
+- For MONTH: January 2020 through December 2024
+
+```typescript
+function parseQuarterDate(date: string, position: 'start' | 'end'): ParsedQuarter | null {
+  // ... parse YYYY-QN format ...
+
+  // Year-only format - use position-aware default
+  const yearMatch = /^(\d{4})$/.exec(date);
+  if (yearMatch) {
+    const defaultQuarter = position === 'end' ? 4 : 1;
+    return { year: parseInt(yearMatch[1], 10), quarter: defaultQuarter };
+  }
+  return null;
+}
+```
+
+## Report Type Handling
+
+Budget queries require a `report_type` filter. The system supports three report types:
+
+| GraphQL Enum           | Database Value (Romanian)                                      | Priority    |
+| ---------------------- | -------------------------------------------------------------- | ----------- |
+| `PRINCIPAL_AGGREGATED` | `'Executie bugetara agregata la nivel de ordonator principal'` | 1 (highest) |
+| `SECONDARY_AGGREGATED` | `'Executie bugetara agregata la nivel de ordonator secundar'`  | 2           |
+| `DETAILED`             | `'Executie bugetara detaliata'`                                | 3 (lowest)  |
+
+### Entity Default Report Type
+
+Each entity has a `default_report_type` field that determines which report type to use when the client doesn't specify one. This is **fundamental** for data filtering because:
+
+1. **Different entities have different report types available** - A municipality might only have detailed reports, while a county council might have aggregated reports.
+
+2. **The default is computed automatically** - The system analyzes `ExecutionLineItems` to determine which report types exist for each entity and sets the default to the **highest priority** available type.
+
+3. **All analytics queries use this default** - When querying trends, totals, or line items without specifying a report type, the entity's default is used.
+
+#### Priority Order
+
+The default report type is selected based on this priority (highest first):
+
+```
+1. PRINCIPAL_AGGREGATED  →  Aggregated at principal creditor level
+2. SECONDARY_AGGREGATED  →  Aggregated at secondary creditor level
+3. DETAILED              →  Detailed line-item reports
+```
+
+#### How the Default is Computed
+
+The `mv_report_availability` materialized view tracks which report types exist for each entity:
+
+```sql
+CREATE MATERIALIZED VIEW mv_report_availability AS
+SELECT
+    entity_cui,
+    year,
+    report_type,
+    CASE
+        WHEN report_type = 'Executie bugetara agregata la nivel de ordonator principal' THEN 1
+        WHEN report_type = 'Executie bugetara agregata la nivel de ordonator secundar' THEN 2
+        WHEN report_type = 'Executie bugetara detaliata' THEN 3
+        ELSE 4
+    END as priority,
+    ...
+FROM ExecutionLineItems
+GROUP BY entity_cui, year, report_type;
+```
+
+The `set_entities_default_report_type()` function updates each entity's default:
+
+```sql
+-- Sets default_report_type to highest-priority available report per entity
+WITH chosen AS (
+    SELECT DISTINCT ON (entity_cui)
+        entity_cui,
+        report_type
+    FROM mv_report_availability
+    ORDER BY entity_cui, priority  -- Lowest priority number = highest priority
+)
+UPDATE Entities e
+SET default_report_type = c.report_type
+FROM chosen c
+WHERE e.cui = c.entity_cui;
+```
+
+#### Why This Matters
+
+Consider two entities:
+
+| Entity           | Available Reports              | Default              |
+| ---------------- | ------------------------------ | -------------------- |
+| Municipality A   | DETAILED only                  | DETAILED             |
+| County Council B | PRINCIPAL_AGGREGATED, DETAILED | PRINCIPAL_AGGREGATED |
+
+When a client queries `entity.incomeTrend(period: {...})` without specifying `reportType`:
+
+- For Municipality A: queries DETAILED reports
+- For County Council B: queries PRINCIPAL_AGGREGATED reports
+
+This ensures each entity returns its most comprehensive data by default.
+
+#### Fallback Behavior
+
+If an entity has no `default_report_type` set (rare edge case), the system falls back to `'Executie bugetara detaliata'` (DETAILED).
+
+```typescript
+const DEFAULT_REPORT_TYPE: DbReportType = 'Executie bugetara detaliata';
+
+const getDbReportType = (parent: Entity, gqlReportType?: string): string => {
+  // ... resolution logic ...
+  return parent.default_report_type ?? DEFAULT_REPORT_TYPE;
+};
+```
+
+### Report Type Resolution
+
+The `getDbReportType` function resolves report types from multiple input formats:
+
+1. **GraphQL enum values** (e.g., `PRINCIPAL_AGGREGATED`) - mapped to DB string
+2. **DB string values** (e.g., `'Executie bugetara detaliata'`) - returned as-is
+3. **Entity default** - uses `entity.default_report_type` if no arg provided
+4. **System default** - falls back to `'Executie bugetara detaliata'`
+
+This flexibility supports both new clients using GraphQL enums and legacy clients passing DB values directly.
+
+```typescript
+// Example: GraphQL enum input
+getDbReportType(entity, 'PRINCIPAL_AGGREGATED');
+// Returns: 'Executie bugetara agregata la nivel de ordonator principal'
+
+// Example: DB string input (already resolved)
+getDbReportType(entity, 'Executie bugetara detaliata');
+// Returns: 'Executie bugetara detaliata'
+
+// Example: No input - uses entity default
+getDbReportType(entity, undefined);
+// Returns: entity.default_report_type or 'Executie bugetara detaliata'
+```
+
+## Sorting by Amount
+
+When sorting by `amount`, the system maps this virtual field to the correct column based on frequency:
+
+| Frequency | Sort Column        |
+| --------- | ------------------ |
+| MONTH     | `monthly_amount`   |
+| QUARTER   | `quarterly_amount` |
+| YEAR      | `ytd_amount`       |
+
+This allows clients to use a generic `amount` sort field without knowing the underlying column structure.
+
 ## Implementation Files
 
 - `src/modules/execution-analytics/shell/repo/period-filter-builder.ts` - Period SQL condition builders
 - `src/modules/execution-analytics/shell/repo/query-helpers.ts` - Date parsing and formatting utilities
 - `src/modules/execution-analytics/shell/repo/sql-condition-builder.ts` - Complete SQL condition builder
 - `src/modules/execution-analytics/shell/repo/analytics-repo.ts` - Query execution with Kysely
+- `src/modules/execution-line-items/shell/repo/execution-line-items-repo.ts` - Line items with amount sorting
+- `src/modules/entity/shell/repo/entity-analytics-repo.ts` - Entity trends from materialized views
+- `src/modules/entity/shell/graphql/resolvers.ts` - Report type resolution (`getDbReportType`)
 - `src/common/types/temporal.ts` - Frequency enum and temporal types
 - `src/common/types/analytics.ts` - Filter types and period selection types
 

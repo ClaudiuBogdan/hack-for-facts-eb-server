@@ -13,6 +13,12 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
   """
   Sortable fields for execution line items.
   Default sort is by year descending, then ytd_amount descending.
+
+  The 'amount' field is a virtual field that maps to the correct amount column
+  based on the query's period type:
+  - MONTH: monthly_amount
+  - QUARTER: quarterly_amount
+  - YEAR: ytd_amount
   """
   enum ExecutionLineItemSortField {
     line_item_id
@@ -23,6 +29,12 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
     economic_code
     account_category
     ytd_amount
+    monthly_amount
+    quarterly_amount
+    """
+    Virtual field - maps to the appropriate amount column based on period type
+    """
+    amount
     program_code
     year
   }

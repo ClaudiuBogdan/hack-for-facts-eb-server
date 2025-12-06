@@ -373,14 +373,71 @@ const mapReportPeriod = (gqlPeriod: GqlReportPeriodInput): ReportPeriodInput => 
   selection: gqlPeriod.selection as unknown as PeriodSelection,
 });
 
+/** Default report type used when entity doesn't have one set */
+const DEFAULT_REPORT_TYPE: DbReportType = 'Executie bugetara detaliata';
+
+/** Set of valid DB report type values for validation */
+const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE_MAP));
+
 /**
- * Gets the DB report type from parent entity or GraphQL arg.
+ * Checks if a string is a valid DB report type value (Romanian string).
  */
-const getDbReportType = (parent: Entity, gqlReportType?: GqlReportType): string => {
+const isValidDbReportType = (value: string): value is DbReportType => {
+  return VALID_DB_REPORT_TYPES.has(value);
+};
+
+/**
+ * Resolves the database report type from various input sources.
+ *
+ * This function handles multiple input formats for backward compatibility:
+ *
+ * 1. **GraphQL enum values**: `PRINCIPAL_AGGREGATED`, `SECONDARY_AGGREGATED`, `DETAILED`
+ *    - These are mapped to their Romanian DB equivalents
+ *
+ * 2. **DB string values**: Already-resolved Romanian strings like
+ *    `'Executie bugetara agregata la nivel de ordonator principal'`
+ *    - These are returned as-is (supports clients that pass DB values directly)
+ *
+ * 3. **Entity default**: Falls back to `parent.default_report_type` if no arg provided
+ *
+ * 4. **System default**: Falls back to `'Executie bugetara detaliata'` if entity
+ *    doesn't have a default set (defensive, should not happen with valid data)
+ *
+ * @param parent - The parent Entity containing default_report_type
+ * @param gqlReportType - Optional report type from GraphQL args (enum or DB string)
+ * @returns The resolved DB report type string (Romanian)
+ *
+ * @example
+ * // GraphQL enum input
+ * getDbReportType(entity, 'PRINCIPAL_AGGREGATED')
+ * // Returns: 'Executie bugetara agregata la nivel de ordonator principal'
+ *
+ * @example
+ * // DB string input (already resolved)
+ * getDbReportType(entity, 'Executie bugetara detaliata')
+ * // Returns: 'Executie bugetara detaliata'
+ *
+ * @example
+ * // No input - uses entity default
+ * getDbReportType(entity, undefined)
+ * // Returns: entity.default_report_type or DEFAULT_REPORT_TYPE
+ */
+const getDbReportType = (parent: Entity, gqlReportType?: string): string => {
   if (gqlReportType !== undefined) {
-    return GQL_TO_DB_REPORT_TYPE_MAP[gqlReportType];
+    // Check if it's already a DB value (Romanian string)
+    if (isValidDbReportType(gqlReportType)) {
+      return gqlReportType;
+    }
+    // Otherwise, try to map from GraphQL enum
+    const mapped = GQL_TO_DB_REPORT_TYPE_MAP[gqlReportType as GqlReportType] as string | undefined;
+    if (mapped !== undefined) {
+      return mapped;
+    }
+    // Unknown value - fall through to use entity default
   }
-  return parent.default_report_type;
+  // Use entity's default (type says non-nullable, but defensive fallback for runtime safety)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive for runtime data
+  return parent.default_report_type ?? DEFAULT_REPORT_TYPE;
 };
 
 /**
