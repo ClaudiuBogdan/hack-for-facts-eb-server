@@ -135,7 +135,7 @@ const toEntityAnalyticsInput = (
     filter: {
       ...restFilter,
       report_period: {
-        frequency: mapPeriodTypeToFrequency(gqlReportPeriod.type),
+        type: mapPeriodTypeToFrequency(gqlReportPeriod.type),
         selection: gqlReportPeriod.selection,
       },
       normalization,

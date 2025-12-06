@@ -40,7 +40,7 @@ const toAnalyticsInput = (gqlInput: GqlAnalyticsInput): AnalyticsInput => {
     filter: {
       ...baseFilter,
       report_period: {
-        frequency: mapPeriodTypeToFrequency(gqlReportPeriod.type),
+        type: mapPeriodTypeToFrequency(gqlReportPeriod.type),
         selection: gqlReportPeriod.selection,
       },
     },

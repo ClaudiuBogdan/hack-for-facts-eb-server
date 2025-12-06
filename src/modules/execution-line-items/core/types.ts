@@ -59,6 +59,9 @@ export interface SortInput {
   order: SortOrder;
 }
 
+/** Anomaly type from database (forward-declared for domain type) */
+type DomainAnomalyType = 'YTD_ANOMALY' | 'MISSING_LINE_ITEM';
+
 /**
  * Execution line item entity.
  * Represents a single budget execution entry from a financial report.
@@ -83,7 +86,11 @@ export interface ExecutionLineItem {
   ytd_amount: Decimal;
   monthly_amount: Decimal;
   quarterly_amount: Decimal | null;
+  anomaly: DomainAnomalyType | null;
 }
+
+/** Anomaly type for execution line items */
+export type AnomalyType = 'YTD_ANOMALY' | 'MISSING_LINE_ITEM';
 
 /**
  * Execution line item for GraphQL output.
@@ -102,8 +109,11 @@ export interface ExecutionLineItemOutput {
   program_code: string | null;
   year: number;
   month: number;
+  quarter: number | null;
   ytd_amount: string;
   monthly_amount: string;
+  quarterly_amount: string | null;
+  anomaly: AnomalyType | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

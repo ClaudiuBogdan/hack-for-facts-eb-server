@@ -83,7 +83,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
   async getAggregatedSeries(filter: AnalyticsFilter): Promise<Result<DataSeries, AnalyticsError>> {
-    const frequency = filter.report_period.frequency;
+    const frequency = filter.report_period.type;
 
     try {
       // Set statement timeout for this transaction
@@ -171,7 +171,7 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
    * This ensures correct results when querying specific months or quarters.
    */
   private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const { selection, frequency } = filter.report_period;
+    const { selection, type: frequency } = filter.report_period;
 
     // Interval-based filter
     if (selection.interval !== undefined) {

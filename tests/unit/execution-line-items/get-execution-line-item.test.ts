@@ -40,6 +40,7 @@ const testItem: ExecutionLineItem = {
   ytd_amount: new Decimal('1000000.00'),
   monthly_amount: new Decimal('100000.00'),
   quarterly_amount: new Decimal('300000.00'),
+  anomaly: null,
 };
 
 describe('getExecutionLineItem', () => {

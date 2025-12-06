@@ -74,7 +74,7 @@ export interface GqlReportPeriodInput {
 
 /** Report period input combining frequency and selection (internal domain type) */
 export interface ReportPeriodInput {
-  readonly frequency: Frequency;
+  readonly type: Frequency;
   readonly selection: PeriodSelection;
 }
 

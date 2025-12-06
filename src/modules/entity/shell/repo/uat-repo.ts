@@ -205,6 +205,34 @@ class KyselyUATRepo implements UATRepository {
     }
   }
 
+  async getCountyPopulation(countyCode: string): Promise<Result<number | null, EntityError>> {
+    try {
+      // Set statement timeout
+      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
+        this.db
+      );
+
+      // Sum all UAT populations in the county
+      const result = await this.db
+        .selectFrom('uats')
+        .select(sql<string>`COALESCE(SUM(population), 0)`.as('total_population'))
+        .where('county_code', '=', countyCode)
+        .executeTakeFirst();
+
+      if (result === undefined) {
+        return ok(null);
+      }
+
+      const totalPopulation = Number.parseInt(result.total_population, 10);
+      return ok(totalPopulation > 0 ? totalPopulation : null);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('UAT getCountyPopulation query timed out', error));
+      }
+      return err(createDatabaseError('UAT getCountyPopulation failed', error));
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Private Methods - Filter Building
   // ─────────────────────────────────────────────────────────────────────────────

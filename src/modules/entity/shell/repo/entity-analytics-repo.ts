@@ -72,7 +72,7 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
       // Query the appropriate materialized view based on frequency
       let rows: SummaryRow[];
 
-      switch (period.frequency) {
+      switch (period.type) {
         case Frequency.YEAR:
           rows = await this.queryAnnualTotals(cui, startYear, endYear, reportType, mainCreditorCui);
           break;
@@ -97,7 +97,7 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
           );
           break;
         default:
-          return err(createInvalidPeriodError(`Unknown frequency: ${String(period.frequency)}`));
+          return err(createInvalidPeriodError(`Unknown frequency: ${String(period.type)}`));
       }
 
       // Sum up all rows if multiple periods selected
@@ -139,7 +139,7 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
       // Query the appropriate materialized view based on frequency
       let dataPoints: { date: string; value: Decimal }[];
 
-      switch (period.frequency) {
+      switch (period.type) {
         case Frequency.YEAR:
           dataPoints = await this.queryAnnualTrend(
             cui,
@@ -173,11 +173,11 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
           );
           break;
         default:
-          return err(createInvalidPeriodError(`Unknown frequency: ${String(period.frequency)}`));
+          return err(createInvalidPeriodError(`Unknown frequency: ${String(period.type)}`));
       }
 
       return ok({
-        frequency: period.frequency,
+        frequency: period.type,
         data: dataPoints,
       });
     } catch (error) {
@@ -206,9 +206,8 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
     if (mainCreditorCui !== undefined) {
       query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
     }
+    // When mainCreditorCui is undefined, aggregate all creditors (no filter)
 
     return query.execute();
   }
@@ -231,9 +230,8 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
     if (mainCreditorCui !== undefined) {
       query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
     }
+    // When mainCreditorCui is undefined, aggregate all creditors (no filter)
 
     // Apply quarter filters if specific dates/interval provided
     query = this.applyQuarterFilters(query, period);
@@ -259,9 +257,8 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
 
     if (mainCreditorCui !== undefined) {
       query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
     }
+    // When mainCreditorCui is undefined, aggregate all creditors (no filter)
 
     // Apply month filters if specific dates/interval provided
     query = this.applyMonthFilters(query, period);
@@ -283,23 +280,43 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
   ): Promise<{ date: string; value: Decimal }[]> {
     const metricColumn = this.getMetricColumn(metric);
 
-    let query: any = this.db
+    if (mainCreditorCui !== undefined) {
+      // Filter to specific creditor - no aggregation needed
+      const query = this.db
+        .selectFrom('mv_summary_annual')
+        .select(['year', 'total_income', 'total_expense', 'budget_balance'])
+        .where('entity_cui', '=', cui)
+        .where('report_type', '=', reportType as any)
+        .where('year', '>=', startYear)
+        .where('year', '<=', endYear)
+        .where('main_creditor_cui', '=', mainCreditorCui)
+        .orderBy('year', 'asc');
+
+      const rows: SummaryRow[] = await (query as any).execute();
+
+      return rows.map((row) => ({
+        date: String(row.year),
+        value: new Decimal(this.extractMetricValue(row, metricColumn)),
+      }));
+    }
+
+    // Aggregate all creditors - use GROUP BY and SUM
+    const query = this.db
       .selectFrom('mv_summary_annual')
-      .select(['year', 'total_income', 'total_expense', 'budget_balance'])
+      .select((eb: any) => [
+        'year',
+        eb.fn.sum('total_income').as('total_income'),
+        eb.fn.sum('total_expense').as('total_expense'),
+        eb.fn.sum('budget_balance').as('budget_balance'),
+      ])
       .where('entity_cui', '=', cui)
       .where('report_type', '=', reportType as any)
       .where('year', '>=', startYear)
-      .where('year', '<=', endYear);
+      .where('year', '<=', endYear)
+      .groupBy('year')
+      .orderBy('year', 'asc');
 
-    if (mainCreditorCui !== undefined) {
-      query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
-    }
-
-    query = query.orderBy('year', 'asc');
-
-    const rows: SummaryRow[] = await query.execute();
+    const rows: SummaryRow[] = await (query as any).execute();
 
     return rows.map((row) => ({
       date: String(row.year),
@@ -318,22 +335,45 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
   ): Promise<{ date: string; value: Decimal }[]> {
     const metricColumn = this.getMetricColumn(metric);
 
+    if (mainCreditorCui !== undefined) {
+      // Filter to specific creditor - no aggregation needed
+      let query: any = this.db
+        .selectFrom('mv_summary_quarterly')
+        .select(['year', 'quarter', 'total_income', 'total_expense', 'budget_balance'])
+        .where('entity_cui', '=', cui)
+        .where('report_type', '=', reportType as any)
+        .where('year', '>=', startYear)
+        .where('year', '<=', endYear)
+        .where('main_creditor_cui', '=', mainCreditorCui);
+
+      query = this.applyQuarterFilters(query, period);
+      query = query.orderBy('year', 'asc').orderBy('quarter', 'asc');
+
+      const rows: SummaryRow[] = await query.execute();
+
+      return rows.map((row) => ({
+        date: `${String(row.year)}-Q${String(row.quarter ?? 1)}`,
+        value: new Decimal(this.extractMetricValue(row, metricColumn)),
+      }));
+    }
+
+    // Aggregate all creditors - use GROUP BY and SUM
     let query: any = this.db
       .selectFrom('mv_summary_quarterly')
-      .select(['year', 'quarter', 'total_income', 'total_expense', 'budget_balance'])
+      .select((eb: any) => [
+        'year',
+        'quarter',
+        eb.fn.sum('total_income').as('total_income'),
+        eb.fn.sum('total_expense').as('total_expense'),
+        eb.fn.sum('budget_balance').as('budget_balance'),
+      ])
       .where('entity_cui', '=', cui)
       .where('report_type', '=', reportType as any)
       .where('year', '>=', startYear)
       .where('year', '<=', endYear);
 
-    if (mainCreditorCui !== undefined) {
-      query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
-    }
-
     query = this.applyQuarterFilters(query, period);
-    query = query.orderBy('year', 'asc').orderBy('quarter', 'asc');
+    query = query.groupBy(['year', 'quarter']).orderBy('year', 'asc').orderBy('quarter', 'asc');
 
     const rows: SummaryRow[] = await query.execute();
 
@@ -354,22 +394,45 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
   ): Promise<{ date: string; value: Decimal }[]> {
     const metricColumn = this.getMetricColumn(metric);
 
+    if (mainCreditorCui !== undefined) {
+      // Filter to specific creditor - no aggregation needed
+      let query: any = this.db
+        .selectFrom('mv_summary_monthly')
+        .select(['year', 'month', 'total_income', 'total_expense', 'budget_balance'])
+        .where('entity_cui', '=', cui)
+        .where('report_type', '=', reportType as any)
+        .where('year', '>=', startYear)
+        .where('year', '<=', endYear)
+        .where('main_creditor_cui', '=', mainCreditorCui);
+
+      query = this.applyMonthFilters(query, period);
+      query = query.orderBy('year', 'asc').orderBy('month', 'asc');
+
+      const rows: SummaryRow[] = await query.execute();
+
+      return rows.map((row) => ({
+        date: `${String(row.year)}-${String(row.month ?? 1).padStart(2, '0')}`,
+        value: new Decimal(this.extractMetricValue(row, metricColumn)),
+      }));
+    }
+
+    // Aggregate all creditors - use GROUP BY and SUM
     let query: any = this.db
       .selectFrom('mv_summary_monthly')
-      .select(['year', 'month', 'total_income', 'total_expense', 'budget_balance'])
+      .select((eb: any) => [
+        'year',
+        'month',
+        eb.fn.sum('total_income').as('total_income'),
+        eb.fn.sum('total_expense').as('total_expense'),
+        eb.fn.sum('budget_balance').as('budget_balance'),
+      ])
       .where('entity_cui', '=', cui)
       .where('report_type', '=', reportType as any)
       .where('year', '>=', startYear)
       .where('year', '<=', endYear);
 
-    if (mainCreditorCui !== undefined) {
-      query = query.where('main_creditor_cui', '=', mainCreditorCui);
-    } else {
-      query = query.where('main_creditor_cui', 'is', null);
-    }
-
     query = this.applyMonthFilters(query, period);
-    query = query.orderBy('year', 'asc').orderBy('month', 'asc');
+    query = query.groupBy(['year', 'month']).orderBy('year', 'asc').orderBy('month', 'asc');
 
     const rows: SummaryRow[] = await query.execute();
 

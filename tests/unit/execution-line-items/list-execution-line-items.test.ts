@@ -37,6 +37,7 @@ const testItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('1000000.00'),
     monthly_amount: new Decimal('100000.00'),
     quarterly_amount: new Decimal('300000.00'),
+    anomaly: null,
   },
   {
     line_item_id: 'eli-2',
@@ -55,6 +56,7 @@ const testItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('2000000.00'),
     monthly_amount: new Decimal('200000.00'),
     quarterly_amount: new Decimal('600000.00'),
+    anomaly: null,
   },
   {
     line_item_id: 'eli-3',
@@ -73,6 +75,7 @@ const testItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('5000000.00'),
     monthly_amount: new Decimal('500000.00'),
     quarterly_amount: new Decimal('1500000.00'),
+    anomaly: null,
   },
   {
     line_item_id: 'eli-4',
@@ -91,6 +94,7 @@ const testItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('3000000.00'),
     monthly_amount: new Decimal('300000.00'),
     quarterly_amount: new Decimal('900000.00'),
+    anomaly: null,
   },
 ];
 
@@ -147,7 +151,7 @@ const makeFakeRepo = (items: ExecutionLineItem[]): ExecutionLineItemRepository =
 const defaultFilter: ExecutionLineItemFilter = {
   account_category: 'ch',
   report_period: {
-    frequency: Frequency.YEAR,
+    type: Frequency.YEAR,
     selection: { interval: { start: '2022', end: '2024' } },
   },
 };

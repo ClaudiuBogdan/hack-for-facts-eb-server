@@ -51,8 +51,12 @@ interface ExecutionLineItemQueryArgs {
 interface ExecutionLineItemsQueryArgs {
   filter: GraphQLAnalyticsFilterInput;
   sort?: {
-    field: string;
-    order?: 'ASC' | 'DESC';
+    /** New format: field name */
+    field?: string;
+    /** Old format: field name (backward compatible) */
+    by?: string;
+    /** Sort order - accepts string for backward compatibility with old API */
+    order?: string;
   };
   limit?: number;
   offset?: number;
@@ -150,7 +154,7 @@ const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter =>
   return {
     account_category: input.account_category as AccountCategory,
     report_period: {
-      frequency,
+      type: frequency,
       selection:
         input.report_period.selection.interval !== undefined
           ? {
@@ -214,23 +218,33 @@ const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter =>
 
 /**
  * Convert sort input from GraphQL to domain type.
+ * Supports both new format (field) and old format (by) for backward compatibility.
  */
 const transformSort = (
-  sort: { field: string; order?: 'ASC' | 'DESC' } | undefined
+  sort: { field?: string; by?: string; order?: string } | undefined
 ): SortInput | undefined => {
   if (sort === undefined) {
     return undefined;
   }
 
+  // Support both 'field' (new) and 'by' (old) property names
+  const fieldName = sort.field ?? sort.by;
+  if (fieldName === undefined) {
+    return undefined; // Use case will apply default
+  }
+
   // Validate field is in allowed list
-  const isValidField = SORTABLE_FIELDS.includes(sort.field as SortableField);
+  const isValidField = SORTABLE_FIELDS.includes(fieldName as SortableField);
   if (!isValidField) {
     return undefined; // Use case will apply default
   }
 
+  // Normalize order value (old format uses string, new uses enum)
+  const order = sort.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
   return {
-    field: sort.field as SortableField,
-    order: (sort.order ?? 'DESC') as SortOrder,
+    field: fieldName as SortableField,
+    order: order as SortOrder,
   };
 };
 
@@ -251,8 +265,11 @@ const toOutput = (item: ExecutionLineItem): ExecutionLineItemOutput => ({
   program_code: item.program_code,
   year: item.year,
   month: item.month,
+  quarter: item.quarter,
   ytd_amount: item.ytd_amount.toString(),
   monthly_amount: item.monthly_amount.toString(),
+  quarterly_amount: item.quarterly_amount !== null ? item.quarterly_amount.toString() : null,
+  anomaly: item.anomaly,
 });
 
 // ============================================================================

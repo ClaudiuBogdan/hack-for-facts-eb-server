@@ -260,7 +260,7 @@ export async function getAnalyticsSeries(
     // 2. Prepare Context (Datasets)
     const ctx: ProcessingContext = {
       filter: strictFilter,
-      frequency: strictFilter.report_period.frequency,
+      frequency: strictFilter.report_period.type,
       datasets: {},
     };
 
@@ -307,7 +307,7 @@ export async function getAnalyticsSeries(
       xAxis: {
         name: 'Time',
         type: 'DATE',
-        unit: strictFilter.report_period.frequency.toLowerCase(),
+        unit: strictFilter.report_period.type.toLowerCase(),
       },
       yAxis: finalAxis,
       data: processedPoints.map((p) => ({ x: p.x, y: p.y })),

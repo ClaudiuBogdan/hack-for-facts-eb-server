@@ -20,6 +20,8 @@ export const CommonTypes = /* GraphQL */ `
   # ---------------------------------------------------------------------------
   "Information about pagination in a connection"
   type PageInfo {
+    "Total count of items matching the query"
+    totalCount: Int!
     "Indicates if there are more pages after the current page"
     hasNextPage: Boolean!
     "Indicates if there are more pages before the current page"

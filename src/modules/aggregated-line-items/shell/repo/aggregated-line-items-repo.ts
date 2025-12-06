@@ -107,7 +107,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   async getClassificationPeriodData(
     filter: AnalyticsFilter
   ): Promise<Result<ClassificationPeriodResult, AggregatedLineItemsError>> {
-    const frequency = filter.report_period.frequency;
+    const frequency = filter.report_period.type;
 
     try {
       // Set statement timeout
@@ -195,7 +195,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     pagination: PaginationParams,
     aggregateFilters?: AggregateFilters
   ): Promise<Result<NormalizedAggregatedResult, AggregatedLineItemsError>> {
-    const frequency = filter.report_period.frequency;
+    const frequency = filter.report_period.type;
 
     try {
       // Set statement timeout
@@ -417,7 +417,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
    * This ensures correct results when querying specific months or quarters.
    */
   private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const { selection, frequency } = filter.report_period;
+    const { selection, type: frequency } = filter.report_period;
 
     // Interval-based filter
     if (selection.interval !== undefined) {

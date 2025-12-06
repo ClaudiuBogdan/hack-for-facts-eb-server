@@ -201,9 +201,10 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
       """
       filter: AnalyticsFilterInput!
       """
-      Sort configuration (default: year DESC, ytd_amount DESC)
+      Sort configuration (default: year DESC, ytd_amount DESC).
+      Accepts both new format (field/order) and old format (by/order) for backward compatibility.
       """
-      sort: ExecutionLineItemSortInput
+      sort: SortOrder
       """
       Maximum items to return (default: 100, max: 1000)
       """

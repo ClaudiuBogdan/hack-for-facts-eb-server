@@ -69,7 +69,8 @@ export const EntitySchema = /* GraphQL */ `
       filter: AnalyticsFilterInput
       limit: Int = 10000
       offset: Int = 0
-      sort: ExecutionLineItemSortInput
+      "Sort configuration. Accepts both new format (field/order) and old format (by/order) for backward compatibility."
+      sort: SortOrder
     ): ExecutionLineItemConnection!
 
     # ---------------------------------------------------------------------------
@@ -212,8 +213,8 @@ export const EntitySchema = /* GraphQL */ `
     # Relations
     # ---------------------------------------------------------------------------
 
-    "The county UAT that contains this UAT (null if this UAT is a county)"
-    county_entity: UAT
+    "The county-level entity for this UAT (null if this UAT is itself a county)"
+    county_entity: Entity
   }
 
   # ---------------------------------------------------------------------------
@@ -356,6 +357,33 @@ export const EntitySchema = /* GraphQL */ `
     search: String
   }
 
+  "Filter options for report queries (alias for ReportFilterInput for backward compatibility)"
+  input ReportFilter {
+    "Filter by entity CUI"
+    entity_cui: String
+
+    "Filter by reporting year"
+    reporting_year: Int
+
+    "Filter by reporting period"
+    reporting_period: String
+
+    "Filter by report date start (inclusive, ISO date string)"
+    report_date_start: String
+
+    "Filter by report date end (inclusive, ISO date string)"
+    report_date_end: String
+
+    "Filter by report type"
+    report_type: ReportType
+
+    "Filter by main creditor CUI"
+    main_creditor_cui: String
+
+    "Search across entity name and download links"
+    search: String
+  }
+
   "Paginated connection of reports"
   type ReportConnection {
     "List of reports in current page"
@@ -380,7 +408,7 @@ export const EntitySchema = /* GraphQL */ `
     report(report_id: ID!): Report
 
     "List reports with optional filtering and pagination"
-    reports(filter: ReportFilterInput, limit: Int = 20, offset: Int = 0): ReportConnection!
+    reports(filter: ReportFilter, limit: Int = 20, offset: Int = 0): ReportConnection!
 
     "Get a single UAT by ID"
     uat(id: ID!): UAT

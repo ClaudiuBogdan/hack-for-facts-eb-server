@@ -57,7 +57,7 @@ function createFilter(
   return {
     account_category: 'ch',
     report_period: {
-      frequency: Frequency.YEAR,
+      type: Frequency.YEAR,
       selection: { interval: { start: '2023', end: '2024' } },
     },
     normalization: 'total',

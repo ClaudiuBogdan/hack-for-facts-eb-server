@@ -14,7 +14,7 @@ export default defineConfig(
   // Base Setup & Global Ignores
   // ========================================================================
   {
-    ignores: ['dist', 'node_modules', 'coverage', '**/*.d.ts', '.git/**'],
+    ignores: ['dist', 'node_modules', 'coverage', '**/*.d.ts', '.git/**', 'old_code_repositories'],
   },
 
   // ========================================================================

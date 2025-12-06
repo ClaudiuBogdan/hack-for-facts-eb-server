@@ -142,7 +142,7 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     sort: EntityAnalyticsSort,
     aggregateFilters?: AggregateFilters
   ): Promise<Result<EntityAnalyticsResult, EntityAnalyticsError>> {
-    const frequency = filter.report_period.frequency;
+    const frequency = filter.report_period.type;
 
     try {
       // Set statement timeout

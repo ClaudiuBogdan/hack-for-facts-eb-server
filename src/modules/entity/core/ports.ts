@@ -138,6 +138,14 @@ export interface UATRepository {
    * @returns Total count of matching UATs
    */
   count(filter: UATFilter): Promise<Result<number, EntityError>>;
+
+  /**
+   * Get total population for a county (sum of all UAT populations).
+   *
+   * @param countyCode - County code
+   * @returns Sum of populations for all UATs in the county
+   */
+  getCountyPopulation(countyCode: string): Promise<Result<number | null, EntityError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

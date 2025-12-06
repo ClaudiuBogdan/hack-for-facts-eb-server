@@ -119,11 +119,7 @@ export async function getAggregatedLineItemsSqlNormalized(
   // 2. Generate normalization factors
   let factors: NormalizationFactors;
   try {
-    factors = await normalization.generateFactors(
-      filter.report_period.frequency,
-      startYear,
-      endYear
-    );
+    factors = await normalization.generateFactors(filter.report_period.type, startYear, endYear);
   } catch (error) {
     return err(
       createNormalizationDataError(
@@ -226,11 +222,7 @@ export async function getAggregatedLineItemsInMemory(
 
   if (needsFactors) {
     try {
-      factors = await normalization.generateFactors(
-        filter.report_period.frequency,
-        minYear,
-        maxYear
-      );
+      factors = await normalization.generateFactors(filter.report_period.type, minYear, maxYear);
     } catch (error) {
       return err(
         createNormalizationDataError(

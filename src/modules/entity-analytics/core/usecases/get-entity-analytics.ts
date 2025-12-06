@@ -88,11 +88,7 @@ export async function getEntityAnalytics(
   // 4. Generate normalization factors
   let factors: NormalizationFactors;
   try {
-    factors = await normalization.generateFactors(
-      filter.report_period.frequency,
-      startYear,
-      endYear
-    );
+    factors = await normalization.generateFactors(filter.report_period.type, startYear, endYear);
   } catch (error) {
     return err(
       createNormalizationDataError(

@@ -411,6 +411,7 @@ const defaultExecutionLineItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('1000000.00'),
     monthly_amount: new Decimal('100000.00'),
     quarterly_amount: new Decimal('300000.00'),
+    anomaly: null,
   },
   {
     line_item_id: 'eli-2',
@@ -429,6 +430,7 @@ const defaultExecutionLineItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('2000000.00'),
     monthly_amount: new Decimal('200000.00'),
     quarterly_amount: new Decimal('600000.00'),
+    anomaly: null,
   },
   {
     line_item_id: 'eli-3',
@@ -447,6 +449,7 @@ const defaultExecutionLineItems: ExecutionLineItem[] = [
     ytd_amount: new Decimal('5000000.00'),
     monthly_amount: new Decimal('500000.00'),
     quarterly_amount: new Decimal('1500000.00'),
+    anomaly: null,
   },
 ];
 

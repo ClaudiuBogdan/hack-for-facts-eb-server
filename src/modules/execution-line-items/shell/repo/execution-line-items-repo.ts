@@ -37,6 +37,9 @@ import type { BudgetDbClient } from '@/infra/database/client.js';
 // Types
 // ============================================================================
 
+/** Anomaly type from database */
+type DbAnomalyType = 'YTD_ANOMALY' | 'MISSING_LINE_ITEM';
+
 /**
  * Raw row returned from database query.
  */
@@ -57,6 +60,7 @@ interface RawLineItemRow {
   ytd_amount: string;
   monthly_amount: string;
   quarterly_amount: string | null;
+  anomaly: DbAnomalyType | null;
   total_count: string;
 }
 
@@ -103,6 +107,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
           'ytd_amount',
           'monthly_amount',
           'quarterly_amount',
+          'anomaly',
         ])
         .where('line_item_id', '=', id)
         .executeTakeFirst();
@@ -123,7 +128,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
     limit: number,
     offset: number
   ): Promise<Result<ExecutionLineItemConnection, ExecutionLineItemError>> {
-    const frequency = filter.report_period.frequency;
+    const frequency = filter.report_period.type;
 
     try {
       // Set statement timeout for this transaction
@@ -151,6 +156,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
           'eli.ytd_amount',
           'eli.monthly_amount',
           'eli.quarterly_amount',
+          'eli.anomaly',
           sql<string>`COUNT(*) OVER()`.as('total_count'),
         ]);
 
@@ -214,7 +220,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
    * Applies period (date range) filters.
    */
   private applyPeriodFilters(query: DynamicQuery, filter: ExecutionLineItemFilter): DynamicQuery {
-    const { selection, frequency } = filter.report_period;
+    const { selection, type: frequency } = filter.report_period;
 
     // Interval-based filter
     if (selection.interval !== undefined) {
@@ -650,6 +656,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
     ytd_amount: string;
     monthly_amount: string;
     quarterly_amount: string | null;
+    anomaly?: DbAnomalyType | null;
   }): ExecutionLineItem {
     return {
       line_item_id: row.line_item_id,
@@ -668,6 +675,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       ytd_amount: new Decimal(row.ytd_amount),
       monthly_amount: new Decimal(row.monthly_amount),
       quarterly_amount: row.quarterly_amount !== null ? new Decimal(row.quarterly_amount) : null,
+      anomaly: row.anomaly ?? null,
     };
   }
 

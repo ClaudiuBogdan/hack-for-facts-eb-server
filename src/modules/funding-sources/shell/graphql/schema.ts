@@ -116,6 +116,14 @@ export const FundingSourceSchema = /* GraphQL */ `
     Monthly amount as string (NUMERIC precision)
     """
     monthly_amount: String!
+    """
+    Quarterly amount as string (NUMERIC precision). Only populated for is_quarterly=true rows.
+    """
+    quarterly_amount: String
+    """
+    Anomaly type if this line item has data quality issues (YTD_ANOMALY, MISSING_LINE_ITEM)
+    """
+    anomaly: AnomalyType
   }
 
   """
