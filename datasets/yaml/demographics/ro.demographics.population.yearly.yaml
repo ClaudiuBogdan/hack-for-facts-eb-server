@@ -1,35 +1,35 @@
 metadata:
-  id: 'ro.demographics.population.yearly'
-  source: 'INSSE'
-  sourceUrl: 'https://insse.ro'
-  lastUpdated: '2024-01-01'
-  units: 'persons'
+  id: "ro.demographics.population.yearly"
+  source: "INSSE"
+  sourceUrl: "https://insse.ro"
+  lastUpdated: "2024-01-01"
+  units: "persons"
 i18n:
   ro:
-    title: 'Populația Rezidentă'
-    xAxisLabel: 'An'
-    yAxisLabel: 'Persoane'
+    title: "Populația Rezidentă"
+    xAxisLabel: "An"
+    yAxisLabel: "Persoane"
   en:
-    title: 'Resident Population'
-    xAxisLabel: 'Year'
-    yAxisLabel: 'Persons'
+    title: "Resident Population"
+    xAxisLabel: "Year"
+    yAxisLabel: "Persons"
 axes:
   x:
-    label: 'An'
-    type: 'date'
-    frequency: 'yearly'
-    format: 'YYYY'
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
   y:
-    label: 'Persoane'
-    type: 'number'
-    unit: 'persons'
+    label: "Persoane"
+    type: "number"
+    unit: "persons"
 data:
-  - { x: '2015', y: '19870000' }
-  - { x: '2016', y: '19760000' }
-  - { x: '2017', y: '19640000' }
-  - { x: '2018', y: '19530000' }
-  - { x: '2019', y: '19410000' }
-  - { x: '2020', y: '19200000' }
-  - { x: '2021', y: '19050000' }
-  - { x: '2022', y: '19050000' }
-  - { x: '2023', y: '19050000' }
+  - { x: "2015", y: "19_870_000" }
+  - { x: "2016", y: "19_760_000" }
+  - { x: "2017", y: "19_640_000" }
+  - { x: "2018", y: "19_530_000" }
+  - { x: "2019", y: "19_410_000" }
+  - { x: "2020", y: "19_200_000" }
+  - { x: "2021", y: "19_050_000" }
+  - { x: "2022", y: "19_050_000" }
+  - { x: "2023", y: "19_050_000" }
