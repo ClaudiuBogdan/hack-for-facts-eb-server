@@ -22,6 +22,7 @@
         "logging",
         "tracing",
         "tests",
+        "e2e",
         "deps",
         "config",
         "husky",
@@ -34,6 +35,7 @@
         "funding-sources",
         "entity",
         "reports",
+        "classifications",
         "uat",
         "normalization"
       ]

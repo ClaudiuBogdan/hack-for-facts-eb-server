@@ -14,7 +14,7 @@ export default defineConfig(
   // Base Setup & Global Ignores
   // ========================================================================
   {
-    ignores: ['dist', 'node_modules', 'coverage', '**/*.d.ts', '.git/**', 'old_code_repositories'],
+    ignores: ['dist', 'node_modules', 'coverage', '**/*.d.ts', '.git/**', 'old_code_repositories', 'tests/golden-master/snapshots/**'],
   },
 
   // ========================================================================
