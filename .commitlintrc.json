@@ -22,6 +22,8 @@
         "logging",
         "tracing",
         "tests",
+        "docs",
+        "cache",
         "e2e",
         "deps",
         "config",
@@ -37,7 +39,10 @@
         "reports",
         "classifications",
         "uat",
-        "normalization"
+        "normalization",
+        "notifications",
+        "share",
+        "mcp"
       ]
     ],
     "scope-empty": [1, "never"],
