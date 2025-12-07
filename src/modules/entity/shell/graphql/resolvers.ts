@@ -1028,10 +1028,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         }
 
         // Get normalization from args OR from filter (backwards compatibility)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- filter may contain normalization from older clients
-        const normalization =
-          args.normalization ??
-          ((args.filter as any)?.normalization as GqlNormalization | undefined);
+        // Filter may contain normalization from older clients
+        const filterWithNormalization = args.filter as
+          | (Partial<AnalyticsFilter> & { normalization?: GqlNormalization })
+          | undefined;
+        const normalization = args.normalization ?? filterWithNormalization?.normalization;
 
         // Get population for per_capita normalization
         let population: number | null = null;

@@ -29,6 +29,12 @@ import {
   type BudgetSectorRepository,
 } from '../modules/budget-sector/index.js';
 import {
+  makeClassificationResolvers,
+  ClassificationSchema,
+  makeFunctionalClassificationRepo,
+  makeEconomicClassificationRepo,
+} from '../modules/classification/index.js';
+import {
   makeCountyAnalyticsResolvers,
   CountyAnalyticsSchema,
   makeCountyAnalyticsRepo,
@@ -200,6 +206,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     deps.executionLineItemsModuleRepo ?? makeExecutionLineItemsModuleRepo(budgetDb);
   const executionLineItemsResolvers = makeExecutionLineItemResolvers({
     executionLineItemRepo: executionLineItemsModuleRepo,
+    normalizationService,
   });
 
   // Setup Entity Module
@@ -232,6 +239,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     entityRepo,
   });
 
+  // Setup Classification Module
+  const functionalClassificationRepo = makeFunctionalClassificationRepo(budgetDb);
+  const economicClassificationRepo = makeEconomicClassificationRepo(budgetDb);
+  const classificationResolvers = makeClassificationResolvers({
+    functionalClassificationRepo,
+    economicClassificationRepo,
+  });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -247,6 +262,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     EntitySchema,
     UATAnalyticsSchema,
     CountyAnalyticsSchema,
+    ClassificationSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -261,6 +277,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     entityResolvers,
     uatAnalyticsResolvers,
     countyAnalyticsResolvers,
+    classificationResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention

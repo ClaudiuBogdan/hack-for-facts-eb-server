@@ -206,6 +206,7 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
     - account_category: vn (income) or ch (expense)
 
     Note: Uses AnalyticsFilterInput from execution-analytics module.
+    Normalization (EUR conversion, per-capita) is applied when specified.
     """
     executionLineItems(
       """
@@ -217,6 +218,16 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
       Accepts both new format (field/order) and old format (by/order) for backward compatibility.
       """
       sort: SortOrder
+      """
+      Normalization mode for amounts.
+      - total: Raw amounts in RON (default)
+      - total_euro: Amounts converted to EUR
+      - per_capita: Amount per person (requires entity context)
+      - per_capita_euro: Amount per person in EUR
+      - percent_gdp: Amount as percentage of GDP
+      Note: per_capita modes are only available when querying via Entity.executionLineItems
+      """
+      normalization: Normalization
       """
       Maximum items to return (default: 100, max: 1000)
       """

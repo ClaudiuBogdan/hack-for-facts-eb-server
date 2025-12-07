@@ -26,7 +26,14 @@ import type {
   AccountCategory,
   ExpenseType,
   PeriodDate,
+  Currency,
 } from '@/common/types/analytics.js';
+import type {
+  NormalizationService,
+  DataPoint,
+  TransformationOptions,
+  NormalizationMode,
+} from '@/modules/normalization/index.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
 
 // ============================================================================
@@ -38,6 +45,7 @@ import type { IResolvers, MercuriusContext } from 'mercurius';
  */
 export interface MakeExecutionLineItemResolversDeps {
   executionLineItemRepo: ExecutionLineItemRepository;
+  normalizationService: NormalizationService;
 }
 
 // ============================================================================
@@ -47,6 +55,12 @@ export interface MakeExecutionLineItemResolversDeps {
 interface ExecutionLineItemQueryArgs {
   id: string;
 }
+
+/**
+ * GraphQL Normalization enum values.
+ * Maps to internal normalization mode + currency combination.
+ */
+type GqlNormalization = 'total' | 'total_euro' | 'per_capita' | 'per_capita_euro' | 'percent_gdp';
 
 interface ExecutionLineItemsQueryArgs {
   filter: GraphQLAnalyticsFilterInput;
@@ -58,6 +72,7 @@ interface ExecutionLineItemsQueryArgs {
     /** Sort order - accepts string for backward compatibility with old API */
     order?: string;
   };
+  normalization?: GqlNormalization;
   limit?: number;
   offset?: number;
 }
@@ -273,18 +288,178 @@ const toOutput = (item: ExecutionLineItem): ExecutionLineItemOutput => ({
 });
 
 // ============================================================================
+// Normalization Helpers
+// ============================================================================
+
+/**
+ * Parses GraphQL Normalization enum to internal normalization mode and currency.
+ */
+const parseGqlNormalization = (
+  gqlNorm: GqlNormalization | undefined
+): { normalization: NormalizationMode; currency: Currency } => {
+  switch (gqlNorm) {
+    case 'total_euro':
+      return { normalization: 'total', currency: 'EUR' };
+    case 'per_capita':
+      return { normalization: 'per_capita', currency: 'RON' };
+    case 'per_capita_euro':
+      return { normalization: 'per_capita', currency: 'EUR' };
+    case 'percent_gdp':
+      return { normalization: 'percent_gdp', currency: 'RON' };
+    case 'total':
+    default:
+      return { normalization: 'total', currency: 'RON' };
+  }
+};
+
+/**
+ * Extracts year range from GraphQL filter input.
+ */
+const getYearRangeFromFilter = (filter: GraphQLAnalyticsFilterInput): [number, number] => {
+  const selection = filter.report_period.selection;
+
+  if (selection.interval !== undefined) {
+    const startYear = parseInt(selection.interval.start.substring(0, 4), 10);
+    const endYear = parseInt(selection.interval.end.substring(0, 4), 10);
+    return [startYear, endYear];
+  }
+
+  const dates = selection.dates;
+  if (dates !== undefined && dates.length > 0) {
+    const years = dates.map((d) => parseInt(d.substring(0, 4), 10));
+    return [Math.min(...years), Math.max(...years)];
+  }
+
+  const currentYear = new Date().getFullYear();
+  return [currentYear, currentYear];
+};
+
+/**
+ * Applies normalization to execution line items.
+ * Note: per_capita normalization is not available at root query level
+ * because we don't have entity context for population lookup.
+ *
+ * @param items - Raw line items
+ * @param gqlNorm - GraphQL normalization mode
+ * @param filter - Original filter (for year range)
+ * @param normService - Normalization service
+ * @returns Normalized items with string amounts
+ */
+const applyNormalizationToItems = async (
+  items: ExecutionLineItem[],
+  gqlNorm: GqlNormalization | undefined,
+  filter: GraphQLAnalyticsFilterInput,
+  normService: NormalizationService
+): Promise<ExecutionLineItemOutput[]> => {
+  if (items.length === 0) return [];
+
+  // If no normalization needed, just convert
+  if (gqlNorm === undefined || gqlNorm === 'total') {
+    return items.map(toOutput);
+  }
+
+  // per_capita requires entity context which we don't have at root query level
+  // Fall back to currency conversion only for per_capita modes
+  const { normalization, currency } = parseGqlNormalization(gqlNorm);
+  const [startYear, endYear] = getYearRangeFromFilter(filter);
+
+  // Build transformation options
+  // Note: per_capita without population is just currency conversion
+  const options: TransformationOptions = {
+    inflationAdjusted: false,
+    currency,
+    normalization: normalization === 'per_capita' ? 'total' : normalization,
+    showPeriodGrowth: false,
+  };
+
+  const normalizedItems: ExecutionLineItemOutput[] = [];
+
+  for (const item of items) {
+    const yearLabel = String(item.year);
+
+    // Normalize ytd_amount
+    const ytdDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.ytd_amount };
+    const ytdResult = await normService.normalize([ytdDataPoint], options, Frequency.YEAR, [
+      startYear,
+      endYear,
+    ]);
+
+    // Normalize monthly_amount
+    const monthlyDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.monthly_amount };
+    const monthlyResult = await normService.normalize([monthlyDataPoint], options, Frequency.YEAR, [
+      startYear,
+      endYear,
+    ]);
+
+    // Normalize quarterly_amount if present
+    let normalizedQuarterly: string | null = null;
+    if (item.quarterly_amount !== null) {
+      const quarterlyDataPoint: DataPoint = {
+        x: yearLabel,
+        year: item.year,
+        y: item.quarterly_amount,
+      };
+      const quarterlyResult = await normService.normalize(
+        [quarterlyDataPoint],
+        options,
+        Frequency.YEAR,
+        [startYear, endYear]
+      );
+      if (quarterlyResult.isOk() && quarterlyResult.value.length > 0) {
+        const qPoint = quarterlyResult.value[0];
+        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toString() : null;
+      }
+    }
+
+    // Extract normalized values (fallback to original on error)
+    const normalizedYtd =
+      ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
+        ? ytdResult.value[0].y.toString()
+        : item.ytd_amount.toString();
+    const normalizedMonthly =
+      monthlyResult.isOk() && monthlyResult.value.length > 0 && monthlyResult.value[0] !== undefined
+        ? monthlyResult.value[0].y.toString()
+        : item.monthly_amount.toString();
+
+    normalizedItems.push({
+      line_item_id: item.line_item_id,
+      report_id: item.report_id,
+      entity_cui: item.entity_cui,
+      funding_source_id: item.funding_source_id,
+      budget_sector_id: item.budget_sector_id,
+      functional_code: item.functional_code,
+      economic_code: item.economic_code,
+      account_category: item.account_category,
+      expense_type: item.expense_type,
+      program_code: item.program_code,
+      year: item.year,
+      month: item.month,
+      quarter: item.quarter,
+      ytd_amount: normalizedYtd,
+      monthly_amount: normalizedMonthly,
+      quarterly_amount: normalizedQuarterly,
+      anomaly: item.anomaly,
+    });
+  }
+
+  return normalizedItems;
+};
+
+// ============================================================================
 // Resolver Factory
 // ============================================================================
 
 /**
  * Creates GraphQL resolvers for execution line item queries.
  *
- * @param deps - Repository dependency
+ * @param deps - Repository and normalization service dependencies
  * @returns Mercurius-compatible resolvers
  */
 export const makeExecutionLineItemResolvers = (
   deps: MakeExecutionLineItemResolversDeps
 ): IResolvers => {
+  const { executionLineItemRepo, normalizationService } = deps;
+
   return {
     Query: {
       /**
@@ -295,10 +470,7 @@ export const makeExecutionLineItemResolvers = (
         args: ExecutionLineItemQueryArgs,
         context: MercuriusContext
       ) => {
-        const result = await getExecutionLineItem(
-          { executionLineItemRepo: deps.executionLineItemRepo },
-          args.id
-        );
+        const result = await getExecutionLineItem({ executionLineItemRepo }, args.id);
 
         if (result.isErr()) {
           const error = result.error;
@@ -315,6 +487,9 @@ export const makeExecutionLineItemResolvers = (
 
       /**
        * List execution line items with filtering, sorting, and pagination.
+       * Supports normalization (EUR conversion, percent_gdp).
+       * Note: per_capita normalization requires entity context and is only
+       * available via Entity.executionLineItems.
        */
       executionLineItems: async (
         _parent: unknown,
@@ -325,7 +500,7 @@ export const makeExecutionLineItemResolvers = (
         const sort = transformSort(args.sort);
 
         const result = await listExecutionLineItems(
-          { executionLineItemRepo: deps.executionLineItemRepo },
+          { executionLineItemRepo },
           {
             filter,
             sort,
@@ -344,8 +519,17 @@ export const makeExecutionLineItemResolvers = (
         }
 
         const connection = result.value;
+
+        // Apply normalization if requested
+        const normalizedNodes = await applyNormalizationToItems(
+          connection.nodes,
+          args.normalization,
+          args.filter,
+          normalizationService
+        );
+
         return {
-          nodes: connection.nodes.map(toOutput),
+          nodes: normalizedNodes,
           pageInfo: connection.pageInfo,
         };
       },
