@@ -10,13 +10,6 @@ import type {
   EntityConnection,
   EntityFilter,
   EntityTotals,
-  UAT,
-  UATConnection,
-  UATFilter,
-  Report,
-  ReportConnection,
-  ReportFilter,
-  ReportSort,
   ReportPeriodInput,
   DataSeries,
 } from './types.js';
@@ -37,6 +30,15 @@ export interface EntityRepository {
    * @returns The entity if found, null if not found, or an error
    */
   getById(cui: string): Promise<Result<Entity | null, EntityError>>;
+
+  /**
+   * Batch load entities by CUIs.
+   * Used by Mercurius loaders for N+1 prevention.
+   *
+   * @param cuis - Array of entity CUIs
+   * @returns Map of CUI to Entity (missing CUIs won't have entries)
+   */
+  getByIds(cuis: string[]): Promise<Result<Map<string, Entity>, EntityError>>;
 
   /**
    * List entities with filtering, sorting, and pagination.
@@ -83,135 +85,6 @@ export interface EntityRepository {
    * @returns County entity if found
    */
   getCountyEntity(countyCode: string | null): Promise<Result<Entity | null, EntityError>>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UAT Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Repository interface for UAT data access.
- */
-export interface UATRepository {
-  /**
-   * Find a UAT by ID.
-   *
-   * @param id - UAT ID
-   * @returns The UAT if found, null if not found
-   */
-  getById(id: number): Promise<Result<UAT | null, EntityError>>;
-
-  /**
-   * List UATs with filtering and pagination.
-   *
-   * Filtering:
-   * - id: exact match
-   * - ids: match any of these IDs
-   * - uat_key: exact match
-   * - uat_code: exact match
-   * - name: ILIKE (when no search), or similarity (with search)
-   * - county_code: exact match
-   * - county_name: ILIKE (when no search), or similarity (with search)
-   * - region: exact match
-   * - search: pg_trgm similarity on name + county_name
-   * - is_county: filter to county-level UATs (siruta_code = county_code OR Bucharest special case)
-   *
-   * Sorting:
-   * - With search: ORDER BY similarity DESC, name ASC, id ASC
-   * - Without search: ORDER BY name ASC, id ASC
-   *
-   * @param filter - Filter criteria
-   * @param limit - Maximum number of results
-   * @param offset - Number of results to skip
-   * @returns Paginated UAT connection
-   */
-  getAll(
-    filter: UATFilter,
-    limit: number,
-    offset: number
-  ): Promise<Result<UATConnection, EntityError>>;
-
-  /**
-   * Count UATs matching filter.
-   *
-   * @param filter - Filter criteria
-   * @returns Total count of matching UATs
-   */
-  count(filter: UATFilter): Promise<Result<number, EntityError>>;
-
-  /**
-   * Get total population for a county (sum of all UAT populations).
-   *
-   * @param countyCode - County code
-   * @returns Sum of populations for all UATs in the county
-   */
-  getCountyPopulation(countyCode: string): Promise<Result<number | null, EntityError>>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Report Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Repository interface for report data access.
- */
-export interface ReportRepository {
-  /**
-   * Get a single report by ID.
-   *
-   * @param reportId - The report ID to look up
-   * @returns The report if found, null if not found, or an error
-   */
-  getById(reportId: string): Promise<Result<Report | null, EntityError>>;
-
-  /**
-   * Get a report by entity CUI and report date.
-   *
-   * @param entityCui - Entity CUI
-   * @param reportDate - Report date
-   * @returns The report if found, null if not found, or an error
-   */
-  getByEntityAndDate(
-    entityCui: string,
-    reportDate: Date
-  ): Promise<Result<Report | null, EntityError>>;
-
-  /**
-   * List reports with filtering, sorting, and pagination.
-   *
-   * Filtering:
-   * - entity_cui: exact match
-   * - reporting_year: exact match
-   * - reporting_period: exact match
-   * - report_date_start/end: date range (inclusive)
-   * - report_type: exact match (converted from GQL to DB enum)
-   * - main_creditor_cui: exact match
-   * - search: ILIKE on entity name and download_links
-   *
-   * Sorting:
-   * - Default: report_date DESC, report_id DESC
-   * - Only 'report_date' is allowed as sort field
-   *
-   * @param filter - Filter criteria
-   * @param sort - Sort configuration (optional)
-   * @param limit - Maximum number of results
-   * @param offset - Number of results to skip
-   * @returns Paginated report connection
-   */
-  list(
-    filter: ReportFilter,
-    sort: ReportSort | undefined,
-    limit: number,
-    offset: number
-  ): Promise<Result<ReportConnection, EntityError>>;
-
-  /**
-   * Count reports matching filter.
-   *
-   * @param filter - Filter criteria
-   * @returns Total count of matching reports
-   */
-  count(filter: ReportFilter): Promise<Result<number, EntityError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

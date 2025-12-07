@@ -2,6 +2,7 @@
  * Entity Module GraphQL Resolvers
  *
  * Implements Query and Entity type resolvers.
+ * UAT and Report Query resolvers are now in separate modules.
  */
 
 import { Decimal } from 'decimal.js';
@@ -9,41 +10,23 @@ import { Decimal } from 'decimal.js';
 import { Frequency } from '@/common/types/temporal.js';
 
 import {
-  DEFAULT_REPORT_LIMIT,
-  DEFAULT_REPORT_ELI_LIMIT,
-  DEFAULT_UAT_LIMIT,
+  DEFAULT_LIMIT,
   type Entity,
   type EntityFilter,
-  type Report,
-  type ReportFilter,
-  type ReportSort,
   type ReportPeriodInput,
   type GqlReportType,
   type DbReportType,
-  type UAT,
-  type UATFilter,
 } from '../../core/types.js';
 import { getEntity } from '../../core/usecases/get-entity.js';
-import { getReport } from '../../core/usecases/get-report.js';
-import { getUAT } from '../../core/usecases/get-uat.js';
 import { listEntities } from '../../core/usecases/list-entities.js';
-import { listReports } from '../../core/usecases/list-reports.js';
-import { listUATs } from '../../core/usecases/list-uats.js';
 
-import type {
-  EntityRepository,
-  UATRepository,
-  ReportRepository,
-  EntityAnalyticsSummaryRepository,
-} from '../../core/ports.js';
+import type { EntityRepository, EntityAnalyticsSummaryRepository } from '../../core/ports.js';
 import type {
   PeriodType,
-  PeriodDate,
   AnalyticsFilter,
   PeriodSelection,
   Currency,
 } from '@/common/types/analytics.js';
-import type { BudgetSectorRepository } from '@/modules/budget-sector/index.js';
 import type {
   ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
   SortableField,
@@ -55,7 +38,16 @@ import type {
   TransformationOptions,
   NormalizationMode,
 } from '@/modules/normalization/index.js';
+import type { ReportRepository, ReportFilter, ReportSort } from '@/modules/report/index.js';
+import type { UATRepository } from '@/modules/uat/index.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants (imported from respective modules)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_REPORT_LIMIT = 10;
+const DEFAULT_ELI_LIMIT = 10_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GraphQL Normalization Type (matches GraphQL enum Normalization)
@@ -96,35 +88,9 @@ interface GqlEntityFilter {
   parents?: string[];
 }
 
-interface GqlReportFilterInput {
-  entity_cui?: string;
-  reporting_year?: number;
-  reporting_period?: string;
-  report_date_start?: string;
-  report_date_end?: string;
-  report_type?: GqlReportType;
-  main_creditor_cui?: string;
-  search?: string;
-}
-
-interface GqlUATFilterInput {
-  id?: string;
-  ids?: string[];
-  uat_key?: string;
-  uat_code?: string;
-  name?: string;
-  county_code?: string;
-  county_name?: string;
-  region?: string;
-  search?: string;
-  is_county?: boolean;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
+// Report Type Mapping
 // ─────────────────────────────────────────────────────────────────────────────
-
-const DEFAULT_ELI_LIMIT = 10_000;
 
 /** Map GraphQL ReportType to DB value */
 const GQL_TO_DB_REPORT_TYPE_MAP: Record<GqlReportType, DbReportType> = {
@@ -133,19 +99,18 @@ const GQL_TO_DB_REPORT_TYPE_MAP: Record<GqlReportType, DbReportType> = {
   DETAILED: 'Executie bugetara detaliata',
 };
 
+/** Default report type used when entity doesn't have one set */
+const DEFAULT_REPORT_TYPE: DbReportType = 'Executie bugetara detaliata';
+
+/** Set of valid DB report type values for validation */
+const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE_MAP));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalization Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Parses GraphQL Normalization enum to internal normalization mode and currency.
- *
- * GraphQL enum values:
- * - total -> normalization: 'total', currency: 'RON'
- * - total_euro -> normalization: 'total', currency: 'EUR'
- * - per_capita -> normalization: 'per_capita', currency: 'RON'
- * - per_capita_euro -> normalization: 'per_capita', currency: 'EUR'
- * - percent_gdp -> normalization: 'percent_gdp', currency: 'RON'
  */
 const parseGqlNormalization = (
   gqlNorm: GqlNormalization | undefined
@@ -225,7 +190,6 @@ const getYearRangeFromPeriod = (period: ReportPeriodInput): [number, number] => 
 
 /**
  * Applies normalization to a single numeric value.
- * Used for totalIncome, totalExpenses, budgetBalance.
  */
 const applyNormalizationToValue = async (
   value: number | null,
@@ -240,8 +204,6 @@ const applyNormalizationToValue = async (
   const { normalization, currency } = parseGqlNormalization(gqlNorm);
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  // Build transformation options
-  // Handle per_capita separately to avoid double normalization
   const options: TransformationOptions = {
     inflationAdjusted: false,
     currency,
@@ -249,8 +211,6 @@ const applyNormalizationToValue = async (
     showPeriodGrowth: false,
   };
 
-  // Create a single data point to normalize
-  // Use the end year for single-value normalization (snapshot)
   const yearLabel = String(endYear);
   const dataPoint: DataPoint = {
     x: yearLabel,
@@ -264,7 +224,7 @@ const applyNormalizationToValue = async (
   ]);
 
   if (result.isErr() || result.value.length === 0) {
-    return value; // Fallback to original value on error
+    return value;
   }
 
   const firstPoint = result.value[0];
@@ -274,7 +234,6 @@ const applyNormalizationToValue = async (
 
   let normalizedValue = firstPoint.y.toNumber();
 
-  // Apply per_capita if needed (since NormalizationService doesn't handle population directly for single values)
   if (normalization === 'per_capita' && population !== null && population > 0) {
     normalizedValue = normalizedValue / population;
   }
@@ -283,8 +242,7 @@ const applyNormalizationToValue = async (
 };
 
 /**
- * Applies normalization to a data series (array of data points).
- * Used for incomeTrend, expensesTrend, balanceTrend.
+ * Applies normalization to a data series.
  */
 const applyNormalizationToSeries = async (
   data: { date: string; value: Decimal }[],
@@ -295,7 +253,6 @@ const applyNormalizationToSeries = async (
 ): Promise<{ x: string; y: number }[]> => {
   if (data.length === 0) return [];
 
-  // If no normalization needed, just convert
   if (gqlNorm === undefined || gqlNorm === 'total') {
     return data.map((point) => ({
       x: point.date,
@@ -306,15 +263,13 @@ const applyNormalizationToSeries = async (
   const { normalization, currency } = parseGqlNormalization(gqlNorm);
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  // Build transformation options
   const options: TransformationOptions = {
     inflationAdjusted: false,
     currency,
-    normalization: normalization === 'per_capita' ? 'total' : normalization, // Handle per_capita separately
+    normalization: normalization === 'per_capita' ? 'total' : normalization,
     showPeriodGrowth: false,
   };
 
-  // Convert to DataPoint format
   const dataPoints: DataPoint[] = data.map((point) => ({
     x: point.date,
     year: parseInt(point.date.substring(0, 4), 10),
@@ -327,14 +282,12 @@ const applyNormalizationToSeries = async (
   ]);
 
   if (result.isErr()) {
-    // Fallback to original values on error
     return data.map((point) => ({
       x: point.date,
       y: point.value.toNumber(),
     }));
   }
 
-  // Apply per_capita if needed
   let normalizedPoints = result.value;
   if (normalization === 'per_capita' && population !== null && population > 0) {
     normalizedPoints = normalizedPoints.map((p) => ({
@@ -351,7 +304,6 @@ const applyNormalizationToSeries = async (
 
 /**
  * Normalized execution line item output type.
- * Amounts are numbers after normalization is applied.
  */
 interface NormalizedExecutionLineItem {
   line_item_id: string;
@@ -375,14 +327,6 @@ interface NormalizedExecutionLineItem {
 
 /**
  * Applies normalization to execution line items.
- * Used for the executionLineItems field resolver.
- *
- * @param items - Raw execution line items with Decimal amounts
- * @param gqlNorm - GraphQL normalization mode
- * @param period - Report period for normalization factors
- * @param population - Entity population for per_capita
- * @param normService - Normalization service
- * @returns Normalized items with number amounts
  */
 const applyNormalizationToLineItems = async (
   items: ExecutionLineItem[],
@@ -393,7 +337,6 @@ const applyNormalizationToLineItems = async (
 ): Promise<NormalizedExecutionLineItem[]> => {
   if (items.length === 0) return [];
 
-  // If no normalization needed, just convert Decimal to number
   if (gqlNorm === undefined || gqlNorm === 'total') {
     return items.map((item) => ({
       ...item,
@@ -409,7 +352,6 @@ const applyNormalizationToLineItems = async (
   const { normalization, currency } = parseGqlNormalization(gqlNorm);
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  // Build transformation options (handle per_capita separately after currency conversion)
   const options: TransformationOptions = {
     inflationAdjusted: false,
     currency,
@@ -422,21 +364,18 @@ const applyNormalizationToLineItems = async (
   for (const item of items) {
     const yearLabel = String(item.year);
 
-    // Normalize ytd_amount
     const ytdDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.ytd_amount };
     const ytdResult = await normService.normalize([ytdDataPoint], options, Frequency.YEAR, [
       startYear,
       endYear,
     ]);
 
-    // Normalize monthly_amount
     const monthlyDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.monthly_amount };
     const monthlyResult = await normService.normalize([monthlyDataPoint], options, Frequency.YEAR, [
       startYear,
       endYear,
     ]);
 
-    // Normalize quarterly_amount if present
     let normalizedQuarterly: number | null = null;
     if (item.quarterly_amount !== null) {
       const quarterlyDataPoint: DataPoint = {
@@ -456,7 +395,6 @@ const applyNormalizationToLineItems = async (
       }
     }
 
-    // Extract normalized values (fallback to original on error)
     let normalizedYtd =
       ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
         ? ytdResult.value[0].y.toNumber()
@@ -466,7 +404,6 @@ const applyNormalizationToLineItems = async (
         ? monthlyResult.value[0].y.toNumber()
         : item.monthly_amount.toNumber();
 
-    // Apply per_capita division if needed
     if (normalization === 'per_capita' && population !== null && population > 0) {
       normalizedYtd = normalizedYtd / population;
       normalizedMonthly = normalizedMonthly / population;
@@ -515,12 +452,6 @@ const mapReportPeriod = (gqlPeriod: GqlReportPeriodInput): ReportPeriodInput => 
   selection: gqlPeriod.selection as unknown as PeriodSelection,
 });
 
-/** Default report type used when entity doesn't have one set */
-const DEFAULT_REPORT_TYPE: DbReportType = 'Executie bugetara detaliata';
-
-/** Set of valid DB report type values for validation */
-const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE_MAP));
-
 /**
  * Checks if a string is a valid DB report type value (Romanian string).
  */
@@ -530,54 +461,17 @@ const isValidDbReportType = (value: string): value is DbReportType => {
 
 /**
  * Resolves the database report type from various input sources.
- *
- * This function handles multiple input formats for backward compatibility:
- *
- * 1. **GraphQL enum values**: `PRINCIPAL_AGGREGATED`, `SECONDARY_AGGREGATED`, `DETAILED`
- *    - These are mapped to their Romanian DB equivalents
- *
- * 2. **DB string values**: Already-resolved Romanian strings like
- *    `'Executie bugetara agregata la nivel de ordonator principal'`
- *    - These are returned as-is (supports clients that pass DB values directly)
- *
- * 3. **Entity default**: Falls back to `parent.default_report_type` if no arg provided
- *
- * 4. **System default**: Falls back to `'Executie bugetara detaliata'` if entity
- *    doesn't have a default set (defensive, should not happen with valid data)
- *
- * @param parent - The parent Entity containing default_report_type
- * @param gqlReportType - Optional report type from GraphQL args (enum or DB string)
- * @returns The resolved DB report type string (Romanian)
- *
- * @example
- * // GraphQL enum input
- * getDbReportType(entity, 'PRINCIPAL_AGGREGATED')
- * // Returns: 'Executie bugetara agregata la nivel de ordonator principal'
- *
- * @example
- * // DB string input (already resolved)
- * getDbReportType(entity, 'Executie bugetara detaliata')
- * // Returns: 'Executie bugetara detaliata'
- *
- * @example
- * // No input - uses entity default
- * getDbReportType(entity, undefined)
- * // Returns: entity.default_report_type or DEFAULT_REPORT_TYPE
  */
 const getDbReportType = (parent: Entity, gqlReportType?: string): string => {
   if (gqlReportType !== undefined) {
-    // Check if it's already a DB value (Romanian string)
     if (isValidDbReportType(gqlReportType)) {
       return gqlReportType;
     }
-    // Otherwise, try to map from GraphQL enum
     const mapped = GQL_TO_DB_REPORT_TYPE_MAP[gqlReportType as GqlReportType] as string | undefined;
     if (mapped !== undefined) {
       return mapped;
     }
-    // Unknown value - fall through to use entity default
   }
-  // Use entity's default (type says non-nullable, but defensive fallback for runtime safety)
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive for runtime data
   return parent.default_report_type ?? DEFAULT_REPORT_TYPE;
 };
@@ -603,65 +497,12 @@ const mapGqlFilterToEntityFilter = (gqlFilter?: GqlEntityFilter): EntityFilter =
 };
 
 /**
- * Converts GraphQL ReportFilterInput to internal ReportFilter.
- */
-const mapGqlFilterToReportFilter = (gqlFilter?: GqlReportFilterInput): ReportFilter => {
-  if (gqlFilter === undefined) {
-    return {};
-  }
-  const filter: ReportFilter = {};
-  if (gqlFilter.entity_cui !== undefined) filter.entity_cui = gqlFilter.entity_cui;
-  if (gqlFilter.reporting_year !== undefined) filter.reporting_year = gqlFilter.reporting_year;
-  if (gqlFilter.reporting_period !== undefined)
-    filter.reporting_period = gqlFilter.reporting_period;
-  if (gqlFilter.report_date_start !== undefined)
-    filter.report_date_start = gqlFilter.report_date_start;
-  if (gqlFilter.report_date_end !== undefined) filter.report_date_end = gqlFilter.report_date_end;
-  if (gqlFilter.report_type !== undefined) filter.report_type = gqlFilter.report_type;
-  if (gqlFilter.main_creditor_cui !== undefined)
-    filter.main_creditor_cui = gqlFilter.main_creditor_cui;
-  if (gqlFilter.search !== undefined) filter.search = gqlFilter.search;
-  return filter;
-};
-
-/**
- * Converts GraphQL UATFilterInput to internal UATFilter.
- */
-const mapGqlFilterToUATFilter = (gqlFilter?: GqlUATFilterInput): UATFilter => {
-  if (gqlFilter === undefined) {
-    return {};
-  }
-  const filter: UATFilter = {};
-  if (gqlFilter.id !== undefined) filter.id = Number.parseInt(gqlFilter.id, 10);
-  if (gqlFilter.ids !== undefined) filter.ids = gqlFilter.ids.map((id) => Number.parseInt(id, 10));
-  if (gqlFilter.uat_key !== undefined) filter.uat_key = gqlFilter.uat_key;
-  if (gqlFilter.uat_code !== undefined) filter.uat_code = gqlFilter.uat_code;
-  if (gqlFilter.name !== undefined) filter.name = gqlFilter.name;
-  if (gqlFilter.county_code !== undefined) filter.county_code = gqlFilter.county_code;
-  if (gqlFilter.county_name !== undefined) filter.county_name = gqlFilter.county_name;
-  if (gqlFilter.region !== undefined) filter.region = gqlFilter.region;
-  if (gqlFilter.search !== undefined) filter.search = gqlFilter.search;
-  if (gqlFilter.is_county !== undefined) filter.is_county = gqlFilter.is_county;
-  return filter;
-};
-
-/**
  * Gets the population for an entity based on entity type.
- *
- * Population calculation rules:
- * - If is_uat === true: Use the UAT's population
- * - If entity_type === 'admin_county_council': Sum all UAT populations in that county
- * - Otherwise (ministries, national agencies): Return null (no per-capita makes sense)
- *
- * @param entity - The entity to get population for
- * @param uatRepo - UAT repository
- * @returns Population or null if not applicable
  */
 const getEntityPopulation = async (
   entity: Entity,
   uatRepo: UATRepository
 ): Promise<number | null> => {
-  // For UAT entities, use the UAT's population directly
   if (entity.is_uat && entity.uat_id !== null) {
     const uatResult = await uatRepo.getById(entity.uat_id);
     if (uatResult.isOk() && uatResult.value !== null) {
@@ -670,7 +511,6 @@ const getEntityPopulation = async (
     return null;
   }
 
-  // For county councils, get the county's total population
   if (entity.entity_type === 'admin_county_council' && entity.uat_id !== null) {
     const uatResult = await uatRepo.getById(entity.uat_id);
     if (uatResult.isOk() && uatResult.value !== null) {
@@ -682,7 +522,6 @@ const getEntityPopulation = async (
     return null;
   }
 
-  // For ministries and other national entities, per-capita doesn't make sense
   return null;
 };
 
@@ -697,7 +536,6 @@ export interface MakeEntityResolversDeps {
   executionLineItemRepo: ExecutionLineItemsModuleRepository;
   entityAnalyticsSummaryRepo: EntityAnalyticsSummaryRepository;
   normalizationService: NormalizationService;
-  budgetSectorRepo: BudgetSectorRepository;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -714,7 +552,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
     reportRepo,
     executionLineItemRepo,
     entityAnalyticsSummaryRepo,
-    budgetSectorRepo,
     normalizationService,
   } = deps;
 
@@ -752,100 +589,7 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           { entityRepo },
           {
             filter,
-            limit: args.limit ?? 20,
-            offset: args.offset ?? 0,
-          }
-        );
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, filter },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-
-        return result.value;
-      },
-
-      report: async (
-        _parent: unknown,
-        args: { report_id: string },
-        context: MercuriusContext
-      ): Promise<Report | null> => {
-        const result = await getReport({ reportRepo }, { reportId: args.report_id });
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, report_id: args.report_id },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-
-        return result.value;
-      },
-
-      reports: async (
-        _parent: unknown,
-        args: { filter?: GqlReportFilterInput; limit?: number; offset?: number },
-        context: MercuriusContext
-      ) => {
-        const filter = mapGqlFilterToReportFilter(args.filter);
-        const result = await listReports(
-          { reportRepo },
-          {
-            filter,
-            limit: args.limit ?? DEFAULT_REPORT_LIMIT,
-            offset: args.offset ?? 0,
-          }
-        );
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, filter },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-
-        return result.value;
-      },
-
-      uat: async (
-        _parent: unknown,
-        args: { id: string },
-        context: MercuriusContext
-      ): Promise<UAT | null> => {
-        const id = Number.parseInt(args.id, 10);
-        if (Number.isNaN(id)) {
-          throw new Error('[VALIDATION_ERROR] Invalid UAT ID');
-        }
-
-        const result = await getUAT({ uatRepo }, { id });
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, id: args.id },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-
-        return result.value;
-      },
-
-      uats: async (
-        _parent: unknown,
-        args: { filter?: GqlUATFilterInput; limit?: number; offset?: number },
-        context: MercuriusContext
-      ) => {
-        const filter = mapGqlFilterToUATFilter(args.filter);
-        const result = await listUATs(
-          { uatRepo },
-          {
-            filter,
-            limit: args.limit ?? DEFAULT_UAT_LIMIT,
+            limit: args.limit ?? DEFAULT_LIMIT,
             offset: args.offset ?? 0,
           }
         );
@@ -867,32 +611,18 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
     // ─────────────────────────────────────────────────────────────────────────
 
     Entity: {
-      // Note: default_report_type returns the DB value (Romanian string).
-      // The EnumResolvers in common/resolvers.ts automatically maps it to
-      // the GraphQL ReportType enum (PRINCIPAL_AGGREGATED, etc.)
       // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
       default_report_type: (parent: Entity): string => {
         return parent.default_report_type;
       },
 
-      // is_main_creditor - currently not computed, returns null to match prod API
-      // TODO: Implement is_main_creditor computation when needed
       // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
       is_main_creditor: (): null => {
         return null;
       },
 
-      // UAT relation
-      uat: async (parent: Entity) => {
-        if (parent.uat_id === null) {
-          return null;
-        }
-        const result = await uatRepo.getById(parent.uat_id);
-        if (result.isErr()) {
-          return null;
-        }
-        return result.value;
-      },
+      // UAT relation - resolved via Mercurius loader for N+1 prevention
+      // Note: The actual loading is done by createEntityLoaders
 
       // Children relation
       children: async (parent: Entity, _args: unknown, context: MercuriusContext) => {
@@ -920,7 +650,7 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         return result.value;
       },
 
-      // Reports relation
+      // Reports relation (uses filtering/pagination, so kept as resolver)
       reports: async (
         parent: Entity,
         args: {
@@ -978,10 +708,8 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         },
         context: MercuriusContext
       ) => {
-        // Build filter with injected entity_cuis and default report_type
         const reportType = args.filter?.report_type ?? parent.default_report_type;
 
-        // Check if report_period is provided
         if (args.filter?.report_period === undefined) {
           context.reply.log.error(
             { cui: parent.cui },
@@ -1001,7 +729,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           report_type: reportType,
         };
 
-        // Support both 'field' (new) and 'by' (old) property names for backward compatibility
         const sortField = args.sort?.field ?? args.sort?.by ?? 'year';
         const sortOrder: 'ASC' | 'DESC' =
           args.sort?.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
@@ -1025,20 +752,16 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           };
         }
 
-        // Get normalization from args OR from filter (backwards compatibility)
-        // Filter may contain normalization from older clients
         const filterWithNormalization = args.filter as
           | (Partial<AnalyticsFilter> & { normalization?: GqlNormalization })
           | undefined;
         const normalization = args.normalization ?? filterWithNormalization?.normalization;
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (normalization === 'per_capita' || normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
-        // Apply normalization to line items
         const normalizedNodes = await applyNormalizationToLineItems(
           result.value.nodes,
           normalization,
@@ -1085,7 +808,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           return null;
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
@@ -1128,7 +850,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           return null;
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
@@ -1171,7 +892,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           return null;
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
@@ -1219,13 +939,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
-        // Apply normalization to the data series
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
           args.normalization,
@@ -1234,7 +952,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           normalizationService
         );
 
-        // Convert to AnalyticsSeries format
         return {
           seriesId: `${parent.cui}_income_trend`,
           xAxis: {
@@ -1280,13 +997,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
-        // Apply normalization to the data series
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
           args.normalization,
@@ -1340,13 +1055,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
-        // Get population for per_capita normalization
         let population: number | null = null;
         if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
-        // Apply normalization to the data series
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
           args.normalization,
@@ -1369,181 +1082,6 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           },
           data: normalizedData,
         };
-      },
-    },
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Report Type Resolvers
-    // ─────────────────────────────────────────────────────────────────────────
-
-    Report: {
-      // FIXME: Prod API returns report_date as Unix timestamp in milliseconds (as string).
-      // GraphQL Date scalar was returning ISO strings by default.
-      // Added explicit field resolver to match prod format.
-      // The database stores dates without timezone, so we need to treat the date components
-      // as UTC to match prod behavior (which returns UTC midnight timestamps).
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
-      report_date: (parent: Report): string => {
-        // Get UTC timestamp from date components (treats date as UTC midnight)
-        const d = parent.report_date;
-        const utcTimestamp = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-        return utcTimestamp.toString();
-      },
-
-      // Note: report_type returns the DB value (Romanian string).
-      // The EnumResolvers in common/resolvers.ts automatically maps it to
-      // the GraphQL ReportType enum (PRINCIPAL_AGGREGATED, etc.)
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
-      report_type: (parent: Report): string => {
-        return parent.report_type;
-      },
-
-      // Entity relation
-      entity: async (parent: Report, _args: unknown, context: MercuriusContext) => {
-        const result = await entityRepo.getById(parent.entity_cui);
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, cui: parent.entity_cui },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-        return result.value;
-      },
-
-      // Main creditor relation
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
-      main_creditor: async (parent: Report, _args: unknown, context: MercuriusContext) => {
-        if (parent.main_creditor_cui === null) {
-          return null;
-        }
-        const result = await entityRepo.getById(parent.main_creditor_cui);
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, cui: parent.main_creditor_cui },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          return null;
-        }
-        return result.value;
-      },
-
-      // Budget sector relation
-      budgetSector: async (parent: Report, _args: unknown, context: MercuriusContext) => {
-        const result = await budgetSectorRepo.findById(parent.budget_sector_id);
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, budget_sector_id: parent.budget_sector_id },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          throw new Error(`[${result.error.type}] ${result.error.message}`);
-        }
-        return result.value;
-      },
-
-      // Execution line items relation
-      executionLineItems: async (
-        parent: Report,
-        args: {
-          limit?: number;
-          offset?: number;
-          functionalCode?: string;
-          economicCode?: string;
-          accountCategory?: 'vn' | 'ch';
-          minAmount?: number;
-          maxAmount?: number;
-        },
-        context: MercuriusContext
-      ) => {
-        // Build filter with report_id
-        const filter: AnalyticsFilter = {
-          report_ids: [parent.report_id],
-          account_category: args.accountCategory ?? 'vn',
-          report_type: parent.report_type,
-          report_period: {
-            type: Frequency.YEAR,
-            selection: {
-              interval: {
-                start: String(parent.reporting_year) as PeriodDate,
-                end: String(parent.reporting_year) as PeriodDate,
-              },
-            },
-          },
-        };
-
-        // Apply optional filters
-        if (args.functionalCode !== undefined) {
-          filter.functional_codes = [args.functionalCode];
-        }
-
-        if (args.economicCode !== undefined) {
-          filter.economic_codes = [args.economicCode];
-        }
-
-        if (args.minAmount !== undefined) {
-          filter.item_min_amount = args.minAmount;
-        }
-
-        if (args.maxAmount !== undefined) {
-          filter.item_max_amount = args.maxAmount;
-        }
-
-        const sort = { field: 'ytd_amount' as SortableField, order: 'DESC' as const };
-
-        const result = await executionLineItemRepo.list(
-          filter,
-          sort,
-          args.limit ?? DEFAULT_REPORT_ELI_LIMIT,
-          args.offset ?? 0
-        );
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, report_id: parent.report_id },
-            `[${result.error.type}] ${result.error.message}`
-          );
-          return {
-            nodes: [],
-            pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
-          };
-        }
-
-        return result.value;
-      },
-    },
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // UAT Type Resolvers
-    // ─────────────────────────────────────────────────────────────────────────
-
-    UAT: {
-      // County entity relation - returns the Entity (not UAT) for the county
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
-      county_entity: async (parent: UAT, _args: unknown, context: MercuriusContext) => {
-        // County UAT identification:
-        // - siruta_code = county_code, OR
-        // - county_code = 'B' AND siruta_code = '179132' (Bucharest special case)
-        const isCounty =
-          parent.siruta_code === parent.county_code ||
-          (parent.county_code === 'B' && parent.siruta_code === '179132');
-
-        if (isCounty) {
-          // This UAT is itself a county, no parent county entity
-          return null;
-        }
-
-        // Find the Entity linked to the county UAT for this UAT's county_code
-        const result = await entityRepo.getCountyEntity(parent.county_code);
-
-        if (result.isErr()) {
-          context.reply.log.error(
-            { err: result.error, parent_id: parent.id, county_code: parent.county_code },
-            `[${result.error.type}] county_entity lookup failed`
-          );
-          return null;
-        }
-
-        return result.value;
       },
     },
   };

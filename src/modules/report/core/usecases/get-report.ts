@@ -4,7 +4,7 @@
  * Retrieves a single report by ID.
  */
 
-import type { EntityError } from '../errors.js';
+import type { ReportError } from '../errors.js';
 import type { ReportRepository } from '../ports.js';
 import type { Report } from '../types.js';
 import type { Result } from 'neverthrow';
@@ -33,6 +33,6 @@ export interface GetReportInput {
 export async function getReport(
   deps: GetReportDeps,
   input: GetReportInput
-): Promise<Result<Report | null, EntityError>> {
+): Promise<Result<Report | null, ReportError>> {
   return deps.reportRepo.getById(input.reportId);
 }

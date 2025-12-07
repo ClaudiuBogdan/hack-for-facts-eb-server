@@ -11,7 +11,7 @@ import {
   type ReportSort,
 } from '../types.js';
 
-import type { EntityError } from '../errors.js';
+import type { ReportError } from '../errors.js';
 import type { ReportRepository } from '../ports.js';
 import type { Result } from 'neverthrow';
 
@@ -27,7 +27,7 @@ export interface ListReportsDeps {
  */
 export interface ListReportsInput {
   filter: ReportFilter;
-  sort?: ReportSort;
+  sort?: ReportSort | undefined;
   limit: number;
   offset: number;
 }
@@ -44,7 +44,7 @@ export interface ListReportsInput {
 export async function listReports(
   deps: ListReportsDeps,
   input: ListReportsInput
-): Promise<Result<ReportConnection, EntityError>> {
+): Promise<Result<ReportConnection, ReportError>> {
   // Clamp limit to maximum allowed
   const clampedLimit = Math.min(Math.max(input.limit, 1), MAX_REPORT_LIMIT);
 

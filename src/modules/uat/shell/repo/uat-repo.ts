@@ -12,7 +12,7 @@ import {
   createDatabaseError,
   createTimeoutError,
   isTimeoutError,
-  type EntityError,
+  type UATError,
 } from '../../core/errors.js';
 import {
   UAT_SIMILARITY_THRESHOLD,
@@ -77,7 +77,7 @@ function escapeILikePattern(value: string): string {
 class KyselyUATRepo implements UATRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
-  async getById(id: number): Promise<Result<UAT | null, EntityError>> {
+  async getById(id: number): Promise<Result<UAT | null, UATError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
@@ -113,11 +113,52 @@ class KyselyUATRepo implements UATRepository {
     }
   }
 
+  async getByIds(ids: number[]): Promise<Result<Map<number, UAT>, UATError>> {
+    if (ids.length === 0) {
+      return ok(new Map());
+    }
+
+    try {
+      // Set statement timeout
+      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
+        this.db
+      );
+
+      const rows = await this.db
+        .selectFrom('uats')
+        .select([
+          'id',
+          'uat_key',
+          'uat_code',
+          'siruta_code',
+          'name',
+          'county_code',
+          'county_name',
+          'region',
+          'population',
+        ])
+        .where('id', 'in', ids)
+        .execute();
+
+      const map = new Map<number, UAT>();
+      for (const row of rows) {
+        map.set(row.id, this.mapRowToUAT(row as UATRow));
+      }
+
+      return ok(map);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('UAT getByIds query timed out', error));
+      }
+      return err(createDatabaseError('UAT getByIds failed', error));
+    }
+  }
+
   async getAll(
     filter: UATFilter,
     limit: number,
     offset: number
-  ): Promise<Result<UATConnection, EntityError>> {
+  ): Promise<Result<UATConnection, UATError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
@@ -167,7 +208,7 @@ class KyselyUATRepo implements UATRepository {
     }
   }
 
-  async count(filter: UATFilter): Promise<Result<number, EntityError>> {
+  async count(filter: UATFilter): Promise<Result<number, UATError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
@@ -205,7 +246,7 @@ class KyselyUATRepo implements UATRepository {
     }
   }
 
-  async getCountyPopulation(countyCode: string): Promise<Result<number | null, EntityError>> {
+  async getCountyPopulation(countyCode: string): Promise<Result<number | null, UATError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(

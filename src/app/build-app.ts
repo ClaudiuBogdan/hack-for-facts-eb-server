@@ -49,8 +49,7 @@ import {
   EntitySchema,
   makeEntityRepo,
   makeEntityAnalyticsSummaryRepo,
-  makeUATRepo,
-  makeReportRepo,
+  createEntityLoaders,
 } from '../modules/entity/index.js';
 import {
   makeEntityAnalyticsResolvers,
@@ -84,6 +83,18 @@ import {
   type HealthChecker,
 } from '../modules/health/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
+import {
+  makeReportResolvers,
+  ReportSchema,
+  makeReportRepo,
+  createReportLoaders,
+} from '../modules/report/index.js';
+import {
+  makeUATResolvers,
+  UATSchema,
+  makeUATRepo,
+  createUATLoaders,
+} from '../modules/uat/index.js';
 import {
   makeUATAnalyticsResolvers,
   UATAnalyticsSchema,
@@ -221,7 +232,17 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     executionLineItemRepo: executionLineItemsModuleRepo,
     entityAnalyticsSummaryRepo,
     normalizationService,
-    budgetSectorRepo,
+  });
+
+  // Setup UAT Module (Query resolvers for UAT queries)
+  const uatResolvers = makeUATResolvers({
+    uatRepo,
+  });
+
+  // Setup Report Module (Query resolvers for Report queries)
+  const reportResolvers = makeReportResolvers({
+    reportRepo,
+    executionLineItemRepo: executionLineItemsModuleRepo,
   });
 
   // Setup UAT Analytics Module
@@ -260,6 +281,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     FundingSourceSchema,
     ExecutionLineItemSchema,
     EntitySchema,
+    UATSchema,
+    ReportSchema,
     UATAnalyticsSchema,
     CountyAnalyticsSchema,
     ClassificationSchema,
@@ -275,19 +298,33 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     fundingSourceResolvers,
     executionLineItemsResolvers,
     entityResolvers,
+    uatResolvers,
+    reportResolvers,
     uatAnalyticsResolvers,
     countyAnalyticsResolvers,
     classificationResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention
+  // Combine loaders from all modules
   const executionLineItemLoaders = createExecutionLineItemLoaders(budgetDb);
+  const entityLoaders = createEntityLoaders(budgetDb);
+  const uatLoaders = createUATLoaders(budgetDb);
+  const reportLoaders = createReportLoaders(budgetDb);
+
+  // Merge all loaders into a single object
+  const combinedLoaders = {
+    ...executionLineItemLoaders,
+    ...entityLoaders,
+    ...uatLoaders,
+    ...reportLoaders,
+  };
 
   await app.register(
     makeGraphQLPlugin({
       schema,
       resolvers,
-      loaders: executionLineItemLoaders,
+      loaders: combinedLoaders,
     })
   );
 

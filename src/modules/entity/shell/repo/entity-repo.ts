@@ -93,6 +93,40 @@ class KyselyEntityRepo implements EntityRepository {
     }
   }
 
+  async getByIds(cuis: string[]): Promise<Result<Map<string, Entity>, EntityError>> {
+    if (cuis.length === 0) {
+      return ok(new Map());
+    }
+
+    try {
+      const rows = await this.db
+        .selectFrom('entities')
+        .select([
+          'cui',
+          'name',
+          'entity_type',
+          'default_report_type',
+          'uat_id',
+          'is_uat',
+          'address',
+          'last_updated',
+          'main_creditor_1_cui',
+          'main_creditor_2_cui',
+        ])
+        .where('cui', 'in', cuis)
+        .execute();
+
+      const map = new Map<string, Entity>();
+      for (const row of rows) {
+        map.set(row.cui, this.mapRowToEntity(row as unknown as EntityRow));
+      }
+
+      return ok(map);
+    } catch (error) {
+      return this.handleQueryError(error, 'getByIds');
+    }
+  }
+
   async getAll(
     filter: EntityFilter,
     limit: number,

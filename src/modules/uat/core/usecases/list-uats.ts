@@ -6,7 +6,7 @@
 
 import { MAX_UAT_LIMIT, type UATConnection, type UATFilter } from '../types.js';
 
-import type { EntityError } from '../errors.js';
+import type { UATError } from '../errors.js';
 import type { UATRepository } from '../ports.js';
 import type { Result } from 'neverthrow';
 
@@ -38,7 +38,7 @@ export interface ListUATsInput {
 export async function listUATs(
   deps: ListUATsDeps,
   input: ListUATsInput
-): Promise<Result<UATConnection, EntityError>> {
+): Promise<Result<UATConnection, UATError>> {
   // Clamp limit to maximum allowed
   const clampedLimit = Math.min(Math.max(input.limit, 1), MAX_UAT_LIMIT);
 

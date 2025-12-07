@@ -4,7 +4,7 @@
  * Fetches a single UAT by ID.
  */
 
-import type { EntityError } from '../errors.js';
+import type { UATError } from '../errors.js';
 import type { UATRepository } from '../ports.js';
 import type { UAT } from '../types.js';
 import type { Result } from 'neverthrow';
@@ -33,6 +33,6 @@ export interface GetUATInput {
 export async function getUAT(
   deps: GetUATDeps,
   input: GetUATInput
-): Promise<Result<UAT | null, EntityError>> {
+): Promise<Result<UAT | null, UATError>> {
   return deps.uatRepo.getById(input.id);
 }

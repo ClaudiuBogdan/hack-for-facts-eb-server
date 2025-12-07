@@ -6,14 +6,11 @@ import { Frequency } from '@/common/types/temporal.js';
 import { makeEntityResolvers } from '@/modules/entity/shell/graphql/resolvers.js';
 
 import type { AnalyticsFilter, PeriodSelection } from '@/common/types/analytics.js';
-import type { BudgetSectorRepository, BudgetSector } from '@/modules/budget-sector/index.js';
 import type {
   EntityRepository,
-  UATRepository,
-  ReportRepository,
   EntityAnalyticsSummaryRepository,
 } from '@/modules/entity/core/ports.js';
-import type { Entity, UAT, DataSeries } from '@/modules/entity/core/types.js';
+import type { Entity, DataSeries } from '@/modules/entity/core/types.js';
 import type {
   ExecutionLineItemRepository,
   ExecutionLineItem,
@@ -24,6 +21,8 @@ import type {
   DataPoint,
   TransformationOptions,
 } from '@/modules/normalization/index.js';
+import type { ReportRepository } from '@/modules/report/index.js';
+import type { UATRepository, UAT } from '@/modules/uat/index.js';
 import type { MercuriusContext } from 'mercurius';
 
 // =============================================================================
@@ -114,6 +113,7 @@ function createIdentityFactors(): NormalizationFactors {
 function createFakeEntityRepo(entity: Entity | null = createTestEntity()): EntityRepository {
   return {
     getById: async () => ok(entity),
+    getByIds: async () => ok(new Map()),
     getChildren: async () => ok([]),
     getParents: async () => ok([]),
     getAll: async () =>
@@ -138,6 +138,7 @@ function createFakeUATRepo(
 ): UATRepository {
   return {
     getById: async () => ok(uat),
+    getByIds: async () => ok(new Map([[uat.id, uat]])),
     getAll: async () =>
       ok({
         nodes: [uat],
@@ -154,6 +155,7 @@ function createFakeUATRepo(
 function createFakeReportRepo(): ReportRepository {
   return {
     getById: async () => ok(null),
+    getByIds: async () => ok(new Map()),
     getByEntityAndDate: async () => ok(null),
     list: async () =>
       ok({
@@ -190,18 +192,6 @@ function createFakeAnalyticsSummaryRepo(): EntityAnalyticsSummaryRepository {
   return {
     getTotals: async () => ok({ totalIncome: 0, totalExpenses: 0, budgetBalance: 0 }),
     getTrend: async () => ok(dataSeries),
-  };
-}
-
-/**
- * Creates a fake budget sector repository.
- */
-function createFakeBudgetSectorRepo(): BudgetSectorRepository {
-  const sector: BudgetSector = { sector_id: 1, sector_description: 'Test Sector' };
-  return {
-    findById: async () => ok(sector),
-    list: async () =>
-      ok({ nodes: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false } }),
   };
 }
 
@@ -312,7 +302,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -333,7 +322,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -353,7 +341,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo([]),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -376,7 +363,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const entity = createTestEntity({ is_uat: true, uat_id: 100 });
@@ -405,7 +391,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const entity = createTestEntity({
@@ -434,7 +419,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       // Ministry - no UAT, so no population
@@ -466,7 +450,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -492,7 +475,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const entity = createTestEntity({ is_uat: true, uat_id: 100 });
@@ -521,7 +503,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -547,7 +528,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -579,7 +559,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -607,7 +586,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -631,7 +609,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo([item]),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {
@@ -655,7 +632,6 @@ describe('Entity executionLineItems Normalization', () => {
         executionLineItemRepo: createFakeLineItemRepo(items),
         entityAnalyticsSummaryRepo: createFakeAnalyticsSummaryRepo(),
         normalizationService: createFakeNormalizationService(),
-        budgetSectorRepo: createFakeBudgetSectorRepo(),
       });
 
       const result = await callExecutionLineItemsResolver(resolvers, createTestEntity(), {

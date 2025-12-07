@@ -12,7 +12,7 @@ import {
   createDatabaseError,
   createTimeoutError,
   isTimeoutError,
-  type EntityError,
+  type ReportError,
 } from '../../core/errors.js';
 import {
   GQL_TO_DB_REPORT_TYPE,
@@ -115,7 +115,7 @@ function mapRowToReport(row: ReportRow): Report {
 class KyselyReportRepo implements ReportRepository {
   constructor(private readonly db: BudgetDbClient) {}
 
-  async getById(reportId: string): Promise<Result<Report | null, EntityError>> {
+  async getById(reportId: string): Promise<Result<Report | null, ReportError>> {
     try {
       const row = await this.db
         .selectFrom('reports')
@@ -148,10 +148,48 @@ class KyselyReportRepo implements ReportRepository {
     }
   }
 
+  async getByIds(reportIds: string[]): Promise<Result<Map<string, Report>, ReportError>> {
+    if (reportIds.length === 0) {
+      return ok(new Map());
+    }
+
+    try {
+      const rows = await this.db
+        .selectFrom('reports')
+        .select([
+          'report_id',
+          'entity_cui',
+          'report_type',
+          'main_creditor_cui',
+          'report_date',
+          'reporting_year',
+          'reporting_period',
+          'budget_sector_id',
+          'file_source',
+          'download_links',
+          'import_timestamp',
+        ])
+        .where('report_id', 'in', reportIds)
+        .execute();
+
+      const map = new Map<string, Report>();
+      for (const row of rows) {
+        map.set(row.report_id, mapRowToReport(row as ReportRow));
+      }
+
+      return ok(map);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('Report getByIds query timed out', error));
+      }
+      return err(createDatabaseError('Failed to fetch reports by IDs', error));
+    }
+  }
+
   async getByEntityAndDate(
     entityCui: string,
     reportDate: Date
-  ): Promise<Result<Report | null, EntityError>> {
+  ): Promise<Result<Report | null, ReportError>> {
     try {
       const row = await this.db
         .selectFrom('reports')
@@ -190,7 +228,7 @@ class KyselyReportRepo implements ReportRepository {
     sort: ReportSort | undefined,
     limit: number,
     offset: number
-  ): Promise<Result<ReportConnection, EntityError>> {
+  ): Promise<Result<ReportConnection, ReportError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
@@ -243,7 +281,7 @@ class KyselyReportRepo implements ReportRepository {
     }
   }
 
-  async count(filter: ReportFilter): Promise<Result<number, EntityError>> {
+  async count(filter: ReportFilter): Promise<Result<number, ReportError>> {
     try {
       // Set statement timeout
       await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(

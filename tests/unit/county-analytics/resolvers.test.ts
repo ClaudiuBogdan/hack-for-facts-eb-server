@@ -71,6 +71,7 @@ function createFakeNormalizationService(
 function createFakeEntityRepo(): EntityRepository {
   return {
     getById: async () => ok(null),
+    getByIds: async () => ok(new Map()),
     getAll: async () =>
       ok({
         nodes: [],
