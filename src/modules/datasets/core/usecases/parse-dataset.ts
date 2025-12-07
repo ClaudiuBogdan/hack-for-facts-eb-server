@@ -27,11 +27,20 @@ const validateDate = (value: string, frequency?: DatasetFrequency): boolean => {
   }
 };
 
+/**
+ * Converts a data point value (string or number from YAML) to a string.
+ * Numbers are converted using String() to avoid floating-point issues.
+ */
+const toStringValue = (value: string | number): string =>
+  typeof value === 'number' ? String(value) : value;
+
 const validateX = (
   type: DatasetAxesType,
   frequency: DatasetFrequency | undefined,
-  value: string
+  rawValue: string | number
 ): Result<string, DatasetValidationError> => {
+  const value = toStringValue(rawValue);
+
   if (type === 'date') {
     if (!validateDate(value, frequency)) {
       return err({
@@ -88,12 +97,13 @@ export const parseDataset = (dto: DatasetFileDTO): Result<Dataset, DatasetValida
       return err(validatedX.error);
     }
 
+    const yValue = toStringValue(point.y);
     try {
-      const numericY = new Decimal(point.y);
+      const numericY = new Decimal(yValue);
       if (!numericY.isFinite()) {
         return err({
           type: 'InvalidDecimal',
-          message: `Value '${point.y}' is not a valid y-axis number`,
+          message: `Value '${yValue}' is not a valid y-axis number`,
         });
       }
 
@@ -104,7 +114,7 @@ export const parseDataset = (dto: DatasetFileDTO): Result<Dataset, DatasetValida
     } catch {
       return err({
         type: 'InvalidDecimal',
-        message: `Value '${point.y}' is not a valid y-axis number`,
+        message: `Value '${yValue}' is not a valid y-axis number`,
       });
     }
   }

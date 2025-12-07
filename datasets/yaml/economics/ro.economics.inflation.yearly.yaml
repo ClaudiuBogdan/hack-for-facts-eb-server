@@ -3,7 +3,7 @@ metadata:
   source: "INSSE"
   sourceUrl: "https://insse.ro/cms/ro/content/ipc%E2%80%93serie-de-date-anuala"
   lastUpdated: "2025-12-07"
-  units: "percentage"
+  units: "%"
   notes: "Rata anuală de inflatie"
 i18n:
   ro:

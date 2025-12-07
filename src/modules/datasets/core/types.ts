@@ -32,9 +32,18 @@ const AxisSchema = Type.Object({
   format: Type.Optional(Type.String({ description: 'Display format hint, e.g. YYYY' })),
 });
 
+/**
+ * Schema for data point values.
+ * Accepts both string and number since YAML parses unquoted numbers as numbers.
+ * The actual format validation is done in parseDataset based on axis type.
+ */
+const DataPointValueSchema = Type.Union([Type.String(), Type.Number()], {
+  description: 'Value as string or number (converted to string/Decimal internally)',
+});
+
 const DataPointSchema = Type.Object({
-  x: Type.String({ description: 'Date string or Category Label' }),
-  y: Type.String({ description: 'Decimal value as string (No Float Rule)' }),
+  x: DataPointValueSchema,
+  y: DataPointValueSchema,
 });
 
 export const DatasetFileSchema = Type.Object({

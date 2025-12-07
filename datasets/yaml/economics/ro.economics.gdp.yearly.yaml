@@ -3,16 +3,16 @@ metadata:
   source: "INSSE"
   sourceUrl: "https://insse.ro/cms/ro/content/produsul-intern-brut"
   lastUpdated: "2025-12-04"
-  units: "milioane RON"
+  units: "RON"
 i18n:
   ro:
     title: "Produsul Intern Brut (PIB)"
     xAxisLabel: "An"
-    yAxisLabel: "milioane RON"
+    yAxisLabel: "RON"
   en:
     title: "Gross Domestic Product (GDP)"
     xAxisLabel: "Year"
-    yAxisLabel: "million RON"
+    yAxisLabel: "RON"
 axes:
   x:
     label: "An"
