@@ -241,10 +241,11 @@ const applyNormalizationToValue = async (
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
   // Build transformation options
+  // Handle per_capita separately to avoid double normalization
   const options: TransformationOptions = {
     inflationAdjusted: false,
     currency,
-    normalization,
+    normalization: normalization === 'per_capita' ? 'total' : normalization,
     showPeriodGrowth: false,
   };
 

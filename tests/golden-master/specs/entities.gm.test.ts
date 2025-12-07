@@ -81,6 +81,130 @@ describe('[Golden Master] Entities', () => {
     );
   });
 
+  it('[GM] entity - entity-details-with-per-capita-normalization', async () => {
+    const query = /* GraphQL */ `
+      query GetEntityDetails(
+        $cui: ID!
+        $normalization: Normalization
+        $reportPeriod: ReportPeriodInput!
+        $reportType: ReportType
+        $trendPeriod: ReportPeriodInput!
+      ) {
+        entity(cui: $cui) {
+          cui
+          name
+          entity_type
+          is_uat
+          uat {
+            county_name
+            county_code
+            name
+            siruta_code
+            population
+          }
+          totalIncome(period: $reportPeriod, reportType: $reportType, normalization: $normalization)
+          totalExpenses(
+            period: $reportPeriod
+            reportType: $reportType
+            normalization: $normalization
+          )
+          budgetBalance(
+            period: $reportPeriod
+            reportType: $reportType
+            normalization: $normalization
+          )
+          incomeTrend(
+            period: $trendPeriod
+            reportType: $reportType
+            normalization: $normalization
+          ) {
+            seriesId
+            xAxis {
+              name
+              type
+              unit
+            }
+            yAxis {
+              name
+              type
+              unit
+            }
+            data {
+              x
+              y
+            }
+          }
+          expensesTrend(
+            period: $trendPeriod
+            reportType: $reportType
+            normalization: $normalization
+          ) {
+            seriesId
+            xAxis {
+              name
+              type
+              unit
+            }
+            yAxis {
+              name
+              type
+              unit
+            }
+            data {
+              x
+              y
+            }
+          }
+          balanceTrend(
+            period: $trendPeriod
+            reportType: $reportType
+            normalization: $normalization
+          ) {
+            seriesId
+            xAxis {
+              name
+              type
+              unit
+            }
+            yAxis {
+              name
+              type
+              unit
+            }
+            data {
+              x
+              y
+            }
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      cui: '4305857', // Cluj-Napoca
+      normalization: 'per_capita',
+      reportPeriod: {
+        type: 'QUARTER',
+        selection: {
+          interval: { start: '2022-Q1', end: '2022-Q1' },
+        },
+      },
+      reportType: 'PRINCIPAL_AGGREGATED',
+      trendPeriod: {
+        type: 'QUARTER',
+        selection: {
+          interval: { start: '2022-Q1', end: '2022-Q4' },
+        },
+      },
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/entities/entity-details-with-per-capita-normalization.snap.json'
+    );
+  });
+
   it('[GM] entities - entities-list', async () => {
     const query = /* GraphQL */ `
       query EntitiesList($filter: EntityFilter, $limit: Int, $offset: Int) {
