@@ -97,7 +97,7 @@ export type AnomalyType = 'YTD_ANOMALY' | 'MISSING_LINE_ITEM';
 
 /**
  * Execution line item for GraphQL output.
- * Amounts are kept as strings to preserve NUMERIC precision.
+ * Amounts are returned as numbers for GraphQL Float type.
  */
 export interface ExecutionLineItemOutput {
   line_item_id: string;
@@ -113,9 +113,9 @@ export interface ExecutionLineItemOutput {
   year: number;
   month: number;
   quarter: number | null;
-  ytd_amount: string;
-  monthly_amount: string;
-  quarterly_amount: string | null;
+  ytd_amount: number;
+  monthly_amount: number;
+  quarterly_amount: number | null;
   anomaly: AnomalyType | null;
 }
 

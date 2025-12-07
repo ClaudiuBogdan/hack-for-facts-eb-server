@@ -1,0 +1,461 @@
+{
+  "uats": {
+    "nodes": [
+      {
+        "county_code": "IF",
+        "county_name": "ILFOV",
+        "id": "1807",
+        "name": "1 DECEMBRIE",
+        "population": 8206,
+        "uat_code": "4505588",
+        "uat_key": "if-1 decembrie"
+      },
+      {
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "id": "1006",
+        "name": "23 AUGUST",
+        "population": 5178,
+        "uat_code": "4618153",
+        "uat_key": "ct-23 august"
+      },
+      {
+        "county_code": "BH",
+        "county_name": "BIHOR",
+        "id": "362",
+        "name": "ABRAM",
+        "population": 2728,
+        "uat_code": "4935178",
+        "uat_key": "bh-abram"
+      },
+      {
+        "county_code": "BH",
+        "county_name": "BIHOR",
+        "id": "363",
+        "name": "ABRĂMUȚ",
+        "population": 3080,
+        "uat_code": "5431691",
+        "uat_key": "bh-abramut"
+      },
+      {
+        "county_code": "SM",
+        "county_name": "SATU MARE",
+        "id": "2388",
+        "name": "ACÂȘ",
+        "population": 2728,
+        "uat_code": "3897386",
+        "uat_key": "sm-acas"
+      },
+      {
+        "county_code": "MS",
+        "county_name": "MUREȘ",
+        "id": "1992",
+        "name": "ACĂȚARI",
+        "population": 5170,
+        "uat_code": "4323578",
+        "uat_key": "ms-acatari"
+      },
+      {
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "id": "1007",
+        "name": "ADAMCLISI",
+        "population": 2044,
+        "uat_code": "7097998",
+        "uat_key": "ct-adamclisi"
+      },
+      {
+        "county_code": "PH",
+        "county_name": "PRAHOVA",
+        "id": "2292",
+        "name": "ADUNAȚI",
+        "population": 1896,
+        "uat_code": "2843248",
+        "uat_key": "ph-adunati"
+      },
+      {
+        "county_code": "GR",
+        "county_name": "GIURGIU",
+        "id": "1378",
+        "name": "ADUNAȚII-COPĂCENI",
+        "population": 6881,
+        "uat_code": "5246171",
+        "uat_key": "gr-adunatii-copaceni"
+      },
+      {
+        "county_code": "IL",
+        "county_name": "IALOMIȚA",
+        "id": "1642",
+        "name": "ADÂNCATA",
+        "population": 2398,
+        "uat_code": "4365123",
+        "uat_key": "il-adancata"
+      },
+      {
+        "county_code": "SV",
+        "county_name": "SUCEAVA",
+        "id": "2588",
+        "name": "ADÂNCATA",
+        "population": 4031,
+        "uat_code": "4327480",
+        "uat_key": "sv-adancata"
+      },
+      {
+        "county_code": "MS",
+        "county_name": "MUREȘ",
+        "id": "1993",
+        "name": "ADĂMUȘ",
+        "population": 4993,
+        "uat_code": "4436844",
+        "uat_key": "ms-adamus"
+      },
+      {
+        "county_code": "BT",
+        "county_name": "BOTOȘANI",
+        "id": "522",
+        "name": "ADĂȘENI",
+        "population": 1328,
+        "uat_code": "18382485",
+        "uat_key": "bt-adaseni"
+      },
+      {
+        "county_code": "DJ",
+        "county_name": "DOLJ",
+        "id": "1206",
+        "name": "AFUMAȚI",
+        "population": 2646,
+        "uat_code": "5001953",
+        "uat_key": "dj-afumati"
+      },
+      {
+        "county_code": "IF",
+        "county_name": "ILFOV",
+        "id": "1808",
+        "name": "AFUMAȚI",
+        "population": 8748,
+        "uat_code": "4420708",
+        "uat_key": "if-afumati"
+      },
+      {
+        "county_code": "NT",
+        "county_name": "NEAMȚ",
+        "id": "2088",
+        "name": "AGAPIA",
+        "population": 3696,
+        "uat_code": "2614112",
+        "uat_key": "nt-agapia"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "920",
+        "name": "AGHIREȘU",
+        "population": 5691,
+        "uat_code": "4722374",
+        "uat_key": "cj-aghiresu"
+      },
+      {
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "id": "1008",
+        "name": "AGIGEA",
+        "population": 8722,
+        "uat_code": "4701088",
+        "uat_key": "ct-agigea"
+      },
+      {
+        "county_code": "SJ",
+        "county_name": "SĂLAJ",
+        "id": "2451",
+        "name": "AGRIJ",
+        "population": 1397,
+        "uat_code": "4291549",
+        "uat_key": "sj-agrij"
+      },
+      {
+        "county_code": "SM",
+        "county_name": "SATU MARE",
+        "id": "2389",
+        "name": "AGRIȘ",
+        "population": 1758,
+        "uat_code": "16363452",
+        "uat_key": "sm-agris"
+      },
+      {
+        "county_code": "BC",
+        "county_name": "BACĂU",
+        "id": "267",
+        "name": "AGĂȘ",
+        "population": 5247,
+        "uat_code": "5002983",
+        "uat_key": "bc-agas"
+      },
+      {
+        "county_code": "CV",
+        "county_name": "COVASNA",
+        "id": "1070",
+        "name": "AITA MARE",
+        "population": 1626,
+        "uat_code": "4201929",
+        "uat_key": "cv-aita mare"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "921",
+        "name": "AITON",
+        "population": 1061,
+        "uat_code": "4378743",
+        "uat_key": "cj-aiton"
+      },
+      {
+        "county_code": "AB",
+        "county_name": "ALBA",
+        "id": "12",
+        "name": "ALBAC",
+        "population": 1846,
+        "uat_code": "4562362",
+        "uat_key": "ab-albac"
+      },
+      {
+        "county_code": "GJ",
+        "county_name": "GORJ",
+        "id": "1438",
+        "name": "ALBENI",
+        "population": 2502,
+        "uat_code": "4448202",
+        "uat_key": "gj-albeni"
+      },
+      {
+        "county_code": "BT",
+        "county_name": "BOTOȘANI",
+        "id": "523",
+        "name": "ALBEȘTI",
+        "population": 6260,
+        "uat_code": "3373519",
+        "uat_key": "bt-albesti"
+      },
+      {
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "id": "1009",
+        "name": "ALBEȘTI",
+        "population": 3464,
+        "uat_code": "5110918",
+        "uat_key": "ct-albesti"
+      },
+      {
+        "county_code": "IL",
+        "county_name": "IALOMIȚA",
+        "id": "1643",
+        "name": "ALBEȘTI",
+        "population": 1056,
+        "uat_code": "4428027",
+        "uat_key": "il-albesti"
+      },
+      {
+        "county_code": "MS",
+        "county_name": "MUREȘ",
+        "id": "1994",
+        "name": "ALBEȘTI",
+        "population": 5392,
+        "uat_code": "5902730",
+        "uat_key": "ms-albesti"
+      },
+      {
+        "county_code": "VS",
+        "county_name": "VASLUI",
+        "id": "2938",
+        "name": "ALBEȘTI",
+        "population": 2330,
+        "uat_code": "4359431",
+        "uat_key": "vs-albesti"
+      },
+      {
+        "county_code": "PH",
+        "county_name": "PRAHOVA",
+        "id": "2293",
+        "name": "ALBEȘTI-PALEOLOGU",
+        "population": 5145,
+        "uat_code": "2845664",
+        "uat_key": "ph-albesti-paleologu"
+      },
+      {
+        "county_code": "AG",
+        "county_name": "ARGEȘ",
+        "id": "164",
+        "name": "ALBEȘTII DE ARGEȘ",
+        "population": 5558,
+        "uat_code": "4121978",
+        "uat_key": "ag-albestii de arges"
+      },
+      {
+        "county_code": "AG",
+        "county_name": "ARGEȘ",
+        "id": "165",
+        "name": "ALBEȘTII DE MUSCEL",
+        "population": 1345,
+        "uat_code": "4122477",
+        "uat_key": "ag-albestii de muscel"
+      },
+      {
+        "county_code": "AG",
+        "county_name": "ARGEȘ",
+        "id": "166",
+        "name": "ALBOTA",
+        "population": 4037,
+        "uat_code": "4122159",
+        "uat_key": "ag-albota"
+      },
+      {
+        "county_code": "NT",
+        "county_name": "NEAMȚ",
+        "id": "2089",
+        "name": "ALEXANDRU CEL BUN",
+        "population": 5570,
+        "uat_code": "2613036",
+        "uat_key": "nt-alexandru cel bun"
+      },
+      {
+        "county_code": "IS",
+        "county_name": "IAȘI",
+        "id": "1706",
+        "name": "ALEXANDRU I. CUZA",
+        "population": 2133,
+        "uat_code": "4540941",
+        "uat_key": "is-alexandru i. cuza"
+      },
+      {
+        "county_code": "CL",
+        "county_name": "CĂLĂRAȘI",
+        "id": "864",
+        "name": "ALEXANDRU ODOBESCU",
+        "population": 2737,
+        "uat_code": "3966281",
+        "uat_key": "cl-alexandru odobescu"
+      },
+      {
+        "county_code": "VS",
+        "county_name": "VASLUI",
+        "id": "2939",
+        "name": "ALEXANDRU VLAHUȚĂ",
+        "population": 1333,
+        "uat_code": "3394139",
+        "uat_key": "vs-alexandru vlahuta"
+      },
+      {
+        "county_code": "IL",
+        "county_name": "IALOMIȚA",
+        "id": "1644",
+        "name": "ALEXENI",
+        "population": 2215,
+        "uat_code": "4365085",
+        "uat_key": "il-alexeni"
+      },
+      {
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "id": "1010",
+        "name": "ALIMAN",
+        "population": 2434,
+        "uat_code": "7453130",
+        "uat_key": "ct-aliman"
+      },
+      {
+        "county_code": "GJ",
+        "county_name": "GORJ",
+        "id": "1439",
+        "name": "ALIMPEȘTI",
+        "population": 1639,
+        "uat_code": "4666436",
+        "uat_key": "gj-alimpesti"
+      },
+      {
+        "county_code": "SB",
+        "county_name": "SIBIU",
+        "id": "2519",
+        "name": "ALMA",
+        "population": 1692,
+        "uat_code": "16343277",
+        "uat_key": "sb-alma"
+      },
+      {
+        "county_code": "AR",
+        "county_name": "ARAD",
+        "id": "89",
+        "name": "ALMAȘ",
+        "population": 2191,
+        "uat_code": "3520270",
+        "uat_key": "ar-almas"
+      },
+      {
+        "county_code": "SJ",
+        "county_name": "SĂLAJ",
+        "id": "2452",
+        "name": "ALMAȘU",
+        "population": 1882,
+        "uat_code": "4637619",
+        "uat_key": "sj-almasu"
+      },
+      {
+        "county_code": "AB",
+        "county_name": "ALBA",
+        "id": "13",
+        "name": "ALMAȘU MARE",
+        "population": 1048,
+        "uat_code": "4562230",
+        "uat_key": "ab-almasu mare"
+      },
+      {
+        "county_code": "DJ",
+        "county_name": "DOLJ",
+        "id": "1207",
+        "name": "ALMĂJ",
+        "population": 1792,
+        "uat_code": "4553674",
+        "uat_key": "dj-almaj"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "922",
+        "name": "ALUNIȘ",
+        "population": 1018,
+        "uat_code": "4349039",
+        "uat_key": "cj-alunis"
+      },
+      {
+        "county_code": "MS",
+        "county_name": "MUREȘ",
+        "id": "1995",
+        "name": "ALUNIȘ",
+        "population": 3058,
+        "uat_code": "4662981",
+        "uat_key": "ms-alunis"
+      },
+      {
+        "county_code": "PH",
+        "county_name": "PRAHOVA",
+        "id": "2294",
+        "name": "ALUNIȘ",
+        "population": 3351,
+        "uat_code": "2843388",
+        "uat_key": "ph-alunis"
+      },
+      {
+        "county_code": "VL",
+        "county_name": "VÂLCEA",
+        "id": "3030",
+        "name": "ALUNU",
+        "population": 3733,
+        "uat_code": "2541363",
+        "uat_key": "vl-alunu"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 3228
+    }
+  }
+}

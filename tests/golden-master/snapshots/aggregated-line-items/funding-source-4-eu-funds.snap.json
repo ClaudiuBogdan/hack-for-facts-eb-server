@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 2256362899.55,
+        "count": 2,
+        "ec_c": "58.13.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.03.04",
+        "fn_n": "Programe pentru sprijinirea producatorilor agricoli"
+      },
+      {
+        "amount": 284882070.82,
+        "count": 8,
+        "ec_c": "58.08.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.03",
+        "fn_n": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 157240013.53,
+        "count": 4,
+        "ec_c": "58.05.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.03.04",
+        "fn_n": "Programe pentru sprijinirea producatorilor agricoli"
+      },
+      {
+        "amount": 117295221.49,
+        "count": 13,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 93595282.68,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.07.00",
+        "fn_n": "Penitenciare"
+      },
+      {
+        "amount": 89421447.82,
+        "count": 24,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 76019585.24,
+        "count": 6,
+        "ec_c": "58.08.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 61827036.48,
+        "count": 6,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.05.00",
+        "fn_n": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 51496444.42,
+        "count": 8,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.03",
+        "fn_n": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 48323786.17,
+        "count": 7,
+        "ec_c": "58.07.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 47792872.74,
+        "count": 1,
+        "ec_c": "56.72.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 42004443.31,
+        "count": 6,
+        "ec_c": "58.08.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 39083830.72,
+        "count": 132,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.50.50",
+        "fn_n": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 36461998.75,
+        "count": 1,
+        "ec_c": "56.60.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 36153142.63,
+        "count": 6,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 34333513.43,
+        "count": 26,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 33827378.1,
+        "count": 5,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 31402537.94,
+        "count": 27,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 31096792.49,
+        "count": 39,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 30065472.2,
+        "count": 34,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 29877097.06,
+        "count": 3,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 27043952.74,
+        "count": 4,
+        "ec_c": "58.08.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 26181725.25,
+        "count": 24,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 25865001.03,
+        "count": 27,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.50.00",
+        "fn_n": "Alte servicii in domeniul protectiei mediului"
+      },
+      {
+        "amount": 25836918.57,
+        "count": 11,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "53.01.00",
+        "fn_n": "Cercetare fundamentala (de baza)"
+      },
+      {
+        "amount": 23979061.82,
+        "count": 7,
+        "ec_c": "56.16.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 23241601.77,
+        "count": 5,
+        "ec_c": "58.10.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 22939066.62,
+        "count": 27,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "67.03.03",
+        "fn_n": "Muzee"
+      },
+      {
+        "amount": 22507310.38,
+        "count": 7,
+        "ec_c": "58.12.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.05.00",
+        "fn_n": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 21617794.62,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.06.00",
+        "fn_n": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 20672509.06,
+        "count": 4,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 20182140.27,
+        "count": 13,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 18597165.89,
+        "count": 13,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 17949298.59,
+        "count": 59,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.06.00",
+        "fn_n": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 17822520.64,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.05.00",
+        "fn_n": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 16521558.53,
+        "count": 11,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.06.00",
+        "fn_n": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 16516787.57,
+        "count": 6,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "61.07.00",
+        "fn_n": "Penitenciare"
+      },
+      {
+        "amount": 15701034.82,
+        "count": 24,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 15327803.69,
+        "count": 25,
+        "ec_c": "58.00.00",
+        "ec_n": "TITLUL X PROIECTE CU FINANTARE DIN FONDURI EXTERNE NERAMBURSABILE AFERENTE CADRULUI FINANCIAR 2014-2020",
+        "fn_c": "61.00.00",
+        "fn_n": "Ordine publica si siguranta nationala"
+      },
+      {
+        "amount": 14949515,
+        "count": 4,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 14871099.85,
+        "count": 2,
+        "ec_c": "56.72.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.03",
+        "fn_n": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 14183073.51,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 13854729.01,
+        "count": 10,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 13439165.49,
+        "count": 48,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.06.00",
+        "fn_n": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 13235367.89,
+        "count": 4,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.50.00",
+        "fn_n": "Alte servicii in domeniul protectiei mediului"
+      },
+      {
+        "amount": 12597960.72,
+        "count": 13,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 11640995.77,
+        "count": 51,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.50.50",
+        "fn_n": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 11496815.1,
+        "count": 5,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 11027981.44,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 10304849.46,
+        "count": 5,
+        "ec_c": "56.00.00",
+        "ec_n": "Titlul VIII PROIECTE CU FINANTARE DIN FONDURI EXTERNE NERAMBURSABILE (FEN) POSTADERARE",
+        "fn_c": "61.00.00",
+        "fn_n": "Ordine publica si siguranta nationala"
+      },
+      {
+        "amount": 10192923.61,
+        "count": 14,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 10162459.49,
+        "count": 12,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "67.03.03",
+        "fn_n": "Muzee"
+      },
+      {
+        "amount": 10151436.36,
+        "count": 2,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 10136171.19,
+        "count": 7,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.01.00",
+        "fn_n": "Administratie centrala"
+      },
+      {
+        "amount": 9555338.92,
+        "count": 4,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 9403375.87,
+        "count": 4,
+        "ec_c": "58.12.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 9228463.45,
+        "count": 9,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 9211809.98,
+        "count": 2,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.07.00",
+        "fn_n": "Penitenciare"
+      },
+      {
+        "amount": 8699665.52,
+        "count": 2,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "53.01.00",
+        "fn_n": "Cercetare fundamentala (de baza)"
+      },
+      {
+        "amount": 8554225.46,
+        "count": 10,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "70.06.00",
+        "fn_n": "Iluminat public si electrificari"
+      },
+      {
+        "amount": 8360135.65,
+        "count": 12,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 8323301.92,
+        "count": 2,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.05.01",
+        "fn_n": "Salubritate"
+      },
+      {
+        "amount": 7770169.64,
+        "count": 8,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 7701367.93,
+        "count": 1,
+        "ec_c": "56.08.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.01.00",
+        "fn_n": "Administratie centrala"
+      },
+      {
+        "amount": 6939689.25,
+        "count": 4,
+        "ec_c": "58.12.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 6807244.02,
+        "count": 2,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.05.02",
+        "fn_n": "Colectarea, tratarea si distrugerea deseurilor"
+      },
+      {
+        "amount": 6733593.47,
+        "count": 124,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "68.50.50",
+        "fn_n": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 6391128.36,
+        "count": 6,
+        "ec_c": "56.18.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 6034098.59,
+        "count": 8,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 5969541.03,
+        "count": 5,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 5942900.72,
+        "count": 2,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 5710505.07,
+        "count": 14,
+        "ec_c": "58.33.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 5700537.36,
+        "count": 13,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 5698662.67,
+        "count": 6,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.03.03",
+        "fn_n": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 5631060.36,
+        "count": 5,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "53.02.00",
+        "fn_n": "Cercetare si dezvoltare pentru servicii publice generale"
+      },
+      {
+        "amount": 5540730.37,
+        "count": 15,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.07.04",
+        "fn_n": "Invatamant special"
+      },
+      {
+        "amount": 5540044.43,
+        "count": 25,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 5518255.36,
+        "count": 41,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 5483938.24,
+        "count": 37,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 5406649.5,
+        "count": 8,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 5389073.48,
+        "count": 2,
+        "ec_c": "58.12.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 5254049.95,
+        "count": 4,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "80.01.10",
+        "fn_n": "Programe de dezvoltare regionala  si sociala"
+      },
+      {
+        "amount": 5251095.81,
+        "count": 49,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 5221455.47,
+        "count": 29,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 5042301.55,
+        "count": 6,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 5021257.94,
+        "count": 2,
+        "ec_c": "56.72.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 4780806.42,
+        "count": 1,
+        "ec_c": "58.07.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.05.00",
+        "fn_n": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 4652640.28,
+        "count": 3,
+        "ec_c": "56.17.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 4591886.83,
+        "count": 11,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "53.01.00",
+        "fn_n": "Cercetare fundamentala (de baza)"
+      },
+      {
+        "amount": 4564412.83,
+        "count": 27,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "74.50.00",
+        "fn_n": "Alte servicii in domeniul protectiei mediului"
+      },
+      {
+        "amount": 4397615.44,
+        "count": 4,
+        "ec_c": "58.12.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "61.03.03",
+        "fn_n": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 4393692.82,
+        "count": 23,
+        "ec_c": "58.31.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 4382722.06,
+        "count": 3,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 4272122.95,
+        "count": 7,
+        "ec_c": "58.08.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 4203744.87,
+        "count": 7,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 4105739.98,
+        "count": 9,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "68.01.00",
+        "fn_n": "Administratie centrala"
+      },
+      {
+        "amount": 4020232.88,
+        "count": 4,
+        "ec_c": "58.31.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "67.03.12",
+        "fn_n": "Consolidarea si restaurarea monumentelor istorice"
+      },
+      {
+        "amount": 4012638.72,
+        "count": 2,
+        "ec_c": "56.17.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 4012168.81,
+        "count": 7,
+        "ec_c": "58.32.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 3991289,
+        "count": 6,
+        "ec_c": "58.30.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "85.01.00",
+        "fn_n": "Comunicatii"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 562
+    }
+  }
+}

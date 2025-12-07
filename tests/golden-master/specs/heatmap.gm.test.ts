@@ -53,7 +53,9 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/county-total-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/heatmap/county-total-2023.snap.json'
+    );
   });
 
   it('[GM] heatmapCountyData - county-total-2022', async () => {
@@ -85,7 +87,9 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/county-total-2022.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/heatmap/county-total-2022.snap.json'
+    );
   });
 
   it('[GM] heatmapCountyData - county-income-2023', async () => {
@@ -117,7 +121,9 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/county-income-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/heatmap/county-income-2023.snap.json'
+    );
   });
 
   it('[GM] heatmapCountyData - county-filtered-functional', async () => {
@@ -150,7 +156,7 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/heatmap/county-filtered-functional.snap.json'
     );
   });
@@ -193,7 +199,7 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/uat-cluj-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/heatmap/uat-cluj-2023.snap.json');
   });
 
   it('[GM] heatmapUATData - uat-timis-2023', async () => {
@@ -230,7 +236,7 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/uat-timis-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/heatmap/uat-timis-2023.snap.json');
   });
 
   it('[GM] heatmapUATData - uat-bucuresti-2023', async () => {
@@ -267,7 +273,9 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/uat-bucuresti-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/heatmap/uat-bucuresti-2023.snap.json'
+    );
   });
 
   it('[GM] heatmapUATData - uat-income-cluj-2023', async () => {
@@ -304,7 +312,9 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/heatmap/uat-income-cluj-2023.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/heatmap/uat-income-cluj-2023.snap.json'
+    );
   });
 
   it('[GM] heatmapUATData - uat-filtered-functional', async () => {
@@ -342,7 +352,7 @@ describe('[Golden Master] Heatmap', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/heatmap/uat-filtered-functional.snap.json'
     );
   });

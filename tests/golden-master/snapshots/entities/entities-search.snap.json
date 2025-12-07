@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "nodes": [
+      {
+        "cui": "4305857",
+        "entity_type": "admin_municipality",
+        "is_uat": true,
+        "name": "MUNICIPIUL CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4354574",
+        "entity_type": "culture_museum",
+        "is_uat": false,
+        "name": "MUZEUL DE ARTA CLUJ NAPOCA"
+      },
+      {
+        "cui": "4288357",
+        "entity_type": "culture_performing_arts",
+        "is_uat": false,
+        "name": "OPERA MAGHIARA DIN CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4354558",
+        "entity_type": "culture_performing_arts",
+        "is_uat": false,
+        "name": "OPERA NATIONALA ROMANA CLUJ NAPOCA"
+      },
+      {
+        "cui": "4889551",
+        "entity_type": "sport_club",
+        "is_uat": false,
+        "name": "CLUBUL SPORTIV MUNICIPAL CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4288314",
+        "entity_type": "defence_military_unit",
+        "is_uat": false,
+        "name": "UNITATEA MILITARA 0603 CLUJ NAPOCA"
+      },
+      {
+        "cui": "4288349",
+        "entity_type": "health_special_hospital",
+        "is_uat": false,
+        "name": "SPITALUL CLINIC CAI FERATE CLUJ-NAPOCA"
+      },
+      {
+        "cui": "18001335",
+        "entity_type": "edu_secondary_school",
+        "is_uat": false,
+        "name": "LICEUL CU PROGRAM SPORTIV CLUJ NAPOCA"
+      },
+      {
+        "cui": "4288306",
+        "entity_type": "edu_university",
+        "is_uat": false,
+        "name": "UNIVERSITATEA TEHNICA DIN CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4305830",
+        "entity_type": "sport_club",
+        "is_uat": false,
+        "name": "CLUBUL SPORTIV UNIVERSITATEA CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4889527",
+        "entity_type": "edu_primary_school",
+        "is_uat": false,
+        "name": "SCOALA GIMNAZIALA RADU STANCA CLUJ NAPOCA"
+      },
+      {
+        "cui": "4847513",
+        "entity_type": "culture_cultural_center",
+        "is_uat": false,
+        "name": "CASA DE CULTURA A MUNICIPIULUI CLUJ NAPOCA"
+      },
+      {
+        "cui": "4959711",
+        "entity_type": "edu_primary_school",
+        "is_uat": false,
+        "name": "SCOALA GIMNAZIALA ION CREANGA CLUJ NAPOCA"
+      },
+      {
+        "cui": "4847530",
+        "entity_type": "edu_secondary_school",
+        "is_uat": false,
+        "name": "LICEUL TEORETIC AVRAM IANCU CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4924063",
+        "entity_type": "edu_primary_school",
+        "is_uat": false,
+        "name": "SCOALA GIMNAZIALA OCTAVIAN GOGA CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4288098",
+        "entity_type": "edu_university",
+        "is_uat": false,
+        "name": "UNIVERSITATEA DE ARTA SI DESIGN CLUJ NAPOCA"
+      },
+      {
+        "cui": "13708611",
+        "entity_type": "edu_research_institute",
+        "is_uat": false,
+        "name": "INSTITUTUL DE MEDICINA LEGALA CLUJ-NAPOCA"
+      },
+      {
+        "cui": "4305903",
+        "entity_type": "edu_secondary_school",
+        "is_uat": false,
+        "name": "LICEUL TEORETIC BATHORY ISTVAN CLUJ-NAPOCA"
+      },
+      {
+        "cui": "17993243",
+        "entity_type": "edu_primary_school",
+        "is_uat": false,
+        "name": "SCOALA GIMNAZIALA IULIU HATIEGANU CLUJ-NAPOCA"
+      },
+      {
+        "cui": "5303102",
+        "entity_type": "edu_secondary_school",
+        "is_uat": false,
+        "name": "COLEGIUL ORTODOX MITROPOLITUL NICOLAE COLAN CLUJ-NAPOCA"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 219
+    }
+  }
+}

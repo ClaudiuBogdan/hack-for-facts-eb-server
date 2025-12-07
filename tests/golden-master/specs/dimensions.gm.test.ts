@@ -48,7 +48,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/functional-all.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/functional-all.snap.json'
+    );
   });
 
   it('[GM] functionalClassification - functional-by-code', async () => {
@@ -67,7 +69,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/functional-by-code.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/functional-by-code.snap.json'
+    );
   });
 
   it('[GM] functionalClassifications - functional-filtered', async () => {
@@ -96,7 +100,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/functional-filtered.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/functional-filtered.snap.json'
+    );
   });
 
   // ===========================================================================
@@ -126,7 +132,7 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/economic-all.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/dimensions/economic-all.snap.json');
   });
 
   it('[GM] economicClassification - economic-by-code', async () => {
@@ -145,7 +151,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/economic-by-code.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/economic-by-code.snap.json'
+    );
   });
 
   // ===========================================================================
@@ -175,7 +183,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/budget-sectors-all.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/budget-sectors-all.snap.json'
+    );
   });
 
   it('[GM] budgetSector - budget-sector-by-id', async () => {
@@ -194,7 +204,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/budget-sector-by-id.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/budget-sector-by-id.snap.json'
+    );
   });
 
   // ===========================================================================
@@ -224,7 +236,9 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/dimensions/funding-sources-all.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/dimensions/funding-sources-all.snap.json'
+    );
   });
 
   it('[GM] fundingSource - funding-source-by-id', async () => {
@@ -243,7 +257,7 @@ describe('[Golden Master] Dimensions', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/dimensions/funding-source-by-id.snap.json'
     );
   });

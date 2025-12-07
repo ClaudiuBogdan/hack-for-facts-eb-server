@@ -69,7 +69,9 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entity-analytics/top-by-amount.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/entity-analytics/top-by-amount.snap.json'
+    );
   });
 
   it('[GM] entityAnalytics - top-by-per-capita', async () => {
@@ -118,7 +120,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/top-by-per-capita.snap.json'
     );
   });
@@ -169,7 +171,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/sorted-by-name.snap.json'
     );
   });
@@ -224,7 +226,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/filtered-by-county.snap.json'
     );
   });
@@ -275,7 +277,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/filtered-by-entity-type.snap.json'
     );
   });
@@ -335,7 +337,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/pagination-first-page.snap.json'
     );
   });
@@ -391,7 +393,7 @@ describe('[Golden Master] Entity Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/pagination-second-page.snap.json'
     );
   });

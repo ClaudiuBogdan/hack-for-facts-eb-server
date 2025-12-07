@@ -211,6 +211,23 @@ function getResultAxis(filter: NormalizationOptions): Axis {
 }
 
 /**
+ * Get xAxis metadata based on period frequency type.
+ * Maps to the format expected by the production API.
+ */
+function getXAxisMetadata(periodType: string): Axis {
+  switch (periodType.toUpperCase()) {
+    case 'YEAR':
+      return { name: 'Year', type: 'INTEGER', unit: 'year' };
+    case 'QUARTER':
+      return { name: 'Quarter', type: 'STRING', unit: 'quarter' };
+    case 'MONTH':
+      return { name: 'Month', type: 'STRING', unit: 'month' };
+    default:
+      return { name: 'Time', type: 'STRING', unit: periodType.toLowerCase() };
+  }
+}
+
+/**
  * Fetches and normalizes analytics series based on input filters.
  *
  * Each input generates one AnalyticsSeries in the output.
@@ -302,13 +319,13 @@ export async function getAnalyticsSeries(
     const finalAxis = getResultAxis(strictFilter);
 
     // 4. Convert to AnalyticsSeries for GraphQL
+    // Map period type to xAxis metadata (matching prod API format)
+    const periodType = strictFilter.report_period.type;
+    const xAxisMeta = getXAxisMetadata(periodType);
+
     results.push({
       seriesId: seriesId ?? 'default',
-      xAxis: {
-        name: 'Time',
-        type: 'DATE',
-        unit: strictFilter.report_period.type.toLowerCase(),
-      },
+      xAxis: xAxisMeta,
       yAxis: finalAxis,
       data: processedPoints.map((p) => ({ x: p.x, y: p.y })),
     });

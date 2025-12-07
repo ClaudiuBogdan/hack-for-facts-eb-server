@@ -72,7 +72,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/yearly-totals.snap.json'
     );
   });
@@ -111,8 +111,8 @@ describe('[Golden Master] Execution Analytics', () => {
               type: 'YEAR',
               selection: {
                 interval: {
-                  start: '2020',
-                  end: '2023',
+                  start: '2016',
+                  end: '2024',
                 },
               },
             },
@@ -124,7 +124,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/yearly-per-capita.snap.json'
     );
   });
@@ -177,7 +177,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/yearly-with-economic-filter.snap.json'
     );
   });
@@ -233,7 +233,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/quarterly-totals.snap.json'
     );
   });
@@ -285,7 +285,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/quarterly-per-capita.snap.json'
     );
   });
@@ -338,7 +338,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/monthly-totals.snap.json'
     );
   });
@@ -395,7 +395,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/filtered-by-county.snap.json'
     );
   });
@@ -448,7 +448,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/filtered-by-functional.snap.json'
     );
   });
@@ -501,7 +501,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/filtered-by-entity-type.snap.json'
     );
   });
@@ -544,8 +544,8 @@ describe('[Golden Master] Execution Analytics', () => {
               type: 'YEAR',
               selection: {
                 interval: {
-                  start: '2020',
-                  end: '2023',
+                  start: '2016',
+                  end: '2024',
                 },
               },
             },
@@ -557,7 +557,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/yearly-total-euro.snap.json'
     );
   });
@@ -596,8 +596,8 @@ describe('[Golden Master] Execution Analytics', () => {
               type: 'YEAR',
               selection: {
                 interval: {
-                  start: '2018',
-                  end: '2023',
+                  start: '2016',
+                  end: '2024',
                 },
               },
             },
@@ -613,8 +613,8 @@ describe('[Golden Master] Execution Analytics', () => {
               type: 'YEAR',
               selection: {
                 interval: {
-                  start: '2018',
-                  end: '2023',
+                  start: '2016',
+                  end: '2024',
                 },
               },
             },
@@ -626,7 +626,7 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/income-vs-expenses.snap.json'
     );
   });
@@ -699,8 +699,150 @@ describe('[Golden Master] Execution Analytics', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/execution-analytics/multi-series.snap.json'
+    );
+  });
+
+  // ===========================================================================
+  // Quarterly Income vs Expenses
+  // ===========================================================================
+
+  it('[GM] executionAnalytics - quarterly-income-vs-expenses', async () => {
+    const query = /* GraphQL */ `
+      query GetExecutionLineItemsAnalytics($inputs: [AnalyticsInput!]!) {
+        executionAnalytics(inputs: $inputs) {
+          seriesId
+          xAxis {
+            name
+            type
+            unit
+          }
+          yAxis {
+            name
+            type
+            unit
+          }
+          data {
+            x
+            y
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      inputs: [
+        {
+          seriesId: 'quarterly-expenses',
+          filter: {
+            report_period: {
+              type: 'QUARTER',
+              selection: {
+                interval: {
+                  start: '2016-Q1',
+                  end: '2025-Q3',
+                },
+              },
+            },
+            account_category: 'ch',
+            report_type: 'PRINCIPAL_AGGREGATED',
+          },
+        },
+        {
+          seriesId: 'quarterly-income',
+          filter: {
+            report_period: {
+              type: 'QUARTER',
+              selection: {
+                interval: {
+                  start: '2016-Q1',
+                  end: '2025-Q3',
+                },
+              },
+            },
+            account_category: 'vn',
+            report_type: 'PRINCIPAL_AGGREGATED',
+          },
+        },
+      ],
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/execution-analytics/quarterly-income-vs-expenses.snap.json'
+    );
+  });
+
+  // ===========================================================================
+  // Monthly Income vs Expenses
+  // ===========================================================================
+
+  it('[GM] executionAnalytics - monthly-income-vs-expenses', async () => {
+    const query = /* GraphQL */ `
+      query GetExecutionLineItemsAnalytics($inputs: [AnalyticsInput!]!) {
+        executionAnalytics(inputs: $inputs) {
+          seriesId
+          xAxis {
+            name
+            type
+            unit
+          }
+          yAxis {
+            name
+            type
+            unit
+          }
+          data {
+            x
+            y
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      inputs: [
+        {
+          seriesId: 'monthly-expenses',
+          filter: {
+            report_period: {
+              type: 'MONTH',
+              selection: {
+                interval: {
+                  start: '2016-01',
+                  end: '2025-10',
+                },
+              },
+            },
+            account_category: 'ch',
+            report_type: 'PRINCIPAL_AGGREGATED',
+          },
+        },
+        {
+          seriesId: 'monthly-income',
+          filter: {
+            report_period: {
+              type: 'MONTH',
+              selection: {
+                interval: {
+                  start: '2016-01',
+                  end: '2025-10',
+                },
+              },
+            },
+            account_category: 'vn',
+            report_type: 'PRINCIPAL_AGGREGATED',
+          },
+        },
+      ],
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/execution-analytics/monthly-income-vs-expenses.snap.json'
     );
   });
 });

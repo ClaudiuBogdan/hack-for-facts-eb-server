@@ -47,7 +47,7 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/entity-by-cui.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/entity-by-cui.snap.json');
   });
 
   it('[GM] entity - entity-with-analytics', async () => {
@@ -76,7 +76,9 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/entity-with-analytics.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/entities/entity-with-analytics.snap.json'
+    );
   });
 
   it('[GM] entities - entities-list', async () => {
@@ -109,7 +111,7 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/entities-list.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/entities-list.snap.json');
   });
 
   it('[GM] entities - entities-search', async () => {
@@ -140,7 +142,7 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/entities-search.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/entities-search.snap.json');
   });
 
   it('[GM] entities - entities-by-type', async () => {
@@ -172,7 +174,9 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/entities-by-type.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/entities/entities-by-type.snap.json'
+    );
   });
 
   // ===========================================================================
@@ -202,12 +206,12 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/uat-by-id.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/uat-by-id.snap.json');
   });
 
   it('[GM] uats - uats-by-county', async () => {
     const query = /* GraphQL */ `
-      query UatsByCounty($filter: UATFilter, $limit: Int) {
+      query UatsByCounty($filter: UATFilterInput, $limit: Int) {
         uats(filter: $filter, limit: $limit) {
           nodes {
             id
@@ -237,7 +241,7 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/uats-by-county.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/uats-by-county.snap.json');
   });
 
   it('[GM] uats - uats-list-all', async () => {
@@ -269,7 +273,7 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/uats-list-all.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/uats-list-all.snap.json');
   });
 
   // ===========================================================================
@@ -307,6 +311,6 @@ describe('[Golden Master] Entities', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/entities/reports-list.snap.json');
+    await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/reports-list.snap.json');
   });
 });

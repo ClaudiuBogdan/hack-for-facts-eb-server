@@ -1,0 +1,515 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 555000000,
+        "count": 1,
+        "ec_c": "81.01.05",
+        "ec_n": "Rambursari de credite aferente datoriei publice externe locale",
+        "fn_c": "54.50.00",
+        "fn_n": "Alte servicii publice generale"
+      },
+      {
+        "amount": 500015565.57,
+        "count": 9,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 361174943.86,
+        "count": 5,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": 333420406.29,
+        "count": 9,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 177541716.26,
+        "count": 8,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": 174738683.55,
+        "count": 4,
+        "ec_c": "58.03.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "74.06.00",
+        "fn_n": "Canalizarea si tratarea apelor reziduale"
+      },
+      {
+        "amount": 164693951.06,
+        "count": 11,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 128894472.81,
+        "count": 8,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 121044183.15,
+        "count": 9,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "84.03.02",
+        "fn_n": "Transport in comun"
+      },
+      {
+        "amount": 109423311.25,
+        "count": 5,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "65.03.02",
+        "fn_n": "Invatamant primar"
+      },
+      {
+        "amount": 87736656.91,
+        "count": 6,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 83856243.67,
+        "count": 5,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "65.04.01",
+        "fn_n": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 74430519.27,
+        "count": 3,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "84.03.02",
+        "fn_n": "Transport in comun"
+      },
+      {
+        "amount": 67500000,
+        "count": 2,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 66621230.23,
+        "count": 4,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 47151311.96,
+        "count": 6,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.06.00",
+        "fn_n": "Iluminat public si electrificari"
+      },
+      {
+        "amount": 42402053.65,
+        "count": 6,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 42314101.2,
+        "count": 1,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.03.02",
+        "fn_n": "Transport in comun"
+      },
+      {
+        "amount": 41434250.31,
+        "count": 1,
+        "ec_c": "56.48.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 41390574.66,
+        "count": 1,
+        "ec_c": "58.03.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.06.00",
+        "fn_n": "Canalizarea si tratarea apelor reziduale"
+      },
+      {
+        "amount": 38874234.81,
+        "count": 1,
+        "ec_c": "56.48.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 35177893.36,
+        "count": 5,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "65.03.01",
+        "fn_n": "Invatamant prescolar"
+      },
+      {
+        "amount": 33520269.5,
+        "count": 2,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "84.03.02",
+        "fn_n": "Transport in comun"
+      },
+      {
+        "amount": 28633422.35,
+        "count": 2,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 28290289.57,
+        "count": 3,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 22011329.79,
+        "count": 2,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "67.05.03",
+        "fn_n": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 20026370.31,
+        "count": 3,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 19655840.5,
+        "count": 2,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": 18696230.22,
+        "count": 1,
+        "ec_c": "56.48.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 18301465.34,
+        "count": 2,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": 18296815.56,
+        "count": 3,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "67.05.01",
+        "fn_n": "Sport"
+      },
+      {
+        "amount": 12805669.42,
+        "count": 2,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "81.06.00",
+        "fn_n": "Energie termica"
+      },
+      {
+        "amount": 12295207.29,
+        "count": 2,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 11061759.73,
+        "count": 2,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "67.05.03",
+        "fn_n": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 8625330.69,
+        "count": 1,
+        "ec_c": "56.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 8246697.27,
+        "count": 1,
+        "ec_c": "61.02.00",
+        "ec_n": "Finantare publica nationala",
+        "fn_c": "65.04.02",
+        "fn_n": "Invatamant secundar superior"
+      },
+      {
+        "amount": 7311926.51,
+        "count": 1,
+        "ec_c": "56.48.01",
+        "ec_n": "Finantare nationala",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 6480468.61,
+        "count": 1,
+        "ec_c": "56.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "74.05.02",
+        "fn_n": "Colectarea, tratarea si distrugerea deseurilor"
+      },
+      {
+        "amount": 6439958.63,
+        "count": 3,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 6304436.05,
+        "count": 1,
+        "ec_c": "56.48.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 5955206.24,
+        "count": 5,
+        "ec_c": "56.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 4979727.54,
+        "count": 2,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 4115039.51,
+        "count": 1,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "74.06.00",
+        "fn_n": "Canalizarea si tratarea apelor reziduale"
+      },
+      {
+        "amount": 3602104.98,
+        "count": 1,
+        "ec_c": "58.03.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.05.02",
+        "fn_n": "Colectarea, tratarea si distrugerea deseurilor"
+      },
+      {
+        "amount": 3299334.74,
+        "count": 1,
+        "ec_c": "56.48.01",
+        "ec_n": "Finantare nationala",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 2821982.47,
+        "count": 5,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 2624427.19,
+        "count": 1,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": 1575621.27,
+        "count": 1,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 1566872.48,
+        "count": 1,
+        "ec_c": "61.03.00",
+        "ec_n": "Sume aferente TVA",
+        "fn_c": "65.04.02",
+        "fn_n": "Invatamant secundar superior"
+      },
+      {
+        "amount": 1361960.78,
+        "count": 1,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 1273977.36,
+        "count": 2,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 1153252.89,
+        "count": 1,
+        "ec_c": "58.03.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "74.05.02",
+        "fn_n": "Colectarea, tratarea si distrugerea deseurilor"
+      },
+      {
+        "amount": 850000,
+        "count": 1,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 594706.64,
+        "count": 1,
+        "ec_c": "56.48.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 446543.11,
+        "count": 2,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 272360,
+        "count": 1,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 269757.49,
+        "count": 1,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "67.05.03",
+        "fn_n": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 193666.67,
+        "count": 1,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 150000,
+        "count": 1,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 24340,
+        "count": 1,
+        "ec_c": "56.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 3335,
+        "count": 1,
+        "ec_c": "56.07.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": -233537.63,
+        "count": 3,
+        "ec_c": "85.01.02",
+        "ec_n": "Plati efectuate in anii precedenti si recuperate in anul curent in sectiunea de dezvoltare a bugetului local",
+        "fn_c": "70.03.30",
+        "fn_n": "Alte cheltuieli in domeniul locuintelor"
+      },
+      {
+        "amount": -336051.69,
+        "count": 1,
+        "ec_c": "85.01.02",
+        "ec_n": "Plati efectuate in anii precedenti si recuperate in anul curent in sectiunea de dezvoltare a bugetului local",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 63
+    }
+  }
+}

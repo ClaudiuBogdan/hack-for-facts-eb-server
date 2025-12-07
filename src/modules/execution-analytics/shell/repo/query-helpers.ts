@@ -156,6 +156,8 @@ interface EntityJoinFilter {
   uat_ids?: readonly string[];
   county_codes?: readonly string[];
   search?: string;
+  min_population?: number | null;
+  max_population?: number | null;
   exclude?: {
     entity_types?: readonly string[];
     uat_ids?: readonly string[];
@@ -168,6 +170,9 @@ interface EntityJoinFilter {
  *
  * Note: `is_uat` being undefined means "no filter", while `true`/`false`
  * means we need to filter on the entity table.
+ *
+ * Population filters (min_population, max_population) also require the entity join
+ * because they use the UAT join which references the entity table (e.uat_id).
  */
 export function needsEntityJoin(filter: EntityJoinFilter): boolean {
   // is_uat must be explicitly true or false (not undefined) to require join
@@ -177,6 +182,10 @@ export function needsEntityJoin(filter: EntityJoinFilter): boolean {
   const hasUatIds = filter.uat_ids !== undefined && filter.uat_ids.length > 0;
   const hasCountyCodes = filter.county_codes !== undefined && filter.county_codes.length > 0;
   const hasSearch = filter.search !== undefined && filter.search.trim() !== '';
+
+  // Population filters require entity join (needed for UAT join which references e.uat_id)
+  const hasMinPopulation = filter.min_population !== undefined && filter.min_population !== null;
+  const hasMaxPopulation = filter.max_population !== undefined && filter.max_population !== null;
 
   const hasExcludeEntityTypes =
     filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0;
@@ -191,6 +200,8 @@ export function needsEntityJoin(filter: EntityJoinFilter): boolean {
     hasUatIds ||
     hasCountyCodes ||
     hasSearch ||
+    hasMinPopulation ||
+    hasMaxPopulation ||
     hasExcludeEntityTypes ||
     hasExcludeUatIds ||
     hasExcludeCountyCodes

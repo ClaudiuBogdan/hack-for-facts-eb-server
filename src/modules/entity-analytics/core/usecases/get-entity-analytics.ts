@@ -124,6 +124,10 @@ export async function getEntityAnalytics(
   const { items, totalCount } = result.value;
 
   // 8. Convert to output format
+  // FIXME: The `amount` field should reflect the normalization mode.
+  // When normalization is 'per_capita', amount = per_capita_amount; otherwise amount = total_amount.
+  // This matches prod API behavior where amount is the "primary" value based on normalization.
+  const isPerCapita = filter.normalization === 'per_capita';
   const nodes: EntityAnalyticsDataPoint[] = items.map((row) => ({
     entity_cui: row.entity_cui,
     entity_name: row.entity_name,
@@ -132,7 +136,7 @@ export async function getEntityAnalytics(
     county_code: row.county_code,
     county_name: row.county_name,
     population: row.population,
-    amount: row.total_amount.toNumber(), // Display amount = total_amount for now
+    amount: isPerCapita ? row.per_capita_amount.toNumber() : row.total_amount.toNumber(),
     total_amount: row.total_amount.toNumber(),
     per_capita_amount: row.per_capita_amount.toNumber(),
   }));

@@ -1,0 +1,66 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [
+        {
+          "x": "2020",
+          "y": 409042451628.85
+        },
+        {
+          "x": "2021",
+          "y": 468349027246.41
+        },
+        {
+          "x": "2022",
+          "y": 550936464087.93
+        },
+        {
+          "x": "2023",
+          "y": 605637139875.15
+        }
+      ],
+      "seriesId": "income",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    },
+    {
+      "data": [
+        {
+          "x": "2020",
+          "y": 523590829899.05
+        },
+        {
+          "x": "2021",
+          "y": 557023799924.8
+        },
+        {
+          "x": "2022",
+          "y": 638337470041.51
+        },
+        {
+          "x": "2023",
+          "y": 715495185462.11
+        }
+      ],
+      "seriesId": "expenses",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

@@ -1,0 +1,411 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 464139672,
+        "count": 7,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 270679982.8,
+        "count": 82,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 242811484.33,
+        "count": 1,
+        "economic_code": "81.04.00",
+        "economic_name": "Rambursarea imprumuturilor contractate pentru Finantarea proiectelor cu finantare UE",
+        "functional_code": "84.50.00",
+        "functional_name": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 219148902.6,
+        "count": 1,
+        "economic_code": "55.01.67",
+        "economic_name": "Transferuri din bugetul imprumuturilor pentru finantarea unor investitii publice de interes local",
+        "functional_code": "84.50.00",
+        "functional_name": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 161258228.38,
+        "count": 1,
+        "economic_code": "58.01.03",
+        "economic_name": "Cheltuieli neeligibile",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 158391363.6,
+        "count": 75,
+        "economic_code": "57.02.01",
+        "economic_name": "Ajutoare sociale in numerar",
+        "functional_code": "68.05.02",
+        "functional_name": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 130439680.18,
+        "count": 1,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 118521508,
+        "count": 80,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.05.02",
+        "functional_name": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 116332793.8,
+        "count": 4,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "84.03.03",
+        "functional_name": "Strazi"
+      },
+      {
+        "amount": 110147279.99,
+        "count": 9,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "84.03.03",
+        "functional_name": "Strazi"
+      },
+      {
+        "amount": 99664947,
+        "count": 7,
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 89355440.79,
+        "count": 5,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "70.50.00",
+        "functional_name": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 72282539.6,
+        "count": 7,
+        "economic_code": "20.04.01",
+        "economic_name": "Medicamente",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 72034693.81,
+        "count": 66,
+        "economic_code": "20.30.30",
+        "economic_name": "Alte cheltuieli cu bunuri si servicii",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 64732029.26,
+        "count": 13,
+        "economic_code": "20.02.00",
+        "economic_name": "Reparatii curente",
+        "functional_code": "84.03.03",
+        "functional_name": "Strazi"
+      },
+      {
+        "amount": 60628871.41,
+        "count": 13,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "67.05.03",
+        "functional_name": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 55300000,
+        "count": 1,
+        "economic_code": "40.03.00",
+        "economic_name": "Subventii pentru acoperirea diferentelor de pret si tarif",
+        "functional_code": "81.06.00",
+        "functional_name": "Energie termica"
+      },
+      {
+        "amount": 52266557.81,
+        "count": 2,
+        "economic_code": "55.01.63",
+        "economic_name": "Finantarea invatamantului particular sau confesional acreditat",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 48905481.97,
+        "count": 40,
+        "economic_code": "20.01.04",
+        "economic_name": "Apa, canal si salubritate",
+        "functional_code": "74.05.01",
+        "functional_name": "Salubritate"
+      },
+      {
+        "amount": 46650912,
+        "count": 6,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.06.00",
+        "functional_name": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 46341132,
+        "count": 14,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "84.03.03",
+        "functional_name": "Strazi"
+      },
+      {
+        "amount": 45598474,
+        "count": 24,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.04",
+        "functional_name": "Politie locala"
+      },
+      {
+        "amount": 44610195.76,
+        "count": 2,
+        "economic_code": "20.30.30",
+        "economic_name": "Alte cheltuieli cu bunuri si servicii",
+        "functional_code": "84.50.00",
+        "functional_name": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 43421693,
+        "count": 7,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 41108518.53,
+        "count": 27,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 39349831.73,
+        "count": 2,
+        "economic_code": "57.02.02",
+        "economic_name": "Ajutoare sociale in natura",
+        "functional_code": "68.50.50",
+        "functional_name": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 38152334.3,
+        "count": 2,
+        "economic_code": "51.01.01",
+        "economic_name": "Transferuri catre institutii publice",
+        "functional_code": "67.03.04",
+        "functional_name": "Institutii publice de spectacole si concerte"
+      },
+      {
+        "amount": 34127228.86,
+        "count": 1,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "66.50.50",
+        "functional_name": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 33169884.7,
+        "count": 5,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "67.05.03",
+        "functional_name": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 31953665.68,
+        "count": 11,
+        "economic_code": "30.01.01",
+        "economic_name": "Dobanzi aferente datoriei publice interne directe",
+        "functional_code": "55.00.00",
+        "functional_name": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 31855157.18,
+        "count": 7,
+        "economic_code": "51.01.46",
+        "economic_name": "Transferuri din bugetele locale pentru Finantarea cheltuielilor curente din domeniul sanatatii",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 31351555.8,
+        "count": 7,
+        "economic_code": "20.04.02",
+        "economic_name": "Materiale sanitare",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 30815581.06,
+        "count": 1,
+        "economic_code": "58.01.03",
+        "economic_name": "Cheltuieli neeligibile",
+        "functional_code": "67.50.00",
+        "functional_name": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 30465475.5,
+        "count": 2,
+        "economic_code": "57.02.02",
+        "economic_name": "Ajutoare sociale in natura",
+        "functional_code": "84.03.02",
+        "functional_name": "Transport in comun"
+      },
+      {
+        "amount": 29021671.7,
+        "count": 27,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "70.50.00",
+        "functional_name": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 27835583.93,
+        "count": 37,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 27266578,
+        "count": 2,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "67.03.04",
+        "functional_name": "Institutii publice de spectacole si concerte"
+      },
+      {
+        "amount": 26916012.09,
+        "count": 8,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "67.05.03",
+        "functional_name": "Intretinere gradini publice, parcuri, zone verzi, baze sportive si de agrement"
+      },
+      {
+        "amount": 26802152.26,
+        "count": 2,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "67.50.00",
+        "functional_name": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 26530676.64,
+        "count": 7,
+        "economic_code": "20.01.30",
+        "economic_name": "Alte bunuri si servicii pentru intretinere si functionare",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 26094192,
+        "count": 11,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.50.50",
+        "functional_name": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 25794800.15,
+        "count": 78,
+        "economic_code": "20.01.03",
+        "economic_name": "Incalzit, Iluminat si forta motrica",
+        "functional_code": "70.06.00",
+        "functional_name": "Iluminat public si electrificari"
+      },
+      {
+        "amount": 25662971,
+        "count": 1,
+        "economic_code": "59.15.00",
+        "economic_name": "Contributii la salarizarea personalului neclerical",
+        "functional_code": "67.06.00",
+        "functional_name": "Servicii religioase"
+      },
+      {
+        "amount": 25407220.38,
+        "count": 43,
+        "economic_code": "20.02.00",
+        "economic_name": "Reparatii curente",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 24703087.83,
+        "count": 54,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 24557868.07,
+        "count": 1,
+        "economic_code": "55.01.67",
+        "economic_name": "Transferuri din bugetul imprumuturilor pentru finantarea unor investitii publice de interes local",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 24446737,
+        "count": 1,
+        "economic_code": "40.30.00",
+        "economic_name": "Alte Subventii",
+        "functional_code": "81.06.00",
+        "functional_name": "Energie termica"
+      },
+      {
+        "amount": 24082309.8,
+        "count": 5,
+        "economic_code": "58.01.01",
+        "economic_name": "Finantarea nationala",
+        "functional_code": "84.03.03",
+        "functional_name": "Strazi"
+      },
+      {
+        "amount": 23756838,
+        "count": 7,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 22944859.77,
+        "count": 7,
+        "economic_code": "20.04.03",
+        "economic_name": "Reactivi",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 1692
+    }
+  }
+}

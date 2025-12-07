@@ -1,0 +1,411 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 16145445824.65,
+        "count": 208,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 12425677603.18,
+        "count": 3252,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 6205003179.32,
+        "count": 39,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 4903147787.79,
+        "count": 35,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 4466874490.5,
+        "count": 3,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 4344487154.02,
+        "count": 3127,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.05.02",
+        "functional_name": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 4249825733.04,
+        "count": 19,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      },
+      {
+        "amount": 4187387867.18,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "60.02.00",
+        "functional_name": "Aparare nationala"
+      },
+      {
+        "amount": 3835860530,
+        "count": 196,
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 3822333498.74,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.01",
+        "functional_name": "Politie"
+      },
+      {
+        "amount": 3642898457.59,
+        "count": 7,
+        "economic_code": "10.00.00",
+        "economic_name": "TITLUL I  CHELTUIELI DE PERSONAL",
+        "functional_code": "61.00.00",
+        "functional_name": "Ordine publica si siguranta nationala"
+      },
+      {
+        "amount": 3356026113.31,
+        "count": 18,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "amount": 3047651591.54,
+        "count": 4,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.06.00",
+        "functional_name": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 1974531897.34,
+        "count": 895,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.05.00",
+        "functional_name": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 1541557037.57,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.02",
+        "functional_name": "Jandarmerie"
+      },
+      {
+        "amount": 1473934694,
+        "count": 185,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 1459694116.17,
+        "count": 163,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.06.00",
+        "functional_name": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 1356805970.55,
+        "count": 423,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "66.50.50",
+        "functional_name": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 1323624605,
+        "count": 4,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.07.04",
+        "functional_name": "Invatamant special"
+      },
+      {
+        "amount": 1146928397.39,
+        "count": 91,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "83.03.30",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii"
+      },
+      {
+        "amount": 1024769401.96,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.07.00",
+        "functional_name": "Penitenciare"
+      },
+      {
+        "amount": 980098644.59,
+        "count": 59,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "67.03.04",
+        "functional_name": "Institutii publice de spectacole si concerte"
+      },
+      {
+        "amount": 931657675.25,
+        "count": 645,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.04",
+        "functional_name": "Politie locala"
+      },
+      {
+        "amount": 912970740.27,
+        "count": 1,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "61.03.01",
+        "functional_name": "Politie"
+      },
+      {
+        "amount": 899956156,
+        "count": 4,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "61.06.00",
+        "functional_name": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 888388749.79,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.03",
+        "functional_name": "Paza si supravegherea frontierei"
+      },
+      {
+        "amount": 864805027.65,
+        "count": 372,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.50.00",
+        "functional_name": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 786262321,
+        "count": 179,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 776751229.92,
+        "count": 473,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.50.50",
+        "functional_name": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 731935088.67,
+        "count": 1,
+        "economic_code": "10.02.02",
+        "economic_name": "Norme de hrana",
+        "functional_code": "60.02.00",
+        "functional_name": "Aparare nationala"
+      },
+      {
+        "amount": 686993345,
+        "count": 202,
+        "economic_code": "10.01.17",
+        "economic_name": "Indemnizatii de hrana",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 676800803.77,
+        "count": 1,
+        "economic_code": "10.02.02",
+        "economic_name": "Norme de hrana",
+        "functional_code": "61.03.01",
+        "functional_name": "Politie"
+      },
+      {
+        "amount": 656064391.55,
+        "count": 57,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "70.04.00",
+        "functional_name": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 607877182.82,
+        "count": 1072,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "70.50.00",
+        "functional_name": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 589551423.48,
+        "count": 20,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 589534389.79,
+        "count": 176,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 583068789,
+        "count": 43,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 542569036,
+        "count": 7,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "83.50.00",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 538768093.08,
+        "count": 3,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "66.02.00",
+        "functional_name": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 538415567.28,
+        "count": 208,
+        "economic_code": "10.03.07",
+        "economic_name": "Contributia asiguratorie pentru munca",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 522875220,
+        "count": 273,
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 507286924.68,
+        "count": 71,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "61.05.00",
+        "functional_name": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 497741853.62,
+        "count": 3,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 492001264.53,
+        "count": 1,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "60.02.00",
+        "functional_name": "Aparare nationala"
+      },
+      {
+        "amount": 482475519.63,
+        "count": 3172,
+        "economic_code": "10.01.12",
+        "economic_name": "Indemnizatii platite unor persoane din afara unitatii",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 465380206,
+        "count": 2,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.50.03",
+        "functional_name": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 438085628,
+        "count": 69,
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca",
+        "functional_code": "66.50.50",
+        "functional_name": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 421259982.33,
+        "count": 286,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "67.05.01",
+        "functional_name": "Sport"
+      },
+      {
+        "amount": 412462960,
+        "count": 14,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "51.01.04",
+        "functional_name": "Alte organe ale autoritatilor publice"
+      },
+      {
+        "amount": 408715589.51,
+        "count": 2,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.03",
+        "functional_name": "Invatamant profesional"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 1770
+    }
+  }
+}

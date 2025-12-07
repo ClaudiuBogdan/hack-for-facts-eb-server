@@ -281,9 +281,9 @@ const toOutput = (item: ExecutionLineItem): ExecutionLineItemOutput => ({
   year: item.year,
   month: item.month,
   quarter: item.quarter,
-  ytd_amount: item.ytd_amount.toString(),
-  monthly_amount: item.monthly_amount.toString(),
-  quarterly_amount: item.quarterly_amount !== null ? item.quarterly_amount.toString() : null,
+  ytd_amount: item.ytd_amount.toNumber(),
+  monthly_amount: item.monthly_amount.toNumber(),
+  quarterly_amount: item.quarterly_amount !== null ? item.quarterly_amount.toNumber() : null,
   anomaly: item.anomaly,
 });
 
@@ -392,7 +392,7 @@ const applyNormalizationToItems = async (
     ]);
 
     // Normalize quarterly_amount if present
-    let normalizedQuarterly: string | null = null;
+    let normalizedQuarterly: number | null = null;
     if (item.quarterly_amount !== null) {
       const quarterlyDataPoint: DataPoint = {
         x: yearLabel,
@@ -407,19 +407,19 @@ const applyNormalizationToItems = async (
       );
       if (quarterlyResult.isOk() && quarterlyResult.value.length > 0) {
         const qPoint = quarterlyResult.value[0];
-        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toString() : null;
+        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toNumber() : null;
       }
     }
 
     // Extract normalized values (fallback to original on error)
     const normalizedYtd =
       ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
-        ? ytdResult.value[0].y.toString()
-        : item.ytd_amount.toString();
+        ? ytdResult.value[0].y.toNumber()
+        : item.ytd_amount.toNumber();
     const normalizedMonthly =
       monthlyResult.isOk() && monthlyResult.value.length > 0 && monthlyResult.value[0] !== undefined
-        ? monthlyResult.value[0].y.toString()
-        : item.monthly_amount.toString();
+        ? monthlyResult.value[0].y.toNumber()
+        : item.monthly_amount.toNumber();
 
     normalizedItems.push({
       line_item_id: item.line_item_id,

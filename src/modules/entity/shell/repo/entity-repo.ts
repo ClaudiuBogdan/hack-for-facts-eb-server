@@ -285,6 +285,9 @@ class KyselyEntityRepo implements EntityRepository {
       similarity(COALESCE(address, ''), ${searchTerm})
     )`;
 
+    // FIXME: Added deterministic tie-breakers (name, cui) to match prod API ordering.
+    // When multiple entities have the same relevance score, the order was non-deterministic.
+    // Review if this matches prod behavior exactly.
     return query
       .select(relevance.as('relevance'))
       .where(
@@ -297,7 +300,9 @@ class KyselyEntityRepo implements EntityRepository {
         sql`CASE WHEN 'cui:' || cui || ' ' || name ILIKE ${searchTerm + '%'} THEN 0 ELSE 1 END`,
         'asc'
       )
-      .orderBy(relevance, 'desc');
+      .orderBy(relevance, 'desc')
+      .orderBy('name', 'asc')
+      .orderBy('cui', 'asc');
   }
 
   /**

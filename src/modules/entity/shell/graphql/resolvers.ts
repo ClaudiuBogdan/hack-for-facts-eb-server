@@ -874,14 +874,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         return parent.default_report_type;
       },
 
-      // Compute is_main_creditor based on having children
+      // is_main_creditor - currently not computed, returns null to match prod API
+      // TODO: Implement is_main_creditor computation when needed
       // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
-      is_main_creditor: async (parent: Entity): Promise<boolean> => {
-        const result = await entityRepo.getChildren(parent.cui);
-        if (result.isErr()) {
-          return false;
-        }
-        return result.value.length > 0;
+      is_main_creditor: (): null => {
+        return null;
       },
 
       // UAT relation
@@ -1379,6 +1376,19 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
     // ─────────────────────────────────────────────────────────────────────────
 
     Report: {
+      // FIXME: Prod API returns report_date as Unix timestamp in milliseconds (as string).
+      // GraphQL Date scalar was returning ISO strings by default.
+      // Added explicit field resolver to match prod format.
+      // The database stores dates without timezone, so we need to treat the date components
+      // as UTC to match prod behavior (which returns UTC midnight timestamps).
+      // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
+      report_date: (parent: Report): string => {
+        // Get UTC timestamp from date components (treats date as UTC midnight)
+        const d = parent.report_date;
+        const utcTimestamp = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+        return utcTimestamp.toString();
+      },
+
       // Note: report_type returns the DB value (Romanian string).
       // The EnumResolvers in common/resolvers.ts automatically maps it to
       // the GraphQL ReportType enum (PRINCIPAL_AGGREGATED, etc.)

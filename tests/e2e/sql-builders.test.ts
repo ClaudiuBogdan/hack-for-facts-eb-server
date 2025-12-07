@@ -9,10 +9,13 @@
  * 2. NULL-safe exclusions
  * 3. Amount column correctness by frequency
  * 4. Combined filter queries
+ *
+ * Requirements:
+ *   - Docker Desktop must be running
  */
 
 import { sql } from 'kysely';
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 
 import { Frequency } from '@/common/types/temporal.js';
 import {
@@ -27,6 +30,7 @@ import {
   type SqlBuildContext,
 } from '@/modules/execution-analytics/shell/repo/sql-condition-builder.js';
 
+import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
 import type { BudgetDbClient } from '@/infra/database/client.js';
@@ -38,8 +42,21 @@ import type { BudgetDbClient } from '@/infra/database/client.js';
 let db: BudgetDbClient;
 
 beforeAll(() => {
+  if (!dockerAvailable) {
+    return;
+  }
   const clients = getTestClients();
   db = clients.budgetDb;
+});
+
+/**
+ * Skip test if Docker is not available.
+ * This is called at the start of each test.
+ */
+beforeEach(({ skip }) => {
+  if (!dockerAvailable) {
+    skip();
+  }
 });
 
 /**

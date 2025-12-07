@@ -1,0 +1,831 @@
+{
+  "uats": {
+    "nodes": [
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "920",
+        "name": "AGHIREȘU",
+        "population": 5691,
+        "siruta_code": "55473",
+        "uat_code": "4722374",
+        "uat_key": "cj-aghiresu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "921",
+        "name": "AITON",
+        "population": 1061,
+        "siruta_code": "55598",
+        "uat_code": "4378743",
+        "uat_key": "cj-aiton"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "922",
+        "name": "ALUNIȘ",
+        "population": 1018,
+        "siruta_code": "55623",
+        "uat_code": "4349039",
+        "uat_key": "cj-alunis"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "923",
+        "name": "APAHIDA",
+        "population": 17239,
+        "siruta_code": "55687",
+        "uat_code": "4485243",
+        "uat_key": "cj-apahida"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "924",
+        "name": "AȘCHILEU",
+        "population": 1397,
+        "siruta_code": "55776",
+        "uat_code": "4791935",
+        "uat_key": "cj-aschileu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "925",
+        "name": "BACIU",
+        "population": 13922,
+        "siruta_code": "55838",
+        "uat_code": "4378751",
+        "uat_key": "cj-baciu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "927",
+        "name": "BELIȘ",
+        "population": 1008,
+        "siruta_code": "56014",
+        "uat_code": "4485260",
+        "uat_key": "cj-belis"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "928",
+        "name": "BOBÂLNA",
+        "population": 1382,
+        "siruta_code": "56096",
+        "uat_code": "4378760",
+        "uat_key": "cj-bobalna"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "929",
+        "name": "BONȚIDA",
+        "population": 5191,
+        "siruta_code": "56210",
+        "uat_code": "4565261",
+        "uat_key": "cj-bontida"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "930",
+        "name": "BORȘA",
+        "population": 1511,
+        "siruta_code": "56265",
+        "uat_code": "4378778",
+        "uat_key": "cj-borsa"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "931",
+        "name": "BUZA",
+        "population": 1138,
+        "siruta_code": "56327",
+        "uat_code": "4426158",
+        "uat_key": "cj-buza"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "926",
+        "name": "BĂIȘOARA",
+        "population": 1748,
+        "siruta_code": "55918",
+        "uat_code": "5562093",
+        "uat_key": "cj-baisoara"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "940",
+        "name": "CEANU MARE",
+        "population": 3333,
+        "siruta_code": "56844",
+        "uat_code": "5227935",
+        "uat_key": "cj-ceanu mare"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "941",
+        "name": "CHINTENI",
+        "population": 4533,
+        "siruta_code": "56988",
+        "uat_code": "4923998",
+        "uat_key": "cj-chinteni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "942",
+        "name": "CHIUIEȘTI",
+        "population": 2082,
+        "siruta_code": "57083",
+        "uat_code": "4486230",
+        "uat_key": "cj-chiuiesti"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "943",
+        "name": "CIUCEA",
+        "population": 1293,
+        "siruta_code": "57163",
+        "uat_code": "4485359",
+        "uat_key": "cj-ciucea"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "944",
+        "name": "CIURILA",
+        "population": 2003,
+        "siruta_code": "57225",
+        "uat_code": "4924004",
+        "uat_key": "cj-ciurila"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "945",
+        "name": "COJOCNA",
+        "population": 4291,
+        "siruta_code": "57350",
+        "uat_code": "5022204",
+        "uat_key": "cj-cojocna"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "946",
+        "name": "CORNEȘTI",
+        "population": 1325,
+        "siruta_code": "57449",
+        "uat_code": "4426182",
+        "uat_key": "cj-cornesti"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "947",
+        "name": "CUZDRIOARA",
+        "population": 3001,
+        "siruta_code": "55062",
+        "uat_code": "4546936",
+        "uat_key": "cj-cuzdrioara"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "938",
+        "name": "CÂȚCĂU",
+        "population": 2251,
+        "siruta_code": "57314",
+        "uat_code": "4378808",
+        "uat_key": "cj-catcau"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "932",
+        "name": "CĂIANU",
+        "population": 2191,
+        "siruta_code": "56354",
+        "uat_code": "4288217",
+        "uat_key": "cj-caianu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "933",
+        "name": "CĂLĂRAȘI",
+        "population": 1883,
+        "siruta_code": "56425",
+        "uat_code": "4378786",
+        "uat_key": "cj-calarasi"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "934",
+        "name": "CĂLĂȚELE",
+        "population": 2307,
+        "siruta_code": "56461",
+        "uat_code": "5626626",
+        "uat_key": "cj-calatele"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "935",
+        "name": "CĂMĂRAȘU",
+        "population": 2591,
+        "siruta_code": "56522",
+        "uat_code": "4426166",
+        "uat_key": "cj-camarasu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "936",
+        "name": "CĂPUȘU MARE",
+        "population": 3451,
+        "siruta_code": "56568",
+        "uat_code": "5909401",
+        "uat_key": "cj-capusu mare"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "939",
+        "name": "CĂTINA",
+        "population": 1567,
+        "siruta_code": "56773",
+        "uat_code": "4426174",
+        "uat_key": "cj-catina"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "937",
+        "name": "CĂȘEIU",
+        "population": 4375,
+        "siruta_code": "56666",
+        "uat_code": "4378794",
+        "uat_key": "cj-caseiu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "948",
+        "name": "DĂBÂCA",
+        "population": 1437,
+        "siruta_code": "57546",
+        "uat_code": "4378824",
+        "uat_key": "cj-dabaca"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "949",
+        "name": "FELEACU",
+        "population": 5693,
+        "siruta_code": "57582",
+        "uat_code": "4354507",
+        "uat_key": "cj-feleacu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "950",
+        "name": "FIZEȘU GHERLII",
+        "population": 2191,
+        "siruta_code": "57644",
+        "uat_code": "4288225",
+        "uat_key": "cj-fizesu gherlii"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "951",
+        "name": "FLOREȘTI",
+        "population": 52735,
+        "siruta_code": "57706",
+        "uat_code": "4485391",
+        "uat_key": "cj-floresti"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "952",
+        "name": "FRATA",
+        "population": 3791,
+        "siruta_code": "57742",
+        "uat_code": "4546944",
+        "uat_key": "cj-frata"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "954",
+        "name": "GEACA",
+        "population": 1410,
+        "siruta_code": "57831",
+        "uat_code": "4485413",
+        "uat_key": "cj-geaca"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "955",
+        "name": "GILĂU",
+        "population": 8980,
+        "siruta_code": "57902",
+        "uat_code": "4485421",
+        "uat_key": "cj-gilau"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "953",
+        "name": "GÂRBĂU",
+        "population": 2133,
+        "siruta_code": "57948",
+        "uat_code": "4485430",
+        "uat_key": "cj-garbau"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "956",
+        "name": "IARA",
+        "population": 3577,
+        "siruta_code": "58008",
+        "uat_code": "4546952",
+        "uat_key": "cj-iara"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "957",
+        "name": "ICLOD",
+        "population": 3825,
+        "siruta_code": "58142",
+        "uat_code": "4288241",
+        "uat_key": "cj-iclod"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "958",
+        "name": "IZVORU CRIȘULUI",
+        "population": 1424,
+        "siruta_code": "58204",
+        "uat_code": "4924020",
+        "uat_key": "cj-izvoru crisului"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "959",
+        "name": "JICHIȘU DE JOS",
+        "population": 1049,
+        "siruta_code": "55106",
+        "uat_code": "4617670",
+        "uat_key": "cj-jichisu de jos"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "960",
+        "name": "JUCU",
+        "population": 5349,
+        "siruta_code": "58259",
+        "uat_code": "4426212",
+        "uat_key": "cj-jucu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "3199",
+        "name": "JUDETUL CLUJ",
+        "population": 679141,
+        "siruta_code": "CJ",
+        "uat_code": "4288110",
+        "uat_key": "cj-judetul cluj"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "961",
+        "name": "LUNA",
+        "population": 4750,
+        "siruta_code": "58311",
+        "uat_code": "4546960",
+        "uat_key": "cj-luna"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "966",
+        "name": "MICA",
+        "population": 3459,
+        "siruta_code": "55160",
+        "uat_code": "4485456",
+        "uat_key": "cj-mica"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "967",
+        "name": "MIHAI VITEAZU",
+        "population": 5575,
+        "siruta_code": "55277",
+        "uat_code": "4378832",
+        "uat_key": "cj-mihai viteazu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "968",
+        "name": "MINTIU GHERLII",
+        "population": 3598,
+        "siruta_code": "58552",
+        "uat_code": "4288250",
+        "uat_key": "cj-mintiu gherlii"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "969",
+        "name": "MOCIU",
+        "population": 3300,
+        "siruta_code": "58623",
+        "uat_code": "4485472",
+        "uat_key": "cj-mociu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "970",
+        "name": "MOLDOVENEȘTI",
+        "population": 3076,
+        "siruta_code": "58721",
+        "uat_code": "4426239",
+        "uat_key": "cj-moldovenesti"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "914",
+        "name": "MUNICIPIUL CLUJ-NAPOCA",
+        "population": 286598,
+        "siruta_code": "54975",
+        "uat_code": "4305857",
+        "uat_key": "cj-municipiul cluj-napoca"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "915",
+        "name": "MUNICIPIUL CÂMPIA TURZII",
+        "population": 20590,
+        "siruta_code": "55357",
+        "uat_code": "4354566",
+        "uat_key": "cj-municipiul campia turzii"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "916",
+        "name": "MUNICIPIUL DEJ",
+        "population": 31475,
+        "siruta_code": "55008",
+        "uat_code": "4349179",
+        "uat_key": "cj-municipiul dej"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "917",
+        "name": "MUNICIPIUL GHERLA",
+        "population": 19873,
+        "siruta_code": "55384",
+        "uat_code": "4349071",
+        "uat_key": "cj-municipiul gherla"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "918",
+        "name": "MUNICIPIUL TURDA",
+        "population": 43319,
+        "siruta_code": "55259",
+        "uat_code": "4378930",
+        "uat_key": "cj-municipiul turda"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "962",
+        "name": "MĂGURI-RĂCĂTĂU",
+        "population": 2077,
+        "siruta_code": "58357",
+        "uat_code": "4546979",
+        "uat_key": "cj-maguri-racatau"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "963",
+        "name": "MĂNĂSTIRENI",
+        "population": 1174,
+        "siruta_code": "58393",
+        "uat_code": "5698096",
+        "uat_key": "cj-manastireni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "964",
+        "name": "MĂRGĂU",
+        "population": 1363,
+        "siruta_code": "58464",
+        "uat_code": "4426220",
+        "uat_key": "cj-margau"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "965",
+        "name": "MĂRIȘEL",
+        "population": 1499,
+        "siruta_code": "58534",
+        "uat_code": "4485448",
+        "uat_key": "cj-marisel"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "971",
+        "name": "NEGRENI",
+        "population": 2281,
+        "siruta_code": "60169",
+        "uat_code": "14866024",
+        "uat_key": "cj-negreni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "919",
+        "name": "ORAȘ HUEDIN",
+        "population": 8069,
+        "siruta_code": "55446",
+        "uat_code": "4485642",
+        "uat_key": "cj-orasul huedin"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "973",
+        "name": "PANTICEU",
+        "population": 1717,
+        "siruta_code": "58856",
+        "uat_code": "4426247",
+        "uat_key": "cj-panticeu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "974",
+        "name": "PETREȘTII DE JOS",
+        "population": 1391,
+        "siruta_code": "58918",
+        "uat_code": "5507056",
+        "uat_key": "cj-petrestii de jos"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "975",
+        "name": "PLOSCOȘ",
+        "population": 540,
+        "siruta_code": "58990",
+        "uat_code": "5022212",
+        "uat_key": "cj-ploscos"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "976",
+        "name": "POIENI",
+        "population": 4367,
+        "siruta_code": "59041",
+        "uat_code": "5979229",
+        "uat_key": "cj-poieni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "972",
+        "name": "PĂLATCA",
+        "population": 1133,
+        "siruta_code": "58794",
+        "uat_code": "5105687",
+        "uat_key": "cj-palatca"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "977",
+        "name": "RECEA-CRISTUR",
+        "population": 1453,
+        "siruta_code": "59130",
+        "uat_code": "4426255",
+        "uat_key": "cj-recea-cristur"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "978",
+        "name": "RÂȘCA",
+        "population": 1180,
+        "siruta_code": "59238",
+        "uat_code": "5774428",
+        "uat_key": "cj-rasca"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "985",
+        "name": "SIC",
+        "population": 2234,
+        "siruta_code": "59416",
+        "uat_code": "4617689",
+        "uat_key": "cj-sic"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "986",
+        "name": "SUATU",
+        "population": 1552,
+        "siruta_code": "59657",
+        "uat_code": "5303080",
+        "uat_key": "cj-suatu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "980",
+        "name": "SÂNCRAIU",
+        "population": 1558,
+        "siruta_code": "59434",
+        "uat_code": "5612868",
+        "uat_key": "cj-sancraiu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "982",
+        "name": "SÂNMĂRTIN",
+        "population": 1110,
+        "siruta_code": "59498",
+        "uat_code": "6528995",
+        "uat_key": "cj-sanmartin"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "983",
+        "name": "SÂNPAUL",
+        "population": 2314,
+        "siruta_code": "59586",
+        "uat_code": "4546987",
+        "uat_key": "cj-sanpaul"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "979",
+        "name": "SĂCUIEU",
+        "population": 1369,
+        "siruta_code": "59283",
+        "uat_code": "5698118",
+        "uat_key": "cj-sacuieu"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "981",
+        "name": "SĂNDULEȘTI",
+        "population": 1944,
+        "siruta_code": "55311",
+        "uat_code": "5548447",
+        "uat_key": "cj-sandulesti"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "984",
+        "name": "SĂVĂDISLA",
+        "population": 4196,
+        "siruta_code": "59327",
+        "uat_code": "4889497",
+        "uat_key": "cj-savadisla"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "988",
+        "name": "TRITENII DE JOS",
+        "population": 3950,
+        "siruta_code": "59693",
+        "uat_code": "4426263",
+        "uat_key": "cj-tritenii de jos"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "989",
+        "name": "TURENI",
+        "population": 2264,
+        "siruta_code": "59764",
+        "uat_code": "4378840",
+        "uat_key": "cj-tureni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "990",
+        "name": "UNGURAȘ",
+        "population": 2443,
+        "siruta_code": "59880",
+        "uat_code": "4426271",
+        "uat_key": "cj-unguras"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "991",
+        "name": "VAD",
+        "population": 2311,
+        "siruta_code": "59942",
+        "uat_code": "4485502",
+        "uat_key": "cj-vad"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "992",
+        "name": "VALEA IERII",
+        "population": 871,
+        "siruta_code": "60026",
+        "uat_code": "5562115",
+        "uat_key": "cj-valea ierii"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "993",
+        "name": "VIIȘOARA",
+        "population": 5668,
+        "siruta_code": "60062",
+        "uat_code": "4426280",
+        "uat_key": "cj-viisoara"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "994",
+        "name": "VULTURENI",
+        "population": 1535,
+        "siruta_code": "60099",
+        "uat_code": "4426298",
+        "uat_key": "cj-vultureni"
+      },
+      {
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "id": "987",
+        "name": "ȚAGA",
+        "population": 1588,
+        "siruta_code": "59826",
+        "uat_code": "4288055",
+        "uat_key": "cj-taga"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 82
+    }
+  }
+}

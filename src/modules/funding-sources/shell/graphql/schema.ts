@@ -109,17 +109,17 @@ export const FundingSourceSchema = /* GraphQL */ `
     """
     economic_code: String
     """
-    Year-to-date amount as string (NUMERIC precision)
+    Year-to-date amount
     """
-    ytd_amount: String!
+    ytd_amount: Float!
     """
-    Monthly amount as string (NUMERIC precision)
+    Monthly amount
     """
-    monthly_amount: String!
+    monthly_amount: Float!
     """
-    Quarterly amount as string (NUMERIC precision). Only populated for is_quarterly=true rows.
+    Quarterly amount. Only populated for is_quarterly=true rows.
     """
-    quarterly_amount: String
+    quarterly_amount: Float
     """
     Anomaly type if this line item has data quality issues (YTD_ANOMALY, MISSING_LINE_ITEM)
     """

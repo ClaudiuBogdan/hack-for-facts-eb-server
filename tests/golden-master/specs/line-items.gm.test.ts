@@ -62,7 +62,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/aggregated-default.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/aggregated-default.snap.json'
+    );
   });
 
   it('[GM] aggregatedLineItems - aggregated-filtered', async () => {
@@ -104,7 +106,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/aggregated-filtered.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/aggregated-filtered.snap.json'
+    );
   });
 
   it('[GM] aggregatedLineItems - aggregated-economic', async () => {
@@ -146,7 +150,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/aggregated-economic.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/aggregated-economic.snap.json'
+    );
   });
 
   it('[GM] aggregatedLineItems - aggregated-county', async () => {
@@ -188,7 +194,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/aggregated-county.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/aggregated-county.snap.json'
+    );
   });
 
   // ===========================================================================
@@ -241,7 +249,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/execution-by-entity.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/execution-by-entity.snap.json'
+    );
   });
 
   it('[GM] executionLineItems - execution-by-classification', async () => {
@@ -296,7 +306,7 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/line-items/execution-by-classification.snap.json'
     );
   });
@@ -353,7 +363,9 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot('../snapshots/line-items/execution-paginated.snap.json');
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/line-items/execution-paginated.snap.json'
+    );
   });
 
   it('[GM] executionLineItems - execution-sorted-by-amount', async () => {
@@ -403,7 +415,7 @@ describe('[Golden Master] Line Items', () => {
 
     const data = await client.query(query, variables);
 
-    await expect(data).toMatchFileSnapshot(
+    await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/line-items/execution-sorted-by-amount.snap.json'
     );
   });
