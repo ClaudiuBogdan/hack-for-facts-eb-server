@@ -222,6 +222,59 @@ await cache.clear();
 
 ---
 
+## Fine-Grained Analytics Caching
+
+The `executionAnalytics` query accepts an array of `AnalyticsInput` objects, each containing a `filter` and a client-side `seriesId`. The caching strategy ensures optimal cache utilization when multiple series share identical filters.
+
+### How It Works
+
+```
+Client Request: [
+  { seriesId: "chart1", filter: { entityId: 123, year: 2024 } },
+  { seriesId: "chart2", filter: { entityId: 123, year: 2024 } },  // Same filter!
+  { seriesId: "chart3", filter: { entityId: 456, year: 2024 } }
+]
+
+Processing (sequential):
+1. chart1 → Cache MISS → DB query → Cache SET
+2. chart2 → Cache HIT  → Return cached data (same filter as chart1)
+3. chart3 → Cache MISS → DB query → Cache SET
+```
+
+### Implementation Details
+
+| Component     | Location                                                                    | Behavior                                                             |
+| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Cache wrapper | `src/app/cache-wrappers.ts:188-193`                                         | Key generated from `filter` only, `seriesId` excluded                |
+| Use case      | `src/modules/execution-analytics/core/usecases/get-analytics-series.ts:245` | Sequential `for...of` loop ensures cache populated before duplicates |
+| Key builder   | `src/infra/cache/key-builder.ts:88-93`                                      | SHA-256 hash of sorted, stringified filter                           |
+
+### Why Sequential Processing?
+
+The `getAnalyticsSeries` use case processes inputs **sequentially** (not with `Promise.all`):
+
+```typescript
+for (const input of inputs) {
+  const seriesResult = await analyticsRepo.getAggregatedSeries(strictFilter);
+  // ...
+}
+```
+
+This guarantees that the first request populates the cache before subsequent identical filters are processed. Using `Promise.all` would cause concurrent cache misses for identical filters, resulting in duplicate database queries.
+
+**Trade-off:** Sequential processing adds latency for requests with many _different_ filters, but provides optimal caching for requests with duplicate filters (common in dashboard scenarios).
+
+### Cache Key Composition
+
+The cache key is derived **solely** from the `AnalyticsFilter`, excluding:
+
+- `seriesId` (client-side identifier)
+- Any presentation-layer fields
+
+This means identical filters from different clients or different series in the same request share the same cache entry.
+
+---
+
 ## Testing
 
 | Level       | Approach                                |

@@ -12,10 +12,19 @@ import type { AnalyticsRepository } from '@/modules/execution-analytics/core/por
 import type { AnalyticsFilter } from '@/modules/execution-analytics/core/types.js';
 import type { FastifyInstance } from 'fastify';
 
-// Mock the analytics repo module
-vi.mock('@/modules/execution-analytics/shell/repo/analytics-repo.js', () => ({
-  makeAnalyticsRepo: vi.fn(),
-}));
+// Mock the analytics repo module with a default implementation that returns a proper repo
+vi.mock('@/modules/execution-analytics/shell/repo/analytics-repo.js', async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import('@/modules/execution-analytics/shell/repo/analytics-repo.js')
+    >();
+  return {
+    ...original,
+    makeAnalyticsRepo: vi.fn(() => ({
+      getAggregatedSeries: vi.fn(async () => ok({ frequency: 2, data: [] })), // Frequency.MONTH = 2
+    })),
+  };
+});
 
 describe('GraphQL API', () => {
   let app: FastifyInstance;

@@ -2,6 +2,8 @@
  * Decorator function for adding caching to repository methods.
  */
 
+import { ok, type Result } from 'neverthrow';
+
 import type { CacheNamespace } from './key-builder.js';
 import type { CacheSetOptions, SilentCachePort } from './ports.js';
 
@@ -60,7 +62,7 @@ export const withCache = <TArgs extends unknown[], TResult>(
 };
 
 /**
- * Wrap a function that returns a Result with caching.
+ * Wrap a function that returns a neverthrow Result with caching.
  * Only successful results are cached.
  *
  * @example
@@ -76,28 +78,28 @@ export const withCache = <TArgs extends unknown[], TResult>(
  * );
  * ```
  */
-export const withCacheResult = <TArgs extends unknown[], TValue>(
-  fn: (...args: TArgs) => Promise<{ isOk(): boolean; value?: TValue }>,
+export const withCacheResult = <TArgs extends unknown[], TValue, TError>(
+  fn: (...args: TArgs) => Promise<Result<TValue, TError>>,
   cache: SilentCachePort<TValue>,
   options: WithCacheOptions<TArgs>
-): ((...args: TArgs) => Promise<{ isOk(): boolean; value?: TValue }>) => {
+): ((...args: TArgs) => Promise<Result<TValue, TError>>) => {
   const { ttlMs, keyGenerator } = options;
 
-  return async (...args: TArgs) => {
+  return async (...args: TArgs): Promise<Result<TValue, TError>> => {
     const key = keyGenerator(args);
 
     // Check cache first
     const cached = await cache.get(key);
     if (cached !== undefined) {
-      // Return a successful result with the cached value
-      return { isOk: () => true, value: cached };
+      // Return a proper neverthrow ok() result with the cached value
+      return ok(cached);
     }
 
     // Execute original function
     const result = await fn(...args);
 
     // Cache only successful results
-    if (result.isOk() && result.value !== undefined) {
+    if (result.isOk()) {
       const setOptions: CacheSetOptions | undefined = ttlMs !== undefined ? { ttlMs } : undefined;
       await cache.set(key, result.value, setOptions);
     }
