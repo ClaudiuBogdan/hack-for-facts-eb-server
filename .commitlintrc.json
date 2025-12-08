@@ -42,7 +42,8 @@
         "normalization",
         "notifications",
         "share",
-        "mcp"
+        "mcp",
+        "dx"
       ]
     ],
     "scope-empty": [1, "never"],
