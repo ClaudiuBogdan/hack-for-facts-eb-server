@@ -1,7 +1,17 @@
 import { type Plugin, tool } from '@opencode-ai/plugin';
-import { writeFileSync, unlinkSync } from 'fs';
-import { tmpdir } from 'os';
+import { writeFile, unlink } from 'fs/promises';
+import { tmpdir, platform } from 'os';
 import { join } from 'path';
+import { randomUUID } from 'crypto';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CANCELLED_MARKER = '[[CANCELLED]]';
+const SKIPPED_MARKER = '[[SKIPPED]]';
+const DELIMITER = '|||';
+const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
 /**
  * Human-in-the-Loop (HITL) Plugin
@@ -13,25 +23,43 @@ import { join } from 'path';
  */
 export const HITLPlugin: Plugin = async ({ $ }) => {
   // ─────────────────────────────────────────────────────────────────────────────
+  // Platform Check
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  if (platform() !== 'darwin') {
+    throw new Error(
+      'HITL plugin requires macOS (AppleScript dialogs are not available on other platforms)'
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Helper Functions
   // ─────────────────────────────────────────────────────────────────────────────
 
   function escapeForAppleScript(str: string): string {
-    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return str
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
   }
 
-  async function runAppleScript(script: string): Promise<string> {
-    const tempFile = join(tmpdir(), `opencode-dialog-${Date.now()}.scpt`);
+  async function runAppleScript(script: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
+    const tempFile = join(tmpdir(), `opencode-dialog-${randomUUID()}.scpt`);
     try {
-      writeFileSync(tempFile, script, 'utf-8');
-      const result = await $`osascript ${tempFile}`.text();
+      await writeFile(tempFile, script, 'utf-8');
+      const result = await Promise.race([
+        $`osascript ${tempFile}`.text(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Dialog timeout - no response received')), timeoutMs)
+        ),
+      ]);
       return result.trim();
     } finally {
-      try {
-        unlinkSync(tempFile);
-      } catch {
-        // Ignore cleanup errors
-      }
+      await unlink(tempFile).catch((e) => {
+        console.warn('Dialog temp file cleanup failed:', e);
+      });
     }
   }
 
@@ -54,9 +82,9 @@ export const HITLPlugin: Plugin = async ({ $ }) => {
 set theOptions to {${optionList}}
 set theChoices to choose from list theOptions with prompt "${escapeForAppleScript(question)}" with title "${escapeForAppleScript(title)}" default items {item 1 of theOptions} ${multipleFlag}
 if theChoices is false then
-  return "[[CANCELLED]]"
+  return "${CANCELLED_MARKER}"
 else
-  set AppleScript's text item delimiters to "|||"
+  set AppleScript's text item delimiters to "${DELIMITER}"
   set theResult to theChoices as text
   set AppleScript's text item delimiters to ""
   return theResult
@@ -65,10 +93,10 @@ end if
 
     try {
       const result = await runAppleScript(script);
-      if (result === '[[CANCELLED]]') {
+      if (result === CANCELLED_MARKER) {
         return { status: 'cancelled' };
       }
-      const selected = result.split('|||').filter((s) => s.length > 0);
+      const selected = result.split(DELIMITER).filter((s) => s.length > 0);
       return { status: 'success', selected };
     } catch (error) {
       return { status: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
@@ -86,7 +114,7 @@ set theResult to display dialog "You selected: ${escapeForAppleScript(selectionS
 
 Add any additional context or notes (optional):" with title "${escapeForAppleScript(title)}" default answer "" buttons {"Skip", "Add Comment"} default button "Add Comment"
 if button returned of theResult is "Skip" then
-  return "[[SKIPPED]]"
+  return "${SKIPPED_MARKER}"
 else
   return text returned of theResult
 end if
@@ -94,7 +122,7 @@ end if
 
     try {
       const result = await runAppleScript(script);
-      if (result === '[[SKIPPED]]') {
+      if (result === SKIPPED_MARKER) {
         return { status: 'skipped', comment: '' };
       }
       return { status: 'success', comment: result };
@@ -110,7 +138,7 @@ end if
     cancelButton: string = 'No',
     icon: 'note' | 'caution' | 'stop' = 'note'
   ): Promise<{ status: string; confirmed?: boolean; error?: string }> {
-    const iconMap = { stop: 0, note: 1, caution: 2 };
+    const iconMap = { stop: 0, note: 1, caution: 2 } as const;
     const iconNum = iconMap[icon];
 
     const script = `
@@ -139,13 +167,13 @@ try
   set theResult to display dialog "${escapeForAppleScript(question)}" with title "${escapeForAppleScript(title)}" default answer "${escapeForAppleScript(defaultValue)}" buttons {"Skip", "OK"} default button "OK" cancel button "Skip" ${hiddenFlag}
   return text returned of theResult
 on error number -128
-  return "[[CANCELLED]]"
+  return "${CANCELLED_MARKER}"
 end try
 `;
 
     try {
       const result = await runAppleScript(script);
-      if (result === '[[CANCELLED]]') {
+      if (result === CANCELLED_MARKER) {
         return { status: 'cancelled' };
       }
       return { status: 'success', text: result };
@@ -172,24 +200,32 @@ end try
       ask_user: tool({
         description:
           'Show native dialogs to get user decisions. PREFER SIMPLE SINGLE-STEP CALLS.\n\n' +
-          'BEST PRACTICE: Use ONE step with allowComment:true for most decisions.\n' +
-          'This lets users select options AND add context in one flow.\n\n' +
-          'Step types:\n' +
-          '1. choice - Select from options (add allowComment:true for user notes)\n' +
-          '2. confirm - Yes/No question\n' +
-          '3. text - Free text input\n\n' +
-          'RECOMMENDED for decisions:\n' +
-          '{\n' +
-          '  title: "Quick Question",\n' +
-          '  steps: [{\n' +
-          '    id: "answer",\n' +
-          '    type: "choice",\n' +
-          '    question: "Which option?",\n' +
-          '    options: ["Option A", "Option B", "Option C", "Other"],\n' +
-          '    allowComment: true  // Shows follow-up for context\n' +
-          '  }]\n' +
-          '}\n\n' +
-          'Response includes: { selected: "Option A", comment: "user notes..." }',
+          '## WHEN TO USE\n' +
+          '- Ambiguous requirements needing clarification\n' +
+          '- Multiple valid implementation approaches\n' +
+          '- Destructive actions (deletions, overwrites, schema changes)\n' +
+          '- External dependencies or breaking changes\n' +
+          '- User preferences (naming, structure, patterns)\n\n' +
+          '## WHEN NOT TO USE\n' +
+          '- Clear requirements with obvious solution\n' +
+          '- Following established project patterns\n' +
+          '- Bug fixes with single correct approach\n' +
+          '- Standard refactoring\n\n' +
+          '## STEP TYPES\n' +
+          '1. choice - Select from options (use allowComment:true for context)\n' +
+          '2. confirm - Yes/No with icon:caution/stop for destructive actions\n' +
+          '3. text - Free text input (use hidden:true for secrets)\n\n' +
+          '## BEST PRACTICE\n' +
+          'Single step with allowComment:true and "Other" option:\n' +
+          '```\n' +
+          '{ title: "Question", steps: [{\n' +
+          '    id: "choice", type: "choice",\n' +
+          '    question: "Which approach?",\n' +
+          '    options: ["Option A", "Option B", "Other"],\n' +
+          '    allowComment: true\n' +
+          '}]}\n' +
+          '```\n' +
+          'Response: { answers: { choice: { selected: "Option A", comment: "..." } } }',
         args: {
           title: tool.schema.string(),
           steps: tool.schema.array(
@@ -246,18 +282,21 @@ end try
                 });
               }
 
-              if (result.status === 'error') {
-                return JSON.stringify({ status: 'error', message: result.error });
+              if (result.status === 'error' || !result.selected) {
+                return JSON.stringify({
+                  status: 'error',
+                  message: result.error ?? 'No selection returned',
+                });
               }
 
-              const selected = step.multiple ? result.selected! : result.selected![0];
+              const selected = step.multiple ? result.selected : result.selected[0];
 
               // If allowComment is true, show follow-up dialog for context
               if (step.allowComment) {
-                const commentResult = await showCommentDialog(stepTitle, result.selected!);
+                const commentResult = await showCommentDialog(stepTitle, result.selected);
                 answers[step.id] = {
                   selected,
-                  comment: commentResult.comment || '',
+                  comment: commentResult.comment ?? '',
                 };
               } else {
                 answers[step.id] = selected;

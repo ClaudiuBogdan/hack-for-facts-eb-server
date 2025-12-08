@@ -24,17 +24,23 @@ export const NotificationPlugin: Plugin = async ({ $ }) => {
     idle: '/System/Library/Sounds/Frog.aiff', // Task completed
     permission: '/System/Library/Sounds/Ping.aiff', // Input required
     error: '/System/Library/Sounds/Basso.aiff', // Error occurred
-  };
+  } as const;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Helper Functions
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Escapes a string for use in AppleScript
+   * Escapes a string for use in AppleScript.
+   * Handles backslashes, quotes, and control characters.
    */
   function escapeForAppleScript(str: string): string {
-    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return str
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
   }
 
   /**
@@ -65,8 +71,8 @@ export const NotificationPlugin: Plugin = async ({ $ }) => {
 
     try {
       await $`afplay ${soundPath}`.quiet();
-    } catch {
-      // Ignore sound errors
+    } catch (e) {
+      console.warn('Notification sound failed:', e);
     }
   }
 
@@ -79,8 +85,8 @@ export const NotificationPlugin: Plugin = async ({ $ }) => {
     const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"`;
     try {
       await $`osascript -e ${script}`.quiet();
-    } catch {
-      // Ignore notification errors
+    } catch (e) {
+      console.warn('Desktop notification failed:', e);
     }
   }
 
