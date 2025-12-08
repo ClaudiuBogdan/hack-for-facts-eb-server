@@ -48,13 +48,11 @@ export interface CacheClient<T = unknown> {
 // Configuration Detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface CacheEnv {
-  cache_backend?: string;
-  cache_default_ttl_ms?: string;
-  cache_memory_max_entries?: string;
-  cache_l1_max_entries?: string;
-  redis_url?: string;
-}
+/**
+ * Environment variables for cache configuration.
+ * Supports both UPPER_CASE (process.env) and lower_case formats.
+ */
+export type CacheEnv = Record<string, string | undefined>;
 
 /**
  * Detect cache backend from environment.
@@ -63,8 +61,9 @@ export interface CacheEnv {
  * - Otherwise, use memory
  */
 export const detectBackend = (env: CacheEnv): CacheBackend => {
-  if (env.cache_backend !== undefined && env.cache_backend !== '') {
-    const backend = env.cache_backend.toLowerCase();
+  const backendValue = env['CACHE_BACKEND'] ?? env['cache_backend'];
+  if (backendValue !== undefined && backendValue !== '') {
+    const backend = backendValue.toLowerCase();
     if (
       backend === 'disabled' ||
       backend === 'memory' ||
@@ -75,11 +74,32 @@ export const detectBackend = (env: CacheEnv): CacheBackend => {
     }
   }
 
-  if (env.redis_url !== undefined && env.redis_url !== '') {
+  const redisUrl = env['REDIS_URL'] ?? env['redis_url'];
+  if (redisUrl !== undefined && redisUrl !== '') {
     return 'redis';
   }
 
   return 'memory';
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuration Defaults
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 60 days in milliseconds */
+const DEFAULT_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 5,184,000,000 ms
+/** Default max entries for memory cache */
+const DEFAULT_MEMORY_MAX_ENTRIES = 1000;
+/** Default max entries for L1 cache in multi-level mode */
+const DEFAULT_L1_MAX_ENTRIES = 500;
+
+/**
+ * Safely parse an integer from a string, returning the default if invalid.
+ */
+const parseConfigInt = (value: string | undefined, defaultValue: number): number => {
+  if (value === undefined || value === '') return defaultValue;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? defaultValue : parsed;
 };
 
 /**
@@ -88,27 +108,23 @@ export const detectBackend = (env: CacheEnv): CacheBackend => {
 export const createCacheConfig = (env: CacheEnv): CacheConfig => {
   const backend = detectBackend(env);
 
-  const defaultTtlMs =
-    env.cache_default_ttl_ms !== undefined && env.cache_default_ttl_ms !== ''
-      ? Number.parseInt(env.cache_default_ttl_ms, 10)
-      : 3600000;
+  const ttlValue = env['CACHE_DEFAULT_TTL_MS'] ?? env['cache_default_ttl_ms'];
+  const defaultTtlMs = parseConfigInt(ttlValue, DEFAULT_TTL_MS);
 
-  const memoryMaxEntries =
-    env.cache_memory_max_entries !== undefined && env.cache_memory_max_entries !== ''
-      ? Number.parseInt(env.cache_memory_max_entries, 10)
-      : 1000;
+  const memoryValue = env['CACHE_MEMORY_MAX_ENTRIES'] ?? env['cache_memory_max_entries'];
+  const memoryMaxEntries = parseConfigInt(memoryValue, DEFAULT_MEMORY_MAX_ENTRIES);
 
-  const l1MaxEntries =
-    env.cache_l1_max_entries !== undefined && env.cache_l1_max_entries !== ''
-      ? Number.parseInt(env.cache_l1_max_entries, 10)
-      : 500;
+  const l1Value = env['CACHE_L1_MAX_ENTRIES'] ?? env['cache_l1_max_entries'];
+  const l1MaxEntries = parseConfigInt(l1Value, DEFAULT_L1_MAX_ENTRIES);
+
+  const redisUrl = env['REDIS_URL'] ?? env['redis_url'];
 
   return {
     backend,
     defaultTtlMs,
     memoryMaxEntries,
     l1MaxEntries,
-    redisUrl: env.redis_url,
+    redisUrl,
     keyPrefix: 'transparenta',
   };
 };
@@ -165,7 +181,11 @@ export const initCache = <T = unknown>(options: InitCacheOptions): CacheClient<T
         });
       } else {
         logger.info(
-          { l1MaxEntries: config.l1MaxEntries, defaultTtlMs: config.defaultTtlMs },
+          {
+            l1MaxEntries: config.l1MaxEntries,
+            defaultTtlMs: config.defaultTtlMs,
+            redisUrl: config.redisUrl.replace(/\/\/.*@/, '//<redacted>@'),
+          },
           '[Cache] Using multi-level cache (L1: memory, L2: Redis)'
         );
         const l1 = createMemoryCache<T>({
@@ -177,7 +197,7 @@ export const initCache = <T = unknown>(options: InitCacheOptions): CacheClient<T
           keyPrefix: config.keyPrefix,
           defaultTtlMs: config.defaultTtlMs,
         });
-        rawCache = createMultiLevelCache({ l1, l2 });
+        rawCache = createMultiLevelCache({ l1, l2, logger });
       }
       break;
 

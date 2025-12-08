@@ -64,205 +64,26 @@ const wrapRedisOp = async <T>(
 
 /**
  * Create a Redis cache adapter.
+ * Delegates to createRedisCacheFromClient after instantiating the client.
  */
 export const createRedisCache = <T>(options: RedisCacheOptions): CachePort<T> => {
-  const keyPrefix = options.keyPrefix ?? 'transparenta';
-  const defaultTtlMs = options.defaultTtlMs ?? 3600000;
-
   const client = new Redis(options.url, {
     connectTimeout: options.connectTimeoutMs ?? 5000,
     commandTimeout: options.commandTimeoutMs ?? 1000,
     maxRetriesPerRequest: 1,
-    retryStrategy: (times: number) => {
-      // Exponential backoff with max 30 seconds
-      return Math.min(times * 100, 30000);
-    },
+    retryStrategy: (times: number) => Math.min(times * 100, 30000),
     lazyConnect: true,
   });
 
-  const state: RedisCacheState = {
-    client,
-    keyPrefix,
-    defaultTtlMs,
-    hits: 0,
-    misses: 0,
-  };
+  const fromClientOptions: { keyPrefix?: string; defaultTtlMs?: number } = {};
+  if (options.keyPrefix !== undefined) {
+    fromClientOptions.keyPrefix = options.keyPrefix;
+  }
+  if (options.defaultTtlMs !== undefined) {
+    fromClientOptions.defaultTtlMs = options.defaultTtlMs;
+  }
 
-  /**
-   * Build the full Redis key with prefix.
-   */
-  const buildKey = (key: string): string => {
-    // If key already has the prefix, don't double-prefix
-    if (key.startsWith(`${keyPrefix}:`)) {
-      return key;
-    }
-    return `${keyPrefix}:${key}`;
-  };
-
-  return {
-    async get(key: string) {
-      const fullKey = buildKey(key);
-
-      const result = await wrapRedisOp(
-        () => state.client.get(fullKey),
-        `Failed to get key: ${key}`
-      );
-
-      if (result.isErr()) {
-        return err(result.error);
-      }
-
-      const value = result.value;
-      if (value === null) {
-        state.misses++;
-        return ok(undefined);
-      }
-
-      const deserialized = deserialize(value);
-      if (!deserialized.ok) {
-        state.misses++;
-        return err(deserialized.error);
-      }
-
-      state.hits++;
-      return ok(deserialized.value as T);
-    },
-
-    async set(key: string, value: T, setOptions?: CacheSetOptions) {
-      const fullKey = buildKey(key);
-      const ttlMs = setOptions?.ttlMs ?? state.defaultTtlMs;
-      const serialized = serialize(value);
-
-      const result = await wrapRedisOp(
-        () => state.client.set(fullKey, serialized, 'PX', ttlMs),
-        `Failed to set key: ${key}`
-      );
-
-      if (result.isErr()) {
-        return err(result.error);
-      }
-
-      return ok(undefined);
-    },
-
-    async delete(key: string) {
-      const fullKey = buildKey(key);
-
-      const result = await wrapRedisOp(
-        () => state.client.del(fullKey),
-        `Failed to delete key: ${key}`
-      );
-
-      if (result.isErr()) {
-        return err(result.error);
-      }
-
-      return ok(result.value > 0);
-    },
-
-    async has(key: string) {
-      const fullKey = buildKey(key);
-
-      const result = await wrapRedisOp(
-        () => state.client.exists(fullKey),
-        `Failed to check key existence: ${key}`
-      );
-
-      if (result.isErr()) {
-        return err(result.error);
-      }
-
-      return ok(result.value > 0);
-    },
-
-    async clearByPrefix(prefix: string) {
-      const fullPrefix = buildKey(prefix);
-
-      // Use SCAN to avoid blocking (non-blocking pattern-based deletion)
-      let cursor = '0';
-      let totalDeleted = 0;
-
-      const scanResult = await wrapRedisOp(async () => {
-        do {
-          const [nextCursor, keys] = await state.client.scan(
-            cursor,
-            'MATCH',
-            `${fullPrefix}*`,
-            'COUNT',
-            100
-          );
-          cursor = nextCursor;
-
-          if (keys.length > 0) {
-            const deleted = await state.client.del(...keys);
-            totalDeleted += deleted;
-          }
-        } while (cursor !== '0');
-
-        return totalDeleted;
-      }, `Failed to clear by prefix: ${prefix}`);
-
-      if (scanResult.isErr()) {
-        return err(scanResult.error);
-      }
-
-      return ok(scanResult.value);
-    },
-
-    async clear() {
-      // Clear only keys with our prefix
-      const result = await wrapRedisOp(async () => {
-        let cursor = '0';
-        do {
-          const [nextCursor, keys] = await state.client.scan(
-            cursor,
-            'MATCH',
-            `${state.keyPrefix}:*`,
-            'COUNT',
-            100
-          );
-          cursor = nextCursor;
-
-          if (keys.length > 0) {
-            await state.client.del(...keys);
-          }
-        } while (cursor !== '0');
-      }, 'Failed to clear cache');
-
-      if (result.isErr()) {
-        return err(result.error);
-      }
-
-      state.hits = 0;
-      state.misses = 0;
-
-      return ok(undefined);
-    },
-
-    async stats(): Promise<CacheStats> {
-      // Try to get the number of keys with our prefix
-      let size = 0;
-
-      try {
-        let cursor = '0';
-        do {
-          const [nextCursor, keys] = await state.client.scan(
-            cursor,
-            'MATCH',
-            `${state.keyPrefix}:*`,
-            'COUNT',
-            1000
-          );
-          cursor = nextCursor;
-          size += keys.length;
-        } while (cursor !== '0');
-      } catch {
-        // If we can't get size, return 0
-      }
-
-      return { hits: state.hits, misses: state.misses, size };
-    },
-  };
+  return createRedisCacheFromClient(client, fromClientOptions);
 };
 
 /**
@@ -447,27 +268,12 @@ export const createRedisCacheFromClient = <T>(
       return ok(undefined);
     },
 
-    async stats(): Promise<CacheStats> {
-      let size = 0;
-
-      try {
-        let cursor = '0';
-        do {
-          const [nextCursor, keys] = await client.scan(
-            cursor,
-            'MATCH',
-            `${keyPrefix}:*`,
-            'COUNT',
-            1000
-          );
-          cursor = nextCursor;
-          size += keys.length;
-        } while (cursor !== '0');
-      } catch {
-        // If we can't get size, return 0
-      }
-
-      return { hits: state.hits, misses: state.misses, size };
+    stats(): Promise<CacheStats> {
+      // Note: We intentionally skip counting keys via SCAN.
+      // SCAN is expensive on large Redis instances and can cause
+      // performance issues if called frequently (e.g., health checks).
+      // Hits/misses are tracked in-memory and are sufficient for monitoring.
+      return Promise.resolve({ hits: state.hits, misses: state.misses, size: 0 });
     },
   };
 };

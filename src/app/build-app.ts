@@ -10,6 +10,21 @@ import fastifyLib, {
 } from 'fastify';
 
 import {
+  wrapCountyAnalyticsRepo,
+  wrapUATAnalyticsRepo,
+  wrapEntityAnalyticsRepo,
+  wrapExecutionAnalyticsRepo,
+  wrapAggregatedLineItemsRepo,
+  wrapBudgetSectorRepo,
+  wrapFundingSourceRepo,
+  wrapFundingSourceLineItemRepo,
+  wrapFunctionalClassificationRepo,
+  wrapEconomicClassificationRepo,
+  wrapPopulationRepo,
+  wrapExecutionLineItemsRepo,
+} from './cache-wrappers.js';
+import { initCache, createCacheConfig, type CacheClient } from '../infra/cache/index.js';
+import {
   makeGraphQLPlugin,
   CommonGraphQLSchema,
   commonGraphQLResolvers,
@@ -118,6 +133,8 @@ export interface AppDeps {
   /** Repository for execution line items module (standalone queries) */
   executionLineItemsModuleRepo?: ExecutionLineItemsModuleRepository;
   config: AppConfig;
+  /** Optional cache client for testing (auto-initialized if not provided) */
+  cacheClient?: CacheClient;
 }
 
 /**
@@ -152,6 +169,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Register CORS plugin
   await registerCors(app, config);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Initialize Cache Infrastructure
+  // ─────────────────────────────────────────────────────────────────────────────
+  const cacheConfig = createCacheConfig(process.env);
+  const { cache, keyBuilder } =
+    deps.cacheClient ??
+    initCache({ config: cacheConfig, logger: app.log as unknown as import('pino').Logger });
+
   // Register health routes
   await app.register(
     makeHealthRoutes({
@@ -167,10 +192,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Create shared population repo (used by both analytics and aggregated line items)
-  const populationRepo = makePopulationRepo(budgetDb);
+  const rawPopulationRepo = makePopulationRepo(budgetDb);
+  const populationRepo = wrapPopulationRepo(rawPopulationRepo, cache, keyBuilder);
 
   // Setup Analytics Module
-  const analyticsRepo = makeAnalyticsRepo(budgetDb);
+  const rawAnalyticsRepo = makeAnalyticsRepo(budgetDb);
+  const analyticsRepo = wrapExecutionAnalyticsRepo(rawAnalyticsRepo, cache, keyBuilder);
   const analyticsResolvers = makeExecutionAnalyticsResolvers({
     analyticsRepo,
     datasetRepo,
@@ -179,7 +206,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Setup Aggregated Line Items Module
   const normalizationService = await NormalizationService.create(datasetRepo);
-  const aggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
+  const rawAggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
+  const aggregatedLineItemsRepo = wrapAggregatedLineItemsRepo(
+    rawAggregatedLineItemsRepo,
+    cache,
+    keyBuilder
+  );
   const aggregatedLineItemsResolvers = makeAggregatedLineItemsResolvers({
     repo: aggregatedLineItemsRepo,
     normalization: normalizationService,
@@ -187,7 +219,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Setup Entity Analytics Module
-  const entityAnalyticsRepo = makeEntityAnalyticsRepo(budgetDb);
+  const rawEntityAnalyticsRepo = makeEntityAnalyticsRepo(budgetDb);
+  const entityAnalyticsRepo = wrapEntityAnalyticsRepo(rawEntityAnalyticsRepo, cache, keyBuilder);
   const entityAnalyticsResolvers = makeEntityAnalyticsResolvers({
     repo: entityAnalyticsRepo,
     normalization: normalizationService,
@@ -199,22 +232,35 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Setup Budget Sector Module
-  const budgetSectorRepo = deps.budgetSectorRepo ?? makeBudgetSectorRepo(budgetDb);
+  const rawBudgetSectorRepo = deps.budgetSectorRepo ?? makeBudgetSectorRepo(budgetDb);
+  const budgetSectorRepo = wrapBudgetSectorRepo(rawBudgetSectorRepo, cache, keyBuilder);
   const budgetSectorResolvers = makeBudgetSectorResolvers({
     budgetSectorRepo,
   });
 
   // Setup Funding Source Module
-  const fundingSourceRepo = deps.fundingSourceRepo ?? makeFundingSourceRepo(budgetDb);
-  const executionLineItemRepo = deps.executionLineItemRepo ?? makeExecutionLineItemRepo(budgetDb);
+  const rawFundingSourceRepo = deps.fundingSourceRepo ?? makeFundingSourceRepo(budgetDb);
+  const fundingSourceRepo = wrapFundingSourceRepo(rawFundingSourceRepo, cache, keyBuilder);
+  const rawFundingSourceLineItemRepo =
+    deps.executionLineItemRepo ?? makeExecutionLineItemRepo(budgetDb);
+  const executionLineItemRepo = wrapFundingSourceLineItemRepo(
+    rawFundingSourceLineItemRepo,
+    cache,
+    keyBuilder
+  );
   const fundingSourceResolvers = makeFundingSourceResolvers({
     fundingSourceRepo,
     executionLineItemRepo,
   });
 
   // Setup Execution Line Items Module (standalone queries with DataLoaders)
-  const executionLineItemsModuleRepo =
+  const rawExecutionLineItemsModuleRepo =
     deps.executionLineItemsModuleRepo ?? makeExecutionLineItemsModuleRepo(budgetDb);
+  const executionLineItemsModuleRepo = wrapExecutionLineItemsRepo(
+    rawExecutionLineItemsModuleRepo,
+    cache,
+    keyBuilder
+  );
   const executionLineItemsResolvers = makeExecutionLineItemResolvers({
     executionLineItemRepo: executionLineItemsModuleRepo,
     normalizationService,
@@ -246,14 +292,16 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Setup UAT Analytics Module
-  const uatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
+  const rawUatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
+  const uatAnalyticsRepo = wrapUATAnalyticsRepo(rawUatAnalyticsRepo, cache, keyBuilder);
   const uatAnalyticsResolvers = makeUATAnalyticsResolvers({
     repo: uatAnalyticsRepo,
     normalizationService,
   });
 
   // Setup County Analytics Module
-  const countyAnalyticsRepo = makeCountyAnalyticsRepo(budgetDb);
+  const rawCountyAnalyticsRepo = makeCountyAnalyticsRepo(budgetDb);
+  const countyAnalyticsRepo = wrapCountyAnalyticsRepo(rawCountyAnalyticsRepo, cache, keyBuilder);
   const countyAnalyticsResolvers = makeCountyAnalyticsResolvers({
     repo: countyAnalyticsRepo,
     normalizationService,
@@ -261,8 +309,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Setup Classification Module
-  const functionalClassificationRepo = makeFunctionalClassificationRepo(budgetDb);
-  const economicClassificationRepo = makeEconomicClassificationRepo(budgetDb);
+  const rawFunctionalClassificationRepo = makeFunctionalClassificationRepo(budgetDb);
+  const functionalClassificationRepo = wrapFunctionalClassificationRepo(
+    rawFunctionalClassificationRepo,
+    cache,
+    keyBuilder
+  );
+  const rawEconomicClassificationRepo = makeEconomicClassificationRepo(budgetDb);
+  const economicClassificationRepo = wrapEconomicClassificationRepo(
+    rawEconomicClassificationRepo,
+    cache,
+    keyBuilder
+  );
   const classificationResolvers = makeClassificationResolvers({
     functionalClassificationRepo,
     economicClassificationRepo,

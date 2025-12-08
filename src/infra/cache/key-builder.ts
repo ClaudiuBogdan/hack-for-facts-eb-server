@@ -9,6 +9,9 @@ import { createHash } from 'node:crypto';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const CacheNamespace = {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Analytics (expensive aggregation queries)
+  // ─────────────────────────────────────────────────────────────────────────
   /** Execution analytics time series */
   ANALYTICS_EXECUTION: 'analytics:execution',
   /** Aggregated line items by classification */
@@ -17,6 +20,34 @@ export const CacheNamespace = {
   ANALYTICS_COUNTY: 'analytics:county',
   /** Entity-level analytics */
   ANALYTICS_ENTITY: 'analytics:entity',
+  /** UAT-level analytics heatmap */
+  ANALYTICS_UAT: 'analytics:uat',
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Line items (detailed row-level queries)
+  // ─────────────────────────────────────────────────────────────────────────
+  /** Execution line items (Entity.executionLineItems) */
+  EXECUTION_LINE_ITEMS: 'line-items:execution',
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reference data (static/rarely changing)
+  // ─────────────────────────────────────────────────────────────────────────
+  /** Budget sectors lookup */
+  REF_BUDGET_SECTORS: 'ref:budget-sectors',
+  /** Funding sources lookup */
+  REF_FUNDING_SOURCES: 'ref:funding-sources',
+  /** Classification codes (functional & economic) */
+  REF_CLASSIFICATION: 'ref:classification',
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Normalization data
+  // ─────────────────────────────────────────────────────────────────────────
+  /** Population data for per-capita calculations */
+  NORMALIZATION_POPULATION: 'norm:population',
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Other
+  // ─────────────────────────────────────────────────────────────────────────
   /** Dataset files */
   DATASETS: 'datasets',
 } as const;
@@ -57,13 +88,37 @@ export interface KeyBuilder {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Recursively sorts all keys in an object for deterministic serialization.
+ * Handles nested objects and arrays.
+ */
+const sortObjectKeys = (obj: unknown): unknown => {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(sortObjectKeys);
+  }
+
+  const sortedKeys = Object.keys(obj as Record<string, unknown>).sort();
+  const result: Record<string, unknown> = {};
+  for (const key of sortedKeys) {
+    result[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);
+  }
+  return result;
+};
+
+/**
  * Hash a filter object to create a deterministic cache key identifier.
  * Uses SHA-256, truncated to 16 characters.
+ *
+ * Note: Recursively sorts all keys (including nested objects) to ensure
+ * deterministic serialization regardless of property insertion order.
  */
 const hashFilter = (filter: Record<string, unknown>): string => {
-  // Sort keys for deterministic serialization
-  const sortedKeys = Object.keys(filter).sort();
-  const normalized = JSON.stringify(filter, sortedKeys);
+  // Recursively sort all keys for deterministic serialization
+  const sorted = sortObjectKeys(filter);
+  const normalized = JSON.stringify(sorted);
   return createHash('sha256').update(normalized).digest('hex').substring(0, 16);
 };
 

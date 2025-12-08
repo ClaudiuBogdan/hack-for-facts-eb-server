@@ -4,6 +4,29 @@ import { describe, expect, it, vi } from 'vitest';
 import { createMultiLevelCache } from '@/infra/cache/adapters/multi-level-cache.js';
 import { CacheError, type CachePort, type CacheStats } from '@/infra/cache/ports.js';
 
+import type { Logger } from 'pino';
+
+/**
+ * Create a mock logger for testing.
+ */
+const createMockLogger = (): Logger & { calls: { method: string; args: unknown[] }[] } => {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const mockFn = (method: string) =>
+    vi.fn((...args: unknown[]) => {
+      calls.push({ method, args });
+    });
+
+  return {
+    debug: mockFn('debug'),
+    info: mockFn('info'),
+    warn: mockFn('warn'),
+    error: mockFn('error'),
+    fatal: mockFn('fatal'),
+    trace: mockFn('trace'),
+    calls,
+  } as unknown as Logger & { calls: { method: string; args: unknown[] }[] };
+};
+
 /**
  * Create a mock CachePort for testing.
  */
@@ -358,6 +381,96 @@ describe('MultiLevelCache', () => {
       const stats = await cache.stats();
 
       expect(stats.misses).toBe(2);
+    });
+  });
+
+  describe('logging', () => {
+    it('logs L1 hits when logger is provided', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      const logger = createMockLogger();
+      l1._setGetResult(ok('l1-value'));
+
+      const cache = createMultiLevelCache({ l1, l2, logger });
+      await cache.get('test-key');
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'test-key', layer: 'L1' }),
+        expect.stringContaining('L1 HIT')
+      );
+    });
+
+    it('logs L2 hits when logger is provided', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      const logger = createMockLogger();
+      l1._setGetResult(ok(undefined));
+      l2._setGetResult(ok('l2-value'));
+
+      const cache = createMultiLevelCache({ l1, l2, logger });
+      await cache.get('test-key');
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'test-key', layer: 'L2' }),
+        expect.stringContaining('L2 HIT')
+      );
+    });
+
+    it('logs misses when logger is provided', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      const logger = createMockLogger();
+      l1._setGetResult(ok(undefined));
+      l2._setGetResult(ok(undefined));
+
+      const cache = createMultiLevelCache({ l1, l2, logger });
+      await cache.get('test-key');
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'test-key', layer: 'MISS' }),
+        expect.stringContaining('MISS')
+      );
+    });
+
+    it('logs SET operations when logger is provided', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      const logger = createMockLogger();
+
+      const cache = createMultiLevelCache({ l1, l2, logger });
+      await cache.set('test-key', 'value', { ttlMs: 5000 });
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'test-key', ttlMs: 5000 }),
+        expect.stringContaining('SET')
+      );
+    });
+
+    it('logs L2 errors when logger is provided', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      const logger = createMockLogger();
+      l1._setGetResult(ok(undefined));
+      l2._setGetResult(err(CacheError.connection('Redis connection failed')));
+
+      const cache = createMultiLevelCache({ l1, l2, logger });
+      await cache.get('test-key');
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'test-key' }),
+        expect.stringContaining('L2 ERROR')
+      );
+    });
+
+    it('works without logger (no errors)', async () => {
+      const l1 = createMockCache<string>();
+      const l2 = createMockCache<string>();
+      l1._setGetResult(ok('value'));
+
+      const cache = createMultiLevelCache({ l1, l2 }); // No logger
+      const result = await cache.get('key');
+
+      expect(result._unsafeUnwrap()).toBe('value');
     });
   });
 });
