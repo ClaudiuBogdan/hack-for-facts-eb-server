@@ -40,6 +40,11 @@ export const EnvSchema = Type.Object({
   ALLOWED_ORIGINS: Type.Optional(Type.String()),
   CLIENT_BASE_URL: Type.Optional(Type.String()),
   PUBLIC_CLIENT_BASE_URL: Type.Optional(Type.String()),
+
+  // Auth (Clerk)
+  CLERK_SECRET_KEY: Type.Optional(Type.String()),
+  CLERK_JWT_KEY: Type.Optional(Type.String()),
+  CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String()),
 });
 
 export type Env = Static<typeof EnvSchema>;
@@ -59,6 +64,9 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     ALLOWED_ORIGINS: env['ALLOWED_ORIGINS'],
     CLIENT_BASE_URL: env['CLIENT_BASE_URL'],
     PUBLIC_CLIENT_BASE_URL: env['PUBLIC_CLIENT_BASE_URL'],
+    CLERK_SECRET_KEY: env['CLERK_SECRET_KEY'],
+    CLERK_JWT_KEY: env['CLERK_JWT_KEY'],
+    CLERK_AUTHORIZED_PARTIES: env['CLERK_AUTHORIZED_PARTIES'],
   };
 
   // Validate against schema
@@ -97,6 +105,19 @@ export const createConfig = (env: Env) => ({
     allowedOrigins: env.ALLOWED_ORIGINS,
     clientBaseUrl: env.CLIENT_BASE_URL,
     publicClientBaseUrl: env.PUBLIC_CLIENT_BASE_URL,
+  },
+  auth: {
+    /** Clerk secret key for server-side verification */
+    clerkSecretKey: env.CLERK_SECRET_KEY,
+    /** Clerk JWT public key (JWKS) for local verification */
+    clerkJwtKey: env.CLERK_JWT_KEY,
+    /** Comma-separated list of authorized parties (audience claim) */
+    clerkAuthorizedParties: env.CLERK_AUTHORIZED_PARTIES?.split(',').filter(Boolean),
+    /** Whether auth is enabled (true if any Clerk config is set) */
+    enabled:
+      env.CLERK_SECRET_KEY !== undefined ||
+      env.CLERK_JWT_KEY !== undefined ||
+      env.CLERK_AUTHORIZED_PARTIES !== undefined,
   },
 });
 

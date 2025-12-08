@@ -80,6 +80,12 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       clientBaseUrl: undefined,
       publicClientBaseUrl: undefined,
     },
+    auth: {
+      clerkSecretKey: undefined,
+      clerkJwtKey: undefined,
+      clerkAuthorizedParties: undefined,
+      enabled: false,
+    },
   };
 
   return {
@@ -90,5 +96,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     database: { ...defaults.database, ...overrides.database },
     redis: { ...defaults.redis, ...overrides.redis },
     cors: { ...defaults.cors, ...overrides.cors },
+    auth: { ...defaults.auth, ...overrides.auth },
   };
 };
