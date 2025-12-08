@@ -79,11 +79,10 @@
   // ============================================================================
   "instructions": [
     "AGENTS.md",
-    "AGENTS.md",
+    "prompts/ask-user.md",
     "docs/ARCHITECTURE.md",
     "docs/CORE-SHELL-ARCHITECTURE.md",
     "docs/MODULE-DEPENDENCIES.md",
-    "docs/NORMALIZATION-FACTORS.md",
   ],
   // ============================================================================
   // TUI CONFIGURATION
@@ -99,8 +98,23 @@
   // ============================================================================
   "formatter": {
     "prettier": {
-      "command": ["pnpm", "exec", "prettier", "--write", "$FILE"],
-      "extensions": [".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".yaml", ".yml"],
+      "command": [
+        "pnpm",
+        "exec",
+        "prettier",
+        "--write",
+        "$FILE"
+      ],
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".json",
+        ".md",
+        ".yaml",
+        ".yml"
+      ],
     },
   },
   // ============================================================================
@@ -117,6 +131,7 @@
     "webfetch": true,
     "todowrite": true,
     "todoread": true,
+    "ask_user": true,
   },
   // ============================================================================
   // GLOBAL PERMISSIONS
@@ -421,6 +436,7 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
+        "ask_user": true,
       },
       "permission": {
         "edit": "deny",
@@ -446,6 +462,7 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
+        "ask_user": true,
       },
       "permission": {
         "edit": "deny",
@@ -486,6 +503,19 @@
       "model": "anthropic/opus-deep",
       "temperature": 0.2,
       "maxSteps": 100,
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "todowrite": true,
+        "todoread": true,
+        "ask_user": true,
+      },
     },
     // EXPLORE SUBAGENT - Fast codebase exploration (uses Sonnet for speed)
     "explore": {
@@ -677,6 +707,7 @@
         "glob": true,
         "list": true,
         "webfetch": true,
+        "ask_user": true,
       },
       "permission": {
         "edit": "deny",
