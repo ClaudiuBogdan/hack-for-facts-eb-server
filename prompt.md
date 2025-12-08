@@ -1,0 +1,1 @@
+I'm working on the new auth layer. I need a good specification file. I have a legacy file and two proposed files. I need you to review the files and give me a good specification file, extracting from the existing file and creating a new one with the best technical decisions.

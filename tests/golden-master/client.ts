@@ -200,6 +200,12 @@ export async function getClient(): Promise<GoldenMasterClient> {
         clientBaseUrl: undefined,
         publicClientBaseUrl: undefined,
       },
+      auth: {
+        clerkSecretKey: undefined,
+        clerkJwtKey: undefined,
+        clerkAuthorizedParties: undefined,
+        enabled: false,
+      },
     };
 
     const dbs = initDatabases(config);

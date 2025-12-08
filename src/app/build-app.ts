@@ -37,6 +37,7 @@ import {
   makeAggregatedLineItemsRepo,
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
+import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
 import {
   makeBudgetSectorResolvers,
   BudgetSectorSchema,
@@ -135,6 +136,12 @@ export interface AppDeps {
   config: AppConfig;
   /** Optional cache client for testing (auto-initialized if not provided) */
   cacheClient?: CacheClient;
+  /**
+   * Optional auth provider for token verification.
+   * When provided, GraphQL context will include auth information.
+   * Resolvers can use `requireAuthOrThrow` or `withAuth` to require authentication.
+   */
+  authProvider?: AuthProvider;
 }
 
 /**
@@ -378,11 +385,22 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     ...reportLoaders,
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Setup Authentication Context (Optional)
+  // ─────────────────────────────────────────────────────────────────────────────
+  // When an authProvider is injected, GraphQL context includes auth information.
+  // Resolvers can use requireAuthOrThrow() or withAuth() to enforce authentication.
+  const graphQLContext =
+    deps.authProvider !== undefined
+      ? makeGraphQLContext({ authProvider: deps.authProvider })
+      : undefined;
+
   await app.register(
     makeGraphQLPlugin({
       schema,
       resolvers,
       loaders: combinedLoaders,
+      ...(graphQLContext !== undefined && { context: graphQLContext }),
     })
   );
 
