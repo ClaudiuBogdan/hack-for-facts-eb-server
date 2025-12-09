@@ -69,13 +69,24 @@ export const makeFunctionalClassificationRepo = (
 
         // Apply search filter
         if (filter.search !== undefined && filter.search.trim() !== '') {
-          const searchTerm = `%${filter.search.trim().toLowerCase()}%`;
-          query = query.where((eb) =>
-            eb.or([
-              eb('functional_code', 'ilike', searchTerm),
-              eb('functional_name', 'ilike', searchTerm),
-            ])
-          );
+          const search = filter.search.trim();
+          // Check if search looks like a code prefix (numeric, possibly with dots)
+          const isCodeLike = /^[\d.]+$/.test(search);
+
+          if (isCodeLike) {
+            // For code-like searches, use prefix matching (starts with)
+            const prefixTerm = `${search.toLowerCase()}%`;
+            query = query.where('functional_code', 'ilike', prefixTerm);
+          } else {
+            // For text searches, use contains matching
+            const searchTerm = `%${search.toLowerCase()}%`;
+            query = query.where((eb) =>
+              eb.or([
+                eb('functional_code', 'ilike', searchTerm),
+                eb('functional_name', 'ilike', searchTerm),
+              ])
+            );
+          }
         }
 
         // Apply code filter

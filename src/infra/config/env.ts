@@ -49,6 +49,12 @@ export const EnvSchema = Type.Object({
   // Short Links
   SHORT_LINK_DAILY_LIMIT: Type.Optional(Type.Number({ minimum: 1, default: 100 })),
   SHORT_LINK_CACHE_TTL: Type.Optional(Type.Number({ minimum: 0, default: 86400 })),
+
+  // MCP (Model Context Protocol)
+  MCP_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  MCP_AUTH_REQUIRED: Type.Optional(Type.Boolean({ default: false })),
+  MCP_API_KEY: Type.Optional(Type.String()),
+  MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
 });
 
 export type Env = Static<typeof EnvSchema>;
@@ -79,6 +85,13 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['SHORT_LINK_CACHE_TTL'] != null && env['SHORT_LINK_CACHE_TTL'] !== ''
         ? Number.parseInt(env['SHORT_LINK_CACHE_TTL'], 10)
         : 86400,
+    MCP_ENABLED: env['MCP_ENABLED'] === 'true',
+    MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] === 'true',
+    MCP_API_KEY: env['MCP_API_KEY'],
+    MCP_SESSION_TTL_SECONDS:
+      env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
+        ? Number.parseInt(env['MCP_SESSION_TTL_SECONDS'], 10)
+        : 3600,
   };
 
   // Validate against schema
@@ -136,6 +149,18 @@ export const createConfig = (env: Env) => ({
     dailyLimit: env.SHORT_LINK_DAILY_LIMIT ?? 100,
     /** Cache TTL in seconds for resolved links (0 = no caching) */
     cacheTtlSeconds: env.SHORT_LINK_CACHE_TTL ?? 86400,
+  },
+  mcp: {
+    /** Whether MCP endpoints are enabled */
+    enabled: env.MCP_ENABLED ?? false,
+    /** Whether API key authentication is required for MCP */
+    authRequired: env.MCP_AUTH_REQUIRED ?? false,
+    /** API key for MCP authentication (if authRequired is true) */
+    apiKey: env.MCP_API_KEY,
+    /** Session TTL in seconds */
+    sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
+    /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
+    clientBaseUrl: env.CLIENT_BASE_URL ?? '',
   },
 });
 
