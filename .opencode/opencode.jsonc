@@ -473,7 +473,7 @@
     "architect": {
       "description": "System architecture with deep reasoning for design decisions",
       "mode": "primary",
-      "model": "anthropic/opus-deep",
+      "model": "anthropic/opus-max",
       "temperature": 0.3,
       "maxSteps": 40,
       "prompt": "{file:prompts/architect.md}",
@@ -481,7 +481,7 @@
         "read": true,
         "write": true,
         "edit": true,
-        "bash": false,
+        "bash": true,
         "grep": true,
         "glob": true,
         "list": true,
@@ -490,7 +490,7 @@
       },
       "permission": {
         "edit": "ask",
-        "bash": "deny",
+        "bash": "ask",
       },
     },
     // ─────────────────────────────────────────────────────────────────────────
