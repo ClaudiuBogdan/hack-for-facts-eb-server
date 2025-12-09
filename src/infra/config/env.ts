@@ -45,6 +45,10 @@ export const EnvSchema = Type.Object({
   CLERK_SECRET_KEY: Type.Optional(Type.String()),
   CLERK_JWT_KEY: Type.Optional(Type.String()),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String()),
+
+  // Short Links
+  SHORT_LINK_DAILY_LIMIT: Type.Optional(Type.Number({ minimum: 1, default: 100 })),
+  SHORT_LINK_CACHE_TTL: Type.Optional(Type.Number({ minimum: 0, default: 86400 })),
 });
 
 export type Env = Static<typeof EnvSchema>;
@@ -67,6 +71,14 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     CLERK_SECRET_KEY: env['CLERK_SECRET_KEY'],
     CLERK_JWT_KEY: env['CLERK_JWT_KEY'],
     CLERK_AUTHORIZED_PARTIES: env['CLERK_AUTHORIZED_PARTIES'],
+    SHORT_LINK_DAILY_LIMIT:
+      env['SHORT_LINK_DAILY_LIMIT'] != null && env['SHORT_LINK_DAILY_LIMIT'] !== ''
+        ? Number.parseInt(env['SHORT_LINK_DAILY_LIMIT'], 10)
+        : 100,
+    SHORT_LINK_CACHE_TTL:
+      env['SHORT_LINK_CACHE_TTL'] != null && env['SHORT_LINK_CACHE_TTL'] !== ''
+        ? Number.parseInt(env['SHORT_LINK_CACHE_TTL'], 10)
+        : 86400,
   };
 
   // Validate against schema
@@ -118,6 +130,12 @@ export const createConfig = (env: Env) => ({
       env.CLERK_SECRET_KEY !== undefined ||
       env.CLERK_JWT_KEY !== undefined ||
       env.CLERK_AUTHORIZED_PARTIES !== undefined,
+  },
+  shortLinks: {
+    /** Maximum short links per user per 24 hours */
+    dailyLimit: env.SHORT_LINK_DAILY_LIMIT ?? 100,
+    /** Cache TTL in seconds for resolved links (0 = no caching) */
+    cacheTtlSeconds: env.SHORT_LINK_CACHE_TTL ?? 86400,
   },
 });
 
