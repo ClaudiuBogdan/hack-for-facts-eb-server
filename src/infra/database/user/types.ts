@@ -52,9 +52,12 @@ export interface UnsubscribeTokens {
 }
 
 // Database Schema Interface
+// Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
+// PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE Notifications
+// creates a table named "notifications". Kysely quotes identifiers, so we must match.
 export interface UserDatabase {
-  ShortLinks: ShortLinks;
-  Notifications: Notifications;
-  NotificationDeliveries: NotificationDeliveries;
-  UnsubscribeTokens: UnsubscribeTokens;
+  shortlinks: ShortLinks;
+  notifications: Notifications;
+  notificationdeliveries: NotificationDeliveries;
+  unsubscribetokens: UnsubscribeTokens;
 }

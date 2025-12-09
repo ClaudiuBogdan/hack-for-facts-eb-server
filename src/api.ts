@@ -3,12 +3,17 @@
  * Starts the Fastify HTTP server
  */
 
+import { jwtVerify, importSPKI } from 'jose';
+
 import { buildApp } from './app/build-app.js';
-import { parseEnv, createConfig } from './infra/config/index.js';
+import { parseEnv, createConfig, type AppConfig } from './infra/config/index.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
+import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './modules/auth/index.js';
 import { createDatasetRepo } from './modules/datasets/index.js';
 import { NormalizationService } from './modules/normalization/index.js';
+
+import type { Logger } from 'pino';
 
 // Read package.json for version (optional, won't fail if not available)
 const getVersion = (): string | undefined => {
@@ -18,6 +23,35 @@ const getVersion = (): string | undefined => {
   } catch {
     return undefined;
   }
+};
+
+/**
+ * Creates an auth provider if Clerk JWT configuration is available.
+ * Returns undefined if auth is not configured.
+ */
+const createAuthProvider = (config: AppConfig, logger: Logger): AuthProvider | undefined => {
+  if (config.auth.clerkJwtKey === undefined) {
+    logger.warn('CLERK_JWT_KEY not configured - authentication disabled');
+    return undefined;
+  }
+
+  logger.info('Creating JWT auth provider');
+
+  // Note: Clerk uses 'azp' (authorized party) instead of standard 'aud' claim,
+  // so we skip audience validation here. The token signature verification is sufficient.
+  const jwtAdapter = makeJWTAdapter({
+    jwtVerify: jwtVerify as unknown as import('./modules/auth/index.js').JWTVerifyFn,
+    importSPKI: importSPKI as unknown as import('./modules/auth/index.js').ImportSPKIFn,
+    publicKeyPEM: config.auth.clerkJwtKey,
+    algorithm: 'RS256',
+  });
+
+  // Wrap with caching for performance
+  return makeCachedAuthProvider({
+    provider: jwtAdapter,
+    maxCacheSize: 1000,
+    cacheTTLMs: 5 * 60 * 1000, // 5 minutes
+  });
 };
 
 const main = async (): Promise<void> => {
@@ -35,7 +69,7 @@ const main = async (): Promise<void> => {
   logger.info({ config: { server: config.server } }, 'Starting API server');
 
   // Initialize dependencies
-  const { budgetDb } = initDatabases(config);
+  const { budgetDb, userDb } = initDatabases(config);
   const datasetRepo = createDatasetRepo({
     rootDir: './datasets/yaml',
     logger,
@@ -46,6 +80,9 @@ const main = async (): Promise<void> => {
   logger.info('Validating normalization datasets...');
   await NormalizationService.create(datasetRepo);
   logger.info('Normalization datasets validated successfully');
+
+  // Create auth provider if configured
+  const authProvider = createAuthProvider(config, logger);
 
   // Build application - let Fastify create its own logger based on config
   const app = await buildApp({
@@ -68,8 +105,10 @@ const main = async (): Promise<void> => {
     deps: {
       healthCheckers: [],
       budgetDb,
+      userDb,
       datasetRepo,
       config,
+      ...(authProvider !== undefined && { authProvider }),
     },
     version: getVersion(),
   });
