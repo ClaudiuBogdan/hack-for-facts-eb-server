@@ -206,6 +206,10 @@ export async function getClient(): Promise<GoldenMasterClient> {
         clerkAuthorizedParties: undefined,
         enabled: false,
       },
+      shortLinks: {
+        dailyLimit: 100,
+        cacheTtlSeconds: 86400,
+      },
     };
 
     const dbs = initDatabases(config);

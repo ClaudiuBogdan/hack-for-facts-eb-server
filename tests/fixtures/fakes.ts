@@ -49,6 +49,9 @@ import type {
   UnsubscribeToken,
   NotificationType,
 } from '@/modules/notifications/core/types.js';
+import type { ShareError } from '@/modules/share/core/errors.js';
+import type { ShortLinkRepository, ShortLinkCache, Hasher } from '@/modules/share/core/ports.js';
+import type { ShortLink, CreateShortLinkInput, UrlMetadata } from '@/modules/share/core/types.js';
 
 /**
  * Creates minimal fake datasets for normalization.
@@ -868,5 +871,217 @@ export const createTestUnsubscribeToken = (
     createdAt: overrides.createdAt ?? now,
     expiresAt: overrides.expiresAt ?? oneYearFromNow,
     usedAt: overrides.usedAt ?? null,
+  };
+};
+
+// =============================================================================
+// Share Module Fakes
+// =============================================================================
+
+interface FakeShortLinkRepoOptions {
+  /** Initial short links to seed the store with */
+  shortLinks?: ShortLink[];
+  /** Enable database error simulation */
+  simulateDbError?: boolean;
+}
+
+/**
+ * Creates a fake short link repository for testing.
+ *
+ * Implements all ShortLinkRepository methods using an in-memory Map.
+ * Supports basic CRUD operations.
+ */
+export const makeFakeShortLinkRepo = (
+  options: FakeShortLinkRepoOptions = {}
+): ShortLinkRepository => {
+  const store = new Map<string, ShortLink>();
+  const simulateDbError = options.simulateDbError ?? false;
+
+  // Seed initial short links (keyed by code)
+  if (options.shortLinks !== undefined) {
+    for (const link of options.shortLinks) {
+      store.set(link.code, { ...link });
+    }
+  }
+
+  const createDbError = (): Result<never, ShareError> =>
+    err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
+
+  return {
+    getByCode: async (code: string): Promise<Result<ShortLink | null, ShareError>> => {
+      if (simulateDbError) return createDbError();
+      const link = store.get(code);
+      return ok(link ?? null);
+    },
+
+    getByOriginalUrl: async (url: string): Promise<Result<ShortLink | null, ShareError>> => {
+      if (simulateDbError) return createDbError();
+      for (const link of store.values()) {
+        if (link.originalUrl === url) {
+          return ok(link);
+        }
+      }
+      return ok(null);
+    },
+
+    createOrAssociateUser: async (
+      input: CreateShortLinkInput
+    ): Promise<Result<ShortLink, ShareError>> => {
+      if (simulateDbError) return createDbError();
+
+      // Check if link exists by URL
+      for (const existing of store.values()) {
+        if (existing.originalUrl === input.originalUrl) {
+          // Associate user if not already
+          if (!existing.userIds.includes(input.userId)) {
+            const updated: ShortLink = {
+              ...existing,
+              userIds: [...existing.userIds, input.userId],
+            };
+            store.set(existing.code, updated);
+            return ok(updated);
+          }
+          return ok(existing);
+        }
+      }
+
+      // Check for collision (same code, different URL)
+      const existingByCode = store.get(input.code);
+      if (existingByCode !== undefined) {
+        return err({
+          type: 'HashCollisionError',
+          message: 'Hash collision detected',
+          code: input.code,
+        });
+      }
+
+      // Create new link
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const newLink: ShortLink = {
+        id,
+        code: input.code,
+        userIds: [input.userId],
+        originalUrl: input.originalUrl,
+        createdAt: now,
+        accessCount: 0,
+        lastAccessAt: null,
+        metadata: input.metadata,
+      };
+      store.set(input.code, newLink);
+      return ok(newLink);
+    },
+
+    countRecentForUser: async (
+      userId: string,
+      since: Date
+    ): Promise<Result<number, ShareError>> => {
+      if (simulateDbError) return createDbError();
+      let count = 0;
+      for (const link of store.values()) {
+        if (link.userIds.includes(userId) && link.createdAt >= since) {
+          count++;
+        }
+      }
+      return ok(count);
+    },
+
+    incrementAccessStats: async (code: string): Promise<Result<void, ShareError>> => {
+      if (simulateDbError) return createDbError();
+      const link = store.get(code);
+      if (link !== undefined) {
+        const updated: ShortLink = {
+          ...link,
+          accessCount: link.accessCount + 1,
+          lastAccessAt: new Date(),
+        };
+        store.set(code, updated);
+      }
+      return ok(undefined);
+    },
+  };
+};
+
+interface FakeShortLinkCacheOptions {
+  /** Initial cache entries */
+  entries?: Map<string, string>;
+}
+
+/**
+ * Creates a fake short link cache for testing.
+ */
+export const makeFakeShortLinkCache = (options: FakeShortLinkCacheOptions = {}): ShortLinkCache => {
+  const cache = new Map<string, string>(options.entries ?? []);
+
+  return {
+    get: async (code: string): Promise<string | null> => {
+      return cache.get(code) ?? null;
+    },
+
+    set: async (code: string, originalUrl: string): Promise<void> => {
+      cache.set(code, originalUrl);
+    },
+  };
+};
+
+/**
+ * Deterministic test hasher that produces predictable output.
+ * Uses simple string manipulation instead of real cryptography.
+ */
+export const testHasher: Hasher = {
+  sha256: (data: string): string => {
+    // Create a simple deterministic hash based on input
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i);
+      hash = ((hash << 5) - hash + char) | 0;
+    }
+    // Convert to hex and pad to 64 chars
+    const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
+    return hexHash.repeat(8).substring(0, 64);
+  },
+  sha512: (data: string): string => {
+    // Create a longer deterministic hash
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i);
+      hash = ((hash << 5) - hash + char) | 0;
+    }
+    const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
+    return hexHash.repeat(16).substring(0, 128);
+  },
+};
+
+// =============================================================================
+// Short Link Test Builders
+// =============================================================================
+
+let shortLinkIdCounter = 0;
+
+/**
+ * Creates a test short link with sensible defaults.
+ */
+export const createTestShortLink = (overrides: Partial<ShortLink> = {}): ShortLink => {
+  shortLinkIdCounter++;
+  const now = new Date();
+  return {
+    id: overrides.id ?? `shortlink-${String(shortLinkIdCounter)}`,
+    code: overrides.code ?? `code${String(shortLinkIdCounter).padStart(12, '0')}`,
+    userIds: overrides.userIds ?? ['user-1'],
+    originalUrl: overrides.originalUrl ?? 'https://transparenta.eu/page',
+    createdAt: overrides.createdAt ?? now,
+    accessCount: overrides.accessCount ?? 0,
+    lastAccessAt: overrides.lastAccessAt ?? null,
+    metadata: overrides.metadata ?? { path: '/page', query: {} },
+  };
+};
+
+/**
+ * Creates test URL metadata with sensible defaults.
+ */
+export const createTestUrlMetadata = (overrides: Partial<UrlMetadata> = {}): UrlMetadata => {
+  return {
+    path: overrides.path ?? '/page',
+    query: overrides.query ?? {},
   };
 };

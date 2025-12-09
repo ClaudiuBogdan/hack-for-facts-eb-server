@@ -86,6 +86,10 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       clerkAuthorizedParties: undefined,
       enabled: false,
     },
+    shortLinks: {
+      dailyLimit: 100,
+      cacheTtlSeconds: 86400,
+    },
   };
 
   return {

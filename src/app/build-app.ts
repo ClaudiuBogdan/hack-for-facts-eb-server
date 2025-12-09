@@ -114,6 +114,13 @@ import {
   createReportLoaders,
 } from '../modules/report/index.js';
 import {
+  makeShareRoutes,
+  makeShortLinkRepo,
+  noopCache,
+  cryptoHasher,
+  type ShareConfig,
+} from '../modules/share/index.js';
+import {
   makeUATResolvers,
   UATSchema,
   makeUATRepo,
@@ -448,6 +455,36 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         deliveriesRepo,
         tokensRepo,
         hasher: sha256Hasher,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Share Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
+    const shortLinkRepo = makeShortLinkRepo({ db: userDb, logger: repoLogger });
+
+    // Build share config from app config
+    const shareConfig: ShareConfig = {
+      allowedOrigins: [
+        ...(config.cors.allowedOrigins
+          ?.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean) ?? []),
+        ...(config.cors.clientBaseUrl !== undefined ? [config.cors.clientBaseUrl] : []),
+        ...(config.cors.publicClientBaseUrl !== undefined ? [config.cors.publicClientBaseUrl] : []),
+      ],
+      publicBaseUrl: config.cors.publicClientBaseUrl ?? config.cors.clientBaseUrl ?? '',
+      dailyLimit: config.shortLinks.dailyLimit,
+      cacheTtlSeconds: config.shortLinks.cacheTtlSeconds,
+    };
+
+    // Register share routes
+    await app.register(
+      makeShareRoutes({
+        shortLinkRepo,
+        cache: noopCache, // TODO: Add Redis cache when available
+        hasher: cryptoHasher,
+        config: shareConfig,
       })
     );
   }
