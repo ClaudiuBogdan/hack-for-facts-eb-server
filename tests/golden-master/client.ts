@@ -210,6 +210,13 @@ export async function getClient(): Promise<GoldenMasterClient> {
         dailyLimit: 100,
         cacheTtlSeconds: 86400,
       },
+      mcp: {
+        enabled: false,
+        authRequired: false,
+        apiKey: undefined,
+        sessionTtlSeconds: 3600,
+        clientBaseUrl: '',
+      },
     };
 
     const dbs = initDatabases(config);
