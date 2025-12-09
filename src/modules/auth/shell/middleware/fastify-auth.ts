@@ -72,6 +72,7 @@ export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHook
       const statusCode = AUTH_ERROR_HTTP_STATUS[error.type];
 
       await reply.status(statusCode).send({
+        ok: false,
         error: error.type,
         message: error.message,
       });
@@ -105,16 +106,20 @@ export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHook
  *   // ...
  * });
  */
-export async function requireAuthHandler(
+const requireAuthHandlerImpl = async (
   request: FastifyRequest,
   reply: FastifyReply
-): Promise<void> {
+): Promise<void> => {
   const result = requireAuth(request.auth);
 
   if (result.isErr()) {
     await reply.status(401).send({
+      ok: false,
       error: result.error.type,
       message: result.error.message,
     });
   }
-}
+};
+
+// Type assertion needed for async preHandler hooks with strictFunctionTypes
+export const requireAuthHandler = requireAuthHandlerImpl as preHandlerHookHandler;

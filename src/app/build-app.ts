@@ -37,7 +37,8 @@ import {
   makeAggregatedLineItemsRepo,
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
-import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
+import { makeGraphQLContext, ANONYMOUS_SESSION, type AuthProvider } from '../modules/auth/index.js';
+import { makeAuthMiddleware } from '../modules/auth/shell/middleware/fastify-auth.js';
 import {
   makeBudgetSectorResolvers,
   BudgetSectorSchema,
@@ -100,6 +101,13 @@ import {
 } from '../modules/health/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
+  makeNotificationRoutes,
+  makeNotificationsRepo,
+  makeDeliveriesRepo,
+  makeTokensRepo,
+  sha256Hasher,
+} from '../modules/notifications/index.js';
+import {
   makeReportResolvers,
   ReportSchema,
   makeReportRepo,
@@ -118,7 +126,7 @@ import {
 } from '../modules/uat-analytics/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
-import type { BudgetDbClient } from '../infra/database/client.js';
+import type { BudgetDbClient, UserDbClient } from '../infra/database/client.js';
 
 /**
  * Application dependencies that can be injected
@@ -126,6 +134,8 @@ import type { BudgetDbClient } from '../infra/database/client.js';
 export interface AppDeps {
   healthCheckers?: HealthChecker[];
   budgetDb: BudgetDbClient;
+  /** User database for notifications and other user-related data */
+  userDb?: UserDbClient;
   datasetRepo: DatasetRepo;
   budgetSectorRepo?: BudgetSectorRepository;
   fundingSourceRepo?: FundingSourceRepository;
@@ -403,6 +413,44 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       ...(graphQLContext !== undefined && { context: graphQLContext }),
     })
   );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Setup Notifications Module (REST API)
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Notifications requires userDb to be configured for repositories.
+  // Auth middleware requires authProvider - if not configured, protected routes will fail.
+  if (deps.userDb !== undefined) {
+    const userDb = deps.userDb;
+
+    // Add global auth middleware for REST routes
+    if (deps.authProvider !== undefined) {
+      // Full auth middleware with token verification
+      app.addHook('preHandler', makeAuthMiddleware({ authProvider: deps.authProvider }));
+    } else {
+      // Fallback: set anonymous session when no auth provider configured
+      // This allows routes to be registered but protected endpoints will return 401
+      app.addHook('preHandler', (request, _reply, done) => {
+        request.auth = ANONYMOUS_SESSION;
+        done();
+      });
+    }
+
+    // Create notification repositories
+    const repoLogger = app.log as unknown as import('pino').Logger;
+    const notificationsRepo = makeNotificationsRepo({ db: userDb, logger: repoLogger });
+    const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
+    const tokensRepo = makeTokensRepo({ db: userDb, logger: repoLogger });
+
+    // Register notification routes
+    await app.register(
+      makeNotificationRoutes({
+        notificationsRepo,
+        deliveriesRepo,
+        tokensRepo,
+        hasher: sha256Hasher,
+      })
+    );
+  }
 
   // Global error handler
   app.setErrorHandler((error: FastifyError, request, reply) => {
