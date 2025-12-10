@@ -9,7 +9,7 @@
  * - Aggregate expressions
  *
  * SECURITY: All identifiers are validated against known schema values.
- * sql.raw() is only used with trusted, validated identifiers.
+ * We use Kysely's sql template tag and helpers (sql.ref, sql.table) to ensure safety.
  */
 
 import { sql, type RawBuilder } from 'kysely';
@@ -51,9 +51,12 @@ export function joinClause(
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Defensive check
   const tableName = TableNames[table] ?? table;
 
-  // SECURITY: All identifiers are from known schema values.
+  if (!['INNER', 'LEFT', 'RIGHT'].includes(joinType)) {
+    throw new Error(`Invalid join type: ${joinType}`);
+  }
 
-  return sql.raw(`${joinType} JOIN ${tableName} ${alias} ON ${leftCol} = ${rightCol}`);
+  // SECURITY: identifiers are parameterized/quoted safely
+  return sql`${sql.raw(joinType)} JOIN ${sql.table(tableName)} ${sql.raw(alias)} ON ${sql.ref(leftCol)} = ${sql.ref(rightCol)}`;
 }
 
 /**
@@ -160,14 +163,19 @@ export function orderByClause(
     return sql``;
   }
 
-  const orderTerms = terms
-    .map(([col, dir, nulls]) => {
-      const nullsStr = nulls ?? 'NULLS LAST';
-      return `${col} ${dir} ${nullsStr}`;
-    })
-    .join(', ');
+  const fragments = terms.map(([col, dir, nulls]) => {
+    if (!['ASC', 'DESC'].includes(dir)) {
+      throw new Error(`Invalid sort direction: ${dir}`);
+    }
+    const nullsStr = nulls ?? 'NULLS LAST';
+    if (!['NULLS FIRST', 'NULLS LAST'].includes(nullsStr)) {
+      throw new Error(`Invalid nulls position: ${nullsStr}`);
+    }
 
-  return sql.raw(`ORDER BY ${orderTerms}`);
+    return sql`${sql.ref(col)} ${sql.raw(dir)} ${sql.raw(nullsStr)}`;
+  });
+
+  return sql`ORDER BY ${sql.join(fragments, sql`, `)}`;
 }
 
 /**
@@ -177,28 +185,27 @@ export const CommonOrderBy = {
   /**
    * ORDER BY eli.year ASC
    */
-  yearAsc: (): RawBuilder<unknown> => sql.raw('ORDER BY eli.year ASC'),
+  yearAsc: (): RawBuilder<unknown> => sql`eli.year ASC`,
 
   /**
    * ORDER BY eli.year ASC, eli.month ASC
    */
-  yearMonthAsc: (): RawBuilder<unknown> => sql.raw('ORDER BY eli.year ASC, eli.month ASC'),
+  yearMonthAsc: (): RawBuilder<unknown> => sql`eli.year ASC, eli.month ASC`,
 
   /**
    * ORDER BY eli.year ASC, eli.quarter ASC
    */
-  yearQuarterAsc: (): RawBuilder<unknown> => sql.raw('ORDER BY eli.year ASC, eli.quarter ASC'),
+  yearQuarterAsc: (): RawBuilder<unknown> => sql`eli.year ASC, eli.quarter ASC`,
 
   /**
    * ORDER BY normalized_amount DESC NULLS LAST
    */
-  normalizedAmountDesc: (): RawBuilder<unknown> =>
-    sql.raw('ORDER BY normalized_amount DESC NULLS LAST'),
+  normalizedAmountDesc: (): RawBuilder<unknown> => sql`normalized_amount DESC NULLS LAST`,
 
   /**
    * ORDER BY total_amount DESC NULLS LAST
    */
-  totalAmountDesc: (): RawBuilder<unknown> => sql.raw('ORDER BY total_amount DESC NULLS LAST'),
+  totalAmountDesc: (): RawBuilder<unknown> => sql`total_amount DESC NULLS LAST`,
 } as const;
 
 // ============================================================================
@@ -222,7 +229,10 @@ export function groupByClause(columns: string[]): RawBuilder<unknown> {
     return sql``;
   }
 
-  return sql.raw(`GROUP BY ${columns.join(', ')}`);
+  return sql`GROUP BY ${sql.join(
+    columns.map((c) => sql.ref(c)),
+    sql`, `
+  )}`;
 }
 
 /**
@@ -232,22 +242,22 @@ export const CommonGroupBy = {
   /**
    * GROUP BY eli.year
    */
-  year: (): RawBuilder<unknown> => sql.raw('GROUP BY eli.year'),
+  year: (): RawBuilder<unknown> => sql`eli.year`,
 
   /**
    * GROUP BY eli.year, eli.month
    */
-  yearMonth: (): RawBuilder<unknown> => sql.raw('GROUP BY eli.year, eli.month'),
+  yearMonth: (): RawBuilder<unknown> => sql`eli.year, eli.month`,
 
   /**
    * GROUP BY eli.year, eli.quarter
    */
-  yearQuarter: (): RawBuilder<unknown> => sql.raw('GROUP BY eli.year, eli.quarter'),
+  yearQuarter: (): RawBuilder<unknown> => sql`eli.year, eli.quarter`,
 
   /**
    * GROUP BY eli.entity_cui
    */
-  entityCui: (): RawBuilder<unknown> => sql.raw('GROUP BY eli.entity_cui'),
+  entityCui: (): RawBuilder<unknown> => sql`eli.entity_cui`,
 } as const;
 
 // ============================================================================
@@ -257,12 +267,12 @@ export const CommonGroupBy = {
 /**
  * Creates a COALESCE expression with a default value.
  *
- * @param expr - Expression to coalesce
+ * @param expr - Expression (column reference) to coalesce
  * @param defaultValue - Default value if expr is NULL
  * @returns RawBuilder for the COALESCE expression
  */
 export function coalesce(expr: string, defaultValue: string | number): RawBuilder<unknown> {
-  return sql.raw(`COALESCE(${expr}, ${String(defaultValue)})`);
+  return sql`COALESCE(${sql.ref(expr)}, ${defaultValue})`;
 }
 
 /**
@@ -272,7 +282,7 @@ export function coalesce(expr: string, defaultValue: string | number): RawBuilde
  * @returns RawBuilder for the SUM expression
  */
 export function sumExpr(column: string): RawBuilder<unknown> {
-  return sql.raw(`SUM(${column})`);
+  return sql`SUM(${sql.ref(column)})`;
 }
 
 /**
@@ -282,7 +292,7 @@ export function sumExpr(column: string): RawBuilder<unknown> {
  * @returns RawBuilder for the expression
  */
 export function coalesceSumExpr(column: string): RawBuilder<unknown> {
-  return sql.raw(`COALESCE(SUM(${column}), 0)`);
+  return sql`COALESCE(SUM(${sql.ref(column)}), 0)`;
 }
 
 /**
@@ -327,6 +337,70 @@ export function coalesceEconomicCode(): RawBuilder<unknown> {
  */
 export function coalesceEconomicName(): RawBuilder<unknown> {
   return sql.raw(`COALESCE(ec.economic_name, '${UNKNOWN_ECONOMIC_NAME}')`);
+}
+
+// ============================================================================
+// Entity Analytics Expressions
+// ============================================================================
+
+/**
+ * Creates an expression for normalized amount sum: COALESCE(SUM(col * f.multiplier), 0)
+ *
+ * @param amountCol - RawBuilder for the amount column (e.g. from amountColumnRef)
+ */
+export function normalizedAmountExpr(amountCol: RawBuilder<unknown>): RawBuilder<unknown> {
+  return sql`COALESCE(SUM(${amountCol} * f.multiplier), 0)`;
+}
+
+/**
+ * Creates a CASE expression for entity population based on type.
+ *
+ * Logic:
+ * - UAT (is_uat=true) -> u.population
+ * - County Council -> cp.county_population
+ * - Other -> NULL
+ *
+ * @param entityAlias - Alias for entities table (default 'e')
+ * @param uatAlias - Alias for uats table (default 'u')
+ * @param countyPopAlias - Alias for county_populations CTE (default 'cp')
+ */
+export function populationCaseExpr(
+  entityAlias = 'e',
+  uatAlias = 'u',
+  countyPopAlias = 'cp'
+): RawBuilder<unknown> {
+  // We use sql.raw for aliases as they are trusted internal constants
+  // This avoids parameterizing table names which is invalid SQL
+  const e = sql.raw(entityAlias);
+  const u = sql.raw(uatAlias);
+  const cp = sql.raw(countyPopAlias);
+
+  return sql`
+    CASE
+      WHEN ${e}.is_uat = true THEN ${u}.population
+      WHEN ${e}.entity_type = 'admin_county_council' THEN ${cp}.county_population
+      ELSE NULL
+    END
+  `;
+}
+
+/**
+ * Creates an expression for per-capita amount: normalized_amount / population
+ * Handles division by zero/null using safe division pattern.
+ *
+ * @param normalizedAmountCol - Reference to normalized amount column (default 'fa.normalized_amount')
+ * @param populationExpr - The population expression (from populationCaseExpr)
+ */
+export function perCapitaExpr(
+  normalizedAmountCol: RawBuilder<unknown> = sql.raw('fa.normalized_amount'),
+  populationExpr: RawBuilder<unknown>
+): RawBuilder<unknown> {
+  return sql`
+    COALESCE(
+      ${normalizedAmountCol} / NULLIF(${populationExpr}, 0),
+      0
+    )
+  `;
 }
 
 // ============================================================================
@@ -378,5 +452,9 @@ export function entityAnalyticsOrderBy(
 ): RawBuilder<unknown> {
   const col = getEntityAnalyticsSortColumn(field);
 
-  return sql.raw(`ORDER BY ${col} ${direction} NULLS LAST`);
+  if (!['ASC', 'DESC'].includes(direction)) {
+    throw new Error(`Invalid sort direction: ${direction}`);
+  }
+
+  return sql`ORDER BY ${sql.ref(col)} ${sql.raw(direction)} NULLS LAST`;
 }

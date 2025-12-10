@@ -1,9 +1,16 @@
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency, type DataSeries, type DataPoint } from '@/common/types/temporal.js';
-import { setStatementTimeout, CommonJoins } from '@/infra/database/query-builders/index.js';
+import {
+  setStatementTimeout,
+  CommonJoins,
+  amountColumnRef,
+  columnRef,
+  CommonGroupBy,
+  CommonOrderBy,
+} from '@/infra/database/query-builders/index.js';
 import {
   createFilterContext,
   buildPeriodConditions,
@@ -105,36 +112,41 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       const entityJoinClause = hasEntityJoin ? CommonJoins.entityOnLineItem() : sql``;
       const uatJoinClause = hasUatJoin ? CommonJoins.uatOnEntity() : sql``;
 
-      // Get aggregation expressions based on frequency (static SQL)
-      const { periodColumn, amountColumn, groupByColumns, orderByClause, frequencyFlag } =
-        this.getAggregationExpressions(frequency);
+      // Get aggregation expressions based on frequency
+      let periodCol: RawBuilder<unknown>;
+      let groupBy: RawBuilder<unknown>;
+      let orderBy: RawBuilder<unknown>;
 
-      // Build raw expressions for static SQL fragments
-      // NOTE: These are internal constants, not user input - safe for sql.raw
-      // eslint-disable-next-line no-restricted-syntax -- Safe: periodColumn is from getAggregationExpressions
-      const periodColRaw = sql.raw(periodColumn);
-      // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn is from getAggregationExpressions
-      const amountColRaw = sql.raw(amountColumn);
-      // eslint-disable-next-line no-restricted-syntax -- Safe: frequencyFlag is from getAggregationExpressions
-      const frequencyFlagRaw = frequencyFlag !== '' ? sql.raw(frequencyFlag) : sql``;
-      // eslint-disable-next-line no-restricted-syntax -- Safe: groupByColumns is from getAggregationExpressions
-      const groupByRaw = sql.raw(groupByColumns);
-      // eslint-disable-next-line no-restricted-syntax -- Safe: orderByClause is from getAggregationExpressions
-      const orderByRaw = sql.raw(orderByClause);
+      if (frequency === Frequency.MONTH) {
+        periodCol = columnRef('eli', 'month');
+        groupBy = CommonGroupBy.yearMonth();
+        orderBy = CommonOrderBy.yearMonthAsc();
+      } else if (frequency === Frequency.QUARTER) {
+        periodCol = columnRef('eli', 'quarter');
+        groupBy = CommonGroupBy.yearQuarter();
+        orderBy = CommonOrderBy.yearQuarterAsc();
+      } else {
+        // YEAR
+        periodCol = columnRef('eli', 'year');
+        groupBy = CommonGroupBy.year();
+        orderBy = CommonOrderBy.yearAsc();
+      }
+
+      // Safe amount column reference
+      const amountColRef = amountColumnRef('eli', frequency);
 
       // Build and execute query with parameterized WHERE clause
       const queryText = sql`
         SELECT
           eli.year,
-          ${periodColRaw} AS period_value,
-          COALESCE(SUM(${amountColRaw}), 0) AS amount
+          ${periodCol} AS period_value,
+          COALESCE(SUM(${amountColRef}), 0) AS amount
         FROM executionlineitems eli
         ${entityJoinClause}
         ${uatJoinClause}
         WHERE ${whereCondition}
-        ${frequencyFlagRaw}
-        GROUP BY ${groupByRaw}
-        ORDER BY ${orderByRaw}
+        GROUP BY ${groupBy}
+        ORDER BY ${orderBy}
         LIMIT ${MAX_DATA_POINTS}
       `;
 
@@ -198,47 +210,6 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
     }
 
     return conditions;
-  }
-
-  /**
-   * Gets aggregation expressions based on frequency.
-   * Returns SQL fragments for SELECT, GROUP BY, ORDER BY clauses.
-   */
-  private getAggregationExpressions(frequency: Frequency): {
-    periodColumn: string;
-    amountColumn: string;
-    groupByColumns: string;
-    orderByClause: string;
-    frequencyFlag: string;
-  } {
-    if (frequency === Frequency.MONTH) {
-      return {
-        periodColumn: 'eli.month',
-        amountColumn: 'eli.monthly_amount',
-        groupByColumns: 'eli.year, eli.month',
-        orderByClause: 'eli.year ASC, eli.month ASC',
-        frequencyFlag: '', // No flag needed for monthly
-      };
-    }
-
-    if (frequency === Frequency.QUARTER) {
-      return {
-        periodColumn: 'eli.quarter',
-        amountColumn: 'eli.quarterly_amount',
-        groupByColumns: 'eli.year, eli.quarter',
-        orderByClause: 'eli.year ASC, eli.quarter ASC',
-        frequencyFlag: '', // Frequency flag is in WHERE conditions from buildPeriodConditions
-      };
-    }
-
-    // YEARLY
-    return {
-      periodColumn: 'eli.year',
-      amountColumn: 'eli.ytd_amount',
-      groupByColumns: 'eli.year',
-      orderByClause: 'eli.year ASC',
-      frequencyFlag: '', // Frequency flag is in WHERE conditions from buildPeriodConditions
-    };
   }
 
   // ==========================================================================

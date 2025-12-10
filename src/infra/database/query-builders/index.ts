@@ -132,6 +132,11 @@ export {
   coalesceEconomicCode,
   coalesceEconomicName,
 
+  // Entity analytics helpers
+  normalizedAmountExpr,
+  populationCaseExpr,
+  perCapitaExpr,
+
   // Entity analytics sorting
   getEntityAnalyticsSortColumn,
   entityAnalyticsOrderBy,

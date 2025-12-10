@@ -3,7 +3,16 @@ import { sql, type RawBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
-import { setStatementTimeout, CommonJoins } from '@/infra/database/query-builders/index.js';
+import {
+  setStatementTimeout,
+  CommonJoins,
+  amountColumnRef,
+  normalizedAmountExpr,
+  populationCaseExpr,
+  perCapitaExpr,
+  entityAnalyticsOrderBy,
+  columnRef,
+} from '@/infra/database/query-builders/index.js';
 import {
   createFilterContext,
   buildPeriodConditions,
@@ -31,7 +40,6 @@ import {
   type AggregateFilters,
   type PaginationParams,
   type EntityAnalyticsSort,
-  type EntityAnalyticsSortField,
 } from '../../core/types.js';
 
 import type { EntityAnalyticsRepository } from '../../core/ports.js';
@@ -70,20 +78,6 @@ interface RawEntityAnalyticsRow {
   per_capita_amount: string; // NUMERIC comes as string
   total_count: string; // Window function result
 }
-
-/**
- * Maps sort field enum values to SQL column expressions.
- */
-const SORT_FIELD_MAP: Record<EntityAnalyticsSortField, string> = {
-  AMOUNT: 'total_amount',
-  TOTAL_AMOUNT: 'total_amount',
-  PER_CAPITA_AMOUNT: 'per_capita_amount',
-  ENTITY_NAME: 'entity_name',
-  ENTITY_TYPE: 'entity_type',
-  POPULATION: 'population',
-  COUNTY_NAME: 'county_name',
-  COUNTY_CODE: 'county_code',
-};
 
 // ============================================================================
 // Repository Implementation
@@ -202,9 +196,6 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     // Build factor VALUES clause
     const factorValues = this.buildFactorValuesCTE(factorMap);
 
-    // Get the appropriate amount column based on frequency
-    const amountColumn = this.getAmountColumnName(frequency);
-
     // Determine if we need entity/UAT joins for geographic filters
     const requiresEntityJoin = needsEntityJoin(filter);
     const requiresUatJoin = needsUatJoin(filter);
@@ -225,42 +216,11 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     // Build HAVING conditions
     const havingConditions = this.buildHavingConditions(aggregateFilters);
 
-    // Build ORDER BY clause
-    const orderByClause = this.buildOrderByClause(sort);
-
-    // Population expression: varies by entity type
-    const populationExpr = `
-      CASE
-        WHEN e.is_uat = true THEN u.population
-        WHEN e.entity_type = 'admin_county_council' THEN cp.county_population
-        ELSE NULL
-      END
-    `;
-
-    // Per-capita expression: total_amount / population (with safe division)
-    const perCapitaExpr = `
-      COALESCE(
-        fa.normalized_amount / NULLIF(
-          CASE
-            WHEN e.is_uat = true THEN u.population
-            WHEN e.entity_type = 'admin_county_council' THEN cp.county_population
-            ELSE NULL
-          END, 0
-        ), 0
-      )
-    `;
-
-    // Build safe raw expressions for static SQL fragments
-    // NOTE: These sql.raw() usages are for static SQL expressions that are
-    // compile-time constants (not derived from user input).
-    // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName()
-    const sumExpr = sql.raw(`COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`);
-    // eslint-disable-next-line no-restricted-syntax -- Safe: static CASE expression
-    const populationExprRaw = sql.raw(populationExpr);
-    // eslint-disable-next-line no-restricted-syntax -- Safe: static CASE expression
-    const perCapitaExprRaw = sql.raw(perCapitaExpr);
-    // eslint-disable-next-line no-restricted-syntax -- Safe: orderByClause from SORT_FIELD_MAP
-    const orderByRaw = sql.raw(orderByClause);
+    // Build expressions using safe builders
+    const sumExpr = normalizedAmountExpr(amountColumnRef('eli', frequency));
+    const populationExprRaw = populationCaseExpr();
+    const perCapitaExprRaw = perCapitaExpr(columnRef('fa', 'normalized_amount'), populationExprRaw);
+    const orderByRaw = entityAnalyticsOrderBy(sort.by, sort.order);
 
     // Build the full query with CTEs
     return sql`
@@ -327,19 +287,6 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     );
 
     return sql.join(valuesList, sql`, `);
-  }
-
-  /**
-   * Gets the amount column name based on frequency.
-   */
-  private getAmountColumnName(frequency: Frequency): string {
-    if (frequency === Frequency.MONTH) {
-      return 'monthly_amount';
-    }
-    if (frequency === Frequency.QUARTER) {
-      return 'quarterly_amount';
-    }
-    return 'ytd_amount';
   }
 
   /**
@@ -416,24 +363,6 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     }
 
     return sql`HAVING ${sql.join(conditions, sql` AND `)}`;
-  }
-
-  /**
-   * Builds ORDER BY clause with proper NULL handling.
-   *
-   * - NULLS LAST for ASC (NULLs at the end)
-   * - NULLS FIRST for DESC (NULLs at the end, reversed)
-   */
-  private buildOrderByClause(sort: EntityAnalyticsSort): string {
-    const sortColumn = SORT_FIELD_MAP[sort.by];
-    const direction = sort.order;
-
-    // For numeric columns, NULLS should go to the end
-    // ASC: NULLS LAST (smallest first, nulls last)
-    // DESC: NULLS LAST (largest first, nulls last)
-    const nullsHandling = 'NULLS LAST';
-
-    return `ORDER BY ${sortColumn} ${direction} ${nullsHandling}`;
   }
 
   // ==========================================================================
