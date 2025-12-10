@@ -212,7 +212,7 @@ export default defineConfig(
         },
         {
           selector: "CallExpression[callee.object.name='sql'][callee.property.name='raw']",
-          message: 'sql.raw() is banned in repositories due to SQL injection risk. Use helpers from @/infra/database/query-builders/ instead: setStatementTimeout(), columnRef(), etc.',
+          message: 'sql.raw() is banned in repositories due to SQL injection risk.',
         },
       ],
     },

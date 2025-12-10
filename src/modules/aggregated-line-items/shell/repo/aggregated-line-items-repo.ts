@@ -8,6 +8,8 @@ import {
   CommonJoins,
   coalesceEconomicCode,
   coalesceEconomicName,
+  amountColumnRef,
+  normalizedAmountExpr,
 } from '@/infra/database/query-builders/index.js';
 import {
   createFilterContext,
@@ -18,7 +20,6 @@ import {
   buildUatConditions,
   buildExclusionConditions,
   buildAmountConditions,
-  getAmountColumnName,
   andConditions,
   needsEntityJoin,
   needsUatJoin,
@@ -130,21 +131,12 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       const entityJoinClause = hasEntityJoin ? CommonJoins.entityOnLineItem() : sql``;
       const uatJoinClause = hasUatJoin ? CommonJoins.uatOnEntity() : sql``;
 
-      // Get amount column based on frequency (static internal value)
-      const amountColumn = getAmountColumnName(frequency);
-
-      // Get frequency flag for quarterly/yearly (static SQL)
-      const frequencyFlag = this.getFrequencyFlag(frequency);
-
-      // Build safe raw expressions for static SQL fragments
-      // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName
-      const amountColRaw = sql.raw(`eli.${amountColumn}`);
-      // eslint-disable-next-line no-restricted-syntax -- Safe: frequencyFlag from getFrequencyFlag
-      const frequencyFlagRaw = frequencyFlag !== '' ? sql.raw(frequencyFlag) : sql``;
-
       // Use pre-built COALESCE expressions from query-builders
       const economicCodeExpr = coalesceEconomicCode();
       const economicNameExpr = coalesceEconomicName();
+
+      // Get safe column reference for amount
+      const amountColRef = amountColumnRef('eli', frequency);
 
       // Build and execute query with parameterized WHERE clause
       const queryText = sql`
@@ -154,7 +146,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
           ${economicCodeExpr} AS economic_code,
           ${economicNameExpr} AS economic_name,
           eli.year,
-          COALESCE(SUM(${amountColRaw}), 0) AS amount,
+          COALESCE(SUM(${amountColRef}), 0) AS amount,
           COUNT(*) AS count
         FROM executionlineitems eli
         INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
@@ -162,7 +154,6 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
         ${entityJoinClause}
         ${uatJoinClause}
         WHERE ${whereCondition}
-        ${frequencyFlagRaw}
         GROUP BY
           fc.functional_code,
           fc.functional_name,
@@ -235,12 +226,8 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       // Build VALUES clause for factors CTE
       const factorValues = this.buildFactorValuesCTE(factorMap);
 
-      // Get the appropriate amount column based on frequency (static internal value)
-      const amountColumn = getAmountColumnName(frequency);
-
-      // Build safe raw expression for normalized amount
-      // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName
-      const normalizedAmountExpr = sql.raw(`COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`);
+      // Build safe expression for normalized amount
+      const normalizedAmount = normalizedAmountExpr(amountColumnRef('eli', frequency));
 
       // Build join clauses using CommonJoins
       const entityJoinClause = hasEntityJoin ? CommonJoins.entityOnLineItem() : sql``;
@@ -267,7 +254,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
           fc.functional_name,
           ${economicCodeExpr} AS economic_code,
           ${economicNameExpr} AS economic_name,
-          ${normalizedAmountExpr} AS normalized_amount,
+          ${normalizedAmount} AS normalized_amount,
           COUNT(*) AS count,
           COUNT(*) OVER() AS total_count
         FROM executionlineitems eli
@@ -345,19 +332,6 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     }
 
     return conditions;
-  }
-
-  /**
-   * Gets the frequency flag WHERE condition for quarterly/yearly data.
-   */
-  private getFrequencyFlag(frequency: Frequency): string {
-    if (frequency === Frequency.QUARTER) {
-      return 'AND eli.is_quarterly = true';
-    }
-    if (frequency === Frequency.YEAR) {
-      return 'AND eli.is_yearly = true';
-    }
-    return ''; // MONTH has no flag
   }
 
   /**
