@@ -52,8 +52,10 @@ export const EnvSchema = Type.Object({
 
   // MCP (Model Context Protocol)
   MCP_ENABLED: Type.Optional(Type.Boolean({ default: false })),
-  MCP_AUTH_REQUIRED: Type.Optional(Type.Boolean({ default: false })),
-  MCP_API_KEY: Type.Optional(Type.String()),
+  // SECURITY: SEC-004 - Default to true for fail-closed security
+  MCP_AUTH_REQUIRED: Type.Optional(Type.Boolean({ default: true })),
+  // SECURITY: Minimum 32 characters for sufficient entropy
+  MCP_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
   MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
 });
 
@@ -86,7 +88,8 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         ? Number.parseInt(env['SHORT_LINK_CACHE_TTL'], 10)
         : 86400,
     MCP_ENABLED: env['MCP_ENABLED'] === 'true',
-    MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] === 'true',
+    // SECURITY: SEC-004 - Default to true, only disable if explicitly set to 'false'
+    MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] !== 'false',
     MCP_API_KEY: env['MCP_API_KEY'],
     MCP_SESSION_TTL_SECONDS:
       env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
@@ -153,8 +156,8 @@ export const createConfig = (env: Env) => ({
   mcp: {
     /** Whether MCP endpoints are enabled */
     enabled: env.MCP_ENABLED ?? false,
-    /** Whether API key authentication is required for MCP */
-    authRequired: env.MCP_AUTH_REQUIRED ?? false,
+    /** Whether API key authentication is required for MCP (default: true for security) */
+    authRequired: env.MCP_AUTH_REQUIRED ?? true,
     /** API key for MCP authentication (if authRequired is true) */
     apiKey: env.MCP_API_KEY,
     /** Session TTL in seconds */

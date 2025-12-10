@@ -8,6 +8,8 @@ import { Decimal } from 'decimal.js';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
+
 import { databaseError, timeoutError, type McpError } from '../../core/errors.js';
 
 import type { McpExecutionRepo, YearlySnapshotTotals } from '../../core/ports.js';
@@ -46,9 +48,7 @@ class KyselyMcpExecutionRepo implements McpExecutionRepo {
   ): Promise<Result<YearlySnapshotTotals, McpError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       const effectiveReportType = reportType ?? DEFAULT_REPORT_TYPE;
 

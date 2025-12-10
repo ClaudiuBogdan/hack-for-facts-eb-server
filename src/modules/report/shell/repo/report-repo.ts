@@ -8,6 +8,8 @@
 import { sql, type ExpressionBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
+
 import {
   createDatabaseError,
   createTimeoutError,
@@ -231,9 +233,7 @@ class KyselyReportRepo implements ReportRepository {
   ): Promise<Result<ReportConnection, ReportError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Check if we need to join entities table for search
       const needsEntityJoin = filter.search !== undefined && filter.search.trim() !== '';
@@ -284,9 +284,7 @@ class KyselyReportRepo implements ReportRepository {
   async count(filter: ReportFilter): Promise<Result<number, ReportError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Check if we need to join entities table for search
       const needsEntityJoin = filter.search !== undefined && filter.search.trim() !== '';

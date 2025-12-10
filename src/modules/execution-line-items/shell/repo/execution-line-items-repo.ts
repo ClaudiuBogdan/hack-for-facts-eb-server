@@ -8,13 +8,15 @@ import { sql, type ExpressionBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
+import { setStatementTimeout, amountColumnRef } from '@/infra/database/query-builders/index.js';
 import {
   extractYear,
   parsePeriodDate,
   toNumericIds,
+  escapeLikeWildcards,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+} from '@/infra/database/query-filters/index.js';
 
 import {
   createDatabaseError,
@@ -132,9 +134,7 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
 
     try {
       // Set statement timeout for this transaction
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build query step by step
       let query: DynamicQuery = this.db
@@ -378,7 +378,9 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       const prefixes = filter.functional_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.functional_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.or(ors);
       });
     }
@@ -393,7 +395,9 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       const prefixes = filter.economic_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.economic_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.or(ors);
       });
     }
@@ -519,7 +523,9 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       const prefixes = ex.functional_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.functional_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.not(eb.or(ors));
       });
     }
@@ -533,7 +539,9 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       const prefixes = ex.economic_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.economic_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.not(eb.or(ors));
       });
     }
@@ -594,20 +602,15 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
     filter: ExecutionLineItemFilter,
     frequency: Frequency
   ): DynamicQuery {
-    // Select the appropriate amount column based on frequency
-    const amountColumn =
-      frequency === Frequency.MONTH
-        ? 'eli.monthly_amount'
-        : frequency === Frequency.QUARTER
-          ? 'eli.quarterly_amount'
-          : 'eli.ytd_amount';
+    // Get the appropriate amount column reference based on frequency
+    const amountCol = amountColumnRef('eli', frequency);
 
     if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '>=', String(filter.item_min_amount));
+      query = query.where(amountCol, '>=', String(filter.item_min_amount));
     }
 
     if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '<=', String(filter.item_max_amount));
+      query = query.where(amountCol, '<=', String(filter.item_max_amount));
     }
 
     return query;

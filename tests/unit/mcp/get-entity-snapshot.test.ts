@@ -335,7 +335,7 @@ describe('getEntitySnapshot', () => {
 
       expect(result.isOk()).toBe(true);
       const link = result._unsafeUnwrap().link;
-      expect(link).toBe('https://transparenta.eu/entity/4305857?year=2023');
+      expect(link).toBe('https://transparenta.eu/entities/4305857?year=2023');
     });
   });
 

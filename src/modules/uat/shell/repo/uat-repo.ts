@@ -8,6 +8,8 @@
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
+
 import {
   createDatabaseError,
   createTimeoutError,
@@ -80,9 +82,7 @@ class KyselyUATRepo implements UATRepository {
   async getById(id: number): Promise<Result<UAT | null, UATError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       const row = await this.db
         .selectFrom('uats')
@@ -120,9 +120,7 @@ class KyselyUATRepo implements UATRepository {
 
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       const rows = await this.db
         .selectFrom('uats')
@@ -161,9 +159,7 @@ class KyselyUATRepo implements UATRepository {
   ): Promise<Result<UATConnection, UATError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build base query
       let query: DynamicQuery = this.db
@@ -211,9 +207,7 @@ class KyselyUATRepo implements UATRepository {
   async count(filter: UATFilter): Promise<Result<number, UATError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build count query
       let query: DynamicQuery = this.db
@@ -249,9 +243,7 @@ class KyselyUATRepo implements UATRepository {
   async getCountyPopulation(countyCode: string): Promise<Result<number | null, UATError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Sum all UAT populations in the county
       const result = await this.db

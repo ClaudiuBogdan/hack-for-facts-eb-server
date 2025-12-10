@@ -5,6 +5,8 @@
  * Supports session management via StreamableHTTPServerTransport.
  */
 
+import { randomBytes, timingSafeEqual } from 'crypto';
+
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
@@ -32,24 +34,60 @@ const transports = new Map<string, StreamableHTTPServerTransport>();
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Generates a unique session ID.
+ * Generates a cryptographically secure unique session ID.
+ *
+ * SECURITY: VUL-002 - FIXED
+ * Uses crypto.randomBytes() for cryptographically secure randomness,
+ * preventing session ID prediction attacks.
+ *
+ * Output: 32-character base64url string prefixed with "mcp-"
+ * Example: "mcp-Abc123XyZ789_defGHI456-jklMNO"
  */
 function generateSessionId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
-  return `mcp-${timestamp}-${random}`;
+  return `mcp-${randomBytes(24).toString('base64url')}`;
 }
 
 /**
- * Verifies API key if configured.
+ * Verifies API key using constant-time comparison.
+ *
+ * SECURITY: SEC-004 - Timing-safe API key verification
+ * Uses crypto.timingSafeEqual() to prevent timing attacks that could
+ * allow an attacker to deduce the API key character-by-character.
+ *
+ * SECURITY: SEC-004 - Fail-closed when auth required but no key configured
+ * If authRequired=true but no API key is configured, all requests are rejected.
+ * This prevents accidental exposure when auth is enabled but misconfigured.
+ *
+ * @returns true if API key is valid, false otherwise
  */
 function verifyApiKey(request: FastifyRequest, config: McpConfig): boolean {
   const configuredApiKey = config.apiKey;
+
+  // SECURITY: If no API key configured, reject all requests
+  // This is a fail-closed approach - better to block than accidentally expose
   if (configuredApiKey === undefined || configuredApiKey === '') {
-    return true; // No API key configured, allow all
+    request.log.warn('MCP auth required but no API key configured - rejecting request');
+    return false;
   }
+
   const providedKey = request.headers['x-api-key'];
-  return providedKey === configuredApiKey;
+  if (typeof providedKey !== 'string') {
+    return false;
+  }
+
+  // Convert to buffers for constant-time comparison
+  const configuredBuffer = Buffer.from(configuredApiKey, 'utf-8');
+  const providedBuffer = Buffer.from(providedKey, 'utf-8');
+
+  // If lengths differ, still perform a comparison to maintain constant time
+  // This prevents length-based timing attacks
+  if (configuredBuffer.length !== providedBuffer.length) {
+    // Compare against itself to maintain constant execution time
+    timingSafeEqual(configuredBuffer, configuredBuffer);
+    return false;
+  }
+
+  return timingSafeEqual(configuredBuffer, providedBuffer);
 }
 
 /**

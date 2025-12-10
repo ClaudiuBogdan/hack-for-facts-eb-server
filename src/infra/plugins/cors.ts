@@ -50,9 +50,25 @@ export async function registerCors(fastify: FastifyInstance, config: AppConfig):
         return;
       }
 
-      // Allow everything in non-production environments
-      if (!config.server.isProduction) {
-        cb(null, true);
+      // SECURITY: SEC-007 - Enforce CORS whitelist in all environments
+      // Development mode only allows localhost origins.
+      // Staging and other environments should configure ALLOWED_ORIGINS explicitly.
+      if (config.server.isDevelopment) {
+        // Only allow localhost variants in development
+        if (
+          origin.startsWith('http://localhost') ||
+          origin.startsWith('http://127.0.0.1') ||
+          origin.startsWith('http://[::1]')
+        ) {
+          cb(null, true);
+          return;
+        }
+        // In development, also check allowed origins for non-localhost
+        if (allowedOrigins.has(origin)) {
+          cb(null, true);
+          return;
+        }
+        cb(new Error('CORS origin not allowed in development'), false);
         return;
       }
 

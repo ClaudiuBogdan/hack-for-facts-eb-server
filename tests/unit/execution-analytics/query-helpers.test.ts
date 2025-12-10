@@ -7,7 +7,7 @@ import {
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+} from '@/infra/database/query-filters/index.js';
 
 // ============================================================================
 // formatDateFromRow

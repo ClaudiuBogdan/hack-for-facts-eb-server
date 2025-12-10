@@ -141,7 +141,7 @@ export async function getEntitySnapshot(
   )} (${formatStandard(snapshot.totalExpenses)}).`;
 
   // 5. Build and shorten link
-  const fullLink = `${deps.config.clientBaseUrl}/entity/${entity.cui}?year=${String(year)}`;
+  const fullLink = `${deps.config.clientBaseUrl}/entities/${entity.cui}?year=${String(year)}`;
   const linkResult = await deps.shareLink.create(fullLink);
   const link = linkResult.isOk() ? linkResult.value : fullLink;
 

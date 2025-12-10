@@ -12,10 +12,16 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
 import {
+  setStatementTimeout,
+  amountColumnRef,
+  coalesceSumAmountExpr,
+} from '@/infra/database/query-builders/index.js';
+import {
   parsePeriodDate,
   extractYear,
   toNumericIds,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+  escapeLikeWildcards,
+} from '@/infra/database/query-filters/index.js';
 
 import { createDatabaseError, type UATAnalyticsError } from '../../core/errors.js';
 
@@ -86,9 +92,7 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
 
     try {
       // Set statement timeout for this query
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build the aggregation query
       let query: DynamicQuery = this.db
@@ -357,7 +361,9 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
       const prefixes = filter.functional_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.functional_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.or(ors);
       });
     }
@@ -370,7 +376,9 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
       const prefixes = filter.economic_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.economic_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.or(ors);
       });
     }
@@ -465,7 +473,9 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
       const prefixes = ex.functional_prefixes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
       query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
+        const ors = prefixes.map((p) =>
+          eb('eli.functional_code', 'like', `${escapeLikeWildcards(p)}%`)
+        );
         return eb.not(eb.or(ors));
       });
     }
@@ -480,7 +490,9 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
         const prefixes = ex.economic_prefixes;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
         query = query.where((eb: ExpressionBuilder<any, any>) => {
-          const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
+          const ors = prefixes.map((p) =>
+            eb('eli.economic_code', 'like', `${escapeLikeWildcards(p)}%`)
+          );
           return eb.not(eb.or(ors));
         });
       }
@@ -527,19 +539,14 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
     filter: AnalyticsFilter,
     frequency: Frequency
   ): DynamicQuery {
-    const amountColumn =
-      frequency === Frequency.MONTH
-        ? 'eli.monthly_amount'
-        : frequency === Frequency.QUARTER
-          ? 'eli.quarterly_amount'
-          : 'eli.ytd_amount';
+    const amountCol = amountColumnRef('eli', frequency);
 
     if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '>=', String(filter.item_min_amount));
+      query = query.where(amountCol, '>=', String(filter.item_min_amount));
     }
 
     if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '<=', String(filter.item_max_amount));
+      query = query.where(amountCol, '<=', String(filter.item_max_amount));
     }
 
     return query;
@@ -553,19 +560,14 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
     filter: AnalyticsFilter,
     frequency: Frequency
   ): DynamicQuery {
-    const sumExpression =
-      frequency === Frequency.MONTH
-        ? 'COALESCE(SUM(eli.monthly_amount), 0)'
-        : frequency === Frequency.QUARTER
-          ? 'COALESCE(SUM(eli.quarterly_amount), 0)'
-          : 'COALESCE(SUM(eli.ytd_amount), 0)';
+    const sumExpr = coalesceSumAmountExpr('eli', frequency);
 
     if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-      query = query.having(sql.raw(sumExpression), '>=', String(filter.aggregate_min_amount));
+      query = query.having(sumExpr, '>=', String(filter.aggregate_min_amount));
     }
 
     if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-      query = query.having(sql.raw(sumExpression), '<=', String(filter.aggregate_max_amount));
+      query = query.having(sumExpr, '<=', String(filter.aggregate_max_amount));
     }
 
     return query;

@@ -2,14 +2,14 @@ import { Decimal } from 'decimal.js';
 import { describe, it, expect } from 'vitest';
 
 import { Frequency } from '@/common/types/temporal.js';
-import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 import {
   formatDateFromRow,
   extractYear,
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+} from '@/infra/database/query-filters/index.js';
+import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 
 /**
  * Integration tests for KyselyAnalyticsRepo.

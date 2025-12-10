@@ -1,22 +1,29 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- Kysely dynamic query builder requires any typing */
 import { Decimal } from 'decimal.js';
-import { sql, type ExpressionBuilder } from 'kysely';
+import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
 import {
-  extractYear,
-  parsePeriodDate,
-  toNumericIds,
+  setStatementTimeout,
+  CommonJoins,
+  coalesceEconomicCode,
+  coalesceEconomicName,
+} from '@/infra/database/query-builders/index.js';
+import {
+  createFilterContext,
+  buildPeriodConditions,
+  buildDimensionConditions,
+  buildCodeConditions,
+  buildEntityConditions,
+  buildUatConditions,
+  buildExclusionConditions,
+  buildAmountConditions,
+  getAmountColumnName,
+  andConditions,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
-import {
-  buildWhereConditions,
-  toWhereClause,
-  type AnalyticsSqlFilter,
-  type SqlBuildContext,
-} from '@/modules/execution-analytics/shell/repo/sql-condition-builder.js';
+  type SqlCondition,
+} from '@/infra/database/query-filters/index.js';
 
 import {
   createDatabaseError,
@@ -24,8 +31,6 @@ import {
   type AggregatedLineItemsError,
 } from '../../core/errors.js';
 import {
-  UNKNOWN_ECONOMIC_CODE,
-  UNKNOWN_ECONOMIC_NAME,
   MAX_DB_ROWS,
   type ClassificationPeriodData,
   type ClassificationPeriodResult,
@@ -77,12 +82,6 @@ interface RawNormalizedRow {
   total_count: string; // Window function result
 }
 
-/**
- * Query builder type - using unknown to avoid blanket any disables.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely dynamic query builder
-type DynamicQuery = any;
-
 // ============================================================================
 // Repository Implementation
 // ============================================================================
@@ -109,56 +108,73 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   ): Promise<Result<ClassificationPeriodResult, AggregatedLineItemsError>> {
     const frequency = filter.report_period.type;
 
+    // Determine join requirements
+    const hasEntityJoin = needsEntityJoin(filter);
+    const hasUatJoin = needsUatJoin(filter);
+
+    // Create filter context
+    const ctx = createFilterContext({
+      hasEntityJoin,
+      hasUatJoin,
+    });
+
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
-      // Build COALESCE expressions for economic code/name
-      // These must be identical in SELECT and GROUP BY
-      const economicCodeExpr = sql<string>`COALESCE(eli.economic_code, ${sql.lit(UNKNOWN_ECONOMIC_CODE)})`;
-      const economicNameExpr = sql<string>`COALESCE(ec.economic_name, ${sql.lit(UNKNOWN_ECONOMIC_NAME)})`;
+      // Build WHERE conditions using composable filter pipeline (parameterized)
+      const conditions = this.buildAllConditions(filter, frequency, ctx);
+      const whereCondition = andConditions(conditions);
 
-      // Build the query
-      let query: DynamicQuery = this.db
-        .selectFrom('executionlineitems as eli')
-        .innerJoin('functionalclassifications as fc', 'eli.functional_code', 'fc.functional_code')
-        .leftJoin('economicclassifications as ec', 'eli.economic_code', 'ec.economic_code')
-        .select([
-          'fc.functional_code',
-          'fc.functional_name',
-          economicCodeExpr.as('economic_code'),
-          economicNameExpr.as('economic_name'),
-          'eli.year',
-        ]);
+      // Build join clauses using CommonJoins
+      const entityJoinClause = hasEntityJoin ? CommonJoins.entityOnLineItem() : sql``;
+      const uatJoinClause = hasUatJoin ? CommonJoins.uatOnEntity() : sql``;
 
-      // Add amount aggregation based on frequency
-      query = this.applyAmountAggregation(query, frequency);
+      // Get amount column based on frequency (static internal value)
+      const amountColumn = getAmountColumnName(frequency);
 
-      // Apply all filters
-      query = this.applyPeriodFilters(query, filter);
-      query = this.applyDimensionFilters(query, filter);
-      query = this.applyCodeFilters(query, filter);
-      query = this.applyEntityJoinsAndFilters(query, filter);
-      query = this.applyExclusions(query, filter);
-      query = this.applyItemAmountConstraints(query, filter, frequency);
+      // Get frequency flag for quarterly/yearly (static SQL)
+      const frequencyFlag = this.getFrequencyFlag(frequency);
 
-      // Group by classification + year
-      // Must use same expressions as SELECT for PostgreSQL compatibility
-      query = query.groupBy([
-        'fc.functional_code',
-        'fc.functional_name',
-        economicCodeExpr,
-        economicNameExpr,
-        'eli.year',
-      ]);
+      // Build safe raw expressions for static SQL fragments
+      // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName
+      const amountColRaw = sql.raw(`eli.${amountColumn}`);
+      // eslint-disable-next-line no-restricted-syntax -- Safe: frequencyFlag from getFrequencyFlag
+      const frequencyFlagRaw = frequencyFlag !== '' ? sql.raw(frequencyFlag) : sql``;
 
-      // Safety limit
-      query = query.limit(MAX_DB_ROWS);
+      // Use pre-built COALESCE expressions from query-builders
+      const economicCodeExpr = coalesceEconomicCode();
+      const economicNameExpr = coalesceEconomicName();
+
+      // Build and execute query with parameterized WHERE clause
+      const queryText = sql`
+        SELECT
+          fc.functional_code,
+          fc.functional_name,
+          ${economicCodeExpr} AS economic_code,
+          ${economicNameExpr} AS economic_name,
+          eli.year,
+          COALESCE(SUM(${amountColRaw}), 0) AS amount,
+          COUNT(*) AS count
+        FROM executionlineitems eli
+        INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
+        LEFT JOIN economicclassifications ec ON eli.economic_code = ec.economic_code
+        ${entityJoinClause}
+        ${uatJoinClause}
+        WHERE ${whereCondition}
+        ${frequencyFlagRaw}
+        GROUP BY
+          fc.functional_code,
+          fc.functional_name,
+          ${economicCodeExpr},
+          ${economicNameExpr},
+          eli.year
+        LIMIT ${MAX_DB_ROWS}
+      `;
 
       // Execute query
-      const rows: RawAggregatedRow[] = await query.execute();
+      const result = await queryText.execute(this.db);
+      const rows = result.rows as RawAggregatedRow[];
 
       // Transform to domain types
       const data = this.transformRows(rows);
@@ -197,11 +213,19 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   ): Promise<Result<NormalizedAggregatedResult, AggregatedLineItemsError>> {
     const frequency = filter.report_period.type;
 
+    // Determine join requirements
+    const hasEntityJoin = needsEntityJoin(filter);
+    const hasUatJoin = needsUatJoin(filter);
+
+    // Create filter context
+    const ctx = createFilterContext({
+      hasEntityJoin,
+      hasUatJoin,
+    });
+
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Handle empty factor map
       if (factorMap.size === 0) {
@@ -211,33 +235,24 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       // Build VALUES clause for factors CTE
       const factorValues = this.buildFactorValuesCTE(factorMap);
 
-      // Get the appropriate amount column based on frequency
-      const amountColumn = this.getAmountColumnName(frequency);
+      // Get the appropriate amount column based on frequency (static internal value)
+      const amountColumn = getAmountColumnName(frequency);
 
-      // Build COALESCE expressions for economic code/name (identical to SELECT and GROUP BY)
-      const economicCodeCoalesce = `COALESCE(eli.economic_code, '${UNKNOWN_ECONOMIC_CODE}')`;
-      const economicNameCoalesce = `COALESCE(ec.economic_name, '${UNKNOWN_ECONOMIC_NAME}')`;
+      // Build safe raw expression for normalized amount
+      // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName
+      const normalizedAmountExpr = sql.raw(`COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`);
 
-      // Build normalized amount expression
-      const normalizedAmountExpr = `COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`;
+      // Build join clauses using CommonJoins
+      const entityJoinClause = hasEntityJoin ? CommonJoins.entityOnLineItem() : sql``;
+      const uatJoinClause = hasUatJoin ? CommonJoins.uatOnEntity() : sql``;
 
-      // Determine required joins based on filter
-      const requiresEntityJoin = needsEntityJoin(filter);
-      const requiresUatJoin = needsUatJoin(filter);
+      // Use pre-built COALESCE expressions from query-builders
+      const economicCodeExpr = coalesceEconomicCode();
+      const economicNameExpr = coalesceEconomicName();
 
-      // Build join clauses
-      const entityJoinClause = requiresEntityJoin
-        ? 'LEFT JOIN entities e ON eli.entity_cui = e.cui'
-        : '';
-      const uatJoinClause = requiresUatJoin ? 'LEFT JOIN uats u ON e.uat_id = u.id' : '';
-
-      // Build WHERE conditions
-      const whereConditions = this.buildNormalizedWhereConditions(
-        filter,
-        frequency,
-        requiresEntityJoin,
-        requiresUatJoin
-      );
+      // Build WHERE conditions using composable filter pipeline (parameterized)
+      const conditions = this.buildAllConditions(filter, frequency, ctx);
+      const whereCondition = andConditions(conditions);
 
       // Build HAVING conditions
       const havingConditions = this.buildHavingConditions(aggregateFilters);
@@ -250,24 +265,24 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
         SELECT
           fc.functional_code,
           fc.functional_name,
-          ${sql.raw(economicCodeCoalesce)} AS economic_code,
-          ${sql.raw(economicNameCoalesce)} AS economic_name,
-          ${sql.raw(normalizedAmountExpr)} AS normalized_amount,
+          ${economicCodeExpr} AS economic_code,
+          ${economicNameExpr} AS economic_name,
+          ${normalizedAmountExpr} AS normalized_amount,
           COUNT(*) AS count,
           COUNT(*) OVER() AS total_count
         FROM executionlineitems eli
         INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
         LEFT JOIN economicclassifications ec ON eli.economic_code = ec.economic_code
         INNER JOIN factors f ON eli.year::text = f.period_key
-        ${sql.raw(entityJoinClause)}
-        ${sql.raw(uatJoinClause)}
-        ${sql.raw(whereConditions)}
+        ${entityJoinClause}
+        ${uatJoinClause}
+        WHERE ${whereCondition}
         GROUP BY
           fc.functional_code,
           fc.functional_name,
-          ${sql.raw(economicCodeCoalesce)},
-          ${sql.raw(economicNameCoalesce)}
-        ${sql.raw(havingConditions)}
+          ${economicCodeExpr},
+          ${economicNameExpr}
+        ${havingConditions ?? sql``}
         ORDER BY normalized_amount DESC
         LIMIT ${pagination.limit} OFFSET ${pagination.offset}
       `;
@@ -292,6 +307,60 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   // ==========================================================================
 
   /**
+   * Builds all WHERE conditions using the composable filter pipeline.
+   * Returns parameterized SqlCondition RawBuilders for SQL injection prevention.
+   */
+  private buildAllConditions(
+    filter: AnalyticsFilter,
+    frequency: Frequency,
+    ctx: ReturnType<typeof createFilterContext>
+  ): SqlCondition[] {
+    const conditions: SqlCondition[] = [];
+
+    // Period conditions (date range, discrete dates)
+    conditions.push(...buildPeriodConditions(filter.report_period.selection, frequency, ctx));
+
+    // Dimension conditions (account_category, report_type, entity_cuis, etc.)
+    conditions.push(...buildDimensionConditions(filter, ctx));
+
+    // Code conditions (functional, economic, program codes)
+    conditions.push(...buildCodeConditions(filter, ctx));
+
+    // Entity conditions (if joined)
+    if (ctx.hasEntityJoin) {
+      conditions.push(...buildEntityConditions(filter, ctx));
+    }
+
+    // UAT conditions (if joined)
+    if (ctx.hasUatJoin) {
+      conditions.push(...buildUatConditions(filter, ctx));
+    }
+
+    // Amount constraints
+    conditions.push(...buildAmountConditions(filter, frequency, ctx));
+
+    // Exclusion conditions
+    if (filter.exclude !== undefined) {
+      conditions.push(...buildExclusionConditions(filter.exclude, filter.account_category, ctx));
+    }
+
+    return conditions;
+  }
+
+  /**
+   * Gets the frequency flag WHERE condition for quarterly/yearly data.
+   */
+  private getFrequencyFlag(frequency: Frequency): string {
+    if (frequency === Frequency.QUARTER) {
+      return 'AND eli.is_quarterly = true';
+    }
+    if (frequency === Frequency.YEAR) {
+      return 'AND eli.is_yearly = true';
+    }
+    return ''; // MONTH has no flag
+  }
+
+  /**
    * Builds a VALUES clause for the factors CTE.
    *
    * Creates: ('2020', 1.234567890123456789::numeric), ('2021', 1.198::numeric), ...
@@ -307,477 +376,32 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   }
 
   /**
-   * Gets the amount column name based on frequency.
-   */
-  private getAmountColumnName(frequency: Frequency): string {
-    if (frequency === Frequency.MONTH) {
-      return 'monthly_amount';
-    }
-    if (frequency === Frequency.QUARTER) {
-      return 'quarterly_amount';
-    }
-    return 'ytd_amount';
-  }
-
-  /**
-   * Builds WHERE conditions for the normalized aggregation query.
-   *
-   * Delegates to the shared sql-condition-builder module for consistent
-   * filtering logic across all analytics repositories.
-   *
-   * @param hasEntityJoin - Whether entities table is joined (enables entity_type, is_uat, uat_id filters)
-   * @param hasUatJoin - Whether uats table is joined (enables county_code, population filters)
-   */
-  private buildNormalizedWhereConditions(
-    filter: AnalyticsFilter,
-    frequency: Frequency,
-    hasEntityJoin: boolean,
-    hasUatJoin: boolean
-  ): string {
-    // Convert AnalyticsFilter to AnalyticsSqlFilter format
-    const sqlFilter: AnalyticsSqlFilter = {
-      ...filter,
-      report_period: {
-        frequency,
-        selection: filter.report_period.selection,
-      },
-    };
-
-    const ctx: SqlBuildContext = {
-      hasEntityJoin,
-      hasUatJoin,
-      lineItemAlias: 'eli',
-      entityAlias: 'e',
-      uatAlias: 'u',
-    };
-
-    const conditions = buildWhereConditions(sqlFilter, ctx);
-    return toWhereClause(conditions);
-  }
-
-  /**
    * Builds HAVING conditions for aggregate filters.
    *
-   * Returns a string starting with "HAVING" if there are conditions,
-   * or an empty string if no conditions.
+   * Returns a RawBuilder for the HAVING clause, or undefined if no conditions.
+   * SECURITY: Uses parameterized queries for aggregate filter values.
    */
-  private buildHavingConditions(aggregateFilters?: AggregateFilters): string {
+  private buildHavingConditions(
+    aggregateFilters?: AggregateFilters
+  ): ReturnType<typeof sql> | undefined {
     if (aggregateFilters === undefined) {
-      return '';
+      return undefined;
     }
 
-    const conditions: string[] = [];
+    const conditions: ReturnType<typeof sql>[] = [];
 
     if (aggregateFilters.minAmount !== undefined) {
-      conditions.push(`normalized_amount >= ${aggregateFilters.minAmount.toString()}`);
+      conditions.push(sql`normalized_amount >= ${aggregateFilters.minAmount.toString()}::numeric`);
     }
     if (aggregateFilters.maxAmount !== undefined) {
-      conditions.push(`normalized_amount <= ${aggregateFilters.maxAmount.toString()}`);
+      conditions.push(sql`normalized_amount <= ${aggregateFilters.maxAmount.toString()}::numeric`);
     }
 
     if (conditions.length === 0) {
-      return '';
+      return undefined;
     }
 
-    return `HAVING ${conditions.join(' AND ')}`;
-  }
-
-  /**
-   * Adds amount aggregation based on frequency.
-   */
-  private applyAmountAggregation(query: DynamicQuery, frequency: Frequency): DynamicQuery {
-    if (frequency === Frequency.MONTH) {
-      return query
-        .select(sql<string>`COALESCE(SUM(eli.monthly_amount), 0)`.as('amount'))
-        .select(sql<string>`COUNT(*)`.as('count'));
-    }
-
-    if (frequency === Frequency.QUARTER) {
-      return query
-        .select(sql<string>`COALESCE(SUM(eli.quarterly_amount), 0)`.as('amount'))
-        .select(sql<string>`COUNT(*)`.as('count'))
-        .where('eli.is_quarterly', '=', true);
-    }
-
-    // YEARLY
-    return query
-      .select(sql<string>`COALESCE(SUM(eli.ytd_amount), 0)`.as('amount'))
-      .select(sql<string>`COUNT(*)`.as('count'))
-      .where('eli.is_yearly', '=', true);
-  }
-
-  /**
-   * Applies period (date range) filters.
-   *
-   * IMPORTANT: Filtering must match the frequency:
-   * - YEAR: Filter by year only
-   * - MONTH: Filter by (year, month) tuple
-   * - QUARTER: Filter by (year, quarter) tuple
-   *
-   * This ensures correct results when querying specific months or quarters.
-   */
-  private applyPeriodFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const { selection, type: frequency } = filter.report_period;
-
-    // Interval-based filter
-    if (selection.interval !== undefined) {
-      const start = parsePeriodDate(selection.interval.start);
-      const end = parsePeriodDate(selection.interval.end);
-
-      if (frequency === Frequency.MONTH && start?.month !== undefined && end?.month !== undefined) {
-        // Filter by (year, month) tuple using row comparison
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-        query = query.where((eb: ExpressionBuilder<any, any>) =>
-          eb(sql`(eli.year, eli.month)`, '>=', sql`(${start.year}, ${start.month})`)
-        );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-        query = query.where((eb: ExpressionBuilder<any, any>) =>
-          eb(sql`(eli.year, eli.month)`, '<=', sql`(${end.year}, ${end.month})`)
-        );
-      } else if (
-        frequency === Frequency.QUARTER &&
-        start?.quarter !== undefined &&
-        end?.quarter !== undefined
-      ) {
-        // Filter by (year, quarter) tuple using row comparison
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-        query = query.where((eb: ExpressionBuilder<any, any>) =>
-          eb(sql`(eli.year, eli.quarter)`, '>=', sql`(${start.year}, ${start.quarter})`)
-        );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-        query = query.where((eb: ExpressionBuilder<any, any>) =>
-          eb(sql`(eli.year, eli.quarter)`, '<=', sql`(${end.year}, ${end.quarter})`)
-        );
-      } else {
-        // YEAR frequency or fallback: filter by year only
-        const startYear = start?.year ?? extractYear(selection.interval.start);
-        const endYear = end?.year ?? extractYear(selection.interval.end);
-
-        if (startYear !== null) {
-          query = query.where('eli.year', '>=', startYear);
-        }
-        if (endYear !== null) {
-          query = query.where('eli.year', '<=', endYear);
-        }
-      }
-    }
-
-    // Discrete dates filter
-    if (selection.dates !== undefined && selection.dates.length > 0) {
-      if (frequency === Frequency.MONTH) {
-        // Parse all dates and filter by (year, month) tuples
-        const validPeriods = selection.dates
-          .map((d) => parsePeriodDate(d))
-          .filter((p): p is { year: number; month: number } => p?.month !== undefined);
-
-        if (validPeriods.length > 0) {
-          // Use OR conditions for each (year, month) pair
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-          query = query.where((eb: ExpressionBuilder<any, any>) => {
-            const conditions = validPeriods.map((p) =>
-              eb.and([eb('eli.year', '=', p.year), eb('eli.month', '=', p.month)])
-            );
-            return eb.or(conditions);
-          });
-        }
-      } else if (frequency === Frequency.QUARTER) {
-        // Parse all dates and filter by (year, quarter) tuples
-        const validPeriods = selection.dates
-          .map((d) => parsePeriodDate(d))
-          .filter((p): p is { year: number; quarter: number } => p?.quarter !== undefined);
-
-        if (validPeriods.length > 0) {
-          // Use OR conditions for each (year, quarter) pair
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-          query = query.where((eb: ExpressionBuilder<any, any>) => {
-            const conditions = validPeriods.map((p) =>
-              eb.and([eb('eli.year', '=', p.year), eb('eli.quarter', '=', p.quarter)])
-            );
-            return eb.or(conditions);
-          });
-        }
-      } else {
-        // YEAR frequency: filter by years only
-        const years = selection.dates
-          .map((d) => extractYear(d))
-          .filter((y): y is number => y !== null);
-
-        if (years.length > 0) {
-          query = query.where('eli.year', 'in', years);
-        }
-      }
-    }
-
-    return query;
-  }
-
-  /**
-   * Applies dimension filters (account category, report type, etc.).
-   */
-  private applyDimensionFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    // Required filter
-    query = query.where('eli.account_category', '=', filter.account_category);
-
-    // Optional filters
-    if (filter.report_type !== undefined) {
-      query = query.where('eli.report_type', '=', filter.report_type);
-    }
-
-    if (filter.main_creditor_cui !== undefined) {
-      query = query.where('eli.main_creditor_cui', '=', filter.main_creditor_cui);
-    }
-
-    if (filter.report_ids !== undefined && filter.report_ids.length > 0) {
-      query = query.where('eli.report_id', 'in', filter.report_ids);
-    }
-
-    if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
-      query = query.where('eli.entity_cui', 'in', filter.entity_cuis);
-    }
-
-    if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
-      const numericIds = toNumericIds(filter.funding_source_ids);
-      if (numericIds.length > 0) {
-        query = query.where('eli.funding_source_id', 'in', numericIds);
-      }
-    }
-
-    if (filter.budget_sector_ids !== undefined && filter.budget_sector_ids.length > 0) {
-      const numericIds = toNumericIds(filter.budget_sector_ids);
-      if (numericIds.length > 0) {
-        query = query.where('eli.budget_sector_id', 'in', numericIds);
-      }
-    }
-
-    if (filter.expense_types !== undefined && filter.expense_types.length > 0) {
-      query = query.where('eli.expense_type', 'in', filter.expense_types);
-    }
-
-    return query;
-  }
-
-  /**
-   * Applies code-based filters (functional, economic, program codes).
-   */
-  private applyCodeFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    // Exact functional codes
-    if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
-      query = query.where('eli.functional_code', 'in', filter.functional_codes);
-    }
-
-    // Functional code prefixes (LIKE patterns)
-    if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
-      const prefixes = filter.functional_prefixes;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
-        return eb.or(ors);
-      });
-    }
-
-    // Exact economic codes
-    if (filter.economic_codes !== undefined && filter.economic_codes.length > 0) {
-      query = query.where('eli.economic_code', 'in', filter.economic_codes);
-    }
-
-    // Economic code prefixes
-    if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
-      const prefixes = filter.economic_prefixes;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
-        return eb.or(ors);
-      });
-    }
-
-    // Program codes
-    if (filter.program_codes !== undefined && filter.program_codes.length > 0) {
-      query = query.where('eli.program_code', 'in', filter.program_codes);
-    }
-
-    return query;
-  }
-
-  /**
-   * Applies entity/UAT joins and their dependent filters.
-   */
-  private applyEntityJoinsAndFilters(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    const requiresEntityJoin = needsEntityJoin(filter);
-    const requiresUatJoin = needsUatJoin(filter);
-
-    // Apply entity join if needed
-    if (requiresEntityJoin) {
-      query = query.leftJoin('entities as e', 'eli.entity_cui', 'e.cui');
-
-      // Entity-specific filters
-      if (filter.entity_types !== undefined && filter.entity_types.length > 0) {
-        query = query.where('e.entity_type', 'in', filter.entity_types);
-      }
-
-      if (filter.is_uat !== undefined) {
-        query = query.where('e.is_uat', '=', filter.is_uat);
-      }
-
-      if (filter.uat_ids !== undefined && filter.uat_ids.length > 0) {
-        const numericIds = toNumericIds(filter.uat_ids);
-        if (numericIds.length > 0) {
-          query = query.where('e.uat_id', 'in', numericIds);
-        }
-      }
-
-      // Search filter: case-insensitive substring match on entity name
-      // Escape LIKE special characters for exact substring matching
-      if (filter.search !== undefined && filter.search.trim() !== '') {
-        const escapedSearch = filter.search
-          .trim()
-          .replace(/\\/g, '\\\\') // Escape backslashes first
-          .replace(/%/g, '\\%') // Escape LIKE wildcard
-          .replace(/_/g, '\\_'); // Escape LIKE single-char wildcard
-        query = query.where('e.name', 'ilike', `%${escapedSearch}%`);
-      }
-    }
-
-    // Apply UAT join if needed
-    if (requiresUatJoin) {
-      query = query.leftJoin('uats as u', 'e.uat_id', 'u.id');
-
-      if (filter.county_codes !== undefined && filter.county_codes.length > 0) {
-        query = query.where('u.county_code', 'in', filter.county_codes);
-      }
-
-      if (filter.regions !== undefined && filter.regions.length > 0) {
-        query = query.where('u.region', 'in', filter.regions);
-      }
-
-      // Population filters
-      if (filter.min_population !== undefined && filter.min_population !== null) {
-        query = query.where('u.population', '>=', filter.min_population);
-      }
-
-      if (filter.max_population !== undefined && filter.max_population !== null) {
-        query = query.where('u.population', '<=', filter.max_population);
-      }
-    }
-
-    return query;
-  }
-
-  /**
-   * Applies exclusion filters.
-   */
-  private applyExclusions(query: DynamicQuery, filter: AnalyticsFilter): DynamicQuery {
-    if (filter.exclude === undefined) {
-      return query;
-    }
-
-    const ex = filter.exclude;
-
-    if (ex.report_ids !== undefined && ex.report_ids.length > 0) {
-      query = query.where('eli.report_id', 'not in', ex.report_ids);
-    }
-
-    if (ex.entity_cuis !== undefined && ex.entity_cuis.length > 0) {
-      query = query.where('eli.entity_cui', 'not in', ex.entity_cuis);
-    }
-
-    if (ex.functional_codes !== undefined && ex.functional_codes.length > 0) {
-      query = query.where('eli.functional_code', 'not in', ex.functional_codes);
-    }
-
-    if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
-      const prefixes = ex.functional_prefixes;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.functional_code', 'like', `${p}%`));
-        return eb.not(eb.or(ors));
-      });
-    }
-
-    // Economic code exclusions apply only to non-VN accounts (per spec)
-    if (
-      filter.account_category !== 'vn' &&
-      ex.economic_codes !== undefined &&
-      ex.economic_codes.length > 0
-    ) {
-      query = query.where('eli.economic_code', 'not in', ex.economic_codes);
-    }
-
-    if (
-      filter.account_category !== 'vn' &&
-      ex.economic_prefixes !== undefined &&
-      ex.economic_prefixes.length > 0
-    ) {
-      const prefixes = ex.economic_prefixes;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) => {
-        const ors = prefixes.map((p) => eb('eli.economic_code', 'like', `${p}%`));
-        return eb.not(eb.or(ors));
-      });
-    }
-
-    // Entity type exclusions - must preserve NULL entity_type rows
-    if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) =>
-        eb.or([eb('e.entity_type', 'is', null), eb('e.entity_type', 'not in', ex.entity_types)])
-      );
-    }
-
-    // UAT ID exclusions - must preserve NULL uat_id rows
-    if (ex.uat_ids !== undefined && ex.uat_ids.length > 0) {
-      const numericIds = toNumericIds(ex.uat_ids);
-      if (numericIds.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-        query = query.where((eb: ExpressionBuilder<any, any>) =>
-          eb.or([eb('e.uat_id', 'is', null), eb('e.uat_id', 'not in', numericIds)])
-        );
-      }
-    }
-
-    // County code exclusions - must preserve NULL county_code rows
-    if (ex.county_codes !== undefined && ex.county_codes.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) =>
-        eb.or([eb('u.county_code', 'is', null), eb('u.county_code', 'not in', ex.county_codes)])
-      );
-    }
-
-    // Region exclusions - must preserve NULL region rows
-    if (ex.regions !== undefined && ex.regions.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Kysely ExpressionBuilder type
-      query = query.where((eb: ExpressionBuilder<any, any>) =>
-        eb.or([eb('u.region', 'is', null), eb('u.region', 'not in', ex.regions)])
-      );
-    }
-
-    return query;
-  }
-
-  /**
-   * Applies per-item amount constraints (WHERE clause).
-   */
-  private applyItemAmountConstraints(
-    query: DynamicQuery,
-    filter: AnalyticsFilter,
-    frequency: Frequency
-  ): DynamicQuery {
-    // Select the appropriate amount column based on frequency
-    const amountColumn =
-      frequency === Frequency.MONTH
-        ? 'eli.monthly_amount'
-        : frequency === Frequency.QUARTER
-          ? 'eli.quarterly_amount'
-          : 'eli.ytd_amount';
-
-    if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '>=', String(filter.item_min_amount));
-    }
-
-    if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      query = query.where(sql.raw(amountColumn), '<=', String(filter.item_max_amount));
-    }
-
-    return query;
+    return sql`HAVING ${sql.join(conditions, sql` AND `)}`;
   }
 
   // ==========================================================================

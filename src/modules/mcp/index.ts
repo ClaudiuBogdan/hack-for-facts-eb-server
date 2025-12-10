@@ -288,3 +288,13 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeMcpRoutes, type MakeMcpRoutesDeps } from './shell/rest/routes.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shell - Rate Limiter
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  makeInMemoryRateLimiter,
+  DEFAULT_RATE_LIMIT_CONFIG,
+  type RateLimiterConfig,
+} from './shell/adapters/rate-limiter.js';

@@ -151,8 +151,8 @@ function toOutputGroups(
 
     const linkPath =
       groupType === 'functional'
-        ? `/entity/${cui}/functional/${code}?year=${String(year)}&type=${accountCategory}`
-        : `/entity/${cui}/economic/${code}?year=${String(year)}&type=${accountCategory}`;
+        ? `/entities/${cui}/functional/${code}?year=${String(year)}&type=${accountCategory}`
+        : `/entities/${cui}/economic/${code}?year=${String(year)}&type=${accountCategory}`;
 
     result.push({
       code,
@@ -192,7 +192,7 @@ function buildEntityLink(baseUrl: string, cui: string, year: number, breakdown: 
   if (breakdown !== 'overview') {
     params.set('breakdown', breakdown);
   }
-  return `${baseUrl}/entity/${cui}?${params.toString()}`;
+  return `${baseUrl}/entities/${cui}?${params.toString()}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
