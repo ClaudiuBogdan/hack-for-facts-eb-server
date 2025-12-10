@@ -30,7 +30,7 @@ import {
   commonGraphQLResolvers,
 } from '../infra/graphql/index.js';
 import { BaseSchema } from '../infra/graphql/schema.js';
-import { registerCors } from '../infra/plugins/index.js';
+import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import {
   makeAggregatedLineItemsResolvers,
   AggregatedLineItemsSchema,
@@ -103,6 +103,7 @@ import {
   createMcpServer,
   makeMcpRoutes,
   makeInMemorySessionStore,
+  makeInMemoryRateLimiter,
   makeMcpExecutionRepo,
   makeMcpAnalyticsService,
   makeEntityAdapter,
@@ -209,6 +210,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Register CORS plugin
   await registerCors(app, config);
 
+  // Register security headers plugin (SEC-003)
+  await registerSecurityHeaders(app, config);
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Initialize Cache Infrastructure
   // ─────────────────────────────────────────────────────────────────────────────
@@ -218,16 +222,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     initCache({ config: cacheConfig, logger: app.log as unknown as import('pino').Logger });
 
   // Register health routes
+  // SECURITY: SEC-009 - Only expose version in non-production environments
   await app.register(
     makeHealthRoutes({
-      ...(version !== undefined && { version }),
+      ...(!config.server.isProduction && version !== undefined && { version }),
       checkers: deps.healthCheckers ?? [],
     })
   );
 
   // Setup GraphQL
+  // SECURITY: SEC-009 - Only expose version in non-production environments
   const healthResolvers = makeHealthResolvers({
-    ...(version !== undefined && { version }),
+    ...(!config.server.isProduction && version !== undefined && { version }),
     checkers: deps.healthCheckers ?? [],
   });
 
@@ -562,10 +568,17 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       // Create session store (use in-memory for now, can switch to Redis later)
       const sessionStore = makeInMemorySessionStore(config.mcp.sessionTtlSeconds);
 
+      // Create rate limiter (SEC-004: 100 requests per minute)
+      const rateLimiter = makeInMemoryRateLimiter({
+        maxRequests: 100,
+        windowMs: 60 * 1000, // 1 minute
+      });
+
       // Register MCP routes
       await app.register(makeMcpRoutes, {
         mcpServer,
         sessionStore,
+        rateLimiter,
         config: mcpConfig,
       });
 
@@ -573,31 +586,80 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
   }
 
-  // Global error handler
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Global Error Handler
+  // SECURITY: SEC-005 - Sanitize error messages in production
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Error codes that are safe to expose to clients.
+   * These are domain-specific errors with controlled messages.
+   */
+  const SAFE_ERROR_CODES = new Set([
+    'ValidationError',
+    'NotFoundError',
+    'AuthenticationRequiredError',
+    'ForbiddenError',
+    'RateLimitExceededError',
+    'BadRequestError',
+    'ConflictError',
+  ]);
+
+  /**
+   * Maps HTTP status codes to generic messages for production.
+   */
+  const GENERIC_MESSAGES: Record<number, string> = {
+    400: 'Invalid request',
+    401: 'Authentication required',
+    403: 'Access denied',
+    404: 'Resource not found',
+    409: 'Conflict with current state',
+    422: 'Unprocessable request',
+    429: 'Too many requests',
+  };
+
   app.setErrorHandler((error: FastifyError, request, reply) => {
+    // Always log full error server-side
     request.log.error({ err: error }, 'Request error');
+
+    const isProduction = config.server.isProduction;
 
     // Handle validation errors
     if (error.validation != null) {
       return reply.status(400).send({
         error: 'ValidationError',
         message: 'Request validation failed',
-        details: error.validation,
+        // Only include details in non-production
+        ...(isProduction ? {} : { details: error.validation }),
       });
     }
 
     // Handle known HTTP errors
     if (error.statusCode != null) {
-      return reply.status(error.statusCode).send({
+      const statusCode = error.statusCode;
+      const isSafeError = SAFE_ERROR_CODES.has(error.name) || SAFE_ERROR_CODES.has(error.code);
+
+      // Safe errors or client errors (4xx) can show their message
+      // Server errors (5xx) are hidden in production
+      const message =
+        isSafeError || statusCode < 500
+          ? isProduction
+            ? (GENERIC_MESSAGES[statusCode] ?? error.message)
+            : error.message
+          : isProduction
+            ? 'An unexpected error occurred'
+            : error.message;
+
+      return reply.status(statusCode).send({
         error: error.name,
-        message: error.message,
+        message,
       });
     }
 
-    // Handle unexpected errors
+    // Handle unexpected errors - always generic in production
     return reply.status(500).send({
       error: 'InternalServerError',
-      message: 'An unexpected error occurred',
+      message: isProduction ? 'An unexpected error occurred' : error.message,
     });
   });
 

@@ -15,10 +15,16 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
 import {
+  setStatementTimeout,
+  amountColumnRef,
+  coalesceSumAmountExpr,
+} from '@/infra/database/query-builders/index.js';
+import {
   parsePeriodDate,
   extractYear,
   toNumericIds,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+  escapeLikeWildcards,
+} from '@/infra/database/query-filters/index.js';
 
 import { createDatabaseError, type CountyAnalyticsError } from '../../core/errors.js';
 
@@ -84,9 +90,7 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
     try {
       // Set statement timeout for this query
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build the CTE-based query
       const rows = await this.executeCountyQuery(filter, frequency);
@@ -246,7 +250,7 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
     if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
       const likeConditions = filter.functional_prefixes.map(
-        (p) => sql`eli.functional_code LIKE ${p + '%'}`
+        (p) => sql`eli.functional_code LIKE ${escapeLikeWildcards(p) + '%'}`
       );
       conditions.push(sql`(${sql.join(likeConditions, sql` OR `)})`);
     }
@@ -257,7 +261,7 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
     if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
       const likeConditions = filter.economic_prefixes.map(
-        (p) => sql`eli.economic_code LIKE ${p + '%'}`
+        (p) => sql`eli.economic_code LIKE ${escapeLikeWildcards(p) + '%'}`
       );
       conditions.push(sql`(${sql.join(likeConditions, sql` OR `)})`);
     }
@@ -311,13 +315,13 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
     // Item amount constraints
     if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
-      const amountCol = this.getAmountColumn(frequency);
-      conditions.push(sql`${sql.raw(amountCol)} >= ${String(filter.item_min_amount)}`);
+      const amountCol = amountColumnRef('eli', frequency);
+      conditions.push(sql`${amountCol} >= ${String(filter.item_min_amount)}`);
     }
 
     if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
-      const amountCol = this.getAmountColumn(frequency);
-      conditions.push(sql`${sql.raw(amountCol)} <= ${String(filter.item_max_amount)}`);
+      const amountCol = amountColumnRef('eli', frequency);
+      conditions.push(sql`${amountCol} <= ${String(filter.item_max_amount)}`);
     }
 
     // Exclusions
@@ -434,7 +438,7 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
     if (ex.functional_prefixes !== undefined && ex.functional_prefixes.length > 0) {
       const notLikeConditions = ex.functional_prefixes.map(
-        (p) => sql`eli.functional_code NOT LIKE ${p + '%'}`
+        (p) => sql`eli.functional_code NOT LIKE ${escapeLikeWildcards(p) + '%'}`
       );
       conditions.push(sql`(${sql.join(notLikeConditions, sql` AND `)})`);
     }
@@ -447,7 +451,7 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
 
       if (ex.economic_prefixes !== undefined && ex.economic_prefixes.length > 0) {
         const notLikeConditions = ex.economic_prefixes.map(
-          (p) => sql`eli.economic_code NOT LIKE ${p + '%'}`
+          (p) => sql`eli.economic_code NOT LIKE ${escapeLikeWildcards(p) + '%'}`
         );
         conditions.push(sql`(${sql.join(notLikeConditions, sql` AND `)})`);
       }
@@ -502,19 +506,6 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
   }
 
   /**
-   * Gets the amount column name based on frequency.
-   */
-  private getAmountColumn(frequency: Frequency): string {
-    if (frequency === Frequency.MONTH) {
-      return 'eli.monthly_amount';
-    }
-    if (frequency === Frequency.QUARTER) {
-      return 'eli.quarterly_amount';
-    }
-    return 'eli.ytd_amount';
-  }
-
-  /**
    * Checks if the entity join is needed.
    */
   private needsEntityJoin(filter: AnalyticsFilter): boolean {
@@ -530,19 +521,14 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
    */
   private buildHavingClause(filter: AnalyticsFilter, frequency: Frequency): any {
     const conditions: any[] = [];
-    const sumExpr =
-      frequency === Frequency.MONTH
-        ? 'COALESCE(SUM(eli.monthly_amount), 0)'
-        : frequency === Frequency.QUARTER
-          ? 'COALESCE(SUM(eli.quarterly_amount), 0)'
-          : 'COALESCE(SUM(eli.ytd_amount), 0)';
+    const sumExpr = coalesceSumAmountExpr('eli', frequency);
 
     if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
-      conditions.push(sql`${sql.raw(sumExpr)} >= ${String(filter.aggregate_min_amount)}`);
+      conditions.push(sql`${sumExpr} >= ${String(filter.aggregate_min_amount)}`);
     }
 
     if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
-      conditions.push(sql`${sql.raw(sumExpr)} <= ${String(filter.aggregate_max_amount)}`);
+      conditions.push(sql`${sumExpr} <= ${String(filter.aggregate_max_amount)}`);
     }
 
     if (conditions.length === 0) {

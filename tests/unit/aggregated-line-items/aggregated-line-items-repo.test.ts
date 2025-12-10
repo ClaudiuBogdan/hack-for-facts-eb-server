@@ -2,15 +2,15 @@ import { Decimal } from 'decimal.js';
 import { describe, it, expect } from 'vitest';
 
 import {
-  UNKNOWN_ECONOMIC_CODE,
-  UNKNOWN_ECONOMIC_NAME,
-} from '@/modules/aggregated-line-items/core/types.js';
-import {
   extractYear,
   toNumericIds,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+} from '@/infra/database/query-filters/index.js';
+import {
+  UNKNOWN_ECONOMIC_CODE,
+  UNKNOWN_ECONOMIC_NAME,
+} from '@/modules/aggregated-line-items/core/types.js';
 
 /**
  * Unit tests for aggregated-line-items repository helpers and constants.

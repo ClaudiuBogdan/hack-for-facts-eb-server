@@ -3,7 +3,8 @@ import { Decimal } from 'decimal.js';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
-import { toNumericIds } from '@/modules/execution-analytics/shell/repo/query-helpers.js';
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
+import { toNumericIds } from '@/infra/database/query-filters/index.js';
 
 import type { PopulationRepository, PopulationError } from '../../core/ports.js';
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
@@ -61,9 +62,7 @@ export class KyselyPopulationRepo implements PopulationRepository {
    */
   async getCountryPopulation(): Promise<Result<Decimal, PopulationError>> {
     try {
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Sum county-level populations
       // Bucharest is handled specially via SIRUTA code
@@ -96,9 +95,7 @@ export class KyselyPopulationRepo implements PopulationRepository {
    */
   async getFilteredPopulation(filter: AnalyticsFilter): Promise<Result<Decimal, PopulationError>> {
     try {
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build the population query based on filter
       const population = await this.computeFilteredPopulation(filter);
@@ -207,13 +204,11 @@ export class KyselyPopulationRepo implements PopulationRepository {
       return new Decimal(0);
     }
 
-    // Build the IN clause for county codes
-    const countyCodesList = countyCodes.map((c) => `'${c}'`).join(', ');
-
+    // Use parameterized query with ANY() for SQL injection prevention
     const result = await sql<{ total_population: string }>`
       SELECT COALESCE(SUM(u.population), 0) AS total_population
       FROM uats u
-      WHERE u.county_code IN (${sql.raw(countyCodesList)})
+      WHERE u.county_code = ANY(${countyCodes})
         AND ((u.county_code = 'B' AND u.siruta_code = ${BUCHAREST_SIRUTA_CODE})
              OR (u.county_code != 'B' AND u.siruta_code = u.county_code))
     `.execute(this.db);

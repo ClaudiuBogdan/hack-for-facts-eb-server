@@ -8,6 +8,8 @@
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
+
 import {
   createDatabaseError,
   createTimeoutError,
@@ -134,9 +136,7 @@ class KyselyEntityRepo implements EntityRepository {
   ): Promise<Result<EntityConnection, EntityError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Build and execute query
       let query: DynamicQuery = this.db

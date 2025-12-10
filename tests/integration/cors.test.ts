@@ -21,7 +21,8 @@ describe('CORS Plugin', () => {
   });
 
   describe('Development Mode', () => {
-    it('allows all origins in development', async () => {
+    // SECURITY: VUL-006 - Development mode now only allows localhost origins
+    it('allows localhost origins in development', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
         deps: {
@@ -43,13 +44,43 @@ describe('CORS Plugin', () => {
         method: 'GET',
         url: '/health/live',
         headers: {
-          origin: 'https://example.com',
+          origin: 'http://localhost:3000',
         },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe('https://example.com');
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
       expect(response.headers['access-control-allow-credentials']).toBe('true');
+    });
+
+    it('allows 127.0.0.1 origins in development', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: true,
+              isProduction: false,
+              isTest: true,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+          }),
+        },
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'http://127.0.0.1:5173',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5173');
     });
 
     it('allows requests without origin header', async () => {
@@ -78,7 +109,8 @@ describe('CORS Plugin', () => {
       expect(response.statusCode).toBe(200);
     });
 
-    it('allows any random origin in development', async () => {
+    // SECURITY: VUL-006 - Random origins are now blocked in development
+    it('blocks random external origins in development', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
         deps: {
@@ -104,10 +136,44 @@ describe('CORS Plugin', () => {
         },
       });
 
+      // Should be blocked with CORS error
+      expect(response.statusCode).toBe(500);
+      expect(response.json().message).toContain('CORS origin not allowed');
+    });
+
+    it('allows configured origins in development', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: true,
+              isProduction: false,
+              isTest: true,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+            cors: {
+              allowedOrigins: 'https://staging.example.com',
+              clientBaseUrl: undefined,
+              publicClientBaseUrl: undefined,
+            },
+          }),
+        },
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'https://staging.example.com',
+        },
+      });
+
       expect(response.statusCode).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe(
-        'https://totally-random-origin.com'
-      );
+      expect(response.headers['access-control-allow-origin']).toBe('https://staging.example.com');
     });
   });
 
@@ -450,19 +516,29 @@ describe('CORS Plugin', () => {
         deps: {
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: true,
+              isProduction: false,
+              isTest: true,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+          }),
         },
       });
 
+      // Use localhost origin since development mode only allows localhost
       const response = await app.inject({
         method: 'OPTIONS',
         url: '/health/live',
         headers: {
-          origin: 'https://example.com',
+          origin: 'http://localhost:3000',
           'access-control-request-method': 'GET',
         },
       });
 
+      expect(response.statusCode).toBe(204);
       expect(response.headers['access-control-expose-headers']).toContain('mcp-session-id');
       expect(response.headers['access-control-expose-headers']).toContain('Mcp-Session-Id');
     });

@@ -6,10 +6,10 @@
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/no-unnecessary-condition -- Kysely dynamic query builder requires type flexibility */
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency, extractYearRangeFromSelection } from '@/common/types/temporal.js';
+import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
 
 import {
   createDatabaseError,
@@ -63,9 +63,7 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
   ): Promise<Result<EntityTotals, EntityError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       const { startYear, endYear } = extractYearRangeFromSelection(period.selection);
 
@@ -130,9 +128,7 @@ class KyselyEntityAnalyticsSummaryRepo implements EntityAnalyticsSummaryReposito
   ): Promise<Result<DataSeries, EntityError>> {
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       const { startYear, endYear } = extractYearRangeFromSelection(period.selection);
 

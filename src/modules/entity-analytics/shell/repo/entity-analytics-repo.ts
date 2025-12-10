@@ -1,17 +1,23 @@
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
+import { setStatementTimeout, CommonJoins } from '@/infra/database/query-builders/index.js';
 import {
+  createFilterContext,
+  buildPeriodConditions,
+  buildDimensionConditions,
+  buildCodeConditions,
+  buildEntityConditions,
+  buildUatConditions,
+  buildExclusionConditions,
+  buildAmountConditions,
+  andConditions,
   needsEntityJoin,
   needsUatJoin,
-} from '@/modules/execution-analytics/shell/repo/query-helpers.js';
-import {
-  buildWhereConditions as buildSharedWhereConditions,
-  toWhereClause,
-  type SqlBuildContext,
-} from '@/modules/execution-analytics/shell/repo/sql-condition-builder.js';
+  type SqlCondition,
+} from '@/infra/database/query-filters/index.js';
 
 import {
   createDatabaseError,
@@ -146,9 +152,7 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
 
     try {
       // Set statement timeout
-      await sql`SET LOCAL statement_timeout = ${sql.raw(String(QUERY_TIMEOUT_MS))}`.execute(
-        this.db
-      );
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
       // Handle empty factor map
       if (factorMap.size === 0) {
@@ -205,19 +209,18 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     const requiresEntityJoin = needsEntityJoin(filter);
     const requiresUatJoin = needsUatJoin(filter);
 
-    // Build join clauses for filtered_aggregates CTE
-    const entityJoinClause = requiresEntityJoin
-      ? 'INNER JOIN entities e ON eli.entity_cui = e.cui'
-      : '';
-    const uatJoinClause = requiresUatJoin ? 'LEFT JOIN uats u ON e.uat_id = u.id' : '';
+    // Build join clauses for filtered_aggregates CTE (static SQL from CommonJoins)
+    const entityJoinClause = requiresEntityJoin ? CommonJoins.entityOnLineItemInner() : sql``;
+    const uatJoinClause = requiresUatJoin ? CommonJoins.uatOnEntity() : sql``;
 
-    // Build WHERE conditions for filtered_aggregates CTE
-    const whereConditions = this.buildWhereConditions(
+    // Build WHERE conditions using composable filter pipeline (parameterized)
+    const conditions = this.buildAllConditions(
       filter,
       frequency,
       requiresEntityJoin,
       requiresUatJoin
     );
+    const whereCondition = andConditions(conditions);
 
     // Build HAVING conditions
     const havingConditions = this.buildHavingConditions(aggregateFilters);
@@ -247,6 +250,18 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
       )
     `;
 
+    // Build safe raw expressions for static SQL fragments
+    // NOTE: These sql.raw() usages are for static SQL expressions that are
+    // compile-time constants (not derived from user input).
+    // eslint-disable-next-line no-restricted-syntax -- Safe: amountColumn from getAmountColumnName()
+    const sumExpr = sql.raw(`COALESCE(SUM(eli.${amountColumn} * f.multiplier), 0)`);
+    // eslint-disable-next-line no-restricted-syntax -- Safe: static CASE expression
+    const populationExprRaw = sql.raw(populationExpr);
+    // eslint-disable-next-line no-restricted-syntax -- Safe: static CASE expression
+    const perCapitaExprRaw = sql.raw(perCapitaExpr);
+    // eslint-disable-next-line no-restricted-syntax -- Safe: orderByClause from SORT_FIELD_MAP
+    const orderByRaw = sql.raw(orderByClause);
+
     // Build the full query with CTEs
     return sql`
       WITH
@@ -270,14 +285,14 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
       filtered_aggregates AS (
         SELECT
           eli.entity_cui,
-          COALESCE(SUM(eli.${sql.raw(amountColumn)} * f.multiplier), 0) AS normalized_amount
+          ${sumExpr} AS normalized_amount
         FROM executionlineitems eli
         INNER JOIN factors f ON eli.year::text = f.period_key
-        ${sql.raw(entityJoinClause)}
-        ${sql.raw(uatJoinClause)}
-        ${sql.raw(whereConditions)}
+        ${entityJoinClause}
+        ${uatJoinClause}
+        WHERE ${whereCondition}
         GROUP BY eli.entity_cui
-        ${sql.raw(havingConditions)}
+        ${havingConditions ?? sql``}
       )
       SELECT
         e.cui AS entity_cui,
@@ -286,15 +301,15 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
         e.uat_id,
         u.county_code,
         u.county_name,
-        ${sql.raw(populationExpr)} AS population,
+        ${populationExprRaw} AS population,
         fa.normalized_amount AS total_amount,
-        ${sql.raw(perCapitaExpr)} AS per_capita_amount,
+        ${perCapitaExprRaw} AS per_capita_amount,
         COUNT(*) OVER() AS total_count
       FROM filtered_aggregates fa
       INNER JOIN entities e ON fa.entity_cui = e.cui
       LEFT JOIN uats u ON e.uat_id = u.id
       LEFT JOIN county_populations cp ON u.county_code = cp.county_code
-      ${sql.raw(orderByClause)}
+      ${orderByRaw}
       LIMIT ${pagination.limit} OFFSET ${pagination.offset}
     `;
   }
@@ -328,64 +343,79 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
   }
 
   /**
-   * Builds WHERE conditions for the filtered_aggregates CTE.
-   *
-   * Delegates to the shared SQL condition builder for consistent filtering.
+   * Builds all WHERE conditions using the composable filter pipeline.
+   * Returns parameterized SqlCondition RawBuilders for SQL injection prevention.
    */
-  private buildWhereConditions(
+  private buildAllConditions(
     filter: AnalyticsFilter,
     frequency: Frequency,
     hasEntityJoin: boolean,
     hasUatJoin: boolean
-  ): string {
-    const ctx: SqlBuildContext = {
+  ): SqlCondition[] {
+    const ctx = createFilterContext({
       hasEntityJoin,
       hasUatJoin,
-      lineItemAlias: 'eli',
-      entityAlias: 'e',
-      uatAlias: 'u',
-    };
+    });
 
-    // Cast filter to the expected interface (AnalyticsFilter is compatible)
-    const conditions = buildSharedWhereConditions(
-      {
-        ...filter,
-        report_period: {
-          frequency,
-          selection: filter.report_period.selection,
-        },
-      },
-      ctx
-    );
+    const conditions: SqlCondition[] = [];
 
-    return toWhereClause(conditions);
+    // Period conditions (date range, discrete dates)
+    conditions.push(...buildPeriodConditions(filter.report_period.selection, frequency, ctx));
+
+    // Dimension conditions (account_category, report_type, entity_cuis, etc.)
+    conditions.push(...buildDimensionConditions(filter, ctx));
+
+    // Code conditions (functional, economic, program codes)
+    conditions.push(...buildCodeConditions(filter, ctx));
+
+    // Entity conditions (if joined)
+    if (hasEntityJoin) {
+      conditions.push(...buildEntityConditions(filter, ctx));
+    }
+
+    // UAT conditions (if joined)
+    if (hasUatJoin) {
+      conditions.push(...buildUatConditions(filter, ctx));
+    }
+
+    // Amount constraints
+    conditions.push(...buildAmountConditions(filter, frequency, ctx));
+
+    // Exclusion conditions
+    if (filter.exclude !== undefined) {
+      conditions.push(...buildExclusionConditions(filter.exclude, filter.account_category, ctx));
+    }
+
+    return conditions;
   }
 
   /**
    * Builds HAVING conditions for aggregate filters.
    *
-   * Returns a string starting with "HAVING" if there are conditions,
-   * or an empty string if no conditions.
+   * Returns a RawBuilder for the HAVING clause, or undefined if no conditions.
+   * SECURITY: Uses parameterized queries for aggregate filter values.
    */
-  private buildHavingConditions(aggregateFilters?: AggregateFilters): string {
+  private buildHavingConditions(
+    aggregateFilters?: AggregateFilters
+  ): RawBuilder<unknown> | undefined {
     if (aggregateFilters === undefined) {
-      return '';
+      return undefined;
     }
 
-    const conditions: string[] = [];
+    const conditions: RawBuilder<unknown>[] = [];
 
     if (aggregateFilters.minAmount !== undefined) {
-      conditions.push(`normalized_amount >= ${aggregateFilters.minAmount.toString()}`);
+      conditions.push(sql`normalized_amount >= ${aggregateFilters.minAmount.toString()}::numeric`);
     }
     if (aggregateFilters.maxAmount !== undefined) {
-      conditions.push(`normalized_amount <= ${aggregateFilters.maxAmount.toString()}`);
+      conditions.push(sql`normalized_amount <= ${aggregateFilters.maxAmount.toString()}::numeric`);
     }
 
     if (conditions.length === 0) {
-      return '';
+      return undefined;
     }
 
-    return `HAVING ${conditions.join(' AND ')}`;
+    return sql`HAVING ${sql.join(conditions, sql` AND `)}`;
   }
 
   /**

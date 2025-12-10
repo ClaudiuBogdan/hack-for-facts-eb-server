@@ -199,6 +199,26 @@ export default defineConfig(
   },
 
   // ========================================================================
+  // SQL Safety Rules - Ban sql.raw() in repositories
+  // ========================================================================
+  {
+    files: ['src/modules/*/shell/repo/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.object.name='JSON'][callee.property.name='parse']",
+          message: 'Use a safe parsing utility (Result-based) instead of JSON.parse.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='sql'][callee.property.name='raw']",
+          message: 'sql.raw() is banned in repositories due to SQL injection risk. Use helpers from @/infra/database/query-builders/ instead: setStatementTimeout(), columnRef(), etc.',
+        },
+      ],
+    },
+  },
+
+  // ========================================================================
   // Overrides & Exceptions
   // ========================================================================
 

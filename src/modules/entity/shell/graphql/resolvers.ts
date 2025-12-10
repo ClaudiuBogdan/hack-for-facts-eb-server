@@ -7,6 +7,7 @@
 
 import { Decimal } from 'decimal.js';
 
+import { clampLimit, MAX_PAGE_SIZE } from '@/common/constants/pagination.js';
 import { Frequency } from '@/common/types/temporal.js';
 
 import {
@@ -585,12 +586,16 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         context: MercuriusContext
       ) => {
         const filter = mapGqlFilterToEntityFilter(args.filter);
+        // SECURITY: SEC-006 - Enforce pagination limits
+        const limit = clampLimit(args.limit, DEFAULT_LIMIT, MAX_PAGE_SIZE);
+        const offset = Math.max(0, args.offset ?? 0);
+
         const result = await listEntities(
           { entityRepo },
           {
             filter,
-            limit: args.limit ?? DEFAULT_LIMIT,
-            offset: args.offset ?? 0,
+            limit,
+            offset,
           }
         );
 
