@@ -5,6 +5,7 @@
  * - Sorting (by amount, per capita, name)
  * - Filtering (by county, entity type)
  * - Pagination
+ * - Aggregate filters (min/max amount)
  *
  * All queries use historical data (2016-2024) for deterministic results.
  */
@@ -396,5 +397,241 @@ describe('[Golden Master] Entity Analytics', () => {
     await expect(data).toMatchNormalizedSnapshot(
       '../snapshots/entity-analytics/pagination-second-page.snap.json'
     );
+  });
+
+  // ===========================================================================
+  // Aggregate Filter Scenarios
+  // ===========================================================================
+
+  describe('Aggregate Filters', () => {
+    it('[GM] entityAnalytics - aggregate-min-amount', async () => {
+      const query = /* GraphQL */ `
+        query AggregateMinAmount(
+          $filter: AnalyticsFilterInput!
+          $sort: SortOrder
+          $limit: Int
+          $offset: Int
+        ) {
+          entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {
+            nodes {
+              entity_cui
+              entity_name
+              entity_type
+              county_code
+              county_name
+              population
+              amount
+              total_amount
+              per_capita_amount
+            }
+            pageInfo {
+              totalCount
+              hasNextPage
+              hasPreviousPage
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        filter: {
+          account_category: 'ch',
+          report_type: 'PRINCIPAL_AGGREGATED',
+          report_period: {
+            type: 'YEAR',
+            selection: {
+              dates: ['2023'],
+            },
+          },
+          normalization: 'total',
+          aggregate_min_amount: 1000000000, // 1 billion RON minimum
+        },
+        sort: {
+          by: 'TOTAL_AMOUNT',
+          order: 'DESC',
+        },
+        limit: 50,
+        offset: 0,
+      };
+
+      const data = await client.query(query, variables);
+
+      await expect(data).toMatchNormalizedSnapshot(
+        '../snapshots/entity-analytics/aggregate-min-amount.snap.json'
+      );
+    });
+
+    it('[GM] entityAnalytics - aggregate-max-amount', async () => {
+      const query = /* GraphQL */ `
+        query AggregateMaxAmount(
+          $filter: AnalyticsFilterInput!
+          $sort: SortOrder
+          $limit: Int
+          $offset: Int
+        ) {
+          entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {
+            nodes {
+              entity_cui
+              entity_name
+              entity_type
+              county_code
+              county_name
+              population
+              amount
+              total_amount
+              per_capita_amount
+            }
+            pageInfo {
+              totalCount
+              hasNextPage
+              hasPreviousPage
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        filter: {
+          account_category: 'ch',
+          report_type: 'PRINCIPAL_AGGREGATED',
+          report_period: {
+            type: 'YEAR',
+            selection: {
+              dates: ['2023'],
+            },
+          },
+          normalization: 'total',
+          aggregate_max_amount: 10000000, // 10 million RON maximum
+        },
+        sort: {
+          by: 'TOTAL_AMOUNT',
+          order: 'DESC',
+        },
+        limit: 50,
+        offset: 0,
+      };
+
+      const data = await client.query(query, variables);
+
+      await expect(data).toMatchNormalizedSnapshot(
+        '../snapshots/entity-analytics/aggregate-max-amount.snap.json'
+      );
+    });
+
+    it('[GM] entityAnalytics - aggregate-min-max-amount', async () => {
+      const query = /* GraphQL */ `
+        query AggregateMinMaxAmount(
+          $filter: AnalyticsFilterInput!
+          $sort: SortOrder
+          $limit: Int
+          $offset: Int
+        ) {
+          entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {
+            nodes {
+              entity_cui
+              entity_name
+              entity_type
+              county_code
+              county_name
+              population
+              amount
+              total_amount
+              per_capita_amount
+            }
+            pageInfo {
+              totalCount
+              hasNextPage
+              hasPreviousPage
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        filter: {
+          account_category: 'ch',
+          report_type: 'PRINCIPAL_AGGREGATED',
+          report_period: {
+            type: 'YEAR',
+            selection: {
+              dates: ['2023'],
+            },
+          },
+          normalization: 'total',
+          aggregate_min_amount: 100000000, // 100 million RON minimum
+          aggregate_max_amount: 500000000, // 500 million RON maximum
+        },
+        sort: {
+          by: 'TOTAL_AMOUNT',
+          order: 'DESC',
+        },
+        limit: 50,
+        offset: 0,
+      };
+
+      const data = await client.query(query, variables);
+
+      await expect(data).toMatchNormalizedSnapshot(
+        '../snapshots/entity-analytics/aggregate-min-max-amount.snap.json'
+      );
+    });
+
+    it('[GM] entityAnalytics - aggregate-filters-with-normalization', async () => {
+      const query = /* GraphQL */ `
+        query AggregateFiltersWithNormalization(
+          $filter: AnalyticsFilterInput!
+          $sort: SortOrder
+          $limit: Int
+          $offset: Int
+        ) {
+          entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {
+            nodes {
+              entity_cui
+              entity_name
+              entity_type
+              county_code
+              county_name
+              population
+              amount
+              total_amount
+              per_capita_amount
+            }
+            pageInfo {
+              totalCount
+              hasNextPage
+              hasPreviousPage
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        filter: {
+          account_category: 'ch',
+          report_type: 'PRINCIPAL_AGGREGATED',
+          report_period: {
+            type: 'YEAR',
+            selection: {
+              dates: ['2023'],
+            },
+          },
+          normalization: 'total_euro',
+          aggregate_min_amount: 100, // After EUR conversion
+          aggregate_max_amount: 100000, // After EUR conversion
+        },
+        sort: {
+          by: 'TOTAL_AMOUNT',
+          order: 'DESC',
+        },
+        limit: 25,
+        offset: 0,
+      };
+
+      const data = await client.query(query, variables);
+
+      await expect(data).toMatchNormalizedSnapshot(
+        '../snapshots/entity-analytics/aggregate-filters-with-normalization.snap.json'
+      );
+    });
   });
 });

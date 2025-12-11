@@ -213,11 +213,12 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     );
     const whereCondition = andConditions(conditions);
 
-    // Build HAVING conditions
-    const havingConditions = this.buildHavingConditions(aggregateFilters);
-
     // Build expressions using safe builders
     const sumExpr = normalizedAmountExpr(amountColumnRef('eli', frequency));
+
+    // Build HAVING conditions (must use sumExpr, not the alias 'normalized_amount')
+    const havingConditions = this.buildHavingConditions(aggregateFilters, sumExpr);
+
     const populationExprRaw = populationCaseExpr();
     const perCapitaExprRaw = perCapitaExpr(columnRef('fa', 'normalized_amount'), populationExprRaw);
     const orderByRaw = entityAnalyticsOrderBy(sort.by, sort.order);
@@ -339,11 +340,15 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
   /**
    * Builds HAVING conditions for aggregate filters.
    *
+   * IMPORTANT: Uses the actual sum expression, not the alias 'normalized_amount'.
+   * PostgreSQL does not allow referencing SELECT aliases in HAVING clauses.
+   *
    * Returns a RawBuilder for the HAVING clause, or undefined if no conditions.
    * SECURITY: Uses parameterized queries for aggregate filter values.
    */
   private buildHavingConditions(
-    aggregateFilters?: AggregateFilters
+    aggregateFilters: AggregateFilters | undefined,
+    sumExpr: RawBuilder<unknown>
   ): RawBuilder<unknown> | undefined {
     if (aggregateFilters === undefined) {
       return undefined;
@@ -352,10 +357,10 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     const conditions: RawBuilder<unknown>[] = [];
 
     if (aggregateFilters.minAmount !== undefined) {
-      conditions.push(sql`normalized_amount >= ${aggregateFilters.minAmount.toString()}::numeric`);
+      conditions.push(sql`${sumExpr} >= ${aggregateFilters.minAmount.toString()}::numeric`);
     }
     if (aggregateFilters.maxAmount !== undefined) {
-      conditions.push(sql`normalized_amount <= ${aggregateFilters.maxAmount.toString()}::numeric`);
+      conditions.push(sql`${sumExpr} <= ${aggregateFilters.maxAmount.toString()}::numeric`);
     }
 
     if (conditions.length === 0) {

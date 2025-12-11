@@ -1,5 +1,5 @@
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
+import { sql, type RawBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
@@ -241,8 +241,8 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       const conditions = this.buildAllConditions(filter, frequency, ctx);
       const whereCondition = andConditions(conditions);
 
-      // Build HAVING conditions
-      const havingConditions = this.buildHavingConditions(aggregateFilters);
+      // Build HAVING conditions (must use normalizedAmount expression, not the alias)
+      const havingConditions = this.buildHavingConditions(aggregateFilters, normalizedAmount);
 
       // Build the complete query with CTE
       const queryText = sql`
@@ -352,11 +352,15 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
   /**
    * Builds HAVING conditions for aggregate filters.
    *
+   * IMPORTANT: Uses the actual sum expression, not the alias 'normalized_amount'.
+   * PostgreSQL does not allow referencing SELECT aliases in HAVING clauses.
+   *
    * Returns a RawBuilder for the HAVING clause, or undefined if no conditions.
    * SECURITY: Uses parameterized queries for aggregate filter values.
    */
   private buildHavingConditions(
-    aggregateFilters?: AggregateFilters
+    aggregateFilters: AggregateFilters | undefined,
+    sumExpr: RawBuilder<unknown>
   ): ReturnType<typeof sql> | undefined {
     if (aggregateFilters === undefined) {
       return undefined;
@@ -365,10 +369,10 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
     const conditions: ReturnType<typeof sql>[] = [];
 
     if (aggregateFilters.minAmount !== undefined) {
-      conditions.push(sql`normalized_amount >= ${aggregateFilters.minAmount.toString()}::numeric`);
+      conditions.push(sql`${sumExpr} >= ${aggregateFilters.minAmount.toString()}::numeric`);
     }
     if (aggregateFilters.maxAmount !== undefined) {
-      conditions.push(sql`normalized_amount <= ${aggregateFilters.maxAmount.toString()}::numeric`);
+      conditions.push(sql`${sumExpr} <= ${aggregateFilters.maxAmount.toString()}::numeric`);
     }
 
     if (conditions.length === 0) {
