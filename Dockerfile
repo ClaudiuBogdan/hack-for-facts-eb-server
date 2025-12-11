@@ -18,7 +18,7 @@
 # -----------------------------------------------------------------------------
 # Build Stage
 # -----------------------------------------------------------------------------
-FROM node:22.16-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -43,7 +43,7 @@ RUN pnpm build
 # -----------------------------------------------------------------------------
 # Production Stage
 # -----------------------------------------------------------------------------
-FROM node:22.16-alpine
+FROM node:24-alpine
 
 # SECURITY: Create non-root user BEFORE installing dependencies
 # This avoids running chown on node_modules (which is slow and unnecessary)
