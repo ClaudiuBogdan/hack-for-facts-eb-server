@@ -47,7 +47,8 @@
         "mcp",
         "dx",
         "image",
-        "deployment"
+        "deployment",
+        "others"
       ]
     ],
     "scope-empty": [1, "never"],
