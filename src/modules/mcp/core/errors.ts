@@ -99,8 +99,11 @@ export const invalidCategoryError = (category: string): McpError =>
 export const invalidInputError = (reason: string): McpError =>
   createMcpError(MCP_ERROR_CODES.INVALID_INPUT, reason);
 
-export const databaseError = (): McpError =>
-  createMcpError(MCP_ERROR_CODES.DATABASE_ERROR, 'Query failed');
+export const databaseError = (detail?: string): McpError =>
+  createMcpError(
+    MCP_ERROR_CODES.DATABASE_ERROR,
+    detail !== undefined ? `Query failed: ${detail}` : 'Query failed'
+  );
 
 export const timeoutError = (): McpError =>
   createMcpError(MCP_ERROR_CODES.TIMEOUT_ERROR, 'Query timed out');
@@ -160,7 +163,7 @@ export const toMcpError = (error: DomainError): McpError => {
     case 'TimeoutError':
       return timeoutError();
     case 'DatabaseError':
-      return databaseError();
+      return databaseError(error.message);
     case 'ClassificationError':
       return createMcpError(MCP_ERROR_CODES.CLASSIFICATION_NOT_FOUND, error.message);
     default:

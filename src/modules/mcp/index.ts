@@ -284,10 +284,24 @@ export {
 } from './shell/adapters/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shell - HTTP Routes
+// Shell - HTTP Routes (MCP Protocol)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeMcpRoutes, type MakeMcpRoutesDeps } from './shell/rest/routes.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shell - GPT REST API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  makeGptRoutes,
+  type MakeGptRoutesDeps,
+  type GptRoutesOptions,
+} from './shell/rest/gpt-routes.js';
+
+export { makeGptAuthHook, type GptAuthConfig } from './shell/rest/gpt-auth.js';
+
+export { gptOpenApiConfig } from './shell/rest/openapi.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shell - Rate Limiter

@@ -1,6 +1,5 @@
 # TODOs
 
-- [ ] Research best bundler for the project.
 - [ ] Add production ready build process/pipeline. (main branch, golden master tests, etc.)
 - [ ] Add notification email module.
 - [ ] Add openapi for mcp and update custom chatgpt.

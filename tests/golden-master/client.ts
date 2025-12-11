@@ -217,6 +217,9 @@ export async function getClient(): Promise<GoldenMasterClient> {
         sessionTtlSeconds: 3600,
         clientBaseUrl: '',
       },
+      gpt: {
+        apiKey: undefined,
+      },
       telemetry: {
         endpoint: undefined,
         headers: undefined,

@@ -99,6 +99,9 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       sessionTtlSeconds: 3600,
       clientBaseUrl: '',
     },
+    gpt: {
+      apiKey: undefined,
+    },
     telemetry: {
       endpoint: undefined,
       headers: undefined,
@@ -119,6 +122,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
     mcp: { ...defaults.mcp, ...overrides.mcp },
+    gpt: { ...defaults.gpt, ...overrides.gpt },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
 };

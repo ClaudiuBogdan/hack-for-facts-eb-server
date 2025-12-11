@@ -309,11 +309,14 @@ export async function queryTimeseries(
   // Fetch data for all series
   const result = await deps.analyticsService.getAnalyticsSeries(analyticsInputs);
   if (result.isErr()) {
-    const domainError = result.error as { type?: string; message?: string };
+    const domainError = result.error as { type?: string; message?: string; cause?: unknown };
     if (domainError.type !== undefined) {
       return err(toMcpError({ type: domainError.type, message: domainError.message ?? '' }));
     }
-    return err(databaseError());
+    // Extract error message for debugging
+    const errorDetail =
+      domainError.message ?? (result.error instanceof Error ? result.error.message : undefined);
+    return err(databaseError(errorDetail));
   }
 
   const analyticsResults = result.value;

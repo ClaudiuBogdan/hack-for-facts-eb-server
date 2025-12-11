@@ -251,9 +251,10 @@ export class KyselyAnalyticsRepo implements AnalyticsRepository {
       });
     }
 
+    // Include the actual error message for debugging
     return err({
       type: 'DatabaseError',
-      message: 'Failed to fetch analytics data',
+      message: `Analytics query failed: ${message}`,
       retryable: true,
       cause: error,
     });

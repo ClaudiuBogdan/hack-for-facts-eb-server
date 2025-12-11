@@ -411,7 +411,8 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
       return err(createTimeoutError('Entity analytics query timed out', error));
     }
 
-    return err(createDatabaseError('Failed to fetch entity analytics', error));
+    // Include the actual error message for debugging
+    return err(createDatabaseError(`Entity analytics query failed: ${message}`, error));
   }
 }
 
