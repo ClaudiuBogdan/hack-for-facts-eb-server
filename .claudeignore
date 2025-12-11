@@ -1,0 +1,13 @@
+# Claude Code ignore file - prevent AI from reading sensitive files
+
+# Secret YAML files - never read or index
+*.secret.yaml
+**/*.secret.yaml
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Kubernetes secrets
+k8s/**/secrets/

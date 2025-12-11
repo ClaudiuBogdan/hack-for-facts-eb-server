@@ -1,0 +1,37 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: istio-transparenta-api-virtualservice
+  namespace: hack-for-facts
+spec:
+  hosts:
+    - "hack-for-facts.devostack.com"
+    - "api.transparenta.eu"
+  gateways:
+    - istio-system/istio-https-gateway
+  http:
+    # Dedicated route for MCP streaming (SSE/long-lived HTTP)
+    # Needs a very long timeout and no retries to keep sessions stable.
+    - match:
+        - uri:
+            prefix: /mcp
+      route:
+        - destination:
+            port:
+              number: 80
+            host: hack-for-facts-eb-server
+      retries:
+        attempts: 0
+      timeout: 6h
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            port:
+              number: 80
+            host: hack-for-facts-eb-server
+      retries:
+        attempts: 3
+        perTryTimeout: 30s
+      timeout: 30s

@@ -59,7 +59,10 @@ describe('Health Endpoints', () => {
   });
 
   describe('GET /health/ready', () => {
-    it('returns 200 when no health checkers are configured', async () => {
+    // Note: Infrastructure health checkers (database, cache) are automatically created
+    // from the deps passed to createApp. The tests below account for these checkers.
+
+    it('returns 200 with infrastructure health checks', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
         deps: {
@@ -77,19 +80,26 @@ describe('Health Endpoints', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.status).toBe('ok');
-      expect(body.checks).toEqual([]);
+      // Infrastructure checkers are automatically added: database, cache
+      expect(body.checks.length).toBeGreaterThanOrEqual(2);
+      expect(body.checks).toContainEqual(
+        expect.objectContaining({ name: 'database', status: 'healthy', critical: true })
+      );
+      expect(body.checks).toContainEqual(
+        expect.objectContaining({ name: 'cache', status: 'healthy', critical: false })
+      );
       expect(body.timestamp).toBeDefined();
       expect(body.uptime).toBeGreaterThanOrEqual(0);
     });
 
     it('returns 200 when all health checks pass', async () => {
-      const dbChecker = makeHealthChecker({ name: 'database', status: 'healthy' });
-      const redisChecker = makeHealthChecker({ name: 'redis', status: 'healthy' });
+      // Add custom checkers in addition to infrastructure checkers
+      const customChecker = makeHealthChecker({ name: 'custom-service', status: 'healthy' });
 
       app = await createApp({
         fastifyOptions: { logger: false },
         deps: {
-          healthCheckers: [dbChecker, redisChecker],
+          healthCheckers: [customChecker],
           budgetDb: makeFakeBudgetDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
@@ -104,12 +114,16 @@ describe('Health Endpoints', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.status).toBe('ok');
-      expect(body.checks).toHaveLength(2);
+      // Infrastructure (database, cache) + custom checker
+      expect(body.checks.length).toBeGreaterThanOrEqual(3);
       expect(body.checks).toContainEqual(
         expect.objectContaining({ name: 'database', status: 'healthy' })
       );
       expect(body.checks).toContainEqual(
-        expect.objectContaining({ name: 'redis', status: 'healthy' })
+        expect.objectContaining({ name: 'cache', status: 'healthy' })
+      );
+      expect(body.checks).toContainEqual(
+        expect.objectContaining({ name: 'custom-service', status: 'healthy' })
       );
     });
 
@@ -202,12 +216,18 @@ describe('Health Endpoints', () => {
 
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body.checks[0]).toMatchObject({
+
+      // Find the slow-service check among all checks (infrastructure + custom)
+      const slowServiceCheck = (
+        body.checks as { name: string; status: string; latencyMs?: number }[]
+      ).find((c) => c.name === 'slow-service');
+      expect(slowServiceCheck).toBeDefined();
+      expect(slowServiceCheck).toMatchObject({
         name: 'slow-service',
         status: 'healthy',
       });
       // Check latency is being measured (timing can vary due to event loop)
-      expect(body.checks[0].latencyMs).toBeGreaterThanOrEqual(5);
+      expect(slowServiceCheck?.latencyMs).toBeGreaterThanOrEqual(5);
     });
 
     it('includes version when provided', async () => {

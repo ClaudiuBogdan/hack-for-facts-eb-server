@@ -5,6 +5,7 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
+import type { CachePort, CacheError, CacheSetOptions, CacheStats } from '@/infra/cache/index.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type {
   BudgetSectorRepository,
@@ -52,6 +53,7 @@ import type {
 import type { ShareError } from '@/modules/share/core/errors.js';
 import type { ShortLinkRepository, ShortLinkCache, Hasher } from '@/modules/share/core/ports.js';
 import type { ShortLink, CreateShortLinkInput, UrlMetadata } from '@/modules/share/core/types.js';
+import type { Kysely } from 'kysely';
 
 /**
  * Creates minimal fake datasets for normalization.
@@ -176,13 +178,167 @@ export const makeFakeDatasetRepo = (options: FakeDatasetRepoOptions = {}): Datas
   };
 };
 
+/**
+ * Creates a fake budget database client for testing.
+ *
+ * This fake implements just enough to pass dependency injection checks
+ * and work with health checkers (which use sql`SELECT 1`.execute(db)).
+ */
 export const makeFakeBudgetDb = (): BudgetDbClient => {
-  // This is a very basic fake.
-  // If you need to mock query results, you might need a more sophisticated mock
-  // using something like 'kysely-mock' or manually mocking the chainable methods.
-  // For now, since we just need it to pass dependency injection checks,
-  // we can cast an empty object or a partial mock.
-  return {} as unknown as BudgetDbClient;
+  // Use the Kysely fake that supports health check queries
+  return makeFakeKyselyDb() as unknown as BudgetDbClient;
+};
+
+// =============================================================================
+// Health Check Fakes
+// =============================================================================
+
+interface FakeKyselyDbOptions {
+  /** If provided, the health check query will fail with this error */
+  failWithError?: Error;
+  /** If provided, the health check query will delay by this many ms */
+  delayMs?: number;
+}
+
+/**
+ * Creates a fake Kysely client for testing health checkers.
+ *
+ * The fake implements just enough to support the `sql\`SELECT 1\`.execute(db)` pattern
+ * used by the db health checker.
+ *
+ * Kysely's internals require:
+ * - db.getExecutor() -> executor
+ * - executor.executeQuery() -> query result
+ * - executor.compileQuery() -> compiled query (for raw SQL)
+ */
+export const makeFakeKyselyDb = <T>(options: FakeKyselyDbOptions = {}): Kysely<T> => {
+  const { failWithError, delayMs = 0 } = options;
+
+  // Minimal compiled query object
+  const fakeCompiledQuery = {
+    sql: 'SELECT 1',
+    parameters: [],
+    query: { kind: 'RawNode' },
+  };
+
+  // The executor that actually runs queries
+  const fakeExecutor = {
+    executeQuery: async () => {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      if (failWithError !== undefined) {
+        throw failWithError;
+      }
+      // Return a minimal query result
+      return { rows: [{ '?column?': 1 }] };
+    },
+    compileQuery: () => fakeCompiledQuery,
+    // Additional methods that Kysely might call
+    transformQuery: (node: unknown) => node,
+    provideConnection: async <R>(fn: (conn: unknown) => Promise<R>) => {
+      return fn({
+        executeQuery: async () => {
+          if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          if (failWithError !== undefined) {
+            throw failWithError;
+          }
+          return { rows: [{ '?column?': 1 }] };
+        },
+      });
+    },
+  };
+
+  // The db object with getExecutor method
+  const fakeDb = {
+    getExecutor: () => fakeExecutor,
+  };
+
+  return fakeDb as unknown as Kysely<T>;
+};
+
+interface FakeCachePortOptions {
+  /** If provided, all operations will fail with this error */
+  failWithError?: CacheError;
+  /** If provided, operations will delay by this many ms */
+  delayMs?: number;
+}
+
+/**
+ * Creates a fake CachePort for testing cache health checker.
+ *
+ * Implements the CachePort interface with controllable behavior.
+ */
+export const makeFakeCachePort = <T = unknown>(
+  options: FakeCachePortOptions = {}
+): CachePort<T> => {
+  const { failWithError, delayMs = 0 } = options;
+  const store = new Map<string, T>();
+  let hits = 0;
+  let misses = 0;
+
+  const maybeDelay = async (): Promise<void> => {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  };
+
+  return {
+    get: async (key: string) => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      const value = store.get(key);
+      if (value === undefined) {
+        misses++;
+        return ok(undefined);
+      }
+      hits++;
+      return ok(value);
+    },
+    set: async (key: string, value: T, _options?: CacheSetOptions) => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      store.set(key, value);
+      return ok(undefined);
+    },
+    delete: async (key: string) => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      const existed = store.has(key);
+      store.delete(key);
+      return ok(existed);
+    },
+    has: async (key: string) => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      return ok(store.has(key));
+    },
+    clearByPrefix: async (prefix: string) => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      let deleted = 0;
+      for (const key of store.keys()) {
+        if (key.startsWith(prefix)) {
+          store.delete(key);
+          deleted++;
+        }
+      }
+      return ok(deleted);
+    },
+    clear: async () => {
+      await maybeDelay();
+      if (failWithError !== undefined) return err(failWithError);
+      store.clear();
+      hits = 0;
+      misses = 0;
+      return ok(undefined);
+    },
+    stats: async (): Promise<CacheStats> => {
+      return { hits, misses, size: store.size };
+    },
+  };
 };
 
 // =============================================================================

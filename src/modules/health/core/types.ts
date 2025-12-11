@@ -8,6 +8,13 @@ export const HealthCheckResultSchema = Type.Object({
   status: Type.Union([Type.Literal('healthy'), Type.Literal('unhealthy')]),
   message: Type.Optional(Type.String({ description: 'Additional status message' })),
   latencyMs: Type.Optional(Type.Number({ description: 'Check latency in milliseconds' })),
+  critical: Type.Optional(
+    Type.Boolean({
+      description:
+        'Whether this check is critical. Critical check failure = unhealthy (503), non-critical = degraded (200)',
+      default: true,
+    })
+  ),
 });
 
 export type HealthCheckResult = Static<typeof HealthCheckResultSchema>;

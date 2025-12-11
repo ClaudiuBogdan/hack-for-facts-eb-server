@@ -97,6 +97,8 @@ import {
   makeHealthRoutes,
   makeHealthResolvers,
   healthSchema,
+  makeDbHealthChecker,
+  makeCacheHealthChecker,
   type HealthChecker,
 } from '../modules/health/index.js';
 import {
@@ -217,16 +219,38 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Initialize Cache Infrastructure
   // ─────────────────────────────────────────────────────────────────────────────
   const cacheConfig = createCacheConfig(process.env);
-  const { cache, keyBuilder } =
+  const { cache, keyBuilder, rawCache } =
     deps.cacheClient ??
     initCache({ config: cacheConfig, logger: app.log as unknown as import('pino').Logger });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Create Health Checkers
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Create checkers from actual infrastructure dependencies.
+  // - Database checkers are critical (failure = 503 unhealthy)
+  // - Cache checker is non-critical (failure = 200 degraded)
+  const infrastructureCheckers: HealthChecker[] = [];
+
+  // Budget database checker (always required)
+  infrastructureCheckers.push(makeDbHealthChecker(budgetDb, { name: 'database' }));
+
+  // User database checker (when configured)
+  if (deps.userDb !== undefined) {
+    infrastructureCheckers.push(makeDbHealthChecker(deps.userDb, { name: 'user-database' }));
+  }
+
+  // Cache checker (non-critical)
+  infrastructureCheckers.push(makeCacheHealthChecker(rawCache, { name: 'cache' }));
+
+  // Combine infrastructure checkers with any custom checkers from deps
+  const allHealthCheckers = [...infrastructureCheckers, ...(deps.healthCheckers ?? [])];
 
   // Register health routes
   // SECURITY: SEC-009 - Only expose version in non-production environments
   await app.register(
     makeHealthRoutes({
       ...(!config.server.isProduction && version !== undefined && { version }),
-      checkers: deps.healthCheckers ?? [],
+      checkers: allHealthCheckers,
     })
   );
 
@@ -234,7 +258,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // SECURITY: SEC-009 - Only expose version in non-production environments
   const healthResolvers = makeHealthResolvers({
     ...(!config.server.isProduction && version !== undefined && { version }),
-    checkers: deps.healthCheckers ?? [],
+    checkers: allHealthCheckers,
   });
 
   // Create shared population repo (used by both analytics and aggregated line items)
