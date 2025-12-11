@@ -194,7 +194,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
         budgetUrl: dbUrl,
         userUrl: dbUrl,
       },
-      redis: { url: undefined },
+      redis: { url: undefined, password: undefined, prefix: undefined },
       cors: {
         allowedOrigins: undefined,
         clientBaseUrl: undefined,

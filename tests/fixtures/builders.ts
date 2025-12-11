@@ -74,6 +74,8 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     },
     redis: {
       url: undefined,
+      password: undefined,
+      prefix: undefined,
     },
     cors: {
       allowedOrigins: undefined,

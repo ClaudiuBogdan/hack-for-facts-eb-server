@@ -31,6 +31,8 @@ export interface CacheConfig {
   l1MaxEntries: number;
   /** Redis connection URL (required if backend is 'redis' or 'multi') */
   redisUrl: string | undefined;
+  /** Redis password for authentication */
+  redisPassword: string | undefined;
   /** Key prefix for all cache keys. Default: 'transparenta' */
   keyPrefix: string;
 }
@@ -118,6 +120,8 @@ export const createCacheConfig = (env: CacheEnv): CacheConfig => {
   const l1MaxEntries = parseConfigInt(l1Value, DEFAULT_L1_MAX_ENTRIES);
 
   const redisUrl = env['REDIS_URL'] ?? env['redis_url'];
+  const redisPassword = env['REDIS_PASSWORD'] ?? env['redis_password'];
+  const keyPrefix = env['REDIS_PREFIX'] ?? env['redis_prefix'] ?? 'transparenta';
 
   return {
     backend,
@@ -125,7 +129,8 @@ export const createCacheConfig = (env: CacheEnv): CacheConfig => {
     memoryMaxEntries,
     l1MaxEntries,
     redisUrl,
-    keyPrefix: 'transparenta',
+    redisPassword,
+    keyPrefix,
   };
 };
 
@@ -166,6 +171,7 @@ export const initCache = <T = unknown>(options: InitCacheOptions): CacheClient<T
         logger.info('[Cache] Using Redis cache');
         rawCache = createRedisCache<T>({
           url: config.redisUrl,
+          ...(config.redisPassword !== undefined && { password: config.redisPassword }),
           keyPrefix: config.keyPrefix,
           defaultTtlMs: config.defaultTtlMs,
         });
@@ -194,6 +200,7 @@ export const initCache = <T = unknown>(options: InitCacheOptions): CacheClient<T
         });
         const l2 = createRedisCache<T>({
           url: config.redisUrl,
+          ...(config.redisPassword !== undefined && { password: config.redisPassword }),
           keyPrefix: config.keyPrefix,
           defaultTtlMs: config.defaultTtlMs,
         });

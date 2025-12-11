@@ -17,6 +17,8 @@ import { deserialize, serialize } from '../serialization.js';
 export interface RedisCacheOptions {
   /** Redis connection URL */
   url: string;
+  /** Redis password for authentication (optional if included in URL) */
+  password?: string;
   /** Key prefix for all cache keys. Default: 'transparenta' */
   keyPrefix?: string;
   /** Default TTL in milliseconds. Default: 3600000 (1 hour) */
@@ -68,6 +70,7 @@ const wrapRedisOp = async <T>(
  */
 export const createRedisCache = <T>(options: RedisCacheOptions): CachePort<T> => {
   const client = new Redis(options.url, {
+    ...(options.password !== undefined && { password: options.password }),
     connectTimeout: options.connectTimeoutMs ?? 5000,
     commandTimeout: options.commandTimeoutMs ?? 1000,
     maxRetriesPerRequest: 1,
@@ -96,6 +99,7 @@ export const createRedisCacheWithClient = <T>(
   const defaultTtlMs = options.defaultTtlMs ?? 3600000;
 
   const client = new Redis(options.url, {
+    ...(options.password !== undefined && { password: options.password }),
     connectTimeout: options.connectTimeoutMs ?? 5000,
     commandTimeout: options.commandTimeoutMs ?? 1000,
     maxRetriesPerRequest: 1,
