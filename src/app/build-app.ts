@@ -209,6 +209,22 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     ...fastifyOptions,
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Suppress Request Logging for Health Checks
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Health check endpoints are called frequently by Kubernetes probes.
+  // Logging every request creates noise in logs and increases storage costs.
+  // We set log level to 'silent' for these routes to suppress request/response logs.
+  const SILENT_LOG_ROUTES = ['/health/live', '/health/ready', '/metrics'];
+
+  app.addHook('onRequest', (request, _reply, done) => {
+    if (SILENT_LOG_ROUTES.some((route) => request.url.startsWith(route))) {
+      // Set log level to 'silent' to suppress all logs for this request
+      request.log.level = 'silent';
+    }
+    done();
+  });
+
   // Register CORS plugin
   await registerCors(app, config);
 
