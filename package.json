@@ -11,7 +11,7 @@
   "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a",
   "scripts": {
     "dev": "tsx watch --clear-screen=false --env-file=.env src/api.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node dist/api.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
@@ -101,6 +101,7 @@
     "pino-pretty": "^13.0.0",
     "prettier": "^3.7.1",
     "testcontainers": "^11.9.0",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.0",
