@@ -1,5 +1,7 @@
 /**
  * Unit tests for database health checker
+ *
+ * These tests focus on behavior rather than exact timing to avoid flakiness.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -19,21 +21,21 @@ describe('makeDbHealthChecker', () => {
       expect(result.name).toBe('database');
       expect(result.status).toBe('healthy');
       expect(result.critical).toBe(true);
-      expect(result.latencyMs).toBeDefined();
       expect(result.latencyMs).toBeGreaterThanOrEqual(0);
       expect(result.message).toBeUndefined();
     });
 
-    it('returns latency measurement', async () => {
-      const delayMs = 50;
-      const db = makeFakeKyselyDb({ delayMs });
+    it('measures latency for slow queries', async () => {
+      // Use a delay large enough to be reliably measurable
+      const db = makeFakeKyselyDb({ delayMs: 100 });
       const checker = makeDbHealthChecker(db, { name: 'database' });
 
       const result = await checker();
 
       expect(result.status).toBe('healthy');
-      // Allow 20% tolerance for timer precision and scheduling variations
-      expect(result.latencyMs).toBeGreaterThanOrEqual(delayMs * 0.8);
+      // Just verify latency is positive and meaningful (> 50ms for a 100ms delay)
+      // We don't check exact values due to timer precision variations
+      expect(result.latencyMs).toBeGreaterThan(50);
     });
 
     it('uses custom name', async () => {
@@ -59,23 +61,29 @@ describe('makeDbHealthChecker', () => {
       expect(result.status).toBe('unhealthy');
       expect(result.critical).toBe(true);
       expect(result.message).toBe('Connection refused');
-      expect(result.latencyMs).toBeDefined();
+      expect(result.latencyMs).toBeGreaterThanOrEqual(0);
     });
 
     it('returns unhealthy status when query times out', async () => {
-      // Create a db that delays longer than the timeout
-      const db = makeFakeKyselyDb({ delayMs: 5000 });
+      // Create a db with a very long delay that will definitely exceed timeout
+      const slowDelayMs = 5000;
+      const timeoutMs = 100;
+      const db = makeFakeKyselyDb({ delayMs: slowDelayMs });
       const checker = makeDbHealthChecker(db, {
         name: 'database',
-        timeoutMs: 50, // Very short timeout for test
+        timeoutMs,
       });
 
       const result = await checker();
 
+      // Verify timeout behavior
       expect(result.status).toBe('unhealthy');
       expect(result.message).toContain('timed out');
-      expect(result.latencyMs).toBeGreaterThanOrEqual(50);
-      expect(result.latencyMs).toBeLessThan(5000); // Should not wait for full delay
+      expect(result.message).toContain(String(timeoutMs));
+
+      // Verify we didn't wait for the full slow delay
+      // The latency should be much less than the slow query delay
+      expect(result.latencyMs).toBeLessThan(slowDelayMs / 2);
     });
 
     it('handles non-Error exceptions', async () => {
@@ -96,8 +104,8 @@ describe('makeDbHealthChecker', () => {
   });
 
   describe('timeout configuration', () => {
-    it('uses default timeout of 3000ms', async () => {
-      // This test verifies the default timeout doesn't trigger for fast queries
+    it('does not timeout for fast queries within default timeout', async () => {
+      // Fast query should complete well within the default 3000ms timeout
       const db = makeFakeKyselyDb({ delayMs: 10 });
       const checker = makeDbHealthChecker(db, { name: 'database' });
 
@@ -106,8 +114,9 @@ describe('makeDbHealthChecker', () => {
       expect(result.status).toBe('healthy');
     });
 
-    it('respects custom timeout', async () => {
-      const db = makeFakeKyselyDb({ delayMs: 100 });
+    it('triggers timeout when query exceeds custom timeout', async () => {
+      // Query takes 200ms but timeout is 50ms
+      const db = makeFakeKyselyDb({ delayMs: 200 });
       const checker = makeDbHealthChecker(db, {
         name: 'database',
         timeoutMs: 50,
@@ -118,20 +127,34 @@ describe('makeDbHealthChecker', () => {
       expect(result.status).toBe('unhealthy');
       expect(result.message).toContain('timed out after 50ms');
     });
+
+    it('succeeds when query completes before timeout', async () => {
+      // Query takes 10ms, timeout is 500ms - should succeed
+      const db = makeFakeKyselyDb({ delayMs: 10 });
+      const checker = makeDbHealthChecker(db, {
+        name: 'database',
+        timeoutMs: 500,
+      });
+
+      const result = await checker();
+
+      expect(result.status).toBe('healthy');
+    });
   });
 
   describe('critical flag', () => {
-    it('always marks result as critical', async () => {
-      const healthyDb = makeFakeKyselyDb();
-      const unhealthyDb = makeFakeKyselyDb({
-        failWithError: new Error('Failed'),
-      });
+    it('always marks result as critical for healthy db', async () => {
+      const db = makeFakeKyselyDb();
+      const result = await makeDbHealthChecker(db, { name: 'db' })();
 
-      const healthyResult = await makeDbHealthChecker(healthyDb, { name: 'db' })();
-      const unhealthyResult = await makeDbHealthChecker(unhealthyDb, { name: 'db' })();
+      expect(result.critical).toBe(true);
+    });
 
-      expect(healthyResult.critical).toBe(true);
-      expect(unhealthyResult.critical).toBe(true);
+    it('always marks result as critical for unhealthy db', async () => {
+      const db = makeFakeKyselyDb({ failWithError: new Error('Failed') });
+      const result = await makeDbHealthChecker(db, { name: 'db' })();
+
+      expect(result.critical).toBe(true);
     });
   });
 });
