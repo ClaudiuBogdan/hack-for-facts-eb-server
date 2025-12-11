@@ -360,11 +360,15 @@ export async function exploreBudgetBreakdown(
   );
 
   if (itemsResult.isErr()) {
-    const domainError = itemsResult.error as { type?: string; message?: string };
+    const domainError = itemsResult.error as { type?: string; message?: string; cause?: unknown };
     if (domainError.type !== undefined) {
       return err(toMcpError({ type: domainError.type, message: domainError.message ?? '' }));
     }
-    return err(databaseError());
+    // Extract error message for debugging
+    const errorDetail =
+      domainError.message ??
+      (itemsResult.error instanceof Error ? itemsResult.error.message : undefined);
+    return err(databaseError(errorDetail));
   }
 
   const items = itemsResult.value.nodes;

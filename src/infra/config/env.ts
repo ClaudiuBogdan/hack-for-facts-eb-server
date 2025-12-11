@@ -60,6 +60,10 @@ export const EnvSchema = Type.Object({
   MCP_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
   MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
 
+  // GPT REST API
+  // SECURITY: Minimum 32 characters for sufficient entropy
+  GPT_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
+
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
@@ -119,6 +123,8 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
         ? Number.parseInt(env['MCP_SESSION_TTL_SECONDS'], 10)
         : 3600,
+    // GPT REST API
+    GPT_API_KEY: env['GPT_API_KEY'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -200,6 +206,10 @@ export const createConfig = (env: Env) => ({
     sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
     /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
     clientBaseUrl: env.CLIENT_BASE_URL ?? '',
+  },
+  gpt: {
+    /** API key for GPT REST API authentication */
+    apiKey: env.GPT_API_KEY,
   },
   telemetry: {
     /** OTLP endpoint for SigNoz */

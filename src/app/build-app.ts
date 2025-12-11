@@ -3,6 +3,7 @@
  * Creates and configures the Fastify instance with all plugins and routes
  */
 
+import swagger from '@fastify/swagger';
 import fastifyLib, {
   type FastifyInstance,
   type FastifyServerOptions,
@@ -117,6 +118,10 @@ import {
   makeAggregatedLineItemsAdapter,
   DEFAULT_MCP_CONFIG,
   type McpConfig,
+  // GPT REST API
+  makeGptRoutes,
+  gptOpenApiConfig,
+  type GptRoutesOptions,
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
@@ -535,46 +540,51 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Setup MCP Module (REST API for AI integrations)
+    // Setup MCP/GPT Shared Adapters
+    // ─────────────────────────────────────────────────────────────────────────
+    // Create adapters shared between MCP and GPT REST API
+    const mcpEntityAdapter = makeEntityAdapter(entityRepo);
+    const mcpUatAdapter = makeUatAdapter(uatRepo);
+    const mcpFunctionalAdapter = makeFunctionalClassificationAdapter(functionalClassificationRepo);
+    const mcpEconomicAdapter = makeEconomicClassificationAdapter(economicClassificationRepo);
+    const mcpExecutionRepo = makeMcpExecutionRepo(budgetDb);
+    const mcpAnalyticsService = makeMcpAnalyticsService(analyticsRepo, normalizationService);
+
+    // Create share link adapter
+    const publicBaseUrl = config.cors.publicClientBaseUrl ?? config.cors.clientBaseUrl ?? '';
+    const mcpShareLink = makeShareLinkAdapter({
+      shortLinkRepo,
+      publicBaseUrl,
+    });
+
+    // Create MCP-adapted repositories
+    const mcpEntityAnalyticsAdapter = makeEntityAnalyticsAdapter(rawEntityAnalyticsRepo);
+    const mcpAggregatedLineItemsAdapter = makeAggregatedLineItemsAdapter(
+      rawAggregatedLineItemsRepo
+    );
+
+    // Build MCP config with all required fields
+    const mcpConfig: McpConfig = {
+      ...DEFAULT_MCP_CONFIG,
+      authRequired: config.mcp.authRequired,
+      ...(config.mcp.apiKey !== undefined && { apiKey: config.mcp.apiKey }),
+      sessionTtlSeconds: config.mcp.sessionTtlSeconds,
+      clientBaseUrl:
+        config.mcp.clientBaseUrl !== ''
+          ? config.mcp.clientBaseUrl
+          : (config.cors.clientBaseUrl ?? ''),
+    };
+
+    // Create rate limiter (shared between MCP and GPT - 100 requests per minute)
+    const rateLimiter = makeInMemoryRateLimiter({
+      maxRequests: 100,
+      windowMs: 60 * 1000, // 1 minute
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup MCP Module (Model Context Protocol for AI clients)
     // ─────────────────────────────────────────────────────────────────────────
     if (config.mcp.enabled) {
-      // Create MCP-specific adapters
-      const mcpEntityAdapter = makeEntityAdapter(entityRepo);
-      const mcpUatAdapter = makeUatAdapter(uatRepo);
-      const mcpFunctionalAdapter = makeFunctionalClassificationAdapter(
-        functionalClassificationRepo
-      );
-      const mcpEconomicAdapter = makeEconomicClassificationAdapter(economicClassificationRepo);
-      const mcpExecutionRepo = makeMcpExecutionRepo(budgetDb);
-      const mcpAnalyticsService = makeMcpAnalyticsService(analyticsRepo, normalizationService);
-
-      // Create share link adapter
-      const publicBaseUrl = config.cors.publicClientBaseUrl ?? config.cors.clientBaseUrl ?? '';
-      const mcpShareLink = makeShareLinkAdapter({
-        shortLinkRepo,
-        publicBaseUrl,
-      });
-
-      // Build MCP config with all required fields
-      const mcpConfig: McpConfig = {
-        ...DEFAULT_MCP_CONFIG,
-        authRequired: config.mcp.authRequired,
-        ...(config.mcp.apiKey !== undefined && { apiKey: config.mcp.apiKey }),
-        sessionTtlSeconds: config.mcp.sessionTtlSeconds,
-        clientBaseUrl:
-          config.mcp.clientBaseUrl !== ''
-            ? config.mcp.clientBaseUrl
-            : (config.cors.clientBaseUrl ?? ''),
-      };
-
-      // Create MCP-adapted repositories
-      // These adapters convert the full repository interfaces to the simplified
-      // interfaces expected by MCP use cases (different method signatures and return types)
-      const mcpEntityAnalyticsAdapter = makeEntityAnalyticsAdapter(rawEntityAnalyticsRepo);
-      const mcpAggregatedLineItemsAdapter = makeAggregatedLineItemsAdapter(
-        rawAggregatedLineItemsRepo
-      );
-
       // Create MCP server with all dependencies
       const mcpServer = createMcpServer({
         entityRepo: mcpEntityAdapter,
@@ -592,12 +602,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       // Create session store (use in-memory for now, can switch to Redis later)
       const sessionStore = makeInMemorySessionStore(config.mcp.sessionTtlSeconds);
 
-      // Create rate limiter (SEC-004: 100 requests per minute)
-      const rateLimiter = makeInMemoryRateLimiter({
-        maxRequests: 100,
-        windowMs: 60 * 1000, // 1 minute
-      });
-
       // Register MCP routes
       await app.register(makeMcpRoutes, {
         mcpServer,
@@ -608,6 +612,34 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
       app.log.info('MCP endpoints enabled at /mcp');
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup GPT REST API (always enabled)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Register OpenAPI spec generator (offline only, no exposed route)
+    await app.register(swagger, gptOpenApiConfig);
+
+    // Create GPT routes with same deps as MCP
+    const gptRoutesOptions: GptRoutesOptions = {
+      deps: {
+        entityRepo: mcpEntityAdapter,
+        executionRepo: mcpExecutionRepo,
+        uatRepo: mcpUatAdapter,
+        functionalClassificationRepo: mcpFunctionalAdapter,
+        economicClassificationRepo: mcpEconomicAdapter,
+        entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
+        analyticsService: mcpAnalyticsService,
+        aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
+        shareLink: mcpShareLink,
+        config: { clientBaseUrl: mcpConfig.clientBaseUrl },
+      },
+      auth: {
+        apiKey: config.gpt.apiKey,
+      },
+      rateLimiter,
+    };
+
+    await app.register(makeGptRoutes(gptRoutesOptions));
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

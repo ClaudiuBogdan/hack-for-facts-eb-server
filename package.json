@@ -18,6 +18,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write '**/*.{ts,json,md}'",
     "format:check": "prettier --check '**/*.{ts,json,md}'",
+    "openapi:yaml": "tsx scripts/generate-openapi.ts",
     "test": "vitest run --exclude 'tests/e2e/**' --exclude 'tests/golden-master/**'",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
@@ -42,6 +43,7 @@
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
+    "@fastify/swagger": "^9.6.1",
     "@graphql-tools/schema": "^10.0.30",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@opentelemetry/api": "^1.9.0",

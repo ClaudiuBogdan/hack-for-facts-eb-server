@@ -437,7 +437,8 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       return err(createTimeoutError('Aggregation query timed out', error));
     }
 
-    return err(createDatabaseError('Failed to fetch aggregated line items', error));
+    // Include the actual error message for debugging
+    return err(createDatabaseError(`Aggregation query failed: ${message}`, error));
   }
 
   /**
@@ -458,7 +459,8 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       return err(createTimeoutError('Normalized aggregation query timed out', error));
     }
 
-    return err(createDatabaseError('Failed to fetch normalized aggregated line items', error));
+    // Include the actual error message for debugging
+    return err(createDatabaseError(`Normalized aggregation query failed: ${message}`, error));
   }
 }
 
