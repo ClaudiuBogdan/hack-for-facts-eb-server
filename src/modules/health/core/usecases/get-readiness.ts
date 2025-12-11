@@ -13,6 +13,7 @@ export interface GetReadinessInput {
 
 /**
  * Maps settled promises from health checkers to standardized HealthCheckResults.
+ * Rejected promises are treated as critical failures (critical: true by default).
  */
 const mapCheckResults = (
   results: PromiseSettledResult<HealthCheckResult>[]
@@ -25,8 +26,31 @@ const mapCheckResults = (
       name: 'unknown',
       status: 'unhealthy',
       message: result.reason instanceof Error ? result.reason.message : 'Check failed',
+      critical: true, // Rejected checks are critical by default
     };
   });
+};
+
+/**
+ * Determines overall status based on check results.
+ * - Any critical unhealthy → "unhealthy" (503)
+ * - Any non-critical unhealthy → "degraded" (200)
+ * - All healthy → "ok" (200)
+ */
+const determineOverallStatus = (checks: HealthCheckResult[]): 'ok' | 'degraded' | 'unhealthy' => {
+  const hasCriticalUnhealthy = checks.some((c) => c.status === 'unhealthy' && c.critical !== false);
+  if (hasCriticalUnhealthy) {
+    return 'unhealthy';
+  }
+
+  const hasNonCriticalUnhealthy = checks.some(
+    (c) => c.status === 'unhealthy' && c.critical === false
+  );
+  if (hasNonCriticalUnhealthy) {
+    return 'degraded';
+  }
+
+  return 'ok';
 };
 
 /**
@@ -46,9 +70,8 @@ export async function getReadiness(
   // Map results
   const checks = mapCheckResults(results);
 
-  // Evaluate overall status
-  const hasUnhealthy = checks.some((c) => c.status === 'unhealthy');
-  const status = hasUnhealthy ? 'unhealthy' : 'ok';
+  // Evaluate overall status based on critical/non-critical checks
+  const status = determineOverallStatus(checks);
 
   return {
     status,

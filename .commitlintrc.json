@@ -45,7 +45,9 @@
         "notifications",
         "share",
         "mcp",
-        "dx"
+        "dx",
+        "image",
+        "deployment"
       ]
     ],
     "scope-empty": [1, "never"],

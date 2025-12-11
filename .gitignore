@@ -118,3 +118,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Old code repositories
 old_code_repositories/
+
+# Secret YAML files - never commit
+*.secret.yaml
+**/*.secret.yaml

@@ -97,8 +97,11 @@ describe('GraphQL API', () => {
     const body = response.json();
     expect(body.errors).toBeUndefined();
     expect(body.data.ready.status).toBe('ok');
-    expect(body.data.ready.checks).toHaveLength(1);
-    expect(body.data.ready.checks[0]).toEqual({ name: 'database', status: 'healthy' });
+    // Infrastructure checkers (database, cache) are automatically added,
+    // plus the custom 'database' checker passed in healthCheckers
+    expect(body.data.ready.checks.length).toBeGreaterThanOrEqual(2);
+    expect(body.data.ready.checks).toContainEqual({ name: 'database', status: 'healthy' });
+    expect(body.data.ready.checks).toContainEqual({ name: 'cache', status: 'healthy' });
   });
 
   // TODO: fix this test using https://the-guild.dev/graphql/tools/docs/mocking

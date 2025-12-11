@@ -1,0 +1,123 @@
+name: Dev Branch Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check circular dependencies
+        run: pnpm deps:check
+
+      - name: Validate datasets
+        run: pnpm run validate-datasets
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+  build-push-update:
+    name: Build & Deploy
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Get Secrets from Bitwarden
+        uses: bitwarden/sm-action@v1
+        with:
+          access_token: ${{ secrets.BW_ACCESS_TOKEN }}
+          secrets: |
+            9b3cdd24-396a-457e-8d56-b2d600dda041 > DOCKER_REGISTRY_URL
+            c9992fd1-98c0-4e2c-a4e5-b2d600dd3367 > DOCKER_USERNAME
+            ca2abaf7-e7f5-40d5-a06a-b2d600dd4ba9 > DOCKER_PASSWORD
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY_URL }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0' # Report only, do not fail dev builds
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Docker Image
+        run: |
+          docker push ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}
+
+      - name: Update Image Tag and SHA in Kustomization
+        run: |
+          cd ./k8s/base
+          kustomize edit set image ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server=${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}
+          sed -i "s| image-sha: .*| image-sha: ${{ github.sha }}|" kustomization.yaml
+
+      - name: Commit and Push Changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add k8s/base/kustomization.yaml
+          git diff --staged --quiet || git commit -m "ci(image): update dev image tag to ${{ github.sha }}"
+          git push origin dev
