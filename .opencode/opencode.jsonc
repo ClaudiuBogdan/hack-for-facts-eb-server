@@ -90,7 +90,7 @@
   "tui": {
     "scroll_speed": 2,
     "scroll_acceleration": {
-      "enabled": true,
+      "enabled": false
     },
   },
   // ============================================================================
@@ -247,115 +247,50 @@
     "test": {
       "template": "Run the test suite with `pnpm test`. If there are failures, analyze them and suggest fixes. Focus on the failing tests first.",
       "description": "Run all tests and analyze failures",
-      "agent": "build",
+      "agent": "build"
     },
     "test-unit": {
       "template": "Run unit tests with `pnpm test:unit`. Analyze any failures and suggest fixes based on the test patterns in tests/unit/.",
       "description": "Run unit tests only",
-      "agent": "build",
+      "agent": "build"
     },
     "lint": {
       "template": "Run `pnpm lint` to check for linting errors. Fix any issues found, following the ESLint configuration in eslint.config.mjs.",
       "description": "Run linter and fix issues",
-      "agent": "build",
+      "agent": "build"
     },
     "typecheck": {
       "template": "Run `pnpm typecheck` to check for TypeScript errors. Analyze and fix any type errors found.",
       "description": "Run TypeScript type checking",
-      "agent": "build",
+      "agent": "build"
     },
     "ci": {
       "template": "Run the full CI pipeline with `pnpm ci` (typecheck + lint + test + build). Report any failures and help fix them.",
       "description": "Run full CI pipeline",
-      "agent": "build",
+      "agent": "build"
     },
     "review": {
       "template": "Review the recent changes using `git diff`. Focus on:\n1. Code quality and best practices\n2. Security vulnerabilities\n3. Performance implications\n4. Test coverage\n5. Adherence to project architecture (Functional Core / Imperative Shell)",
       "description": "Review recent code changes",
-      "agent": "plan",
+      "agent": "review-max"
     },
     "deps": {
       "template": "Run `pnpm deps:check` to check for circular dependencies. If found, analyze the import graph and suggest how to break the cycles following the module dependency rules in docs/MODULE-DEPENDENCIES.md.",
       "description": "Check for circular dependencies",
-      "agent": "plan",
-    },
+      "agent": "plan-max"
+    }
   },
   // ============================================================================
   // AGENT CONFIGURATION
-  // Tab cycle: build → build-fast → build-max → build-ultra-fast → plan → plan-fast → architect
+  // Tab cycle: build-max → build → build-fast → plan-max → architect-max → review-max → implement-max
   // ============================================================================
   "agent": {
     // ─────────────────────────────────────────────────────────────────────────
     // PRIMARY AGENTS (Tab to switch)
-    // Order: build → build-fast → build-max → build-ultra-fast → plan → plan-fast → architect
     // ─────────────────────────────────────────────────────────────────────────
-    // BUILD AGENT - Deep reasoning for complex implementations
-    "build": {
-      "description": "Deep reasoning development agent with extended thinking (64K tokens)",
-      "mode": "primary",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 50,
-      "prompt": "{file:prompts/build.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm *": "allow",
-          "git status": "allow",
-          "git diff*": "allow",
-          "git log*": "allow",
-          "*": "ask",
-        },
-      },
-    },
-    // BUILD-FAST AGENT - Quick iterations without extended thinking
-    "build-fast": {
-      "description": "Fast development agent without extended thinking - quick iterations",
-      "mode": "primary",
-      "model": "anthropic/opus-fast",
-      "temperature": 0.1,
-      "maxSteps": 50,
-      "prompt": "{file:prompts/build.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm *": "allow",
-          "git status": "allow",
-          "git diff*": "allow",
-          "git log*": "allow",
-          "*": "ask",
-        },
-      },
-    },
-    // BUILD-MAX AGENT - Maximum reasoning for hardest problems
+    // BUILD-MAX - Maximum reasoning for hardest implementation problems (128K thinking)
     "build-max": {
-      "description": "Maximum reasoning agent with 128K thinking tokens - for hardest problems",
+      "description": "Maximum reasoning (128K) - for hardest implementation problems",
       "mode": "primary",
       "model": "anthropic/opus-max",
       "temperature": 0.1,
@@ -372,7 +307,7 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
-        "ask_user": true,
+        "ask_user": true
       },
       "permission": {
         "edit": "allow",
@@ -381,15 +316,15 @@
           "git status": "allow",
           "git diff*": "allow",
           "git log*": "allow",
-          "*": "ask",
-        },
-      },
+          "*": "ask"
+        }
+      }
     },
-    // BUILD-ULTRA AGENT - Ultra-fast with Sonnet (no extended thinking)
-    "build-ultra-fast": {
-      "description": "Ultra-fast development with Sonnet - fastest iterations, no extended thinking",
+    // BUILD - Standard development with deep reasoning (64K thinking)
+    "build": {
+      "description": "Standard development (64K thinking) - balanced speed and reasoning",
       "mode": "primary",
-      "model": "anthropic/sonnet-fast",
+      "model": "anthropic/opus-deep",
       "temperature": 0.1,
       "maxSteps": 50,
       "prompt": "{file:prompts/build.md}",
@@ -404,7 +339,7 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
-        "ask_user": true,
+        "ask_user": true
       },
       "permission": {
         "edit": "allow",
@@ -413,43 +348,49 @@
           "git status": "allow",
           "git diff*": "allow",
           "git log*": "allow",
-          "*": "ask",
-        },
-      },
+          "*": "ask"
+        }
+      }
     },
-    // PLAN AGENT - Deep analysis and planning
-    "plan": {
-      "description": "Deep reasoning planning agent with extended thinking (64K tokens)",
-      "mode": "primary",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.2,
-      "maxSteps": 30,
-      "prompt": "{file:prompts/plan.md}",
-      "tools": {
-        "read": true,
-        "write": false,
-        "edit": false,
-        "bash": false,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "deny",
-        "bash": "deny",
-      },
-    },
-    // PLAN-FAST AGENT - Quick planning without extended thinking
-    "plan-fast": {
-      "description": "Fast planning agent without extended thinking - quick analysis",
+    // BUILD-FAST - Quick iterations without extended thinking
+    "build-fast": {
+      "description": "Fast development (no thinking) - quick iterations",
       "mode": "primary",
       "model": "anthropic/opus-fast",
+      "temperature": 0.1,
+      "maxSteps": 50,
+      "prompt": "{file:prompts/build.md}",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "todowrite": true,
+        "todoread": true,
+        "ask_user": true
+      },
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "pnpm *": "allow",
+          "git status": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "*": "ask"
+        }
+      }
+    },
+    // PLAN-MAX - Deep analysis and planning (128K thinking)
+    "plan-max": {
+      "description": "Deep planning (128K thinking) - thorough analysis and design",
+      "mode": "primary",
+      "model": "anthropic/opus-max",
       "temperature": 0.2,
-      "maxSteps": 30,
+      "maxSteps": 40,
       "prompt": "{file:prompts/plan.md}",
       "tools": {
         "read": true,
@@ -462,20 +403,20 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
-        "ask_user": true,
+        "ask_user": true
       },
       "permission": {
         "edit": "deny",
-        "bash": "deny",
-      },
+        "bash": "deny"
+      }
     },
-    // ARCHITECT AGENT - System design (deep reasoning)
-    "architect": {
-      "description": "System architecture with deep reasoning for design decisions",
+    // ARCHITECT-MAX - System design decisions (128K thinking)
+    "architect-max": {
+      "description": "System architecture (128K thinking) - design decisions and documentation",
       "mode": "primary",
       "model": "anthropic/opus-max",
       "temperature": 0.3,
-      "maxSteps": 40,
+      "maxSteps": 50,
       "prompt": "{file:prompts/architect.md}",
       "tools": {
         "read": true,
@@ -486,19 +427,87 @@
         "glob": true,
         "list": true,
         "webfetch": true,
-        "ask_user": true,
+        "todowrite": true,
+        "todoread": true,
+        "ask_user": true
       },
       "permission": {
         "edit": "ask",
-        "bash": "ask",
+        "bash": "ask"
+      }
+    },
+    // REVIEW-MAX - Thorough code review (128K thinking)
+    "review-max": {
+      "description": "Code review (128K thinking) - security, performance, architecture compliance",
+      "mode": "primary",
+      "model": "anthropic/opus-max",
+      "temperature": 0.1,
+      "maxSteps": 40,
+      "prompt": "{file:prompts/reviewer.md}",
+      "tools": {
+        "read": true,
+        "write": false,
+        "edit": false,
+        "bash": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "todowrite": true,
+        "todoread": true,
+        "ask_user": true
       },
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "git diff*": "allow",
+          "git log*": "allow",
+          "git show*": "allow",
+          "pnpm run lint*": "allow",
+          "pnpm test*": "allow",
+          "pnpm vitest*": "allow",
+          "*": "deny"
+        }
+      }
+    },
+    // IMPLEMENT-MAX - Post-review/debug implementation (128K thinking)
+    "implement-max": {
+      "description": "Implementation (128K thinking) - targeted fixes after review/debug",
+      "mode": "primary",
+      "model": "anthropic/opus-max",
+      "temperature": 0.1,
+      "maxSteps": 75,
+      "prompt": "{file:prompts/implement.md}",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "todowrite": true,
+        "todoread": true,
+        "ask_user": true
+      },
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "pnpm *": "allow",
+          "git status": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "*": "ask"
+        }
+      }
     },
     // ─────────────────────────────────────────────────────────────────────────
     // SUBAGENTS (Invoked by primary agents or via @mention)
     // ─────────────────────────────────────────────────────────────────────────
-    // GENERAL SUBAGENT - Research and multi-step tasks
+    // GENERAL - Research and multi-step tasks
     "general": {
-      "description": "General-purpose research, complex questions, and multi-step exploration",
+      "description": "General-purpose research and multi-step exploration",
       "mode": "subagent",
       "model": "anthropic/opus-deep",
       "temperature": 0.2,
@@ -514,12 +523,12 @@
         "webfetch": true,
         "todowrite": true,
         "todoread": true,
-        "ask_user": true,
-      },
+        "ask_user": true
+      }
     },
-    // EXPLORE SUBAGENT - Fast codebase exploration (uses Sonnet for speed)
+    // EXPLORE - Fast codebase exploration (Sonnet for speed)
     "explore": {
-      "description": "Fast codebase exploration, file search, and quick answers about code",
+      "description": "Fast codebase exploration and file search",
       "mode": "subagent",
       "model": "anthropic/sonnet",
       "temperature": 0.1,
@@ -531,203 +540,286 @@
         "bash": false,
         "grep": true,
         "glob": true,
-        "list": true,
-      },
-    },
-    // CODE REVIEWER - Security and quality analysis
-    "reviewer": {
-      "description": "Code review focusing on security, performance, architecture compliance, and best practices",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 30,
-      "prompt": "{file:prompts/reviewer.md}",
-      "tools": {
-        "read": true,
-        "write": false,
-        "edit": false,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-      },
-      "permission": {
-        "bash": {
-          "git diff*": "allow",
-          "git log*": "allow",
-          "git show*": "allow",
-          "pnpm run lint*": "allow",
-          "pnpm test*": "allow",
-          "pnpm vitest*": "allow",
-          "*": "deny",
-        },
-      },
-    },
-    // DEBUG AGENT - Investigation and diagnostics
-    "debug": {
-      "description": "Debug issues, investigate errors, and diagnose problems",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 40,
-      "prompt": "{file:prompts/debug.md}",
-      "tools": {
-        "read": true,
-        "write": false,
-        "edit": false,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "bash": {
-          // Security - Block .env access
-          "cat *.env*": "deny",
-          "cat .env*": "deny",
-          "cat */.env*": "deny",
-          "head *.env*": "deny",
-          "head .env*": "deny",
-          "tail *.env*": "deny",
-          "tail .env*": "deny",
-          // Allow other file operations
-          "git log*": "allow",
-          "git diff*": "allow",
-          "git show*": "allow",
-          "git blame*": "allow",
-          "pnpm run *": "allow",
-          "pnpm test*": "allow",
-          "pnpm vitest*": "allow",
-          "docker logs*": "allow",
-          "cat *": "allow",
-          "tail *": "allow",
-          "head *": "allow",
-          "grep *": "allow",
-          "rg *": "allow",
-          "*": "ask",
-        },
-      },
-    },
-    // REFACTOR AGENT - Code improvement
-    "refactor": {
-      "description": "Refactor code to improve quality while preserving behavior",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 40,
-      "prompt": "{file:prompts/refactor.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "ask",
-        "bash": {
-          "pnpm test*": "allow",
-          "pnpm vitest*": "allow",
-          "pnpm run lint*": "allow",
-          "pnpm typecheck": "allow",
-          "git diff*": "allow",
-          "*": "ask",
-        },
-      },
-    },
-    // DOCS AGENT - Documentation writing
-    "docs": {
-      "description": "Write and maintain technical documentation",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.4,
-      "maxSteps": 30,
-      "prompt": "{file:prompts/docs.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": false,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": "deny",
-      },
-    },
-    // TEST AGENT - Test creation and improvement
-    "test": {
-      "description": "Write and improve tests for better coverage",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 40,
-      "prompt": "{file:prompts/test.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm test*": "allow",
-          "pnpm vitest*": "allow",
-          "*": "ask",
-        },
-      },
-    },
-    // SECURITY AGENT - Security auditing
-    "security": {
-      "description": "Security audit and vulnerability analysis",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.1,
-      "maxSteps": 30,
-      "prompt": "{file:prompts/security.md}",
-      "tools": {
-        "read": true,
-        "write": false,
-        "edit": false,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "ask_user": true,
-      },
-      "permission": {
-        "edit": "deny",
-        "bash": {
-          // Security - Block .env access
-          "cat *.env*": "deny",
-          "cat .env*": "deny",
-          "cat */.env*": "deny",
-          // Allow other operations
-          "pnpm audit*": "allow",
-          "git log*": "allow",
-          "git diff*": "allow",
-          "grep *": "allow",
-          "rg *": "allow",
-          "find *": "allow",
-          "cat *": "allow",
-          "*": "deny",
-        },
-      },
-    },
+        "list": true
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // ARCHIVED AGENTS (Commented out - uncomment to re-enable)
+    // ─────────────────────────────────────────────────────────────────────────
+    // // BUILD-ULTRA-FAST - Ultra-fast with Sonnet (no extended thinking)
+    // "build-ultra-fast": {
+    //   "description": "Ultra-fast development with Sonnet - fastest iterations, no extended thinking",
+    //   "mode": "primary",
+    //   "model": "anthropic/sonnet-fast",
+    //   "temperature": 0.1,
+    //   "maxSteps": 50,
+    //   "prompt": "{file:prompts/build.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": true,
+    //     "edit": true,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "webfetch": true,
+    //     "todowrite": true,
+    //     "todoread": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "allow",
+    //     "bash": {
+    //       "pnpm *": "allow",
+    //       "git status": "allow",
+    //       "git diff*": "allow",
+    //       "git log*": "allow",
+    //       "*": "ask"
+    //     }
+    //   }
+    // },
+    // // PLAN - Deep analysis and planning (64K thinking)
+    // "plan": {
+    //   "description": "Deep reasoning planning agent with extended thinking (64K tokens)",
+    //   "mode": "primary",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.2,
+    //   "maxSteps": 30,
+    //   "prompt": "{file:prompts/plan.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": false,
+    //     "edit": false,
+    //     "bash": false,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "webfetch": true,
+    //     "todowrite": true,
+    //     "todoread": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "deny",
+    //     "bash": "deny"
+    //   }
+    // },
+    // // PLAN-FAST - Quick planning without extended thinking
+    // "plan-fast": {
+    //   "description": "Fast planning agent without extended thinking - quick analysis",
+    //   "mode": "primary",
+    //   "model": "anthropic/opus-fast",
+    //   "temperature": 0.2,
+    //   "maxSteps": 30,
+    //   "prompt": "{file:prompts/plan.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": false,
+    //     "edit": false,
+    //     "bash": false,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "webfetch": true,
+    //     "todowrite": true,
+    //     "todoread": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "deny",
+    //     "bash": "deny"
+    //   }
+    // },
+    // // REVIEWER SUBAGENT - Code review (replaced by review-max primary)
+    // "reviewer": {
+    //   "description": "Code review focusing on security, performance, architecture compliance",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.1,
+    //   "maxSteps": 30,
+    //   "prompt": "{file:prompts/reviewer.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": false,
+    //     "edit": false,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true
+    //   },
+    //   "permission": {
+    //     "bash": {
+    //       "git diff*": "allow",
+    //       "git log*": "allow",
+    //       "git show*": "allow",
+    //       "pnpm run lint*": "allow",
+    //       "pnpm test*": "allow",
+    //       "pnpm vitest*": "allow",
+    //       "*": "deny"
+    //     }
+    //   }
+    // },
+    // // DEBUG SUBAGENT - Investigation and diagnostics
+    // "debug": {
+    //   "description": "Debug issues, investigate errors, and diagnose problems",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.1,
+    //   "maxSteps": 40,
+    //   "prompt": "{file:prompts/debug.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": false,
+    //     "edit": false,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "bash": {
+    //       "cat *.env*": "deny",
+    //       "cat .env*": "deny",
+    //       "cat */.env*": "deny",
+    //       "head *.env*": "deny",
+    //       "head .env*": "deny",
+    //       "tail *.env*": "deny",
+    //       "tail .env*": "deny",
+    //       "git log*": "allow",
+    //       "git diff*": "allow",
+    //       "git show*": "allow",
+    //       "git blame*": "allow",
+    //       "pnpm run *": "allow",
+    //       "pnpm test*": "allow",
+    //       "pnpm vitest*": "allow",
+    //       "docker logs*": "allow",
+    //       "cat *": "allow",
+    //       "tail *": "allow",
+    //       "head *": "allow",
+    //       "grep *": "allow",
+    //       "rg *": "allow",
+    //       "*": "ask"
+    //     }
+    //   }
+    // },
+    // // REFACTOR SUBAGENT - Code improvement
+    // "refactor": {
+    //   "description": "Refactor code to improve quality while preserving behavior",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.1,
+    //   "maxSteps": 40,
+    //   "prompt": "{file:prompts/refactor.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": true,
+    //     "edit": true,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "ask",
+    //     "bash": {
+    //       "pnpm test*": "allow",
+    //       "pnpm vitest*": "allow",
+    //       "pnpm run lint*": "allow",
+    //       "pnpm typecheck": "allow",
+    //       "git diff*": "allow",
+    //       "*": "ask"
+    //     }
+    //   }
+    // },
+    // // DOCS SUBAGENT - Documentation writing
+    // "docs": {
+    //   "description": "Write and maintain technical documentation",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.4,
+    //   "maxSteps": 30,
+    //   "prompt": "{file:prompts/docs.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": true,
+    //     "edit": true,
+    //     "bash": false,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "webfetch": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "allow",
+    //     "bash": "deny"
+    //   }
+    // },
+    // // TEST SUBAGENT - Test creation and improvement
+    // "test": {
+    //   "description": "Write and improve tests for better coverage",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.1,
+    //   "maxSteps": 40,
+    //   "prompt": "{file:prompts/test.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": true,
+    //     "edit": true,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "allow",
+    //     "bash": {
+    //       "pnpm test*": "allow",
+    //       "pnpm vitest*": "allow",
+    //       "*": "ask"
+    //     }
+    //   }
+    // },
+    // // SECURITY SUBAGENT - Security auditing
+    // "security": {
+    //   "description": "Security audit and vulnerability analysis",
+    //   "mode": "subagent",
+    //   "model": "anthropic/opus-deep",
+    //   "temperature": 0.1,
+    //   "maxSteps": 30,
+    //   "prompt": "{file:prompts/security.md}",
+    //   "tools": {
+    //     "read": true,
+    //     "write": false,
+    //     "edit": false,
+    //     "bash": true,
+    //     "grep": true,
+    //     "glob": true,
+    //     "list": true,
+    //     "webfetch": true,
+    //     "ask_user": true
+    //   },
+    //   "permission": {
+    //     "edit": "deny",
+    //     "bash": {
+    //       "cat *.env*": "deny",
+    //       "cat .env*": "deny",
+    //       "cat */.env*": "deny",
+    //       "pnpm audit*": "allow",
+    //       "git log*": "allow",
+    //       "git diff*": "allow",
+    //       "grep *": "allow",
+    //       "rg *": "allow",
+    //       "find *": "allow",
+    //       "cat *": "allow",
+    //       "*": "deny"
+    //     }
+    //   }
+    // }
   },
   // ============================================================================
   // MCP SERVERS (Model Context Protocol)
