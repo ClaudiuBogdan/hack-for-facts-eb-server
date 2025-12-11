@@ -217,6 +217,14 @@ export async function getClient(): Promise<GoldenMasterClient> {
         sessionTtlSeconds: 3600,
         clientBaseUrl: '',
       },
+      telemetry: {
+        endpoint: undefined,
+        headers: undefined,
+        serviceName: 'transparenta-eu-server',
+        disabled: true,
+        sampleRate: undefined,
+        resourceAttributes: undefined,
+      },
     };
 
     const dbs = initDatabases(config);

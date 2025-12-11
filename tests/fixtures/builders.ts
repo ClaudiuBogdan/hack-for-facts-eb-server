@@ -97,6 +97,14 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       sessionTtlSeconds: 3600,
       clientBaseUrl: '',
     },
+    telemetry: {
+      endpoint: undefined,
+      headers: undefined,
+      serviceName: 'transparenta-eu-server',
+      disabled: true, // Disabled by default in tests
+      sampleRate: undefined,
+      resourceAttributes: undefined,
+    },
   };
 
   return {
@@ -109,5 +117,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
     mcp: { ...defaults.mcp, ...overrides.mcp },
+    telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
 };
