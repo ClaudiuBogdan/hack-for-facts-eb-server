@@ -1,5 +1,12 @@
 import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql-tools/schema';
-import { NoSchemaIntrospectionCustomRule, type ValidationRule } from 'graphql';
+import {
+  NoSchemaIntrospectionCustomRule,
+  Kind,
+  type ValidationRule,
+  type DocumentNode,
+  type OperationDefinitionNode,
+  type FieldNode,
+} from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercurius';
 
@@ -18,6 +25,46 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
  * while blocking abusive patterns.
  */
 const MAX_QUERY_DEPTH = 10;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GraphQL Logging Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts operation info from a GraphQL document AST.
+ * Returns the first operation's name and type.
+ */
+function extractOperationInfo(document: DocumentNode): {
+  operationName: string | null;
+  operationType: string;
+} {
+  const operation = document.definitions.find(
+    (def): def is OperationDefinitionNode => def.kind === Kind.OPERATION_DEFINITION
+  );
+
+  return {
+    operationName: operation?.name?.value ?? null,
+    operationType: operation?.operation ?? 'unknown',
+  };
+}
+
+/**
+ * Extracts the top-level field names being queried.
+ * E.g., for `query { entities { id } health { status } }` returns ['entities', 'health']
+ */
+function extractFieldNames(document: DocumentNode): string[] {
+  const operation = document.definitions.find(
+    (def): def is OperationDefinitionNode => def.kind === Kind.OPERATION_DEFINITION
+  );
+
+  if (operation?.selectionSet === undefined) {
+    return [];
+  }
+
+  return operation.selectionSet.selections
+    .filter((sel): sel is FieldNode => sel.kind === Kind.FIELD)
+    .map((field) => field.name.value);
+}
 
 // Re-export common GraphQL utilities
 export {
@@ -104,6 +151,67 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
         // For now, we use the default formatter
         return response;
       },
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GraphQL Operation Logging
+    // ─────────────────────────────────────────────────────────────────────────
+    // Log GraphQL operations with useful context for observability.
+    // Uses Mercurius hooks to capture operation details after execution.
+
+    // Context extension for storing document between hooks
+    interface GraphQLLoggingContext {
+      graphqlDocument?: DocumentNode;
+    }
+
+    // Store document in context for logging in onResolution
+    fastify.graphql.addHook('preExecution', (_schema, document, context) => {
+      (context as GraphQLLoggingContext).graphqlDocument = document;
+    });
+
+    fastify.graphql.addHook('onResolution', (execution, context) => {
+      // Get document from context (stored in preExecution hook)
+      const document = (context as GraphQLLoggingContext).graphqlDocument;
+
+      // Extract operation info if document is available
+      let operationName: string | null = null;
+      let operationType = 'unknown';
+      let fields: string[] = [];
+
+      if (document !== undefined) {
+        const opInfo = extractOperationInfo(document);
+        operationName = opInfo.operationName;
+        operationType = opInfo.operationType;
+        fields = extractFieldNames(document);
+      }
+
+      // Determine if there were errors
+      const hasErrors = execution.errors !== undefined && execution.errors.length > 0;
+      const errorCount = execution.errors?.length ?? 0;
+
+      // Build log entry
+      const logEntry = {
+        graphql: {
+          operationType,
+          operationName,
+          fields,
+          hasErrors,
+          errorCount,
+        },
+      };
+
+      // Log at appropriate level
+      if (hasErrors) {
+        context.reply.log.warn(
+          { ...logEntry, errors: execution.errors },
+          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" completed with ${String(errorCount)} error(s)`
+        );
+      } else {
+        context.reply.log.info(
+          logEntry,
+          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" [${fields.join(', ')}]`
+        );
+      }
     });
   };
 };
