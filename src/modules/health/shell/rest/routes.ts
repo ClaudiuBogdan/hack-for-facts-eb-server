@@ -35,10 +35,14 @@ export const makeHealthRoutes = (deps: Partial<GetReadinessDeps> = {}): FastifyP
      *
      * Should always return 200 unless the process is completely dead.
      * Does NOT check dependencies - that is the readiness probe's job.
+     *
+     * Note: logLevel 'silent' prevents request/response logging for this
+     * high-frequency endpoint (called every 20-30s by K8s probes).
      */
     fastify.get<{ Reply: LivenessResponse }>(
       '/health/live',
       {
+        logLevel: 'silent',
         schema: {
           response: {
             200: LivenessResponseSchema,
@@ -60,10 +64,14 @@ export const makeHealthRoutes = (deps: Partial<GetReadinessDeps> = {}): FastifyP
      * Checks if all dependencies (database, Redis, etc.) are available.
      * Returns 503 if any critical dependency is unavailable.
      * Kubernetes will stop sending traffic but will NOT restart the pod.
+     *
+     * Note: logLevel 'silent' prevents request/response logging for this
+     * high-frequency endpoint (called every 10s by K8s probes).
      */
     fastify.get<{ Reply: ReadinessResponse }>(
       '/health/ready',
       {
+        logLevel: 'silent',
         schema: {
           response: {
             200: ReadinessResponseSchema,
