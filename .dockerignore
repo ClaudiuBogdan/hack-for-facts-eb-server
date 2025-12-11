@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+coverage/
+*.tsbuildinfo
+
+# Development files
+.git/
+.github/
+.vscode/
+.cursor/
+.husky/
+
+# Test files
+tests/
+vitest.config.ts
+vitest.gm.config.ts
+
+# Documentation
+docs/
+*.md
+
+# Kubernetes manifests (not needed in image)
+k8s/
+argocd/
+
+# Environment files
+.env*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+*.log
+*.swp
+*.swo
+
+# Scripts not needed at runtime
+scripts/
+
+# Config files not needed at runtime
+.eslintrc*
+.prettierrc*
+.commitlintrc*
+eslint.config.mjs
+tsconfig.test.json
+.editorconfig
+.claudeignore
+.cursorignore
+
+# Misc
+deps-graph.svg
+old_code_repositories/

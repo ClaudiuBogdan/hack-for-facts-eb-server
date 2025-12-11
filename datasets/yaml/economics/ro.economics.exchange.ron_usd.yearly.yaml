@@ -1,0 +1,47 @@
+metadata:
+  id: "ro.economics.exchange.ron_usd.yearly"
+  source: "BNR"
+  sourceUrl: "https://www.bnr.ro/Cursul-de-schimb-3544.aspx"
+  lastUpdated: "2025-12-04"
+  units: "ron_per_usd"
+i18n:
+  ro:
+    title: "Curs de Schimb RON/USD (Medie Anuală)"
+    xAxisLabel: "An"
+    yAxisLabel: "RON/USD"
+  en:
+    title: "RON/USD Exchange Rate (Annual Average)"
+    xAxisLabel: "Year"
+    yAxisLabel: "RON/USD"
+axes:
+  x:
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
+  y:
+    label: "RON/USD"
+    type: "number"
+    unit: "ron_per_usd"
+data:
+  - { x: "2005", y: "2.9137" }
+  - { x: "2006", y: "2.8090" }
+  - { x: "2007", y: "2.4383" }
+  - { x: "2008", y: "2.5189" }
+  - { x: "2009", y: "3.0493" }
+  - { x: "2010", y: "3.1779" }
+  - { x: "2011", y: "3.0486" }
+  - { x: "2012", y: "3.4682" }
+  - { x: "2013", y: "3.3279" }
+  - { x: "2014", y: "3.3492" }
+  - { x: "2015", y: "4.0057" }
+  - { x: "2016", y: "4.0592" }
+  - { x: "2017", y: "4.0525" }
+  - { x: "2018", y: "3.9416" }
+  - { x: "2019", y: "4.2379" }
+  - { x: "2020", y: "4.2440" }
+  - { x: "2021", y: "4.1604" }
+  - { x: "2022", y: "4.6885" }
+  - { x: "2023", y: "4.5743" }
+  - { x: "2024", y: "4.5984" }
+  - { x: "2025", y: "4.6225" }

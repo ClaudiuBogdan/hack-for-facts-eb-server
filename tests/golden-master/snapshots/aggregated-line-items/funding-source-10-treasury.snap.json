@@ -1,0 +1,43 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 2263036269.36,
+        "count": 12,
+        "ec_c": "30.03.04",
+        "ec_n": "Dobanzi la depozite si disponibilitati pastrate in contul trezoreriei statului",
+        "fn_c": "55.00.00",
+        "fn_n": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 138515451.86,
+        "count": 12,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 879868.52,
+        "count": 4,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": -14128.73,
+        "count": 1,
+        "ec_c": "85.01.03",
+        "ec_n": "Plati efectuate in anii precedenti si recuperate in anul curent aferente cheltuielilor curente si operatiunilor financiare ale altor institutii publice",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 4
+    }
+  }
+}

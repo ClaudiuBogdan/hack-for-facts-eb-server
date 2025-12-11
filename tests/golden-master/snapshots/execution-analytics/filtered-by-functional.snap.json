@@ -1,0 +1,35 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [
+        {
+          "x": "2020",
+          "y": 43890707582.07
+        },
+        {
+          "x": "2021",
+          "y": 44846157476.72
+        },
+        {
+          "x": "2022",
+          "y": 51006448100.16
+        },
+        {
+          "x": "2023",
+          "y": 60884897639.84
+        }
+      ],
+      "seriesId": "functional-education",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

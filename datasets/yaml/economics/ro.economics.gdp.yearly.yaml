@@ -1,0 +1,41 @@
+metadata:
+  id: "ro.economics.gdp.yearly"
+  source: "INSSE"
+  sourceUrl: "https://insse.ro/cms/ro/content/produsul-intern-brut"
+  lastUpdated: "2025-12-04"
+  units: "RON"
+i18n:
+  ro:
+    title: "Produsul Intern Brut (PIB)"
+    xAxisLabel: "An"
+    yAxisLabel: "RON"
+  en:
+    title: "Gross Domestic Product (GDP)"
+    xAxisLabel: "Year"
+    yAxisLabel: "RON"
+axes:
+  x:
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
+  y:
+    label: "PIB"
+    type: "number"
+    unit: "RON"
+data:
+  - { x: "2010", y: "513_641_000_000" }
+  - { x: "2011", y: "557_348_000_000" }
+  - { x: "2012", y: "587_499_000_000" }
+  - { x: "2013", y: "628_581_000_000" }
+  - { x: "2014", y: "668_144_000_000" }
+  - { x: "2015", y: "712_832_000_000" }
+  - { x: "2016", y: "759_228_000_000" }
+  - { x: "2017", y: "858_300_000_000" }
+  - { x: "2018", y: "940_477_000_000" }
+  - { x: "2019", y: "1_053_880_000_000" }
+  - { x: "2020", y: "1_053_000_000_000" }
+  - { x: "2021", y: "1_189_089_000_000" }
+  - { x: "2022", y: "1_409_000_000_000" }
+  - { x: "2023", y: "1_598_576_000_000" }
+  - { x: "2024", y: "1_766_068_000_000" }

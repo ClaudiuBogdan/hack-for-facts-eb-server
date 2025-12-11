@@ -1,0 +1,88 @@
+{
+  "heatmapUATData": [
+    {
+      "amount": 10718141484.93,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 6242.43,
+      "population": 1716983,
+      "siruta_code": "179132",
+      "total_amount": 10718141484.93,
+      "uat_code": "4267117",
+      "uat_id": "3181",
+      "uat_name": "MUNICIPIUL BUCUREȘTI"
+    },
+    {
+      "amount": 1341945955.84,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 5970.47,
+      "population": 224764,
+      "siruta_code": "179141",
+      "total_amount": 1341945955.84,
+      "uat_code": "4505359",
+      "uat_id": "3182",
+      "uat_name": "SECTORUL 1"
+    },
+    {
+      "amount": 1965367011.99,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 6765.3,
+      "population": 290507,
+      "siruta_code": "179150",
+      "total_amount": 1965367011.99,
+      "uat_code": "4204038",
+      "uat_id": "3183",
+      "uat_name": "SECTORUL 2"
+    },
+    {
+      "amount": 2524317578.01,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 6757.35,
+      "population": 373566,
+      "siruta_code": "179169",
+      "total_amount": 2524317578.01,
+      "uat_code": "4420465",
+      "uat_id": "3184",
+      "uat_name": "SECTORUL 3"
+    },
+    {
+      "amount": 2094534915.91,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 7970.68,
+      "population": 262780,
+      "siruta_code": "179178",
+      "total_amount": 2094534915.91,
+      "uat_code": "4316422",
+      "uat_id": "3185",
+      "uat_name": "SECTORUL 4"
+    },
+    {
+      "amount": 1395231266.95,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 5823,
+      "population": 239607,
+      "siruta_code": "179187",
+      "total_amount": 1395231266.95,
+      "uat_code": "4433953",
+      "uat_id": "3186",
+      "uat_name": "SECTORUL 5"
+    },
+    {
+      "amount": 2123988269.99,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "per_capita_amount": 6520.12,
+      "population": 325759,
+      "siruta_code": "179196",
+      "total_amount": 2123988269.99,
+      "uat_code": "4340730",
+      "uat_id": "3187",
+      "uat_name": "SECTORUL 6"
+    }
+  ]
+}

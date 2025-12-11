@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 946776066820.62,
+        "count": 45,
+        "ec_c": "57.01.00",
+        "ec_n": "Asigurari sociale",
+        "fn_c": "68.03.00",
+        "fn_n": "Pensii si ajutoare pentru batrinete"
+      },
+      {
+        "amount": 149018626599.93,
+        "count": 1060,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.06.00",
+        "fn_n": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 119096452091.02,
+        "count": 5303,
+        "ec_c": "30.01.01",
+        "ec_n": "Dobanzi aferente datoriei publice interne directe",
+        "fn_c": "55.00.00",
+        "fn_n": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 114748911653.09,
+        "count": 1804,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 112982808660.99,
+        "count": 1865,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 108095223783.59,
+        "count": 9,
+        "ec_c": "51.01.07",
+        "ec_n": "Transferuri din bugetul de stat catre bugetul asigurarilor sociale de stat",
+        "fn_c": "56.02.00",
+        "fn_n": "Transferuri din bugetul de stat catre bugetul asigurarilor sociale de stat"
+      },
+      {
+        "amount": 87207474778.17,
+        "count": 29279,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 83872547746.47,
+        "count": 9,
+        "ec_c": "51.01.66",
+        "ec_n": "Transferuri din bugetul fondului national unic de asigurari sociale de sanatate catre unitatile sanitare pentru acoperirea cresterilor salariale",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 64533825060.03,
+        "count": 99,
+        "ec_c": "30.02.01",
+        "ec_n": "Dobanzi, aferente datoriei publice externe directe",
+        "fn_c": "55.00.00",
+        "fn_n": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 64379317878.21,
+        "count": 9,
+        "ec_c": "55.03.06",
+        "ec_n": "Contributii din resursa  VNB",
+        "fn_c": "51.03.00",
+        "fn_n": "Contributia la bugetul U E"
+      },
+      {
+        "amount": 61766334785.82,
+        "count": 9,
+        "ec_c": "58.13.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.50.00",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 61666922679.65,
+        "count": 28265,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.05.02",
+        "fn_n": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 55486675478.25,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.02",
+        "fn_n": "Medicamente pentru boli cronice cu risc crescut  utilizate in programele nationale cu scop curativ"
+      },
+      {
+        "amount": 54309258697.83,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.01",
+        "fn_n": "Medicamente cu si fara contributie personala"
+      },
+      {
+        "amount": 45033679484.91,
+        "count": 160,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "60.02.00",
+        "fn_n": "Aparare nationala"
+      },
+      {
+        "amount": 43163965411.93,
+        "count": 6448,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.04.01",
+        "fn_n": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 42450043381.2,
+        "count": 9,
+        "ec_c": "51.01.02",
+        "ec_n": "Finantarea  de baza a invatamantului superior",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 40481545873.62,
+        "count": 9,
+        "ec_c": "51.02.38",
+        "ec_n": "Programul National de Dezvoltare Locala",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 39640400288.07,
+        "count": 9,
+        "ec_c": "51.01.11",
+        "ec_n": "Transferuri din bugetul de stat catre bugetul fondului national unic de asigurari  sociale de sanatate",
+        "fn_c": "56.04.00",
+        "fn_n": "Transferuri din bugetul de stat catre bugetul fondului de asigurari sociale de sanatate"
+      },
+      {
+        "amount": 36892280241.35,
+        "count": 8,
+        "ec_c": "58.28.02",
+        "ec_n": "Fonduri externe nerambursabile",
+        "fn_c": "83.50.00",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 35412681208.79,
+        "count": 1425,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.04.02",
+        "fn_n": "Invatamant secundar superior"
+      },
+      {
+        "amount": 31753530882.86,
+        "count": 29,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 30714792667.91,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "60.02.00",
+        "fn_n": "Aparare nationala"
+      },
+      {
+        "amount": 30237874865,
+        "count": 1815,
+        "ec_c": "20.04.01",
+        "ec_n": "Medicamente",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 29700208914.82,
+        "count": 6187,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.03.02",
+        "fn_n": "Invatamant primar"
+      },
+      {
+        "amount": 29594013347.37,
+        "count": 13391,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 29264796536.65,
+        "count": 8,
+        "ec_c": "58.24.00",
+        "ec_n": "Sume aferente asistentei financiare nerambursabile alocata de Uniunea Europeana in perioada de programare 2014-2020",
+        "fn_c": "51.04.00",
+        "fn_n": "Cofinantarea  fondurilor primite de la Uniunea Europeana"
+      },
+      {
+        "amount": 28137763672.7,
+        "count": 1760,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 26730214087.37,
+        "count": 27316,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "68.05.02",
+        "fn_n": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 25791662603.14,
+        "count": 60,
+        "ec_c": "10.00.00",
+        "ec_n": "TITLUL I  CHELTUIELI DE PERSONAL",
+        "fn_c": "61.00.00",
+        "fn_n": "Ordine publica si siguranta nationala"
+      },
+      {
+        "amount": 25775421274.31,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.01",
+        "fn_n": "Asistenta medicala primara"
+      },
+      {
+        "amount": 25700827679.49,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.03.01",
+        "fn_n": "Politie"
+      },
+      {
+        "amount": 23620700658.78,
+        "count": 36,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.06.00",
+        "fn_n": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 22739728977.4,
+        "count": 6013,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.03.01",
+        "fn_n": "Invatamant prescolar"
+      },
+      {
+        "amount": 22417305930.27,
+        "count": 9,
+        "ec_c": "58.26.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.03.30",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii"
+      },
+      {
+        "amount": 19774325479.42,
+        "count": 9,
+        "ec_c": "40.15.00",
+        "ec_n": "Sprijinirea producatorilor agricoli",
+        "fn_c": "83.03.04",
+        "fn_n": "Programe pentru sprijinirea producatorilor agricoli"
+      },
+      {
+        "amount": 18243061150.92,
+        "count": 9,
+        "ec_c": "20.31.00",
+        "ec_n": "Finantarea unor actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 17005116600.3,
+        "count": 9,
+        "ec_c": "81.03.00",
+        "ec_n": "Rambursari de credite in contul imprumuturilor preluate/contractate  de MFP in baza OUG 64/2007",
+        "fn_c": "55.00.00",
+        "fn_n": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 16493875396.8,
+        "count": 3,
+        "ec_c": "40.21.00",
+        "ec_n": "Schema de compensare pentru consumul de energie electrica si gaze naturale al consumatorilor noncasnici",
+        "fn_c": "80.01.30",
+        "fn_n": "Alte cheltuieli pentru actiuni generale economice si comerciale"
+      },
+      {
+        "amount": 16490754681.34,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.05.01",
+        "fn_n": "Asistenta sociala in caz de boli"
+      },
+      {
+        "amount": 16478199123.61,
+        "count": 9,
+        "ec_c": "58.27.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.03.30",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii"
+      },
+      {
+        "amount": 16411441527.44,
+        "count": 44,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "54.50.00",
+        "fn_n": "Alte servicii publice generale"
+      },
+      {
+        "amount": 16371781721.72,
+        "count": 18,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.02",
+        "fn_n": "Asistenta medicala pentru specialitati clinice"
+      },
+      {
+        "amount": 15861400599.6,
+        "count": 807,
+        "ec_c": "40.03.00",
+        "ec_n": "Subventii pentru acoperirea diferentelor de pret si tarif",
+        "fn_c": "84.03.02",
+        "fn_n": "Transport in comun"
+      },
+      {
+        "amount": 15509908430.54,
+        "count": 2,
+        "ec_c": "56.52.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "83.50.00",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 15454799912.23,
+        "count": 79,
+        "ec_c": "51.01.03",
+        "ec_n": "Actiuni de sanatate",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 15399416361,
+        "count": 9,
+        "ec_c": "40.04.00",
+        "ec_n": "Subventii pentru sustinerea transportului feroviar public de calatori",
+        "fn_c": "84.04.01",
+        "fn_n": "Transport pe calea ferata"
+      },
+      {
+        "amount": 15106611214.75,
+        "count": 3,
+        "ec_c": "51.02.54",
+        "ec_n": "Programul national de investitii ?Anghel Saligny?",
+        "fn_c": "70.50.00",
+        "fn_n": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 15105195043.7,
+        "count": 343,
+        "ec_c": "40.03.00",
+        "ec_n": "Subventii pentru acoperirea diferentelor de pret si tarif",
+        "fn_c": "81.06.00",
+        "fn_n": "Energie termica"
+      },
+      {
+        "amount": 14736601200.46,
+        "count": 5836,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 14114015928.36,
+        "count": 18,
+        "ec_c": "55.01.12",
+        "ec_n": "Investitii ale agentilor economici cu capital de stat",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 13664220399.87,
+        "count": 10,
+        "ec_c": "58.03.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 13524948544.1,
+        "count": 9,
+        "ec_c": "51.01.01",
+        "ec_n": "Transferuri catre institutii publice",
+        "fn_c": "61.07.00",
+        "fn_n": "Penitenciare"
+      },
+      {
+        "amount": 13500560034.99,
+        "count": 9,
+        "ec_c": "51.01.55",
+        "ec_n": "Intretinerea si functionarea/exploatarea infrastructurii feroviare publice",
+        "fn_c": "84.04.01",
+        "fn_n": "Transport pe calea ferata"
+      },
+      {
+        "amount": 13448047923.11,
+        "count": 319,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 12878998359.82,
+        "count": 8018,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.05.00",
+        "fn_n": "Protectie civila si protectie contra incendiilor"
+      },
+      {
+        "amount": 12827576839.91,
+        "count": 17,
+        "ec_c": "51.01.01",
+        "ec_n": "Transferuri catre institutii publice",
+        "fn_c": "83.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 11930143810.71,
+        "count": 1547,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "68.06.00",
+        "fn_n": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 11872919987.4,
+        "count": 3,
+        "ec_c": "57.02.06",
+        "ec_n": "Sume acordate pentru compensarea facturilor aferente consumulului de energie electrica si gaze naturale",
+        "fn_c": "68.15.01",
+        "fn_n": "Ajutor social"
+      },
+      {
+        "amount": 11810658822.58,
+        "count": 1814,
+        "ec_c": "20.04.02",
+        "ec_n": "Materiale sanitare",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 11508479007.16,
+        "count": 25518,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.15.01",
+        "fn_n": "Ajutor social"
+      },
+      {
+        "amount": 11372021360.87,
+        "count": 7,
+        "ec_c": "51.01.69",
+        "ec_n": "Transferuri de la bugetul de stat catre bugetul Fondului national unic de asigurari sociale de sanatate pentru acoperirea deficitului rezultat din aplicarea prevederilor legale referitoare la concediile si indemnizatiile de asigurari sociale de sanatate",
+        "fn_c": "56.04.00",
+        "fn_n": "Transferuri din bugetul de stat catre bugetul fondului de asigurari sociale de sanatate"
+      },
+      {
+        "amount": 11111896531.2,
+        "count": 1644,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 11057329553.3,
+        "count": 471,
+        "ec_c": "51.01.01",
+        "ec_n": "Transferuri catre institutii publice",
+        "fn_c": "67.03.04",
+        "fn_n": "Institutii publice de spectacole si concerte"
+      },
+      {
+        "amount": 10898018970.45,
+        "count": 26,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.09.00",
+        "fn_n": "Ajutoare pentru urmasi"
+      },
+      {
+        "amount": 10895765991.74,
+        "count": 9,
+        "ec_c": "55.03.04",
+        "ec_n": "Contributii din resursa TVA",
+        "fn_c": "51.03.00",
+        "fn_n": "Contributia la bugetul U E"
+      },
+      {
+        "amount": 10817268619.52,
+        "count": 17,
+        "ec_c": "51.01.04",
+        "ec_n": "Alte drepturi pentru dizabilitate si adoptie",
+        "fn_c": "68.05.02",
+        "fn_n": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 10673234810.19,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.03.02",
+        "fn_n": "Jandarmerie"
+      },
+      {
+        "amount": 10460584869.26,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.04",
+        "fn_n": "Servicii medicale de hemodializa si dializa peritoneala"
+      },
+      {
+        "amount": 10149878775.49,
+        "count": 3363,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 10031489539.81,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.04",
+        "fn_n": "Asistenta medicala pentru specialitati paraclinice"
+      },
+      {
+        "amount": 9481765138.98,
+        "count": 9,
+        "ec_c": "55.01.46",
+        "ec_n": "Transferuri catre intreprinderi in cadrul schemelor de ajutor de stat",
+        "fn_c": "80.01.12",
+        "fn_n": "Ajutoare de stat"
+      },
+      {
+        "amount": 9449689982.25,
+        "count": 7823,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "74.05.01",
+        "fn_n": "Salubritate"
+      },
+      {
+        "amount": 9384535232.63,
+        "count": 9,
+        "ec_c": "55.03.01",
+        "ec_n": "Contributii din taxe vamale",
+        "fn_c": "51.03.00",
+        "fn_n": "Contributia la bugetul U E"
+      },
+      {
+        "amount": 8859536843.94,
+        "count": 175,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.07.04",
+        "fn_n": "Invatamant special"
+      },
+      {
+        "amount": 8827076479.14,
+        "count": 8,
+        "ec_c": "58.28.01",
+        "ec_n": "Cofinantare publica nationala totala",
+        "fn_c": "83.50.00",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 8718037886.33,
+        "count": 11972,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 8510771361.15,
+        "count": 5987,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "74.06.00",
+        "fn_n": "Canalizarea si tratarea apelor reziduale"
+      },
+      {
+        "amount": 8507079142.75,
+        "count": 1057,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "83.03.30",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii"
+      },
+      {
+        "amount": 8363021868.77,
+        "count": 5778,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "84.03.03",
+        "fn_n": "Strazi"
+      },
+      {
+        "amount": 8317132988,
+        "count": 8,
+        "ec_c": "58.03.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "84.04.01",
+        "fn_n": "Transport pe calea ferata"
+      },
+      {
+        "amount": 8091271407.72,
+        "count": 1621,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 7801171280.15,
+        "count": 9,
+        "ec_c": "55.01.52",
+        "ec_n": "Transferuri interne catre operatorii economici",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 7794207176.37,
+        "count": 27074,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 7769333468.27,
+        "count": 10813,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "84.03.01",
+        "fn_n": "Drumuri si poduri"
+      },
+      {
+        "amount": 7526927728.57,
+        "count": 338,
+        "ec_c": "59.01.00",
+        "ec_n": "Burse",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 7473575703.42,
+        "count": 21639,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 7354356877.67,
+        "count": 27,
+        "ec_c": "59.01.00",
+        "ec_n": "Burse",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 7175892932.42,
+        "count": 283,
+        "ec_c": "55.01.18",
+        "ec_n": "Alte transferuri curente interne",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 7152444702.85,
+        "count": 1807,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 7051727128.41,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.07.00",
+        "fn_n": "Penitenciare"
+      },
+      {
+        "amount": 6961808451,
+        "count": 54,
+        "ec_c": "57.00.00",
+        "ec_n": "TITLUL IX  ASISTENTA SOCIALA",
+        "fn_c": "68.00.00",
+        "fn_n": "Asigurari si asistenta sociala"
+      },
+      {
+        "amount": 6950774366.24,
+        "count": 1745,
+        "ec_c": "20.04.03",
+        "ec_n": "Reactivi",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 6928007712.54,
+        "count": 10,
+        "ec_c": "55.01.48",
+        "ec_n": "Finantarea proiectelor de cercetare-dezvoltare si inovare",
+        "fn_c": "53.02.00",
+        "fn_n": "Cercetare si dezvoltare pentru servicii publice generale"
+      },
+      {
+        "amount": 6846645756.84,
+        "count": 9,
+        "ec_c": "10.02.02",
+        "ec_n": "Norme de hrana",
+        "fn_c": "60.02.00",
+        "fn_n": "Aparare nationala"
+      },
+      {
+        "amount": 6843130525.29,
+        "count": 9,
+        "ec_c": "51.01.01",
+        "ec_n": "Transferuri catre institutii publice",
+        "fn_c": "83.03.02",
+        "fn_n": "Imbunatatiri funciare, irigatii, desecari si combaterea eroziunii solului"
+      },
+      {
+        "amount": 6826801311.49,
+        "count": 1480,
+        "ec_c": "51.01.01",
+        "ec_n": "Transferuri catre institutii publice",
+        "fn_c": "67.05.01",
+        "fn_n": "Sport"
+      },
+      {
+        "amount": 6765732754.11,
+        "count": 503,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "67.03.04",
+        "fn_n": "Institutii publice de spectacole si concerte"
+      },
+      {
+        "amount": 6692718043.82,
+        "count": 10,
+        "ec_c": "59.14.00",
+        "ec_n": "Contributia statului la salarizarea personalului de cult",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 6550506115.41,
+        "count": 9,
+        "ec_c": "58.25.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "83.03.30",
+        "fn_n": "Alte cheltuieli in domeniul agriculturii"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 13584
+    }
+  }
+}

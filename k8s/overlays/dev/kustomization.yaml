@@ -1,0 +1,116 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: hack-for-facts-dev
+
+resources:
+  - ../../base
+  - ./secrets/sealed-app-secret.yaml
+  - ./secrets/sealed-db-deployment.yaml
+  - ./secrets/sealed-db-user-deployment.yaml
+  - ./secrets/sealed-registry-secret.yaml
+  - ./secrets/sealed-redis-auth.yaml
+
+patches:
+  - target:
+      kind: Cluster
+      name: postgres-db
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/storage/size
+        value: 100Gi
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts_user
+
+  - target:
+      kind: Cluster
+      name: postgres-userdata
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/storage/size
+        value: 50Gi
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts-userdata-owner
+
+  - target:
+      kind: Deployment
+      name: hack-for-facts-eb-server
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+
+  - target:
+      kind: Service
+      name: hack-for-facts-eb-server
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+
+  - target:
+      kind: VirtualService
+      name: istio-transparenta-api-virtualservice
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/hosts/0
+        value: "hack-for-facts-dev.devostack.com"
+      - op: replace
+        path: /spec/hosts/1
+        value: "api-dev.transparenta.eu"
+
+  - target:
+      kind: ConfigMap
+      name: hack-for-facts-eb-server-config
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: redis-data
+    patch: |-
+      - op: remove
+        path: /
+
+  - target:
+      kind: Deployment
+      name: redis
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: REDIS_EXTRA_FLAGS
+          value: "--maxmemory 768mb --maxmemory-policy allkeys-lru --save ''"
+
+  - target:
+      kind: Service
+      name: redis
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev

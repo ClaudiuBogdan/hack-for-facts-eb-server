@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 110553218509.13,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 55486675478.25,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.02",
+        "fn_n": "Medicamente pentru boli cronice cu risc crescut  utilizate in programele nationale cu scop curativ"
+      },
+      {
+        "amount": 54309258697.83,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.01",
+        "fn_n": "Medicamente cu si fara contributie personala"
+      },
+      {
+        "amount": 25775421274.31,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.01",
+        "fn_n": "Asistenta medicala primara"
+      },
+      {
+        "amount": 16490754681.34,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.05.01",
+        "fn_n": "Asistenta sociala in caz de boli"
+      },
+      {
+        "amount": 16369271476.59,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.02",
+        "fn_n": "Asistenta medicala pentru specialitati clinice"
+      },
+      {
+        "amount": 10460584869.26,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.04",
+        "fn_n": "Servicii medicale de hemodializa si dializa peritoneala"
+      },
+      {
+        "amount": 10192660873.72,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.06.00",
+        "fn_n": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 10031489539.81,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.04",
+        "fn_n": "Asistenta medicala pentru specialitati paraclinice"
+      },
+      {
+        "amount": 5130355818.92,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.11.00",
+        "fn_n": "Prestatii medicale acordate in baza documentelor internationale"
+      },
+      {
+        "amount": 4527327027.76,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.03",
+        "fn_n": "Materiale sanitare specifice utilizate in programele nationale cu scop curativ"
+      },
+      {
+        "amount": 2061682049.68,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.03.05",
+        "fn_n": "Dispozitive si echipamente medicale"
+      },
+      {
+        "amount": 1995310324.8,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 1507347552.41,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.03",
+        "fn_n": "Asistenta  medicala stomatologica"
+      },
+      {
+        "amount": 1300605837.99,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.04.05",
+        "fn_n": "Asistenta  medicale in centre medicale multifunctionale"
+      },
+      {
+        "amount": 459130936.68,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.07.00",
+        "fn_n": "Ingrijiri medicale la domiciliu"
+      },
+      {
+        "amount": 450734306.8,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.06.04",
+        "fn_n": "Unitati de recuperare-reabilitare a sanatatii"
+      },
+      {
+        "amount": 443356819.87,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.05.00",
+        "fn_n": "Servicii de urgenta prespitalicesti si transport sanitar"
+      },
+      {
+        "amount": 247087664,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 191012813,
+        "count": 7,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 158130714.26,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 132139703.13,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 130256477.94,
+        "count": 9,
+        "ec_c": "30.03.02",
+        "ec_n": "Dobanda datorata trezoreriei statului",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 84190735.58,
+        "count": 4,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 59289930.74,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 55661560,
+        "count": 9,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 53731522,
+        "count": 9,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 50648005,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 43910449,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 43736497.13,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 38238193.23,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 25578701,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 23042278,
+        "count": 7,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 22513610.48,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 20914302.81,
+        "count": 9,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 18910994.06,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 18854874.74,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 18647285.81,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 17758297,
+        "count": 9,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 15780696.57,
+        "count": 4,
+        "ec_c": "58.02.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 13062688.28,
+        "count": 8,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 12778549,
+        "count": 9,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 10982926.98,
+        "count": 9,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 10858158.77,
+        "count": 6,
+        "ec_c": "20.25.00",
+        "ec_n": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 10685535.69,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 7553677.18,
+        "count": 9,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 7220628,
+        "count": 7,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 6425448.62,
+        "count": 7,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 6013502.81,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 5906991,
+        "count": 9,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 5412030.38,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 5302892,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 5069318.97,
+        "count": 6,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 5031339,
+        "count": 7,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 5029861.93,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 4372234,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 3636795.2,
+        "count": 8,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 3494545,
+        "count": 9,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 3224004.24,
+        "count": 9,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 3110119.36,
+        "count": 5,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 3039187,
+        "count": 9,
+        "ec_c": "10.03.06",
+        "ec_n": "Contributii pentru concedii si indemnizatii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 2873566.41,
+        "count": 7,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 2621967.75,
+        "count": 9,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 2404343,
+        "count": 7,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 2343224.27,
+        "count": 9,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 2030825.92,
+        "count": 9,
+        "ec_c": "20.14.00",
+        "ec_n": "Protectia muncii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 1995650,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 1697387.22,
+        "count": 7,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 1684935,
+        "count": 9,
+        "ec_c": "10.03.02",
+        "ec_n": "Contributii de asigurari de somaj",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 1649558.41,
+        "count": 9,
+        "ec_c": "10.01.13",
+        "ec_n": "Drepturi de delegare",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 1570679.97,
+        "count": 9,
+        "ec_c": "20.06.01",
+        "ec_n": "Deplasari interne, detasari, transferari",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 1544142.59,
+        "count": 7,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 1472747.6,
+        "count": 9,
+        "ec_c": "20.06.01",
+        "ec_n": "Deplasari interne, detasari, transferari",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 1319762.86,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 1129305.08,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 959075,
+        "count": 7,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 932494.85,
+        "count": 8,
+        "ec_c": "20.06.02",
+        "ec_n": "Deplasari in strainatate",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 884257.82,
+        "count": 7,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 817102.4,
+        "count": 9,
+        "ec_c": "10.01.13",
+        "ec_n": "Drepturi de delegare",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 770891.12,
+        "count": 9,
+        "ec_c": "20.11.00",
+        "ec_n": "Carti, publicatii si materiale documentare",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 673971,
+        "count": 7,
+        "ec_c": "10.03.06",
+        "ec_n": "Contributii pentru concedii si indemnizatii",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 654914.37,
+        "count": 9,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 642733.41,
+        "count": 6,
+        "ec_c": "20.25.00",
+        "ec_n": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 511142,
+        "count": 9,
+        "ec_c": "10.03.04",
+        "ec_n": "Contributii de asigurari pentru accidente de munca si boli profesionale",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 450016.96,
+        "count": 6,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 334864.73,
+        "count": 7,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 329328,
+        "count": 7,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 311786.52,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 303761.82,
+        "count": 5,
+        "ec_c": "10.01.14",
+        "ec_n": "Indemnizatii de  detasare",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 267666.02,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 229930.23,
+        "count": 5,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 226803,
+        "count": 7,
+        "ec_c": "10.03.02",
+        "ec_n": "Contributii de asigurari de somaj",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 185029.25,
+        "count": 1,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 185029.25,
+        "count": 2,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 162631.13,
+        "count": 7,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 123354.5,
+        "count": 2,
+        "ec_c": "58.15.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 94642.9,
+        "count": 9,
+        "ec_c": "20.13.00",
+        "ec_n": "Pregatire profesionala",
+        "fn_c": "66.02.00",
+        "fn_n": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 93747.7,
+        "count": 2,
+        "ec_c": "58.15.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 68352,
+        "count": 7,
+        "ec_c": "10.03.04",
+        "ec_n": "Contributii de asigurari pentru accidente de munca si boli profesionale",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      },
+      {
+        "amount": 60108.8,
+        "count": 6,
+        "ec_c": "20.14.00",
+        "ec_n": "Protectia muncii",
+        "fn_c": "66.01.00",
+        "fn_n": "Administratia centrala"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 132
+    }
+  }
+}

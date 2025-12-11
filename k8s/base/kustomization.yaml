@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hack-for-facts
+resources:
+  - postgres-deployment.yaml
+  - postgres-userdata.yaml
+  - deployment.yaml
+  - service.yaml
+  - virtual-service.yaml
+  - configmap.yaml
+  - redis.yaml
+commonLabels:
+  app.kubernetes.io/name: hack-for-facts-eb-server
+  app.kubernetes.io/part-of: hack-for-facts
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts_user
+    target:
+      kind: Cluster
+      name: postgres-db
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hack-for-facts-eb-server
+      spec:
+        template:
+          metadata:
+            annotations:
+              image-sha: latest
+    target:
+      kind: Deployment
+      name: hack-for-facts-eb-server
+images:
+  - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    newTag: latest

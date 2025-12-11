@@ -1,0 +1,18 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [],
+      "seriesId": "entity-type-uat",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

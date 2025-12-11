@@ -1,0 +1,111 @@
+{
+  "entity": {
+    "balanceTrend": {
+      "data": [
+        {
+          "x": "2022-Q1",
+          "y": 638.83
+        },
+        {
+          "x": "2022-Q2",
+          "y": 322.84
+        },
+        {
+          "x": "2022-Q3",
+          "y": 183.92
+        },
+        {
+          "x": "2022-Q4",
+          "y": -1501.35
+        }
+      ],
+      "seriesId": "4305857_balance_trend",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": ""
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON/capita"
+      }
+    },
+    "budgetBalance": 638.83,
+    "cui": "4305857",
+    "entity_type": "admin_municipality",
+    "expensesTrend": {
+      "data": [
+        {
+          "x": "2022-Q1",
+          "y": 871.33
+        },
+        {
+          "x": "2022-Q2",
+          "y": 1139.96
+        },
+        {
+          "x": "2022-Q3",
+          "y": 1288.36
+        },
+        {
+          "x": "2022-Q4",
+          "y": 2065.24
+        }
+      ],
+      "seriesId": "4305857_expenses_trend",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": ""
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON/capita"
+      }
+    },
+    "incomeTrend": {
+      "data": [
+        {
+          "x": "2022-Q1",
+          "y": 1510.17
+        },
+        {
+          "x": "2022-Q2",
+          "y": 1462.8
+        },
+        {
+          "x": "2022-Q3",
+          "y": 1472.28
+        },
+        {
+          "x": "2022-Q4",
+          "y": 563.89
+        }
+      ],
+      "seriesId": "4305857_income_trend",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": ""
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON/capita"
+      }
+    },
+    "is_uat": true,
+    "name": "MUNICIPIUL CLUJ-NAPOCA",
+    "totalExpenses": 871.33,
+    "totalIncome": 1510.17,
+    "uat": {
+      "county_code": "CJ",
+      "county_name": "CLUJ",
+      "name": "MUNICIPIUL CLUJ-NAPOCA",
+      "population": 286598,
+      "siruta_code": "54975"
+    }
+  }
+}
