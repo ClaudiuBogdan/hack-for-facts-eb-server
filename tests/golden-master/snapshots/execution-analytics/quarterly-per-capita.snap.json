@@ -1,0 +1,51 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [
+        {
+          "x": "2022-Q1",
+          "y": 7578.66
+        },
+        {
+          "x": "2022-Q2",
+          "y": 7449.45
+        },
+        {
+          "x": "2022-Q3",
+          "y": 8269.03
+        },
+        {
+          "x": "2022-Q4",
+          "y": 10204.69
+        },
+        {
+          "x": "2023-Q1",
+          "y": 8507.74
+        },
+        {
+          "x": "2023-Q2",
+          "y": 8785.11
+        },
+        {
+          "x": "2023-Q3",
+          "y": 8717.9
+        },
+        {
+          "x": "2023-Q4",
+          "y": 11540.53
+        }
+      ],
+      "seriesId": "quarterly-per-capita",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": "quarter"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON/capita"
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 405556374.15,
+        "count": 4,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 71566853.52,
+        "count": 4,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 3820303.18,
+        "count": 2,
+        "ec_c": "56.35.00",
+        "ec_n": "Transferuri reprezentand cofinantarea publica in cadrul mecanismului SEE, pentru promotorii de proiect/beneficiarii institutii publice",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 680000,
+        "count": 1,
+        "ec_c": "61.14.01",
+        "ec_n": "Fonduri din imprumut rambursabil",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 544762.66,
+        "count": 5,
+        "ec_c": "58.01.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": 0,
+        "count": 1,
+        "ec_c": "61.13.01",
+        "ec_n": "Fonduri din imprumut rambursabil",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      },
+      {
+        "amount": -32076032.31,
+        "count": 8,
+        "ec_c": "85.01.03",
+        "ec_n": "Plati efectuate in anii precedenti si recuperate in anul curent aferente cheltuielilor curente si operatiunilor financiare ale altor institutii publice",
+        "fn_c": "74.03.00",
+        "fn_n": "Reducerea si controlul poluarii"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 7
+    }
+  }
+}

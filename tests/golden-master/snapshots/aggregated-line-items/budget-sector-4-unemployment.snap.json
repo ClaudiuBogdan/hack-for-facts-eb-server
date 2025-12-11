@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 5044960592.02,
+        "count": 5,
+        "ec_c": "57.04.00",
+        "ec_n": "Indemnizatii acordate pe perioada suspendarii temporare a contractului individual de munca din initiativa angajatorului",
+        "fn_c": "68.07.00",
+        "fn_n": "Asigurari  pentru somaj"
+      },
+      {
+        "amount": 4207077595.49,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "80.02.05",
+        "fn_n": "Stimularea crearii de locuri de munca"
+      },
+      {
+        "amount": 4094869858.11,
+        "count": 9,
+        "ec_c": "57.01.00",
+        "ec_n": "Asigurari sociale",
+        "fn_c": "68.07.00",
+        "fn_n": "Asigurari  pentru somaj"
+      },
+      {
+        "amount": 3220571581.06,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.15.50",
+        "fn_n": "Alte cheltuieli in domeniul prevenirii excluderii sociale"
+      },
+      {
+        "amount": 2735811687.62,
+        "count": 7,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 1041322800.31,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 421740836.63,
+        "count": 7,
+        "ec_c": "58.02.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 281505397.42,
+        "count": 9,
+        "ec_c": "59.25.00",
+        "ec_n": "Sume aferente platii creantelor salariale",
+        "fn_c": "64.01.00",
+        "fn_n": "Asigurari pentru plata creantelor salariale"
+      },
+      {
+        "amount": 154449466.75,
+        "count": 4,
+        "ec_c": "59.42.00",
+        "ec_n": "Indemnizatii acordate parintilor pentru supravegherea copiilor pe perioada inchiderii temporare a unitatilor de invatamant",
+        "fn_c": "64.01.00",
+        "fn_n": "Asigurari pentru plata creantelor salariale"
+      },
+      {
+        "amount": 130271994.73,
+        "count": 5,
+        "ec_c": "57.07.00",
+        "ec_n": "Sume acordate angajatorilor pentru incadrarea in munca a unor categorii de persoane",
+        "fn_c": "80.02.05",
+        "fn_n": "Stimularea crearii de locuri de munca"
+      },
+      {
+        "amount": 95978788.15,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 86392362,
+        "count": 6,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 69142288.93,
+        "count": 9,
+        "ec_c": "40.09.00",
+        "ec_n": "Plati catre angajatori pentru formarea profesionala a angajatilor",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 54426508.8,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 52766868.92,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 51862474.71,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 48648960,
+        "count": 9,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 40836651.66,
+        "count": 4,
+        "ec_c": "57.06.00",
+        "ec_n": "Sume acordate angajatorilor pentru decontarea unei parti a salariului brut al angajatilor mentinuti in munca",
+        "fn_c": "68.07.00",
+        "fn_n": "Asigurari  pentru somaj"
+      },
+      {
+        "amount": 38587634.66,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 38356645,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 29137076,
+        "count": 9,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 27789142.65,
+        "count": 9,
+        "ec_c": "20.30.06",
+        "ec_n": "Prestari servicii pentru transmiterea drepturilor",
+        "fn_c": "68.50.02",
+        "fn_n": "Cheltuieli cu transmiterea si plata drepturilor"
+      },
+      {
+        "amount": 23951770.44,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 22385901,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 22342676.86,
+        "count": 2,
+        "ec_c": "60.01.00",
+        "ec_n": "Fonduri europene nerambursabile",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 18911196.84,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 15994381.17,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 14624644.54,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 14286829.06,
+        "count": 8,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 14161828.33,
+        "count": 9,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 12785693.3,
+        "count": 8,
+        "ec_c": "30.03.02",
+        "ec_n": "Dobanda datorata trezoreriei statului",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 12382446.71,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 11554496.93,
+        "count": 18,
+        "ec_c": "57.02.02",
+        "ec_n": "Ajutoare sociale in natura",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 9826216.4,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 9552654,
+        "count": 9,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 9027513.17,
+        "count": 1,
+        "ec_c": "56.02.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 8836230,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "64.02.02",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 8654428.02,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 8506128.15,
+        "count": 10,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 7123091.09,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 6980406.41,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 6927076,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 6434552.91,
+        "count": 9,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 6112242.65,
+        "count": 9,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 5980528.49,
+        "count": 8,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 5941530.01,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 5528955.55,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 5117808.05,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "80.02.04",
+        "fn_n": "Masuri active pentru combaterea somajului"
+      },
+      {
+        "amount": 4594926.36,
+        "count": 9,
+        "ec_c": "20.06.01",
+        "ec_n": "Deplasari interne, detasari, transferari",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 4259661.43,
+        "count": 9,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 4155046.2,
+        "count": 2,
+        "ec_c": "60.03.00",
+        "ec_n": "Sume aferente TVA",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 3919892.79,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 3412174.89,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 3367100.81,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 2759383.42,
+        "count": 7,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 2754548,
+        "count": 6,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 2228913.36,
+        "count": 6,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1968442.61,
+        "count": 5,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 1779932,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 1742791.68,
+        "count": 9,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1732069.12,
+        "count": 4,
+        "ec_c": "40.19.00",
+        "ec_n": "Plati pentru stimularea crearii de locuri de munca",
+        "fn_c": "80.02.05",
+        "fn_n": "Stimularea crearii de locuri de munca"
+      },
+      {
+        "amount": 1714060,
+        "count": 9,
+        "ec_c": "10.03.06",
+        "ec_n": "Contributii pentru concedii si indemnizatii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1626787.27,
+        "count": 8,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1272291,
+        "count": 6,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 1257959.42,
+        "count": 18,
+        "ec_c": "20.06.01",
+        "ec_n": "Deplasari interne, detasari, transferari",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 1251271.87,
+        "count": 9,
+        "ec_c": "10.01.13",
+        "ec_n": "Drepturi de delegare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1143774.41,
+        "count": 1,
+        "ec_c": "56.49.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 1124199.01,
+        "count": 9,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1088379,
+        "count": 9,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1088344,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 1064869.04,
+        "count": 10,
+        "ec_c": "58.02.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 1022364.07,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 951518.45,
+        "count": 18,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 941312,
+        "count": 9,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 931558.99,
+        "count": 5,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 891934,
+        "count": 9,
+        "ec_c": "10.03.02",
+        "ec_n": "Contributii de asigurari de somaj",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 880535.01,
+        "count": 9,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 855258.53,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 773993,
+        "count": 6,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "64.02.02",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 744402,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 743561,
+        "count": 2,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 740407.51,
+        "count": 9,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 678105.48,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 631467.38,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 630000,
+        "count": 1,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 611183.33,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 597321.09,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 568243.06,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 546924,
+        "count": 6,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "65.50.00",
+        "fn_n": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 540056.5,
+        "count": 6,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 539801.54,
+        "count": 9,
+        "ec_c": "20.30.06",
+        "ec_n": "Prestari servicii pentru transmiterea drepturilor",
+        "fn_c": "64.02.01",
+        "fn_n": "Cheltuieli cu transmiterea si plata drepturilor"
+      },
+      {
+        "amount": 531317.94,
+        "count": 2,
+        "ec_c": "56.02.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      },
+      {
+        "amount": 513031.25,
+        "count": 9,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 469904.44,
+        "count": 9,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 436235.58,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 429095.83,
+        "count": 6,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 424866.44,
+        "count": 9,
+        "ec_c": "20.30.03",
+        "ec_n": "Prime de asigurare non-viata",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 417466,
+        "count": 6,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "65.07.01",
+        "fn_n": "Centre de specializare, perfectionare, calificare si recalificare"
+      },
+      {
+        "amount": 405509.39,
+        "count": 8,
+        "ec_c": "20.06.02",
+        "ec_n": "Deplasari in strainatate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 392643.95,
+        "count": 9,
+        "ec_c": "55.02.01",
+        "ec_n": "Contributii si cotizatii la organisme internationale",
+        "fn_c": "80.02.30",
+        "fn_n": "Alte actiuni generale de munca"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 207
+    }
+  }
+}

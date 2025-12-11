@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 744028797464.93,
+        "count": 9,
+        "ec_c": "57.01.00",
+        "ec_n": "Asigurari sociale",
+        "fn_c": "68.03.00",
+        "fn_n": "Pensii si ajutoare pentru batrinete"
+      },
+      {
+        "amount": 10773583603.91,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "68.09.00",
+        "fn_n": "Ajutoare pentru urmasi"
+      },
+      {
+        "amount": 4197334693.43,
+        "count": 9,
+        "ec_c": "20.30.06",
+        "ec_n": "Prestari servicii pentru transmiterea drepturilor",
+        "fn_c": "68.50.02",
+        "fn_n": "Cheltuieli cu transmiterea si plata drepturilor"
+      },
+      {
+        "amount": 2368237608.83,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2290077439.82,
+        "count": 9,
+        "ec_c": "57.02.02",
+        "ec_n": "Ajutoare sociale in natura",
+        "fn_c": "68.04.00",
+        "fn_n": "Asistenta acordata persoanelor in varsta"
+      },
+      {
+        "amount": 627831458.93,
+        "count": 9,
+        "ec_c": "57.01.00",
+        "ec_n": "Asigurari sociale",
+        "fn_c": "69.03.00",
+        "fn_n": "Pensii si ajutoare pentru batranete"
+      },
+      {
+        "amount": 222617838,
+        "count": 9,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 212099456.87,
+        "count": 9,
+        "ec_c": "30.03.02",
+        "ec_n": "Dobanda datorata trezoreriei statului",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 189225183.09,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 161530226.72,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "69.05.01",
+        "fn_n": "Asistenta sociala in caz de boli"
+      },
+      {
+        "amount": 159806551.37,
+        "count": 9,
+        "ec_c": "57.02.02",
+        "ec_n": "Ajutoare sociale in natura",
+        "fn_c": "69.05.02",
+        "fn_n": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 139252928.42,
+        "count": 9,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 129836156.14,
+        "count": 9,
+        "ec_c": "20.25.00",
+        "ec_n": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 123962026.53,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 112336824.19,
+        "count": 3,
+        "ec_c": "60.01.00",
+        "ec_n": "Fonduri europene nerambursabile",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 77486203,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 77214375,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 59797233.73,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 55466802,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 54472354,
+        "count": 9,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 40345911.53,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 32675471.5,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 32069929.94,
+        "count": 9,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 31184418.39,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "69.09.00",
+        "fn_n": "Ajutoare pentru urmasi"
+      },
+      {
+        "amount": 26904551,
+        "count": 9,
+        "ec_c": "57.02.01",
+        "ec_n": "Ajutoare sociale in numerar",
+        "fn_c": "69.05.02",
+        "fn_n": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 24312040.43,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 19963641.81,
+        "count": 9,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 17781442,
+        "count": 9,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 15713020,
+        "count": 9,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 13493379.46,
+        "count": 7,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 13209964.43,
+        "count": 3,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 11861882.82,
+        "count": 3,
+        "ec_c": "60.03.00",
+        "ec_n": "Sume aferente TVA",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 9941206.67,
+        "count": 9,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 8900000,
+        "count": 1,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 8656602.69,
+        "count": 9,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 7657660.08,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 7447630,
+        "count": 9,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 6855646,
+        "count": 9,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 5778309.24,
+        "count": 9,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 4793843.53,
+        "count": 9,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 4468392.48,
+        "count": 9,
+        "ec_c": "20.30.06",
+        "ec_n": "Prestari servicii pentru transmiterea drepturilor",
+        "fn_c": "69.50.02",
+        "fn_n": "Cheltuieli cu transmiterea si plata drepturilor"
+      },
+      {
+        "amount": 4138712.74,
+        "count": 9,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 3433321.56,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 3206686,
+        "count": 9,
+        "ec_c": "10.03.06",
+        "ec_n": "Contributii pentru concedii si indemnizatii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 3058292.87,
+        "count": 9,
+        "ec_c": "10.01.13",
+        "ec_n": "Drepturi de delegare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2789799.52,
+        "count": 9,
+        "ec_c": "20.14.00",
+        "ec_n": "Protectia muncii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2519205.09,
+        "count": 3,
+        "ec_c": "58.02.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2490747.81,
+        "count": 9,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2448862,
+        "count": 9,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2445061.68,
+        "count": 9,
+        "ec_c": "20.06.01",
+        "ec_n": "Deplasari interne, detasari, transferari",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2312812,
+        "count": 6,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2271093,
+        "count": 9,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 2102559.47,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1912453.73,
+        "count": 9,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1907469.08,
+        "count": 9,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1880655.03,
+        "count": 9,
+        "ec_c": "20.30.03",
+        "ec_n": "Prime de asigurare non-viata",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1782301,
+        "count": 7,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1780974.25,
+        "count": 7,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1700518,
+        "count": 9,
+        "ec_c": "10.03.02",
+        "ec_n": "Contributii de asigurari de somaj",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1473758.98,
+        "count": 9,
+        "ec_c": "20.04.02",
+        "ec_n": "Materiale sanitare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1444159.6,
+        "count": 9,
+        "ec_c": "20.03.01",
+        "ec_n": "Hrana pentru oameni",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1376008.95,
+        "count": 8,
+        "ec_c": "55.02.01",
+        "ec_n": "Contributii si cotizatii la organisme internationale",
+        "fn_c": "68.15.50",
+        "fn_n": "Alte cheltuieli in domeniul prevenirii excluderii sociale"
+      },
+      {
+        "amount": 1283699.27,
+        "count": 9,
+        "ec_c": "20.04.03",
+        "ec_n": "Reactivi",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1263899.52,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 1172312.25,
+        "count": 9,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 979040,
+        "count": 6,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 748845,
+        "count": 9,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 716328.65,
+        "count": 3,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "68.50.50",
+        "fn_n": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 716328.65,
+        "count": 3,
+        "ec_c": "58.15.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 640540.38,
+        "count": 9,
+        "ec_c": "20.01.05",
+        "ec_n": "Carburanti, lubrifianti si combustibili alternativi",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 567913.52,
+        "count": 9,
+        "ec_c": "20.06.02",
+        "ec_n": "Deplasari in strainatate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 552036,
+        "count": 7,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 549385.25,
+        "count": 9,
+        "ec_c": "20.13.00",
+        "ec_n": "Pregatire profesionala",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 527550,
+        "count": 9,
+        "ec_c": "10.03.04",
+        "ec_n": "Contributii de asigurari pentru accidente de munca si boli profesionale",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 477552.38,
+        "count": 3,
+        "ec_c": "58.15.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 423440.28,
+        "count": 9,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 411594.09,
+        "count": 8,
+        "ec_c": "10.02.04",
+        "ec_n": "Locuinta de serviciu folosita de salariat si familia sa",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 380324.21,
+        "count": 9,
+        "ec_c": "20.04.01",
+        "ec_n": "Medicamente",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 355494,
+        "count": 5,
+        "ec_c": "10.01.12",
+        "ec_n": "Indemnizatii platite unor persoane din afara unitatii",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 351474.85,
+        "count": 3,
+        "ec_c": "58.15.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 348014.96,
+        "count": 9,
+        "ec_c": "20.30.03",
+        "ec_n": "Prime de asigurare non-viata",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 282393,
+        "count": 8,
+        "ec_c": "59.17.00",
+        "ec_n": "Despagubiri civile",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 250594.99,
+        "count": 9,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 203101,
+        "count": 8,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 200236.03,
+        "count": 9,
+        "ec_c": "20.30.01",
+        "ec_n": "Reclama si publicitate",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 191180.43,
+        "count": 9,
+        "ec_c": "20.04.04",
+        "ec_n": "Dezinfectanti",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 190945,
+        "count": 9,
+        "ec_c": "10.03.06",
+        "ec_n": "Contributii pentru concedii si indemnizatii",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 156372.54,
+        "count": 9,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 142615.5,
+        "count": 9,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 115674.51,
+        "count": 1,
+        "ec_c": "56.18.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "68.50.50",
+        "fn_n": "Alte cheltuieli in domeniul asigurarilor si asistentei sociale"
+      },
+      {
+        "amount": 109159.39,
+        "count": 6,
+        "ec_c": "20.11.00",
+        "ec_n": "Carti, publicatii si materiale documentare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 101488.94,
+        "count": 9,
+        "ec_c": "20.30.02",
+        "ec_n": "Protocol si reprezentare",
+        "fn_c": "68.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 76410.97,
+        "count": 6,
+        "ec_c": "20.06.02",
+        "ec_n": "Deplasari in strainatate",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 70917,
+        "count": 9,
+        "ec_c": "10.03.02",
+        "ec_n": "Contributii de asigurari de somaj",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 60711.63,
+        "count": 8,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 47289.54,
+        "count": 9,
+        "ec_c": "20.30.04",
+        "ec_n": "Chirii",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 44374.96,
+        "count": 3,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 42578.2,
+        "count": 6,
+        "ec_c": "20.25.00",
+        "ec_n": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 36556.5,
+        "count": 8,
+        "ec_c": "10.01.13",
+        "ec_n": "Drepturi de delegare",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      },
+      {
+        "amount": 35266.72,
+        "count": 9,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "69.50.03",
+        "fn_n": "Alte cheltuieli de administrare fond"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 127
+    }
+  }
+}

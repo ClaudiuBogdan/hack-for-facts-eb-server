@@ -1,0 +1,19 @@
+{
+  "functionalClassifications": {
+    "nodes": [
+      {
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 2
+    }
+  }
+}

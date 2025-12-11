@@ -1,0 +1,27 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 84882629.47,
+        "count": 26,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "87.50.00",
+        "fn_n": "Alte actiuni economice"
+      },
+      {
+        "amount": 4544.16,
+        "count": 1,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "87.50.00",
+        "fn_n": "Alte actiuni economice"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 2
+    }
+  }
+}

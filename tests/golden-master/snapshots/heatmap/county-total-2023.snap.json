@@ -1,0 +1,340 @@
+{
+  "heatmapCountyData": [
+    {
+      "amount": 2781055125.98,
+      "county_code": "AB",
+      "county_name": "ALBA",
+      "county_population": 325941,
+      "per_capita_amount": 8532.39,
+      "total_amount": 2781055125.98
+    },
+    {
+      "amount": 3462173887.09,
+      "county_code": "AG",
+      "county_name": "ARGEȘ",
+      "county_population": 569932,
+      "per_capita_amount": 6074.71,
+      "total_amount": 3462173887.09
+    },
+    {
+      "amount": 2773866605.21,
+      "county_code": "AR",
+      "county_name": "ARAD",
+      "county_population": 410143,
+      "per_capita_amount": 6763.17,
+      "total_amount": 2773866605.21
+    },
+    {
+      "amount": 22163526483.62,
+      "county_code": "B",
+      "county_name": "MUNICIPIUL BUCUREȘTI",
+      "county_population": 1716983,
+      "per_capita_amount": 12908.41,
+      "total_amount": 22163526483.62
+    },
+    {
+      "amount": 3782329174.71,
+      "county_code": "BC",
+      "county_name": "BACĂU",
+      "county_population": 601387,
+      "per_capita_amount": 6289.34,
+      "total_amount": 3782329174.71
+    },
+    {
+      "amount": 5008415744.84,
+      "county_code": "BH",
+      "county_name": "BIHOR",
+      "county_population": 551297,
+      "per_capita_amount": 9084.79,
+      "total_amount": 5008415744.84
+    },
+    {
+      "amount": 2192479768.43,
+      "county_code": "BN",
+      "county_name": "BISTRIȚA-NĂSĂUD",
+      "county_population": 295988,
+      "per_capita_amount": 7407.33,
+      "total_amount": 2192479768.43
+    },
+    {
+      "amount": 1830039553.13,
+      "county_code": "BR",
+      "county_name": "BRĂILA",
+      "county_population": 281452,
+      "per_capita_amount": 6502.14,
+      "total_amount": 1830039553.13
+    },
+    {
+      "amount": 2347158217.2,
+      "county_code": "BT",
+      "county_name": "BOTOȘANI",
+      "county_population": 392821,
+      "per_capita_amount": 5975.13,
+      "total_amount": 2347158217.2
+    },
+    {
+      "amount": 4019357431.22,
+      "county_code": "BV",
+      "county_name": "BRAȘOV",
+      "county_population": 546615,
+      "per_capita_amount": 7353.18,
+      "total_amount": 4019357431.22
+    },
+    {
+      "amount": 2452174159.42,
+      "county_code": "BZ",
+      "county_name": "BUZĂU",
+      "county_population": 404979,
+      "per_capita_amount": 6055.06,
+      "total_amount": 2452174159.42
+    },
+    {
+      "amount": 5408736890.77,
+      "county_code": "CJ",
+      "county_name": "CLUJ",
+      "county_population": 679141,
+      "per_capita_amount": 7964.09,
+      "total_amount": 5408736890.77
+    },
+    {
+      "amount": 1612856134.93,
+      "county_code": "CL",
+      "county_name": "CĂLĂRAȘI",
+      "county_population": 283458,
+      "per_capita_amount": 5689.93,
+      "total_amount": 1612856134.93
+    },
+    {
+      "amount": 2221098168.77,
+      "county_code": "CS",
+      "county_name": "CARAȘ-SEVERIN",
+      "county_population": 246588,
+      "per_capita_amount": 9007.32,
+      "total_amount": 2221098168.77
+    },
+    {
+      "amount": 5183511307.89,
+      "county_code": "CT",
+      "county_name": "CONSTANȚA",
+      "county_population": 655997,
+      "per_capita_amount": 7901.73,
+      "total_amount": 5183511307.89
+    },
+    {
+      "amount": 1387228205.61,
+      "county_code": "CV",
+      "county_name": "COVASNA",
+      "county_population": 200042,
+      "per_capita_amount": 6934.68,
+      "total_amount": 1387228205.61
+    },
+    {
+      "amount": 2756072041.55,
+      "county_code": "DB",
+      "county_name": "DÂMBOVIȚA",
+      "county_population": 479404,
+      "per_capita_amount": 5748.96,
+      "total_amount": 2756072041.55
+    },
+    {
+      "amount": 3930359817.84,
+      "county_code": "DJ",
+      "county_name": "DOLJ",
+      "county_population": 599442,
+      "per_capita_amount": 6556.7,
+      "total_amount": 3930359817.84
+    },
+    {
+      "amount": 2229154356.85,
+      "county_code": "GJ",
+      "county_name": "GORJ",
+      "county_population": 314684,
+      "per_capita_amount": 7083.79,
+      "total_amount": 2229154356.85
+    },
+    {
+      "amount": 3266115612.31,
+      "county_code": "GL",
+      "county_name": "GALAȚI",
+      "county_population": 496892,
+      "per_capita_amount": 6573.09,
+      "total_amount": 3266115612.31
+    },
+    {
+      "amount": 1521269665.72,
+      "county_code": "GR",
+      "county_name": "GIURGIU",
+      "county_population": 262066,
+      "per_capita_amount": 5804.91,
+      "total_amount": 1521269665.72
+    },
+    {
+      "amount": 3328206797.97,
+      "county_code": "HD",
+      "county_name": "HUNEDOARA",
+      "county_population": 361657,
+      "per_capita_amount": 9202.66,
+      "total_amount": 3328206797.97
+    },
+    {
+      "amount": 2241405492.77,
+      "county_code": "HR",
+      "county_name": "HARGHITA",
+      "county_population": 291950,
+      "per_capita_amount": 7677.36,
+      "total_amount": 2241405492.77
+    },
+    {
+      "amount": 3283936414.3,
+      "county_code": "IF",
+      "county_name": "ILFOV",
+      "county_population": 542686,
+      "per_capita_amount": 6051.26,
+      "total_amount": 3283936414.3
+    },
+    {
+      "amount": 1696593899.6,
+      "county_code": "IL",
+      "county_name": "IALOMIȚA",
+      "county_population": 250816,
+      "per_capita_amount": 6764.3,
+      "total_amount": 1696593899.6
+    },
+    {
+      "amount": 5214237270.54,
+      "county_code": "IS",
+      "county_name": "IAȘI",
+      "county_population": 760774,
+      "per_capita_amount": 6853.86,
+      "total_amount": 5214237270.54
+    },
+    {
+      "amount": 1811926891.96,
+      "county_code": "MH",
+      "county_name": "MEHEDINȚI",
+      "county_population": 234339,
+      "per_capita_amount": 7732.08,
+      "total_amount": 1811926891.96
+    },
+    {
+      "amount": 3207031938.29,
+      "county_code": "MM",
+      "county_name": "MARAMUREȘ",
+      "county_population": 452475,
+      "per_capita_amount": 7087.75,
+      "total_amount": 3207031938.29
+    },
+    {
+      "amount": 3347582402.46,
+      "county_code": "MS",
+      "county_name": "MUREȘ",
+      "county_population": 518193,
+      "per_capita_amount": 6460.11,
+      "total_amount": 3347582402.46
+    },
+    {
+      "amount": 2634057236.31,
+      "county_code": "NT",
+      "county_name": "NEAMȚ",
+      "county_population": 454203,
+      "per_capita_amount": 5799.3,
+      "total_amount": 2634057236.31
+    },
+    {
+      "amount": 2517250908.64,
+      "county_code": "OT",
+      "county_name": "OLT",
+      "county_population": 383280,
+      "per_capita_amount": 6567.66,
+      "total_amount": 2517250908.64
+    },
+    {
+      "amount": 4577642431.62,
+      "county_code": "PH",
+      "county_name": "PRAHOVA",
+      "county_population": 695117,
+      "per_capita_amount": 6585.43,
+      "total_amount": 4577642431.62
+    },
+    {
+      "amount": 3251673943.39,
+      "county_code": "SB",
+      "county_name": "SIBIU",
+      "county_population": 388325,
+      "per_capita_amount": 8373.59,
+      "total_amount": 3251673943.39
+    },
+    {
+      "amount": 1758981893.96,
+      "county_code": "SJ",
+      "county_name": "SĂLAJ",
+      "county_population": 212224,
+      "per_capita_amount": 8288.33,
+      "total_amount": 1758981893.96
+    },
+    {
+      "amount": 2322878582.22,
+      "county_code": "SM",
+      "county_name": "SATU MARE",
+      "county_population": 330668,
+      "per_capita_amount": 7024.81,
+      "total_amount": 2322878582.22
+    },
+    {
+      "amount": 3868644800.85,
+      "county_code": "SV",
+      "county_name": "SUCEAVA",
+      "county_population": 642551,
+      "per_capita_amount": 6020.76,
+      "total_amount": 3868644800.85
+    },
+    {
+      "amount": 1795578463.74,
+      "county_code": "TL",
+      "county_name": "TULCEA",
+      "county_population": 193355,
+      "per_capita_amount": 9286.43,
+      "total_amount": 1795578463.74
+    },
+    {
+      "amount": 5334923498.29,
+      "county_code": "TM",
+      "county_name": "TIMIȘ",
+      "county_population": 650533,
+      "per_capita_amount": 8200.85,
+      "total_amount": 5334923498.29
+    },
+    {
+      "amount": 1934429562.02,
+      "county_code": "TR",
+      "county_name": "TELEORMAN",
+      "county_population": 323544,
+      "per_capita_amount": 5978.88,
+      "total_amount": 1934429562.02
+    },
+    {
+      "amount": 2575789861.11,
+      "county_code": "VL",
+      "county_name": "VÂLCEA",
+      "county_population": 341861,
+      "per_capita_amount": 7534.61,
+      "total_amount": 2575789861.11
+    },
+    {
+      "amount": 1925072094.57,
+      "county_code": "VN",
+      "county_name": "VRANCEA",
+      "county_population": 335312,
+      "per_capita_amount": 5741.14,
+      "total_amount": 1925072094.57
+    },
+    {
+      "amount": 2564807758.02,
+      "county_code": "VS",
+      "county_name": "VASLUI",
+      "county_population": 374700,
+      "per_capita_amount": 6844.96,
+      "total_amount": 2564807758.02
+    }
+  ]
+}

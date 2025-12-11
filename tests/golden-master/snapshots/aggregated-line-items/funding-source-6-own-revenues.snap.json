@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 112965410578.5,
+        "count": 1798,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 31750499727.86,
+        "count": 27,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 30237171281.35,
+        "count": 1793,
+        "ec_c": "20.04.01",
+        "ec_n": "Medicamente",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 28137682491.7,
+        "count": 1755,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 11809539200.17,
+        "count": 1793,
+        "ec_c": "20.04.02",
+        "ec_n": "Materiale sanitare",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 11111745159.2,
+        "count": 1635,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 7948198318.57,
+        "count": 1522,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 7354356877.67,
+        "count": 27,
+        "ec_c": "59.01.00",
+        "ec_n": "Burse",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 7140678590.68,
+        "count": 1751,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 6949919366.24,
+        "count": 1744,
+        "ec_c": "20.04.03",
+        "ec_n": "Reactivi",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 6374529082.62,
+        "count": 1609,
+        "ec_c": "10.01.11",
+        "ec_n": "Fond aferent platii cu ora",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 4671586370.63,
+        "count": 124,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 4451362823.43,
+        "count": 1360,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 4272329076.83,
+        "count": 1796,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 4194813662.28,
+        "count": 1759,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 3626110142.97,
+        "count": 1468,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 3537184354.35,
+        "count": 27,
+        "ec_c": "10.01.11",
+        "ec_n": "Fond aferent platii cu ora",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 3414965696.81,
+        "count": 1400,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 3144892923.41,
+        "count": 1211,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 2675878645.56,
+        "count": 1745,
+        "ec_c": "20.03.01",
+        "ec_n": "Hrana pentru oameni",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 2654180007.45,
+        "count": 27,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 2535911146.33,
+        "count": 339,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 2346797237.75,
+        "count": 27,
+        "ec_c": "10.01.30",
+        "ec_n": "Alte drepturi salariale in bani",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 2285515732.33,
+        "count": 20,
+        "ec_c": "10.01.06",
+        "ec_n": "Alte sporuri",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 2106276504.88,
+        "count": 17,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 1802117941.5,
+        "count": 27,
+        "ec_c": "20.01.30",
+        "ec_n": "Alte bunuri si servicii pentru intretinere si functionare",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1754694211.75,
+        "count": 27,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1737202841.26,
+        "count": 18,
+        "ec_c": "58.01.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1609515902.78,
+        "count": 1715,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1458059178.02,
+        "count": 1079,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1429374158.52,
+        "count": 67,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 1392845439.68,
+        "count": 532,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1359996995.18,
+        "count": 25,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "51.01.03",
+        "fn_n": "Autoritati executive"
+      },
+      {
+        "amount": 1348319635.4,
+        "count": 26,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 1317241859.34,
+        "count": 27,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1254523756.3,
+        "count": 1795,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1126376281,
+        "count": 16,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "85.01.00",
+        "fn_n": "Comunicatii"
+      },
+      {
+        "amount": 1111068349.14,
+        "count": 33,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "80.01.30",
+        "fn_n": "Alte cheltuieli pentru actiuni generale economice si comerciale"
+      },
+      {
+        "amount": 1111060117.44,
+        "count": 1790,
+        "ec_c": "20.04.04",
+        "ec_n": "Dezinfectanti",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1067251679.97,
+        "count": 6,
+        "ec_c": "58.03.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 1059093043.54,
+        "count": 27,
+        "ec_c": "20.02.00",
+        "ec_n": "Reparatii curente",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1058640284.14,
+        "count": 534,
+        "ec_c": "71.03.00",
+        "ec_n": "Reparatii capitale aferente activelor fixe",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 1026229297.08,
+        "count": 23,
+        "ec_c": "10.03.01",
+        "ec_n": "Contributii de asigurari sociale de stat",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 1018054473.24,
+        "count": 65,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "61.50.00",
+        "fn_n": "Alte cheltuieli in domeniul ordinii publice si sigurantei nationale"
+      },
+      {
+        "amount": 942560261.06,
+        "count": 17,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 922908325.05,
+        "count": 9,
+        "ec_c": "10.00.00",
+        "ec_n": "TITLUL I  CHELTUIELI DE PERSONAL",
+        "fn_c": "66.00.00",
+        "fn_n": "Sanatate"
+      },
+      {
+        "amount": 910526143.44,
+        "count": 1222,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 901502936.25,
+        "count": 666,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 871978445.54,
+        "count": 1789,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 860057275.21,
+        "count": 27,
+        "ec_c": "20.01.09",
+        "ec_n": "Materiale si prestari de servicii cu caracter functional",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 837432191.4,
+        "count": 7,
+        "ec_c": "10.01.17",
+        "ec_n": "Indemnizatii de hrana",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 810783865.73,
+        "count": 21,
+        "ec_c": "10.03.07",
+        "ec_n": "Contributia asiguratorie pentru munca",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 807198428.97,
+        "count": 547,
+        "ec_c": "10.02.01",
+        "ec_n": "Tichete de masa",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 796570707.26,
+        "count": 9,
+        "ec_c": "71.01.01",
+        "ec_n": "Constructii",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 767575196.53,
+        "count": 1502,
+        "ec_c": "20.01.06",
+        "ec_n": "Piese de schimb",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 754970992.84,
+        "count": 1792,
+        "ec_c": "20.01.02",
+        "ec_n": "Materiale pentru curatenie",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 739398730.54,
+        "count": 1472,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 701747392,
+        "count": 258,
+        "ec_c": "10.01.10",
+        "ec_n": "Fond pentru posturi ocupate prin cumul",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 693511191.53,
+        "count": 9,
+        "ec_c": "20.00.00",
+        "ec_n": "TITLUL II  BUNURI SI SERVICII",
+        "fn_c": "66.00.00",
+        "fn_n": "Sanatate"
+      },
+      {
+        "amount": 679382993.42,
+        "count": 9,
+        "ec_c": "10.01.10",
+        "ec_n": "Fond pentru posturi ocupate prin cumul",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 612164580.96,
+        "count": 27,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 612147161.28,
+        "count": 46,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.50.50",
+        "fn_n": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 611887922.2,
+        "count": 8,
+        "ec_c": "65.01.00",
+        "ec_n": "Cheltuieli aferente programelor cu finantare rambursabila",
+        "fn_c": "70.03.01",
+        "fn_n": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 610645742,
+        "count": 27,
+        "ec_c": "10.01.05",
+        "ec_n": "Sporuri pentru conditii de munca",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 594258444.93,
+        "count": 27,
+        "ec_c": "20.05.30",
+        "ec_n": "Alte obiecte de inventar",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 571134938.49,
+        "count": 9,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "65.11.04",
+        "fn_n": "Camine si cantine pentru  studenti"
+      },
+      {
+        "amount": 549165808.07,
+        "count": 1,
+        "ec_c": "56.48.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 544755918.5,
+        "count": 60,
+        "ec_c": "10.02.02",
+        "ec_n": "Norme de hrana",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 514529146.19,
+        "count": 5,
+        "ec_c": "61.01.00",
+        "ec_n": "Fonduri din imprumut rambursabil",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 512051252.13,
+        "count": 27,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.04.50",
+        "fn_n": "Alte servicii medicale ambulatorii"
+      },
+      {
+        "amount": 454925025.76,
+        "count": 969,
+        "ec_c": "71.01.30",
+        "ec_n": "Alte active fixe",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 432969142.49,
+        "count": 9,
+        "ec_c": "20.01.03",
+        "ec_n": "Incalzit, Iluminat si forta motrica",
+        "fn_c": "65.11.04",
+        "fn_n": "Camine si cantine pentru  studenti"
+      },
+      {
+        "amount": 427981054.89,
+        "count": 110,
+        "ec_c": "58.02.02",
+        "ec_n": "Finantarea externa nerambursabila",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 423613179.09,
+        "count": 18,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.06.06",
+        "fn_n": "Sanatorii balneare si de recuperare"
+      },
+      {
+        "amount": 403839268.5,
+        "count": 16,
+        "ec_c": "71.01.02",
+        "ec_n": "Masini, echipamente si mijloace de transport",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 384893287.64,
+        "count": 22,
+        "ec_c": "10.02.06",
+        "ec_n": "Vouchere de vacanta",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 377564911.08,
+        "count": 20,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "84.50.00",
+        "fn_n": "Alte cheltuieli in domeniul transporturilor"
+      },
+      {
+        "amount": 376196086.55,
+        "count": 20,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 373026198.45,
+        "count": 27,
+        "ec_c": "20.01.04",
+        "ec_n": "Apa, canal si salubritate",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 369306792.83,
+        "count": 6,
+        "ec_c": "58.03.03",
+        "ec_n": "Cheltuieli neeligibile",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 367790380,
+        "count": 71,
+        "ec_c": "10.01.07",
+        "ec_n": "Ore suplimentare",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 365013018.09,
+        "count": 27,
+        "ec_c": "20.03.01",
+        "ec_n": "Hrana pentru oameni",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 352116343.35,
+        "count": 1198,
+        "ec_c": "20.09.00",
+        "ec_n": "Materiale de laborator",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 347776809,
+        "count": 8,
+        "ec_c": "10.01.01",
+        "ec_n": "Salarii de baza",
+        "fn_c": "66.04.05",
+        "fn_n": "Asistenta  medicale in centre medicale multifunctionale"
+      },
+      {
+        "amount": 338545067.6,
+        "count": 9,
+        "ec_c": "65.01.00",
+        "ec_n": "Cheltuieli aferente programelor cu finantare rambursabila",
+        "fn_c": "70.04.00",
+        "fn_n": "Servicii si dezvoltare publica"
+      },
+      {
+        "amount": 337056653.11,
+        "count": 9,
+        "ec_c": "10.00.00",
+        "ec_n": "TITLUL I  CHELTUIELI DE PERSONAL",
+        "fn_c": "65.00.00",
+        "fn_n": "Invatamant"
+      },
+      {
+        "amount": 330278485.15,
+        "count": 25,
+        "ec_c": "10.03.03",
+        "ec_n": "Contributii de asigurari sociale de sanatate",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 328887157,
+        "count": 244,
+        "ec_c": "10.01.29",
+        "ec_n": "Stimulentul de risc",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 324563582.65,
+        "count": 1787,
+        "ec_c": "20.01.01",
+        "ec_n": "Furnituri de birou",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 319472160.39,
+        "count": 32,
+        "ec_c": "60.01.00",
+        "ec_n": "Fonduri europene nerambursabile",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 307619926.26,
+        "count": 27,
+        "ec_c": "10.02.02",
+        "ec_n": "Norme de hrana",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 298886310.95,
+        "count": 607,
+        "ec_c": "71.01.03",
+        "ec_n": "Mobilier, aparatura birotica si alte active corporale",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 294509263.27,
+        "count": 7,
+        "ec_c": "59.40.00",
+        "ec_n": "Sume aferente persoanelor cu handicap neincadrate",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 293295483.47,
+        "count": 17,
+        "ec_c": "58.01.01",
+        "ec_n": "Finantarea nationala",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 271674889.44,
+        "count": 15,
+        "ec_c": "20.04.01",
+        "ec_n": "Medicamente",
+        "fn_c": "66.04.50",
+        "fn_n": "Alte servicii medicale ambulatorii"
+      },
+      {
+        "amount": 262862505.29,
+        "count": 16,
+        "ec_c": "58.16.02",
+        "ec_n": "Finantare externa nerambursabila",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 246205893.5,
+        "count": 10,
+        "ec_c": "20.30.30",
+        "ec_n": "Alte cheltuieli cu bunuri si servicii",
+        "fn_c": "67.50.00",
+        "fn_n": "Alte servicii in domeniile culturii, recreerii si religiei"
+      },
+      {
+        "amount": 227261655.21,
+        "count": 1793,
+        "ec_c": "20.01.08",
+        "ec_n": "Posta, telecomunicatii, radio, tv, internet",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      },
+      {
+        "amount": 222104364.26,
+        "count": 18,
+        "ec_c": "57.02.02",
+        "ec_n": "Ajutoare sociale in natura",
+        "fn_c": "65.06.01",
+        "fn_n": "Invatamant universitar"
+      },
+      {
+        "amount": 220922493.99,
+        "count": 584,
+        "ec_c": "59.01.00",
+        "ec_n": "Burse",
+        "fn_c": "66.06.01",
+        "fn_n": "Spitale generale"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 2053
+    }
+  }
+}

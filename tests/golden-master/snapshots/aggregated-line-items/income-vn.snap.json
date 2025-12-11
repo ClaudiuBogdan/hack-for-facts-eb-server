@@ -1,0 +1,811 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 783640843947.39,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "10.01.01",
+        "fn_n": "TVA incasata pentru operatiuni interne"
+      },
+      {
+        "amount": 622299648363.97,
+        "count": 18,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.01.00",
+        "fn_n": "Contributii de asigurari sociale de stat datorate de asigurati"
+      },
+      {
+        "amount": 270928150196.31,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.03.01",
+        "fn_n": "Contributia datorata de persoanele asigurate care au calitatea de angajat"
+      },
+      {
+        "amount": 199061422707.59,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.02.00",
+        "fn_n": "Impozit pe venituri din salarii"
+      },
+      {
+        "amount": 179783826072.03,
+        "count": 350,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "01.01.00",
+        "fn_n": "Impozit pe profit de la agentii economici"
+      },
+      {
+        "amount": 131509405411.59,
+        "count": 1843,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.21.00",
+        "fn_n": "Venituri din contractele incheiate cu casele de asigurari sociale de sanatate"
+      },
+      {
+        "amount": 118069387486.22,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.03.01",
+        "fn_n": "Accize incasate din vanzarea de tigarete"
+      },
+      {
+        "amount": 106038035097.45,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.01.03",
+        "fn_n": "Accize incasate din vanzarea de motorina"
+      },
+      {
+        "amount": 97805655263.29,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "10.01.02",
+        "fn_n": "TVA incasata pentru importurile de bunuri"
+      },
+      {
+        "amount": 62049801225,
+        "count": 10,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.01.01",
+        "fn_n": "Contributii pentru asigurari sociale datorate de angajatori"
+      },
+      {
+        "amount": 55552738380.44,
+        "count": 27813,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "04.04.00",
+        "fn_n": "Sume alocate din cotele defalcate din impozitul pe venit pentru echilibrarea bugetelor locale"
+      },
+      {
+        "amount": 54888757907.74,
+        "count": 28697,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "37.04.00",
+        "fn_n": "Varsaminte din sectiunea de functionare"
+      },
+      {
+        "amount": 49604090527.65,
+        "count": 8,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.13.02",
+        "fn_n": "Sume primite in contul platilor efectuate in anii anteriori"
+      },
+      {
+        "amount": 40497163984.24,
+        "count": 6,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.47.00",
+        "fn_n": "Contributia de asigurari sociale datorata de persoanele care realizeaza venituri din salarii din domeniul constructiilor, sectorului agricol si industriei alimentare si din activitati de creare de programe pentru calculator"
+      },
+      {
+        "amount": 33602736987.59,
+        "count": 24,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.50.00",
+        "fn_n": "Alte contributii pentru asigurari sociale  datorate de  asigurati"
+      },
+      {
+        "amount": 33105286416.46,
+        "count": 19384,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.08.00",
+        "fn_n": "Venituri din prestari de servicii"
+      },
+      {
+        "amount": 32922143828.54,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.01.02",
+        "fn_n": "Accize incasate din vanzarea de benzina fara plumb"
+      },
+      {
+        "amount": 29249961765.6,
+        "count": 8,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.17.04",
+        "fn_n": "Sume aferente alocarilor temporare de la bugetul de stat pe perioada indisponibilitatii fondurilor externe nerambursabile"
+      },
+      {
+        "amount": 27143736038.84,
+        "count": 28552,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.01.02",
+        "fn_n": "Impozit si taxa pe cladiri de la persoane juridice"
+      },
+      {
+        "amount": 27081935543.77,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.04.00",
+        "fn_n": "Impozit pe venituri din dividende"
+      },
+      {
+        "amount": 25412101302.91,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.08.00",
+        "fn_n": "Venituri din contributia asiguratorie pentru munca aferenta bugetului de stat"
+      },
+      {
+        "amount": 23566665386.69,
+        "count": 9512,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.04.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 23262641279.32,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "02.06.00",
+        "fn_n": "Impozit pe venitul microintreprinderilor"
+      },
+      {
+        "amount": 21559238550.45,
+        "count": 1746,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.30.00",
+        "fn_n": "Venituri din contractele incheiate cu directiile de sanatate publica din sume alocate de la bugetul de stat"
+      },
+      {
+        "amount": 21077891444.94,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.03.01",
+        "fn_n": "Contributii de la persoane juridice sau fizice, care angajaza personal salariat"
+      },
+      {
+        "amount": 20082520852,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.06.00",
+        "fn_n": "Impozit pe venituri din pensii"
+      },
+      {
+        "amount": 19998320989.87,
+        "count": 737,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.08.03",
+        "fn_n": "Dividende de la societatile si companiile nationale si societatile cu capital majoritar de stat"
+      },
+      {
+        "amount": 19985955138.48,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "12.09.00",
+        "fn_n": "Venituri din contributia datorata pentru medicamente finantate din Fondul National unic de asigurari sociale de sanatate si din bugetul Ministerului Sanatatii"
+      },
+      {
+        "amount": 19543419989.64,
+        "count": 8,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.13.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 18695908299.68,
+        "count": 577,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "31.03.00",
+        "fn_n": "Alte venituri din dobanzi"
+      },
+      {
+        "amount": 18668031469.34,
+        "count": 3182,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.01.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 18450135916.86,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.05.00",
+        "fn_n": "Varsaminte de la persoane juridice, pentru persoane cu handicap neincadrate"
+      },
+      {
+        "amount": 18449299799.27,
+        "count": 3,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "12.19.00",
+        "fn_n": "Venituri din contributia la Fondul de Tranzitie Energetica"
+      },
+      {
+        "amount": 18210362266.3,
+        "count": 3365,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.01.02",
+        "fn_n": "Sume primite in contul platilor efectuate in anii anteriori"
+      },
+      {
+        "amount": 18073264457.24,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "12.11.00",
+        "fn_n": "Impozitul pe veniturile suplimentare obtinute ca urmare a dereglementarii preturilor din sectorul gazelor naturale"
+      },
+      {
+        "amount": 17622835524.44,
+        "count": 1853,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.02.01",
+        "fn_n": "Sume aferente creditelor interne"
+      },
+      {
+        "amount": 17274588417.94,
+        "count": 1287,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.04.02",
+        "fn_n": "Sume primite in contul platilor efectuate in anii anteriori"
+      },
+      {
+        "amount": 16106967671.78,
+        "count": 1391,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.08.02",
+        "fn_n": "Venituri din dividende de la alti platitori"
+      },
+      {
+        "amount": 15910193788.51,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.05.02",
+        "fn_n": "Redevente petroliere"
+      },
+      {
+        "amount": 15672458733.28,
+        "count": 1788,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.01.03",
+        "fn_n": "Prefinantare"
+      },
+      {
+        "amount": 15510497266.44,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.08.04",
+        "fn_n": "Dividende virate de catre autoritatile publice centrale"
+      },
+      {
+        "amount": 14780459381.39,
+        "count": 24725,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "36.50.00",
+        "fn_n": "Alte venituri"
+      },
+      {
+        "amount": 14748313983.44,
+        "count": 21,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.11.00",
+        "fn_n": "Venituri din vanzarea certificatelor de emisii de gaze cu efect de sera"
+      },
+      {
+        "amount": 14636775817.89,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.12.00",
+        "fn_n": "Venituri din contributia asiguratorie pentru munca pentru concedii si indemnizatii"
+      },
+      {
+        "amount": 14513913326.75,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.51.00",
+        "fn_n": "Impozit pe venit aferent declaratiei unice"
+      },
+      {
+        "amount": 13636188045,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "01.02.00",
+        "fn_n": "Impozit pe profit de la bancile comerciale"
+      },
+      {
+        "amount": 13576118741.45,
+        "count": 119,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.03.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 12763297596.24,
+        "count": 3,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.17.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 12637702715.52,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.04.00",
+        "fn_n": "Varsaminte din veniturile nete ale Bancii nationale a Romaniei"
+      },
+      {
+        "amount": 12176998285.24,
+        "count": 36849,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.05.30",
+        "fn_n": "Alte venituri din concesiuni si inchirieri de catre institutiile publice"
+      },
+      {
+        "amount": 11452177563.91,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.11.03",
+        "fn_n": "Accize incasate in vama din importul de motorina"
+      },
+      {
+        "amount": 11318928765.48,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "17.01.01",
+        "fn_n": "Taxe vamale de la persoane juridice"
+      },
+      {
+        "amount": 11109412401.33,
+        "count": 28899,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "35.01.02",
+        "fn_n": "Venituri din amenzi si alte sanctiuni aplicate de catre alte institutii de specialitate"
+      },
+      {
+        "amount": 10852404912.63,
+        "count": 28674,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.01.01",
+        "fn_n": "Impozit pe cladiri de la persoane fizice"
+      },
+      {
+        "amount": 10820144198.37,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "16.01.08",
+        "fn_n": "Taxa anuala pentru obtinerea autorizatiei de exploatare a jocurilor de noroc"
+      },
+      {
+        "amount": 10441096930.96,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "12.14.00",
+        "fn_n": "Venituri din contributia datorata pentru contractele cost-volum/cost-volum-rezultat"
+      },
+      {
+        "amount": 10111469634.24,
+        "count": 155,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.03.02",
+        "fn_n": "Sume primite in contul platilor efectuate in anii anteriori"
+      },
+      {
+        "amount": 9888765536.1,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.10.00",
+        "fn_n": "Venituri din contributia asiguratorie pentru munca pentru somaj"
+      },
+      {
+        "amount": 9746438587.12,
+        "count": 29012,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "16.02.01",
+        "fn_n": "Impozit pe mijloacele de transport detinute de persoane fizice"
+      },
+      {
+        "amount": 9694865653.6,
+        "count": 6,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.13.02",
+        "fn_n": "Sume provenite din finantarea anilor precedenti"
+      },
+      {
+        "amount": 9440931355.3,
+        "count": 3476,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.05.00",
+        "fn_n": "Taxe si alte venituri in invatamant"
+      },
+      {
+        "amount": 9393618401.48,
+        "count": 14616,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.50.00",
+        "fn_n": "Alte venituri din prestari de servicii si alte activitati"
+      },
+      {
+        "amount": 8748199771.59,
+        "count": 22061,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "18.50.00",
+        "fn_n": "Alte impozite si taxe"
+      },
+      {
+        "amount": 7675409747.62,
+        "count": 18588,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "04.05.00",
+        "fn_n": "Sume repartizate din Fondul la dispozitia Consiliului Judetean"
+      },
+      {
+        "amount": 7634005524.93,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "20.11.00",
+        "fn_n": "Venituri din contributia asiguratorie pentru munca pentru fondul de garantare pentru plata creantelor salariale"
+      },
+      {
+        "amount": 7505754051.12,
+        "count": 1056,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "46.04.00",
+        "fn_n": "Alte sume primite din fonduri de la Uniunea Europeana pentru programele operationale finantate din cadrul financiar 2014-2020"
+      },
+      {
+        "amount": 7116026678.72,
+        "count": 1767,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.02.02",
+        "fn_n": "Sume primite in contul platilor efectuate in anii anteriori"
+      },
+      {
+        "amount": 6879591964.15,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "16.01.03",
+        "fn_n": "Regularizari periodice ale taxei anuale de autorizare a jocurilor de noroc"
+      },
+      {
+        "amount": 6462767155.47,
+        "count": 18205,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "16.03.00",
+        "fn_n": "Taxe si tarife pentru eliberarea de licente si autorizatii de functionare"
+      },
+      {
+        "amount": 6362076082.01,
+        "count": 4,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.13.01",
+        "fn_n": "Sume provenite din finantarea anului curent"
+      },
+      {
+        "amount": 6352259564,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.02.01",
+        "fn_n": "Accize incasate din vanzarea de alcool etilic"
+      },
+      {
+        "amount": 6221095487,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.49.00",
+        "fn_n": "Contributii de asigurari sociale de sanatate aferente declaratiei unice"
+      },
+      {
+        "amount": 5959842341.72,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.02.05",
+        "fn_n": "Accize incasate din vanzarea de bere"
+      },
+      {
+        "amount": 5548706470.09,
+        "count": 28665,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.02.01",
+        "fn_n": "Impozit pe terenuri de la persoane fizice"
+      },
+      {
+        "amount": 5342544718.2,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "10.01.06",
+        "fn_n": "TVA aferenta serviciilor si vanzarilor la distanta transferat statului membru de consum de catre statele membre de inregistrare"
+      },
+      {
+        "amount": 5288442361.16,
+        "count": 27452,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.02.03",
+        "fn_n": "Impozit pe terenul din extravilan"
+      },
+      {
+        "amount": 5255223740.36,
+        "count": 11364,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "36.06.00",
+        "fn_n": "Taxe speciale"
+      },
+      {
+        "amount": 5043187461.21,
+        "count": 28180,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "16.02.02",
+        "fn_n": "Impozit pe mijloacele de transport detinute de persoane juridice"
+      },
+      {
+        "amount": 4654158807.15,
+        "count": 28325,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.18.00",
+        "fn_n": "Impozitul pe veniturile din transferul proprietatilor imobiliare din patrimoniul personal"
+      },
+      {
+        "amount": 4602019626.54,
+        "count": 215,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.04.00",
+        "fn_n": "Sume aferente fondurilor externe nerambursabile"
+      },
+      {
+        "amount": 4168528690.03,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "49.02.01",
+        "fn_n": "Sume rambursate din PNRR in contul proiectelor din anul curent"
+      },
+      {
+        "amount": 3936304116.61,
+        "count": 35,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.02.04",
+        "fn_n": "Sume aferente refinantarii creditelor interne"
+      },
+      {
+        "amount": 3912007880,
+        "count": 110,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "41.03.01",
+        "fn_n": "Sume aferente creditelor externe"
+      },
+      {
+        "amount": 3897982652.63,
+        "count": 2123,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.02.01",
+        "fn_n": "Sume primite in contul platilor efectuate in anul curent"
+      },
+      {
+        "amount": 3720675562.05,
+        "count": 2,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "48.17.00",
+        "fn_n": "Programul National de Dezvoltare Rurala"
+      },
+      {
+        "amount": 3662051879.07,
+        "count": 7,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "21.48.00",
+        "fn_n": "Contributii de asigurari sociale aferente declaratiei unice"
+      },
+      {
+        "amount": 3642592441.75,
+        "count": 269,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.20.00",
+        "fn_n": "Venituri din cercetare"
+      },
+      {
+        "amount": 3628075471.67,
+        "count": 28260,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.02.02",
+        "fn_n": "Impozit si taxa pe teren de la persoane juridice"
+      },
+      {
+        "amount": 3611407629.49,
+        "count": 3051,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "33.14.00",
+        "fn_n": "Contributia elevilor si studentilor pentru internate, camine si cantine"
+      },
+      {
+        "amount": 3402239660.98,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.14.00",
+        "fn_n": "Tarife de utilizare a spectrului si a resurselor de numerotatie"
+      },
+      {
+        "amount": 3313371419.18,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "05.01.03",
+        "fn_n": "Impozit pe veniturile din redevente obtinute din Romania de persoane nerezidente"
+      },
+      {
+        "amount": 3249859837.61,
+        "count": 1056,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.01.00",
+        "fn_n": "Varsaminte din profitul net al regiilor autonome"
+      },
+      {
+        "amount": 3233773160.75,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "31.01.00",
+        "fn_n": "Venituri din dobanzi aferente trezoreriei statului de la alte bugete"
+      },
+      {
+        "amount": 3176158662.52,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "14.13.01",
+        "fn_n": "Accize incasate in vama din importul de tigarete"
+      },
+      {
+        "amount": 3134776796.63,
+        "count": 1770,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.05.01",
+        "fn_n": "Redevente miniere"
+      },
+      {
+        "amount": 3018097527.11,
+        "count": 9,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "03.60.00",
+        "fn_n": "Regularizari"
+      },
+      {
+        "amount": 3017101143.8,
+        "count": 3,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "12.17.00",
+        "fn_n": "Impozitul pe venitul suplimentar realizat de producatorii de energie electrica in conformitate cu Legea nr.259/2021"
+      },
+      {
+        "amount": 2950671800.81,
+        "count": 25568,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "07.03.00",
+        "fn_n": "Taxe judiciare de timbru si alte taxe de timbru"
+      },
+      {
+        "amount": 2950468181.85,
+        "count": 5,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "30.15.00",
+        "fn_n": "Sume din vanzarea certificatelor de emisii de gaze cu efect de sera alocate pentru implementarea de masuri financiare in favoarea sectoarelor sau a subsectoarelor care sunt expuse unor riscuri semnificative de relocare a emisiilor de dioxid de carbon"
+      },
+      {
+        "amount": 2937005054.18,
+        "count": 6343,
+        "ec_c": "00.00.00",
+        "ec_n": "Unknown economic classification",
+        "fn_c": "39.01.00",
+        "fn_n": "Venituri din valorificarea unor bunuri ale institutiilor publice"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 653
+    }
+  }
+}

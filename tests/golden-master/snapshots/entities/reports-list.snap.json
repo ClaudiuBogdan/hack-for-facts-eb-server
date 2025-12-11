@@ -1,0 +1,171 @@
+{
+  "reports": {
+    "nodes": [
+      {
+        "entity_cui": "4305857",
+        "report_date": "1703980800000",
+        "report_id": "79bb2edac1f376dc9ad0f028b924a115d506872f5e218dd806427b027176be4d",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 12",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1703980800000",
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 12",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1701302400000",
+        "report_id": "50ee6411efeb72327b750a2100029dc39645e233240b960b39c493382aaac2de",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 11",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1701302400000",
+        "report_id": "4172a14de9b4defda50e2e689ffea0886cbfe2a2f589c12752825326cc7857e9",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 11",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1698710400000",
+        "report_id": "14aa0b7d7afd5c7d8c0c2950fef2a5c48e716cc7b350cec1446ffb3e08055f60",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 10",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1698710400000",
+        "report_id": "133b342209bd25ed97f33992641d9ee6a80c5a6554be52a0815786225bf755b3",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 10",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1696032000000",
+        "report_id": "7264160054faebad1bc159520024c6b4e97fbb028cc438fd91a5174effe3d3c6",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 09",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1696032000000",
+        "report_id": "1f4b4ef73e3e3b505dcde39794cfae5bf14f67b36e97ac495d4ac2388fd1ed6f",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 09",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1693440000000",
+        "report_id": "d69b6db708e28a8524b2585fc43acd6594dd4dadab825fff4cbd0354390d92a8",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 08",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1693440000000",
+        "report_id": "99d7df95e2c16617599f8e56477da6fd50cbd544b7452e26b023871255857b44",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 08",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1690761600000",
+        "report_id": "ac5abb489d1a4536e57f3fd1101ffaf041a4f439ae8e09f2df151212df53bba6",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 07",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1690761600000",
+        "report_id": "2bb9bb028e7c675384882109357c41255ffc3f735c701b2701786a0046861b1d",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 07",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1688083200000",
+        "report_id": "d469978c4d8bae2680224e94114d263c635debecf3bbc5bd5f2c1643c522119b",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 06",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1688083200000",
+        "report_id": "323cc346ca5dbaf1813a277c5e8c474e2f68565a083e5f28c444527008f27c02",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 06",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1685491200000",
+        "report_id": "0f8dbbfa943ead6d909575b3963ca575ec060f704360a021d47b0989f65720ef",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 05",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1685491200000",
+        "report_id": "0a32091fb7e76478c0e6872e6437a5f5a9dd49cdf79c573d67b88019c98e8eba",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 05",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1682812800000",
+        "report_id": "cf401d57063a6fc103c7b27b8f3475a6ff41201451ec3800fbb1eebcb2267efe",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 04",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1682812800000",
+        "report_id": "4b4905aae8bd616fa59bdf4e44aa2669462a81de2c2e8575f3d28c169da97541",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 04",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1680220800000",
+        "report_id": "f32536b56b00584e22cfa9ad8899c43401dfbf8090ec30e0a180f3186a9c490b",
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "reporting_period": "Luna 03",
+        "reporting_year": 2023
+      },
+      {
+        "entity_cui": "4305857",
+        "report_date": "1680220800000",
+        "report_id": "964e551af77ee41fc74e21e8ababaaf61992b28a99fc48445d018f014d208f9b",
+        "report_type": "DETAILED",
+        "reporting_period": "Luna 03",
+        "reporting_year": 2023
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 24
+    }
+  }
+}

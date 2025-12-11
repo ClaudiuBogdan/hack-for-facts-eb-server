@@ -1,0 +1,411 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 6205003179.32,
+        "count": 39,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 5760387035.7,
+        "count": 1,
+        "economic_code": "51.01.02",
+        "economic_name": "Finantarea  de baza a invatamantului superior",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 4903147787.79,
+        "count": 35,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 4466874490.5,
+        "count": 3,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 4249825733.04,
+        "count": 19,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      },
+      {
+        "amount": 3356026113.31,
+        "count": 18,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "amount": 1323624605,
+        "count": 4,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.07.04",
+        "functional_name": "Invatamant special"
+      },
+      {
+        "amount": 1172800252.42,
+        "count": 2758,
+        "economic_code": "59.01.00",
+        "economic_name": "Burse",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 1016147109.12,
+        "count": 49,
+        "economic_code": "59.01.00",
+        "economic_name": "Burse",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 987458458.43,
+        "count": 3,
+        "economic_code": "59.01.00",
+        "economic_name": "Burse",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 863560267.6,
+        "count": 451,
+        "economic_code": "59.01.00",
+        "economic_name": "Burse",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 732421652.01,
+        "count": 248,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 693810417,
+        "count": 3,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 606469994.33,
+        "count": 2,
+        "economic_code": "51.01.59",
+        "economic_name": "Transferuri de la bugetul de stat catre institutii de invatamant superior militar, ordine publica si securitate nationala",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 589551423.48,
+        "count": 20,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 583068789,
+        "count": 43,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 576544257.87,
+        "count": 220,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 497741853.62,
+        "count": 3,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 456241712.3,
+        "count": 4,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 408715589.51,
+        "count": 2,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.03",
+        "functional_name": "Invatamant profesional"
+      },
+      {
+        "amount": 379936219.84,
+        "count": 53,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.13.00",
+        "functional_name": "Invatamant anteprescolar"
+      },
+      {
+        "amount": 362375534.4,
+        "count": 554,
+        "economic_code": "20.01.03",
+        "economic_name": "Incalzit, Iluminat si forta motrica",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 360082847.4,
+        "count": 660,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 349464054.27,
+        "count": 507,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 331762020.78,
+        "count": 94,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 327142870.6,
+        "count": 2736,
+        "economic_code": "20.01.03",
+        "economic_name": "Incalzit, Iluminat si forta motrica",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 322625963,
+        "count": 3,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 314415406,
+        "count": 9,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.11.30",
+        "functional_name": "Alte servicii auxiliare"
+      },
+      {
+        "amount": 305674642.43,
+        "count": 454,
+        "economic_code": "20.03.01",
+        "economic_name": "Hrana pentru oameni",
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "amount": 296094681.23,
+        "count": 3,
+        "economic_code": "20.01.03",
+        "economic_name": "Incalzit, Iluminat si forta motrica",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 295611758.14,
+        "count": 3,
+        "economic_code": "20.01.30",
+        "economic_name": "Alte bunuri si servicii pentru intretinere si functionare",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 292310987.56,
+        "count": 2847,
+        "economic_code": "20.01.30",
+        "economic_name": "Alte bunuri si servicii pentru intretinere si functionare",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 276848148.4,
+        "count": 3,
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 265368945,
+        "count": 401,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 258750102.46,
+        "count": 7,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 253524115.15,
+        "count": 86,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "amount": 240226554.67,
+        "count": 21,
+        "economic_code": "10.01.17",
+        "economic_name": "Indemnizatii de hrana",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 236826565.8,
+        "count": 12,
+        "economic_code": "51.01.01",
+        "economic_name": "Transferuri catre institutii publice",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 235149550.98,
+        "count": 56,
+        "economic_code": "60.01.00",
+        "economic_name": "Fonduri europene nerambursabile",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 235002251.12,
+        "count": 1,
+        "economic_code": "51.01.63",
+        "economic_name": "Transferuri de la bugetul de stat catre institutii de invatamant superior de stat pentru subventionarea unor cheltuieli ale caminelor si cantinelor studentesti",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 228152272.26,
+        "count": 96,
+        "economic_code": "57.02.02",
+        "economic_name": "Ajutoare sociale in natura",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 219494858,
+        "count": 2,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.02.00",
+        "functional_name": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 211308718.39,
+        "count": 60,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 208014868.84,
+        "count": 3,
+        "economic_code": "20.02.00",
+        "economic_name": "Reparatii curente",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 207992636.52,
+        "count": 659,
+        "economic_code": "20.01.30",
+        "economic_name": "Alte bunuri si servicii pentru intretinere si functionare",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 201176171.81,
+        "count": 10,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 191305918.16,
+        "count": 361,
+        "economic_code": "57.02.05",
+        "economic_name": "Suport alimentar",
+        "functional_code": "65.11.30",
+        "functional_name": "Alte servicii auxiliare"
+      },
+      {
+        "amount": 187126670,
+        "count": 5,
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri",
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      },
+      {
+        "amount": 183249313,
+        "count": 17,
+        "economic_code": "10.01.17",
+        "economic_name": "Indemnizatii de hrana",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 181828121.49,
+        "count": 37,
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora",
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 1528
+    }
+  }
+}

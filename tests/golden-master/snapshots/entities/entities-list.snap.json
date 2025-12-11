@@ -1,0 +1,151 @@
+{
+  "entities": {
+    "nodes": [
+      {
+        "cui": "11383661",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA   BREZNITA   MOTRU"
+      },
+      {
+        "cui": "12126500",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA VALEA MARE"
+      },
+      {
+        "cui": "12554654",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA COSTINESTI"
+      },
+      {
+        "cui": "13407333",
+        "entity_type": "admin_town_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "ORAS NEGRESTI"
+      },
+      {
+        "cui": "14596052",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA MADARAS"
+      },
+      {
+        "cui": "14597953",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA COZMENI"
+      },
+      {
+        "cui": "14670850",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA SINCA NOUA"
+      },
+      {
+        "cui": "14756536",
+        "entity_type": "admin_municipality",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "MUNICIPIUL TIMISOARA"
+      },
+      {
+        "cui": "14813046",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA SIEU"
+      },
+      {
+        "cui": "14850370",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA IASLOVAT"
+      },
+      {
+        "cui": "14866024",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA NEGRENI"
+      },
+      {
+        "cui": "14889001",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA COMANESTI"
+      },
+      {
+        "cui": "14932420",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA VULCANA PANDELE"
+      },
+      {
+        "cui": "14953600",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA CIOCANESTI"
+      },
+      {
+        "cui": "14981473",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA CAMIN"
+      },
+      {
+        "cui": "14992936",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA SIMISNA"
+      },
+      {
+        "cui": "15050988",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA DUMITRITA"
+      },
+      {
+        "cui": "15128955",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA NEGRILESTI"
+      },
+      {
+        "cui": "15141180",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA CRIZBAV"
+      },
+      {
+        "cui": "15170186",
+        "entity_type": "admin_commune_hall",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "COMUNA TITESTI"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 3228
+    }
+  }
+}

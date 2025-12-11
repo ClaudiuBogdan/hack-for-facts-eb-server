@@ -1,0 +1,319 @@
+{
+  "entities": {
+    "nodes": [
+      {
+        "cui": "12397649",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": false,
+        "name": "CONSILIUL JUDETEAN TIMIS - DIRECTIA DE PRESTARI SERVICII"
+      },
+      {
+        "cui": "15563878",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": false,
+        "name": "CONSILIUL JUDETEAN HARGHITA-AGENTIA DE MANAGEMENT ENERGETIC"
+      },
+      {
+        "cui": "17530710",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": false,
+        "name": "CONSILIUL JUDETEAN HARGHITA-DIRECTIA JUDETEANA DE EVIDENTA A PERSOANELOR"
+      },
+      {
+        "cui": "2540929",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL VALCEA"
+      },
+      {
+        "cui": "2612839",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL NEAMT"
+      },
+      {
+        "cui": "2842889",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL PRAHOVA"
+      },
+      {
+        "cui": "2981739",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL CONSTANTA"
+      },
+      {
+        "cui": "3127476",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL GALATI"
+      },
+      {
+        "cui": "3227890",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL CARAS-SEVERIN"
+      },
+      {
+        "cui": "3372955",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BOTOSANI"
+      },
+      {
+        "cui": "3394171",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL VASLUI"
+      },
+      {
+        "cui": "3519941",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL ARAD"
+      },
+      {
+        "cui": "3627315",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL MARAMURES"
+      },
+      {
+        "cui": "3662495",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BUZAU"
+      },
+      {
+        "cui": "3897378",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL SATU MARE"
+      },
+      {
+        "cui": "4192545",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL ILFOV"
+      },
+      {
+        "cui": "4201988",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL COVASNA"
+      },
+      {
+        "cui": "4205491",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BRAILA"
+      },
+      {
+        "cui": "4229512",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL ARGES"
+      },
+      {
+        "cui": "4231776",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL IALOMITA"
+      },
+      {
+        "cui": "4244512",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL SUCEAVA"
+      },
+      {
+        "cui": "4244997",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BIHOR"
+      },
+      {
+        "cui": "4245763",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL HARGHITA"
+      },
+      {
+        "cui": "4280205",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL DAMBOVITA"
+      },
+      {
+        "cui": "4288110",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL CLUJ"
+      },
+      {
+        "cui": "4294030",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL CALARASI"
+      },
+      {
+        "cui": "4321607",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL TULCEA"
+      },
+      {
+        "cui": "4322980",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL MURES"
+      },
+      {
+        "cui": "4337344",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL MEHEDINTI"
+      },
+      {
+        "cui": "4347550",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BISTRITA-NASAUD"
+      },
+      {
+        "cui": "4350394",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL VRANCEA"
+      },
+      {
+        "cui": "4358029",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL TIMIS"
+      },
+      {
+        "cui": "4374474",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL HUNEDOARA"
+      },
+      {
+        "cui": "4384150",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BRASOV"
+      },
+      {
+        "cui": "4394706",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL OLT"
+      },
+      {
+        "cui": "4406223",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL SIBIU"
+      },
+      {
+        "cui": "4417150",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL DOLJ"
+      },
+      {
+        "cui": "4494764",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL SALAJ"
+      },
+      {
+        "cui": "4540712",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL IASI"
+      },
+      {
+        "cui": "4562583",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL ALBA"
+      },
+      {
+        "cui": "4652686",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL TELEORMAN"
+      },
+      {
+        "cui": "4938042",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL GIURGIU"
+      },
+      {
+        "cui": "4956057",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL GORJ"
+      },
+      {
+        "cui": "5057580",
+        "entity_type": "admin_county_council",
+        "is_main_creditor": null,
+        "is_uat": true,
+        "name": "JUDETUL BACAU"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 44
+    }
+  }
+}

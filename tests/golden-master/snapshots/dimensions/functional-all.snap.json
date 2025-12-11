@@ -1,0 +1,411 @@
+{
+  "functionalClassifications": {
+    "nodes": [
+      {
+        "functional_code": "0",
+        "functional_name": "No functional classification"
+      },
+      {
+        "functional_code": "01.01.00",
+        "functional_name": "Impozit pe profit de la agentii economici"
+      },
+      {
+        "functional_code": "01.02.00",
+        "functional_name": "Impozit pe profit de la bancile comerciale"
+      },
+      {
+        "functional_code": "01.03.00",
+        "functional_name": "Sume redirectionate din impozitul pe profit(se scad)"
+      },
+      {
+        "functional_code": "02.01.00",
+        "functional_name": "Impozit pe veniturile realizate de persoanele juridice nerezidente incasate pana la 31.01.2014"
+      },
+      {
+        "functional_code": "02.02.00",
+        "functional_name": "Impozitul pe profit obtinut din activitati comerciale ilicite sau din nerespectarea Legii privind protectia consumatorului"
+      },
+      {
+        "functional_code": "02.03.00",
+        "functional_name": "Impozit pe dividende datorat de persoane juridice"
+      },
+      {
+        "functional_code": "02.04.00",
+        "functional_name": "Impozitul pe reprezentante"
+      },
+      {
+        "functional_code": "02.05.00",
+        "functional_name": "Impozit pe profitul realizat de persoana fizica dintr-o asociere cu o persoana juridica , care nu genereaza o persoana juridica"
+      },
+      {
+        "functional_code": "02.06.00",
+        "functional_name": "Impozit pe venitul microintreprinderilor"
+      },
+      {
+        "functional_code": "02.07.00",
+        "functional_name": "Impozit pe veniturile microintreprinderilor realizate de persoana fizica dintr-o asociere cu o persoana juridica, care nu genereaza o persoana juridica"
+      },
+      {
+        "functional_code": "02.08.00",
+        "functional_name": "Impozit pe profit datorat pentru transferurile de active, de rezidenta fiscala si/sau de activitate economica desfasurata printr-un sediu permanent"
+      },
+      {
+        "functional_code": "02.09.00",
+        "functional_name": "Impozitul suplimentar"
+      },
+      {
+        "functional_code": "02.49.00",
+        "functional_name": "Sume redirectionate din impozitul pe veniturile microintreprinderilor(se scad)"
+      },
+      {
+        "functional_code": "02.50.00",
+        "functional_name": "Alte impozite pe venit, profit si castiguri din capital de la persoane juridice"
+      },
+      {
+        "functional_code": "03.01.00",
+        "functional_name": "Impozit pe venituri din activitati independente"
+      },
+      {
+        "functional_code": "03.02.00",
+        "functional_name": "Impozit pe venituri din salarii"
+      },
+      {
+        "functional_code": "03.03.00",
+        "functional_name": "Impozit pe venituri din cedarea folosintei bunurilor"
+      },
+      {
+        "functional_code": "03.04.00",
+        "functional_name": "Impozit pe venituri din dividende"
+      },
+      {
+        "functional_code": "03.05.00",
+        "functional_name": "Impozit pe venituri din dobanzi"
+      },
+      {
+        "functional_code": "03.06.00",
+        "functional_name": "Impozit pe venituri din pensii"
+      },
+      {
+        "functional_code": "03.07.00",
+        "functional_name": "Impozit pe veniturile  din premii"
+      },
+      {
+        "functional_code": "03.08.00",
+        "functional_name": "Impozit pe veniturile din economii sub forma de dobanda realizate in Belgia, Luxemburg si Austria de persoane fizice romane rezidente fiscal in Romania"
+      },
+      {
+        "functional_code": "03.09.00",
+        "functional_name": "Impozit pe venituri  din transferul titlurilor de valoare"
+      },
+      {
+        "functional_code": "03.10.00",
+        "functional_name": "Impozit pe venituri din operatiuni de vanzare-cumparare de valuta la termen, pe baza de contract, precum si orice alte operatiuni similare"
+      },
+      {
+        "functional_code": "03.11.00",
+        "functional_name": "Impozit pe venituri din valorificarea drepturilor de proprietate intelectuala"
+      },
+      {
+        "functional_code": "03.12.00",
+        "functional_name": "Impozit pe venituri realizate de persoanele fizice nerezidente incasate pana la 31.01.2014"
+      },
+      {
+        "functional_code": "03.13.00",
+        "functional_name": "Impozit pe venituri din activitati agricole"
+      },
+      {
+        "functional_code": "03.14.00",
+        "functional_name": "Impozit pe venituri  obtinute din valorificarea de  bunuri in regim de consignatie si din activitati desfasurate pe baza unui contract de agent, comision sau mandat comercial, datorate pana la 31 decembrie 2011"
+      },
+      {
+        "functional_code": "03.15.00",
+        "functional_name": "Impozit pe veniturile din activitatile de expertiza contabila, tehnica judiciara si extrajudiciara"
+      },
+      {
+        "functional_code": "03.16.00",
+        "functional_name": "Impozit pe venituri din activitati desfasurate in baza contractelor/conventiilor civile incheiate potrivit Codului civil precum si a contractelor de agent"
+      },
+      {
+        "functional_code": "03.17.00",
+        "functional_name": "Impozit pe onorariul avocatilor si notarilor publici"
+      },
+      {
+        "functional_code": "03.18.00",
+        "functional_name": "Impozitul pe veniturile din transferul proprietatilor imobiliare din patrimoniul personal"
+      },
+      {
+        "functional_code": "03.19.00",
+        "functional_name": "Sume virate pentru sponsorizarea entitatilor nonprofit (se scad)"
+      },
+      {
+        "functional_code": "03.21.00",
+        "functional_name": "Impozit pe veniturile din arendarea bunurilor agricole"
+      },
+      {
+        "functional_code": "03.22.00",
+        "functional_name": "Impozit pe veniturile din jocurile de noroc"
+      },
+      {
+        "functional_code": "03.23.00",
+        "functional_name": "Impozit pe venitul realizat de persoana fizica dintr-o asociere cu o persoana juridica, contribuabil potrivit titlului II-impozit pe profit, care nu genereaza o persoana juridica"
+      },
+      {
+        "functional_code": "03.24.00",
+        "functional_name": "Impozit pe veniturile realizate de persoana fizica dintr-o asociere cu o persoana juridica, contribuabil potrivit titlului III-impozitul pe veniturile microintreprinderilor, care nu genereaza o persoana juridica"
+      },
+      {
+        "functional_code": "03.25.00",
+        "functional_name": "Impozitul pe veniturile obtinute de persoanele fizice dintr-o asociere cu o persoana juridica contribuabil potrivit Legii nr. 170/2016"
+      },
+      {
+        "functional_code": "03.26.00",
+        "functional_name": "Impozitul pe veniturile din activitati independente realizate in baza contractelor de activitate sportiva"
+      },
+      {
+        "functional_code": "03.27.00",
+        "functional_name": "Plati anticipate in contul impozitului pe venit anual datorat pentru unele venituri din activitati independente, precum si pentru venituri din alte surse"
+      },
+      {
+        "functional_code": "03.50.00",
+        "functional_name": "Impozit pe venituri din alte surse"
+      },
+      {
+        "functional_code": "03.51.00",
+        "functional_name": "Impozit pe venit aferent declaratiei unice"
+      },
+      {
+        "functional_code": "03.60.00",
+        "functional_name": "Regularizari"
+      },
+      {
+        "functional_code": "04.01.00",
+        "functional_name": "Cote defalcate din impozitul pe venit(se scad)"
+      },
+      {
+        "functional_code": "04.02.00",
+        "functional_name": "Cote defalcate din impozitul pe venit in curs de distribuire"
+      },
+      {
+        "functional_code": "04.04.00",
+        "functional_name": "Sume alocate din cotele defalcate din impozitul pe venit pentru echilibrarea bugetelor locale"
+      },
+      {
+        "functional_code": "04.05.00",
+        "functional_name": "Sume repartizate din Fondul la dispozitia Consiliului Judetean"
+      },
+      {
+        "functional_code": "04.06.00",
+        "functional_name": "Sume repartizate pentru finantarea institutiilor de spectacole si concerte"
+      },
+      {
+        "functional_code": "04.07.00",
+        "functional_name": "Sume repartizate Consiliului Judetean Ilfov"
+      },
+      {
+        "functional_code": "04.09.00",
+        "functional_name": "Cote defalcate din impozitul pe venit in curs de distribuire, pentru echilibrarea bugetelor locale"
+      },
+      {
+        "functional_code": "05.01.01",
+        "functional_name": "Impozit pe veniturile din dividende obtinute din Romania de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.02",
+        "functional_name": "Impozit pe veniturile din dobanzi obtinute din Romania de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.03",
+        "functional_name": "Impozit pe veniturile din redevente obtinute din Romania de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.04",
+        "functional_name": "Impozit pe veniturile din comisioane obtinute din Romania de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.05",
+        "functional_name": "Impozit pe veniturile obtinute din Romania de persoane nerezidente din activitati sportive si de divertisment"
+      },
+      {
+        "functional_code": "05.01.06",
+        "functional_name": "Impozit pe veniturile reprezentand remuneratii primite de persoane juridice nerezidente care au calitatea de administrator, fondator sau membru al consiliului de administratie al unei persoane juridice romane"
+      },
+      {
+        "functional_code": "05.01.07",
+        "functional_name": "Impozit pe veniturile din servicii prestate in Romania si in afara Romaniei de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.08",
+        "functional_name": "Impozit pe veniturile obtinute de persoane fizice nerezidente din premii acordate la concursuri organizate in Romania"
+      },
+      {
+        "functional_code": "05.01.09",
+        "functional_name": "Impozit pe veniturile obtinute la jocuri de noroc practicate in Romania de persoane fizice nerezidente"
+      },
+      {
+        "functional_code": "05.01.10",
+        "functional_name": "Impozit pe veniturile din lichidarea unei persoane juridice romane realizate de persoane nerezidente"
+      },
+      {
+        "functional_code": "05.01.11",
+        "functional_name": "Impozitul pe veniturile realizate din transferul masei patrimoniale fiduciare de la fiduciar la beneficiarul nerezident"
+      },
+      {
+        "functional_code": "05.50.00",
+        "functional_name": "Alte impozite pe venit, profit si cistiguri din capital"
+      },
+      {
+        "functional_code": "06.01.00",
+        "functional_name": "Impozit pe salarii - Restante ani anteriori -"
+      },
+      {
+        "functional_code": "06.02.00",
+        "functional_name": "Cote defalcate din impozitul pe salarii - Restante anii anteriori -"
+      },
+      {
+        "functional_code": "07.01.01",
+        "functional_name": "Impozit pe cladiri de la persoane fizice"
+      },
+      {
+        "functional_code": "07.01.02",
+        "functional_name": "Impozit si taxa pe cladiri de la persoane juridice"
+      },
+      {
+        "functional_code": "07.02.01",
+        "functional_name": "Impozit pe terenuri de la persoane fizice"
+      },
+      {
+        "functional_code": "07.02.02",
+        "functional_name": "Impozit si taxa pe teren de la persoane juridice"
+      },
+      {
+        "functional_code": "07.02.03",
+        "functional_name": "Impozit pe terenul din extravilan"
+      },
+      {
+        "functional_code": "07.03.00",
+        "functional_name": "Taxe judiciare de timbru si alte taxe de timbru"
+      },
+      {
+        "functional_code": "07.04.00",
+        "functional_name": "Impozit pe constructii"
+      },
+      {
+        "functional_code": "07.05.00",
+        "functional_name": "Taxa pe active"
+      },
+      {
+        "functional_code": "07.06.00",
+        "functional_name": "Impozitul special pe bunurile imobile si mobile de valoare mare"
+      },
+      {
+        "functional_code": "07.06.01",
+        "functional_name": "Impozitul special pe bunurile imobile de valoare mare"
+      },
+      {
+        "functional_code": "07.06.02",
+        "functional_name": "Impozitul special pe bunurile mobile de valoare mare"
+      },
+      {
+        "functional_code": "07.50.00",
+        "functional_name": "Alte impozite si taxe  pe proprietate"
+      },
+      {
+        "functional_code": "10.01.01",
+        "functional_name": "TVA incasata pentru operatiuni interne"
+      },
+      {
+        "functional_code": "10.01.02",
+        "functional_name": "TVA incasata pentru importurile de bunuri"
+      },
+      {
+        "functional_code": "10.01.03",
+        "functional_name": "TVA pentru servicii electronice prestate de persoane impozabile nestabilite in cadrul comunitatii, pentru  persoane neimpozabile stabilite in Romania"
+      },
+      {
+        "functional_code": "10.01.04",
+        "functional_name": "TVA platita de persoane impozabile nestabilite in Romania si care pot fi scutite de obligatia inregistrarii in scopuri de TVA, cand efectueaza in Romania una sau mai multe operatiuni pentru care este obligata la plata taxei"
+      },
+      {
+        "functional_code": "10.01.05",
+        "functional_name": "T.V.A. de plata pentru transferul unor active,  rezultata ca urmare a ajustarilor"
+      },
+      {
+        "functional_code": "10.01.06",
+        "functional_name": "TVA aferenta serviciilor si vanzarilor la distanta transferat statului membru de consum de catre statele membre de inregistrare"
+      },
+      {
+        "functional_code": "10.02.01",
+        "functional_name": "Restituiri pentru societati cu sediul in U.E."
+      },
+      {
+        "functional_code": "10.02.02",
+        "functional_name": "Restituiri pentru tari terte care au tranzactii cu Romania"
+      },
+      {
+        "functional_code": "10.02.03",
+        "functional_name": "Alte restituiri"
+      },
+      {
+        "functional_code": "10.02.04",
+        "functional_name": "Restituiri catre persoane impozabile neinregistrate in scopuri de TVA in Romania"
+      },
+      {
+        "functional_code": "10.02.05",
+        "functional_name": "Restituiri de TVA pentru contribuabilii care aplica regimurile speciale, cu privire la serviciile si vanzarile la distanta"
+      },
+      {
+        "functional_code": "10.03.00",
+        "functional_name": "Obligatii fiscale accesorii aferente TVA"
+      },
+      {
+        "functional_code": "10.04.00",
+        "functional_name": "TVA aferent serviciilor electronice prestate de persoane impozabile nestabilite in comunitate, dar inregistrate in scopuri de TVA in Romania, catre persoane neimpozabile stabilite in alte state membre (se scade)"
+      },
+      {
+        "functional_code": "11.01.00",
+        "functional_name": "Sume defalcate din taxa pe valoarea adaugata pentru finantarea cheltuielilor descentralizate la nivelul judetelor (se scad)"
+      },
+      {
+        "functional_code": "11.02.00",
+        "functional_name": "Sume defalcate din taxa pe valoarea adaugata pentru finantarea cheltuielilor descentralizate la nivelul comunelor, oraselor, municipiilor, sectoarelor si Municipiului Bucuresti (se scad)"
+      },
+      {
+        "functional_code": "11.05.00",
+        "functional_name": "Sume defalcate din taxa pe valoarea adaugata pentru drumuri (se scad)"
+      },
+      {
+        "functional_code": "11.06.00",
+        "functional_name": "Sume defalcate din taxa pe valoarea adaugata  pentru  echilibrarea bugetelor locale (se scad)"
+      },
+      {
+        "functional_code": "11.08.00",
+        "functional_name": "Restituiri din sume defalcate din TVA acordate in anul precedent (cu semnul \"+\")"
+      },
+      {
+        "functional_code": "11.09.00",
+        "functional_name": "Sume defalcate din taxa pe valoarea adaugata pentru finantarea invatamantului particular si a celui confesional"
+      },
+      {
+        "functional_code": "12.01.00",
+        "functional_name": "Impozit pe titeiul din productia interna si gazele naturale"
+      },
+      {
+        "functional_code": "12.02.00",
+        "functional_name": "Taxa de dezvoltare cuprinsa in tariful energiei electrice si termice --Restante anii anteriori -"
+      },
+      {
+        "functional_code": "12.03.00",
+        "functional_name": "Cote aplicate asupra veniturilor realizate in domeniul aviatiei civile"
+      },
+      {
+        "functional_code": "12.04.00",
+        "functional_name": "Taxa de timbru social asupra valorii automobilelor noi din import"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 1095
+    }
+  }
+}

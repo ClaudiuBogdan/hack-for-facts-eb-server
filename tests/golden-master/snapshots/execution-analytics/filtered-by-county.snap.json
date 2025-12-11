@@ -1,0 +1,35 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [
+        {
+          "x": "2020",
+          "y": 3985148864.72
+        },
+        {
+          "x": "2021",
+          "y": 4148349547.24
+        },
+        {
+          "x": "2022",
+          "y": 4703464376.16
+        },
+        {
+          "x": "2023",
+          "y": 5408736890.77
+        }
+      ],
+      "seriesId": "county-cj",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

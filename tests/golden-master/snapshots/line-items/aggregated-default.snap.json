@@ -1,0 +1,411 @@
+{
+  "aggregatedLineItems": {
+    "nodes": [
+      {
+        "amount": 140805719574.08,
+        "count": 5,
+        "economic_code": "57.01.00",
+        "economic_name": "Asigurari sociale",
+        "functional_code": "68.03.00",
+        "functional_name": "Pensii si ajutoare pentru batrinete"
+      },
+      {
+        "amount": 23326246910.96,
+        "count": 128,
+        "economic_code": "57.02.01",
+        "economic_name": "Ajutoare sociale in numerar",
+        "functional_code": "68.06.00",
+        "functional_name": "Asistenta sociala pentru familie si copii"
+      },
+      {
+        "amount": 22786256621.75,
+        "count": 657,
+        "economic_code": "30.01.01",
+        "economic_name": "Dobanzi aferente datoriei publice interne directe",
+        "functional_code": "55.00.00",
+        "functional_name": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 16145445824.65,
+        "count": 208,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 14751786977.84,
+        "count": 200,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 12425677603.18,
+        "count": 3252,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 12399062602.35,
+        "count": 1,
+        "economic_code": "51.01.66",
+        "economic_name": "Transferuri din bugetul fondului national unic de asigurari sociale de sanatate catre unitatile sanitare pentru acoperirea cresterilor salariale",
+        "functional_code": "66.02.00",
+        "functional_name": "Servicii publice descentralizate"
+      },
+      {
+        "amount": 11403211000,
+        "count": 1,
+        "economic_code": "51.01.07",
+        "economic_name": "Transferuri din bugetul de stat catre bugetul asigurarilor sociale de stat",
+        "functional_code": "56.02.00",
+        "functional_name": "Transferuri din bugetul de stat catre bugetul asigurarilor sociale de stat"
+      },
+      {
+        "amount": 10844120576.22,
+        "count": 6,
+        "economic_code": "30.02.01",
+        "economic_name": "Dobanzi, aferente datoriei publice externe directe",
+        "functional_code": "55.00.00",
+        "functional_name": "Tranzactii privind datoria publica si imprumuturi"
+      },
+      {
+        "amount": 10285306562.49,
+        "count": 3182,
+        "economic_code": "57.02.01",
+        "economic_name": "Ajutoare sociale in numerar",
+        "functional_code": "68.05.02",
+        "functional_name": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 9982071663.46,
+        "count": 1,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "66.03.02",
+        "functional_name": "Medicamente pentru boli cronice cu risc crescut  utilizate in programele nationale cu scop curativ"
+      },
+      {
+        "amount": 9215997000,
+        "count": 1,
+        "economic_code": "58.24.00",
+        "economic_name": "Sume aferente asistentei financiare nerambursabile alocata de Uniunea Europeana in perioada de programare 2014-2020",
+        "functional_code": "51.04.00",
+        "functional_name": "Cofinantarea  fondurilor primite de la Uniunea Europeana"
+      },
+      {
+        "amount": 8919017124.87,
+        "count": 1,
+        "economic_code": "55.03.06",
+        "economic_name": "Contributii din resursa  VNB",
+        "functional_code": "51.03.00",
+        "functional_name": "Contributia la bugetul U E"
+      },
+      {
+        "amount": 7748820888.66,
+        "count": 1,
+        "economic_code": "51.01.11",
+        "economic_name": "Transferuri din bugetul de stat catre bugetul fondului national unic de asigurari  sociale de sanatate",
+        "functional_code": "56.04.00",
+        "functional_name": "Transferuri din bugetul de stat catre bugetul fondului de asigurari sociale de sanatate"
+      },
+      {
+        "amount": 7652923087.07,
+        "count": 1,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "66.03.01",
+        "functional_name": "Medicamente cu si fara contributie personala"
+      },
+      {
+        "amount": 6205003179.32,
+        "count": 39,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.01",
+        "functional_name": "Invatamant secundar inferior"
+      },
+      {
+        "amount": 6048984461,
+        "count": 1,
+        "economic_code": "40.21.00",
+        "economic_name": "Schema de compensare pentru consumul de energie electrica si gaze naturale al consumatorilor noncasnici",
+        "functional_code": "80.01.30",
+        "functional_name": "Alte cheltuieli pentru actiuni generale economice si comerciale"
+      },
+      {
+        "amount": 5760387035.7,
+        "count": 1,
+        "economic_code": "51.01.02",
+        "economic_name": "Finantarea  de baza a invatamantului superior",
+        "functional_code": "65.50.00",
+        "functional_name": "Alte cheltuieli in domeniul invatamantului"
+      },
+      {
+        "amount": 5512174342.17,
+        "count": 1,
+        "economic_code": "56.52.02",
+        "economic_name": "Finantare externa nerambursabila",
+        "functional_code": "83.50.00",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 5350378513.06,
+        "count": 17,
+        "economic_code": "71.01.30",
+        "economic_name": "Alte active fixe",
+        "functional_code": "60.02.00",
+        "functional_name": "Aparare nationala"
+      },
+      {
+        "amount": 4903147787.79,
+        "count": 35,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.04.02",
+        "functional_name": "Invatamant secundar superior"
+      },
+      {
+        "amount": 4875349738.25,
+        "count": 1,
+        "economic_code": "58.28.02",
+        "economic_name": "Fonduri externe nerambursabile",
+        "functional_code": "83.50.00",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 4730146187.58,
+        "count": 201,
+        "economic_code": "20.04.01",
+        "economic_name": "Medicamente",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 4502642998.47,
+        "count": 1,
+        "economic_code": "57.02.06",
+        "economic_name": "Sume acordate pentru compensarea facturilor aferente consumulului de energie electrica si gaze naturale",
+        "functional_code": "68.15.01",
+        "functional_name": "Ajutor social"
+      },
+      {
+        "amount": 4466874490.5,
+        "count": 3,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.06.01",
+        "functional_name": "Invatamant universitar"
+      },
+      {
+        "amount": 4344487154.02,
+        "count": 3127,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "68.05.02",
+        "functional_name": "Asistenta sociala  in  caz de invaliditate"
+      },
+      {
+        "amount": 4249825733.04,
+        "count": 19,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.02",
+        "functional_name": "Invatamant primar"
+      },
+      {
+        "amount": 4187387867.18,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "60.02.00",
+        "functional_name": "Aparare nationala"
+      },
+      {
+        "amount": 3835860530,
+        "count": 196,
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca",
+        "functional_code": "66.06.01",
+        "functional_name": "Spitale generale"
+      },
+      {
+        "amount": 3822333498.74,
+        "count": 1,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.03.01",
+        "functional_name": "Politie"
+      },
+      {
+        "amount": 3716950155,
+        "count": 1,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "66.04.01",
+        "functional_name": "Asistenta medicala primara"
+      },
+      {
+        "amount": 3642898457.59,
+        "count": 7,
+        "economic_code": "10.00.00",
+        "economic_name": "TITLUL I  CHELTUIELI DE PERSONAL",
+        "functional_code": "61.00.00",
+        "functional_name": "Ordine publica si siguranta nationala"
+      },
+      {
+        "amount": 3606605373.24,
+        "count": 2,
+        "economic_code": "58.03.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 3356026113.31,
+        "count": 18,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "65.03.01",
+        "functional_name": "Invatamant prescolar"
+      },
+      {
+        "amount": 3255489900,
+        "count": 166,
+        "economic_code": "58.02.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 3100507586.73,
+        "count": 1470,
+        "economic_code": "71.01.01",
+        "economic_name": "Constructii",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 3075353262.26,
+        "count": 63,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "84.03.01",
+        "functional_name": "Drumuri si poduri"
+      },
+      {
+        "amount": 3047651591.54,
+        "count": 4,
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza",
+        "functional_code": "61.06.00",
+        "functional_name": "Autoritati judecatoresti"
+      },
+      {
+        "amount": 2851047044.03,
+        "count": 2,
+        "economic_code": "55.01.12",
+        "economic_name": "Investitii ale agentilor economici cu capital de stat",
+        "functional_code": "70.03.01",
+        "functional_name": "Dezvoltarea sistemului de locuinte"
+      },
+      {
+        "amount": 2795776099.65,
+        "count": 1,
+        "economic_code": "20.31.00",
+        "economic_name": "Finantarea unor actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale",
+        "functional_code": "66.50.50",
+        "functional_name": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 2738635711.94,
+        "count": 2,
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional",
+        "functional_code": "66.04.02",
+        "functional_name": "Asistenta medicala pentru specialitati clinice"
+      },
+      {
+        "amount": 2597526188.97,
+        "count": 113,
+        "economic_code": "40.03.00",
+        "economic_name": "Subventii pentru acoperirea diferentelor de pret si tarif",
+        "functional_code": "84.03.02",
+        "functional_name": "Transport in comun"
+      },
+      {
+        "amount": 2543507159.87,
+        "count": 31,
+        "economic_code": "40.03.00",
+        "economic_name": "Subventii pentru acoperirea diferentelor de pret si tarif",
+        "functional_code": "81.06.00",
+        "functional_name": "Energie termica"
+      },
+      {
+        "amount": 2515162840.24,
+        "count": 1,
+        "economic_code": "56.49.02",
+        "economic_name": "Finantare externa nerambursabila",
+        "functional_code": "51.01.03",
+        "functional_name": "Autoritati executive"
+      },
+      {
+        "amount": 2502697442.76,
+        "count": 50,
+        "economic_code": "58.01.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "84.03.02",
+        "functional_name": "Transport in comun"
+      },
+      {
+        "amount": 2469994230.4,
+        "count": 1,
+        "economic_code": "58.13.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "83.50.00",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii, silviculturii, pisciculturii si vanatorii"
+      },
+      {
+        "amount": 2403262195.61,
+        "count": 1,
+        "economic_code": "51.02.54",
+        "economic_name": "Programul national de investitii ?Anghel Saligny?",
+        "functional_code": "70.50.00",
+        "functional_name": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 2399589146.87,
+        "count": 5,
+        "economic_code": "51.01.03",
+        "economic_name": "Actiuni de sanatate",
+        "functional_code": "66.50.50",
+        "functional_name": "Alte institutii si actiuni sanitare"
+      },
+      {
+        "amount": 2397449391.55,
+        "count": 1,
+        "economic_code": "51.02.38",
+        "economic_name": "Programul National de Dezvoltare Locala",
+        "functional_code": "70.50.00",
+        "functional_name": "Alte servicii in domeniile locuintelor, serviciilor si dezvoltarii comunale"
+      },
+      {
+        "amount": 2377140282.91,
+        "count": 1,
+        "economic_code": "58.27.02",
+        "economic_name": "Finantarea externa nerambursabila",
+        "functional_code": "83.03.30",
+        "functional_name": "Alte cheltuieli in domeniul agriculturii"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 9252
+    }
+  }
+}

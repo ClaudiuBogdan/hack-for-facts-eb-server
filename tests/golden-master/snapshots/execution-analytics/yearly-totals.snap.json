@@ -1,0 +1,35 @@
+{
+  "executionAnalytics": [
+    {
+      "data": [
+        {
+          "x": "2020",
+          "y": 523590829899.05
+        },
+        {
+          "x": "2021",
+          "y": 557023799924.8
+        },
+        {
+          "x": "2022",
+          "y": 638337470041.51
+        },
+        {
+          "x": "2023",
+          "y": 715495185462.11
+        }
+      ],
+      "seriesId": "yearly-totals",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "type-enum": [
+      2,
+      "always",
+      ["feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert"]
+    ],
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "api",
+        "auth",
+        "health",
+        "database",
+        "common",
+        "graphql",
+        "cors",
+        "datasets",
+        "redis",
+        "observability",
+        "logging",
+        "tracing",
+        "tests",
+        "docs",
+        "cache",
+        "e2e",
+        "deps",
+        "config",
+        "husky",
+        "security",
+        "analytics",
+        "execution-analytics",
+        "entity-analytics",
+        "aggregated-line-items",
+        "execution-line-items",
+        "budget-sector",
+        "funding-sources",
+        "entity",
+        "reports",
+        "classifications",
+        "uat",
+        "normalization",
+        "notifications",
+        "share",
+        "mcp",
+        "dx",
+        "image",
+        "deployment",
+        "others"
+      ]
+    ],
+    "scope-empty": [1, "never"],
+    "subject-case": [2, "always", "sentence-case"],
+    "subject-empty": [2, "never"],
+    "subject-full-stop": [2, "never", "."],
+    "header-max-length": [2, "always", 150],
+    "body-leading-blank": [2, "always"],
+    "body-max-line-length": [2, "always", 100],
+    "footer-leading-blank": [2, "always"]
+  }
+}

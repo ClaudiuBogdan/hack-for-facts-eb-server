@@ -1,0 +1,81 @@
+metadata:
+  id: "ro.economics.cpi.yearly"
+  source: "INSSE"
+  sourceUrl: "https://insse.ro/cms/ro/content/ipc%E2%80%93serie-de-date-anuala"
+  lastUpdated: "2025-12-04"
+  units: "index_2024"
+  notes: "Index calculat pe baza ratelor anuale de inflatie, rebazat cu 2024=100"
+i18n:
+  ro:
+    title: "Indicele Prețurilor de Consum (IPC)"
+    xAxisLabel: "An"
+    yAxisLabel: "Indice (2024 = 100)"
+  en:
+    title: "Consumer Price Index (CPI)"
+    xAxisLabel: "Year"
+    yAxisLabel: "Index (2024 = 100)"
+axes:
+  x:
+    label: "An"
+    type: "date"
+    frequency: "yearly"
+    format: "YYYY"
+  y:
+    label: "Indice"
+    type: "number"
+    unit: "index_2024"
+data:
+  - { x: "1971", y: 100.6 } #inflation: 0.6
+  - { x: "1972", y: 100.0 } #inflation: 0.0
+  - { x: "1973", y: 100.7 } #inflation: 0.7
+  - { x: "1974", y: 101.1 } #inflation: 1.1
+  - { x: "1975", y: 100.2 } #inflation: 0.2
+  - { x: "1976", y: 100.6 } #inflation: 0.6
+  - { x: "1977", y: 100.6 } #inflation: 0.6
+  - { x: "1978", y: 101.6 } #inflation: 1.6
+  - { x: "1979", y: 102.0 } #inflation: 2.0
+  - { x: "1980", y: 102.1 } #inflation: 2.1
+  - { x: "1981", y: 103.1 } #inflation: 3.1
+  - { x: "1982", y: 117.8 } #inflation: 17.8
+  - { x: "1983", y: 104.1 } #inflation: 4.1
+  - { x: "1984", y: 101.1 } #inflation: 1.1
+  - { x: "1985", y: 100.8 } #inflation: 0.8
+  - { x: "1986", y: 101.0 } #inflation: 1.0
+  - { x: "1987", y: 100.9 } #inflation: 0.9
+  - { x: "1988", y: 102.2 } #inflation: 2.2
+  - { x: "1989", y: 101.1 } #inflation: 1.1
+  - { x: "1990", y: 105.1 } #inflation: 5.1
+  - { x: "1991", y: 270.2 } #inflation: 170.2
+  - { x: "1992", y: 310.4 } #inflation: 210.4
+  - { x: "1993", y: 356.1 } #inflation: 256.1
+  - { x: "1994", y: 236.7 } #inflation: 136.7
+  - { x: "1995", y: 132.3 } #inflation: 32.3
+  - { x: "1996", y: 138.8 } #inflation: 38.8
+  - { x: "1997", y: 254.8 } #inflation: 154.8
+  - { x: "1998", y: 159.1 } #inflation: 59.1
+  - { x: "1999", y: 145.8 } #inflation: 45.8
+  - { x: "2000", y: 145.7 } #inflation: 45.7
+  - { x: "2001", y: 134.5 } #inflation: 34.5
+  - { x: "2002", y: 122.5 } #inflation: 22.5
+  - { x: "2003", y: 115.3 } #inflation: 15.3
+  - { x: "2004", y: 111.9 } #inflation: 11.9
+  - { x: "2005", y: 109.0 } #inflation: 9.0
+  - { x: "2006", y: 106.56 } #inflation: 6.6
+  - { x: "2007", y: 104.84 } #inflation: 4.8
+  - { x: "2008", y: 107.85 } #inflation: 7.9
+  - { x: "2009", y: 105.59 } #inflation: 5.6
+  - { x: "2010", y: 106.09 } #inflation: 6.1
+  - { x: "2011", y: 105.79 } #inflation: 5.8
+  - { x: "2012", y: 103.33 } #inflation: 3.3
+  - { x: "2013", y: 103.98 } #inflation: 4.0
+  - { x: "2014", y: 101.07 } #inflation: 1.1
+  - { x: "2015", y: 99.41 } #inflation: -0.6
+  - { x: "2016", y: 98.45 } #inflation: -1.5
+  - { x: "2017", y: 101.34 } #inflation: 1.3
+  - { x: "2018", y: 104.63 } #inflation: 4.6
+  - { x: "2019", y: 103.83 } #inflation: 3.8
+  - { x: "2020", y: 102.63 } #inflation: 2.6
+  - { x: "2021", y: 105.05 } #inflation: 5.1
+  - { x: "2022", y: 113.80 } #inflation: 13.8
+  - { x: "2023", y: 110.40 } #inflation: 10.4
+  - { x: "2024", y: 105.59 } #inflation: 5.6

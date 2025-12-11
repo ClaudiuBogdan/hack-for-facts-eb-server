@@ -1,0 +1,231 @@
+{
+  "entityAnalytics": {
+    "nodes": [
+      {
+        "amount": 2717305508.31,
+        "county_code": "TM",
+        "county_name": "TIMIȘ",
+        "entity_cui": "14756536",
+        "entity_name": "MUNICIPIUL TIMISOARA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 10832.44,
+        "population": 250849,
+        "total_amount": 2717305508.31
+      },
+      {
+        "amount": 2524317578.01,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4420465",
+        "entity_name": "SECTORUL 3 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 6757.35,
+        "population": 373566,
+        "total_amount": 2524317578.01
+      },
+      {
+        "amount": 2373298164.09,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "43516588",
+        "entity_name": "MINISTERUL CERCETARII INOVARII SI DIGITALIZARII",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "population": null,
+        "total_amount": 2373298164.09
+      },
+      {
+        "amount": 2221250319.55,
+        "county_code": "BH",
+        "county_name": "BIHOR",
+        "entity_cui": "4230487",
+        "entity_name": "MUNICIPIUL ORADEA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 12131.02,
+        "population": 183105,
+        "total_amount": 2221250319.55
+      },
+      {
+        "amount": 2123988269.99,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4340730",
+        "entity_name": "SECTORUL 6 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 6520.12,
+        "population": 325759,
+        "total_amount": 2123988269.99
+      },
+      {
+        "amount": 2094534915.91,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4316422",
+        "entity_name": "SECTORUL 4 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 7970.68,
+        "population": 262780,
+        "total_amount": 2094534915.91
+      },
+      {
+        "amount": 2087169056.11,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4192812",
+        "entity_name": "MINISTERUL CULTURII",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "population": null,
+        "total_amount": 2087169056.11
+      },
+      {
+        "amount": 2059523743.65,
+        "county_code": "IS",
+        "county_name": "IAȘI",
+        "entity_cui": "4541580",
+        "entity_name": "MUNICIPIUL IASI",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 7580.36,
+        "population": 271692,
+        "total_amount": 2059523743.65
+      },
+      {
+        "amount": 1965367011.99,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4204038",
+        "entity_name": "SECTORUL 2 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 6765.3,
+        "population": 290507,
+        "total_amount": 1965367011.99
+      },
+      {
+        "amount": 1954865724.05,
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "entity_type": "admin_county_council",
+        "per_capita_amount": 2878.44,
+        "population": 679141,
+        "total_amount": 1954865724.05
+      },
+      {
+        "amount": 1951690397.7,
+        "county_code": "DJ",
+        "county_name": "DOLJ",
+        "entity_cui": "4417214",
+        "entity_name": "MUNICIPIUL CRAIOVA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 8335.57,
+        "population": 234140,
+        "total_amount": 1951690397.7
+      },
+      {
+        "amount": 1933240571.9,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4364748",
+        "entity_name": "PARCHETUL DE PE LANGA INALTA CURTE DE CASATIE SI JUSTITIE",
+        "entity_type": "justice_court",
+        "per_capita_amount": 0,
+        "population": null,
+        "total_amount": 1933240571.9
+      },
+      {
+        "amount": 1844163867.18,
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "entity_cui": "4785631",
+        "entity_name": "MUNICIPIUL CONSTANTA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 6993.23,
+        "population": 263707,
+        "total_amount": 1844163867.18
+      },
+      {
+        "amount": 1613993956.74,
+        "county_code": "IS",
+        "county_name": "IAȘI",
+        "entity_cui": "4540712",
+        "entity_name": "JUDETUL IASI",
+        "entity_type": "admin_county_council",
+        "per_capita_amount": 2121.52,
+        "population": 760774,
+        "total_amount": 1613993956.74
+      },
+      {
+        "amount": 1575092666.33,
+        "county_code": "CJ",
+        "county_name": "CLUJ",
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 5495.83,
+        "population": 286598,
+        "total_amount": 1575092666.33
+      },
+      {
+        "amount": 1407019595.46,
+        "county_code": "CT",
+        "county_name": "CONSTANȚA",
+        "entity_cui": "2981739",
+        "entity_name": "JUDETUL CONSTANTA",
+        "entity_type": "admin_county_council",
+        "per_capita_amount": 2144.86,
+        "population": 655997,
+        "total_amount": 1407019595.46
+      },
+      {
+        "amount": 1395231266.95,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4433953",
+        "entity_name": "SECTORUL 5 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 5823,
+        "population": 239607,
+        "total_amount": 1395231266.95
+      },
+      {
+        "amount": 1360500780.4,
+        "county_code": "PH",
+        "county_name": "PRAHOVA",
+        "entity_cui": "2842889",
+        "entity_name": "JUDETUL PRAHOVA",
+        "entity_type": "admin_county_council",
+        "per_capita_amount": 1957.23,
+        "population": 695117,
+        "total_amount": 1360500780.4
+      },
+      {
+        "amount": 1341945955.84,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "4505359",
+        "entity_name": "SECTORUL 1 AL MUNICIPIULUI BUCURESTI",
+        "entity_type": "admin_sector_hall",
+        "per_capita_amount": 5970.47,
+        "population": 224764,
+        "total_amount": 1341945955.84
+      },
+      {
+        "amount": 1314963627.86,
+        "county_code": "GL",
+        "county_name": "GALAȚI",
+        "entity_cui": "3814810",
+        "entity_name": "MUNICIPIUL GALATI",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 6036.07,
+        "population": 217851,
+        "total_amount": 1314963627.86
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": true,
+      "totalCount": 3295
+    }
+  }
+}

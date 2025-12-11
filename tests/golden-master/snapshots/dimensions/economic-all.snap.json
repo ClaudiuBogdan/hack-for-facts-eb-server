@@ -1,0 +1,411 @@
+{
+  "economicClassifications": {
+    "nodes": [
+      {
+        "economic_code": "00.00.00",
+        "economic_name": "No economic classification"
+      },
+      {
+        "economic_code": "10.00.00",
+        "economic_name": "TITLUL I  CHELTUIELI DE PERSONAL"
+      },
+      {
+        "economic_code": "10.01.01",
+        "economic_name": "Salarii de baza"
+      },
+      {
+        "economic_code": "10.01.02",
+        "economic_name": "Salarii de merit"
+      },
+      {
+        "economic_code": "10.01.03",
+        "economic_name": "Indemnizatie de conducere"
+      },
+      {
+        "economic_code": "10.01.04",
+        "economic_name": "Spor de vechime"
+      },
+      {
+        "economic_code": "10.01.05",
+        "economic_name": "Sporuri pentru conditii de munca"
+      },
+      {
+        "economic_code": "10.01.06",
+        "economic_name": "Alte sporuri"
+      },
+      {
+        "economic_code": "10.01.07",
+        "economic_name": "Ore suplimentare"
+      },
+      {
+        "economic_code": "10.01.08",
+        "economic_name": "Fond de premii"
+      },
+      {
+        "economic_code": "10.01.09",
+        "economic_name": "Indemnizatie de vacanta"
+      },
+      {
+        "economic_code": "10.01.10",
+        "economic_name": "Fond pentru posturi ocupate prin cumul"
+      },
+      {
+        "economic_code": "10.01.11",
+        "economic_name": "Fond aferent platii cu ora"
+      },
+      {
+        "economic_code": "10.01.12",
+        "economic_name": "Indemnizatii platite unor persoane din afara unitatii"
+      },
+      {
+        "economic_code": "10.01.13",
+        "economic_name": "Drepturi de delegare"
+      },
+      {
+        "economic_code": "10.01.14",
+        "economic_name": "Indemnizatii de  detasare"
+      },
+      {
+        "economic_code": "10.01.15",
+        "economic_name": "Alocatii pentru transportul la si de la locul de munca"
+      },
+      {
+        "economic_code": "10.01.16",
+        "economic_name": "Alocatii pentru locuinte"
+      },
+      {
+        "economic_code": "10.01.17",
+        "economic_name": "Indemnizatii de hrana"
+      },
+      {
+        "economic_code": "10.01.29",
+        "economic_name": "Stimulentul de risc"
+      },
+      {
+        "economic_code": "10.01.30",
+        "economic_name": "Alte drepturi salariale in bani"
+      },
+      {
+        "economic_code": "10.02.01",
+        "economic_name": "Tichete de masa"
+      },
+      {
+        "economic_code": "10.02.02",
+        "economic_name": "Norme de hrana"
+      },
+      {
+        "economic_code": "10.02.03",
+        "economic_name": "Uniforme si echipament obligatoriu"
+      },
+      {
+        "economic_code": "10.02.04",
+        "economic_name": "Locuinta de serviciu folosita de salariat si familia sa"
+      },
+      {
+        "economic_code": "10.02.05",
+        "economic_name": "Transportul la si de la locul de munca"
+      },
+      {
+        "economic_code": "10.02.06",
+        "economic_name": "Vouchere de vacanta"
+      },
+      {
+        "economic_code": "10.02.30",
+        "economic_name": "Alte drepturi salariale in natura"
+      },
+      {
+        "economic_code": "10.03.01",
+        "economic_name": "Contributii de asigurari sociale de stat"
+      },
+      {
+        "economic_code": "10.03.02",
+        "economic_name": "Contributii de asigurari de somaj"
+      },
+      {
+        "economic_code": "10.03.03",
+        "economic_name": "Contributii de asigurari sociale de sanatate"
+      },
+      {
+        "economic_code": "10.03.04",
+        "economic_name": "Contributii de asigurari pentru accidente de munca si boli profesionale"
+      },
+      {
+        "economic_code": "10.03.05",
+        "economic_name": "Prime de asigurare viata platite de angajator pentru angajati"
+      },
+      {
+        "economic_code": "10.03.06",
+        "economic_name": "Contributii pentru concedii si indemnizatii"
+      },
+      {
+        "economic_code": "10.03.07",
+        "economic_name": "Contributia asiguratorie pentru munca"
+      },
+      {
+        "economic_code": "10.03.08",
+        "economic_name": "Contributii platite de angajator in numele angajatului"
+      },
+      {
+        "economic_code": "20.00.00",
+        "economic_name": "TITLUL II  BUNURI SI SERVICII"
+      },
+      {
+        "economic_code": "20.01.01",
+        "economic_name": "Furnituri de birou"
+      },
+      {
+        "economic_code": "20.01.02",
+        "economic_name": "Materiale pentru curatenie"
+      },
+      {
+        "economic_code": "20.01.03",
+        "economic_name": "Incalzit, Iluminat si forta motrica"
+      },
+      {
+        "economic_code": "20.01.04",
+        "economic_name": "Apa, canal si salubritate"
+      },
+      {
+        "economic_code": "20.01.05",
+        "economic_name": "Carburanti, lubrifianti si combustibili alternativi"
+      },
+      {
+        "economic_code": "20.01.06",
+        "economic_name": "Piese de schimb"
+      },
+      {
+        "economic_code": "20.01.07",
+        "economic_name": "Transport"
+      },
+      {
+        "economic_code": "20.01.08",
+        "economic_name": "Posta, telecomunicatii, radio, tv, internet"
+      },
+      {
+        "economic_code": "20.01.09",
+        "economic_name": "Materiale si prestari de servicii cu caracter functional"
+      },
+      {
+        "economic_code": "20.01.30",
+        "economic_name": "Alte bunuri si servicii pentru intretinere si functionare"
+      },
+      {
+        "economic_code": "20.02.00",
+        "economic_name": "Reparatii curente"
+      },
+      {
+        "economic_code": "20.03.01",
+        "economic_name": "Hrana pentru oameni"
+      },
+      {
+        "economic_code": "20.03.02",
+        "economic_name": "Hrana pentru animale"
+      },
+      {
+        "economic_code": "20.04.01",
+        "economic_name": "Medicamente"
+      },
+      {
+        "economic_code": "20.04.02",
+        "economic_name": "Materiale sanitare"
+      },
+      {
+        "economic_code": "20.04.03",
+        "economic_name": "Reactivi"
+      },
+      {
+        "economic_code": "20.04.04",
+        "economic_name": "Dezinfectanti"
+      },
+      {
+        "economic_code": "20.05.01",
+        "economic_name": "Uniforme si echipament"
+      },
+      {
+        "economic_code": "20.05.03",
+        "economic_name": "Lenjerie si accesorii de pat"
+      },
+      {
+        "economic_code": "20.05.30",
+        "economic_name": "Alte obiecte de inventar"
+      },
+      {
+        "economic_code": "20.06.01",
+        "economic_name": "Deplasari interne, detasari, transferari"
+      },
+      {
+        "economic_code": "20.06.02",
+        "economic_name": "Deplasari in strainatate"
+      },
+      {
+        "economic_code": "20.07.00",
+        "economic_name": "Mentenanta tehnica si echipamente destinate apararii, ordinii publice si sigurantei nationale"
+      },
+      {
+        "economic_code": "20.09.00",
+        "economic_name": "Materiale de laborator"
+      },
+      {
+        "economic_code": "20.10.00",
+        "economic_name": "Cercetare-dezvoltare"
+      },
+      {
+        "economic_code": "20.11.00",
+        "economic_name": "Carti, publicatii si materiale documentare"
+      },
+      {
+        "economic_code": "20.12.00",
+        "economic_name": "Consultanta si expertiza"
+      },
+      {
+        "economic_code": "20.13.00",
+        "economic_name": "Pregatire profesionala"
+      },
+      {
+        "economic_code": "20.14.00",
+        "economic_name": "Protectia muncii"
+      },
+      {
+        "economic_code": "20.15.00",
+        "economic_name": "Munitie, furnituri si armament de natura activelor fixe pentru armata"
+      },
+      {
+        "economic_code": "20.16.00",
+        "economic_name": "Studii si cercetari"
+      },
+      {
+        "economic_code": "20.18.00",
+        "economic_name": "Plati pentru finantarea patrimoniului genetic al animalelor"
+      },
+      {
+        "economic_code": "20.19.00",
+        "economic_name": "Contributii ale administratiei publice locale la realizarea unor lucrari si servicii de interes public local, in baza unor conventii sau contracte de asociere"
+      },
+      {
+        "economic_code": "20.20.00",
+        "economic_name": "Reabilitare infrastructura program inundatii pentru autoritati publice locale"
+      },
+      {
+        "economic_code": "20.21.00",
+        "economic_name": "Meteorologie"
+      },
+      {
+        "economic_code": "20.22.00",
+        "economic_name": "Finantarea actiunilor din domeniul apelor"
+      },
+      {
+        "economic_code": "20.23.00",
+        "economic_name": "Prevenirea si combaterea inundatiilor si ingheturilor"
+      },
+      {
+        "economic_code": "20.24.01",
+        "economic_name": "Comisioane  si alte costuri aferente imprumuturilor externe"
+      },
+      {
+        "economic_code": "20.24.02",
+        "economic_name": "Comisioane  si alte costuri aferente imprumuturilor interne"
+      },
+      {
+        "economic_code": "20.24.03",
+        "economic_name": "Stabilirea riscului de tara"
+      },
+      {
+        "economic_code": "20.24.04",
+        "economic_name": "Comisioane si alte costuri aferente imprumuturilor preluate/contractate de MFP in baza OUG 64/2007"
+      },
+      {
+        "economic_code": "20.25.00",
+        "economic_name": "Cheltuieli judiciare si extrajudiciare derivate din actiuni in reprezentarea intereselor statului, potrivit dispozitiilor legale"
+      },
+      {
+        "economic_code": "20.27.00",
+        "economic_name": "Tichete cadou"
+      },
+      {
+        "economic_code": "20.28.00",
+        "economic_name": "Ajutor public judiciar"
+      },
+      {
+        "economic_code": "20.30.01",
+        "economic_name": "Reclama si publicitate"
+      },
+      {
+        "economic_code": "20.30.02",
+        "economic_name": "Protocol si reprezentare"
+      },
+      {
+        "economic_code": "20.30.03",
+        "economic_name": "Prime de asigurare non-viata"
+      },
+      {
+        "economic_code": "20.30.04",
+        "economic_name": "Chirii"
+      },
+      {
+        "economic_code": "20.30.06",
+        "economic_name": "Prestari servicii pentru transmiterea drepturilor"
+      },
+      {
+        "economic_code": "20.30.07",
+        "economic_name": "Fondul Presedintelui/Fondul conducatorului institutiei publice"
+      },
+      {
+        "economic_code": "20.30.08",
+        "economic_name": "Fondul Primului ministru"
+      },
+      {
+        "economic_code": "20.30.09",
+        "economic_name": "Executarea silita a creantelor bugetare"
+      },
+      {
+        "economic_code": "20.30.30",
+        "economic_name": "Alte cheltuieli cu bunuri si servicii"
+      },
+      {
+        "economic_code": "20.31.00",
+        "economic_name": "Finantarea unor actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale"
+      },
+      {
+        "economic_code": "20.32.00",
+        "economic_name": "Finantarea programelor nationale de sanatate derulate de unitatile sanitare din reteaua administratiei publice locale"
+      },
+      {
+        "economic_code": "20.33.00",
+        "economic_name": "Finantarea asistentei medicale desfasurate in cabinetele medicale din unitatile de invatamant"
+      },
+      {
+        "economic_code": "20.34.00",
+        "economic_name": "Finantarea din veniturile proprii ale Ministerului Sanatatii pentru actiuni de sanatate din cadrul unitatilor sanitare din reteaua administratiei publice locale"
+      },
+      {
+        "economic_code": "20.35.00",
+        "economic_name": "Finantarea din veniturile proprii ale Ministerului Sanatatii pentru programele nationale de sanatate derulate de unitatile sanitare din reteaua administratiei publice locale"
+      },
+      {
+        "economic_code": "20.36.00",
+        "economic_name": "Finantarea cabinetelor de medicina legala din cadrul unitatilor sanitare din reteaua administratiei locale"
+      },
+      {
+        "economic_code": "20.37.00",
+        "economic_name": "Finantarea stimulentului de risc pentru personalul din cadrul unitatilor sanitare din reteaua administratiei publice locale"
+      },
+      {
+        "economic_code": "30.00.00",
+        "economic_name": "TITLUL III DOBANZI"
+      },
+      {
+        "economic_code": "30.01.01",
+        "economic_name": "Dobanzi aferente datoriei publice interne directe"
+      },
+      {
+        "economic_code": "30.01.02",
+        "economic_name": "Dobanzi aferente creditelor interne garantate"
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 710
+    }
+  }
+}

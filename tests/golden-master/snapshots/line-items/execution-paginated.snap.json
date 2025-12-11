@@ -1,0 +1,251 @@
+{
+  "executionLineItems": {
+    "nodes": [
+      {
+        "account_category": "ch",
+        "economic_code": "10.01.01",
+        "entity_cui": "4288110",
+        "functional_code": "66.06.01",
+        "line_item_id": "63323224",
+        "month": 12,
+        "monthly_amount": 21771271,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 269192248
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "81.04.00",
+        "entity_cui": "4288110",
+        "functional_code": "84.50.00",
+        "line_item_id": "63322944",
+        "month": 12,
+        "monthly_amount": 223902028.3,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 242811484.33
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "55.01.67",
+        "entity_cui": "4288110",
+        "functional_code": "84.50.00",
+        "line_item_id": "63323034",
+        "month": 12,
+        "monthly_amount": 219148902.6,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 219148902.6
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "58.01.03",
+        "entity_cui": "4288110",
+        "functional_code": "84.03.01",
+        "line_item_id": "63322897",
+        "month": 12,
+        "monthly_amount": 20287472.18,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 161258228.38
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "58.01.02",
+        "entity_cui": "4288110",
+        "functional_code": "84.03.01",
+        "line_item_id": "63322884",
+        "month": 12,
+        "monthly_amount": 35932743.05,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 130439680.18
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "71.01.30",
+        "entity_cui": "4305857",
+        "functional_code": "84.03.03",
+        "line_item_id": "65860254",
+        "month": 12,
+        "monthly_amount": 3515919.36,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 106927093.07
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "10.01.01",
+        "entity_cui": "4305857",
+        "functional_code": "66.06.01",
+        "line_item_id": "65860830",
+        "month": 12,
+        "monthly_amount": 7034661,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 85771707
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "10.01.01",
+        "entity_cui": "4305857",
+        "functional_code": "51.01.03",
+        "line_item_id": "65857109",
+        "month": 12,
+        "monthly_amount": 7037842,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 76201608
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "58.01.02",
+        "entity_cui": "4305857",
+        "functional_code": "70.50.00",
+        "line_item_id": "65859960",
+        "month": 12,
+        "monthly_amount": 15704162.04,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 71032848.28
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "10.01.05",
+        "entity_cui": "4288110",
+        "functional_code": "66.06.01",
+        "line_item_id": "63323235",
+        "month": 12,
+        "monthly_amount": 5385739,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 65359416
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "57.02.01",
+        "entity_cui": "4305857",
+        "functional_code": "68.05.02",
+        "line_item_id": "65859459",
+        "month": 12,
+        "monthly_amount": 5947908,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 59986526
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "71.01.30",
+        "entity_cui": "4305857",
+        "functional_code": "67.05.03",
+        "line_item_id": "65859348",
+        "month": 12,
+        "monthly_amount": 3017721.85,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 58289979.76
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "40.03.00",
+        "entity_cui": "4305857",
+        "functional_code": "81.06.00",
+        "line_item_id": "65860063",
+        "month": 12,
+        "monthly_amount": 11857191.69,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 55300000
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "20.30.30",
+        "entity_cui": "4305857",
+        "functional_code": "51.01.03",
+        "line_item_id": "65857402",
+        "month": 12,
+        "monthly_amount": 3459475.32,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 52077161.72
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "55.01.63",
+        "entity_cui": "4305857",
+        "functional_code": "65.50.00",
+        "line_item_id": "65858939",
+        "month": 12,
+        "monthly_amount": 4436105.1,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 50973557.81
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "20.02.00",
+        "entity_cui": "4305857",
+        "functional_code": "84.03.03",
+        "line_item_id": "65860178",
+        "month": 12,
+        "monthly_amount": 1950587.46,
+        "report_id": "3f979dd55f1eaaff6ef5ee7c6a62cac39ce771b3417e063b5d32919a64beedd1",
+        "year": 2023,
+        "ytd_amount": 45221074.35
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "20.30.30",
+        "entity_cui": "4288110",
+        "functional_code": "84.50.00",
+        "line_item_id": "63322914",
+        "month": 12,
+        "monthly_amount": 4437445.63,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 44585523.48
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "58.01.02",
+        "entity_cui": "4349179",
+        "functional_code": "84.03.03",
+        "line_item_id": "71871738",
+        "month": 12,
+        "monthly_amount": 13969130.4,
+        "report_id": "4ba68e71f524f58e74705674078bf1e6795fe12b318809d4eef5ae74481a0f68",
+        "year": 2023,
+        "ytd_amount": 43750242.65
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "20.04.01",
+        "entity_cui": "4288110",
+        "functional_code": "66.06.01",
+        "line_item_id": "63323456",
+        "month": 12,
+        "monthly_amount": 5088278.13,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 40605480.06
+      },
+      {
+        "account_category": "ch",
+        "economic_code": "10.01.01",
+        "entity_cui": "4288110",
+        "functional_code": "68.06.00",
+        "line_item_id": "63322285",
+        "month": 12,
+        "monthly_amount": 3378264,
+        "report_id": "c152bc7f8d32440651c5b9e5b07fbd7001c9ca5295883bfc4d1a67cb94ac33b2",
+        "year": 2023,
+        "ytd_amount": 40152019
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 8455
+    }
+  }
+}
