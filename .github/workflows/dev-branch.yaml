@@ -163,5 +163,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add k8s/base/kustomization.yaml
-          git diff --staged --quiet || git commit -m "ci(image): update dev image tag to ${{ github.sha }}"
+          git diff --staged --quiet || git commit -m "ci(image): Update dev image tag to ${{ github.sha }}"
           git push origin dev
