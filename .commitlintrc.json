@@ -48,7 +48,9 @@
         "dx",
         "image",
         "deployment",
-        "others"
+        "others",
+        "secrets",
+        "todos"
       ]
     ],
     "scope-empty": [1, "never"],

@@ -1,12 +1,9 @@
 # TODOs
 
-- [ ] Add caching
-- [ ] Add auth layer
-- [ ] Add notifications module
+- [ ] Research best bundler for the project.
+- [ ] Add production ready build process/pipeline. (main branch, golden master tests, etc.)
 - [ ] Add notification email module.
-- [ ] Add opentelemetry tracing
-- [ ] Add share module
-- [ ] Add MCP server
+- [ ] Add openapi for mcp and update custom chatgpt.
 - [ ] Add date filtering to the datasets. You could use the x axis type to filter the data. You need to design a flexible but simple interface for the filter.
 - [ ] We need to design a uat scoped dataset with historical data. We need to load county gdp, population, cpi, exchange rate, etc.
 
