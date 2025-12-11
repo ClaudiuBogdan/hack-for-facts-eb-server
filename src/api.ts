@@ -3,6 +3,10 @@
  * Starts the Fastify HTTP server
  */
 
+// IMPORTANT: Import telemetry FIRST to ensure proper instrumentation
+// This must be before any other imports to capture all spans
+import './infra/telemetry/tracing.js';
+
 import { jwtVerify, importSPKI } from 'jose';
 
 import { buildApp } from './app/build-app.js';

@@ -19,6 +19,7 @@
         "cors",
         "datasets",
         "redis",
+        "observability",
         "logging",
         "tracing",
         "tests",

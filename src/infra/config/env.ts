@@ -57,6 +57,26 @@ export const EnvSchema = Type.Object({
   // SECURITY: Minimum 32 characters for sufficient entropy
   MCP_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
   MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
+
+  // OpenTelemetry / SigNoz
+  /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
+  OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
+  /** OTLP headers (format: key=value,key2=value2). For SigNoz Cloud: signoz-ingestion-key=<your-key> */
+  OTEL_EXPORTER_OTLP_HEADERS: Type.Optional(Type.String()),
+  /** Service name for identification in SigNoz */
+  OTEL_SERVICE_NAME: Type.Optional(Type.String({ default: 'transparenta-eu-server' })),
+  /** Master switch to disable telemetry (set to 'true' to disable) */
+  OTEL_SDK_DISABLED: Type.Optional(Type.Boolean({ default: false })),
+  /** Trace exporter type ('none' to disable traces, 'console' for debug) */
+  OTEL_TRACES_EXPORTER: Type.Optional(Type.String()),
+  /** Metrics exporter type ('none' to disable metrics) */
+  OTEL_METRICS_EXPORTER: Type.Optional(Type.String()),
+  /** Logs exporter type ('none' to disable logs) */
+  OTEL_LOGS_EXPORTER: Type.Optional(Type.String()),
+  /** Trace sampling rate (0.0 - 1.0, where 1.0 = 100%) */
+  OTEL_TRACES_SAMPLER_ARG: Type.Optional(Type.String()),
+  /** Resource attributes (format: key=value,key2=value2) */
+  OTEL_RESOURCE_ATTRIBUTES: Type.Optional(Type.String()),
 });
 
 export type Env = Static<typeof EnvSchema>;
@@ -95,6 +115,16 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
         ? Number.parseInt(env['MCP_SESSION_TTL_SECONDS'], 10)
         : 3600,
+    // OpenTelemetry / SigNoz
+    OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
+    OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
+    OTEL_SERVICE_NAME: env['OTEL_SERVICE_NAME'] ?? 'transparenta-eu-server',
+    OTEL_SDK_DISABLED: env['OTEL_SDK_DISABLED'] === 'true',
+    OTEL_TRACES_EXPORTER: env['OTEL_TRACES_EXPORTER'],
+    OTEL_METRICS_EXPORTER: env['OTEL_METRICS_EXPORTER'],
+    OTEL_LOGS_EXPORTER: env['OTEL_LOGS_EXPORTER'],
+    OTEL_TRACES_SAMPLER_ARG: env['OTEL_TRACES_SAMPLER_ARG'],
+    OTEL_RESOURCE_ATTRIBUTES: env['OTEL_RESOURCE_ATTRIBUTES'],
   };
 
   // Validate against schema
@@ -164,6 +194,20 @@ export const createConfig = (env: Env) => ({
     sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
     /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
     clientBaseUrl: env.CLIENT_BASE_URL ?? '',
+  },
+  telemetry: {
+    /** OTLP endpoint for SigNoz */
+    endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    /** OTLP headers (includes ingestion key for SigNoz Cloud) */
+    headers: env.OTEL_EXPORTER_OTLP_HEADERS,
+    /** Service name for identification */
+    serviceName: env.OTEL_SERVICE_NAME ?? 'transparenta-eu-server',
+    /** Whether telemetry is disabled */
+    disabled: env.OTEL_SDK_DISABLED ?? false,
+    /** Trace sampling rate */
+    sampleRate: env.OTEL_TRACES_SAMPLER_ARG,
+    /** Resource attributes */
+    resourceAttributes: env.OTEL_RESOURCE_ATTRIBUTES,
   },
 });
 
