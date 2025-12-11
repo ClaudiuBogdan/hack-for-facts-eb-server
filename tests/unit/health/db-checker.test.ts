@@ -25,13 +25,15 @@ describe('makeDbHealthChecker', () => {
     });
 
     it('returns latency measurement', async () => {
-      const db = makeFakeKyselyDb({ delayMs: 10 });
+      const delayMs = 50;
+      const db = makeFakeKyselyDb({ delayMs });
       const checker = makeDbHealthChecker(db, { name: 'database' });
 
       const result = await checker();
 
       expect(result.status).toBe('healthy');
-      expect(result.latencyMs).toBeGreaterThanOrEqual(10);
+      // Allow 20% tolerance for timer precision and scheduling variations
+      expect(result.latencyMs).toBeGreaterThanOrEqual(delayMs * 0.8);
     });
 
     it('uses custom name', async () => {
