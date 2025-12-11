@@ -52,15 +52,15 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
+# Enable corepack and install pnpm (requires root for symlinks in /usr/local/bin)
+RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+
 # Set ownership of workdir to nodejs user
 RUN chown nodejs:nodejs /app
 
 # Switch to non-root user BEFORE copying files and installing deps
 # All subsequent operations run as nodejs user
 USER nodejs
-
-# Install pnpm via corepack (as nodejs user)
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
 
 # Copy package files (owned by nodejs due to USER directive)
 COPY --from=builder --chown=nodejs:nodejs /app/package.json /app/pnpm-lock.yaml ./

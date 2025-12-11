@@ -10,43 +10,85 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Validation Jobs (run in parallel)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
   validate:
     name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Type check
-        run: pnpm typecheck
-
-      - name: Lint
-        run: pnpm lint
-
+      - run: pnpm install --frozen-lockfile
       - name: Check circular dependencies
         run: pnpm deps:check
-
       - name: Validate datasets
         run: pnpm run validate-datasets
 
-      - name: Run unit tests
-        run: pnpm test:unit
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:unit
 
-      - name: Run integration tests
-        run: pnpm test:integration
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build & Deploy (after all validations pass)
+  # ─────────────────────────────────────────────────────────────────────────────
 
   build-push-update:
     name: Build & Deploy
-    needs: validate
+    needs: [typecheck, lint, validate, test-unit, test-integration]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,21 +119,27 @@ jobs:
             c9992fd1-98c0-4e2c-a4e5-b2d600dd3367 > DOCKER_USERNAME
             ca2abaf7-e7f5-40d5-a06a-b2d600dd4ba9 > DOCKER_PASSWORD
 
+      - name: Normalize Registry URL
+        run: |
+          url="${DOCKER_REGISTRY_URL#https://}"
+          url="${url#http://}"
+          echo "DOCKER_REGISTRY=${url}" >> $GITHUB_ENV
+
       - name: Login to Docker Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.DOCKER_REGISTRY_URL }}
+          registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
       - name: Build Docker Image
         run: |
-          docker build -t ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }} .
+          docker build -t ${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }} .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: '${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}'
+          image-ref: '${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }}'
           format: 'table'
           exit-code: '0' # Report only, do not fail dev builds
           ignore-unfixed: true
@@ -100,12 +148,12 @@ jobs:
 
       - name: Push Docker Image
         run: |
-          docker push ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}
+          docker push ${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }}
 
       - name: Update Image Tag and SHA in Kustomization
         run: |
           cd ./k8s/base
-          kustomize edit set image ${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server=${{ env.DOCKER_REGISTRY_URL }}/hack-for-facts-eb-server:${{ github.sha }}
+          kustomize edit set image ${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server=${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }}
           sed -i "s| image-sha: .*| image-sha: ${{ github.sha }}|" kustomization.yaml
 
       - name: Commit and Push Changes
