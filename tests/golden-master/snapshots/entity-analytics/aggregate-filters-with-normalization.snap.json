@@ -1,0 +1,33 @@
+{
+  "entityAnalytics": {
+    "nodes": [
+      {
+        "amount": 21096.86,
+        "county_code": "SB",
+        "county_name": "SIBIU",
+        "entity_cui": "25838704",
+        "entity_name": "INSTITUTUL DE DREPT PUBLIC SI STIINTE ADMINISTRATIVE AL ROMANIEI",
+        "entity_type": "edu_research_institute",
+        "per_capita_amount": 0,
+        "population": null,
+        "total_amount": 21096.86
+      },
+      {
+        "amount": 4576.97,
+        "county_code": "B",
+        "county_name": "MUNICIPIUL BUCUREȘTI",
+        "entity_cui": "33354101",
+        "entity_name": "ACADEMIA DE STIINTE ALE SECURITATII NATIONALE",
+        "entity_type": "edu_university",
+        "per_capita_amount": 0,
+        "population": null,
+        "total_amount": 4576.97
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 2
+    }
+  }
+}
