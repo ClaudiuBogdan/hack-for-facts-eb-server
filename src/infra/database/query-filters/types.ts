@@ -38,12 +38,12 @@ export type ConditionBuilder = (ctx: FilterContext) => SqlCondition[];
  * Tracks which tables are joined and their aliases.
  */
 export interface FilterContext {
-  /** Table alias for execution line items (default: 'eli') */
-  readonly lineItemAlias: string;
-  /** Table alias for entities (default: 'e') */
-  readonly entityAlias: string;
-  /** Table alias for UATs (default: 'u') */
-  readonly uatAlias: string;
+  /** Table alias for execution line items (fixed: 'eli') */
+  readonly lineItemAlias: 'eli';
+  /** Table alias for entities (fixed: 'e') */
+  readonly entityAlias: 'e';
+  /** Table alias for UATs (fixed: 'u') */
+  readonly uatAlias: 'u';
   /** Whether entities table has been joined */
   hasEntityJoin: boolean;
   /** Whether UATs table has been joined */
@@ -51,16 +51,19 @@ export interface FilterContext {
 }
 
 /**
- * Creates a default filter context with standard table aliases.
+ * Creates a default filter context with standard join flags.
  */
-export const createFilterContext = (overrides?: Partial<FilterContext>): FilterContext => ({
-  lineItemAlias: 'eli',
-  entityAlias: 'e',
-  uatAlias: 'u',
-  hasEntityJoin: false,
-  hasUatJoin: false,
-  ...overrides,
-});
+export const createFilterContext = (
+  overrides?: Partial<Pick<FilterContext, 'hasEntityJoin' | 'hasUatJoin'>>
+): FilterContext => {
+  return {
+    lineItemAlias: 'eli',
+    entityAlias: 'e',
+    uatAlias: 'u',
+    hasEntityJoin: overrides?.hasEntityJoin ?? false,
+    hasUatJoin: overrides?.hasUatJoin ?? false,
+  };
+};
 
 // ============================================================================
 // Parsed Period Types

@@ -191,6 +191,61 @@ describe('makeJWTAdapter', () => {
       );
     });
 
+    it('enforces authorizedParties via azp claim when configured', async () => {
+      const jwtVerify = createMockJwtVerify({
+        ...validPayload,
+        azp: 'https://app.example.com/',
+      });
+      const importSPKI = createMockImportSPKI();
+
+      const adapter = makeJWTAdapter({
+        jwtVerify,
+        importSPKI,
+        publicKeyPEM: TEST_PUBLIC_KEY,
+        authorizedParties: ['https://app.example.com'],
+      });
+
+      const result = await adapter.verifyToken('token');
+      expect(result.isOk()).toBe(true);
+    });
+
+    it('rejects token when azp is not in authorizedParties', async () => {
+      const jwtVerify = createMockJwtVerify({
+        ...validPayload,
+        azp: 'https://other.example.com',
+      });
+      const importSPKI = createMockImportSPKI();
+
+      const adapter = makeJWTAdapter({
+        jwtVerify,
+        importSPKI,
+        publicKeyPEM: TEST_PUBLIC_KEY,
+        authorizedParties: ['https://app.example.com'],
+      });
+
+      const result = await adapter.verifyToken('token');
+      expect(result.isErr()).toBe(true);
+      expect(result._unsafeUnwrapErr().type).toBe('InvalidTokenError');
+    });
+
+    it('falls back to aud when azp is missing', async () => {
+      const jwtVerify = createMockJwtVerify({
+        ...validPayload,
+        aud: 'my-app',
+      });
+      const importSPKI = createMockImportSPKI();
+
+      const adapter = makeJWTAdapter({
+        jwtVerify,
+        importSPKI,
+        publicKeyPEM: TEST_PUBLIC_KEY,
+        authorizedParties: ['my-app'],
+      });
+
+      const result = await adapter.verifyToken('token');
+      expect(result.isOk()).toBe(true);
+    });
+
     it('passes clockTolerance to jwtVerify', async () => {
       const jwtVerify = createMockJwtVerify(validPayload);
       const importSPKI = createMockImportSPKI();

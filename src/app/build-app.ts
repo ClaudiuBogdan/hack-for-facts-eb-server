@@ -468,6 +468,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       schema,
       resolvers,
       loaders: combinedLoaders,
+      isProduction: config.server.isProduction,
       ...(graphQLContext !== undefined && { context: graphQLContext }),
     })
   );

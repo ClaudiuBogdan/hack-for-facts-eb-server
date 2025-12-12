@@ -83,6 +83,36 @@ describe('CORS Plugin', () => {
       expect(response.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5173');
     });
 
+    it('blocks localhost lookalike origins in development', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: true,
+              isProduction: false,
+              isTest: true,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+          }),
+        },
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'http://localhost.evil.com',
+        },
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json().message).toContain('CORS origin not allowed');
+    });
+
     it('allows requests without origin header', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },

@@ -23,6 +23,7 @@ import {
   buildEntityConditions,
   buildExclusionConditions,
   buildAmountConditions,
+  col,
   andConditions,
   type SqlCondition,
 } from '@/infra/database/query-filters/index.js';
@@ -74,6 +75,26 @@ const INJECTION_VECTORS = {
   // Unicode/encoding attacks
   nullByte: "test\x00'; DROP TABLE",
 };
+
+// ============================================================================
+// Identifier Injection Hardening
+// ============================================================================
+
+describe('Identifier Injection Hardening', () => {
+  it('rejects invalid table alias in col()', () => {
+    const maliciousAlias = 'eli; DROP TABLE users; --';
+
+    expect(() => col(maliciousAlias as unknown as never, 'year' as unknown as never)).toThrow(
+      /Invalid table alias/
+    );
+  });
+
+  it('rejects invalid column name in col()', () => {
+    const maliciousColumn = 'year; DROP TABLE users; --';
+
+    expect(() => col('eli', maliciousColumn as unknown as never)).toThrow(/Invalid column name/);
+  });
+});
 
 // ============================================================================
 // buildDimensionConditions Tests

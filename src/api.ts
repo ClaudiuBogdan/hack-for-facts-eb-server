@@ -35,19 +35,30 @@ const getVersion = (): string | undefined => {
  */
 const createAuthProvider = (config: AppConfig, logger: Logger): AuthProvider | undefined => {
   if (config.auth.clerkJwtKey === undefined) {
+    // Fail-closed in production if auth appears to be configured but is incomplete.
+    if (config.server.isProduction && config.auth.enabled) {
+      throw new Error(
+        'Auth configuration incomplete: CLERK_JWT_KEY is required in production when Clerk auth variables are set'
+      );
+    }
+
     logger.warn('CLERK_JWT_KEY not configured - authentication disabled');
     return undefined;
   }
 
   logger.info('Creating JWT auth provider');
 
-  // Note: Clerk uses 'azp' (authorized party) instead of standard 'aud' claim,
-  // so we skip audience validation here. The token signature verification is sufficient.
+  // Clerk commonly uses `azp` (authorized party) for scoping tokens to a client/app.
+  // We enforce authorized parties in the adapter when configured via CLERK_AUTHORIZED_PARTIES.
   const jwtAdapter = makeJWTAdapter({
     jwtVerify: jwtVerify as unknown as import('./modules/auth/index.js').JWTVerifyFn,
     importSPKI: importSPKI as unknown as import('./modules/auth/index.js').ImportSPKIFn,
     publicKeyPEM: config.auth.clerkJwtKey,
     algorithm: 'RS256',
+    ...(config.auth.clerkAuthorizedParties !== undefined &&
+      config.auth.clerkAuthorizedParties.length > 0 && {
+        authorizedParties: config.auth.clerkAuthorizedParties,
+      }),
   });
 
   // Wrap with caching for performance

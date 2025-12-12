@@ -2,6 +2,7 @@ import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql
 import {
   NoSchemaIntrospectionCustomRule,
   Kind,
+  type GraphQLFormattedError,
   type ValidationRule,
   type DocumentNode,
   type OperationDefinitionNode,
@@ -89,6 +90,11 @@ export type GraphQLContextBuilder<TContext = unknown> = (
 export interface GraphQLOptions {
   schema: string[];
   resolvers: IResolvers[];
+  /**
+   * Override production detection.
+   * When omitted, falls back to `process.env.NODE_ENV === 'production'`.
+   */
+  isProduction?: boolean;
   enableGraphiQL?: boolean;
   /**
    * Optional Mercurius loaders for batching N+1 queries.
@@ -113,18 +119,19 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
   const {
     schema: baseSchema,
     resolvers,
-    enableGraphiQL = process.env['NODE_ENV'] !== 'production',
+    isProduction: isProductionOverride,
+    enableGraphiQL,
     loaders,
     context,
   } = options;
+
+  const isProduction = isProductionOverride ?? process.env['NODE_ENV'] === 'production';
+  const resolvedEnableGraphiQL = enableGraphiQL ?? !isProduction;
 
   const schema = makeExecutableSchema({
     typeDefs: baseSchema,
     resolvers, // TODO: fix conflict with mercurius IResolvers
   } as IExecutableSchemaDefinition);
-
-  // Determine if running in production
-  const isProduction = process.env['NODE_ENV'] === 'production';
 
   // Build validation rules based on environment
   // SECURITY: SEC-002 - Depth limiting always enabled (prevents DoS via nested queries)
@@ -137,7 +144,7 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
   return async (fastify) => {
     await fastify.register(mercuriusPlugin, {
       schema,
-      graphiql: enableGraphiQL,
+      graphiql: resolvedEnableGraphiQL,
       path: '/graphql',
       // SECURITY: Apply validation rules for depth limiting and introspection control
       validationRules,
@@ -147,8 +154,48 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       ...(context !== undefined && { context }),
       errorFormatter: (execution, ctx) => {
         const response = mercuriusPlugin.defaultErrorFormatter(execution, ctx);
-        // Here we could map domain errors to GraphQL errors as per Architecture spec
-        // For now, we use the default formatter
+
+        // SECURITY: Avoid leaking internal exception details in production.
+        if (!isProduction) {
+          return response;
+        }
+
+        const SAFE_CODES = new Set([
+          'UNAUTHENTICATED',
+          'FORBIDDEN',
+          'BAD_USER_INPUT',
+          'GRAPHQL_PARSE_FAILED',
+          'GRAPHQL_VALIDATION_FAILED',
+        ]);
+
+        const errors = response.response.errors;
+        if (Array.isArray(errors)) {
+          response.response.errors = errors.map((e) => {
+            const next = { ...e } as Record<string, unknown>;
+
+            const extensionsRaw = (e as Record<string, unknown>)['extensions'];
+            const extensions =
+              typeof extensionsRaw === 'object' && extensionsRaw !== null
+                ? { ...(extensionsRaw as Record<string, unknown>) }
+                : undefined;
+
+            if (extensions !== undefined) {
+              // Strip stack traces / internal exception details
+              if ('exception' in extensions) {
+                delete extensions['exception'];
+              }
+              next['extensions'] = extensions;
+            }
+
+            const code = extensions?.['code'];
+            if (typeof code !== 'string' || !SAFE_CODES.has(code)) {
+              next['message'] = 'Internal server error';
+            }
+
+            return next as unknown as GraphQLFormattedError;
+          });
+        }
+
         return response;
       },
     });

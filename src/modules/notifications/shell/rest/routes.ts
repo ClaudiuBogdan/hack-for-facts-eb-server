@@ -101,6 +101,14 @@ function sendUnauthorized(reply: FastifyReply) {
   });
 }
 
+function parseOptionalInt(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Routes Factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,13 +442,17 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         }
 
         const userId = request.auth.userId as string;
-        const limit =
-          request.query.limit !== undefined
-            ? parseInt(request.query.limit, 10)
-            : DEFAULT_DELIVERIES_LIMIT;
-        const offset = request.query.offset !== undefined ? parseInt(request.query.offset, 10) : 0;
+        const limit = parseOptionalInt(request.query.limit);
+        const offset = parseOptionalInt(request.query.offset);
 
-        const result = await listDeliveries({ deliveriesRepo }, { userId, limit, offset });
+        const result = await listDeliveries(
+          { deliveriesRepo },
+          {
+            userId,
+            limit: limit ?? DEFAULT_DELIVERIES_LIMIT,
+            ...(offset !== undefined && { offset }),
+          }
+        );
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
@@ -497,9 +509,10 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
 
         // Log warning if token marking failed (notification was still deactivated)
         if (result.value.tokenMarkingFailed) {
+          const redactedToken = token.substring(0, 8) + '...';
           request.log.warn(
             {
-              token,
+              token: redactedToken,
               notificationId: result.value.notification.id,
               error: result.value.tokenMarkingError,
             },

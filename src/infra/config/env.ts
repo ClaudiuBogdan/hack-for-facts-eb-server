@@ -182,7 +182,9 @@ export const createConfig = (env: Env) => ({
     /** Clerk JWT public key (JWKS) for local verification */
     clerkJwtKey: env.CLERK_JWT_KEY,
     /** Comma-separated list of authorized parties (audience claim) */
-    clerkAuthorizedParties: env.CLERK_AUTHORIZED_PARTIES?.split(',').filter(Boolean),
+    clerkAuthorizedParties: env.CLERK_AUTHORIZED_PARTIES?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     /** Whether auth is enabled (true if any Clerk config is set) */
     enabled:
       env.CLERK_SECRET_KEY !== undefined ||

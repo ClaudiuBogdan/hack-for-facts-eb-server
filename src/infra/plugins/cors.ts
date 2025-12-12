@@ -36,6 +36,20 @@ function getAllowedOriginsSet(config: AppConfig): Set<string> {
   return set;
 }
 
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false;
+    }
+
+    // Match hostnames exactly (avoid `startsWith('http://localhost')` pitfalls)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Register CORS plugin with Fastify
  */
@@ -55,11 +69,7 @@ export async function registerCors(fastify: FastifyInstance, config: AppConfig):
       // Staging and other environments should configure ALLOWED_ORIGINS explicitly.
       if (config.server.isDevelopment) {
         // Only allow localhost variants in development
-        if (
-          origin.startsWith('http://localhost') ||
-          origin.startsWith('http://127.0.0.1') ||
-          origin.startsWith('http://[::1]')
-        ) {
+        if (isLocalhostOrigin(origin)) {
           cb(null, true);
           return;
         }

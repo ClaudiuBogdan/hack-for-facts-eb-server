@@ -74,6 +74,11 @@ export interface JWTPayload {
   iss?: string;
   /** Audience */
   aud?: string | string[];
+  /**
+   * Authorized party (Clerk).
+   * Used to scope tokens to the intended client/application when `aud` is not present/usable.
+   */
+  azp?: string;
 }
 
 /**
@@ -129,12 +134,46 @@ export interface MakeJWTAdapterOptions {
   audience?: string | string[];
 
   /**
+   * Authorized parties (optional).
+   * When set, the adapter enforces that the token contains an `azp` or `aud` matching one of
+   * these values. This is especially important for providers (like Clerk) that use `azp` to
+   * represent the authorized party.
+   */
+  authorizedParties?: string[];
+
+  /**
    * Clock tolerance in seconds for expiration checks.
    * Helps with minor clock skew between servers.
    * @default 5
    */
   clockToleranceSeconds?: number;
 }
+
+const normalizeParty = (value: string): string => {
+  return value.trim().replace(/\/$/, '');
+};
+
+const getTokenAuthorizedParties = (payload: JWTPayload): string[] => {
+  const parties: string[] = [];
+
+  if (typeof payload.azp === 'string' && payload.azp !== '') {
+    parties.push(payload.azp);
+  }
+
+  const aud = payload.aud;
+  if (typeof aud === 'string' && aud !== '') {
+    parties.push(aud);
+  } else if (Array.isArray(aud)) {
+    for (const item of aud) {
+      if (typeof item === 'string' && item !== '') {
+        parties.push(item);
+      }
+    }
+  }
+
+  // Normalize and dedupe (treat trailing slashes as equivalent)
+  return [...new Set(parties.map(normalizeParty))].filter((p) => p !== '');
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Factory Function
@@ -170,6 +209,7 @@ export const makeJWTAdapter = (options: MakeJWTAdapterOptions): AuthProvider => 
     algorithm = 'RS256',
     issuer,
     audience,
+    authorizedParties,
     clockToleranceSeconds = 5,
   } = options;
 
@@ -214,6 +254,21 @@ export const makeJWTAdapter = (options: MakeJWTAdapterOptions): AuthProvider => 
 
         // Verify the JWT
         const { payload } = await jwtVerify(token, publicKey, verifyOptions);
+
+        // Enforce authorized parties when configured (supports Clerk `azp` and standard `aud`)
+        if (authorizedParties !== undefined && authorizedParties.length > 0) {
+          const allowedSet = new Set(authorizedParties.map(normalizeParty).filter((p) => p !== ''));
+
+          const tokenParties = getTokenAuthorizedParties(payload);
+          if (tokenParties.length === 0) {
+            return err(createInvalidTokenError('Token missing audience/authorized party claim'));
+          }
+
+          const isAllowed = tokenParties.some((p) => allowedSet.has(p));
+          if (!isAllowed) {
+            return err(createInvalidTokenError('Token audience/authorized party not allowed'));
+          }
+        }
 
         // Extract user ID from subject claim
         const userId = payload.sub;

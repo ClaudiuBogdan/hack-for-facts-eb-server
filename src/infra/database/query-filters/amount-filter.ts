@@ -14,6 +14,7 @@ import { Frequency } from '@/common/types/temporal.js';
 import { col, isFiniteNumber } from './composer.js';
 
 import type { FilterContext, SqlCondition, AmountFilter } from './types.js';
+import type { AmountColumn } from '@/infra/database/query-builders/index.js';
 
 // ============================================================================
 // Column Selection
@@ -25,7 +26,7 @@ import type { FilterContext, SqlCondition, AmountFilter } from './types.js';
  * @param frequency - Time frequency (MONTH, QUARTER, YEAR)
  * @returns Column name (without alias)
  */
-export function getAmountColumnName(frequency: Frequency): string {
+export function getAmountColumnName(frequency: Frequency): AmountColumn {
   if (frequency === Frequency.MONTH) {
     return 'monthly_amount';
   }
