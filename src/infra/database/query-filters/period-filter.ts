@@ -201,7 +201,7 @@ export function buildPeriodConditions(
 function buildIntervalConditions(
   interval: { start: string; end: string },
   frequency: Frequency,
-  alias: string
+  alias: 'eli'
 ): SqlCondition[] {
   const start = parsePeriodDate(interval.start);
   const end = parsePeriodDate(interval.end);
@@ -241,7 +241,7 @@ function buildIntervalConditions(
 function buildDateListConditions(
   dates: readonly string[],
   frequency: Frequency,
-  alias: string
+  alias: 'eli'
 ): RawBuilder<unknown> | null {
   if (frequency === Frequency.MONTH) {
     const periods = parseMonthPeriods(dates);

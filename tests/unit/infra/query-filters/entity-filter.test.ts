@@ -190,13 +190,6 @@ describe('buildEntityConditions', () => {
     expect(buildEntityConditions({ search: '' }, ctx)).toEqual([]);
     expect(buildEntityConditions({ search: '   ' }, ctx)).toEqual([]);
   });
-
-  it('uses custom alias from context', () => {
-    const customCtx = createFilterContext({ entityAlias: 'ent', hasEntityJoin: true });
-    const conditions = buildEntityConditions({ is_uat: true }, customCtx);
-    const compiled = compileConditions(conditions);
-    expect(compiled.sql).toContain('ent.is_uat');
-  });
 });
 
 // ============================================================================
@@ -239,12 +232,5 @@ describe('buildUatConditions', () => {
   it('skips null population values', () => {
     const conditions = buildUatConditions({ min_population: null, max_population: null }, ctx);
     expect(conditions).toEqual([]);
-  });
-
-  it('uses custom alias from context', () => {
-    const customCtx = createFilterContext({ uatAlias: 'uats', hasUatJoin: true });
-    const conditions = buildUatConditions({ min_population: 10000 }, customCtx);
-    const compiled = compileConditions(conditions);
-    expect(compiled.sql).toContain('uats.population');
   });
 });

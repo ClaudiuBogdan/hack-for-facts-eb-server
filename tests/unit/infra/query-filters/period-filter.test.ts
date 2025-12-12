@@ -288,17 +288,5 @@ describe('buildPeriodConditions', () => {
     });
   });
 
-  describe('custom alias', () => {
-    it('uses custom alias from context', () => {
-      const customCtx = createFilterContext({ lineItemAlias: 'items' });
-      const conditions = buildPeriodConditions(
-        { interval: { start: '2020', end: '2023' } },
-        Frequency.YEAR,
-        customCtx
-      );
-      const compiled = compileConditions(conditions);
-      expect(compiled.sql).toContain('items.is_yearly');
-      expect(compiled.sql).toContain('items.year');
-    });
-  });
+  // NOTE: Table aliases are fixed to trusted internal constants.
 });

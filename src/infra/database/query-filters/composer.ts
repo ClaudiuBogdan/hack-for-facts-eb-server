@@ -9,6 +9,12 @@
 
 import { sql, type RawBuilder } from 'kysely';
 
+import {
+  columnRef,
+  type ColumnForAlias,
+  type TableAlias,
+} from '@/infra/database/query-builders/index.js';
+
 import type { FilterContext, SqlCondition, ConditionBuilder } from './types.js';
 
 // ============================================================================
@@ -18,15 +24,18 @@ import type { FilterContext, SqlCondition, ConditionBuilder } from './types.js';
 /**
  * Creates a column reference for use in SQL conditions.
  *
- * SECURITY: Only use with trusted, internal alias values (from FilterContext).
- * The alias comes from internal code, not user input, so sql.raw is safe here.
+ * SECURITY: Delegates to `columnRef()` which validates identifiers and
+ * encapsulates any `sql.raw()` usage in the query-builders module.
  *
  * @param alias - Table alias (trusted internal value)
  * @param column - Column name (trusted internal value)
  * @returns RawBuilder for the column reference
  */
-export function col(alias: string, column: string): RawBuilder<unknown> {
-  return sql.raw(`${alias}.${column}`);
+export function col<T extends TableAlias>(
+  alias: T,
+  column: ColumnForAlias<T>
+): RawBuilder<unknown> {
+  return columnRef(alias, column);
 }
 
 // ============================================================================

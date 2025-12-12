@@ -558,6 +558,34 @@ describe('Notifications REST API', () => {
       expect(body.ok).toBe(true);
       expect(body.data).toHaveLength(3);
     });
+
+    it('ignores non-numeric pagination parameters', async () => {
+      const deliveries = Array.from({ length: 10 }, (_, i) =>
+        createTestDelivery({
+          id: `d${String(i)}`,
+          userId: testAuth.userIds.user1,
+          sentAt: new Date(Date.now() - i * 1000),
+        })
+      );
+
+      if (app != null) await app.close();
+      app = await createTestApp({
+        deliveriesRepo: makeFakeDeliveriesRepo({ deliveries }),
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/notifications/deliveries?limit=abc&offset=def',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data).toHaveLength(10);
+    });
   });
 
   describe('POST /api/v1/notifications/unsubscribe/:token (no auth)', () => {

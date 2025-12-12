@@ -232,15 +232,30 @@ describe('createFilterContext', () => {
     expect(ctx.hasUatJoin).toBe(false);
   });
 
-  it('allows overriding individual values', () => {
+  it('allows overriding join flags', () => {
     const ctx = createFilterContext({
-      lineItemAlias: 'items',
       hasEntityJoin: true,
+      hasUatJoin: true,
     });
-    expect(ctx.lineItemAlias).toBe('items');
-    expect(ctx.entityAlias).toBe('e');
     expect(ctx.hasEntityJoin).toBe(true);
-    expect(ctx.hasUatJoin).toBe(false);
+    expect(ctx.hasUatJoin).toBe(true);
+  });
+
+  it('does not allow overriding table aliases', () => {
+    const overrides = {
+      hasEntityJoin: true,
+      hasUatJoin: true,
+      lineItemAlias: 'items',
+      entityAlias: 'ent',
+      uatAlias: 'uats',
+    } as unknown as Parameters<typeof createFilterContext>[0];
+
+    const ctx = createFilterContext(overrides);
+    expect(ctx.lineItemAlias).toBe('eli');
+    expect(ctx.entityAlias).toBe('e');
+    expect(ctx.uatAlias).toBe('u');
+    expect(ctx.hasEntityJoin).toBe(true);
+    expect(ctx.hasUatJoin).toBe(true);
   });
 });
 

@@ -365,9 +365,9 @@ export function normalizedAmountExpr(amountCol: RawBuilder<unknown>): RawBuilder
  * @param countyPopAlias - Alias for county_populations CTE (default 'cp')
  */
 export function populationCaseExpr(
-  entityAlias = 'e',
-  uatAlias = 'u',
-  countyPopAlias = 'cp'
+  entityAlias: 'e' = 'e',
+  uatAlias: 'u' = 'u',
+  countyPopAlias: 'cp' = 'cp'
 ): RawBuilder<unknown> {
   // We use sql.raw for aliases as they are trusted internal constants
   // This avoids parameterizing table names which is invalid SQL
