@@ -64,6 +64,7 @@ export const createUATLoaders = (db: BudgetDbClient): MercuriusLoaders => {
         // Query entities linked to county-level UATs
         // A county entity is an entity where:
         // - entity.uat_id points to a UAT that is a county (siruta_code = county_code)
+        // - entity.is_uat = true (the entity that represents the UAT itself)
         const rows = await db
           .selectFrom('entities as e')
           .innerJoin('uats as u', 'e.uat_id', 'u.id')
@@ -89,6 +90,7 @@ export const createUATLoaders = (db: BudgetDbClient): MercuriusLoaders => {
             ])
           )
           .where('u.county_code', 'in', countyCodes)
+          .where('e.is_uat', '=', true)
           .execute();
 
         // Map county_code to entity

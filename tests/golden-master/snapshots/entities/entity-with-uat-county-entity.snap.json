@@ -1,0 +1,21 @@
+{
+  "entity": {
+    "cui": "4270740",
+    "entity_type": "admin_municipality",
+    "is_uat": true,
+    "name": "MUNICIPIUL SIBIU",
+    "uat": {
+      "county_code": "SB",
+      "county_entity": {
+        "cui": "4406223",
+        "entity_type": "admin_county_council",
+        "is_uat": true,
+        "name": "JUDETUL SIBIU"
+      },
+      "county_name": "SIBIU",
+      "id": "2508",
+      "name": "MUNICIPIUL SIBIU",
+      "siruta_code": "143450"
+    }
+  }
+}
