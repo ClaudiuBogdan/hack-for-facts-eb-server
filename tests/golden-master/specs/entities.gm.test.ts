@@ -400,6 +400,46 @@ describe('[Golden Master] Entities', () => {
     await expect(data).toMatchNormalizedSnapshot('../snapshots/entities/uats-list-all.snap.json');
   });
 
+  it('[GM] entity - entity-with-uat-county-entity', async () => {
+    // This test verifies that UAT.county_entity returns the correct county entity.
+    // Previously there was a bug where it would return any entity linked to the
+    // county UAT (e.g., social assistance agencies) instead of the actual county entity.
+    const query = /* GraphQL */ `
+      query EntityWithUatCountyEntity($cui: ID!) {
+        entity(cui: $cui) {
+          cui
+          name
+          entity_type
+          is_uat
+          uat {
+            id
+            name
+            county_code
+            county_name
+            siruta_code
+            county_entity {
+              cui
+              name
+              entity_type
+              is_uat
+            }
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      // MUNICIPIUL SIBIU - a municipality whose UAT should reference JUDEȚUL SIBIU as county_entity
+      cui: '4270740',
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/entities/entity-with-uat-county-entity.snap.json'
+    );
+  });
+
   // ===========================================================================
   // Report Scenarios
   // ===========================================================================
