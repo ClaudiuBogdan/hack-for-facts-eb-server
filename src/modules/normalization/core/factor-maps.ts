@@ -69,6 +69,93 @@ function extractYear(label: string): number {
   return Number.parseInt(label.substring(0, 4), 10);
 }
 
+function findLatestYearValueBefore(map: FactorMap, startYear: number): Decimal | undefined {
+  let latestYear: number | null = null;
+  let latestValue: Decimal | undefined;
+
+  for (const [label, value] of map) {
+    const year = extractYear(label);
+    if (Number.isNaN(year)) continue;
+    if (year >= startYear) continue;
+
+    if (latestYear === null || year > latestYear) {
+      latestYear = year;
+      latestValue = value;
+    }
+  }
+
+  return latestValue;
+}
+
+function parseMonthLabel(label: string): { year: number; month: number } | null {
+  if (label.length !== 7) return null;
+  if (label[4] !== '-') return null;
+
+  const year = Number.parseInt(label.substring(0, 4), 10);
+  const month = Number.parseInt(label.substring(5, 7), 10);
+
+  if (Number.isNaN(year) || Number.isNaN(month)) return null;
+  if (month < 1 || month > 12) return null;
+
+  return { year, month };
+}
+
+function findLatestMonthlyValueBefore(map: FactorMap, startYear: number): Decimal | undefined {
+  const boundaryIndex = startYear * 12 + 1;
+  let latestIndex: number | null = null;
+  let latestValue: Decimal | undefined;
+
+  for (const [label, value] of map) {
+    const parsed = parseMonthLabel(label);
+    if (parsed === null) continue;
+
+    const index = parsed.year * 12 + parsed.month;
+    if (index >= boundaryIndex) continue;
+
+    if (latestIndex === null || index > latestIndex) {
+      latestIndex = index;
+      latestValue = value;
+    }
+  }
+
+  return latestValue;
+}
+
+function parseQuarterLabel(label: string): { year: number; quarter: number } | null {
+  if (label.length !== 7) return null;
+  if (label[4] !== '-') return null;
+  if (label[5] !== 'Q') return null;
+
+  const year = Number.parseInt(label.substring(0, 4), 10);
+  const quarter = Number.parseInt(label.substring(6, 7), 10);
+
+  if (Number.isNaN(year) || Number.isNaN(quarter)) return null;
+  if (quarter < 1 || quarter > 4) return null;
+
+  return { year, quarter };
+}
+
+function findLatestQuarterlyValueBefore(map: FactorMap, startYear: number): Decimal | undefined {
+  const boundaryIndex = startYear * 4 + 1;
+  let latestIndex: number | null = null;
+  let latestValue: Decimal | undefined;
+
+  for (const [label, value] of map) {
+    const parsed = parseQuarterLabel(label);
+    if (parsed === null) continue;
+
+    const index = parsed.year * 4 + parsed.quarter;
+    if (index >= boundaryIndex) continue;
+
+    if (latestIndex === null || index > latestIndex) {
+      latestIndex = index;
+      latestValue = value;
+    }
+  }
+
+  return latestValue;
+}
+
 /**
  * Generates a complete factor map at the requested frequency.
  *
@@ -119,6 +206,26 @@ export function generateFactorMap(
 ): FactorMap {
   const result: FactorMap = new Map();
   let previousValue: Decimal | undefined;
+
+  if (frequency === Frequency.MONTH) {
+    previousValue =
+      datasets.monthly !== undefined
+        ? findLatestMonthlyValueBefore(datasets.monthly, startYear)
+        : undefined;
+    previousValue ??= findLatestYearValueBefore(datasets.yearly, startYear);
+  }
+
+  if (frequency === Frequency.QUARTER) {
+    previousValue =
+      datasets.quarterly !== undefined
+        ? findLatestQuarterlyValueBefore(datasets.quarterly, startYear)
+        : undefined;
+    previousValue ??= findLatestYearValueBefore(datasets.yearly, startYear);
+  }
+
+  if (frequency === Frequency.YEAR) {
+    previousValue = findLatestYearValueBefore(datasets.yearly, startYear);
+  }
 
   switch (frequency) {
     case Frequency.MONTH: {

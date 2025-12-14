@@ -102,7 +102,7 @@ CREATE TABLE normalization_factors (
   cpi_factor DECIMAL(10, 6),
   eur_rate DECIMAL(10, 6),
   usd_rate DECIMAL(10, 6),
-  gdp_millions DECIMAL(15, 2),
+  gdp_ron DECIMAL(18, 2),
   population BIGINT
 );
 ```
@@ -118,7 +118,7 @@ SELECT
       WHEN :normalization = 'per_capita' AND :inflation_adjusted THEN
         eli.ytd_amount * nf.cpi_factor / nf.population
       WHEN :normalization = 'percent_gdp' THEN
-        eli.ytd_amount / (nf.gdp_millions * 1000000) * 100
+        eli.ytd_amount / nf.gdp_ron * 100
       WHEN :inflation_adjusted THEN
         eli.ytd_amount * nf.cpi_factor
       ELSE
@@ -247,7 +247,7 @@ function computeCombinedFactors(
     if (options.normalization === 'percent_gdp') {
       const gdp = factors.gdp.get(label);
       if (gdp && !gdp.isZero()) {
-        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+        multiplier = new Decimal(100).div(gdp);
       }
     } else {
       if (options.inflationAdjusted) {

@@ -85,6 +85,8 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
       main_creditor_cui: String
     ): Float
 
@@ -93,6 +95,8 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
       main_creditor_cui: String
     ): Float
 
@@ -101,6 +105,8 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
       main_creditor_cui: String
     ): Float
 
@@ -113,6 +119,9 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
+      show_period_growth: Boolean
       main_creditor_cui: String
     ): AnalyticsSeries!
 
@@ -121,6 +130,9 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
+      show_period_growth: Boolean
       main_creditor_cui: String
     ): AnalyticsSeries!
 
@@ -129,6 +141,9 @@ export const EntitySchema = /* GraphQL */ `
       period: ReportPeriodInput!
       reportType: ReportType
       normalization: Normalization
+      currency: Currency
+      inflation_adjusted: Boolean
+      show_period_growth: Boolean
       main_creditor_cui: String
     ): AnalyticsSeries!
   }

@@ -52,8 +52,10 @@ function createMockDataset(id: string, points: { x: string; y: string }[]): Data
 function createAllRequiredDatasets(): Record<string, Dataset> {
   return {
     'ro.economics.cpi.yearly': createMockDataset('ro.economics.cpi.yearly', [
-      { x: '2023', y: '1.1' },
-      { x: '2024', y: '1.0' },
+      // CPI is a year-over-year index (base 100 each year).
+      // With 2024=110, the derived 2023 adjustment factor is 1.1.
+      { x: '2023', y: '100' },
+      { x: '2024', y: '110' },
     ]),
     'ro.economics.exchange.ron_eur.yearly': createMockDataset(
       'ro.economics.exchange.ron_eur.yearly',
@@ -248,15 +250,15 @@ describe('NormalizationService', () => {
       const factors = await service.generateFactors(Frequency.YEAR, 2023, 2025);
 
       // 2023 and 2024 should have their actual values
-      expect(factors.eur.get('2023')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2024')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2023')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2024')?.toNumber()).toBe(5);
 
-      // 2025 should carry forward from 2024 (NOT be undefined or default to 1.0)
+      // 2025 should carry forward from 2024 (NOT be undefined or default to 1)
       expect(factors.eur.has('2025')).toBe(true);
-      expect(factors.eur.get('2025')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2025')?.toNumber()).toBe(5);
 
       // Same for other factors
-      expect(factors.cpi.get('2025')?.toNumber()).toBe(1.0); // carried from 2024
+      expect(factors.cpi.get('2025')?.toNumber()).toBe(1); // carried from 2024
       expect(factors.usd.get('2025')?.toNumber()).toBe(4.6); // carried from 2024
       expect(factors.gdp.get('2025')?.toNumber()).toBe(1100000); // carried from 2024
       expect(factors.population.get('2025')?.toNumber()).toBe(19000000); // carried from 2024
@@ -271,9 +273,9 @@ describe('NormalizationService', () => {
       const factors = await service.generateFactors(Frequency.YEAR, 2023, 2027);
 
       // All years from 2025-2027 should carry forward from 2024
-      expect(factors.eur.get('2025')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2026')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2027')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2025')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2026')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2027')?.toNumber()).toBe(5);
     });
 
     it('should carry forward monthly factors when yearly data ends before requested range', async () => {
@@ -288,13 +290,13 @@ describe('NormalizationService', () => {
       expect(factors.eur.size).toBe(24);
 
       // 2024 months should use 2024 yearly value
-      expect(factors.eur.get('2024-01')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2024-12')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2024-01')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2024-12')?.toNumber()).toBe(5);
 
       // 2025 months should carry forward from 2024-12 (which used 2024 yearly value)
-      expect(factors.eur.get('2025-01')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2025-06')?.toNumber()).toBe(5.0);
-      expect(factors.eur.get('2025-12')?.toNumber()).toBe(5.0);
+      expect(factors.eur.get('2025-01')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2025-06')?.toNumber()).toBe(5);
+      expect(factors.eur.get('2025-12')?.toNumber()).toBe(5);
     });
   });
 

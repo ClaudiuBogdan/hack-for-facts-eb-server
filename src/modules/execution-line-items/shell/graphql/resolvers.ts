@@ -6,6 +6,13 @@
  */
 
 import { Frequency } from '@/common/types/temporal.js';
+import {
+  resolveNormalizationRequest,
+  type DataPoint,
+  type GqlNormalization,
+  type NormalizationService,
+  type ResolvedNormalizationRequest,
+} from '@/modules/normalization/index.js';
 
 import {
   DEFAULT_LIMIT,
@@ -21,19 +28,13 @@ import { listExecutionLineItems } from '../../core/usecases/list-execution-line-
 
 import type { ExecutionLineItemRepository } from '../../core/ports.js';
 import type {
+  AccountCategory,
   AnalyticsExclude,
   AnalyticsFilter,
-  AccountCategory,
+  Currency,
   ExpenseType,
   PeriodDate,
-  Currency,
 } from '@/common/types/analytics.js';
-import type {
-  NormalizationService,
-  DataPoint,
-  TransformationOptions,
-  NormalizationMode,
-} from '@/modules/normalization/index.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
 
 // ============================================================================
@@ -55,12 +56,6 @@ export interface MakeExecutionLineItemResolversDeps {
 interface ExecutionLineItemQueryArgs {
   id: string;
 }
-
-/**
- * GraphQL Normalization enum values.
- * Maps to internal normalization mode + currency combination.
- */
-type GqlNormalization = 'total' | 'total_euro' | 'per_capita' | 'per_capita_euro' | 'percent_gdp';
 
 interface ExecutionLineItemsQueryArgs {
   filter: GraphQLAnalyticsFilterInput;
@@ -114,9 +109,9 @@ interface GraphQLAnalyticsFilterInput {
   max_population?: number;
   aggregate_min_amount?: number;
   aggregate_max_amount?: number;
-  normalization?: string;
+  normalization?: GqlNormalization;
   inflation_adjusted?: boolean;
-  currency?: string;
+  currency?: Currency;
   show_period_growth?: boolean;
   item_min_amount?: number;
   item_max_amount?: number;
@@ -292,41 +287,20 @@ const toOutput = (item: ExecutionLineItem): ExecutionLineItemOutput => ({
 // ============================================================================
 
 /**
- * Parses GraphQL Normalization enum to internal normalization mode and currency.
- */
-const parseGqlNormalization = (
-  gqlNorm: GqlNormalization | undefined
-): { normalization: NormalizationMode; currency: Currency } => {
-  switch (gqlNorm) {
-    case 'total_euro':
-      return { normalization: 'total', currency: 'EUR' };
-    case 'per_capita':
-      return { normalization: 'per_capita', currency: 'RON' };
-    case 'per_capita_euro':
-      return { normalization: 'per_capita', currency: 'EUR' };
-    case 'percent_gdp':
-      return { normalization: 'percent_gdp', currency: 'RON' };
-    case 'total':
-    default:
-      return { normalization: 'total', currency: 'RON' };
-  }
-};
-
-/**
  * Extracts year range from GraphQL filter input.
  */
 const getYearRangeFromFilter = (filter: GraphQLAnalyticsFilterInput): [number, number] => {
   const selection = filter.report_period.selection;
 
   if (selection.interval !== undefined) {
-    const startYear = parseInt(selection.interval.start.substring(0, 4), 10);
-    const endYear = parseInt(selection.interval.end.substring(0, 4), 10);
+    const startYear = Number.parseInt(selection.interval.start.substring(0, 4), 10);
+    const endYear = Number.parseInt(selection.interval.end.substring(0, 4), 10);
     return [startYear, endYear];
   }
 
   const dates = selection.dates;
   if (dates !== undefined && dates.length > 0) {
-    const years = dates.map((d) => parseInt(d.substring(0, 4), 10));
+    const years = dates.map((d) => Number.parseInt(d.substring(0, 4), 10));
     return [Math.min(...years), Math.max(...years)];
   }
 
@@ -347,81 +321,89 @@ const getYearRangeFromFilter = (filter: GraphQLAnalyticsFilterInput): [number, n
  */
 const applyNormalizationToItems = async (
   items: ExecutionLineItem[],
-  gqlNorm: GqlNormalization | undefined,
+  request: ResolvedNormalizationRequest,
   filter: GraphQLAnalyticsFilterInput,
   normService: NormalizationService
 ): Promise<ExecutionLineItemOutput[]> => {
   if (items.length === 0) return [];
 
-  // If no normalization needed, just convert
-  if (gqlNorm === undefined || gqlNorm === 'total') {
+  const [startYear, endYear] = getYearRangeFromFilter(filter);
+
+  const requiresTransform =
+    request.transformation.inflationAdjusted ||
+    request.transformation.currency !== 'RON' ||
+    request.transformation.normalization !== 'total';
+
+  if (!requiresTransform) {
     return items.map(toOutput);
   }
 
-  // per_capita requires entity context which we don't have at root query level
-  // Fall back to currency conversion only for per_capita modes
-  const { normalization, currency } = parseGqlNormalization(gqlNorm);
-  const [startYear, endYear] = getYearRangeFromFilter(filter);
+  const ytdPoints: DataPoint[] = items.map((item) => ({
+    x: String(item.year),
+    year: item.year,
+    y: item.ytd_amount,
+  }));
 
-  // Build transformation options
-  // Note: per_capita without population is just currency conversion
-  const options: TransformationOptions = {
-    inflationAdjusted: false,
-    currency,
-    normalization: normalization === 'per_capita' ? 'total' : normalization,
-    showPeriodGrowth: false,
-  };
+  const monthlyPoints: DataPoint[] = items.map((item) => ({
+    x: `${String(item.year)}-${String(item.month).padStart(2, '0')}`,
+    year: item.year,
+    y: item.monthly_amount,
+  }));
 
-  const normalizedItems: ExecutionLineItemOutput[] = [];
+  const quarterlyEntries: { index: number; point: DataPoint }[] = [];
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (item === undefined) continue;
+    if (item.quarterly_amount === null || item.quarter === null) continue;
 
-  for (const item of items) {
-    const yearLabel = String(item.year);
-
-    // Normalize ytd_amount
-    const ytdDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.ytd_amount };
-    const ytdResult = await normService.normalize([ytdDataPoint], options, Frequency.YEAR, [
-      startYear,
-      endYear,
-    ]);
-
-    // Normalize monthly_amount
-    const monthlyDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.monthly_amount };
-    const monthlyResult = await normService.normalize([monthlyDataPoint], options, Frequency.YEAR, [
-      startYear,
-      endYear,
-    ]);
-
-    // Normalize quarterly_amount if present
-    let normalizedQuarterly: number | null = null;
-    if (item.quarterly_amount !== null) {
-      const quarterlyDataPoint: DataPoint = {
-        x: yearLabel,
+    quarterlyEntries.push({
+      index,
+      point: {
+        x: `${String(item.year)}-Q${String(item.quarter)}`,
         year: item.year,
         y: item.quarterly_amount,
-      };
-      const quarterlyResult = await normService.normalize(
-        [quarterlyDataPoint],
-        options,
-        Frequency.YEAR,
-        [startYear, endYear]
-      );
-      if (quarterlyResult.isOk() && quarterlyResult.value.length > 0) {
-        const qPoint = quarterlyResult.value[0];
-        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toNumber() : null;
-      }
+      },
+    });
+  }
+
+  const ytdResult = await normService.normalize(ytdPoints, request.transformation, Frequency.YEAR, [
+    startYear,
+    endYear,
+  ]);
+  const monthlyResult = await normService.normalize(
+    monthlyPoints,
+    request.transformation,
+    Frequency.MONTH,
+    [startYear, endYear]
+  );
+
+  const quarterlyPoints = quarterlyEntries.map((e) => e.point);
+  const quarterlyResult = await normService.normalize(
+    quarterlyPoints,
+    request.transformation,
+    Frequency.QUARTER,
+    [startYear, endYear]
+  );
+
+  const ytdOut = ytdResult.isOk() ? ytdResult.value : ytdPoints;
+  const monthlyOut = monthlyResult.isOk() ? monthlyResult.value : monthlyPoints;
+
+  const quarterlyMap = new Map<number, DataPoint['y']>();
+  const quarterlyOut = quarterlyResult.isOk() ? quarterlyResult.value : quarterlyPoints;
+  for (let i = 0; i < quarterlyEntries.length; i++) {
+    const entry = quarterlyEntries[i];
+    const point = quarterlyOut[i];
+    if (entry !== undefined && point !== undefined) {
+      quarterlyMap.set(entry.index, point.y);
     }
+  }
 
-    // Extract normalized values (fallback to original on error)
-    const normalizedYtd =
-      ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
-        ? ytdResult.value[0].y.toNumber()
-        : item.ytd_amount.toNumber();
-    const normalizedMonthly =
-      monthlyResult.isOk() && monthlyResult.value.length > 0 && monthlyResult.value[0] !== undefined
-        ? monthlyResult.value[0].y.toNumber()
-        : item.monthly_amount.toNumber();
+  return items.map((item, index) => {
+    const ytd = ytdOut[index]?.y ?? item.ytd_amount;
+    const monthly = monthlyOut[index]?.y ?? item.monthly_amount;
+    const quarterly = quarterlyMap.get(index) ?? null;
 
-    normalizedItems.push({
+    return {
       line_item_id: item.line_item_id,
       report_id: item.report_id,
       entity_cui: item.entity_cui,
@@ -435,14 +417,12 @@ const applyNormalizationToItems = async (
       year: item.year,
       month: item.month,
       quarter: item.quarter,
-      ytd_amount: normalizedYtd,
-      monthly_amount: normalizedMonthly,
-      quarterly_amount: normalizedQuarterly,
+      ytd_amount: ytd.toNumber(),
+      monthly_amount: monthly.toNumber(),
+      quarterly_amount: quarterly !== null ? quarterly.toNumber() : null,
       anomaly: item.anomaly,
-    });
-  }
-
-  return normalizedItems;
+    };
+  });
 };
 
 // ============================================================================
@@ -520,10 +500,17 @@ export const makeExecutionLineItemResolvers = (
 
         const connection = result.value;
 
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? args.filter.normalization ?? null,
+          currency: args.filter.currency ?? null,
+          inflationAdjusted: args.filter.inflation_adjusted ?? null,
+          showPeriodGrowth: false,
+        });
+
         // Apply normalization if requested
         const normalizedNodes = await applyNormalizationToItems(
           connection.nodes,
-          args.normalization,
+          request,
           args.filter,
           normalizationService
         );

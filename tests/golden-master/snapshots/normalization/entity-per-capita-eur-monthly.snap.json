@@ -1,0 +1,189 @@
+{
+  "entityAnalytics": {
+    "nodes": [
+      {
+        "amount": 2809.92,
+        "county_code": "AR",
+        "entity_cui": "3519330",
+        "entity_name": "COMUNA SOCODOR",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 2809.92,
+        "total_amount": 6510574.78
+      },
+      {
+        "amount": 2491.95,
+        "county_code": "VL",
+        "entity_cui": "2573853",
+        "entity_name": "COMUNA GLAVILE",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 2491.95,
+        "total_amount": 3772807.45
+      },
+      {
+        "amount": 1693.62,
+        "county_code": "TR",
+        "entity_cui": "4568586",
+        "entity_name": "COMUNA CALMATUIU",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1693.62,
+        "total_amount": 2652216.34
+      },
+      {
+        "amount": 1495.45,
+        "county_code": "IL",
+        "entity_cui": "4427897",
+        "entity_name": "COMUNA MILOSESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1495.45,
+        "total_amount": 3180825.57
+      },
+      {
+        "amount": 1494.6,
+        "county_code": "IL",
+        "entity_cui": "4428019",
+        "entity_name": "COMUNA DRAGOESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1494.6,
+        "total_amount": 1597730.63
+      },
+      {
+        "amount": 1275.49,
+        "county_code": "VL",
+        "entity_cui": "2541541",
+        "entity_name": "COMUNA MALDARESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1275.49,
+        "total_amount": 2187468.74
+      },
+      {
+        "amount": 1252.5,
+        "county_code": "BZ",
+        "entity_cui": "4234098",
+        "entity_name": "COMUNA GHERASENI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1252.5,
+        "total_amount": 3856447.67
+      },
+      {
+        "amount": 1230.32,
+        "county_code": "VS",
+        "entity_cui": "4539971",
+        "entity_name": "COMUNA POIENESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1230.32,
+        "total_amount": 3041343.76
+      },
+      {
+        "amount": 1229.92,
+        "county_code": "CT",
+        "entity_cui": "5515059",
+        "entity_name": "COMUNA ION CORVIN",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1229.92,
+        "total_amount": 2109314.49
+      },
+      {
+        "amount": 1224.23,
+        "county_code": "VL",
+        "entity_cui": "2541525",
+        "entity_name": "COMUNA STROESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1224.23,
+        "total_amount": 2859809.26
+      },
+      {
+        "amount": 1199.34,
+        "county_code": "AG",
+        "entity_cui": "4318431",
+        "entity_name": "COMUNA BOTENI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1199.34,
+        "total_amount": 2537797
+      },
+      {
+        "amount": 1195.36,
+        "county_code": "BZ",
+        "entity_cui": "4154380",
+        "entity_name": "COMUNA SMEENI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1195.36,
+        "total_amount": 6940271.82
+      },
+      {
+        "amount": 1184.74,
+        "county_code": "BC",
+        "entity_cui": "4591490",
+        "entity_name": "MUNICIPIUL MOINESTI",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 1184.74,
+        "total_amount": 23372530.5
+      },
+      {
+        "amount": 1179.38,
+        "county_code": "PH",
+        "entity_cui": "2843850",
+        "entity_name": "ORAS AZUGA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 1179.38,
+        "total_amount": 4600743.03
+      },
+      {
+        "amount": 1177.99,
+        "county_code": "GJ",
+        "entity_cui": "4898681",
+        "entity_name": "ORAS TARGU CARBUNESTI",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 1177.99,
+        "total_amount": 8971568.59
+      },
+      {
+        "amount": 1175.49,
+        "county_code": "VS",
+        "entity_cui": "16368328",
+        "entity_name": "COMUNA DODESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1175.49,
+        "total_amount": 1814949.82
+      },
+      {
+        "amount": 1161.1,
+        "county_code": "TR",
+        "entity_cui": "6950735",
+        "entity_name": "COMUNA SIRBENI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1161.1,
+        "total_amount": 1738169.21
+      },
+      {
+        "amount": 1160.69,
+        "county_code": "AB",
+        "entity_cui": "4905592",
+        "entity_name": "ORAS ABRUD",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 1160.69,
+        "total_amount": 5060591.47
+      },
+      {
+        "amount": 1127.45,
+        "county_code": "PH",
+        "entity_cui": "2844103",
+        "entity_name": "ORASUL SINAIA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 1127.45,
+        "total_amount": 10227126.28
+      },
+      {
+        "amount": 1120.32,
+        "county_code": "MM",
+        "entity_cui": "3694926",
+        "entity_name": "COMUNA GIULESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 1120.32,
+        "total_amount": 3182815.19
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 3153
+    }
+  }
+}

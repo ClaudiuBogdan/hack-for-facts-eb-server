@@ -1,0 +1,189 @@
+{
+  "entityAnalytics": {
+    "nodes": [
+      {
+        "amount": 5747.38,
+        "county_code": "AR",
+        "entity_cui": "3519330",
+        "entity_name": "COMUNA SOCODOR",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 5747.38,
+        "total_amount": 13316690.02
+      },
+      {
+        "amount": 4486.54,
+        "county_code": "OT",
+        "entity_cui": "4491300",
+        "entity_name": "COMUNA STUDINA",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 4486.54,
+        "total_amount": 10781162.19
+      },
+      {
+        "amount": 4084.27,
+        "county_code": "GJ",
+        "entity_cui": "4666126",
+        "entity_name": "ORASUL NOVACI",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 4084.27,
+        "total_amount": 21548590.29
+      },
+      {
+        "amount": 3857.57,
+        "county_code": "DB",
+        "entity_cui": "4280302",
+        "entity_name": "ORASUL PUCIOASA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3857.57,
+        "total_amount": 49967043.9
+      },
+      {
+        "amount": 3805.16,
+        "county_code": "VL",
+        "entity_cui": "2573853",
+        "entity_name": "COMUNA GLAVILE",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 3805.16,
+        "total_amount": 5761015.61
+      },
+      {
+        "amount": 3674.65,
+        "county_code": "HR",
+        "entity_cui": "4246157",
+        "entity_name": "COMUNA DANESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 3674.65,
+        "total_amount": 7639605.39
+      },
+      {
+        "amount": 3632.15,
+        "county_code": "SV",
+        "entity_cui": "4440985",
+        "entity_name": "ORASUL SIRET",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3632.15,
+        "total_amount": 24364488.51
+      },
+      {
+        "amount": 3479.11,
+        "county_code": "AB",
+        "entity_cui": "4905592",
+        "entity_name": "ORAS ABRUD",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3479.11,
+        "total_amount": 15168923.84
+      },
+      {
+        "amount": 3255.34,
+        "county_code": "OT",
+        "entity_cui": "5148351",
+        "entity_name": "COMUNA BRASTAVATU",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 3255.34,
+        "total_amount": 12565602.3
+      },
+      {
+        "amount": 3245.07,
+        "county_code": "HR",
+        "entity_cui": "4245380",
+        "entity_name": "ORASUL BORSEC",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3245.07,
+        "total_amount": 7758956.61
+      },
+      {
+        "amount": 3144.12,
+        "county_code": "PH",
+        "entity_cui": "2844103",
+        "entity_name": "ORASUL SINAIA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3144.12,
+        "total_amount": 28520268.43
+      },
+      {
+        "amount": 3106.59,
+        "county_code": "PH",
+        "entity_cui": "2843850",
+        "entity_name": "ORAS AZUGA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 3106.59,
+        "total_amount": 12118792.72
+      },
+      {
+        "amount": 3049.75,
+        "county_code": "IL",
+        "entity_cui": "4428019",
+        "entity_name": "COMUNA DRAGOESTI",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 3049.75,
+        "total_amount": 3260187.49
+      },
+      {
+        "amount": 2945.83,
+        "county_code": "TL",
+        "entity_cui": "3721907",
+        "entity_name": "ORASUL ISACCEA",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 2945.83,
+        "total_amount": 12985203.77
+      },
+      {
+        "amount": 2909.58,
+        "county_code": "VL",
+        "entity_cui": "2541479",
+        "entity_name": "ORAS HOREZU",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 2909.58,
+        "total_amount": 18816230.18
+      },
+      {
+        "amount": 2854.17,
+        "county_code": "BN",
+        "entity_cui": "4548821",
+        "entity_name": "ORASUL BECLEAN",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 2854.17,
+        "total_amount": 32137966.69
+      },
+      {
+        "amount": 2833.82,
+        "county_code": "CJ",
+        "entity_cui": "5612868",
+        "entity_name": "COMUNA SANCRAIU",
+        "entity_type": "admin_commune_hall",
+        "per_capita_amount": 2833.82,
+        "total_amount": 4415095.19
+      },
+      {
+        "amount": 2765.23,
+        "county_code": "GJ",
+        "entity_cui": "4898681",
+        "entity_name": "ORAS TARGU CARBUNESTI",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 2765.23,
+        "total_amount": 21060007.21
+      },
+      {
+        "amount": 2759.62,
+        "county_code": "SV",
+        "entity_cui": "7467268",
+        "entity_name": "MUNICIPIUL VATRA DORNEI",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 2759.62,
+        "total_amount": 34710484.02
+      },
+      {
+        "amount": 2750.15,
+        "county_code": "BH",
+        "entity_cui": "4539114",
+        "entity_name": "ORASUL STEI",
+        "entity_type": "admin_town_hall",
+        "per_capita_amount": 2750.15,
+        "total_amount": 14845313.57
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 3153
+    }
+  }
+}

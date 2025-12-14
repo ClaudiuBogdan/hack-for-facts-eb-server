@@ -90,7 +90,7 @@ const createMinimalNormalizationDatasets = (): Record<string, Dataset> => {
   });
 
   return {
-    // CPI dataset - values represent index (base 100)
+    // CPI dataset - values represent a year-over-year index (base 100 each year)
     'ro.economics.cpi.yearly': createYearlyDataset(
       'ro.economics.cpi.yearly',
       'index',
@@ -108,11 +108,14 @@ const createMinimalNormalizationDatasets = (): Record<string, Dataset> => {
       'RON/USD',
       [4.24, 4.16, 4.69, 4.57, 4.58]
     ),
-    // GDP in millions RON
+    // GDP in RON
     'ro.economics.gdp.yearly': createYearlyDataset(
       'ro.economics.gdp.yearly',
-      'million_ron',
-      [1058000, 1182000, 1409000, 1580000, 1700000]
+      'RON',
+      [
+        1_058_000_000_000, 1_182_000_000_000, 1_409_000_000_000, 1_580_000_000_000,
+        1_700_000_000_000,
+      ]
     ),
     // Population
     'ro.demographics.population.yearly': createYearlyDataset(
@@ -675,7 +678,7 @@ export const makeFakeExecutionLineItemRepo = (
 
       // Apply funding_source_ids filter (strings in filter, numbers in items)
       if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
-        const idsSet = new Set(filter.funding_source_ids.map((id) => Number(id)));
+        const idsSet = new Set(filter.funding_source_ids.map(Number));
         filtered = filtered.filter((item) => idsSet.has(item.funding_source_id));
       }
 
@@ -1021,7 +1024,7 @@ export const createTestUnsubscribeToken = (
   return {
     token:
       overrides.token ??
-      crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, ''),
+      crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', ''),
     userId: overrides.userId ?? 'user-1',
     notificationId: overrides.notificationId ?? 'notification-1',
     createdAt: overrides.createdAt ?? now,
@@ -1189,8 +1192,8 @@ export const testHasher: Hasher = {
     // Create a simple deterministic hash based on input
     let hash = 0;
     for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
+      const char = data.codePointAt(i) ?? 0;
+      hash = Math.trunc((hash << 5) - hash + char);
     }
     // Convert to hex and pad to 64 chars
     const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
@@ -1200,8 +1203,8 @@ export const testHasher: Hasher = {
     // Create a longer deterministic hash
     let hash = 0;
     for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
+      const char = data.codePointAt(i) ?? 0;
+      hash = Math.trunc((hash << 5) - hash + char);
     }
     const hexHash = Math.abs(hash).toString(16).padStart(8, '0');
     return hexHash.repeat(16).substring(0, 128);

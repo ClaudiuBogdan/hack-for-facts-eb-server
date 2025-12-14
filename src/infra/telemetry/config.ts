@@ -45,7 +45,7 @@ export const TelemetryConfigSchema = Type.Object({
   enableLogs: Type.Boolean({ default: true }),
 
   /** Trace sampling rate (0.0 - 1.0, where 1.0 = 100%) */
-  sampleRate: Type.Number({ default: 1.0, minimum: 0, maximum: 1 }),
+  sampleRate: Type.Number({ default: 1, minimum: 0, maximum: 1 }),
 
   /** Additional OTLP headers (parsed from OTEL_EXPORTER_OTLP_HEADERS) */
   headers: Type.Record(Type.String(), Type.String(), { default: {} }),
@@ -120,7 +120,7 @@ export const parseTelemetryConfig = (env: NodeJS.ProcessEnv): TelemetryConfig =>
   const resourceAttributes = parseKeyValueString(env['OTEL_RESOURCE_ATTRIBUTES']);
 
   // Parse sample rate, defaulting to 1.0 (100%)
-  let sampleRate = 1.0;
+  let sampleRate = 1;
   const sampleRateEnv = env['OTEL_TRACES_SAMPLER_ARG'];
   if (sampleRateEnv !== undefined && sampleRateEnv !== '') {
     // Use Number() for safe parsing (not financial data, just a ratio)

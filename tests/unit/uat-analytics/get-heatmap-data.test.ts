@@ -139,7 +139,7 @@ function createOptions(
   return {
     inflationAdjusted: false,
     currency: 'RON',
-    perCapita: false,
+    normalization: 'total',
     ...overrides,
   };
 }
@@ -267,6 +267,30 @@ describe('getHeatmapData', () => {
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
         // 500 RON / 5 = 100 EUR
+        expect(result.value[0]?.total_amount).toBe(100);
+      }
+    });
+
+    it('should convert amounts to USD', async () => {
+      const dataPoints = [createDataPoint(1, 2023, 450)];
+
+      const factors = createTestFactors({
+        usd: new Map([['2023', new Decimal(4.5)]]),
+      });
+
+      const deps: GetHeatmapDataDeps = {
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(factors),
+      };
+
+      const result = await getHeatmapData(deps, {
+        filter: createFilter(),
+        options: createOptions({ currency: 'USD' }),
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // 450 RON / 4.5 = 100 USD
         expect(result.value[0]?.total_amount).toBe(100);
       }
     });
@@ -410,7 +434,7 @@ describe('getHeatmapData', () => {
 
       const result = await getHeatmapData(deps, {
         filter: createFilter(),
-        options: createOptions({ perCapita: true }),
+        options: createOptions({ normalization: 'per_capita' }),
       });
 
       expect(result.isOk()).toBe(true);
@@ -432,7 +456,7 @@ describe('getHeatmapData', () => {
 
       const result = await getHeatmapData(deps, {
         filter: createFilter(),
-        options: createOptions({ perCapita: false }),
+        options: createOptions({ normalization: 'total' }),
       });
 
       expect(result.isOk()).toBe(true);
@@ -453,7 +477,7 @@ describe('getHeatmapData', () => {
 
       const result = await getHeatmapData(deps, {
         filter: createFilter(),
-        options: createOptions({ perCapita: true }),
+        options: createOptions({ normalization: 'per_capita' }),
       });
 
       expect(result.isOk()).toBe(true);
@@ -474,7 +498,7 @@ describe('getHeatmapData', () => {
 
       const result = await getHeatmapData(deps, {
         filter: createFilter(),
-        options: createOptions({ perCapita: true }),
+        options: createOptions({ normalization: 'per_capita' }),
       });
 
       expect(result.isOk()).toBe(true);
@@ -497,7 +521,7 @@ describe('getHeatmapData', () => {
 
       const result = await getHeatmapData(deps, {
         filter: createFilter(),
-        options: createOptions({ currency: 'EUR', perCapita: true }),
+        options: createOptions({ currency: 'EUR', normalization: 'per_capita' }),
       });
 
       expect(result.isOk()).toBe(true);
@@ -505,6 +529,67 @@ describe('getHeatmapData', () => {
         // (5000 / 5) / 1000 = 1000 / 1000 = 1
         expect(result.value[0]?.amount).toBe(1);
         expect(result.value[0]?.total_amount).toBe(1000);
+      }
+    });
+  });
+
+  describe('Percent GDP Normalization', () => {
+    it('should compute amount as percent of GDP', async () => {
+      const dataPoints = [createDataPoint(1, 2023, 500, 100)];
+
+      const factors = createTestFactors({
+        gdp: new Map([['2023', new Decimal(1_000_000)]]),
+      });
+
+      const deps: GetHeatmapDataDeps = {
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(factors),
+      };
+
+      const result = await getHeatmapData(deps, {
+        filter: createFilter({
+          report_period: { type: Frequency.YEAR, selection: { dates: ['2023'] } },
+        }),
+        options: createOptions({
+          normalization: 'percent_gdp',
+          currency: 'EUR',
+          inflationAdjusted: true,
+        }),
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // (500 / 1,000,000) * 100 = 0.05 (% of GDP)
+        expect(result.value[0]?.amount).toBe(0.05);
+        // percent_gdp ignores currency/inflation for totals
+        expect(result.value[0]?.total_amount).toBe(500);
+      }
+    });
+
+    it('should aggregate percent of GDP using summed GDP across years', async () => {
+      const dataPoints = [createDataPoint(1, 2023, 500, 100), createDataPoint(1, 2024, 500, 100)];
+
+      const factors = createTestFactors({
+        gdp: new Map([
+          ['2023', new Decimal(1_000_000)],
+          ['2024', new Decimal(1_000_000)],
+        ]),
+      });
+
+      const deps: GetHeatmapDataDeps = {
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(factors),
+      };
+
+      const result = await getHeatmapData(deps, {
+        filter: createFilter(),
+        options: createOptions({ normalization: 'percent_gdp' }),
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        // ((500 + 500) / (1,000,000 + 1,000,000)) * 100 = 0.05
+        expect(result.value[0]?.amount).toBe(0.05);
       }
     });
   });
@@ -537,7 +622,7 @@ describe('getHeatmapData', () => {
         options: createOptions({
           inflationAdjusted: true,
           currency: 'EUR',
-          perCapita: true,
+          normalization: 'per_capita',
         }),
       });
 

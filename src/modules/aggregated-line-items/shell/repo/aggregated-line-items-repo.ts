@@ -244,6 +244,9 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
       // Build HAVING conditions (must use normalizedAmount expression, not the alias)
       const havingConditions = this.buildHavingConditions(aggregateFilters, normalizedAmount);
 
+      // Build frequency-aware factor join
+      const factorJoinClause = CommonJoins.factorsOnPeriod(frequency);
+
       // Build the complete query with CTE
       const queryText = sql`
         WITH factors(period_key, multiplier) AS (
@@ -260,7 +263,7 @@ export class KyselyAggregatedLineItemsRepo implements AggregatedLineItemsReposit
         FROM executionlineitems eli
         INNER JOIN functionalclassifications fc ON eli.functional_code = fc.functional_code
         LEFT JOIN economicclassifications ec ON eli.economic_code = ec.economic_code
-        INNER JOIN factors f ON eli.year::text = f.period_key
+        ${factorJoinClause}
         ${entityJoinClause}
         ${uatJoinClause}
         WHERE ${whereCondition}

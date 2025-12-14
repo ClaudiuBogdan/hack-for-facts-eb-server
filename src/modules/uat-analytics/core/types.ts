@@ -76,12 +76,12 @@ export interface NormalizedHeatmapDataPoint {
  * - total: Raw total in RON or EUR
  * - per_capita: Divided by UAT population
  */
-export type HeatmapNormalizationMode = 'total' | 'per_capita';
+export type HeatmapNormalizationMode = 'total' | 'per_capita' | 'percent_gdp';
 
 /**
  * Currency for heatmap data output.
  */
-export type HeatmapCurrency = 'RON' | 'EUR';
+export type HeatmapCurrency = 'RON' | 'EUR' | 'USD';
 
 /**
  * Transformation options for heatmap normalization.
@@ -96,9 +96,9 @@ export interface HeatmapTransformationOptions {
   /** Whether to adjust for inflation using CPI factors */
   inflationAdjusted: boolean;
 
-  /** Target currency (RON or EUR) */
+  /** Target currency (RON, EUR, or USD) */
   currency: HeatmapCurrency;
 
-  /** Whether to apply per-capita division using UAT population */
-  perCapita: boolean;
+  /** Normalization mode for the primary display amount */
+  normalization: HeatmapNormalizationMode;
 }

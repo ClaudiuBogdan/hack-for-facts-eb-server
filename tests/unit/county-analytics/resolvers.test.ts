@@ -195,6 +195,26 @@ describe('County Analytics Resolvers', () => {
       expect(result[0]!.amount).toBe(10); // 1000 / 100 = 10 per capita
     });
 
+    it('should map "percent_gdp" to % of GDP', async () => {
+      const dataPoints = [createDataPoint('CJ', 2023, 500, 100)];
+
+      const resolvers = makeCountyAnalyticsResolvers({
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(),
+        entityRepo: createFakeEntityRepo(),
+      });
+
+      const result = await callResolver(resolvers, {
+        filter: createBaseFilter(),
+        normalization: 'percent_gdp',
+      });
+
+      expect(result).toHaveLength(1);
+      // (500 / 1,000,000) * 100 = 0.05 (% of GDP)
+      expect(result[0]!.amount).toBe(0.05);
+      expect(result[0]!.total_amount).toBe(500);
+    });
+
     it('should map "total_euro" to EUR total (legacy mode)', async () => {
       const dataPoints = [createDataPoint('CJ', 2023, 500, 100)];
 
@@ -254,6 +274,26 @@ describe('County Analytics Resolvers', () => {
 
       expect(result).toHaveLength(1);
       // 500 RON / 5 = 100 EUR
+      expect(result[0]!.total_amount).toBe(100);
+    });
+
+    it('should use currency parameter for USD conversion', async () => {
+      const dataPoints = [createDataPoint('CJ', 2023, 450, 100)];
+
+      const resolvers = makeCountyAnalyticsResolvers({
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(),
+        entityRepo: createFakeEntityRepo(),
+      });
+
+      const result = await callResolver(resolvers, {
+        filter: createBaseFilter(),
+        normalization: 'total',
+        currency: 'USD',
+      });
+
+      expect(result).toHaveLength(1);
+      // 450 RON / 4.5 = 100 USD
       expect(result[0]!.total_amount).toBe(100);
     });
 

@@ -100,7 +100,7 @@ export async function getEntityAnalytics(
   // 5. Compute combined factor map WITHOUT population
   // Population is entity-specific and computed in SQL based on entity type
   const transformOptions = buildTransformOptions(filter);
-  const periodLabels = generatePeriodLabels(startYear, endYear);
+  const periodLabels = generatePeriodLabels(startYear, endYear, filter.report_period.type);
   const factorMap = computeCombinedFactorMapWithoutPopulation(
     transformOptions,
     factors,
@@ -228,8 +228,8 @@ export function computeCombinedFactorMapWithoutPopulation(
       if (gdp === undefined || gdp.isZero()) {
         multiplier = new Decimal(0);
       } else {
-        // GDP is in millions, result is percentage (0-100)
-        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+        // GDP dataset is in RON; multiplier yields percentage (0-100)
+        multiplier = new Decimal(100).div(gdp);
       }
     } else {
       // Path A: Standard normalization (composable)

@@ -9,37 +9,38 @@ import { Decimal } from 'decimal.js';
 
 import { clampLimit, MAX_PAGE_SIZE } from '@/common/constants/pagination.js';
 import { Frequency } from '@/common/types/temporal.js';
+import {
+  resolveNormalizationRequest,
+  type DataPoint,
+  type GqlNormalization,
+  type NormalizationService,
+  type ResolvedNormalizationRequest,
+} from '@/modules/normalization/index.js';
 
 import {
   DEFAULT_LIMIT,
+  type DbReportType,
   type Entity,
   type EntityFilter,
-  type ReportPeriodInput,
   type GqlReportType,
-  type DbReportType,
+  type ReportPeriodInput,
 } from '../../core/types.js';
 import { getEntity } from '../../core/usecases/get-entity.js';
 import { listEntities } from '../../core/usecases/list-entities.js';
 
-import type { EntityRepository, EntityAnalyticsSummaryRepository } from '../../core/ports.js';
+import type { EntityAnalyticsSummaryRepository, EntityRepository } from '../../core/ports.js';
 import type {
-  PeriodType,
   AnalyticsFilter,
-  PeriodSelection,
   Currency,
+  PeriodSelection,
+  PeriodType,
 } from '@/common/types/analytics.js';
 import type {
+  ExecutionLineItem,
   ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
   SortableField,
-  ExecutionLineItem,
 } from '@/modules/execution-line-items/index.js';
-import type {
-  NormalizationService,
-  DataPoint,
-  TransformationOptions,
-  NormalizationMode,
-} from '@/modules/normalization/index.js';
-import type { ReportRepository, ReportFilter, ReportSort } from '@/modules/report/index.js';
+import type { ReportFilter, ReportRepository, ReportSort } from '@/modules/report/index.js';
 import type { UATRepository } from '@/modules/uat/index.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
 
@@ -53,12 +54,6 @@ const DEFAULT_ELI_LIMIT = 10_000;
 // ─────────────────────────────────────────────────────────────────────────────
 // GraphQL Normalization Type (matches GraphQL enum Normalization)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * GraphQL Normalization enum values.
- * Maps to internal normalization mode + currency combination.
- */
-type GqlNormalization = 'total' | 'total_euro' | 'per_capita' | 'per_capita_euro' | 'percent_gdp';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GraphQL Input Types
@@ -111,44 +106,26 @@ const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYP
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Parses GraphQL Normalization enum to internal normalization mode and currency.
+ * Returns the Y-axis unit string based on resolved normalization options.
  */
-const parseGqlNormalization = (
-  gqlNorm: GqlNormalization | undefined
-): { normalization: NormalizationMode; currency: Currency } => {
-  switch (gqlNorm) {
-    case 'total_euro':
-      return { normalization: 'total', currency: 'EUR' };
-    case 'per_capita':
-      return { normalization: 'per_capita', currency: 'RON' };
-    case 'per_capita_euro':
-      return { normalization: 'per_capita', currency: 'EUR' };
-    case 'percent_gdp':
-      return { normalization: 'percent_gdp', currency: 'RON' };
-    case 'total':
-    default:
-      return { normalization: 'total', currency: 'RON' };
+const getUnitForNormalization = (request: ResolvedNormalizationRequest): string => {
+  if (request.showPeriodGrowth) {
+    return '%';
   }
+
+  if (request.normalization === 'percent_gdp') {
+    return '% of GDP';
+  }
+
+  const realSuffix = request.inflationAdjusted ? ' (real 2024)' : '';
+  const capitaSuffix = request.normalization === 'per_capita' ? '/capita' : '';
+  return `${request.currency}${capitaSuffix}${realSuffix}`;
 };
 
-/**
- * Returns the Y-axis unit string based on normalization mode.
- */
-const getUnitForNormalization = (gqlNorm: GqlNormalization | undefined): string => {
-  switch (gqlNorm) {
-    case 'total':
-      return 'RON';
-    case 'total_euro':
-      return 'EUR';
-    case 'per_capita':
-      return 'RON/capita';
-    case 'per_capita_euro':
-      return 'EUR/capita';
-    case 'percent_gdp':
-      return '% of GDP';
-    default:
-      return 'RON';
-  }
+const getYAxisNameForNormalization = (request: ResolvedNormalizationRequest): string => {
+  if (request.showPeriodGrowth) return 'Growth';
+  if (request.normalization === 'percent_gdp') return 'Share of GDP';
+  return 'Amount';
 };
 
 /**
@@ -172,15 +149,15 @@ const getYearRangeFromPeriod = (period: ReportPeriodInput): [number, number] => 
   const selection = period.selection;
 
   if (selection.interval !== undefined) {
-    const startYear = parseInt(selection.interval.start.substring(0, 4), 10);
-    const endYear = parseInt(selection.interval.end.substring(0, 4), 10);
+    const startYear = Number.parseInt(selection.interval.start.substring(0, 4), 10);
+    const endYear = Number.parseInt(selection.interval.end.substring(0, 4), 10);
     return [startYear, endYear];
   }
 
   // At this point, selection must have dates (due to discriminated union)
   const dates = selection.dates;
   if (dates.length > 0) {
-    const years = dates.map((d) => parseInt(d.substring(0, 4), 10));
+    const years = dates.map((d) => Number.parseInt(d.substring(0, 4), 10));
     return [Math.min(...years), Math.max(...years)];
   }
 
@@ -190,56 +167,69 @@ const getYearRangeFromPeriod = (period: ReportPeriodInput): [number, number] => 
 };
 
 /**
+ * Picks a representative period label for totals.
+ *
+ * For single-period selections this is the exact label (YYYY / YYYY-QN / YYYY-MM).
+ * For intervals or multiple dates, this picks the latest (end / max label).
+ */
+const getRepresentativePeriodLabel = (period: ReportPeriodInput): string => {
+  const selection = period.selection;
+
+  if (selection.interval !== undefined) {
+    return selection.interval.end;
+  }
+
+  const dates = selection.dates;
+  if (dates.length > 0) {
+    return dates.reduce((max, curr) => (curr > max ? curr : max), dates[0] ?? '');
+  }
+
+  return String(new Date().getFullYear());
+};
+
+/**
  * Applies normalization to a single numeric value.
  */
 const applyNormalizationToValue = async (
   value: number | null,
-  gqlNorm: GqlNormalization | undefined,
+  request: ResolvedNormalizationRequest,
   period: ReportPeriodInput,
   population: number | null,
   normService: NormalizationService
 ): Promise<number | null> => {
   if (value === null) return null;
-  if (gqlNorm === undefined || gqlNorm === 'total') return value;
+  const requiresTransform =
+    request.transformation.inflationAdjusted ||
+    request.transformation.currency !== 'RON' ||
+    request.transformation.normalization !== 'total' ||
+    request.transformation.showPeriodGrowth === true;
 
-  const { normalization, currency } = parseGqlNormalization(gqlNorm);
+  if (!requiresTransform && !request.requiresExternalPerCapitaDivision) {
+    return value;
+  }
+
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  const options: TransformationOptions = {
-    inflationAdjusted: false,
-    currency,
-    normalization: normalization === 'per_capita' ? 'total' : normalization,
-    showPeriodGrowth: false,
-  };
-
-  const yearLabel = String(endYear);
+  const periodLabel = getRepresentativePeriodLabel(period);
   const dataPoint: DataPoint = {
-    x: yearLabel,
-    year: endYear,
+    x: periodLabel,
+    year: Number.parseInt(periodLabel.substring(0, 4), 10),
     y: new Decimal(value),
   };
 
-  const result = await normService.normalize([dataPoint], options, Frequency.YEAR, [
+  const result = await normService.normalize([dataPoint], request.transformation, period.type, [
     startYear,
     endYear,
   ]);
 
-  if (result.isErr() || result.value.length === 0) {
-    return value;
+  const normalizedPoint = result.isOk() ? result.value[0] : undefined;
+  let normalizedValue = normalizedPoint !== undefined ? normalizedPoint.y : new Decimal(value);
+
+  if (request.requiresExternalPerCapitaDivision && population !== null && population > 0) {
+    normalizedValue = normalizedValue.div(new Decimal(population));
   }
 
-  const firstPoint = result.value[0];
-  if (firstPoint === undefined) {
-    return value;
-  }
-
-  let normalizedValue = firstPoint.y.toNumber();
-
-  if (normalization === 'per_capita' && population !== null && population > 0) {
-    normalizedValue = normalizedValue / population;
-  }
-
-  return normalizedValue;
+  return normalizedValue.toNumber();
 };
 
 /**
@@ -247,53 +237,46 @@ const applyNormalizationToValue = async (
  */
 const applyNormalizationToSeries = async (
   data: { date: string; value: Decimal }[],
-  gqlNorm: GqlNormalization | undefined,
+  request: ResolvedNormalizationRequest,
   period: ReportPeriodInput,
   population: number | null,
   normService: NormalizationService
 ): Promise<{ x: string; y: number }[]> => {
   if (data.length === 0) return [];
 
-  if (gqlNorm === undefined || gqlNorm === 'total') {
-    return data.map((point) => ({
-      x: point.date,
-      y: point.value.toNumber(),
-    }));
-  }
-
-  const { normalization, currency } = parseGqlNormalization(gqlNorm);
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  const options: TransformationOptions = {
-    inflationAdjusted: false,
-    currency,
-    normalization: normalization === 'per_capita' ? 'total' : normalization,
-    showPeriodGrowth: false,
-  };
+  const requiresTransform =
+    request.transformation.inflationAdjusted ||
+    request.transformation.currency !== 'RON' ||
+    request.transformation.normalization !== 'total' ||
+    request.transformation.showPeriodGrowth === true;
 
   const dataPoints: DataPoint[] = data.map((point) => ({
     x: point.date,
-    year: parseInt(point.date.substring(0, 4), 10),
+    year: Number.parseInt(point.date.substring(0, 4), 10),
     y: point.value,
   }));
 
-  const result = await normService.normalize(dataPoints, options, period.type, [
+  if (!requiresTransform && !request.requiresExternalPerCapitaDivision) {
+    return dataPoints.map((point) => ({
+      x: point.x,
+      y: point.y.toNumber(),
+    }));
+  }
+
+  const result = await normService.normalize(dataPoints, request.transformation, period.type, [
     startYear,
     endYear,
   ]);
 
-  if (result.isErr()) {
-    return data.map((point) => ({
-      x: point.date,
-      y: point.value.toNumber(),
-    }));
-  }
+  let normalizedPoints = result.isOk() ? result.value : dataPoints;
 
-  let normalizedPoints = result.value;
-  if (normalization === 'per_capita' && population !== null && population > 0) {
+  if (request.requiresExternalPerCapitaDivision && population !== null && population > 0) {
+    const pop = new Decimal(population);
     normalizedPoints = normalizedPoints.map((p) => ({
       ...p,
-      y: p.y.div(population),
+      y: p.y.div(pop),
     }));
   }
 
@@ -331,100 +314,112 @@ interface NormalizedExecutionLineItem {
  */
 const applyNormalizationToLineItems = async (
   items: ExecutionLineItem[],
-  gqlNorm: GqlNormalization | undefined,
+  request: ResolvedNormalizationRequest,
   period: ReportPeriodInput,
   population: number | null,
   normService: NormalizationService
 ): Promise<NormalizedExecutionLineItem[]> => {
   if (items.length === 0) return [];
 
-  if (gqlNorm === undefined || gqlNorm === 'total') {
-    return items.map((item) => ({
-      ...item,
-      account_category: item.account_category,
-      expense_type: item.expense_type,
-      anomaly: item.anomaly,
-      ytd_amount: item.ytd_amount.toNumber(),
-      monthly_amount: item.monthly_amount.toNumber(),
-      quarterly_amount: item.quarterly_amount !== null ? item.quarterly_amount.toNumber() : null,
-    }));
-  }
-
-  const { normalization, currency } = parseGqlNormalization(gqlNorm);
   const [startYear, endYear] = getYearRangeFromPeriod(period);
 
-  const options: TransformationOptions = {
-    inflationAdjusted: false,
-    currency,
-    normalization: normalization === 'per_capita' ? 'total' : normalization,
-    showPeriodGrowth: false,
-  };
+  const requiresTransform =
+    request.transformation.inflationAdjusted ||
+    request.transformation.currency !== 'RON' ||
+    request.transformation.normalization !== 'total';
 
-  const normalizedItems: NormalizedExecutionLineItem[] = [];
+  const ytdPoints: DataPoint[] = items.map((item) => ({
+    x: String(item.year),
+    year: item.year,
+    y: item.ytd_amount,
+  }));
 
-  for (const item of items) {
-    const yearLabel = String(item.year);
+  const monthlyPoints: DataPoint[] = items.map((item) => ({
+    x: `${String(item.year)}-${String(item.month).padStart(2, '0')}`,
+    year: item.year,
+    y: item.monthly_amount,
+  }));
 
-    const ytdDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.ytd_amount };
-    const ytdResult = await normService.normalize([ytdDataPoint], options, Frequency.YEAR, [
-      startYear,
-      endYear,
-    ]);
+  const quarterlyEntries: { index: number; point: DataPoint }[] = [];
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (item === undefined) continue;
+    if (item.quarterly_amount === null || item.quarter === null) continue;
 
-    const monthlyDataPoint: DataPoint = { x: yearLabel, year: item.year, y: item.monthly_amount };
-    const monthlyResult = await normService.normalize([monthlyDataPoint], options, Frequency.YEAR, [
-      startYear,
-      endYear,
-    ]);
-
-    let normalizedQuarterly: number | null = null;
-    if (item.quarterly_amount !== null) {
-      const quarterlyDataPoint: DataPoint = {
-        x: yearLabel,
+    quarterlyEntries.push({
+      index,
+      point: {
+        x: `${String(item.year)}-Q${String(item.quarter)}`,
         year: item.year,
         y: item.quarterly_amount,
-      };
-      const quarterlyResult = await normService.normalize(
-        [quarterlyDataPoint],
-        options,
-        Frequency.YEAR,
-        [startYear, endYear]
-      );
-      if (quarterlyResult.isOk() && quarterlyResult.value.length > 0) {
-        const qPoint = quarterlyResult.value[0];
-        normalizedQuarterly = qPoint !== undefined ? qPoint.y.toNumber() : null;
-      }
-    }
-
-    let normalizedYtd =
-      ytdResult.isOk() && ytdResult.value.length > 0 && ytdResult.value[0] !== undefined
-        ? ytdResult.value[0].y.toNumber()
-        : item.ytd_amount.toNumber();
-    let normalizedMonthly =
-      monthlyResult.isOk() && monthlyResult.value.length > 0 && monthlyResult.value[0] !== undefined
-        ? monthlyResult.value[0].y.toNumber()
-        : item.monthly_amount.toNumber();
-
-    if (normalization === 'per_capita' && population !== null && population > 0) {
-      normalizedYtd = normalizedYtd / population;
-      normalizedMonthly = normalizedMonthly / population;
-      if (normalizedQuarterly !== null) {
-        normalizedQuarterly = normalizedQuarterly / population;
-      }
-    }
-
-    normalizedItems.push({
-      ...item,
-      account_category: item.account_category,
-      expense_type: item.expense_type,
-      anomaly: item.anomaly,
-      ytd_amount: normalizedYtd,
-      monthly_amount: normalizedMonthly,
-      quarterly_amount: normalizedQuarterly,
+      },
     });
   }
 
-  return normalizedItems;
+  const ytdResult = requiresTransform
+    ? await normService.normalize(ytdPoints, request.transformation, Frequency.YEAR, [
+        startYear,
+        endYear,
+      ])
+    : null;
+  const monthlyResult = requiresTransform
+    ? await normService.normalize(monthlyPoints, request.transformation, Frequency.MONTH, [
+        startYear,
+        endYear,
+      ])
+    : null;
+
+  const quarterlyPoints = quarterlyEntries.map((e) => e.point);
+  const quarterlyResult = requiresTransform
+    ? await normService.normalize(quarterlyPoints, request.transformation, Frequency.QUARTER, [
+        startYear,
+        endYear,
+      ])
+    : null;
+
+  const pop =
+    request.requiresExternalPerCapitaDivision && population !== null && population > 0
+      ? new Decimal(population)
+      : null;
+
+  const ytdOut = ytdResult?.isOk() === true ? ytdResult.value : ytdPoints;
+  const monthlyOut = monthlyResult?.isOk() === true ? monthlyResult.value : monthlyPoints;
+
+  const quarterlyMap = new Map<number, Decimal>();
+  if (quarterlyResult !== null) {
+    const points = quarterlyResult.isOk() ? quarterlyResult.value : quarterlyPoints;
+    for (let i = 0; i < quarterlyEntries.length; i++) {
+      const entry = quarterlyEntries[i];
+      const point = points[i];
+      if (entry !== undefined && point !== undefined) {
+        quarterlyMap.set(entry.index, point.y);
+      }
+    }
+  } else {
+    for (const entry of quarterlyEntries) {
+      quarterlyMap.set(entry.index, entry.point.y);
+    }
+  }
+
+  return items.map((item, index) => {
+    const ytd = ytdOut[index]?.y ?? item.ytd_amount;
+    const monthly = monthlyOut[index]?.y ?? item.monthly_amount;
+    const quarterly = quarterlyMap.get(index) ?? null;
+
+    const ytdFinal = pop !== null ? ytd.div(pop) : ytd;
+    const monthlyFinal = pop !== null ? monthly.div(pop) : monthly;
+    const quarterlyFinal = quarterly !== null && pop !== null ? quarterly.div(pop) : quarterly;
+
+    return {
+      ...item,
+      account_category: item.account_category,
+      expense_type: item.expense_type,
+      anomaly: item.anomaly,
+      ytd_amount: ytdFinal.toNumber(),
+      monthly_amount: monthlyFinal.toNumber(),
+      quarterly_amount: quarterlyFinal !== null ? quarterlyFinal.toNumber() : null,
+    };
+  });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -705,7 +700,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
       executionLineItems: async (
         parent: Entity,
         args: {
-          filter?: Partial<AnalyticsFilter>;
+          filter?: Partial<AnalyticsFilter> & {
+            normalization?: GqlNormalization;
+            currency?: Currency;
+            inflation_adjusted?: boolean;
+          };
           limit?: number;
           offset?: number;
           sort?: { field?: string; by?: string; order?: string };
@@ -757,19 +756,22 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           };
         }
 
-        const filterWithNormalization = args.filter as
-          | (Partial<AnalyticsFilter> & { normalization?: GqlNormalization })
-          | undefined;
-        const normalization = args.normalization ?? filterWithNormalization?.normalization;
+        const normalization = args.normalization ?? args.filter.normalization;
+        const request = resolveNormalizationRequest({
+          normalization: normalization ?? null,
+          currency: args.filter.currency ?? null,
+          inflationAdjusted: args.filter.inflation_adjusted ?? null,
+          showPeriodGrowth: false,
+        });
 
         let population: number | null = null;
-        if (normalization === 'per_capita' || normalization === 'per_capita_euro') {
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         const normalizedNodes = await applyNormalizationToLineItems(
           result.value.nodes,
-          normalization,
+          request,
           filter.report_period,
           population,
           normalizationService
@@ -791,6 +793,8 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -814,13 +818,20 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         }
 
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: false,
+        });
+
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         return applyNormalizationToValue(
           result.value.totalIncome,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -833,6 +844,8 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -856,13 +869,20 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         }
 
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: false,
+        });
+
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         return applyNormalizationToValue(
           result.value.totalExpenses,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -875,6 +895,8 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -898,13 +920,20 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         }
 
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: false,
+        });
+
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         return applyNormalizationToValue(
           result.value.budgetBalance,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -921,6 +950,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
+          show_period_growth?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -944,14 +976,21 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: args.show_period_growth ?? null,
+        });
+
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -965,9 +1004,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
             unit: '',
           },
           yAxis: {
-            name: 'Amount',
+            name: getYAxisNameForNormalization(request),
             type: 'FLOAT',
-            unit: getUnitForNormalization(args.normalization),
+            unit: getUnitForNormalization(request),
           },
           data: normalizedData,
         };
@@ -979,6 +1018,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
+          show_period_growth?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -1002,14 +1044,21 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: args.show_period_growth ?? null,
+        });
+
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -1023,9 +1072,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
             unit: '',
           },
           yAxis: {
-            name: 'Amount',
+            name: getYAxisNameForNormalization(request),
             type: 'FLOAT',
-            unit: getUnitForNormalization(args.normalization),
+            unit: getUnitForNormalization(request),
           },
           data: normalizedData,
         };
@@ -1037,6 +1086,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           period: GqlReportPeriodInput;
           reportType?: GqlReportType;
           normalization?: GqlNormalization;
+          currency?: Currency;
+          inflation_adjusted?: boolean;
+          show_period_growth?: boolean;
           main_creditor_cui?: string;
         },
         context: MercuriusContext
@@ -1060,14 +1112,21 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
+        const request = resolveNormalizationRequest({
+          normalization: args.normalization ?? null,
+          currency: args.currency ?? null,
+          inflationAdjusted: args.inflation_adjusted ?? null,
+          showPeriodGrowth: args.show_period_growth ?? null,
+        });
+
         let population: number | null = null;
-        if (args.normalization === 'per_capita' || args.normalization === 'per_capita_euro') {
+        if (request.normalization === 'per_capita') {
           population = await getEntityPopulation(parent, uatRepo);
         }
 
         const normalizedData = await applyNormalizationToSeries(
           result.value.data,
-          args.normalization,
+          request,
           period,
           population,
           normalizationService
@@ -1081,9 +1140,9 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
             unit: '',
           },
           yAxis: {
-            name: 'Amount',
+            name: getYAxisNameForNormalization(request),
             type: 'FLOAT',
-            unit: getUnitForNormalization(args.normalization),
+            unit: getUnitForNormalization(request),
           },
           data: normalizedData,
         };

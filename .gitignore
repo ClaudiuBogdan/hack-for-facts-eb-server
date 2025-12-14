@@ -122,3 +122,5 @@ old_code_repositories/
 # Secret YAML files - never commit
 *.secret.yaml
 **/*.secret.yaml
+
+.scannerwork/

@@ -223,7 +223,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: false,
         currency: 'EUR',
-        perCapita: false,
+        normalization: 'total',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -234,6 +234,31 @@ describe('getCountyHeatmapData', () => {
       expect(result.isOk()).toBe(true);
       const data = result._unsafeUnwrap();
       // 500 RON / 5 = 100 EUR
+      expect(data[0]!.total_amount).toBe(100);
+    });
+
+    it('should convert amounts to USD', async () => {
+      const dataPoints = [createDataPoint('CJ', 2023, 450, 100000)];
+
+      const deps = {
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(),
+      };
+
+      const options: CountyHeatmapTransformationOptions = {
+        inflationAdjusted: false,
+        currency: 'USD',
+        normalization: 'total',
+      };
+
+      const result = await getCountyHeatmapData(deps, {
+        filter: createBaseFilter(),
+        options,
+      });
+
+      expect(result.isOk()).toBe(true);
+      const data = result._unsafeUnwrap();
+      // 450 RON / 4.5 = 100 USD
       expect(data[0]!.total_amount).toBe(100);
     });
 
@@ -255,7 +280,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: false,
         currency: 'EUR',
-        perCapita: false,
+        normalization: 'total',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -291,7 +316,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: true,
         currency: 'RON',
-        perCapita: false,
+        normalization: 'total',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -320,7 +345,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: true,
         currency: 'EUR',
-        perCapita: false,
+        normalization: 'total',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -347,7 +372,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: false,
         currency: 'RON',
-        perCapita: true,
+        normalization: 'per_capita',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -374,7 +399,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: false,
         currency: 'RON',
-        perCapita: true,
+        normalization: 'per_capita',
       };
 
       const result = await getCountyHeatmapData(deps, {
@@ -386,6 +411,38 @@ describe('getCountyHeatmapData', () => {
       const data = result._unsafeUnwrap();
       expect(data[0]!.amount).toBe(0);
       expect(data[0]!.per_capita_amount).toBe(0);
+    });
+  });
+
+  describe('Percent GDP Normalization', () => {
+    it('should compute amount as percent of GDP', async () => {
+      const dataPoints = [createDataPoint('CJ', 2023, 500, 100000)];
+
+      const factors = createIdentityFactors();
+      factors.gdp.set('2023', new Decimal(1_000_000));
+
+      const deps = {
+        repo: createFakeRepo(dataPoints),
+        normalizationService: createFakeNormalizationService(factors),
+      };
+
+      const options: CountyHeatmapTransformationOptions = {
+        inflationAdjusted: true,
+        currency: 'EUR',
+        normalization: 'percent_gdp',
+      };
+
+      const result = await getCountyHeatmapData(deps, {
+        filter: createBaseFilter(),
+        options,
+      });
+
+      expect(result.isOk()).toBe(true);
+      const data = result._unsafeUnwrap();
+      // (500 / 1,000,000) * 100 = 0.05 (% of GDP)
+      expect(data[0]!.amount).toBe(0.05);
+      // percent_gdp ignores currency/inflation for totals
+      expect(data[0]!.total_amount).toBe(500);
     });
   });
 
@@ -410,7 +467,7 @@ describe('getCountyHeatmapData', () => {
       const options: CountyHeatmapTransformationOptions = {
         inflationAdjusted: true,
         currency: 'EUR',
-        perCapita: true,
+        normalization: 'per_capita',
       };
 
       const result = await getCountyHeatmapData(deps, {

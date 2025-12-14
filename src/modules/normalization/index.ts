@@ -18,6 +18,17 @@ export type {
 } from './core/types.js';
 export { toLegacyDataPoint, fromLegacyDataPoint } from './core/types.js';
 
+// GraphQL / API helpers
+export type {
+  GqlNormalization,
+  NormalizationRequestInput,
+  ResolvedNormalizationRequest,
+} from './core/normalization-request.js';
+export { resolveNormalizationRequest } from './core/normalization-request.js';
+
+// CPI helpers
+export { computeCpiAdjustmentFactorMap } from './core/cpi-adjustment-factors.js';
+
 // Dataset Registry
 export type {
   NormalizationDimension,
