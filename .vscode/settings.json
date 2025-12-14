@@ -15,5 +15,9 @@
     "ordonator",
     "principal",
     "secundar"
-  ]
+  ],
+  "sonarlint.connectedMode.project": {
+    "connectionId": "https-sonar-devostack-com-",
+    "projectKey": "ClaudiuBogdan_hack-for-facts-eb-server_98cde10e-04c0-45d9-b3ea-4fc9192f72f3"
+  }
 }

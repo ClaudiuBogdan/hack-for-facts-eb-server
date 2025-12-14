@@ -120,6 +120,17 @@ describe('Factor Maps', () => {
       expect(result.get('2024')?.toNumber()).toBe(1.1);
       expect(result.get('2025')?.toNumber()).toBe(1.1); // previous value
     });
+
+    it('should carry forward from latest year before range', () => {
+      const datasets: FactorDatasets = {
+        yearly: new Map([['2024', new Decimal('1.1')]]),
+      };
+
+      const result = generateFactorMap(Frequency.YEAR, 2025, 2025, datasets);
+
+      expect(result.size).toBe(1);
+      expect(result.get('2025')?.toNumber()).toBe(1.1); // carry-forward from 2024
+    });
   });
 
   describe('generateFactorMap - Monthly Frequency with Fallback', () => {
@@ -346,15 +357,16 @@ describe('Factor Maps', () => {
   });
 
   describe('generateFactorMap - Edge Cases', () => {
-    it('should return empty map when no data available for range', () => {
+    it('should carry forward last known value when range is after dataset', () => {
       const datasets: FactorDatasets = {
         yearly: new Map([['2020', new Decimal('1.1')]]),
       };
 
       const result = generateFactorMap(Frequency.YEAR, 2023, 2024, datasets);
 
-      // No data for 2023-2024 and no previous value to carry forward
-      expect(result.size).toBe(0);
+      expect(result.size).toBe(2);
+      expect(result.get('2023')?.toNumber()).toBe(1.1);
+      expect(result.get('2024')?.toNumber()).toBe(1.1);
     });
 
     it('should handle single year with gaps in monthly data', () => {

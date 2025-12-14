@@ -73,7 +73,7 @@ if (normalization == 'per_capita'):
 #### Path B: Percent GDP (Exclusive)
 
 ```
-multiplier = 100 ÷ (gdp × 1,000,000)
+multiplier = 100 ÷ gdp
 ```
 
 **Note**: Percent GDP mode ignores inflation adjustment and currency conversion.
@@ -398,8 +398,8 @@ function computeCombinedFactorMap(
       if (gdp === undefined || gdp.isZero()) {
         multiplier = new Decimal(0);
       } else {
-        // GDP is in millions, result is percentage (0-100)
-        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+        // GDP dataset is in RON; result is percentage (0-100)
+        multiplier = new Decimal(100).div(gdp);
       }
     } else {
       // Path A: Standard normalization (composable)

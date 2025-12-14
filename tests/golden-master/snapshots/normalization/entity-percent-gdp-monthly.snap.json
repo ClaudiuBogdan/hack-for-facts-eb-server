@@ -1,0 +1,189 @@
+{
+  "entityAnalytics": {
+    "nodes": [
+      {
+        "amount": 4.89,
+        "county_code": "B",
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 4.89
+      },
+      {
+        "amount": 1.61,
+        "county_code": "B",
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "entity_type": "finance_health_fund",
+        "per_capita_amount": 0,
+        "total_amount": 1.61
+      },
+      {
+        "amount": 1.53,
+        "county_code": "B",
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 1.53
+      },
+      {
+        "amount": 1.26,
+        "county_code": "B",
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 1.26
+      },
+      {
+        "amount": 0.87,
+        "county_code": "B",
+        "entity_cui": "4266456",
+        "entity_name": "MINISTERUL SANATATII",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.87
+      },
+      {
+        "amount": 0.83,
+        "county_code": "B",
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.83
+      },
+      {
+        "amount": 0.73,
+        "county_code": "B",
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.73
+      },
+      {
+        "amount": 0.58,
+        "county_code": "B",
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.58
+      },
+      {
+        "amount": 0.58,
+        "county_code": "B",
+        "entity_cui": "13633330",
+        "entity_name": "MINISTERUL TRANSPORTURILOR SI INFRASTRUCTURII",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.58
+      },
+      {
+        "amount": 0.46,
+        "county_code": "B",
+        "entity_cui": "38918422",
+        "entity_name": "MINISTERUL INVESTITIILOR SI PROIECTELOR EUROPENE",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.46
+      },
+      {
+        "amount": 0.33,
+        "county_code": "B",
+        "entity_cui": "26369185",
+        "entity_name": "MINISTERUL DEZVOLTARII LUCRARILOR PUBLICE  SI ADMINISTRATIEI",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.33
+      },
+      {
+        "amount": 0.32,
+        "county_code": "B",
+        "entity_cui": "4267117",
+        "entity_name": "MUNICIPIUL BUCURESTI",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 0,
+        "total_amount": 0.32
+      },
+      {
+        "amount": 0.2,
+        "county_code": "B",
+        "entity_cui": "43507695",
+        "entity_name": "MINISTERUL ENERGIEI",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.2
+      },
+      {
+        "amount": 0.18,
+        "county_code": "B",
+        "entity_cui": "4221306",
+        "entity_name": "MINISTERUL FINANTELOR",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.18
+      },
+      {
+        "amount": 0.15,
+        "county_code": "B",
+        "entity_cui": "4265841",
+        "entity_name": "MINISTERUL JUSTITIEI",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.15
+      },
+      {
+        "amount": 0.14,
+        "county_code": "B",
+        "entity_cui": "16335444",
+        "entity_name": "MINISTERUL MEDIULUI APELOR SI PADURILOR",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.14
+      },
+      {
+        "amount": 0.12,
+        "county_code": "B",
+        "entity_cui": "4204291",
+        "entity_name": "SERVICIUL ROMAN DE INFORMATII",
+        "entity_type": "uncategorized",
+        "per_capita_amount": 0,
+        "total_amount": 0.12
+      },
+      {
+        "amount": 0.09,
+        "county_code": "B",
+        "entity_cui": "4283422",
+        "entity_name": "SECRETARIATUL GENERAL AL GUVERNULUI",
+        "entity_type": "uncategorized",
+        "per_capita_amount": 0,
+        "total_amount": 0.09
+      },
+      {
+        "amount": 0.09,
+        "county_code": "TM",
+        "entity_cui": "14756536",
+        "entity_name": "MUNICIPIUL TIMISOARA",
+        "entity_type": "admin_municipality",
+        "per_capita_amount": 0,
+        "total_amount": 0.09
+      },
+      {
+        "amount": 0.08,
+        "county_code": "B",
+        "entity_cui": "43516588",
+        "entity_name": "MINISTERUL CERCETARII INOVARII SI DIGITALIZARII",
+        "entity_type": "admin_ministry",
+        "per_capita_amount": 0,
+        "total_amount": 0.08
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 3295
+    }
+  }
+}

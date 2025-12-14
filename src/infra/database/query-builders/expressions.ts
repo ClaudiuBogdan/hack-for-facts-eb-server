@@ -14,6 +14,8 @@
 
 import { sql, type RawBuilder } from 'kysely';
 
+import { Frequency } from '@/common/types/temporal.js';
+
 import { TableNames, type TableName, type TableAlias } from './identifiers.js';
 
 // ============================================================================
@@ -108,9 +110,35 @@ export const CommonJoins = {
   /**
    * INNER JOIN factors f ON eli.year::text = f.period_key
    * Used with normalization factor CTEs.
+   * @deprecated Use factorsOnPeriod(frequency) instead for correct quarterly/monthly support.
    */
   factorsOnYear: (): RawBuilder<unknown> =>
     sql.raw('INNER JOIN factors f ON eli.year::text = f.period_key'),
+
+  /**
+   * INNER JOIN factors f ON <period_key_expr> = f.period_key
+   * Frequency-aware join for normalization factor CTEs.
+   *
+   * Generates the correct period key based on frequency:
+   * - YEAR: eli.year::text → "2023"
+   * - QUARTER: eli.year::text || '-Q' || eli.quarter::text → "2023-Q1"
+   * - MONTH: eli.year::text || '-' || LPAD(eli.month::text, 2, '0') → "2023-01"
+   */
+  factorsOnPeriod: (frequency: Frequency): RawBuilder<unknown> => {
+    switch (frequency) {
+      case Frequency.MONTH:
+        return sql.raw(
+          "INNER JOIN factors f ON (eli.year::text || '-' || LPAD(eli.month::text, 2, '0')) = f.period_key"
+        );
+      case Frequency.QUARTER:
+        return sql.raw(
+          "INNER JOIN factors f ON (eli.year::text || '-Q' || eli.quarter::text) = f.period_key"
+        );
+      case Frequency.YEAR:
+      default:
+        return sql.raw('INNER JOIN factors f ON eli.year::text = f.period_key');
+    }
+  },
 
   /**
    * LEFT JOIN county_populations cp ON u.county_code = cp.county_code

@@ -38,7 +38,12 @@ export interface MakeUATAnalyticsResolversDeps {
 /**
  * GraphQL normalization mode (includes legacy euro modes for backwards compatibility).
  */
-type GqlHeatmapNormalization = 'total' | 'per_capita' | 'total_euro' | 'per_capita_euro';
+type GqlHeatmapNormalization =
+  | 'total'
+  | 'per_capita'
+  | 'percent_gdp'
+  | 'total_euro'
+  | 'per_capita_euro';
 
 /**
  * GraphQL filter input type (uses PeriodType enum with MONTH/QUARTER/YEAR).
@@ -48,7 +53,7 @@ interface GqlAnalyticsFilterInput extends Omit<AnalyticsFilter, 'report_period'>
   report_period: GqlReportPeriodInput;
   // Backwards compatibility: some clients send normalization inside filter
   normalization?: GqlHeatmapNormalization | null;
-  currency?: 'RON' | 'EUR' | null;
+  currency?: 'RON' | 'EUR' | 'USD' | null;
   inflation_adjusted?: boolean | null;
 }
 
@@ -65,7 +70,7 @@ interface GqlHeatmapUATDataPoint extends Omit<NormalizedHeatmapDataPoint, 'uat_i
 interface HeatmapUATDataArgs {
   filter: GqlAnalyticsFilterInput;
   normalization?: GqlHeatmapNormalization | null;
-  currency?: 'RON' | 'EUR' | null;
+  currency?: 'RON' | 'EUR' | 'USD' | null;
   inflation_adjusted?: boolean | null;
 }
 
@@ -115,6 +120,14 @@ const toTransformationOptions = (args: HeatmapUATDataArgs): HeatmapTransformatio
   const currency = args.currency ?? args.filter.currency;
   const inflationAdjusted = args.inflation_adjusted ?? args.filter.inflation_adjusted ?? false;
 
+  if (normalization === 'percent_gdp') {
+    return {
+      inflationAdjusted: false,
+      currency: 'RON',
+      normalization: 'percent_gdp',
+    };
+  }
+
   // Handle legacy euro modes
   const isLegacyEuroMode = normalization === 'total_euro' || normalization === 'per_capita_euro';
   const isPerCapita = normalization === 'per_capita' || normalization === 'per_capita_euro';
@@ -123,7 +136,7 @@ const toTransformationOptions = (args: HeatmapUATDataArgs): HeatmapTransformatio
     inflationAdjusted,
     // Legacy euro modes override the currency parameter
     currency: isLegacyEuroMode ? 'EUR' : ((currency ?? 'RON') as HeatmapCurrency),
-    perCapita: isPerCapita,
+    normalization: isPerCapita ? 'per_capita' : 'total',
   };
 };
 

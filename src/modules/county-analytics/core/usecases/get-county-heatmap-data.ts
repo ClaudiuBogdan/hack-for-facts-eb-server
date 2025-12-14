@@ -51,7 +51,7 @@ export interface GetCountyHeatmapDataInput {
 const DEFAULT_OPTIONS: CountyHeatmapTransformationOptions = {
   inflationAdjusted: false,
   currency: 'RON',
-  perCapita: false,
+  normalization: 'total',
 };
 
 /**
@@ -63,6 +63,7 @@ interface AggregatedCountyData {
   county_population: number;
   county_entity_cui: string | null;
   total_amount: Decimal;
+  gdp_total: Decimal | null;
 }
 
 /**
@@ -99,34 +100,52 @@ function normalizeAndAggregate(
     const periodLabel = String(point.year);
     let amount = point.total_amount;
 
-    // Step 1: Apply inflation adjustment (if enabled)
-    if (options.inflationAdjusted) {
-      const cpi = factors.cpi.get(periodLabel);
-      if (cpi !== undefined && !cpi.isZero()) {
-        amount = amount.mul(cpi);
+    if (options.normalization !== 'percent_gdp') {
+      // Step 1: Apply inflation adjustment (if enabled)
+      if (options.inflationAdjusted) {
+        const cpi = factors.cpi.get(periodLabel);
+        if (cpi !== undefined && !cpi.isZero()) {
+          amount = amount.mul(cpi);
+        }
+      }
+
+      // Step 2: Apply currency conversion (if EUR or USD)
+      if (options.currency === 'EUR') {
+        const rate = factors.eur.get(periodLabel);
+        if (rate !== undefined && !rate.isZero()) {
+          amount = amount.div(rate);
+        }
+      }
+
+      if (options.currency === 'USD') {
+        const rate = factors.usd.get(periodLabel);
+        if (rate !== undefined && !rate.isZero()) {
+          amount = amount.div(rate);
+        }
       }
     }
 
-    // Step 2: Apply currency conversion (if EUR)
-    if (options.currency === 'EUR') {
-      const rate = factors.eur.get(periodLabel);
-      if (rate !== undefined && !rate.isZero()) {
-        amount = amount.div(rate);
-      }
-    }
+    const gdp =
+      options.normalization === 'percent_gdp'
+        ? (factors.gdp.get(periodLabel) ?? new Decimal(0))
+        : null;
 
     // Step 3: Aggregate by county
     const existing = countyMap.get(point.county_code);
-    if (existing !== undefined) {
-      existing.total_amount = existing.total_amount.plus(amount);
-    } else {
+    if (existing === undefined) {
       countyMap.set(point.county_code, {
         county_code: point.county_code,
         county_name: point.county_name,
         county_population: point.county_population,
         county_entity_cui: point.county_entity_cui,
         total_amount: amount,
+        gdp_total: gdp,
       });
+    } else {
+      existing.total_amount = existing.total_amount.plus(amount);
+      if (existing.gdp_total !== null && gdp !== null) {
+        existing.gdp_total = existing.gdp_total.plus(gdp);
+      }
     }
   }
 
@@ -141,7 +160,7 @@ function normalizeAndAggregate(
  */
 function toNormalizedOutput(
   aggregatedData: AggregatedCountyData[],
-  perCapita: boolean
+  normalization: CountyHeatmapTransformationOptions['normalization']
 ): NormalizedCountyHeatmapDataPoint[] {
   return aggregatedData.map((item) => {
     const totalAmount = item.total_amount;
@@ -150,8 +169,20 @@ function toNormalizedOutput(
     // Use Decimal for per-capita division to maintain precision
     const perCapitaAmount = population > 0 ? totalAmount.div(population) : new Decimal(0);
 
+    const percentGdpAmount =
+      item.gdp_total !== null && !item.gdp_total.isZero()
+        ? totalAmount.div(item.gdp_total).mul(100)
+        : new Decimal(0);
+
     // Primary amount based on mode
-    const amount = perCapita ? perCapitaAmount : totalAmount;
+    let amount: Decimal;
+    if (normalization === 'per_capita') {
+      amount = perCapitaAmount;
+    } else if (normalization === 'percent_gdp') {
+      amount = percentGdpAmount;
+    } else {
+      amount = totalAmount;
+    }
 
     return {
       county_code: item.county_code,
@@ -217,7 +248,7 @@ export async function getCountyHeatmapData(
   const aggregatedData = normalizeAndAggregate(dataPoints, options, factors);
 
   // Apply per-capita (using county population) and convert to output format
-  const normalizedData = toNormalizedOutput(aggregatedData, options.perCapita);
+  const normalizedData = toNormalizedOutput(aggregatedData, options.normalization);
 
   return ok(normalizedData);
 }

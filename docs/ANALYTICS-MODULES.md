@@ -235,7 +235,7 @@ Standard path:
   multiplier = cpi_factor / exchange_rate / population
 
 Percent GDP path (exclusive):
-  multiplier = 100 / (gdp × 1,000,000)
+  multiplier = 100 / gdp
 ```
 
 See [SQL-LEVEL-NORMALIZATION-SPEC.md](./SQL-LEVEL-NORMALIZATION-SPEC.md) for details.

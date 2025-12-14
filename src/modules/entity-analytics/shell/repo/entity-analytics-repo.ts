@@ -223,6 +223,9 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
     const perCapitaExprRaw = perCapitaExpr(columnRef('fa', 'normalized_amount'), populationExprRaw);
     const orderByRaw = entityAnalyticsOrderBy(sort.by, sort.order);
 
+    // Build frequency-aware factor join
+    const factorJoinClause = CommonJoins.factorsOnPeriod(frequency);
+
     // Build the full query with CTEs
     return sql`
       WITH
@@ -248,7 +251,7 @@ export class KyselyEntityAnalyticsRepo implements EntityAnalyticsRepository {
           eli.entity_cui,
           ${sumExpr} AS normalized_amount
         FROM executionlineitems eli
-        INNER JOIN factors f ON eli.year::text = f.period_key
+        ${factorJoinClause}
         ${entityJoinClause}
         ${uatJoinClause}
         WHERE ${whereCondition}

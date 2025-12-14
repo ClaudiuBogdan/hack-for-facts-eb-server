@@ -414,6 +414,175 @@ describe('getEntityAnalytics', () => {
     });
   });
 
+  describe('GDP Normalization with Non-Yearly Periods', () => {
+    it('should correctly normalize percent_gdp with quarterly periods', async () => {
+      // Regression test: GDP normalization was returning 0 for quarterly/monthly periods
+      // because periodLabels were generated without frequency, defaulting to yearly labels
+      const rows = [
+        createRow('CUI001', 'Entity A', 1000000, 50000),
+        createRow('CUI002', 'Entity B', 2000000, 100000),
+      ];
+
+      // Create normalization provider with quarterly GDP factors
+      const quarterlyNormalization: NormalizationFactorProvider = {
+        generateFactors: async (frequency) => {
+          // Ensure we're called with the correct frequency
+          expect(frequency).toBe(Frequency.QUARTER);
+
+          return {
+            cpi: new Map([
+              ['2023-Q1', new Decimal(1)],
+              ['2023-Q2', new Decimal(1)],
+              ['2023-Q3', new Decimal(1)],
+              ['2023-Q4', new Decimal(1)],
+            ]),
+            eur: new Map([
+              ['2023-Q1', new Decimal(1)],
+              ['2023-Q2', new Decimal(1)],
+              ['2023-Q3', new Decimal(1)],
+              ['2023-Q4', new Decimal(1)],
+            ]),
+            usd: new Map([
+              ['2023-Q1', new Decimal(1)],
+              ['2023-Q2', new Decimal(1)],
+              ['2023-Q3', new Decimal(1)],
+              ['2023-Q4', new Decimal(1)],
+            ]),
+            gdp: new Map([
+              ['2023-Q1', new Decimal(100000000)], // 100M GDP
+              ['2023-Q2', new Decimal(100000000)],
+              ['2023-Q3', new Decimal(100000000)],
+              ['2023-Q4', new Decimal(100000000)],
+            ]),
+            population: new Map([
+              ['2023-Q1', new Decimal(19000000)],
+              ['2023-Q2', new Decimal(19000000)],
+              ['2023-Q3', new Decimal(19000000)],
+              ['2023-Q4', new Decimal(19000000)],
+            ]),
+          };
+        },
+      };
+
+      // Capture the factorMap passed to the repo
+      let capturedFactorMap: Map<string, Decimal> | undefined;
+      const repoWithCapture: EntityAnalyticsRepository = {
+        getEntityAnalytics: async (_filter, factorMap) => {
+          capturedFactorMap = factorMap;
+          return ok({ items: rows, totalCount: 2 });
+        },
+      };
+
+      const deps: GetEntityAnalyticsDeps = {
+        repo: repoWithCapture,
+        normalization: quarterlyNormalization,
+      };
+
+      const result = await getEntityAnalytics(deps, {
+        filter: createFilter({
+          report_period: {
+            type: Frequency.QUARTER,
+            selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+          },
+          normalization: 'percent_gdp',
+        }),
+      });
+
+      expect(result.isOk()).toBe(true);
+
+      // Verify the factorMap has quarterly keys (not yearly)
+      expect(capturedFactorMap).toBeDefined();
+      expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+      expect(capturedFactorMap?.has('2023-Q2')).toBe(true);
+      expect(capturedFactorMap?.has('2023-Q3')).toBe(true);
+      expect(capturedFactorMap?.has('2023-Q4')).toBe(true);
+
+      // Should NOT have yearly keys
+      expect(capturedFactorMap?.has('2023')).toBe(false);
+
+      // Verify the multiplier is non-zero (100 / 100M = 1e-6)
+      const q1Factor = capturedFactorMap?.get('2023-Q1');
+      expect(q1Factor).toBeDefined();
+      expect(q1Factor?.isZero()).toBe(false);
+      expect(q1Factor?.toNumber()).toBeCloseTo(0.000001, 9); // 100 / 100M
+    });
+
+    it('should correctly normalize percent_gdp with monthly periods', async () => {
+      const rows = [createRow('CUI001', 'Entity A', 500000, 25000)];
+
+      // Create normalization provider with monthly GDP factors
+      const monthlyNormalization: NormalizationFactorProvider = {
+        generateFactors: async (frequency) => {
+          expect(frequency).toBe(Frequency.MONTH);
+
+          const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+          const gdpMap = new Map<string, Decimal>();
+          const cpiMap = new Map<string, Decimal>();
+          const eurMap = new Map<string, Decimal>();
+          const usdMap = new Map<string, Decimal>();
+          const popMap = new Map<string, Decimal>();
+
+          for (const month of months) {
+            const label = `2023-${month}`;
+            gdpMap.set(label, new Decimal(50000000)); // 50M GDP
+            cpiMap.set(label, new Decimal(1));
+            eurMap.set(label, new Decimal(1));
+            usdMap.set(label, new Decimal(1));
+            popMap.set(label, new Decimal(19000000));
+          }
+
+          return {
+            cpi: cpiMap,
+            eur: eurMap,
+            usd: usdMap,
+            gdp: gdpMap,
+            population: popMap,
+          };
+        },
+      };
+
+      let capturedFactorMap: Map<string, Decimal> | undefined;
+      const repoWithCapture: EntityAnalyticsRepository = {
+        getEntityAnalytics: async (_filter, factorMap) => {
+          capturedFactorMap = factorMap;
+          return ok({ items: rows, totalCount: 1 });
+        },
+      };
+
+      const deps: GetEntityAnalyticsDeps = {
+        repo: repoWithCapture,
+        normalization: monthlyNormalization,
+      };
+
+      const result = await getEntityAnalytics(deps, {
+        filter: createFilter({
+          report_period: {
+            type: Frequency.MONTH,
+            selection: { interval: { start: '2023-01', end: '2023-12' } },
+          },
+          normalization: 'percent_gdp',
+        }),
+      });
+
+      expect(result.isOk()).toBe(true);
+
+      // Verify the factorMap has monthly keys
+      expect(capturedFactorMap).toBeDefined();
+      expect(capturedFactorMap?.has('2023-01')).toBe(true);
+      expect(capturedFactorMap?.has('2023-06')).toBe(true);
+      expect(capturedFactorMap?.has('2023-12')).toBe(true);
+
+      // Should NOT have yearly keys
+      expect(capturedFactorMap?.has('2023')).toBe(false);
+
+      // Verify the multiplier is non-zero
+      const janFactor = capturedFactorMap?.get('2023-01');
+      expect(janFactor).toBeDefined();
+      expect(janFactor?.isZero()).toBe(false);
+      expect(janFactor?.toNumber()).toBeCloseTo(0.000002, 9); // 100 / 50M
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should handle entities with zero population', async () => {
       const rows = [
@@ -483,6 +652,465 @@ describe('getEntityAnalytics', () => {
         expect(result.value.nodes[0]?.uat_id).toBe('12345');
         expect(typeof result.value.nodes[0]?.uat_id).toBe('string');
       }
+    });
+  });
+
+  describe('Normalization - Full Combination Matrix', () => {
+    /**
+     * Helper to create a normalization provider for quarterly periods.
+     */
+    function createQuarterlyNormalization(
+      overrides: Partial<{
+        cpi: Map<string, Decimal>;
+        eur: Map<string, Decimal>;
+        usd: Map<string, Decimal>;
+        gdp: Map<string, Decimal>;
+        population: Map<string, Decimal>;
+      }> = {}
+    ): NormalizationFactorProvider {
+      const quarters = ['2023-Q1', '2023-Q2', '2023-Q3', '2023-Q4'];
+      const defaultCpi = new Map(quarters.map((q) => [q, new Decimal(1.1)]));
+      const defaultEur = new Map(quarters.map((q) => [q, new Decimal(5)]));
+      const defaultUsd = new Map(quarters.map((q) => [q, new Decimal(4.5)]));
+      const defaultGdp = new Map(quarters.map((q) => [q, new Decimal(100_000_000_000)]));
+      const defaultPop = new Map(quarters.map((q) => [q, new Decimal(19_000_000)]));
+
+      return {
+        generateFactors: async (frequency) => {
+          expect(frequency).toBe(Frequency.QUARTER);
+          return {
+            cpi: overrides.cpi ?? defaultCpi,
+            eur: overrides.eur ?? defaultEur,
+            usd: overrides.usd ?? defaultUsd,
+            gdp: overrides.gdp ?? defaultGdp,
+            population: overrides.population ?? defaultPop,
+          };
+        },
+      };
+    }
+
+    /**
+     * Helper to create a normalization provider for monthly periods.
+     */
+    function createMonthlyNormalization(
+      overrides: Partial<{
+        cpi: Map<string, Decimal>;
+        eur: Map<string, Decimal>;
+        usd: Map<string, Decimal>;
+        gdp: Map<string, Decimal>;
+        population: Map<string, Decimal>;
+      }> = {}
+    ): NormalizationFactorProvider {
+      const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+      const labels = months.map((m) => `2023-${m}`);
+      const defaultCpi = new Map(labels.map((l) => [l, new Decimal(1.1)]));
+      const defaultEur = new Map(labels.map((l) => [l, new Decimal(5)]));
+      const defaultUsd = new Map(labels.map((l) => [l, new Decimal(4.5)]));
+      const defaultGdp = new Map(labels.map((l) => [l, new Decimal(50_000_000_000)]));
+      const defaultPop = new Map(labels.map((l) => [l, new Decimal(19_000_000)]));
+
+      return {
+        generateFactors: async (frequency) => {
+          expect(frequency).toBe(Frequency.MONTH);
+          return {
+            cpi: overrides.cpi ?? defaultCpi,
+            eur: overrides.eur ?? defaultEur,
+            usd: overrides.usd ?? defaultUsd,
+            gdp: overrides.gdp ?? defaultGdp,
+            population: overrides.population ?? defaultPop,
+          };
+        },
+      };
+    }
+
+    /**
+     * Helper to create a repo that captures the factor map.
+     */
+    function createCapturingRepo(
+      onCapture: (factorMap: Map<string, Decimal>) => void,
+      rows: EntityAnalyticsRow[] = []
+    ): EntityAnalyticsRepository {
+      const defaultRows = [createRow('CUI001', 'Entity A', 1000000, 50000)];
+      return {
+        getEntityAnalytics: async (_filter, factorMap) => {
+          onCapture(factorMap);
+          return ok({
+            items: rows.length > 0 ? rows : defaultRows,
+            totalCount: rows.length > 0 ? rows.length : 1,
+          });
+        },
+      };
+    }
+
+    describe('per_capita with quarterly periods', () => {
+      it('should generate quarterly factor keys for per_capita + RON', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'per_capita',
+            currency: 'RON',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+        expect(capturedFactorMap?.has('2023-Q4')).toBe(true);
+        expect(capturedFactorMap?.has('2023')).toBe(false);
+      });
+
+      it('should generate quarterly factor keys for per_capita + EUR + inflation', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'per_capita',
+            currency: 'EUR',
+            inflation_adjusted: true,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+        expect(capturedFactorMap?.size).toBe(4);
+      });
+
+      it('should generate quarterly factor keys for per_capita + USD', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'per_capita',
+            currency: 'USD',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+      });
+    });
+
+    describe('per_capita with monthly periods', () => {
+      it('should generate monthly factor keys for per_capita + RON', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createMonthlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.MONTH,
+              selection: { interval: { start: '2023-01', end: '2023-12' } },
+            },
+            normalization: 'per_capita',
+            currency: 'RON',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-01')).toBe(true);
+        expect(capturedFactorMap?.has('2023-06')).toBe(true);
+        expect(capturedFactorMap?.has('2023-12')).toBe(true);
+        expect(capturedFactorMap?.has('2023')).toBe(false);
+        expect(capturedFactorMap?.size).toBe(12);
+      });
+
+      it('should generate monthly factor keys for per_capita + EUR + inflation', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createMonthlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.MONTH,
+              selection: { interval: { start: '2023-01', end: '2023-12' } },
+            },
+            normalization: 'per_capita',
+            currency: 'EUR',
+            inflation_adjusted: true,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-01')).toBe(true);
+        expect(capturedFactorMap?.size).toBe(12);
+      });
+    });
+
+    describe('total with USD and non-yearly periods', () => {
+      it('should generate quarterly factor keys for total + USD', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'total',
+            currency: 'USD',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+        expect(capturedFactorMap?.size).toBe(4);
+      });
+
+      it('should generate quarterly factor keys for total + USD + inflation', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'total',
+            currency: 'USD',
+            inflation_adjusted: true,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+      });
+
+      it('should generate monthly factor keys for total + USD', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createMonthlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.MONTH,
+              selection: { interval: { start: '2023-01', end: '2023-12' } },
+            },
+            normalization: 'total',
+            currency: 'USD',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-01')).toBe(true);
+        expect(capturedFactorMap?.has('2023-12')).toBe(true);
+        expect(capturedFactorMap?.size).toBe(12);
+      });
+    });
+
+    describe('total with EUR and non-yearly periods', () => {
+      it('should generate quarterly factor keys for total + EUR + inflation', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'total',
+            currency: 'EUR',
+            inflation_adjusted: true,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-Q1')).toBe(true);
+      });
+
+      it('should generate monthly factor keys for total + EUR', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createMonthlyNormalization(),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.MONTH,
+              selection: { interval: { start: '2023-01', end: '2023-12' } },
+            },
+            normalization: 'total',
+            currency: 'EUR',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+        expect(capturedFactorMap?.has('2023-01')).toBe(true);
+        expect(capturedFactorMap?.size).toBe(12);
+      });
+    });
+
+    describe('Varying factors across periods', () => {
+      it('should apply different quarterly factors correctly', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        // Create varying EUR rates per quarter
+        const varyingEurRates = new Map([
+          ['2023-Q1', new Decimal(4.8)],
+          ['2023-Q2', new Decimal(4.9)],
+          ['2023-Q3', new Decimal(5.0)],
+          ['2023-Q4', new Decimal(5.1)],
+        ]);
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createQuarterlyNormalization({ eur: varyingEurRates }),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.QUARTER,
+              selection: { interval: { start: '2023-Q1', end: '2023-Q4' } },
+            },
+            normalization: 'total',
+            currency: 'EUR',
+            inflation_adjusted: false,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+
+        // Each quarter should have its own factor
+        expect(capturedFactorMap?.get('2023-Q1')?.toNumber()).toBeCloseTo(1 / 4.8, 10);
+        expect(capturedFactorMap?.get('2023-Q2')?.toNumber()).toBeCloseTo(1 / 4.9, 10);
+        expect(capturedFactorMap?.get('2023-Q3')?.toNumber()).toBeCloseTo(1 / 5.0, 10);
+        expect(capturedFactorMap?.get('2023-Q4')?.toNumber()).toBeCloseTo(1 / 5.1, 10);
+      });
+
+      it('should apply different monthly CPI factors with inflation', async () => {
+        let capturedFactorMap: Map<string, Decimal> | undefined;
+
+        // Create varying CPI rates per month (declining inflation)
+        const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+        const varyingCpi = new Map(
+          months.map((m, i) => [`2023-${m}`, new Decimal(1.12 - i * 0.01)])
+        );
+
+        const deps: GetEntityAnalyticsDeps = {
+          repo: createCapturingRepo((fm) => {
+            capturedFactorMap = fm;
+          }),
+          normalization: createMonthlyNormalization({ cpi: varyingCpi }),
+        };
+
+        const result = await getEntityAnalytics(deps, {
+          filter: createFilter({
+            report_period: {
+              type: Frequency.MONTH,
+              selection: { interval: { start: '2023-01', end: '2023-12' } },
+            },
+            normalization: 'total',
+            currency: 'RON',
+            inflation_adjusted: true,
+          }),
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(capturedFactorMap).toBeDefined();
+
+        // January: CPI = 1.12
+        expect(capturedFactorMap?.get('2023-01')?.toNumber()).toBeCloseTo(1.12, 10);
+        // June: CPI = 1.07 (1.12 - 5*0.01)
+        expect(capturedFactorMap?.get('2023-06')?.toNumber()).toBeCloseTo(1.07, 10);
+        // December: CPI = 1.01 (1.12 - 11*0.01)
+        expect(capturedFactorMap?.get('2023-12')?.toNumber()).toBeCloseTo(1.01, 10);
+      });
     });
   });
 });

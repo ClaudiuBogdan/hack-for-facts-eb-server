@@ -1,0 +1,660 @@
+{
+  "heatmapUATData": [
+    {
+      "amount": 1173.16,
+      "county_code": "CJ",
+      "per_capita_amount": 1173.16,
+      "total_amount": 336225684.1,
+      "uat_id": "914",
+      "uat_name": "MUNICIPIUL CLUJ-NAPOCA"
+    },
+    {
+      "amount": 1609.94,
+      "county_code": "CJ",
+      "per_capita_amount": 1609.94,
+      "total_amount": 33148744.7,
+      "uat_id": "915",
+      "uat_name": "MUNICIPIUL CÂMPIA TURZII"
+    },
+    {
+      "amount": 1771.09,
+      "county_code": "CJ",
+      "per_capita_amount": 1771.09,
+      "total_amount": 55745183.73,
+      "uat_id": "916",
+      "uat_name": "MUNICIPIUL DEJ"
+    },
+    {
+      "amount": 1101.55,
+      "county_code": "CJ",
+      "per_capita_amount": 1101.55,
+      "total_amount": 21891014.9,
+      "uat_id": "917",
+      "uat_name": "MUNICIPIUL GHERLA"
+    },
+    {
+      "amount": 1932.58,
+      "county_code": "CJ",
+      "per_capita_amount": 1932.58,
+      "total_amount": 83717543.44,
+      "uat_id": "918",
+      "uat_name": "MUNICIPIUL TURDA"
+    },
+    {
+      "amount": 2070.47,
+      "county_code": "CJ",
+      "per_capita_amount": 2070.47,
+      "total_amount": 16706661.89,
+      "uat_id": "919",
+      "uat_name": "ORAȘ HUEDIN"
+    },
+    {
+      "amount": 759.78,
+      "county_code": "CJ",
+      "per_capita_amount": 759.78,
+      "total_amount": 4323889.74,
+      "uat_id": "920",
+      "uat_name": "AGHIREȘU"
+    },
+    {
+      "amount": 714.9,
+      "county_code": "CJ",
+      "per_capita_amount": 714.9,
+      "total_amount": 758506.82,
+      "uat_id": "921",
+      "uat_name": "AITON"
+    },
+    {
+      "amount": 666.44,
+      "county_code": "CJ",
+      "per_capita_amount": 666.44,
+      "total_amount": 678432.46,
+      "uat_id": "922",
+      "uat_name": "ALUNIȘ"
+    },
+    {
+      "amount": 562.34,
+      "county_code": "CJ",
+      "per_capita_amount": 562.34,
+      "total_amount": 9694176.81,
+      "uat_id": "923",
+      "uat_name": "APAHIDA"
+    },
+    {
+      "amount": 846.55,
+      "county_code": "CJ",
+      "per_capita_amount": 846.55,
+      "total_amount": 1182635.67,
+      "uat_id": "924",
+      "uat_name": "AȘCHILEU"
+    },
+    {
+      "amount": 478.4,
+      "county_code": "CJ",
+      "per_capita_amount": 478.4,
+      "total_amount": 6660234.06,
+      "uat_id": "925",
+      "uat_name": "BACIU"
+    },
+    {
+      "amount": 971.71,
+      "county_code": "CJ",
+      "per_capita_amount": 971.71,
+      "total_amount": 1698549.3,
+      "uat_id": "926",
+      "uat_name": "BĂIȘOARA"
+    },
+    {
+      "amount": 1360.24,
+      "county_code": "CJ",
+      "per_capita_amount": 1360.24,
+      "total_amount": 1371118.22,
+      "uat_id": "927",
+      "uat_name": "BELIȘ"
+    },
+    {
+      "amount": 612.79,
+      "county_code": "CJ",
+      "per_capita_amount": 612.79,
+      "total_amount": 846874.1,
+      "uat_id": "928",
+      "uat_name": "BOBÂLNA"
+    },
+    {
+      "amount": 568.34,
+      "county_code": "CJ",
+      "per_capita_amount": 568.34,
+      "total_amount": 2950259.53,
+      "uat_id": "929",
+      "uat_name": "BONȚIDA"
+    },
+    {
+      "amount": 1015.22,
+      "county_code": "CJ",
+      "per_capita_amount": 1015.22,
+      "total_amount": 1533996.52,
+      "uat_id": "930",
+      "uat_name": "BORȘA"
+    },
+    {
+      "amount": 672.93,
+      "county_code": "CJ",
+      "per_capita_amount": 672.93,
+      "total_amount": 765793.88,
+      "uat_id": "931",
+      "uat_name": "BUZA"
+    },
+    {
+      "amount": 458.96,
+      "county_code": "CJ",
+      "per_capita_amount": 458.96,
+      "total_amount": 1005587.95,
+      "uat_id": "932",
+      "uat_name": "CĂIANU"
+    },
+    {
+      "amount": 894.52,
+      "county_code": "CJ",
+      "per_capita_amount": 894.52,
+      "total_amount": 1684380.02,
+      "uat_id": "933",
+      "uat_name": "CĂLĂRAȘI"
+    },
+    {
+      "amount": 723.49,
+      "county_code": "CJ",
+      "per_capita_amount": 723.49,
+      "total_amount": 1669097.41,
+      "uat_id": "934",
+      "uat_name": "CĂLĂȚELE"
+    },
+    {
+      "amount": 473.54,
+      "county_code": "CJ",
+      "per_capita_amount": 473.54,
+      "total_amount": 1226935.9,
+      "uat_id": "935",
+      "uat_name": "CĂMĂRAȘU"
+    },
+    {
+      "amount": 564.47,
+      "county_code": "CJ",
+      "per_capita_amount": 564.47,
+      "total_amount": 1947998.22,
+      "uat_id": "936",
+      "uat_name": "CĂPUȘU MARE"
+    },
+    {
+      "amount": 902.28,
+      "county_code": "CJ",
+      "per_capita_amount": 902.28,
+      "total_amount": 3947484.59,
+      "uat_id": "937",
+      "uat_name": "CĂȘEIU"
+    },
+    {
+      "amount": 897.41,
+      "county_code": "CJ",
+      "per_capita_amount": 897.41,
+      "total_amount": 2020071,
+      "uat_id": "938",
+      "uat_name": "CÂȚCĂU"
+    },
+    {
+      "amount": 636.3,
+      "county_code": "CJ",
+      "per_capita_amount": 636.3,
+      "total_amount": 997086,
+      "uat_id": "939",
+      "uat_name": "CĂTINA"
+    },
+    {
+      "amount": 759.57,
+      "county_code": "CJ",
+      "per_capita_amount": 759.57,
+      "total_amount": 2531659.56,
+      "uat_id": "940",
+      "uat_name": "CEANU MARE"
+    },
+    {
+      "amount": 696.26,
+      "county_code": "CJ",
+      "per_capita_amount": 696.26,
+      "total_amount": 3156152.06,
+      "uat_id": "941",
+      "uat_name": "CHINTENI"
+    },
+    {
+      "amount": 776.01,
+      "county_code": "CJ",
+      "per_capita_amount": 776.01,
+      "total_amount": 1615645.22,
+      "uat_id": "942",
+      "uat_name": "CHIUIEȘTI"
+    },
+    {
+      "amount": 940.86,
+      "county_code": "CJ",
+      "per_capita_amount": 940.86,
+      "total_amount": 1216530.69,
+      "uat_id": "943",
+      "uat_name": "CIUCEA"
+    },
+    {
+      "amount": 818.92,
+      "county_code": "CJ",
+      "per_capita_amount": 818.92,
+      "total_amount": 1640298.54,
+      "uat_id": "944",
+      "uat_name": "CIURILA"
+    },
+    {
+      "amount": 483.72,
+      "county_code": "CJ",
+      "per_capita_amount": 483.72,
+      "total_amount": 2075625.18,
+      "uat_id": "945",
+      "uat_name": "COJOCNA"
+    },
+    {
+      "amount": 1025.42,
+      "county_code": "CJ",
+      "per_capita_amount": 1025.42,
+      "total_amount": 1358686.48,
+      "uat_id": "946",
+      "uat_name": "CORNEȘTI"
+    },
+    {
+      "amount": 550.72,
+      "county_code": "CJ",
+      "per_capita_amount": 550.72,
+      "total_amount": 1652710.66,
+      "uat_id": "947",
+      "uat_name": "CUZDRIOARA"
+    },
+    {
+      "amount": 1349.8,
+      "county_code": "CJ",
+      "per_capita_amount": 1349.8,
+      "total_amount": 1939667.31,
+      "uat_id": "948",
+      "uat_name": "DĂBÂCA"
+    },
+    {
+      "amount": 819.16,
+      "county_code": "CJ",
+      "per_capita_amount": 819.16,
+      "total_amount": 4663450.24,
+      "uat_id": "949",
+      "uat_name": "FELEACU"
+    },
+    {
+      "amount": 1120.63,
+      "county_code": "CJ",
+      "per_capita_amount": 1120.63,
+      "total_amount": 2455293.5,
+      "uat_id": "950",
+      "uat_name": "FIZEȘU GHERLII"
+    },
+    {
+      "amount": 437.47,
+      "county_code": "CJ",
+      "per_capita_amount": 437.47,
+      "total_amount": 23070007.03,
+      "uat_id": "951",
+      "uat_name": "FLOREȘTI"
+    },
+    {
+      "amount": 898.47,
+      "county_code": "CJ",
+      "per_capita_amount": 898.47,
+      "total_amount": 3406084.25,
+      "uat_id": "952",
+      "uat_name": "FRATA"
+    },
+    {
+      "amount": 1025.18,
+      "county_code": "CJ",
+      "per_capita_amount": 1025.18,
+      "total_amount": 2186709.03,
+      "uat_id": "953",
+      "uat_name": "GÂRBĂU"
+    },
+    {
+      "amount": 654.61,
+      "county_code": "CJ",
+      "per_capita_amount": 654.61,
+      "total_amount": 923005.09,
+      "uat_id": "954",
+      "uat_name": "GEACA"
+    },
+    {
+      "amount": 865.06,
+      "county_code": "CJ",
+      "per_capita_amount": 865.06,
+      "total_amount": 7768259.75,
+      "uat_id": "955",
+      "uat_name": "GILĂU"
+    },
+    {
+      "amount": 932.73,
+      "county_code": "CJ",
+      "per_capita_amount": 932.73,
+      "total_amount": 3336378.58,
+      "uat_id": "956",
+      "uat_name": "IARA"
+    },
+    {
+      "amount": 589.6,
+      "county_code": "CJ",
+      "per_capita_amount": 589.6,
+      "total_amount": 2255202.29,
+      "uat_id": "957",
+      "uat_name": "ICLOD"
+    },
+    {
+      "amount": 780.55,
+      "county_code": "CJ",
+      "per_capita_amount": 780.55,
+      "total_amount": 1111506.91,
+      "uat_id": "958",
+      "uat_name": "IZVORU CRIȘULUI"
+    },
+    {
+      "amount": 1109.35,
+      "county_code": "CJ",
+      "per_capita_amount": 1109.35,
+      "total_amount": 1163705.83,
+      "uat_id": "959",
+      "uat_name": "JICHIȘU DE JOS"
+    },
+    {
+      "amount": 1996.01,
+      "county_code": "CJ",
+      "per_capita_amount": 1996.01,
+      "total_amount": 10676660.75,
+      "uat_id": "960",
+      "uat_name": "JUCU"
+    },
+    {
+      "amount": 567.27,
+      "county_code": "CJ",
+      "per_capita_amount": 567.27,
+      "total_amount": 2694511.2,
+      "uat_id": "961",
+      "uat_name": "LUNA"
+    },
+    {
+      "amount": 663.3,
+      "county_code": "CJ",
+      "per_capita_amount": 663.3,
+      "total_amount": 1377678.86,
+      "uat_id": "962",
+      "uat_name": "MĂGURI-RĂCĂTĂU"
+    },
+    {
+      "amount": 1110.37,
+      "county_code": "CJ",
+      "per_capita_amount": 1110.37,
+      "total_amount": 1303575.21,
+      "uat_id": "963",
+      "uat_name": "MĂNĂSTIRENI"
+    },
+    {
+      "amount": 901.8,
+      "county_code": "CJ",
+      "per_capita_amount": 901.8,
+      "total_amount": 1229154.2,
+      "uat_id": "964",
+      "uat_name": "MĂRGĂU"
+    },
+    {
+      "amount": 931.8,
+      "county_code": "CJ",
+      "per_capita_amount": 931.8,
+      "total_amount": 1396765.2,
+      "uat_id": "965",
+      "uat_name": "MĂRIȘEL"
+    },
+    {
+      "amount": 399.98,
+      "county_code": "CJ",
+      "per_capita_amount": 399.98,
+      "total_amount": 1383523.62,
+      "uat_id": "966",
+      "uat_name": "MICA"
+    },
+    {
+      "amount": 720.56,
+      "county_code": "CJ",
+      "per_capita_amount": 720.56,
+      "total_amount": 4017120.28,
+      "uat_id": "967",
+      "uat_name": "MIHAI VITEAZU"
+    },
+    {
+      "amount": 470.24,
+      "county_code": "CJ",
+      "per_capita_amount": 470.24,
+      "total_amount": 1691913.57,
+      "uat_id": "968",
+      "uat_name": "MINTIU GHERLII"
+    },
+    {
+      "amount": 482.42,
+      "county_code": "CJ",
+      "per_capita_amount": 482.42,
+      "total_amount": 1591992.77,
+      "uat_id": "969",
+      "uat_name": "MOCIU"
+    },
+    {
+      "amount": 656.02,
+      "county_code": "CJ",
+      "per_capita_amount": 656.02,
+      "total_amount": 2017909.01,
+      "uat_id": "970",
+      "uat_name": "MOLDOVENEȘTI"
+    },
+    {
+      "amount": 1122.34,
+      "county_code": "CJ",
+      "per_capita_amount": 1122.34,
+      "total_amount": 2560053.96,
+      "uat_id": "971",
+      "uat_name": "NEGRENI"
+    },
+    {
+      "amount": 852.14,
+      "county_code": "CJ",
+      "per_capita_amount": 852.14,
+      "total_amount": 965476.82,
+      "uat_id": "972",
+      "uat_name": "PĂLATCA"
+    },
+    {
+      "amount": 1299.46,
+      "county_code": "CJ",
+      "per_capita_amount": 1299.46,
+      "total_amount": 2231178.16,
+      "uat_id": "973",
+      "uat_name": "PANTICEU"
+    },
+    {
+      "amount": 922.24,
+      "county_code": "CJ",
+      "per_capita_amount": 922.24,
+      "total_amount": 1282830.24,
+      "uat_id": "974",
+      "uat_name": "PETREȘTII DE JOS"
+    },
+    {
+      "amount": 1244.45,
+      "county_code": "CJ",
+      "per_capita_amount": 1244.45,
+      "total_amount": 672001.91,
+      "uat_id": "975",
+      "uat_name": "PLOSCOȘ"
+    },
+    {
+      "amount": 582.11,
+      "county_code": "CJ",
+      "per_capita_amount": 582.11,
+      "total_amount": 2542052.71,
+      "uat_id": "976",
+      "uat_name": "POIENI"
+    },
+    {
+      "amount": 820.34,
+      "county_code": "CJ",
+      "per_capita_amount": 820.34,
+      "total_amount": 1191960.17,
+      "uat_id": "977",
+      "uat_name": "RECEA-CRISTUR"
+    },
+    {
+      "amount": 951.26,
+      "county_code": "CJ",
+      "per_capita_amount": 951.26,
+      "total_amount": 1122484.46,
+      "uat_id": "978",
+      "uat_name": "RÂȘCA"
+    },
+    {
+      "amount": 2281.97,
+      "county_code": "CJ",
+      "per_capita_amount": 2281.97,
+      "total_amount": 3124018.69,
+      "uat_id": "979",
+      "uat_name": "SĂCUIEU"
+    },
+    {
+      "amount": 2833.82,
+      "county_code": "CJ",
+      "per_capita_amount": 2833.82,
+      "total_amount": 4415095.19,
+      "uat_id": "980",
+      "uat_name": "SÂNCRAIU"
+    },
+    {
+      "amount": 1116.75,
+      "county_code": "CJ",
+      "per_capita_amount": 1116.75,
+      "total_amount": 2170956.36,
+      "uat_id": "981",
+      "uat_name": "SĂNDULEȘTI"
+    },
+    {
+      "amount": 1377.36,
+      "county_code": "CJ",
+      "per_capita_amount": 1377.36,
+      "total_amount": 1528873.85,
+      "uat_id": "982",
+      "uat_name": "SÂNMĂRTIN"
+    },
+    {
+      "amount": 922.2,
+      "county_code": "CJ",
+      "per_capita_amount": 922.2,
+      "total_amount": 2133975.23,
+      "uat_id": "983",
+      "uat_name": "SÂNPAUL"
+    },
+    {
+      "amount": 551.11,
+      "county_code": "CJ",
+      "per_capita_amount": 551.11,
+      "total_amount": 2312447.28,
+      "uat_id": "984",
+      "uat_name": "SĂVĂDISLA"
+    },
+    {
+      "amount": 543.69,
+      "county_code": "CJ",
+      "per_capita_amount": 543.69,
+      "total_amount": 1214595.79,
+      "uat_id": "985",
+      "uat_name": "SIC"
+    },
+    {
+      "amount": 424.71,
+      "county_code": "CJ",
+      "per_capita_amount": 424.71,
+      "total_amount": 659151.2,
+      "uat_id": "986",
+      "uat_name": "SUATU"
+    },
+    {
+      "amount": 859.54,
+      "county_code": "CJ",
+      "per_capita_amount": 859.54,
+      "total_amount": 1364943.8,
+      "uat_id": "987",
+      "uat_name": "ȚAGA"
+    },
+    {
+      "amount": 573.77,
+      "county_code": "CJ",
+      "per_capita_amount": 573.77,
+      "total_amount": 2266380.51,
+      "uat_id": "988",
+      "uat_name": "TRITENII DE JOS"
+    },
+    {
+      "amount": 748.06,
+      "county_code": "CJ",
+      "per_capita_amount": 748.06,
+      "total_amount": 1693604.25,
+      "uat_id": "989",
+      "uat_name": "TURENI"
+    },
+    {
+      "amount": 656.76,
+      "county_code": "CJ",
+      "per_capita_amount": 656.76,
+      "total_amount": 1604471.78,
+      "uat_id": "990",
+      "uat_name": "UNGURAȘ"
+    },
+    {
+      "amount": 682.86,
+      "county_code": "CJ",
+      "per_capita_amount": 682.86,
+      "total_amount": 1578091.89,
+      "uat_id": "991",
+      "uat_name": "VAD"
+    },
+    {
+      "amount": 1599.92,
+      "county_code": "CJ",
+      "per_capita_amount": 1599.92,
+      "total_amount": 1393529.19,
+      "uat_id": "992",
+      "uat_name": "VALEA IERII"
+    },
+    {
+      "amount": 525.82,
+      "county_code": "CJ",
+      "per_capita_amount": 525.82,
+      "total_amount": 2980323.67,
+      "uat_id": "993",
+      "uat_name": "VIIȘOARA"
+    },
+    {
+      "amount": 627.73,
+      "county_code": "CJ",
+      "per_capita_amount": 627.73,
+      "total_amount": 963560.01,
+      "uat_id": "994",
+      "uat_name": "VULTURENI"
+    },
+    {
+      "amount": 614.44,
+      "county_code": "CJ",
+      "per_capita_amount": 614.44,
+      "total_amount": 417293584.96,
+      "uat_id": "3199",
+      "uat_name": "JUDETUL CLUJ"
+    }
+  ]
+}

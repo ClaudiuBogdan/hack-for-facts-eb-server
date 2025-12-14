@@ -94,6 +94,11 @@ export const UATAnalyticsSchema = /* GraphQL */ `
     per_capita
 
     """
+    Amount as percentage of GDP
+    """
+    percent_gdp
+
+    """
     Raw total amount converted to EUR (legacy, use currency: EUR instead)
     """
     total_euro
@@ -117,6 +122,11 @@ export const UATAnalyticsSchema = /* GraphQL */ `
     Euro (converted using year-specific exchange rates)
     """
     EUR
+
+    """
+    US Dollar (converted using year-specific exchange rates)
+    """
+    USD
   }
 
   # ---------------------------------------------------------------------------
@@ -129,14 +139,14 @@ export const UATAnalyticsSchema = /* GraphQL */ `
 
     The query aggregates ExecutionLineItems by UAT, supporting:
     - Multiple normalization modes (total, per-capita)
-    - Currency conversion (RON or EUR with year-specific rates)
+    - Currency conversion (RON, EUR or USD with year-specific rates)
     - Inflation adjustment (using CPI factors)
     - Comprehensive filtering (period, dimensions, geography, exclusions)
     - Multi-year queries with proper year-by-year normalization
 
     Transformation order:
     1. Inflation adjustment (if inflation_adjusted=true)
-    2. Currency conversion (if currency=EUR)
+    2. Currency conversion (if currency=EUR or USD)
     3. Aggregate by UAT
     4. Per-capita division (if normalization=per_capita)
 

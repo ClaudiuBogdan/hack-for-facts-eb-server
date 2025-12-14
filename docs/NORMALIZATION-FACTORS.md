@@ -438,3 +438,93 @@ Until fixed, users should avoid combining filters that mix:
 - Only county councils (no UATs)
 - Only UATs (no county councils)
 - Single county with per-capita (uses county-level population correctly)
+
+---
+
+## Known Limitation: Percent GDP Across Multiple Years
+
+### The Problem
+
+When using `percent_gdp` normalization with date selections spanning multiple years, the resulting percentage is **not mathematically meaningful**.
+
+### How It Works
+
+For each data point, the system calculates:
+
+```
+normalized_amount = amount × (100 / GDP_of_that_year)
+```
+
+When aggregating across multiple years, these percentages are **summed**:
+
+```
+total = Σ (amount_period × 100 / GDP_year_of_period)
+```
+
+### Why This Is Problematic
+
+The sum of percentages calculated against different GDP bases doesn't represent a percentage of any single GDP value.
+
+#### Example: Selecting 2022-Q1 and 2023-Q3
+
+| Period  | Amount  | GDP    | Percentage |
+| ------- | ------- | ------ | ---------- |
+| 2022-Q1 | 10B RON | 1,000B | 1.0%       |
+| 2023-Q3 | 12B RON | 1,200B | 1.0%       |
+| **Sum** | 22B RON | ???    | **2.0%**   |
+
+The result (2.0%) is not:
+
+- 2% of 2022 GDP (would be 20B RON)
+- 2% of 2023 GDP (would be 24B RON)
+- 2% of combined GDP (22B / 2,200B = 1%)
+
+It's simply the arithmetic sum of two unrelated percentages.
+
+### When This Affects Users
+
+This limitation applies when:
+
+1. **Interval selection spans multiple years**: `{ interval: { start: "2022", end: "2023" } }`
+2. **Discrete dates from different years**: `{ dates: ["2022-Q1", "2023-Q3"] }`
+3. **Any multi-year query with `percent_gdp` normalization**
+
+### Safe Usage Patterns
+
+`percent_gdp` is mathematically meaningful when:
+
+| Pattern        | Example                                        | Result Meaning                     |
+| -------------- | ---------------------------------------------- | ---------------------------------- |
+| Single year    | `{ interval: { start: "2023", end: "2023" } }` | "X% of 2023 GDP"                   |
+| Single quarter | `{ dates: ["2023-Q2"] }`                       | "X% of 2023 GDP" (uses annual GDP) |
+| Single month   | `{ dates: ["2023-06"] }`                       | "X% of 2023 GDP" (uses annual GDP) |
+
+### Alternative Approaches (Not Implemented)
+
+More meaningful multi-year calculations could be:
+
+1. **Average percentage**: `Σ(amounts) / Σ(GDPs) × 100`
+   - Result: "Average share of GDP across selected years"
+
+2. **Per-year breakdown**: Return separate percentages for each year
+   - Result: "1% in 2022, 1% in 2023"
+
+3. **Base-year normalization**: Use a single reference GDP
+   - Result: "X% of 2023 GDP" (even for 2022 amounts)
+
+### Recommendation
+
+For meaningful GDP percentage analysis:
+
+- **Single-year queries**: Use `percent_gdp` freely
+- **Multi-year trends**: Query each year separately and compare percentages
+- **Multi-year totals**: Use `total` normalization, then manually calculate percentage against a chosen GDP baseline
+
+### Code Location
+
+The per-period GDP calculation is in:
+
+- `src/modules/entity-analytics/core/usecases/get-entity-analytics.ts` → `computeCombinedFactorMapWithoutPopulation()`
+- `src/modules/aggregated-line-items/core/usecases/get-aggregated-line-items.ts` → `computeCombinedFactorMap()`
+
+Both functions compute `multiplier = 100 / GDP_for_period` for each period independently.

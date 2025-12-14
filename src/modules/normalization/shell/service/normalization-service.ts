@@ -2,6 +2,7 @@ import { ok, err, Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
 
+import { computeCpiAdjustmentFactorMap } from '../../core/cpi-adjustment-factors.js';
 import {
   NORMALIZATION_DATASETS,
   getRequiredDatasetIds,
@@ -129,7 +130,8 @@ export class NormalizationService {
   private async loadDimensionDatasets(dimension: NormalizationDimension): Promise<FactorDatasets> {
     const config = NORMALIZATION_DATASETS[dimension];
 
-    const yearly = await this.loadDatasetAsFactorMap(config.yearly);
+    const yearlyRaw = await this.loadDatasetAsFactorMap(config.yearly);
+    const yearly = dimension === 'cpi' ? computeCpiAdjustmentFactorMap(yearlyRaw, 2024) : yearlyRaw;
 
     const result: FactorDatasets = { yearly };
 

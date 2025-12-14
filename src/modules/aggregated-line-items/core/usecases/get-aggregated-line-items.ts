@@ -136,7 +136,7 @@ export async function getAggregatedLineItemsSqlNormalized(
 
   // 4. Compute combined factor map
   const transformOptions = buildTransformOptions(filter);
-  const periodLabels = generatePeriodLabels(startYear, endYear);
+  const periodLabels = generatePeriodLabels(startYear, endYear, filter.report_period.type);
   const factorMap = computeCombinedFactorMap(
     transformOptions,
     factors,
@@ -364,10 +364,7 @@ function normalizeAndAggregate(
 
     // Accumulate
     const existing = aggregationMap.get(key);
-    if (existing !== undefined) {
-      existing.amount = existing.amount.plus(normalizedAmount);
-      existing.count += row.count;
-    } else {
+    if (existing === undefined) {
       aggregationMap.set(key, {
         functional_code: row.functional_code,
         functional_name: row.functional_name,
@@ -376,6 +373,9 @@ function normalizeAndAggregate(
         amount: normalizedAmount,
         count: row.count,
       });
+    } else {
+      existing.amount = existing.amount.plus(normalizedAmount);
+      existing.count += row.count;
     }
   }
 
@@ -414,9 +414,9 @@ function normalizeAmount(
     // Path B: Percent GDP (ignores inflation and currency)
     const gdp = factors.gdp.get(periodLabel);
     if (gdp !== undefined && !gdp.isZero()) {
-      // GDP is in millions, amount is in RON
-      // Result = (amount / (GDP * 1,000,000)) * 100
-      result = result.div(gdp.mul(1_000_000)).mul(100);
+      // GDP dataset is in RON, amount is in RON
+      // Result = (amount / GDP) * 100
+      result = result.div(gdp).mul(100);
     } else {
       result = new Decimal(0);
     }
@@ -520,8 +520,8 @@ export function computeCombinedFactorMap(
       if (gdp === undefined || gdp.isZero()) {
         multiplier = new Decimal(0);
       } else {
-        // GDP is in millions, result is percentage (0-100)
-        multiplier = new Decimal(100).div(gdp.mul(1_000_000));
+        // GDP dataset is in RON; multiplier yields percentage (0-100)
+        multiplier = new Decimal(100).div(gdp);
       }
     } else {
       // Path A: Standard normalization (composable)

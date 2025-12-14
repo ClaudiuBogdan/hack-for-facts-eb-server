@@ -3,6 +3,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   getDenominatorPopulation,
+  computeCpiAdjustmentFactorMap,
   type PopulationRepository,
 } from '@/modules/normalization/index.js';
 
@@ -58,7 +59,7 @@ const getDatasetValue = (dataset: Dataset, year: number): Decimal | null => {
   let bestValue: Decimal | null = null;
 
   for (const point of dataset.points) {
-    const pointYear = parseInt(point.x, 10);
+    const pointYear = Number.parseInt(point.x, 10);
     if (!Number.isNaN(pointYear) && pointYear < year) {
       if (bestYear === null || pointYear > bestYear) {
         bestYear = pointYear;
@@ -79,7 +80,7 @@ class NormalizationService {
     // 1. Map DataSeries to Intermediate format
     let data: IntermediatePoint[] = series.data.map((point) => {
       // Extract year from ISO date string (YYYY-MM-DD)
-      const year = parseInt(point.date.substring(0, 4), 10);
+      const year = Number.parseInt(point.date.substring(0, 4), 10);
       return {
         x: point.date, // Keep ISO date as x label
         year,
@@ -123,23 +124,39 @@ class NormalizationService {
     return data.map((p) => {
       const gdp = getDatasetValue(gdpData, p.year);
       if (gdp === null || gdp.isZero()) return { ...p, y: 0 };
-      // GDP unit is million_ron. Input is RON.
-      // Formula: (y / (gdp * 1,000,000)) * 100
-      const gdpVal = gdp.toNumber() * 1000000;
+      // GDP dataset is stored in RON. Input is RON.
+      // Formula: (y / gdp) * 100
+      const gdpVal = gdp.toNumber();
       return { ...p, y: (p.y / gdpVal) * 100 };
     });
   }
 
   private applyInflation(data: IntermediatePoint[], cpiData: Dataset): IntermediatePoint[] {
-    const cpiRefDec = getDatasetValue(cpiData, 2024) ?? new Decimal(100);
-    const cpiRef = cpiRefDec.toNumber();
+    const cpiIndex = new Map(cpiData.points.map((p) => [p.x, p.y]));
+    const factorMap = computeCpiAdjustmentFactorMap(cpiIndex, 2024);
+
+    const factorYears = [...factorMap.keys()]
+      .map((k) => Number.parseInt(k, 10))
+      .filter((y) => !Number.isNaN(y))
+      .sort((a, b) => a - b);
+
+    const lastFactorYear = factorYears.at(-1) ?? null;
 
     return data.map((p) => {
-      const cpiYearDec = getDatasetValue(cpiData, p.year);
-      if (cpiYearDec === null || cpiYearDec.isZero()) return p;
-      const cpiYear = cpiYearDec.toNumber();
-      // Real = Nominal * (CPI_Ref / CPI_Year)
-      return { ...p, y: p.y * (cpiRef / cpiYear) };
+      const direct = factorMap.get(p.year.toString());
+      if (direct !== undefined) {
+        return { ...p, y: p.y * direct.toNumber() };
+      }
+
+      // Carry-forward for years beyond the dataset horizon.
+      if (lastFactorYear !== null && p.year > lastFactorYear) {
+        const fallback = factorMap.get(lastFactorYear.toString());
+        if (fallback !== undefined) {
+          return { ...p, y: p.y * fallback.toNumber() };
+        }
+      }
+
+      return p;
     });
   }
 
@@ -246,7 +263,7 @@ export async function getAnalyticsSeries(
     const { seriesId } = input;
 
     // Explicit mapping of legacy input types to strict domain types
-    let strictNormalization: NormalizationMode = 'total';
+    let strictNormalization: NormalizationMode;
     let strictCurrency: Currency | undefined = input.filter.currency;
 
     if (input.filter.normalization === 'total_euro') {
