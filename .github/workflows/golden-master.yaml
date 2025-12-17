@@ -1,0 +1,166 @@
+name: Golden Master Tests
+
+on:
+  # Nightly schedule at 3:00 AM UTC
+  schedule:
+    - cron: '0 3 * * *'
+
+  # Triggered after Dev Branch Pipeline completes (waits for build & push)
+  workflow_run:
+    workflows: ['Dev Branch Pipeline']
+    types:
+      - completed
+    branches:
+      - dev
+
+  # Manual trigger with environment selection
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - dev
+          - prod
+          - both
+      skip_delay:
+        description: 'Skip ArgoCD deployment delay'
+        required: false
+        default: false
+        type: boolean
+
+# Don't cancel in-progress runs for scheduled jobs
+concurrency:
+  group: golden-master-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_run' }}
+
+env:
+  # Default API URLs (can be overridden via GitHub secrets)
+  DEV_API_URL: ${{ secrets.GM_DEV_API_URL || 'https://dev-api.transparenta.eu/graphql' }}
+  PROD_API_URL: ${{ secrets.GM_PROD_API_URL || 'https://api.transparenta.eu/graphql' }}
+  # Time to wait for ArgoCD to deploy after workflow completes (in seconds)
+  ARGOCD_DEPLOY_DELAY: 180
+
+jobs:
+  golden-master-dev:
+    name: Golden Master (Dev)
+    runs-on: ubuntu-latest
+    # Run for: schedule, workflow_run (after dev deploy), or manual with dev/both
+    # Skip if the triggering workflow failed
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'dev' || inputs.environment == 'both'))
+    # Non-blocking: continue even if tests fail
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for ArgoCD deployment
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "Waiting $ARGOCD_DEPLOY_DELAY seconds for ArgoCD to deploy the new version..."
+          sleep $ARGOCD_DEPLOY_DELAY
+          echo "Delay complete, proceeding with tests"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Golden Master Tests (Dev)
+        id: gm-test-dev
+        env:
+          TEST_GM_API_URL: ${{ env.DEV_API_URL }}
+        run: |
+          echo "Testing against: $TEST_GM_API_URL"
+          pnpm vitest run tests/golden-master --config vitest.gm.config.ts 2>&1 | tee test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-master-dev-results-${{ github.run_id }}
+          path: test-output.txt
+          retention-days: 7
+
+  golden-master-prod:
+    name: Golden Master (Prod)
+    runs-on: ubuntu-latest
+    # Run for: schedule, or manual with prod/both
+    # Note: workflow_run events only test dev, not prod
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'prod' || inputs.environment == 'both'))
+    # Non-blocking: continue even if tests fail
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Golden Master Tests (Prod)
+        id: gm-test-prod
+        env:
+          TEST_GM_API_URL: ${{ env.PROD_API_URL }}
+        run: |
+          echo "Testing against: $TEST_GM_API_URL"
+          pnpm vitest run tests/golden-master --config vitest.gm.config.ts 2>&1 | tee test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-master-prod-results-${{ github.run_id }}
+          path: test-output.txt
+          retention-days: 7
+
+  # Summary job to report overall status
+  summary:
+    name: Golden Master Summary
+    runs-on: ubuntu-latest
+    needs: [golden-master-dev, golden-master-prod]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "## Golden Master Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.golden-master-dev.result }}" == "success" ]; then
+            echo "- ✅ Dev environment: Passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.golden-master-dev.result }}" == "failure" ]; then
+            echo "- ❌ Dev environment: Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.golden-master-dev.result }}" == "skipped" ]; then
+            echo "- ⏭️ Dev environment: Skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.golden-master-prod.result }}" == "success" ]; then
+            echo "- ✅ Prod environment: Passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.golden-master-prod.result }}" == "failure" ]; then
+            echo "- ❌ Prod environment: Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.golden-master-prod.result }}" == "skipped" ]; then
+            echo "- ⏭️ Prod environment: Skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Note: Golden Master tests are non-blocking checks. Failures here don't block deployments." >> $GITHUB_STEP_SUMMARY

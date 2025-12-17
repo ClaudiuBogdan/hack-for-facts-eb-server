@@ -26,9 +26,10 @@
           "id": "claude-opus-4-5-20251101",
           "options": {
             "reasoningEffort": "high",
+            "effort": "high",
             "thinking": {
               "type": "enabled",
-              "budgetTokens": 64000,
+              "budgetTokens": 32000,
             },
           },
         },
@@ -37,9 +38,10 @@
           "id": "claude-opus-4-5-20251101",
           "options": {
             "reasoningEffort": "high",
+            "effort": "high",
             "thinking": {
               "type": "enabled",
-              "budgetTokens": 128000,
+              "budgetTokens": 64000,
             },
           },
         },
