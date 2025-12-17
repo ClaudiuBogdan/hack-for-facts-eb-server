@@ -18,6 +18,7 @@
         "graphql",
         "cors",
         "datasets",
+        "ins",
         "redis",
         "observability",
         "logging",
