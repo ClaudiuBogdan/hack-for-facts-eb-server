@@ -103,6 +103,10 @@ import {
   type HealthChecker,
 } from '../modules/health/index.js';
 import {
+  makeLearningProgressRoutes,
+  makeLearningProgressRepo,
+} from '../modules/learning-progress/index.js';
+import {
   createMcpServer,
   makeMcpRoutes,
   makeInMemorySessionStore,
@@ -507,6 +511,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         deliveriesRepo,
         tokensRepo,
         hasher: sha256Hasher,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Learning Progress Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
+    const learningProgressRepo = makeLearningProgressRepo({ db: userDb, logger: repoLogger });
+
+    // Register learning progress routes
+    await app.register(
+      makeLearningProgressRoutes({
+        learningProgressRepo,
       })
     );
 

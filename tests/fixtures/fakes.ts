@@ -36,6 +36,13 @@ import type {
   ExecutionLineItemFilter as FundingSourceLineItemFilter,
   ExecutionLineItemConnection as FundingSourceLineItemConnection,
 } from '@/modules/funding-sources/index.js';
+import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
+import type {
+  LearningProgressRepository,
+  LearningProgressData,
+  UpsertEventsResult,
+} from '@/modules/learning-progress/core/ports.js';
+import type { LearningProgressEvent } from '@/modules/learning-progress/core/types.js';
 import type { NotificationError } from '@/modules/notifications/core/errors.js';
 import type {
   NotificationsRepository,
@@ -1243,4 +1250,170 @@ export const createTestUrlMetadata = (overrides: Partial<UrlMetadata> = {}): Url
     path: overrides.path ?? '/page',
     query: overrides.query ?? {},
   };
+};
+
+// =============================================================================
+// Learning Progress Module Fakes
+// =============================================================================
+
+interface FakeLearningProgressRepoOptions {
+  /** Initial events per user (Map<userId, events>) */
+  initialEvents?: Map<string, LearningProgressEvent[]>;
+  /** Enable database error simulation */
+  simulateDbError?: boolean;
+}
+
+/**
+ * Creates a fake learning progress repository for testing.
+ *
+ * Implements all LearningProgressRepository methods using an in-memory Map.
+ * Events are stored per user and deduplicated by eventId on upsert.
+ */
+export const makeFakeLearningProgressRepo = (
+  options: FakeLearningProgressRepoOptions = {}
+): LearningProgressRepository => {
+  const store = new Map<string, LearningProgressEvent[]>();
+  const simulateDbError = options.simulateDbError ?? false;
+
+  // Seed initial events
+  if (options.initialEvents !== undefined) {
+    for (const [userId, events] of options.initialEvents.entries()) {
+      store.set(userId, [...events]);
+    }
+  }
+
+  const createDbError = (): Result<never, LearningProgressError> =>
+    err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
+
+  return {
+    getProgress: async (
+      userId: string
+    ): Promise<Result<LearningProgressData | null, LearningProgressError>> => {
+      if (simulateDbError) return createDbError();
+
+      const events = store.get(userId);
+      if (events === undefined || events.length === 0) {
+        return ok(null);
+      }
+
+      // Find latest event timestamp
+      const lastEventAt = events.reduce<string | null>((latest, event) => {
+        if (latest === null || event.occurredAt > latest) {
+          return event.occurredAt;
+        }
+        return latest;
+      }, null);
+
+      return ok({
+        events: [...events],
+        lastEventAt,
+        eventCount: events.length,
+      });
+    },
+
+    upsertEvents: async (
+      userId: string,
+      newEvents: LearningProgressEvent[]
+    ): Promise<Result<UpsertEventsResult, LearningProgressError>> => {
+      if (simulateDbError) return createDbError();
+
+      const existingEvents = store.get(userId) ?? [];
+      const existingIds = new Set(existingEvents.map((e) => e.eventId));
+
+      // Filter to only new events
+      const actuallyNew = newEvents.filter((e) => !existingIds.has(e.eventId));
+
+      // Merge
+      const merged = [...existingEvents, ...actuallyNew];
+      store.set(userId, merged);
+
+      return ok({
+        newEventsCount: actuallyNew.length,
+        totalEventCount: merged.length,
+      });
+    },
+
+    getEventCount: async (userId: string): Promise<Result<number, LearningProgressError>> => {
+      if (simulateDbError) return createDbError();
+      const events = store.get(userId);
+      return ok(events?.length ?? 0);
+    },
+  };
+};
+
+// =============================================================================
+// Learning Progress Test Builders
+// =============================================================================
+
+let learningEventIdCounter = 0;
+
+interface TestContentProgressedPayload {
+  contentId?: string;
+  status?: 'not_started' | 'in_progress' | 'completed' | 'passed' | 'failed';
+  score?: number;
+  interaction?: {
+    interactionId: string;
+    state: Record<string, unknown> | null;
+  };
+}
+
+/**
+ * Creates a test content progressed event with sensible defaults.
+ */
+export const createTestContentProgressedEvent = (
+  overrides: {
+    eventId?: string;
+    occurredAt?: string;
+    clientId?: string;
+    payload?: TestContentProgressedPayload;
+  } = {}
+): LearningProgressEvent => {
+  learningEventIdCounter++;
+  const payload = overrides.payload ?? {};
+  return {
+    eventId: overrides.eventId ?? `event-${String(learningEventIdCounter)}`,
+    occurredAt: overrides.occurredAt ?? new Date().toISOString(),
+    clientId: overrides.clientId ?? 'test-client',
+    type: 'content.progressed',
+    payload: {
+      contentId: payload.contentId ?? `content-${String(learningEventIdCounter)}`,
+      status: payload.status ?? 'in_progress',
+      ...(payload.score !== undefined && { score: payload.score }),
+      ...(payload.interaction !== undefined && { interaction: payload.interaction }),
+    },
+  } as LearningProgressEvent;
+};
+
+/**
+ * Creates a test onboarding completed event.
+ */
+export const createTestOnboardingCompletedEvent = (
+  pathId: string,
+  overrides: Partial<LearningProgressEvent> = {}
+): LearningProgressEvent => {
+  learningEventIdCounter++;
+  return {
+    eventId: overrides.eventId ?? `onboarding-${String(learningEventIdCounter)}`,
+    occurredAt: overrides.occurredAt ?? new Date().toISOString(),
+    clientId: overrides.clientId ?? 'test-client',
+    type: 'onboarding.completed',
+    payload: { pathId },
+  } as LearningProgressEvent;
+};
+
+/**
+ * Creates a test active path set event.
+ */
+export const createTestActivePathSetEvent = (
+  pathId: string | null,
+  overrides: Partial<LearningProgressEvent> = {}
+): LearningProgressEvent => {
+  learningEventIdCounter++;
+  return {
+    eventId: overrides.eventId ?? `path-${String(learningEventIdCounter)}`,
+    occurredAt: overrides.occurredAt ?? new Date().toISOString(),
+    clientId: overrides.clientId ?? 'test-client',
+    type: 'activePath.set',
+    payload: { pathId },
+  } as LearningProgressEvent;
 };

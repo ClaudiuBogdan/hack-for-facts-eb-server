@@ -51,6 +51,28 @@ export interface UnsubscribeTokens {
   used_at: Timestamp | null;
 }
 
+// Learning Progress Table
+// Stores all learning progress events in a JSONB array per user.
+// Events are immutable and append-only (semantically).
+export interface LearningProgress {
+  user_id: string;
+  events: JSONColumnType<LearningProgressEventRow[]>;
+  last_event_at: Timestamp | null;
+  event_count: Generated<number>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+// Raw event structure stored in JSONB
+// This matches the client's LearningProgressEvent type
+export interface LearningProgressEventRow {
+  eventId: string;
+  occurredAt: string;
+  clientId: string;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE Notifications
@@ -60,4 +82,5 @@ export interface UserDatabase {
   notifications: Notifications;
   notificationdeliveries: NotificationDeliveries;
   unsubscribetokens: UnsubscribeTokens;
+  learningprogress: LearningProgress;
 }
