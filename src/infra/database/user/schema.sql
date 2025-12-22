@@ -81,3 +81,26 @@ CREATE TABLE IF NOT EXISTS UnsubscribeTokens (
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_user ON UnsubscribeTokens(user_id) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_expires ON UnsubscribeTokens(expires_at) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_notification ON UnsubscribeTokens(notification_id);
+
+-- LearningProgress: User learning progress events (event-sourced)
+-- Stores all events in a JSONB array for simple load/save operations.
+-- The client derives the snapshot from events; server stores and syncs.
+CREATE TABLE IF NOT EXISTS LearningProgress (
+  user_id TEXT PRIMARY KEY,
+  
+  -- All progress events as JSONB array (event-sourced, append-only semantically)
+  -- Each event has: eventId, occurredAt, clientId, type, payload
+  events JSONB NOT NULL DEFAULT '[]'::jsonb,
+  
+  -- Timestamp of the most recent event (used as cursor for sync)
+  last_event_at TIMESTAMPTZ,
+  
+  -- Event count for quick limit checking (max 10,000 per user)
+  event_count INT NOT NULL DEFAULT 0,
+  
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for quick user lookup (primary key covers this)
+-- No additional indexes needed since we always load the full row
