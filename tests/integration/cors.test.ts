@@ -574,6 +574,170 @@ describe('CORS Plugin', () => {
     });
   });
 
+  describe('Glob Pattern Origins', () => {
+    it('allows origins matching glob pattern with wildcard subdomain', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: false,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+            cors: {
+              allowedOrigins: 'https://*.example.com',
+              clientBaseUrl: undefined,
+              publicClientBaseUrl: undefined,
+            },
+          }),
+        },
+      });
+
+      // Test various Vercel subdomains
+      const response1 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'https://my-app.example.com' },
+      });
+      expect(response1.statusCode).toBe(200);
+      expect(response1.headers['access-control-allow-origin']).toBe('https://my-app.example.com');
+
+      const response2 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'https://my-app-git-feature-team.example.com' },
+      });
+      expect(response2.statusCode).toBe(200);
+      expect(response2.headers['access-control-allow-origin']).toBe(
+        'https://my-app-git-feature-team.example.com'
+      );
+    });
+
+    it('blocks origins not matching glob pattern', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: false,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+            cors: {
+              allowedOrigins: 'https://*.example.com',
+              clientBaseUrl: undefined,
+              publicClientBaseUrl: undefined,
+            },
+          }),
+        },
+      });
+
+      // Should block non-example.com origins
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'https://malicious.com' },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.json().message).toContain('CORS origin not allowed');
+    });
+
+    it('allows localhost with any port using glob pattern', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: false,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+            cors: {
+              allowedOrigins: 'http://localhost:*',
+              clientBaseUrl: undefined,
+              publicClientBaseUrl: undefined,
+            },
+          }),
+        },
+      });
+
+      const response1 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'http://localhost:3000' },
+      });
+      expect(response1.statusCode).toBe(200);
+
+      const response2 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'http://localhost:5173' },
+      });
+      expect(response2.statusCode).toBe(200);
+    });
+
+    it('combines exact origins and glob patterns', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: false,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+            cors: {
+              allowedOrigins: 'https://example.com,https://*.example.com,http://localhost:*',
+              clientBaseUrl: undefined,
+              publicClientBaseUrl: undefined,
+            },
+          }),
+        },
+      });
+
+      // Test exact match
+      const response1 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'https://example.com' },
+      });
+      expect(response1.statusCode).toBe(200);
+
+      // Test vercel pattern
+      const response2 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'https://my-app.example.com' },
+      });
+      expect(response2.statusCode).toBe(200);
+
+      // Test localhost pattern
+      const response3 = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: { origin: 'http://localhost:8080' },
+      });
+      expect(response3.statusCode).toBe(200);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('handles empty ALLOWED_ORIGINS string', async () => {
       app = await createApp({
