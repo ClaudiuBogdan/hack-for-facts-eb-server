@@ -220,6 +220,25 @@ export async function getClient(): Promise<GoldenMasterClient> {
       gpt: {
         apiKey: undefined,
       },
+      email: {
+        apiKey: undefined,
+        webhookSecret: undefined,
+        fromAddress: 'noreply@test.example.com',
+        previewEnabled: false,
+        maxRps: 2,
+        enabled: false,
+      },
+      jobs: {
+        enabled: false,
+        concurrency: 5,
+        prefix: 'test:jobs',
+        processRole: 'both' as const,
+      },
+      notifications: {
+        triggerApiKey: undefined,
+        platformBaseUrl: 'https://test.example.com',
+        enabled: false,
+      },
       telemetry: {
         endpoint: undefined,
         headers: undefined,

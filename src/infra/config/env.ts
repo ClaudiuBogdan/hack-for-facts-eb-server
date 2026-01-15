@@ -64,6 +64,38 @@ export const EnvSchema = Type.Object({
   // SECURITY: Minimum 32 characters for sufficient entropy
   GPT_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
 
+  // Email (Resend)
+  /** Resend API key for sending emails */
+  RESEND_API_KEY: Type.Optional(Type.String({ minLength: 20 })),
+  /** Resend webhook secret for verifying webhook signatures */
+  RESEND_WEBHOOK_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  /** Email from address for outbound emails */
+  EMAIL_FROM_ADDRESS: Type.Optional(Type.String({ default: 'noreply@transparenta.eu' })),
+  /** Whether email preview API is enabled (dev only) */
+  EMAIL_PREVIEW_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  /** Resend rate limit (requests per second) */
+  RESEND_MAX_RPS: Type.Optional(Type.Number({ default: 2, minimum: 1, maximum: 10 })),
+
+  // Jobs (BullMQ)
+  /** Whether BullMQ job processing is enabled */
+  JOBS_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  /** Number of concurrent workers per queue */
+  JOBS_CONCURRENCY: Type.Optional(Type.Number({ default: 5, minimum: 1, maximum: 50 })),
+  /** BullMQ prefix for queue keys (NOT ioredis keyPrefix) */
+  BULLMQ_PREFIX: Type.Optional(Type.String({ default: 'transparenta:jobs' })),
+  /** Process role for deployment (api, worker, or both) */
+  PROCESS_ROLE: Type.Optional(
+    Type.Union([Type.Literal('api'), Type.Literal('worker'), Type.Literal('both')], {
+      default: 'both',
+    })
+  ),
+
+  // Notifications
+  /** API key for triggering notification jobs */
+  NOTIFICATION_TRIGGER_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
+  /** Platform base URL for building unsubscribe links */
+  PLATFORM_BASE_URL: Type.Optional(Type.String()),
+
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
@@ -125,6 +157,26 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         : 3600,
     // GPT REST API
     GPT_API_KEY: env['GPT_API_KEY'],
+    // Email (Resend)
+    RESEND_API_KEY: env['RESEND_API_KEY'],
+    RESEND_WEBHOOK_SECRET: env['RESEND_WEBHOOK_SECRET'],
+    EMAIL_FROM_ADDRESS: env['EMAIL_FROM_ADDRESS'] ?? 'noreply@transparenta.eu',
+    EMAIL_PREVIEW_ENABLED: env['EMAIL_PREVIEW_ENABLED'] === 'true',
+    RESEND_MAX_RPS:
+      env['RESEND_MAX_RPS'] != null && env['RESEND_MAX_RPS'] !== ''
+        ? Number.parseInt(env['RESEND_MAX_RPS'], 10)
+        : 2,
+    // Jobs (BullMQ)
+    JOBS_ENABLED: env['JOBS_ENABLED'] === 'true',
+    JOBS_CONCURRENCY:
+      env['JOBS_CONCURRENCY'] != null && env['JOBS_CONCURRENCY'] !== ''
+        ? Number.parseInt(env['JOBS_CONCURRENCY'], 10)
+        : 5,
+    BULLMQ_PREFIX: env['BULLMQ_PREFIX'] ?? 'transparenta:jobs',
+    PROCESS_ROLE: (env['PROCESS_ROLE'] as 'api' | 'worker' | 'both' | undefined) ?? 'both',
+    // Notifications
+    NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
+    PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -212,6 +264,41 @@ export const createConfig = (env: Env) => ({
   gpt: {
     /** API key for GPT REST API authentication */
     apiKey: env.GPT_API_KEY,
+  },
+  email: {
+    /** Resend API key for sending emails */
+    apiKey: env.RESEND_API_KEY,
+    /** Resend webhook secret for verifying signatures */
+    webhookSecret: env.RESEND_WEBHOOK_SECRET,
+    /** From address for outbound emails */
+    fromAddress: env.EMAIL_FROM_ADDRESS ?? 'noreply@transparenta.eu',
+    /** Whether preview API is enabled */
+    previewEnabled: env.EMAIL_PREVIEW_ENABLED ?? false,
+    /** Rate limit (requests per second) */
+    maxRps: env.RESEND_MAX_RPS ?? 2,
+    /** Whether email is enabled (API key is set) */
+    enabled: env.RESEND_API_KEY !== undefined,
+  },
+  jobs: {
+    /** Whether BullMQ job processing is enabled */
+    enabled: env.JOBS_ENABLED ?? false,
+    /** Number of concurrent workers per queue */
+    concurrency: env.JOBS_CONCURRENCY ?? 5,
+    /** BullMQ prefix for queue keys */
+    prefix: env.BULLMQ_PREFIX ?? 'transparenta:jobs',
+    /** Process role for deployment */
+    processRole: env.PROCESS_ROLE ?? 'both',
+  },
+  notifications: {
+    /** API key for triggering notification jobs */
+    triggerApiKey: env.NOTIFICATION_TRIGGER_API_KEY,
+    /** Platform base URL for unsubscribe links */
+    platformBaseUrl: env.PLATFORM_BASE_URL ?? env.CLIENT_BASE_URL ?? '',
+    /** Whether notifications are enabled */
+    enabled:
+      env.RESEND_API_KEY !== undefined &&
+      env.JOBS_ENABLED === true &&
+      env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
   },
   telemetry: {
     /** OTLP endpoint for SigNoz */

@@ -15,7 +15,6 @@ import {
   NotificationResponseSchema,
   NotificationListResponseSchema,
   DeliveryListResponseSchema,
-  MessageResponseSchema,
   ErrorResponseSchema,
   OkResponseSchema,
   type SubscribeBody,
@@ -469,7 +468,8 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
             id: d.id,
             notificationId: d.notificationId,
             periodKey: d.periodKey,
-            sentAt: d.sentAt.toISOString(),
+            sentAt: d.sentAt?.toISOString() ?? null,
+            status: d.status,
             metadata: d.metadata,
           })),
         });
@@ -477,34 +477,41 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
     );
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /api/v1/notifications/unsubscribe/:token - Token-based unsubscribe
+    // GET/POST /api/v1/notifications/unsubscribe/:token - Token-based unsubscribe
     // (NO AUTH REQUIRED - token authenticates the request)
+    //
+    // Supports two modes for CAN-SPAM compliance:
+    // - GET: Returns HTML success page (for human users clicking links in email body)
+    // - POST: Returns empty 200 response (for one-click unsubscribe from email clients)
     // ─────────────────────────────────────────────────────────────────────────
-    fastify.post<{ Params: UnsubscribeTokenParams }>(
-      '/api/v1/notifications/unsubscribe/:token',
-      {
-        schema: {
-          params: UnsubscribeTokenParamsSchema,
-          response: {
-            200: MessageResponseSchema,
-            400: ErrorResponseSchema,
-            404: ErrorResponseSchema,
-            500: ErrorResponseSchema,
-          },
-        },
+    fastify.route<{ Params: UnsubscribeTokenParams }>({
+      method: ['GET', 'POST'],
+      url: '/api/v1/notifications/unsubscribe/:token',
+      schema: {
+        params: UnsubscribeTokenParamsSchema,
       },
-      async (request, reply) => {
+      handler: async (request, reply) => {
         const { token } = request.params;
+        const isOneClick = request.method === 'POST';
 
         const result = await unsubscribeViaToken({ notificationsRepo, tokensRepo }, { token });
 
+        // For errors, we still show success page to prevent token enumeration
+        // (user already clicked unsubscribe, we shouldn't leak validity info)
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 404 | 500).send({
-            ok: false,
-            error: result.error.type,
-            message: result.error.message,
-          });
+          request.log.warn(
+            { error: result.error.type, status },
+            'Unsubscribe failed, but showing success response for security'
+          );
+
+          // For one-click (POST), return empty 200 per spec
+          if (isOneClick) {
+            return reply.status(200).send();
+          }
+
+          // For GET, show success page anyway (prevents enumeration)
+          return reply.type('text/html').send(renderUnsubscribeSuccessPage());
         }
 
         // Log warning if token marking failed (notification was still deactivated)
@@ -520,11 +527,74 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
           );
         }
 
-        return reply.status(200).send({
-          ok: true,
-          data: { message: 'Successfully unsubscribed' },
-        });
-      }
-    );
+        // For one-click (POST), return EMPTY body with 200 per RFC 8058
+        if (isOneClick) {
+          return reply.status(200).send();
+        }
+
+        // For GET, return HTML success page
+        return reply.type('text/html').send(renderUnsubscribeSuccessPage());
+      },
+    });
   };
 };
+
+/**
+ * Renders a simple HTML page for successful unsubscribe.
+ */
+function renderUnsubscribeSuccessPage(): string {
+  return `<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dezabonare reușită - Transparența.eu</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    h1 {
+      color: #2563eb;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+    p {
+      color: #666;
+      margin-bottom: 24px;
+    }
+    .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">✓</div>
+    <h1>Dezabonare reușită</h1>
+    <p>Ați fost dezabonat de la această notificare. Nu veți mai primi emailuri pentru această abonare.</p>
+    <p>Dacă v-ați răzgândit, puteți gestiona notificările din <a href="https://transparenta.eu/notifications/preferences">setări</a>.</p>
+  </div>
+</body>
+</html>`;
+}
