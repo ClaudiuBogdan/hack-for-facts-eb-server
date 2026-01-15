@@ -144,6 +144,20 @@ export interface Notification {
 }
 
 /**
+ * Delivery status for outbox pattern.
+ */
+export type DeliveryStatus =
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'delivered'
+  | 'failed_transient'
+  | 'failed_permanent'
+  | 'suppressed'
+  | 'skipped_unsubscribed'
+  | 'skipped_no_email';
+
+/**
  * Notification delivery record.
  */
 export interface NotificationDelivery {
@@ -152,8 +166,20 @@ export interface NotificationDelivery {
   notificationId: string;
   periodKey: string;
   deliveryKey: string;
-  emailBatchId: string;
-  sentAt: Date;
+  status: DeliveryStatus;
+  unsubscribeToken: string | null;
+  renderedSubject: string | null;
+  renderedHtml: string | null;
+  renderedText: string | null;
+  contentHash: string | null;
+  templateName: string | null;
+  templateVersion: string | null;
+  toEmail: string | null;
+  resendEmailId: string | null;
+  lastError: string | null;
+  attemptCount: number;
+  lastAttemptAt: Date | null;
+  sentAt: Date | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
 }

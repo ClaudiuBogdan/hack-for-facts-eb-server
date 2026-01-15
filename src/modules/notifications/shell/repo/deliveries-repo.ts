@@ -26,7 +26,19 @@ interface QueryRow {
   notification_id: string;
   period_key: string;
   delivery_key: string;
-  email_batch_id: string;
+  status: string;
+  unsubscribe_token: string | null;
+  rendered_subject: string | null;
+  rendered_html: string | null;
+  rendered_text: string | null;
+  content_hash: string | null;
+  template_name: string | null;
+  template_version: string | null;
+  to_email: string | null;
+  resend_email_id: string | null;
+  last_error: string | null;
+  attempt_count: number;
+  last_attempt_at: unknown;
   sent_at: unknown;
   metadata: Record<string, unknown> | null;
   created_at: unknown;
@@ -72,13 +84,25 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
           'notification_id',
           'period_key',
           'delivery_key',
-          'email_batch_id',
+          'status',
+          'unsubscribe_token',
+          'rendered_subject',
+          'rendered_html',
+          'rendered_text',
+          'content_hash',
+          'template_name',
+          'template_version',
+          'to_email',
+          'resend_email_id',
+          'last_error',
+          'attempt_count',
+          'last_attempt_at',
           'sent_at',
           'metadata',
           'created_at',
         ])
         .where('user_id', '=', userId)
-        .orderBy('sent_at', 'desc')
+        .orderBy('created_at', 'desc')
         .limit(limit)
         .offset(offset)
         .execute();
@@ -105,8 +129,20 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
       notificationId: row.notification_id,
       periodKey: row.period_key,
       deliveryKey: row.delivery_key,
-      emailBatchId: row.email_batch_id,
-      sentAt: this.toDate(row.sent_at),
+      status: row.status as NotificationDelivery['status'],
+      unsubscribeToken: row.unsubscribe_token,
+      renderedSubject: row.rendered_subject,
+      renderedHtml: row.rendered_html,
+      renderedText: row.rendered_text,
+      contentHash: row.content_hash,
+      templateName: row.template_name,
+      templateVersion: row.template_version,
+      toEmail: row.to_email,
+      resendEmailId: row.resend_email_id,
+      lastError: row.last_error,
+      attemptCount: row.attempt_count,
+      lastAttemptAt: row.last_attempt_at !== null ? this.toDate(row.last_attempt_at) : null,
+      sentAt: row.sent_at !== null ? this.toDate(row.sent_at) : null,
       metadata: row.metadata ?? {},
       createdAt: this.toDate(row.created_at),
     };

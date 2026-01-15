@@ -102,6 +102,25 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     gpt: {
       apiKey: undefined,
     },
+    email: {
+      apiKey: undefined,
+      webhookSecret: undefined,
+      fromAddress: 'noreply@test.example.com',
+      previewEnabled: false,
+      maxRps: 2,
+      enabled: false,
+    },
+    jobs: {
+      enabled: false,
+      concurrency: 5,
+      prefix: 'test:jobs',
+      processRole: 'both' as const,
+    },
+    notifications: {
+      triggerApiKey: undefined,
+      platformBaseUrl: 'https://test.example.com',
+      enabled: false,
+    },
     telemetry: {
       endpoint: undefined,
       headers: undefined,
@@ -123,6 +142,9 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     auth: { ...defaults.auth, ...overrides.auth },
     mcp: { ...defaults.mcp, ...overrides.mcp },
     gpt: { ...defaults.gpt, ...overrides.gpt },
+    email: { ...defaults.email, ...overrides.email },
+    jobs: { ...defaults.jobs, ...overrides.jobs },
+    notifications: { ...defaults.notifications, ...overrides.notifications },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
 };

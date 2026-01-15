@@ -617,13 +617,12 @@ describe('Notifications REST API', () => {
         // Note: No authorization header - this endpoint is public
       });
 
+      // RFC 8058: One-click unsubscribe returns empty body with 200
       expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.ok).toBe(true);
-      expect(body.data.message).toBe('Successfully unsubscribed');
+      expect(response.body).toBe('');
     });
 
-    it('returns 404 for unknown token', async () => {
+    it('returns 200 with empty body for unknown token (prevents enumeration)', async () => {
       if (app != null) await app.close();
       app = await createTestApp({});
 
@@ -632,10 +631,12 @@ describe('Notifications REST API', () => {
         url: `/api/v1/notifications/unsubscribe/${'b'.repeat(64)}`,
       });
 
-      expect(response.statusCode).toBe(404);
+      // RFC 8058: One-click always returns 200 to prevent token enumeration
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('');
     });
 
-    it('returns 400 for expired token', async () => {
+    it('returns 200 with empty body for expired token (prevents enumeration)', async () => {
       const pastDate = new Date();
       pastDate.setFullYear(pastDate.getFullYear() - 2);
 
@@ -656,10 +657,12 @@ describe('Notifications REST API', () => {
         url: `/api/v1/notifications/unsubscribe/${'c'.repeat(64)}`,
       });
 
-      expect(response.statusCode).toBe(400);
+      // RFC 8058: One-click always returns 200 to prevent token enumeration
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('');
     });
 
-    it('returns 400 for already used token', async () => {
+    it('returns 200 with empty body for already used token (prevents enumeration)', async () => {
       const token = createTestUnsubscribeToken({
         token: 'd'.repeat(64),
         userId: testAuth.userIds.user1,
@@ -677,7 +680,9 @@ describe('Notifications REST API', () => {
         url: `/api/v1/notifications/unsubscribe/${'d'.repeat(64)}`,
       });
 
-      expect(response.statusCode).toBe(400);
+      // RFC 8058: One-click always returns 200 to prevent token enumeration
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('');
     });
   });
 });

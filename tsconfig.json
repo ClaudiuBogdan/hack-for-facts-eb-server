@@ -3,6 +3,9 @@
     /* Language and Environment */
     "target": "ES2022",
     "lib": ["ES2022"],
+    /* JSX for React Email templates */
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
     /* Modules */
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

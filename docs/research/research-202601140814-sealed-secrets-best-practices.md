@@ -1463,7 +1463,7 @@ Based on the research, **Sealed Secrets is the right choice for this project** b
 1. **Today:**
    - [ ] Install gitleaks pre-commit hook
    - [ ] Create `k8s/certs/` directory with public certificates
-   - [ ] Create `scripts/seal-secret.sh` helper
+   - [ ] Create `scripts/seal-secret.sh` helper`
 
 2. **This Week:**
    - [ ] Add CI validation workflow

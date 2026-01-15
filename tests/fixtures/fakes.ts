@@ -43,6 +43,19 @@ import type {
   UpsertEventsResult,
 } from '@/modules/learning-progress/core/ports.js';
 import type { LearningProgressEvent } from '@/modules/learning-progress/core/types.js';
+import type { DeliveryError } from '@/modules/notification-delivery/core/errors.js';
+import type {
+  DeliveryRepository,
+  CreateDeliveryInput,
+  UpdateDeliveryStatusInput,
+  WebhookEventRepository,
+  InsertWebhookEventInput,
+} from '@/modules/notification-delivery/core/ports.js';
+import type {
+  DeliveryRecord,
+  DeliveryStatus,
+  StoredWebhookEvent,
+} from '@/modules/notification-delivery/core/types.js';
 import type { NotificationError } from '@/modules/notifications/core/errors.js';
 import type {
   NotificationsRepository,
@@ -900,7 +913,12 @@ export const makeFakeDeliveriesRepo = (
 
       const userDeliveries = deliveries
         .filter((d) => d.userId === userId)
-        .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime());
+        .sort((a, b) => {
+          // Sort by sentAt descending, with nulls at the end
+          const aTime = a.sentAt?.getTime() ?? 0;
+          const bTime = b.sentAt?.getTime() ?? 0;
+          return bTime - aTime;
+        });
 
       return ok(userDeliveries.slice(offset, offset + limit));
     },
@@ -1013,7 +1031,19 @@ export const createTestDelivery = (
     notificationId: overrides.notificationId ?? 'notification-1',
     periodKey: overrides.periodKey ?? '2024-01',
     deliveryKey: overrides.deliveryKey ?? `user-1:notification-1:2024-01`,
-    emailBatchId: overrides.emailBatchId ?? 'batch-1',
+    status: overrides.status ?? 'sent',
+    unsubscribeToken: overrides.unsubscribeToken ?? null,
+    renderedSubject: overrides.renderedSubject ?? null,
+    renderedHtml: overrides.renderedHtml ?? null,
+    renderedText: overrides.renderedText ?? null,
+    contentHash: overrides.contentHash ?? null,
+    templateName: overrides.templateName ?? null,
+    templateVersion: overrides.templateVersion ?? null,
+    toEmail: overrides.toEmail ?? null,
+    resendEmailId: overrides.resendEmailId ?? null,
+    lastError: overrides.lastError ?? null,
+    attemptCount: overrides.attemptCount ?? 1,
+    lastAttemptAt: overrides.lastAttemptAt ?? now,
     sentAt: overrides.sentAt ?? now,
     metadata: overrides.metadata ?? {},
     createdAt: overrides.createdAt ?? now,
@@ -1416,4 +1446,357 @@ export const createTestActivePathSetEvent = (
     type: 'activePath.set',
     payload: { pathId },
   } as LearningProgressEvent;
+};
+
+// =============================================================================
+// Notification Delivery Module Fakes
+// =============================================================================
+
+interface FakeDeliveryRepoOptions {
+  /** Initial deliveries to seed the store with */
+  deliveries?: DeliveryRecord[];
+  /** Enable database error simulation */
+  simulateDbError?: boolean;
+}
+
+/**
+ * Creates a fake delivery repository for testing.
+ *
+ * Implements all DeliveryRepository methods using an in-memory Map.
+ * Supports atomic claim pattern for testing worker behavior.
+ */
+export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): DeliveryRepository => {
+  const store = new Map<string, DeliveryRecord>();
+  const keyIndex = new Map<string, string>(); // deliveryKey -> id
+  const simulateDbError = options.simulateDbError ?? false;
+
+  // Seed initial deliveries
+  if (options.deliveries !== undefined) {
+    for (const d of options.deliveries) {
+      store.set(d.id, { ...d });
+      keyIndex.set(d.deliveryKey, d.id);
+    }
+  }
+
+  const createDbError = (): Result<never, DeliveryError> =>
+    err({
+      type: 'DatabaseError',
+      message: 'Simulated database error',
+      retryable: true,
+    } as DeliveryError);
+
+  return {
+    create: async (input: CreateDeliveryInput): Promise<Result<DeliveryRecord, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      // Check for duplicate delivery key
+      if (keyIndex.has(input.deliveryKey)) {
+        return err({
+          type: 'DuplicateDelivery',
+          deliveryKey: input.deliveryKey,
+        } as DeliveryError);
+      }
+
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const delivery: DeliveryRecord = {
+        id,
+        userId: input.userId,
+        toEmail: null,
+        notificationId: input.notificationId,
+        periodKey: input.periodKey,
+        deliveryKey: input.deliveryKey,
+        status: 'pending',
+        unsubscribeToken: input.unsubscribeToken ?? null,
+        renderedSubject: input.renderedSubject ?? null,
+        renderedHtml: input.renderedHtml ?? null,
+        renderedText: input.renderedText ?? null,
+        contentHash: input.contentHash ?? null,
+        templateName: input.templateName ?? null,
+        templateVersion: input.templateVersion ?? null,
+        resendEmailId: null,
+        lastError: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        sentAt: null,
+        metadata: input.metadata ?? {},
+        createdAt: now,
+      };
+      store.set(id, delivery);
+      keyIndex.set(input.deliveryKey, id);
+      return ok(delivery);
+    },
+
+    findById: async (deliveryId: string): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+      const delivery = store.get(deliveryId);
+      return ok(delivery ?? null);
+    },
+
+    findByDeliveryKey: async (
+      deliveryKey: string
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+      const id = keyIndex.get(deliveryKey);
+      if (id === undefined) return ok(null);
+      const delivery = store.get(id);
+      return ok(delivery ?? null);
+    },
+
+    claimForSending: async (
+      deliveryId: string
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined) return ok(null);
+
+      // Only claim if in claimable status
+      if (delivery.status !== 'pending' && delivery.status !== 'failed_transient') {
+        return ok(null);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status: 'sending',
+        attemptCount: delivery.attemptCount + 1,
+        lastAttemptAt: new Date(),
+      };
+      store.set(deliveryId, updated);
+      return ok(updated);
+    },
+
+    updateStatus: async (
+      deliveryId: string,
+      input: UpdateDeliveryStatusInput
+    ): Promise<Result<void, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined) {
+        return ok(undefined); // Silently succeed like real repo
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status: input.status,
+        ...(input.toEmail !== undefined ? { toEmail: input.toEmail } : {}),
+        ...(input.resendEmailId !== undefined ? { resendEmailId: input.resendEmailId } : {}),
+        ...(input.lastError !== undefined ? { lastError: input.lastError } : {}),
+        ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
+      };
+      store.set(deliveryId, updated);
+      return ok(undefined);
+    },
+
+    updateStatusIfStillSending: async (
+      deliveryId: string,
+      status: DeliveryStatus,
+      input?: Partial<UpdateDeliveryStatusInput>
+    ): Promise<Result<boolean, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery?.status !== 'sending') {
+        return ok(false);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status,
+        ...(input?.toEmail !== undefined ? { toEmail: input.toEmail } : {}),
+        ...(input?.resendEmailId !== undefined ? { resendEmailId: input.resendEmailId } : {}),
+        ...(input?.lastError !== undefined ? { lastError: input.lastError } : {}),
+        ...(input?.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
+      };
+      store.set(deliveryId, updated);
+      return ok(true);
+    },
+
+    findStuckSending: async (
+      olderThanMinutes: number
+    ): Promise<Result<DeliveryRecord[], DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+      const stuck: DeliveryRecord[] = [];
+
+      for (const delivery of store.values()) {
+        if (
+          delivery.status === 'sending' &&
+          delivery.lastAttemptAt !== null &&
+          delivery.lastAttemptAt < threshold
+        ) {
+          stuck.push(delivery);
+        }
+      }
+
+      return ok(stuck);
+    },
+
+    existsByDeliveryKey: async (deliveryKey: string): Promise<Result<boolean, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+      return ok(keyIndex.has(deliveryKey));
+    },
+  };
+};
+
+interface FakeWebhookEventRepoOptions {
+  /** Initial events to seed the store with */
+  events?: StoredWebhookEvent[];
+  /** Enable database error simulation */
+  simulateDbError?: boolean;
+}
+
+/**
+ * Creates a fake webhook event repository for testing.
+ */
+export const makeFakeWebhookEventRepo = (
+  options: FakeWebhookEventRepoOptions = {}
+): WebhookEventRepository => {
+  const store = new Map<string, StoredWebhookEvent>();
+  const simulateDbError = options.simulateDbError ?? false;
+
+  // Seed initial events (keyed by svixId)
+  if (options.events !== undefined) {
+    for (const e of options.events) {
+      store.set(e.svixId, { ...e });
+    }
+  }
+
+  const createDbError = (): Result<never, DeliveryError> =>
+    err({
+      type: 'DatabaseError',
+      message: 'Simulated database error',
+      retryable: true,
+    } as DeliveryError);
+
+  return {
+    insert: async (
+      input: InsertWebhookEventInput
+    ): Promise<Result<StoredWebhookEvent, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      // Check for duplicate svix_id
+      if (store.has(input.svixId)) {
+        return err({
+          type: 'DuplicateWebhookEvent',
+          svixId: input.svixId,
+        } as DeliveryError);
+      }
+
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const event: StoredWebhookEvent = {
+        id,
+        svixId: input.svixId,
+        eventType: input.eventType,
+        resendEmailId: input.resendEmailId,
+        deliveryId: input.deliveryId ?? null,
+        payload: input.payload,
+        processedAt: null,
+        createdAt: now,
+      };
+      store.set(input.svixId, event);
+      return ok(event);
+    },
+
+    markProcessed: async (svixId: string): Promise<Result<void, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const event = store.get(svixId);
+      if (event !== undefined) {
+        const updated: StoredWebhookEvent = {
+          ...event,
+          processedAt: new Date(),
+        };
+        store.set(svixId, updated);
+      }
+      return ok(undefined);
+    },
+
+    findUnprocessed: async (
+      olderThanMinutes: number
+    ): Promise<Result<StoredWebhookEvent[], DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+      const unprocessed: StoredWebhookEvent[] = [];
+
+      for (const event of store.values()) {
+        if (event.processedAt === null && event.createdAt < threshold) {
+          unprocessed.push(event);
+        }
+      }
+
+      return ok(unprocessed);
+    },
+  };
+};
+
+// =============================================================================
+// Notification Delivery Test Builders
+// =============================================================================
+
+let deliveryRecordIdCounter = 0;
+
+/**
+ * Creates a test delivery record with sensible defaults.
+ */
+export const createTestDeliveryRecord = (
+  overrides: Partial<DeliveryRecord> = {}
+): DeliveryRecord => {
+  deliveryRecordIdCounter++;
+  const now = new Date();
+  const id = overrides.id ?? `delivery-record-${String(deliveryRecordIdCounter)}`;
+  const userId = overrides.userId ?? 'user-1';
+  const notificationId = overrides.notificationId ?? 'notification-1';
+  const periodKey = overrides.periodKey ?? '2025-01';
+  const deliveryKey = overrides.deliveryKey ?? `${userId}:${notificationId}:${periodKey}`;
+
+  return {
+    id,
+    userId,
+    toEmail: overrides.toEmail ?? null,
+    notificationId,
+    periodKey,
+    deliveryKey,
+    status: overrides.status ?? 'pending',
+    unsubscribeToken: overrides.unsubscribeToken ?? null,
+    renderedSubject: overrides.renderedSubject ?? null,
+    renderedHtml: overrides.renderedHtml ?? null,
+    renderedText: overrides.renderedText ?? null,
+    contentHash: overrides.contentHash ?? null,
+    templateName: overrides.templateName ?? null,
+    templateVersion: overrides.templateVersion ?? null,
+    resendEmailId: overrides.resendEmailId ?? null,
+    lastError: overrides.lastError ?? null,
+    attemptCount: overrides.attemptCount ?? 0,
+    lastAttemptAt: overrides.lastAttemptAt ?? null,
+    sentAt: overrides.sentAt ?? null,
+    metadata: overrides.metadata ?? {},
+    createdAt: overrides.createdAt ?? now,
+  };
+};
+
+let webhookEventIdCounter = 0;
+
+/**
+ * Creates a test stored webhook event with sensible defaults.
+ */
+export const createTestStoredWebhookEvent = (
+  overrides: Partial<StoredWebhookEvent> = {}
+): StoredWebhookEvent => {
+  webhookEventIdCounter++;
+  const now = new Date();
+  return {
+    id: overrides.id ?? `event-${String(webhookEventIdCounter)}`,
+    svixId: overrides.svixId ?? `svix-${String(webhookEventIdCounter)}`,
+    eventType: overrides.eventType ?? 'email.sent',
+    resendEmailId: overrides.resendEmailId ?? `resend-${String(webhookEventIdCounter)}`,
+    deliveryId: overrides.deliveryId ?? null,
+    payload: overrides.payload ?? {},
+    processedAt: overrides.processedAt ?? null,
+    createdAt: overrides.createdAt ?? now,
+  };
 };

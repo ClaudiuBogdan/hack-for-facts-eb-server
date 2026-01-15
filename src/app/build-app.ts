@@ -25,6 +25,7 @@ import {
   wrapExecutionLineItemsRepo,
 } from './cache-wrappers.js';
 import { initCache, createCacheConfig, type CacheClient } from '../infra/cache/index.js';
+import { makeWebhookVerifier } from '../infra/email/client.js';
 import {
   makeGraphQLPlugin,
   CommonGraphQLSchema,
@@ -128,6 +129,11 @@ import {
   type GptRoutesOptions,
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
+import {
+  makeDeliveryRepo,
+  makeWebhookEventRepo,
+  makeWebhookRoutes,
+} from '../modules/notification-delivery/index.js';
 import {
   makeNotificationRoutes,
   makeNotificationsRepo,
@@ -513,6 +519,81 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         hasher: sha256Hasher,
       })
     );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Notification Delivery Module (Background Jobs + Webhooks)
+    // ─────────────────────────────────────────────────────────────────────────
+    // This module handles the delivery pipeline for email notifications:
+    // - BullMQ workers for collect/compose/send
+    // - REST endpoints for manual trigger and webhook ingestion
+    // - Role-based gating: api (routes only), worker (workers only), both
+    //
+    // NOTE: Full integration requires implementing adapters for:
+    // - ExtendedNotificationsRepository (findEligibleForDelivery, deactivate)
+    // - ExtendedTokensRepository (getOrCreateActive)
+    // - DataFetcher (fetchNewsletterData, fetchAlertData)
+    // - UserEmailFetcher (getEmail from Clerk)
+    //
+    // The delivery repos and webhook endpoint are wired here.
+    // Workers require the adapters above to function.
+    if (
+      config.notifications.enabled &&
+      config.email.apiKey !== undefined &&
+      config.redis.url !== undefined
+    ) {
+      // Create delivery repos for the pipeline
+      const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
+      const webhookEventRepo = makeWebhookEventRepo({ db: userDb, logger: repoLogger });
+
+      // Log that notification delivery is partially enabled
+      app.log.info(
+        {
+          hasWebhookSecret: config.email.webhookSecret !== undefined,
+          hasTriggerApiKey: config.notifications.triggerApiKey !== undefined,
+          processRole: config.jobs.processRole,
+        },
+        'Notification delivery repos initialized (full pipeline requires additional adapters)'
+      );
+
+      // Webhook routes (Resend event ingestion) - can work standalone
+      if (config.email.webhookSecret !== undefined) {
+        const webhookVerifier = makeWebhookVerifier({
+          webhookSecret: config.email.webhookSecret,
+          logger: repoLogger,
+        });
+
+        // Stub notifications repo for webhook routes (just needs deactivate)
+        // TODO: Replace with real ExtendedNotificationsRepository when available
+        const stubNotificationsRepo = {
+          findById: async () => {
+            const { ok } = await import('neverthrow');
+            return ok(null);
+          },
+          findEligibleForDelivery: async () => {
+            const { ok } = await import('neverthrow');
+            return ok([]);
+          },
+          deactivate: async (id: string) => {
+            // Deactivate via base repo
+            const { ok } = await import('neverthrow');
+            repoLogger.warn({ notificationId: id }, 'Deactivate called but not implemented');
+            return ok(undefined);
+          },
+        };
+
+        await app.register(
+          makeWebhookRoutes({
+            webhookVerifier,
+            webhookEventRepo,
+            deliveryRepo,
+            notificationsRepo: stubNotificationsRepo,
+            logger: repoLogger,
+          })
+        );
+
+        app.log.info('Resend webhook endpoint enabled at /api/v1/webhooks/resend');
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Learning Progress Module (REST API)

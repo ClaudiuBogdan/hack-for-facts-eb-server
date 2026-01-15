@@ -231,7 +231,7 @@ describe('listDeliveries use case', () => {
         notificationId: 'notification-1',
         periodKey: '2024-01',
         deliveryKey: 'user-1:notification-1:2024-01',
-        emailBatchId: 'batch-123',
+        status: 'sent',
         sentAt: now,
         metadata: { subject: 'Test notification' },
         createdAt: now,
@@ -249,7 +249,7 @@ describe('listDeliveries use case', () => {
         expect(returned?.notificationId).toBe('notification-1');
         expect(returned?.periodKey).toBe('2024-01');
         expect(returned?.deliveryKey).toBe('user-1:notification-1:2024-01');
-        expect(returned?.emailBatchId).toBe('batch-123');
+        expect(returned?.status).toBe('sent');
         expect(returned?.metadata).toEqual({ subject: 'Test notification' });
       }
     });
