@@ -44,18 +44,18 @@ export const ProgressBar = ({
       cellPadding="0"
       cellSpacing="0"
       border={0}
-      style={{ borderRadius: `${height / 2}px`, overflow: 'hidden' }}
+      style={{ borderRadius: `${String(height / 2)}px`, overflow: 'hidden' }}
     >
       <tr>
         <td
           style={{
             backgroundColor: backgroundColor,
-            borderRadius: `${height / 2}px`,
+            borderRadius: `${String(height / 2)}px`,
             padding: 0,
           }}
         >
           <table
-            width={`${clampedPercentage}%`}
+            width={`${String(clampedPercentage)}%`}
             cellPadding="0"
             cellSpacing="0"
             border={0}
@@ -65,7 +65,7 @@ export const ProgressBar = ({
                 height={height}
                 style={{
                   backgroundColor: color,
-                  borderRadius: `${height / 2}px`,
+                  borderRadius: `${String(height / 2)}px`,
                 }}
               />
             </tr>

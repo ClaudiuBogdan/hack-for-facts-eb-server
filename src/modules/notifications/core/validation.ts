@@ -19,7 +19,6 @@ import type {
   NotificationConfig,
   AnalyticsSeriesAlertConfig,
   StaticSeriesAlertConfig,
-  AlertCondition,
 } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,14 +31,36 @@ import type {
 export function isAnalyticsAlertConfig(
   config: NotificationConfig
 ): config is AnalyticsSeriesAlertConfig {
-  return config !== null && 'filter' in config;
+  if (config === null) {
+    return false;
+  }
+
+  if (typeof config !== 'object') {
+    return false;
+  }
+
+  const candidate = config as unknown as { filter?: unknown; conditions?: unknown };
+  return (
+    typeof candidate.filter === 'object' &&
+    candidate.filter !== null &&
+    Array.isArray(candidate.conditions)
+  );
 }
 
 /**
  * Type guard for StaticSeriesAlertConfig.
  */
 export function isStaticAlertConfig(config: NotificationConfig): config is StaticSeriesAlertConfig {
-  return config !== null && 'datasetId' in config;
+  if (config === null) {
+    return false;
+  }
+
+  if (typeof config !== 'object') {
+    return false;
+  }
+
+  const candidate = config as unknown as { datasetId?: unknown; conditions?: unknown };
+  return typeof candidate.datasetId === 'string' && Array.isArray(candidate.conditions);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,11 +75,16 @@ export function isStaticAlertConfig(config: NotificationConfig): config is Stati
  * - A finite threshold number
  */
 export function validateConditions(
-  conditions: AlertCondition[],
+  conditions: unknown[],
   notificationType: NotificationType
 ): Result<void, NotificationError> {
   for (const [i, condition] of conditions.entries()) {
-    if (condition.unit.trim() === '') {
+    if (
+      condition === null ||
+      typeof condition !== 'object' ||
+      typeof (condition as Record<string, unknown>)['unit'] !== 'string' ||
+      ((condition as Record<string, unknown>)['unit'] as string).trim() === ''
+    ) {
       return err(
         createInvalidConfigError(
           notificationType,
@@ -67,11 +93,28 @@ export function validateConditions(
       );
     }
 
-    if (!Number.isFinite(condition.threshold)) {
+    const threshold = (condition as Record<string, unknown>)['threshold'];
+    if (typeof threshold !== 'number' || !Number.isFinite(threshold)) {
       return err(
         createInvalidConfigError(
           notificationType,
           `Condition at index ${String(i)} requires a finite threshold`
+        )
+      );
+    }
+
+    const operator = (condition as Record<string, unknown>)['operator'];
+    if (
+      operator !== 'gt' &&
+      operator !== 'gte' &&
+      operator !== 'lt' &&
+      operator !== 'lte' &&
+      operator !== 'eq'
+    ) {
+      return err(
+        createInvalidConfigError(
+          notificationType,
+          `Condition at index ${String(i)} requires a valid operator`
         )
       );
     }

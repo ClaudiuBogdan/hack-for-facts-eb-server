@@ -5,8 +5,6 @@
  * TypeBox schemas for REST validation are in shell/rest/schemas.ts.
  */
 
-import type { AnalyticsFilter } from '@/common/types/analytics.js';
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Hasher Interface
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +104,9 @@ export interface AnalyticsSeriesAlertConfig {
   title?: string;
   description?: string;
   conditions: AlertCondition[];
-  filter: AnalyticsFilter;
+  // Stored as a JSON-like object and validated at use-time.
+  // TODO(review): validate this against a shared AnalyticsFilter schema (TypeBox) if/when added.
+  filter: Record<string, unknown>;
 }
 
 /**
@@ -235,10 +235,7 @@ function generatePreviousYearKey(date: Date): string {
  * Generates period key based on notification type.
  * Period keys represent the PREVIOUS period (not current).
  */
-export function generatePeriodKey(
-  notificationType: NotificationType,
-  date: Date = new Date()
-): string {
+export function generatePeriodKey(notificationType: NotificationType, date: Date): string {
   switch (notificationType) {
     case 'newsletter_entity_monthly':
     case 'alert_series_analytics':

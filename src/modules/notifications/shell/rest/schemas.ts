@@ -103,7 +103,9 @@ export type SubscribeBody = Static<typeof SubscribeBodySchema>;
  */
 export const UpdateNotificationBodySchema = Type.Object({
   isActive: Type.Optional(Type.Boolean()),
-  config: Type.Optional(Type.Unknown()),
+  config: Type.Optional(
+    Type.Union([Type.Null(), AnalyticsSeriesAlertConfigSchema, StaticSeriesAlertConfigSchema])
+  ),
 });
 
 export type UpdateNotificationBody = Static<typeof UpdateNotificationBodySchema>;

@@ -106,7 +106,25 @@ export async function subscribe(
 
       // Reactivate
       const updateResult = await notificationsRepo.update(existing.id, { isActive: true });
-      return updateResult;
+      if (updateResult.isOk()) {
+        return updateResult;
+      }
+
+      // Rare race: notification was deleted between find and update.
+      // Treat as "not found" and create a new subscription.
+      // TODO(review): decide if we should retry lookup instead of create.
+      if (updateResult.error.type === 'NotificationNotFoundError') {
+        const hash = generateNotificationHash(hasher, userId, notificationType, entityCui, null);
+        return notificationsRepo.create({
+          userId,
+          notificationType,
+          entityCui,
+          config: null,
+          hash,
+        });
+      }
+
+      return err(updateResult.error);
     }
 
     // Create new newsletter subscription

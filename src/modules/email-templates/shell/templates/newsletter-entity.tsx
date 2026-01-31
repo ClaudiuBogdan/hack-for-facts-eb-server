@@ -9,11 +9,11 @@ import { Section, Text, Button, Row, Column } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
-import { EmailLayout } from './email-layout.js';
-import { EntityHeader } from './components/entity-header.js';
-import { MetricCard } from './components/metric-card.js';
 import { CategoryList } from './components/category-list.js';
+import { EntityHeader } from './components/entity-header.js';
 import { FundingBreakdown } from './components/funding-breakdown.js';
+import { MetricCard } from './components/metric-card.js';
+import { EmailLayout } from './email-layout.js';
 import { getTranslations, getNewsletterIntro } from '../../core/i18n.js';
 
 import type { NewsletterEntityProps } from '../../core/types.js';
