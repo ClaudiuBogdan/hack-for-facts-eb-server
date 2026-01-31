@@ -1,0 +1,191 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 60848354120,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 40761110203.86,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 40970550177.71,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 37563747750,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 32964395588.87,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 33119486138.75,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 32930826630,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 30060434927.33,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 30172191498.27,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 1543502000,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 914807564.27,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 914807564.27,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 1248096000,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 796697240,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 796697240,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 1077237000,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 787155006.42,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 787155006.42,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 599685000,
+        "entity_cui": "4204038",
+        "entity_name": "SECTORUL 2 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 503098985.05,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 503098985.05,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 445091000,
+        "entity_cui": "4204038",
+        "entity_name": "SECTORUL 2 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 398809178.02,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 398809178.02,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 849631270,
+        "entity_cui": "4505359",
+        "entity_name": "SECTORUL 1 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 374548576.34,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 374548576.34,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 668264100,
+        "entity_cui": "4505359",
+        "entity_name": "SECTORUL 1 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 336050662.27,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 336050662.27,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 856228000,
+        "entity_cui": "4420465",
+        "entity_name": "SECTORUL 3 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 278671289.58,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 278671289.58,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 327925999,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 275756339.12,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 275756339.12,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 348929380,
+        "entity_cui": "4420465",
+        "entity_name": "SECTORUL 3 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 263407552.54,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 263407552.54,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 770141970,
+        "entity_cui": "4316422",
+        "entity_name": "SECTORUL 4 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 260638112.24,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 260638112.24,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 347727121,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 259137273.06,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 259137273.06,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 323280980,
+        "entity_cui": "4505359",
+        "entity_name": "SECTORUL 1 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 258896048.84,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 258896048.84,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 588059000,
+        "entity_cui": "4340730",
+        "entity_name": "SECTORUL 6 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 253556986.09,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 253556986.09,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 270031000,
+        "entity_cui": "4204038",
+        "entity_name": "SECTORUL 2 AL MUNICIPIULUI BUCURESTI",
+        "plati_trezor": 241695977.57,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 241695977.57,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 321571000,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 237552847.4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 237655196.65,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 989358034,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 237417536.13,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 237417536.13,
+        "year": 2023
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 9702
+    }
+  }
+}

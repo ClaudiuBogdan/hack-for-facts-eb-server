@@ -1,3 +1,4 @@
+import type { ExecutionGqlReportType } from './report-types.js';
 import type { Frequency } from './temporal.js';
 
 // -----------------------------------------
@@ -13,8 +14,8 @@ export type ExpenseType = 'dezvoltare' | 'functionare';
 /** Supported currencies for financial data */
 export type Currency = 'RON' | 'EUR' | 'USD';
 
-/** GraphQL report type enum values */
-export type GqlReportType = 'PRINCIPAL_AGGREGATED' | 'SECONDARY_AGGREGATED' | 'DETAILED';
+/** GraphQL report type enum values (execution only) */
+export type GqlReportType = ExecutionGqlReportType;
 
 /** GraphQL period type enum values (MONTH, QUARTER, YEAR) */
 export type PeriodType = 'MONTH' | 'QUARTER' | 'YEAR';

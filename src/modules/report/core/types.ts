@@ -1,8 +1,19 @@
 /**
  * Domain types for Report module.
  *
- * Reports represent budget execution report metadata for imported files.
+ * Reports represent budget execution and commitments report metadata for imported files.
  */
+
+import type { DbReportType, GqlReportType } from '@/common/types/report-types.js';
+export type {
+  DbExecutionReportType,
+  DbCommitmentsReportType,
+  DbReportType,
+  ExecutionGqlReportType,
+  CommitmentGqlReportType,
+  GqlReportType,
+} from '@/common/types/report-types.js';
+export { GQL_TO_DB_REPORT_TYPE, DB_TO_GQL_REPORT_TYPE } from '@/common/types/report-types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -18,47 +29,12 @@ export const MAX_REPORT_LIMIT = 500;
 export const DEFAULT_REPORT_ELI_LIMIT = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Report Type Mapping
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Database report type enum values.
- */
-export type DbReportType =
-  | 'Executie bugetara agregata la nivel de ordonator principal'
-  | 'Executie bugetara agregata la nivel de ordonator secundar'
-  | 'Executie bugetara detaliata';
-
-/**
- * GraphQL report type enum values.
- */
-export type GqlReportType = 'PRINCIPAL_AGGREGATED' | 'SECONDARY_AGGREGATED' | 'DETAILED';
-
-/**
- * Maps GraphQL ReportType to database value.
- */
-export const GQL_TO_DB_REPORT_TYPE: Record<GqlReportType, DbReportType> = {
-  PRINCIPAL_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator principal',
-  SECONDARY_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator secundar',
-  DETAILED: 'Executie bugetara detaliata',
-};
-
-/**
- * Maps database ReportType to GraphQL value.
- */
-export const DB_TO_GQL_REPORT_TYPE: Record<DbReportType, GqlReportType> = {
-  'Executie bugetara agregata la nivel de ordonator principal': 'PRINCIPAL_AGGREGATED',
-  'Executie bugetara agregata la nivel de ordonator secundar': 'SECONDARY_AGGREGATED',
-  'Executie bugetara detaliata': 'DETAILED',
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Report Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Budget execution report.
- * Represents metadata for an imported budget execution report file.
+ * Budget report metadata (execution or commitments).
+ * Represents metadata for an imported report file.
  */
 export interface Report {
   /** Report ID */

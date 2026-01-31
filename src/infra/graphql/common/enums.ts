@@ -39,6 +39,12 @@ export const CommonEnums = /* GraphQL */ `
     SECONDARY_AGGREGATED
     "Executie bugetara detaliata"
     DETAILED
+    "Executie - Angajamente bugetare agregat principal"
+    COMMITMENT_PRINCIPAL_AGGREGATED
+    "Executie - Angajamente bugetare agregat secundar"
+    COMMITMENT_SECONDARY_AGGREGATED
+    "Executie - Angajamente bugetare detaliat"
+    COMMITMENT_DETAILED
   }
 
   # ---------------------------------------------------------------------------

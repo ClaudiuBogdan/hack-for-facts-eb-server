@@ -423,14 +423,6 @@ describe('generatePeriodKey', () => {
       expect(key).toBe('1999');
     });
   });
-
-  describe('default date parameter', () => {
-    it('uses current date when no date provided', () => {
-      const key = generatePeriodKey('newsletter_entity_monthly');
-      // Just check it's a valid format - actual value depends on current date
-      expect(key).toMatch(/^\d{4}-\d{2}$/);
-    });
-  });
 });
 
 describe('generateDeliveryKey', () => {

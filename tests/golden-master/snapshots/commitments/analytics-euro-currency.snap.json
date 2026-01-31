@@ -1,0 +1,40 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 94559817770.25
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 99456418628.96
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 115084122519.18
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 130656554445.68
+        }
+      ],
+      "metric": "PLATI_TREZOR",
+      "seriesId": "plati-trezor-euro",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "EUR"
+      }
+    }
+  ]
+}

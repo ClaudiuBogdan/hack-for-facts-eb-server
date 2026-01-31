@@ -1,0 +1,40 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 527172233770
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 556667694656
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 650109886677
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 764433872764
+        }
+      ],
+      "metric": "CREDITE_BUGETARE",
+      "seriesId": "credite-bugetare",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

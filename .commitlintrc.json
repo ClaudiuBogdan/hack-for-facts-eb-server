@@ -36,6 +36,7 @@
         "entity-analytics",
         "aggregated-line-items",
         "execution-line-items",
+        "commitments",
         "budget-sector",
         "funding-sources",
         "entity",

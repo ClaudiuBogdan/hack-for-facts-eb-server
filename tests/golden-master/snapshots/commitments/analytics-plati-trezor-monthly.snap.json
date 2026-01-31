@@ -1,0 +1,40 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2023-03",
+          "y": 144303276275.9
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-06",
+          "y": 152212909639.97
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-09",
+          "y": 151892055795.51
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-12",
+          "y": 197884404854.18
+        }
+      ],
+      "metric": "PLATI_TREZOR",
+      "seriesId": "plati-trezor-monthly",
+      "xAxis": {
+        "name": "Month",
+        "type": "STRING",
+        "unit": "month"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

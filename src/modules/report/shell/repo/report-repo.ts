@@ -8,6 +8,11 @@
 import { sql, type ExpressionBuilder } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import {
+  EXECUTION_DB_REPORT_TYPES,
+  GQL_TO_DB_REPORT_TYPE,
+  isDbReportType,
+} from '@/common/types/report-types.js';
 import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
 
 import {
@@ -17,7 +22,6 @@ import {
   type ReportError,
 } from '../../core/errors.js';
 import {
-  GQL_TO_DB_REPORT_TYPE,
   type Report,
   type ReportConnection,
   type ReportFilter,
@@ -36,9 +40,6 @@ const QUERY_TIMEOUT_MS = 30_000;
 
 /** Valid sort columns */
 const VALID_SORT_COLUMNS = new Set(['report_date']);
-
-/** Set of valid DB report type values */
-const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -107,6 +108,9 @@ function mapRowToReport(row: ReportRow): Report {
   };
 }
 
+/**
+ * Returns allowed DB report types by scope.
+ */
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository Implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +260,11 @@ class KyselyReportRepo implements ReportRepository {
           sql<string>`COUNT(*) OVER()`.as('total_count'),
         ]);
 
+      // Default to execution reports when no explicit type is provided
+      if (filter.report_type === undefined) {
+        query = query.where('r.report_type', 'in', EXECUTION_DB_REPORT_TYPES);
+      }
+
       // Join entities table if needed for search
       if (needsEntityJoin) {
         query = query.leftJoin('entities as e', 'r.entity_cui', 'e.cui');
@@ -293,6 +302,11 @@ class KyselyReportRepo implements ReportRepository {
       let query: DynamicQuery = this.db
         .selectFrom('reports as r')
         .select(sql<string>`COUNT(DISTINCT r.report_id)`.as('count'));
+
+      // Default to execution reports when no explicit type is provided
+      if (filter.report_type === undefined) {
+        query = query.where('r.report_type', 'in', EXECUTION_DB_REPORT_TYPES);
+      }
 
       // Join entities table if needed for search
       if (needsEntityJoin) {
@@ -354,8 +368,9 @@ class KyselyReportRepo implements ReportRepository {
     // Report type filter (handles both GQL enum and DB string values)
     if (filter.report_type !== undefined) {
       // Check if it's already a DB value (Romanian string)
-      const dbReportType = VALID_DB_REPORT_TYPES.has(filter.report_type)
-        ? filter.report_type
+      const rawReportType = filter.report_type;
+      const dbReportType = isDbReportType(rawReportType)
+        ? rawReportType
         : GQL_TO_DB_REPORT_TYPE[filter.report_type];
       query = query.where('r.report_type', '=', dbReportType);
     }

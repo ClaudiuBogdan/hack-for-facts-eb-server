@@ -1,0 +1,191 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 34306083571.62,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 34049407911.74,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 34049407911.74,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 31190226436.58,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 31015384307.25,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 31015384307.25,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 26795688547.68,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 26632682574.97,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 26632682574.97,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 11827605315.68,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 12109970165.67,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 12109970165.67,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 12140313900.44,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 10713909385.99,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 10713909385.99,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 9864785005.76,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 9578939127.03,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 9578939127.03,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 9076625800.26,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 8753068791,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 8753068791,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 12321196897.6,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 8258587248.28,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 8300928292.22,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 8159644947.57,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 7716471205.49,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 7716471205.49,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 7896011042.8,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 7702886512.65,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 7702886512.65,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 7636606585.83,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 6702669589.26,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 6734118550,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 7109375275.45,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 6118563379.92,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 6118679796.64,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 6709292071.78,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 6124657792.04,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 6147370695.66,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 11497293799.89,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 5816080993.89,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 5816344037.14,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 5890463724.05,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 5720822835.55,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 5725200248.52,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 6712220032.04,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 5398441009.19,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 5398514640.87,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 12631946212.47,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 4913776204.23,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 4913776204.23,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 11048145398.97,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 4684419201.66,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 4684419201.66,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 5253579659.33,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 4621109823.39,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 4623246465.96,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 15018902602.45,
+        "entity_cui": "13633330",
+        "entity_name": "MINISTERUL TRANSPORTURILOR SI INFRASTRUCTURII",
+        "plati_trezor": 4360328153.93,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 4360328153.93,
+        "year": 2023
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 9879
+    }
+  }
+}

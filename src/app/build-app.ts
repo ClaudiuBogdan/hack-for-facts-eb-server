@@ -54,6 +54,11 @@ import {
   makeEconomicClassificationRepo,
 } from '../modules/classification/index.js';
 import {
+  CommitmentsSchema,
+  makeCommitmentsRepo,
+  makeCommitmentsResolvers,
+} from '../modules/commitments/index.js';
+import {
   makeCountyAnalyticsResolvers,
   CountyAnalyticsSchema,
   makeCountyAnalyticsRepo,
@@ -303,6 +308,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     populationRepo,
   });
 
+  // Setup Commitments Module
+  const commitmentsRepo = makeCommitmentsRepo(budgetDb);
+  const commitmentsResolvers = makeCommitmentsResolvers({
+    repo: commitmentsRepo,
+    normalizationService,
+    populationRepo,
+  });
+
   // Setup Entity Analytics Module
   const rawEntityAnalyticsRepo = makeEntityAnalyticsRepo(budgetDb);
   const entityAnalyticsRepo = wrapEntityAnalyticsRepo(rawEntityAnalyticsRepo, cache, keyBuilder);
@@ -418,6 +431,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     healthSchema,
     ExecutionAnalyticsSchema,
     AggregatedLineItemsSchema,
+    CommitmentsSchema,
     EntityAnalyticsSchema,
     DatasetsSchema,
     BudgetSectorSchema,
@@ -435,6 +449,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     healthResolvers,
     analyticsResolvers,
     aggregatedLineItemsResolvers,
+    commitmentsResolvers,
     entityAnalyticsResolvers,
     datasetsResolvers,
     budgetSectorResolvers,

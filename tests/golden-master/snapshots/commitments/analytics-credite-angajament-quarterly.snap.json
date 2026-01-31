@@ -1,0 +1,60 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2022-Q1",
+          "y": 759377442459
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q2",
+          "y": -6668197075
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q3",
+          "y": 80612164356
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q4",
+          "y": 88735524414
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q1",
+          "y": 884931890147
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q2",
+          "y": 43674710906
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q3",
+          "y": 58075133924
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q4",
+          "y": 42900281289
+        }
+      ],
+      "metric": "CREDITE_ANGAJAMENT",
+      "seriesId": "credite-angajament-quarterly",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": "quarter"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}
