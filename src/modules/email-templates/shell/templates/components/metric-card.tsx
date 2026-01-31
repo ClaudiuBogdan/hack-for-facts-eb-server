@@ -8,8 +8,9 @@ import { Section, Text, Row, Column } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
-import type { SupportedLanguage } from '../../../core/types.js';
 import { getTranslations } from '../../../core/i18n.js';
+
+import type { SupportedLanguage } from '../../../core/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

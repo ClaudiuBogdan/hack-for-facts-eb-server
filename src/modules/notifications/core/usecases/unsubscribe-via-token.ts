@@ -32,6 +32,7 @@ export interface UnsubscribeViaTokenDeps {
 
 export interface UnsubscribeViaTokenInput {
   token: string;
+  now: Date;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ export async function unsubscribeViaToken(
   input: UnsubscribeViaTokenInput
 ): Promise<Result<UnsubscribeViaTokenResult, NotificationError>> {
   const { notificationsRepo, tokensRepo } = deps;
-  const { token } = input;
+  const { token, now } = input;
 
   // Find the token
   const findTokenResult = await tokensRepo.findByToken(token);
@@ -88,7 +89,6 @@ export async function unsubscribeViaToken(
   }
 
   // Check if token is valid (not expired, not used)
-  const now = new Date();
   if (tokenRecord.expiresAt < now) {
     return err(createTokenInvalidError(token));
   }

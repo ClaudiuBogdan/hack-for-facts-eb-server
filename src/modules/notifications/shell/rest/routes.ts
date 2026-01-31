@@ -143,7 +143,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         }
 
         const { notificationType, entityCui } = request.body;
-        const config = 'config' in request.body ? request.body.config : null;
+        const config = request.body.config ?? null;
         const userId = request.auth.userId as string;
 
         const result = await subscribe(
@@ -152,13 +152,22 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
             userId,
             notificationType,
             entityCui: entityCui ?? null,
-            config: config as unknown as NotificationConfig,
+            config,
           }
         );
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 500).send({
+          if (status === 400 || status === 500) {
+            return reply.status(status).send({
+              ok: false,
+              error: result.error.type,
+              message: result.error.message,
+            });
+          }
+
+          // Defensive fallback: this route shouldn't return other status codes.
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -200,8 +209,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         const result = await listUserNotifications({ notificationsRepo }, { userId });
 
         if (result.isErr()) {
-          const status = getHttpStatusForError(result.error);
-          return reply.status(status as 500).send({
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -245,8 +253,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         );
 
         if (result.isErr()) {
-          const status = getHttpStatusForError(result.error);
-          return reply.status(status as 500).send({
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -295,7 +302,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
           updates.isActive = isActive;
         }
         if (config !== undefined) {
-          updates.config = config as unknown as NotificationConfig;
+          updates.config = config;
         }
 
         const result = await updateNotification(
@@ -305,7 +312,15 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 403 | 404 | 500).send({
+          if (status === 400 || status === 403 || status === 404 || status === 500) {
+            return reply.status(status).send({
+              ok: false,
+              error: result.error.type,
+              message: result.error.message,
+            });
+          }
+
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -351,7 +366,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
           updates.isActive = isActive;
         }
         if (config !== undefined) {
-          updates.config = config as unknown as NotificationConfig;
+          updates.config = config;
         }
 
         const result = await updateNotification(
@@ -361,7 +376,15 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 403 | 404 | 500).send({
+          if (status === 400 || status === 403 || status === 404 || status === 500) {
+            return reply.status(status).send({
+              ok: false,
+              error: result.error.type,
+              message: result.error.message,
+            });
+          }
+
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -408,7 +431,15 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 403 | 404 | 500).send({
+          if (status === 403 || status === 404 || status === 500) {
+            return reply.status(status).send({
+              ok: false,
+              error: result.error.type,
+              message: result.error.message,
+            });
+          }
+
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -454,8 +485,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         );
 
         if (result.isErr()) {
-          const status = getHttpStatusForError(result.error);
-          return reply.status(status as 500).send({
+          return reply.status(500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,
@@ -494,7 +524,10 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         const { token } = request.params;
         const isOneClick = request.method === 'POST';
 
-        const result = await unsubscribeViaToken({ notificationsRepo, tokensRepo }, { token });
+        const result = await unsubscribeViaToken(
+          { notificationsRepo, tokensRepo },
+          { token, now: new Date() }
+        );
 
         // For errors, we still show success page to prevent token enumeration
         // (user already clicked unsubscribe, we shouldn't leak validity info)

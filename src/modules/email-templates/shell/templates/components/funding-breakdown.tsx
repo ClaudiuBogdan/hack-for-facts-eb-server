@@ -108,14 +108,14 @@ export const FundingBreakdown = ({
         }}
       >
         <tr>
-          {sources.map((source, index) => (
-            <td
-              key={index}
-              width={`${source.percentage}%`}
-              height="24"
-              style={{
-                backgroundColor: fundingColors[index % fundingColors.length],
-              }}
+              {sources.map((source, index) => (
+                <td
+                  key={index}
+                  width={`${String(source.percentage)}%`}
+                  height="24"
+                  style={{
+                    backgroundColor: fundingColors[index % fundingColors.length],
+                  }}
             />
           ))}
         </tr>

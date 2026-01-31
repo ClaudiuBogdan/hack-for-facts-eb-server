@@ -108,7 +108,8 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
         } = request.body;
 
         const runId = randomUUID();
-        const periodKey = inputPeriodKey ?? generatePeriodKey(notificationType as NotificationType);
+        const periodKey =
+          inputPeriodKey ?? generatePeriodKey(notificationType as NotificationType, new Date());
 
         log.info(
           { runId, notificationType, periodKey, dryRun, limit, force },
