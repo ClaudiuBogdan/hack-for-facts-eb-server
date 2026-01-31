@@ -1,0 +1,34 @@
+{
+  "commitmentVsExecution": {
+    "data": [
+      {
+        "commitment_growth_percent": null,
+        "commitment_value": 259137273.06,
+        "difference": 627086.25,
+        "difference_growth_percent": null,
+        "difference_percent": 0.24,
+        "execution_growth_percent": null,
+        "execution_value": 258510186.81,
+        "period": "2022"
+      },
+      {
+        "commitment_growth_percent": -8.38,
+        "commitment_value": 237417536.13,
+        "difference": 478625.81,
+        "difference_growth_percent": -23.67,
+        "difference_percent": 0.2,
+        "execution_growth_percent": -8.34,
+        "execution_value": 236938910.32,
+        "period": "2023"
+      }
+    ],
+    "frequency": "YEAR",
+    "matched_count": 342,
+    "overall_difference_percent": 0.22,
+    "total_commitment": 496554809.19,
+    "total_difference": 1105712.06,
+    "total_execution": 495449097.13,
+    "unmatched_commitment_count": 68,
+    "unmatched_execution_count": 13
+  }
+}

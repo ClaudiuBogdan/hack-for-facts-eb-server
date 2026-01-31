@@ -1,3 +1,5 @@
+import { isCommitmentDbReportType } from '@/common/types/report-types.js';
+
 import {
   Frequency,
   type AnalyticsInput,
@@ -31,6 +33,12 @@ const mapPeriodTypeToFrequency = (periodType: PeriodType): Frequency => {
 const toAnalyticsInput = (gqlInput: GqlAnalyticsInput): AnalyticsInput => {
   const { filter, seriesId } = gqlInput;
   const gqlReportPeriod = filter.report_period;
+
+  if (filter.report_type !== undefined && isCommitmentDbReportType(filter.report_type)) {
+    throw new Error(
+      'ReportType COMMITMENT_* is not supported for execution analytics. Use Commitments queries.'
+    );
+  }
 
   // Build filter without report_period, then add the transformed version
   const baseFilter = { ...filter };

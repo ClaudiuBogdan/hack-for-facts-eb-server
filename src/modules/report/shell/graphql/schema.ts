@@ -10,8 +10,8 @@ export const ReportSchema = /* GraphQL */ `
   # ---------------------------------------------------------------------------
 
   """
-  Budget execution report.
-  Represents metadata for an imported budget execution report file.
+  Budget report metadata (execution or commitments).
+  Represents metadata for an imported report file.
   """
   type Report {
     "Report ID"
@@ -60,7 +60,7 @@ export const ReportSchema = /* GraphQL */ `
     "Budget sector for this report"
     budgetSector: BudgetSector!
 
-    "Execution line items for this report"
+    "Execution line items for this report (execution report types only)"
     executionLineItems(
       limit: Int = 100
       offset: Int = 0

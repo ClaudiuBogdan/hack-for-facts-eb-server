@@ -1,0 +1,99 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 307515416,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 303.83,
+        "plati_trezor": 603943403.17,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 603943403.17,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 253865709,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": -5535,
+        "plati_trezor": 497882748.12,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 497882748.12,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 432694967,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 262.53,
+        "plati_trezor": 379878203.48,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 379878203.48,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 63995878,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 41.11,
+        "plati_trezor": 376901339.43,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 376901339.43,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 4305453958,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 139.41,
+        "plati_trezor": 356189585.86,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 356189585.86,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 6003741,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 128.4,
+        "plati_trezor": 339488501.15,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 339488501.15,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 17396745036,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 23.48,
+        "plati_trezor": 303598973.82,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 303598973.82,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 2902694528,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "execution_rate": 21.32,
+        "plati_trezor": 263602939.25,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 263602939.25,
+        "year": 2022
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "hasPreviousPage": false,
+      "totalCount": 8
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 606729431676
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 649684462146
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 922056934154
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 1029582016266
+        }
+      ],
+      "metric": "CREDITE_ANGAJAMENT",
+      "seriesId": "credite-angajament-yearly",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

@@ -13,70 +13,6 @@
   // Auto-update OpenCode
   "autoupdate": true,
   // ============================================================================
-  // PROVIDER CONFIGURATION - Model Aliases for Deep/Fast Switching
-  // ============================================================================
-  "provider": {
-    "anthropic": {
-      "models": {
-        // ─────────────────────────────────────────────────────────────────────
-        // OPUS ALIASES - For easy deep/fast switching
-        // ─────────────────────────────────────────────────────────────────────
-        // Deep reasoning - Extended thinking with 64K budget
-        "opus-deep": {
-          "id": "claude-opus-4-5-20251101",
-          "options": {
-            "reasoningEffort": "high",
-            "effort": "high",
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 32000,
-            },
-          },
-        },
-        // Maximum reasoning - Extended thinking with 128K budget for hardest problems
-        "opus-max": {
-          "id": "claude-opus-4-5-20251101",
-          "options": {
-            "reasoningEffort": "high",
-            "effort": "high",
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 64000,
-            },
-          },
-        },
-        // Fast mode - No extended thinking for speed
-        "opus-fast": {
-          "id": "claude-opus-4-5-20251101",
-          "options": {},
-        },
-        // ─────────────────────────────────────────────────────────────────────
-        // SONNET ALIASES - For explore subagent and ultra-fast mode
-        // ─────────────────────────────────────────────────────────────────────
-        "sonnet": {
-          "id": "claude-sonnet-4-5-20250929",
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 32000,
-            },
-          },
-        },
-        // Ultra-fast mode - Sonnet without extended thinking
-        "sonnet-fast": {
-          "id": "claude-sonnet-4-5-20250929",
-          "options": {},
-        },
-        // ─────────────────────────────────────────────────────────────────────
-        // HAIKU - For small_model (fast operations)
-        // ─────────────────────────────────────────────────────────────────────
-        "claude-haiku-4-5-20251001": {
-          "options": {},
-        },
-      },
-    },
-  },
-  // ============================================================================
   // INSTRUCTIONS - Project documentation loaded into context
   // ============================================================================
   "instructions": [
@@ -90,7 +26,7 @@
   // TUI CONFIGURATION
   // ============================================================================
   "tui": {
-    "scroll_speed": 2,
+    "scroll_speed": 1,
     "scroll_acceleration": {
       "enabled": false
     },
@@ -132,8 +68,7 @@
     "list": true,
     "webfetch": true,
     "todowrite": true,
-    "todoread": true,
-    "ask_user": true,
+    "todoread": true
   },
   // ============================================================================
   // GLOBAL PERMISSIONS
@@ -289,46 +224,13 @@
   "agent": {
     // ─────────────────────────────────────────────────────────────────────────
     // PRIMARY AGENTS (Tab to switch)
-    // ─────────────────────────────────────────────────────────────────────────
-    // BUILD-MAX - Maximum reasoning for hardest implementation problems (128K thinking)
-    "build-max": {
-      "description": "Maximum reasoning (128K) - for hardest implementation problems",
-      "mode": "primary",
-      "model": "anthropic/opus-max",
-      "temperature": 0.1,
-      "maxSteps": 75,
-      "prompt": "{file:prompts/build.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm *": "allow",
-          "git status": "allow",
-          "git diff*": "allow",
-          "git log*": "allow",
-          "*": "ask"
-        }
-      }
-    },
-    // BUILD - Standard development with deep reasoning (64K thinking)
+    // ─────────────────────────────────────────────────────────────────────────`
+    // BUILD - Standard development with deep reasoning
     "build": {
-      "description": "Standard development (64K thinking) - balanced speed and reasoning",
+      "description": "Standard development - balanced speed and reasoning",
       "mode": "primary",
-      "model": "anthropic/opus-deep",
       "temperature": 0.1,
-      "maxSteps": 50,
+      "maxSteps": 100,
       "prompt": "{file:prompts/build.md}",
       "tools": {
         "read": true,
@@ -354,71 +256,11 @@
         }
       }
     },
-    // BUILD-FAST - Quick iterations without extended thinking
-    "build-fast": {
-      "description": "Fast development (no thinking) - quick iterations",
+    "architect": {
+      "description": "System architecture - design decisions and documentation",
       "mode": "primary",
-      "model": "anthropic/opus-fast",
-      "temperature": 0.1,
-      "maxSteps": 50,
-      "prompt": "{file:prompts/build.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm *": "allow",
-          "git status": "allow",
-          "git diff*": "allow",
-          "git log*": "allow",
-          "*": "ask"
-        }
-      }
-    },
-    // PLAN-MAX - Deep analysis and planning (128K thinking)
-    "plan-max": {
-      "description": "Deep planning (128K thinking) - thorough analysis and design",
-      "mode": "primary",
-      "model": "anthropic/opus-max",
-      "temperature": 0.2,
-      "maxSteps": 40,
-      "prompt": "{file:prompts/plan.md}",
-      "tools": {
-        "read": true,
-        "write": false,
-        "edit": false,
-        "bash": false,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true
-      },
-      "permission": {
-        "edit": "deny",
-        "bash": "deny"
-      }
-    },
-    // ARCHITECT-MAX - System design decisions (128K thinking)
-    "architect-max": {
-      "description": "System architecture (128K thinking) - design decisions and documentation",
-      "mode": "primary",
-      "model": "anthropic/opus-max",
       "temperature": 0.3,
-      "maxSteps": 50,
+      "maxSteps": 100,
       "prompt": "{file:prompts/architect.md}",
       "tools": {
         "read": true,
@@ -438,13 +280,11 @@
         "bash": "ask"
       }
     },
-    // REVIEW-MAX - Thorough code review (128K thinking)
     "review-max": {
-      "description": "Code review (128K thinking) - security, performance, architecture compliance",
+      "description": "Code review - security, performance, architecture compliance",
       "mode": "primary",
-      "model": "anthropic/opus-max",
-      "temperature": 0.1,
-      "maxSteps": 40,
+      "temperature": 0.3,
+      "maxSteps": 100,
       "prompt": "{file:prompts/reviewer.md}",
       "tools": {
         "read": true,
@@ -472,63 +312,6 @@
         }
       }
     },
-    // IMPLEMENT-MAX - Post-review/debug implementation (128K thinking)
-    "implement-max": {
-      "description": "Implementation (128K thinking) - targeted fixes after review/debug",
-      "mode": "primary",
-      "model": "anthropic/opus-max",
-      "temperature": 0.1,
-      "maxSteps": 75,
-      "prompt": "{file:prompts/implement.md}",
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true
-      },
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "pnpm *": "allow",
-          "git status": "allow",
-          "git diff*": "allow",
-          "git log*": "allow",
-          "*": "ask"
-        }
-      }
-    },
-    // ─────────────────────────────────────────────────────────────────────────
-    // SUBAGENTS (Invoked by primary agents or via @mention)
-    // ─────────────────────────────────────────────────────────────────────────
-    // GENERAL - Research and multi-step tasks
-    "general": {
-      "description": "General-purpose research and multi-step exploration",
-      "mode": "subagent",
-      "model": "anthropic/opus-deep",
-      "temperature": 0.2,
-      "maxSteps": 100,
-      "tools": {
-        "read": true,
-        "write": true,
-        "edit": true,
-        "bash": true,
-        "grep": true,
-        "glob": true,
-        "list": true,
-        "webfetch": true,
-        "todowrite": true,
-        "todoread": true,
-        "ask_user": true
-      }
-    },
-    // EXPLORE - Fast codebase exploration (Sonnet for speed)
     "explore": {
       "description": "Fast codebase exploration and file search",
       "mode": "subagent",
@@ -545,283 +328,6 @@
         "list": true
       }
     }
-    // ─────────────────────────────────────────────────────────────────────────
-    // ARCHIVED AGENTS (Commented out - uncomment to re-enable)
-    // ─────────────────────────────────────────────────────────────────────────
-    // // BUILD-ULTRA-FAST - Ultra-fast with Sonnet (no extended thinking)
-    // "build-ultra-fast": {
-    //   "description": "Ultra-fast development with Sonnet - fastest iterations, no extended thinking",
-    //   "mode": "primary",
-    //   "model": "anthropic/sonnet-fast",
-    //   "temperature": 0.1,
-    //   "maxSteps": 50,
-    //   "prompt": "{file:prompts/build.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": true,
-    //     "edit": true,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "webfetch": true,
-    //     "todowrite": true,
-    //     "todoread": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "allow",
-    //     "bash": {
-    //       "pnpm *": "allow",
-    //       "git status": "allow",
-    //       "git diff*": "allow",
-    //       "git log*": "allow",
-    //       "*": "ask"
-    //     }
-    //   }
-    // },
-    // // PLAN - Deep analysis and planning (64K thinking)
-    // "plan": {
-    //   "description": "Deep reasoning planning agent with extended thinking (64K tokens)",
-    //   "mode": "primary",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.2,
-    //   "maxSteps": 30,
-    //   "prompt": "{file:prompts/plan.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": false,
-    //     "edit": false,
-    //     "bash": false,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "webfetch": true,
-    //     "todowrite": true,
-    //     "todoread": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "deny",
-    //     "bash": "deny"
-    //   }
-    // },
-    // // PLAN-FAST - Quick planning without extended thinking
-    // "plan-fast": {
-    //   "description": "Fast planning agent without extended thinking - quick analysis",
-    //   "mode": "primary",
-    //   "model": "anthropic/opus-fast",
-    //   "temperature": 0.2,
-    //   "maxSteps": 30,
-    //   "prompt": "{file:prompts/plan.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": false,
-    //     "edit": false,
-    //     "bash": false,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "webfetch": true,
-    //     "todowrite": true,
-    //     "todoread": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "deny",
-    //     "bash": "deny"
-    //   }
-    // },
-    // // REVIEWER SUBAGENT - Code review (replaced by review-max primary)
-    // "reviewer": {
-    //   "description": "Code review focusing on security, performance, architecture compliance",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.1,
-    //   "maxSteps": 30,
-    //   "prompt": "{file:prompts/reviewer.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": false,
-    //     "edit": false,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true
-    //   },
-    //   "permission": {
-    //     "bash": {
-    //       "git diff*": "allow",
-    //       "git log*": "allow",
-    //       "git show*": "allow",
-    //       "pnpm run lint*": "allow",
-    //       "pnpm test*": "allow",
-    //       "pnpm vitest*": "allow",
-    //       "*": "deny"
-    //     }
-    //   }
-    // },
-    // // DEBUG SUBAGENT - Investigation and diagnostics
-    // "debug": {
-    //   "description": "Debug issues, investigate errors, and diagnose problems",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.1,
-    //   "maxSteps": 40,
-    //   "prompt": "{file:prompts/debug.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": false,
-    //     "edit": false,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "bash": {
-    //       "cat *.env*": "deny",
-    //       "cat .env*": "deny",
-    //       "cat */.env*": "deny",
-    //       "head *.env*": "deny",
-    //       "head .env*": "deny",
-    //       "tail *.env*": "deny",
-    //       "tail .env*": "deny",
-    //       "git log*": "allow",
-    //       "git diff*": "allow",
-    //       "git show*": "allow",
-    //       "git blame*": "allow",
-    //       "pnpm run *": "allow",
-    //       "pnpm test*": "allow",
-    //       "pnpm vitest*": "allow",
-    //       "docker logs*": "allow",
-    //       "cat *": "allow",
-    //       "tail *": "allow",
-    //       "head *": "allow",
-    //       "grep *": "allow",
-    //       "rg *": "allow",
-    //       "*": "ask"
-    //     }
-    //   }
-    // },
-    // // REFACTOR SUBAGENT - Code improvement
-    // "refactor": {
-    //   "description": "Refactor code to improve quality while preserving behavior",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.1,
-    //   "maxSteps": 40,
-    //   "prompt": "{file:prompts/refactor.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": true,
-    //     "edit": true,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "ask",
-    //     "bash": {
-    //       "pnpm test*": "allow",
-    //       "pnpm vitest*": "allow",
-    //       "pnpm run lint*": "allow",
-    //       "pnpm typecheck": "allow",
-    //       "git diff*": "allow",
-    //       "*": "ask"
-    //     }
-    //   }
-    // },
-    // // DOCS SUBAGENT - Documentation writing
-    // "docs": {
-    //   "description": "Write and maintain technical documentation",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.4,
-    //   "maxSteps": 30,
-    //   "prompt": "{file:prompts/docs.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": true,
-    //     "edit": true,
-    //     "bash": false,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "webfetch": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "allow",
-    //     "bash": "deny"
-    //   }
-    // },
-    // // TEST SUBAGENT - Test creation and improvement
-    // "test": {
-    //   "description": "Write and improve tests for better coverage",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.1,
-    //   "maxSteps": 40,
-    //   "prompt": "{file:prompts/test.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": true,
-    //     "edit": true,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "allow",
-    //     "bash": {
-    //       "pnpm test*": "allow",
-    //       "pnpm vitest*": "allow",
-    //       "*": "ask"
-    //     }
-    //   }
-    // },
-    // // SECURITY SUBAGENT - Security auditing
-    // "security": {
-    //   "description": "Security audit and vulnerability analysis",
-    //   "mode": "subagent",
-    //   "model": "anthropic/opus-deep",
-    //   "temperature": 0.1,
-    //   "maxSteps": 30,
-    //   "prompt": "{file:prompts/security.md}",
-    //   "tools": {
-    //     "read": true,
-    //     "write": false,
-    //     "edit": false,
-    //     "bash": true,
-    //     "grep": true,
-    //     "glob": true,
-    //     "list": true,
-    //     "webfetch": true,
-    //     "ask_user": true
-    //   },
-    //   "permission": {
-    //     "edit": "deny",
-    //     "bash": {
-    //       "cat *.env*": "deny",
-    //       "cat .env*": "deny",
-    //       "cat */.env*": "deny",
-    //       "pnpm audit*": "allow",
-    //       "git log*": "allow",
-    //       "git diff*": "allow",
-    //       "grep *": "allow",
-    //       "rg *": "allow",
-    //       "find *": "allow",
-    //       "cat *": "allow",
-    //       "*": "deny"
-    //     }
-    //   }
-    // }
   },
   // ============================================================================
   // MCP SERVERS (Model Context Protocol)

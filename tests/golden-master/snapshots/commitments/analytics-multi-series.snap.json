@@ -1,0 +1,112 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 457395294536.5
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 489365362221.94
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 567537350203.34
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 646292646565.56
+        }
+      ],
+      "metric": "PLATI_TREZOR",
+      "seriesId": "plati-trezor",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    },
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 606729431676
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 649684462146
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 922056934154
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 1029582016266
+        }
+      ],
+      "metric": "CREDITE_ANGAJAMENT",
+      "seriesId": "credite-angajament",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    },
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 473831266552.65
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 502357440917.86
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 582295520668.03
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 664648809701.83
+        }
+      ],
+      "metric": "RECEPTII_TOTALE",
+      "seriesId": "receptii-totale",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

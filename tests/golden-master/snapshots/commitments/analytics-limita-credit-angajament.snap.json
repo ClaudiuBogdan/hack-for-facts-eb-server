@@ -1,0 +1,60 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2022-Q1",
+          "y": 758847032682
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q2",
+          "y": -6794513186
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q3",
+          "y": 81189907300
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q4",
+          "y": 88525213080
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q1",
+          "y": 883969359939
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q2",
+          "y": 43705054922
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q3",
+          "y": 58063781614
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q4",
+          "y": 43539647823
+        }
+      ],
+      "metric": "LIMITA_CREDIT_ANGAJAMENT",
+      "seriesId": "limita-credit-angajament",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": "quarter"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

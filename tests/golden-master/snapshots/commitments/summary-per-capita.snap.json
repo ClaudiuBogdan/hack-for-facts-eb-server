@@ -1,0 +1,191 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 754992.09,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 749343.29,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 749343.29,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 684338.25,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 680502.07,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 680502.07,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 586595.3,
+        "entity_cui": "4266669",
+        "entity_name": "MINISTERUL MUNCII SI SOLIDARITATII SOCIALE",
+        "plati_trezor": 583026.87,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 583026.87,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 244171.7,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 250000.91,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 250000.91,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 249867.32,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 220509.6,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 220509.6,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 130622.59,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 126837.62,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 126837.62,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 119821.88,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 115550.56,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 115550.56,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 271159.08,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 181751.09,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 182682.91,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 167560.7,
+        "entity_cui": "8609468",
+        "entity_name": "MINISTERUL FINANTELOR - ACTIUNI GENERALE",
+        "plati_trezor": 158460,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 158460,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 104001.79,
+        "entity_cui": "11697800",
+        "entity_name": "CASA NATIONALA DE ASIGURARI DE SANATATE",
+        "plati_trezor": 101458.06,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 101458.06,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 167553.19,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 147061.87,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 147751.89,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 94137.38,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 81017.74,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 81019.28,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 146875.84,
+        "entity_cui": "13729380",
+        "entity_name": "MINISTERUL EDUCATIEI",
+        "plati_trezor": 134077.37,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 134574.59,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 151435.85,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 76606.13,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 76609.59,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 121604.04,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 118101.93,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 118192.3,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 88609.01,
+        "entity_cui": "4221187",
+        "entity_name": "MINISTERUL AGRICULTURII SI DEZVOLTARII RURALE",
+        "plati_trezor": 71265.62,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 71266.59,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 260776.7,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 101441.08,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 101441.08,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 227388.72,
+        "entity_cui": "11424532",
+        "entity_name": "MINISTERUL APARARII NATIONALE",
+        "plati_trezor": 96412.93,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 96412.93,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 108127.18,
+        "entity_cui": "4267095",
+        "entity_name": "MINISTERUL AFACERILOR INTERNE",
+        "plati_trezor": 95109.92,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 95153.9,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 330528.92,
+        "entity_cui": "13633330",
+        "entity_name": "MINISTERUL TRANSPORTURILOR SI INFRASTRUCTURII",
+        "plati_trezor": 95960.04,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 95960.04,
+        "year": 2023
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 9879
+    }
+  }
+}

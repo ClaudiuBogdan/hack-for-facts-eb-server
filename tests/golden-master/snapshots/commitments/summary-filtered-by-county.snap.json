@@ -1,0 +1,191 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 2393377875,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 1886348831.73,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1886348831.73,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 3648908652,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 1586913047.05,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1586913047.05,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 22020060581,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 1534572647.23,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1534572647.23,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 1780875389,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 1404722996.62,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1404722996.62,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 2865092200,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 1389417333.57,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1389417333.57,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 1718997490,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 1138373820.27,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 1138373820.27,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 631222826,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 380539313.56,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 380539313.56,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 511957675,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 307504593.25,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 307504593.25,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 308691470,
+        "entity_cui": "4349179",
+        "entity_name": "MUNICIPIUL DEJ",
+        "plati_trezor": 261258609.44,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 261258609.44,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 444652830,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 237632222.66,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 237632222.66,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 233302470,
+        "entity_cui": "4349179",
+        "entity_name": "MUNICIPIUL DEJ",
+        "plati_trezor": 190131822.84,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 190131822.84,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 230919040,
+        "entity_cui": "4349179",
+        "entity_name": "MUNICIPIUL DEJ",
+        "plati_trezor": 176257765.22,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 176257765.22,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 236626312,
+        "entity_cui": "4354566",
+        "entity_name": "MUNICIPIUL CAMPIA TURZII",
+        "plati_trezor": 154997053.43,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 154997053.43,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 186587580,
+        "entity_cui": "4485391",
+        "entity_name": "COMUNA FLORESTI",
+        "plati_trezor": 108820548.27,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 108820548.27,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 206815480,
+        "entity_cui": "4349071",
+        "entity_name": "MUNICIPIUL GHERLA",
+        "plati_trezor": 101329279.45,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 101329279.45,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 201626027,
+        "entity_cui": "4354566",
+        "entity_name": "MUNICIPIUL CAMPIA TURZII",
+        "plati_trezor": 98643159.64,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 98643159.64,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 125733781,
+        "entity_cui": "4485391",
+        "entity_name": "COMUNA FLORESTI",
+        "plati_trezor": 96641226.12,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 96641226.12,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 141922040,
+        "entity_cui": "4354566",
+        "entity_name": "MUNICIPIUL CAMPIA TURZII",
+        "plati_trezor": 86351216.11,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 86351216.11,
+        "year": 2021
+      },
+      {
+        "credite_angajament": 118542967,
+        "entity_cui": "4485642",
+        "entity_name": "ORAS HUEDIN",
+        "plati_trezor": 74788228.1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 74788228.1,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 149104086,
+        "entity_cui": "4485391",
+        "entity_name": "COMUNA FLORESTI",
+        "plati_trezor": 74019523.93,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 74019523.93,
+        "year": 2021
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 246
+    }
+  }
+}

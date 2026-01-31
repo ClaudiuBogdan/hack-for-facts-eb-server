@@ -8,6 +8,12 @@
 import { Decimal } from 'decimal.js';
 
 import { clampLimit, MAX_PAGE_SIZE } from '@/common/constants/pagination.js';
+import {
+  GQL_TO_DB_REPORT_TYPE,
+  isCommitmentDbReportType,
+  isExecutionDbReportType,
+  type DbExecutionReportType,
+} from '@/common/types/report-types.js';
 import { Frequency } from '@/common/types/temporal.js';
 import {
   resolveNormalizationRequest,
@@ -88,18 +94,8 @@ interface GqlEntityFilter {
 // Report Type Mapping
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Map GraphQL ReportType to DB value */
-const GQL_TO_DB_REPORT_TYPE_MAP: Record<GqlReportType, DbReportType> = {
-  PRINCIPAL_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator principal',
-  SECONDARY_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator secundar',
-  DETAILED: 'Executie bugetara detaliata',
-};
-
 /** Default report type used when entity doesn't have one set */
-const DEFAULT_REPORT_TYPE: DbReportType = 'Executie bugetara detaliata';
-
-/** Set of valid DB report type values for validation */
-const VALID_DB_REPORT_TYPES = new Set<string>(Object.values(GQL_TO_DB_REPORT_TYPE_MAP));
+const DEFAULT_REPORT_TYPE: DbExecutionReportType = 'Executie bugetara detaliata';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalization Helpers
@@ -449,27 +445,35 @@ const mapReportPeriod = (gqlPeriod: GqlReportPeriodInput): ReportPeriodInput => 
 });
 
 /**
- * Checks if a string is a valid DB report type value (Romanian string).
- */
-const isValidDbReportType = (value: string): value is DbReportType => {
-  return VALID_DB_REPORT_TYPES.has(value);
-};
-
-/**
  * Resolves the database report type from various input sources.
  */
-const getDbReportType = (parent: Entity, gqlReportType?: string): string => {
+const getDbReportType = (parent: Entity, gqlReportType?: string): DbExecutionReportType => {
   if (gqlReportType !== undefined) {
-    if (isValidDbReportType(gqlReportType)) {
+    if (isExecutionDbReportType(gqlReportType)) {
       return gqlReportType;
     }
-    const mapped = GQL_TO_DB_REPORT_TYPE_MAP[gqlReportType as GqlReportType] as string | undefined;
+    if (isCommitmentDbReportType(gqlReportType)) {
+      throw new Error(
+        'ReportType COMMITMENT_* is not supported for execution endpoints. Use Commitments queries.'
+      );
+    }
+    const mapped = GQL_TO_DB_REPORT_TYPE[gqlReportType as GqlReportType] as
+      | DbReportType
+      | undefined;
     if (mapped !== undefined) {
-      return mapped;
+      if (isCommitmentDbReportType(mapped)) {
+        throw new Error(
+          'ReportType COMMITMENT_* is not supported for execution endpoints. Use Commitments queries.'
+        );
+      }
+      if (isExecutionDbReportType(mapped)) {
+        return mapped;
+      }
     }
   }
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive for runtime data
-  return parent.default_report_type ?? DEFAULT_REPORT_TYPE;
+  const fallback = parent.default_report_type ?? DEFAULT_REPORT_TYPE;
+  return isExecutionDbReportType(fallback) ? fallback : DEFAULT_REPORT_TYPE;
 };
 
 /**
@@ -712,7 +716,7 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
         },
         context: MercuriusContext
       ) => {
-        const reportType = args.filter?.report_type ?? parent.default_report_type;
+        const reportType = getDbReportType(parent, args.filter?.report_type);
 
         if (args.filter?.report_period === undefined) {
           context.reply.log.error(

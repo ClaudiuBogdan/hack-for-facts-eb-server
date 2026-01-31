@@ -1,3 +1,5 @@
+import { GQL_TO_DB_REPORT_TYPE } from '@/common/types/report-types.js';
+
 /**
  * Enum resolvers for common GraphQL enums
  * Provides bidirectional mapping between GraphQL enum values and internal values
@@ -9,9 +11,5 @@
  * Format: Direct string mapping (GraphQL Tools automatically handles bidirectional conversion)
  */
 export const EnumResolvers = {
-  ReportType: {
-    PRINCIPAL_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator principal',
-    SECONDARY_AGGREGATED: 'Executie bugetara agregata la nivel de ordonator secundar',
-    DETAILED: 'Executie bugetara detaliata',
-  },
+  ReportType: GQL_TO_DB_REPORT_TYPE,
 };

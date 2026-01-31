@@ -177,7 +177,7 @@ beforeAll(() => {
   try {
     const mode = getExecutionMode();
     console.log(`\n[Golden Master] Execution mode: ${mode.toUpperCase()}`);
-    console.log('[Golden Master] Tests will use historical data from 2016-2024');
+    console.log('[Golden Master] Tests will use historical data from 2016-2025');
     console.log(
       `[Golden Master] Using ${String(COMPARISON_DECIMAL_PLACES)} decimal places for number comparison\n`
     );

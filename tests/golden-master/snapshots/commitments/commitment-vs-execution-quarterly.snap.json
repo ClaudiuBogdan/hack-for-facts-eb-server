@@ -1,0 +1,54 @@
+{
+  "commitmentVsExecution": {
+    "data": [
+      {
+        "commitment_growth_percent": null,
+        "commitment_value": 49537895.17,
+        "difference": 219014.2,
+        "difference_growth_percent": null,
+        "difference_percent": 0.44,
+        "execution_growth_percent": null,
+        "execution_value": 49318880.97,
+        "period": "2023-Q1"
+      },
+      {
+        "commitment_growth_percent": null,
+        "commitment_value": 63902111.17,
+        "difference": 75519.77,
+        "difference_growth_percent": null,
+        "difference_percent": 0.12,
+        "execution_growth_percent": null,
+        "execution_value": 63826591.4,
+        "period": "2023-Q2"
+      },
+      {
+        "commitment_growth_percent": null,
+        "commitment_value": 46571401.2,
+        "difference": 66765.09,
+        "difference_growth_percent": null,
+        "difference_percent": 0.14,
+        "execution_growth_percent": null,
+        "execution_value": 46504636.11,
+        "period": "2023-Q3"
+      },
+      {
+        "commitment_growth_percent": null,
+        "commitment_value": 77406128.59,
+        "difference": 117326.75,
+        "difference_growth_percent": null,
+        "difference_percent": 0.15,
+        "execution_growth_percent": null,
+        "execution_value": 77288801.84,
+        "period": "2023-Q4"
+      }
+    ],
+    "frequency": "QUARTER",
+    "matched_count": 583,
+    "overall_difference_percent": 0.2,
+    "total_commitment": 237417536.13,
+    "total_difference": 478625.81,
+    "total_execution": 236938910.32,
+    "unmatched_commitment_count": 218,
+    "unmatched_execution_count": 21
+  }
+}

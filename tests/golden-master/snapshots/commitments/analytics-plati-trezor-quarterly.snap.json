@@ -1,0 +1,80 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2021-Q1",
+          "y": 106941714675.41
+        },
+        {
+          "growth_percent": null,
+          "x": "2021-Q2",
+          "y": 116635088482.23
+        },
+        {
+          "growth_percent": null,
+          "x": "2021-Q3",
+          "y": 111231196465.84
+        },
+        {
+          "growth_percent": null,
+          "x": "2021-Q4",
+          "y": 154557362598.46
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q1",
+          "y": 126203958612.45
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q2",
+          "y": 126905565446.2
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q3",
+          "y": 138248079589.41
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q4",
+          "y": 176179746555.28
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q1",
+          "y": 144303276275.9
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q2",
+          "y": 152212909639.97
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q3",
+          "y": 151892055795.51
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q4",
+          "y": 197884404854.18
+        }
+      ],
+      "metric": "PLATI_TREZOR",
+      "seriesId": "plati-trezor-quarterly",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": "quarter"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}

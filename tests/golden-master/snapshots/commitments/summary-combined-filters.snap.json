@@ -1,0 +1,211 @@
+{
+  "commitmentsSummary": {
+    "nodes": [
+      {
+        "credite_angajament": 11.39,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 64.54,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 64.54,
+        "year": 2022
+      },
+      {
+        "credite_angajament": -3.54,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 54.6,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 54.6,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 23.31,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 51.1,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 51.1,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 41.99,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 45.08,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 45.08,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 6.51,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 35.37,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 35.37,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 384.29,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 34.94,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 34.94,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 275.14,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 32.85,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 32.85,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 204.82,
+        "entity_cui": "4305857",
+        "entity_name": "MUNICIPIUL CLUJ-NAPOCA",
+        "plati_trezor": 32.35,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 32.35,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 1.35,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 5.93,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 5.93,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 2.28,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 4.4,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 4.4,
+        "year": 2022
+      },
+      {
+        "credite_angajament": -8.72,
+        "entity_cui": "4349179",
+        "entity_name": "MUNICIPIUL DEJ",
+        "plati_trezor": 88.71,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 88.71,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 0,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 3.89,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 3.89,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 0.03,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 3.56,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 3.56,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 10.04,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 3.29,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 3.29,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 9,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 45.27,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 45.27,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 41.8,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 43.06,
+        "quarter": 2,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 43.06,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 23.52,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 2.67,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 2.67,
+        "year": 2022
+      },
+      {
+        "credite_angajament": 13.89,
+        "entity_cui": "4288110",
+        "entity_name": "JUDETUL CLUJ",
+        "plati_trezor": 2.23,
+        "quarter": 1,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 2.23,
+        "year": 2023
+      },
+      {
+        "credite_angajament": 4.09,
+        "entity_cui": "4378930",
+        "entity_name": "MUNICIPIUL TURDA",
+        "plati_trezor": 34.78,
+        "quarter": 3,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 34.78,
+        "year": 2022
+      },
+      {
+        "credite_angajament": -45.38,
+        "entity_cui": "4349179",
+        "entity_name": "MUNICIPIUL DEJ",
+        "plati_trezor": 43.42,
+        "quarter": 4,
+        "report_type": "PRINCIPAL_AGGREGATED",
+        "total_plati": 43.42,
+        "year": 2022
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": true,
+      "hasPreviousPage": false,
+      "totalCount": 656
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "commitmentVsExecution": {
+    "data": [
+      {
+        "commitment_value": 238524129.93,
+        "difference": 1585219.61,
+        "difference_percent": 0.66,
+        "execution_value": 236938910.32,
+        "period": "2023"
+      }
+    ],
+    "frequency": "YEAR",
+    "matched_count": 174,
+    "overall_difference_percent": 0.66,
+    "total_commitment": 238524129.93,
+    "total_difference": 1585219.61,
+    "total_execution": 236938910.32,
+    "unmatched_commitment_count": 33,
+    "unmatched_execution_count": 6
+  }
+}

@@ -22,6 +22,8 @@ import {
 } from '../../fixtures/fakes.js';
 
 describe('unsubscribeViaToken use case', () => {
+  const now = new Date();
+
   describe('token validation', () => {
     it('returns TokenNotFoundError when token does not exist', async () => {
       const notificationsRepo = makeFakeNotificationsRepo();
@@ -29,7 +31,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'a'.repeat(64) }
+        { token: 'a'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);
@@ -61,7 +63,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'a'.repeat(64) }
+        { token: 'a'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);
@@ -90,7 +92,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'b'.repeat(64) }
+        { token: 'b'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);
@@ -113,7 +115,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'c'.repeat(64) }
+        { token: 'c'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);
@@ -142,7 +144,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'd'.repeat(64) }
+        { token: 'd'.repeat(64), now }
       );
 
       expect(result.isOk()).toBe(true);
@@ -171,7 +173,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'e'.repeat(64) }
+        { token: 'e'.repeat(64), now }
       );
 
       expect(result.isOk()).toBe(true);
@@ -200,7 +202,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'f'.repeat(64) }
+        { token: 'f'.repeat(64), now }
       );
 
       expect(result.isOk()).toBe(true);
@@ -233,7 +235,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'g'.repeat(64) }
+        { token: 'g'.repeat(64), now }
       );
 
       expect(result.isOk()).toBe(true);
@@ -261,7 +263,7 @@ describe('unsubscribeViaToken use case', () => {
       const notificationsRepo = makeFakeNotificationsRepo({ notifications: [notification] });
       const tokensRepo = makeFakeUnsubscribeTokensRepo({ tokens: [validToken] });
 
-      await unsubscribeViaToken({ notificationsRepo, tokensRepo }, { token: 'h'.repeat(64) });
+      await unsubscribeViaToken({ notificationsRepo, tokensRepo }, { token: 'h'.repeat(64), now });
 
       // Check token is marked as used
       const tokenResult = await tokensRepo.findByToken('h'.repeat(64));
@@ -291,14 +293,14 @@ describe('unsubscribeViaToken use case', () => {
       // First unsubscribe
       const result1 = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'i'.repeat(64) }
+        { token: 'i'.repeat(64), now }
       );
       expect(result1.isOk()).toBe(true);
 
       // Try to use same token again
       const result2 = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'i'.repeat(64) }
+        { token: 'i'.repeat(64), now }
       );
       expect(result2.isErr()).toBe(true);
       if (result2.isErr()) {
@@ -314,7 +316,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'j'.repeat(64) }
+        { token: 'j'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);
@@ -335,7 +337,7 @@ describe('unsubscribeViaToken use case', () => {
 
       const result = await unsubscribeViaToken(
         { notificationsRepo, tokensRepo },
-        { token: 'k'.repeat(64) }
+        { token: 'k'.repeat(64), now }
       );
 
       expect(result.isErr()).toBe(true);

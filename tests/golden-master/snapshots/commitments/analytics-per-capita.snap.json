@@ -1,0 +1,40 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2020",
+          "y": 24005.44
+        },
+        {
+          "growth_percent": null,
+          "x": "2021",
+          "y": 25683.33
+        },
+        {
+          "growth_percent": null,
+          "x": "2022",
+          "y": 29786.02
+        },
+        {
+          "growth_percent": null,
+          "x": "2023",
+          "y": 33919.33
+        }
+      ],
+      "metric": "PLATI_TREZOR",
+      "seriesId": "plati-trezor-per-capita",
+      "xAxis": {
+        "name": "Year",
+        "type": "INTEGER",
+        "unit": "year"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON/capita"
+      }
+    }
+  ]
+}

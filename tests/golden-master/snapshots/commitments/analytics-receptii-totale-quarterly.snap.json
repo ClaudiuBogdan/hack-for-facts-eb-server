@@ -1,0 +1,60 @@
+{
+  "commitmentsAnalytics": [
+    {
+      "data": [
+        {
+          "growth_percent": null,
+          "x": "2022-Q1",
+          "y": 275781580807.73
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q2",
+          "y": 95431136832.31
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q3",
+          "y": 107270338247.28
+        },
+        {
+          "growth_percent": null,
+          "x": "2022-Q4",
+          "y": 103812464780.71
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q1",
+          "y": 329077742111.29
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q2",
+          "y": 113175139984.37
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q3",
+          "y": 105127458819.45
+        },
+        {
+          "growth_percent": null,
+          "x": "2023-Q4",
+          "y": 117268468786.72
+        }
+      ],
+      "metric": "RECEPTII_TOTALE",
+      "seriesId": "receptii-totale-quarterly",
+      "xAxis": {
+        "name": "Quarter",
+        "type": "STRING",
+        "unit": "quarter"
+      },
+      "yAxis": {
+        "name": "Amount",
+        "type": "FLOAT",
+        "unit": "RON"
+      }
+    }
+  ]
+}
