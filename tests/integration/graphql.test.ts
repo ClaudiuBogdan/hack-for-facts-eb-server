@@ -6,7 +6,7 @@ import { Frequency, type DataSeries } from '@/common/types/temporal.js';
 import { makeAnalyticsRepo } from '@/modules/execution-analytics/shell/repo/analytics-repo.js';
 
 import { makeHealthChecker, makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
 
 import type { AnalyticsRepository } from '@/modules/execution-analytics/core/ports.js';
 import type { AnalyticsFilter } from '@/modules/execution-analytics/core/types.js';
@@ -40,6 +40,8 @@ describe('GraphQL API', () => {
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
+
+        insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
         config: makeTestConfig(),
       },
@@ -70,6 +72,8 @@ describe('GraphQL API', () => {
       deps: {
         healthCheckers: [dbChecker],
         budgetDb: makeFakeBudgetDb(),
+
+        insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
         config: makeTestConfig(),
       },
@@ -137,6 +141,8 @@ describe('GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -190,6 +196,8 @@ describe('GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -242,6 +250,8 @@ describe('GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },

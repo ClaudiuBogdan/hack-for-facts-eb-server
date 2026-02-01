@@ -1,0 +1,153 @@
+{
+  "insObservations": {
+    "nodes": [
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PRIVATA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2022"
+        },
+        "value": "1042116"
+      },
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PUBLICA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2022"
+        },
+        "value": "8201"
+      },
+      {
+        "classifications": [
+          {
+            "code": "TOTAL",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2022"
+        },
+        "value": "1050317"
+      },
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PUBLICA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2021"
+        },
+        "value": "8201"
+      },
+      {
+        "classifications": [
+          {
+            "code": "TOTAL",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2021"
+        },
+        "value": "1038266"
+      },
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PRIVATA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2021"
+        },
+        "value": "1030065"
+      },
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PRIVATA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2020"
+        },
+        "value": "881715"
+      },
+      {
+        "classifications": [
+          {
+            "code": "PROPRIETATE_PUBLICA",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2020"
+        },
+        "value": "7142"
+      },
+      {
+        "classifications": [
+          {
+            "code": "TOTAL",
+            "type_code": "OWNERSHIP"
+          }
+        ],
+        "dataset_code": "LOC101B",
+        "territory": {
+          "code": "RO"
+        },
+        "time_period": {
+          "iso_period": "2020"
+        },
+        "value": "888857"
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 9
+    }
+  }
+}

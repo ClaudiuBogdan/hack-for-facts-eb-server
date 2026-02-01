@@ -84,7 +84,7 @@ const main = async (): Promise<void> => {
   logger.info({ config: { server: config.server } }, 'Starting API server');
 
   // Initialize dependencies
-  const { budgetDb, userDb } = initDatabases(config);
+  const { budgetDb, insDb, userDb } = initDatabases(config);
   const datasetRepo = createDatasetRepo({
     rootDir: './datasets/yaml',
     logger,
@@ -120,6 +120,7 @@ const main = async (): Promise<void> => {
     deps: {
       healthCheckers: [],
       budgetDb,
+      insDb,
       userDb,
       datasetRepo,
       config,

@@ -1,0 +1,39 @@
+{
+  "insDatasets": {
+    "nodes": [
+      {
+        "code": "ADM101A",
+        "has_county_data": false,
+        "has_uat_data": false,
+        "name_ro": "Organizarea administrativa a teritoriului, pe categorii de unitati administrative, macroregiuni, regiuni de dezvoltare si judete"
+      },
+      {
+        "code": "AMG1010",
+        "has_county_data": false,
+        "has_uat_data": false,
+        "name_ro": "AMIGO - Participarea populatiei la forta de munca, pe sexe si medii de rezidenta"
+      },
+      {
+        "code": "AMG101A",
+        "has_county_data": false,
+        "has_uat_data": false,
+        "name_ro": "AMIGO - Populatia activa  pe grupe de varsta si sexe"
+      },
+      {
+        "code": "AMG101B",
+        "has_county_data": false,
+        "has_uat_data": false,
+        "name_ro": "AMIGO - Populatia activa  pe grupe de varsta si medii de rezidenta"
+      },
+      {
+        "code": "AMG101C",
+        "has_county_data": false,
+        "has_uat_data": false,
+        "name_ro": "AMIGO - Populatia activa dupa starea civila si pe grupe de varsta "
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 238
+    }
+  }
+}

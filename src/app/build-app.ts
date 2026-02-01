@@ -108,6 +108,7 @@ import {
   makeCacheHealthChecker,
   type HealthChecker,
 } from '../modules/health/index.js';
+import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
 import {
   makeLearningProgressRoutes,
   makeLearningProgressRepo,
@@ -172,7 +173,7 @@ import {
 } from '../modules/uat-analytics/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
-import type { BudgetDbClient, UserDbClient } from '../infra/database/client.js';
+import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
 
 /**
  * Application dependencies that can be injected
@@ -180,6 +181,7 @@ import type { BudgetDbClient, UserDbClient } from '../infra/database/client.js';
 export interface AppDeps {
   healthCheckers?: HealthChecker[];
   budgetDb: BudgetDbClient;
+  insDb: InsDbClient;
   /** User database for notifications and other user-related data */
   userDb?: UserDbClient;
   datasetRepo: DatasetRepo;
@@ -216,11 +218,17 @@ export interface AppOptions {
 export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstance> => {
   const { fastifyOptions = {}, deps = {}, version } = options;
 
-  if (deps.budgetDb === undefined || deps.datasetRepo === undefined || deps.config === undefined) {
-    throw new Error('Missing required dependencies: budgetDb, datasetRepo, config');
+  if (
+    deps.budgetDb === undefined ||
+    deps.insDb === undefined ||
+    deps.datasetRepo === undefined ||
+    deps.config === undefined
+  ) {
+    throw new Error('Missing required dependencies: budgetDb, insDb, datasetRepo, config');
   }
 
   const budgetDb = deps.budgetDb;
+  const insDb = deps.insDb;
   const datasetRepo = deps.datasetRepo;
   const config = deps.config;
 
@@ -253,6 +261,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Budget database checker (always required)
   infrastructureCheckers.push(makeDbHealthChecker(budgetDb, { name: 'database' }));
+  // INS database checker (always required)
+  infrastructureCheckers.push(makeDbHealthChecker(insDb, { name: 'ins-database' }));
 
   // User database checker (when configured)
   if (deps.userDb !== undefined) {
@@ -424,6 +434,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     economicClassificationRepo,
   });
 
+  // Setup INS Module
+  const insRepo = makeInsRepo(insDb);
+  const insResolvers = makeInsResolvers({ insRepo });
+
   // Combine schemas and resolvers
   const schema = [
     BaseSchema,
@@ -443,6 +457,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     UATAnalyticsSchema,
     CountyAnalyticsSchema,
     ClassificationSchema,
+    InsSchema,
   ];
   const resolvers = [
     commonGraphQLResolvers,
@@ -461,6 +476,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     uatAnalyticsResolvers,
     countyAnalyticsResolvers,
     classificationResolvers,
+    insResolvers,
   ];
 
   // Create Mercurius loaders for N+1 prevention

@@ -6,7 +6,7 @@ import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
 import type { CachePort, CacheError, CacheSetOptions, CacheStats } from '@/infra/cache/index.js';
-import type { BudgetDbClient } from '@/infra/database/client.js';
+import type { BudgetDbClient, InsDbClient } from '@/infra/database/client.js';
 import type {
   BudgetSectorRepository,
   BudgetSector,
@@ -210,6 +210,13 @@ export const makeFakeDatasetRepo = (options: FakeDatasetRepoOptions = {}): Datas
 export const makeFakeBudgetDb = (): BudgetDbClient => {
   // Use the Kysely fake that supports health check queries
   return makeFakeKyselyDb() as unknown as BudgetDbClient;
+};
+
+/**
+ * Creates a fake INS database client for testing.
+ */
+export const makeFakeInsDb = (): InsDbClient => {
+  return makeFakeKyselyDb() as unknown as InsDbClient;
 };
 
 // =============================================================================

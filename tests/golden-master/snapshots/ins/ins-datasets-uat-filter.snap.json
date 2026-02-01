@@ -1,0 +1,34 @@
+{
+  "insDatasets": {
+    "nodes": [
+      {
+        "code": "AGR101B",
+        "has_uat_data": true,
+        "name_ro": "Suprafata fondului funciar dupa modul de folosinta, pe judete si localitati"
+      },
+      {
+        "code": "AGR108B",
+        "has_uat_data": true,
+        "name_ro": "Suprafata cultivata cu principalele culturi, pe judete si localitati"
+      },
+      {
+        "code": "AGR109B",
+        "has_uat_data": true,
+        "name_ro": "Productia agricola vegetala la principalele culturi, pe judete si localitati"
+      },
+      {
+        "code": "AGR112B",
+        "has_uat_data": true,
+        "name_ro": "Productia totala de struguri pe judete si localitati"
+      },
+      {
+        "code": "AGR115B",
+        "has_uat_data": true,
+        "name_ro": "Productia de fructe pe judete si localitati"
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 85
+    }
+  }
+}

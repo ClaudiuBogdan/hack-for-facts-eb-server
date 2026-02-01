@@ -70,6 +70,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     },
     database: {
       budgetUrl: 'postgresql://test:test@localhost:5432/test',
+      insUrl: 'postgresql://test:test@localhost:5432/test-ins',
       userUrl: 'postgresql://test:test@localhost:5432/test-user',
     },
     redis: {

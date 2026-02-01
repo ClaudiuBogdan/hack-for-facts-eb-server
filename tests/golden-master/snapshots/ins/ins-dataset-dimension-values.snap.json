@@ -1,0 +1,237 @@
+{
+  "insDataset": {
+    "code": "LOC101B",
+    "dimensions": [
+      {
+        "index": 0,
+        "label_ro": "Forme de proprietate",
+        "type": "CLASSIFICATION",
+        "values": {
+          "nodes": [
+            {
+              "classification_value": {
+                "code": "TOTAL",
+                "name_ro": "Total",
+                "type_code": "OWNERSHIP"
+              },
+              "dimension_type": "CLASSIFICATION",
+              "label_ro": "Total ",
+              "nom_item_id": 7388,
+              "territory": null,
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": {
+                "code": "PROPRIETATE_PUBLICA",
+                "name_ro": "Proprietate publica ",
+                "type_code": "OWNERSHIP"
+              },
+              "dimension_type": "CLASSIFICATION",
+              "label_ro": "Proprietate publica ",
+              "nom_item_id": 7389,
+              "territory": null,
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": {
+                "code": "PROPRIETATE_PRIVATA",
+                "name_ro": "Proprietate privata",
+                "type_code": "OWNERSHIP"
+              },
+              "dimension_type": "CLASSIFICATION",
+              "label_ro": "Proprietate privata ",
+              "nom_item_id": 7390,
+              "territory": null,
+              "time_period": null,
+              "unit": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false,
+            "totalCount": 3
+          }
+        }
+      },
+      {
+        "index": 1,
+        "label_ro": "Judete",
+        "type": "TERRITORIAL",
+        "values": {
+          "nodes": [
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "TOTAL",
+              "nom_item_id": 112,
+              "territory": {
+                "code": "RO",
+                "level": "NATIONAL",
+                "name_ro": "TOTAL"
+              },
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "Alba",
+              "nom_item_id": 3064,
+              "territory": {
+                "code": "AB",
+                "level": "NUTS3",
+                "name_ro": "Alba"
+              },
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "Arad",
+              "nom_item_id": 3065,
+              "territory": {
+                "code": "AR",
+                "level": "NUTS3",
+                "name_ro": "Arad"
+              },
+              "time_period": null,
+              "unit": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": true,
+            "totalCount": 43
+          }
+        }
+      },
+      {
+        "index": 2,
+        "label_ro": "Localitati ",
+        "type": "TERRITORIAL",
+        "values": {
+          "nodes": [
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "TOTAL",
+              "nom_item_id": 112,
+              "territory": {
+                "code": "RO",
+                "level": "NATIONAL",
+                "name_ro": "TOTAL"
+              },
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "1017 MUNICIPIUL ALBA IULIA",
+              "nom_item_id": 113,
+              "territory": {
+                "code": "1017",
+                "level": "LAU",
+                "name_ro": "MUNICIPIUL ALBA IULIA"
+              },
+              "time_period": null,
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TERRITORIAL",
+              "label_ro": "1213 MUNICIPIUL AIUD",
+              "nom_item_id": 116,
+              "territory": {
+                "code": "1213",
+                "level": "LAU",
+                "name_ro": "MUNICIPIUL AIUD"
+              },
+              "time_period": null,
+              "unit": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": true,
+            "totalCount": 3183
+          }
+        }
+      },
+      {
+        "index": 3,
+        "label_ro": "Ani",
+        "type": "TEMPORAL",
+        "values": {
+          "nodes": [
+            {
+              "classification_value": null,
+              "dimension_type": "TEMPORAL",
+              "label_ro": "Anul 1990",
+              "nom_item_id": 4247,
+              "territory": null,
+              "time_period": {
+                "iso_period": "1990",
+                "periodicity": "ANNUAL"
+              },
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TEMPORAL",
+              "label_ro": "Anul 1991",
+              "nom_item_id": 4266,
+              "territory": null,
+              "time_period": {
+                "iso_period": "1991",
+                "periodicity": "ANNUAL"
+              },
+              "unit": null
+            },
+            {
+              "classification_value": null,
+              "dimension_type": "TEMPORAL",
+              "label_ro": "Anul 1992",
+              "nom_item_id": 4285,
+              "territory": null,
+              "time_period": {
+                "iso_period": "1992",
+                "periodicity": "ANNUAL"
+              },
+              "unit": null
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": true,
+            "totalCount": 34
+          }
+        }
+      },
+      {
+        "index": 4,
+        "label_ro": "UM: Numar",
+        "type": "UNIT_OF_MEASURE",
+        "values": {
+          "nodes": [
+            {
+              "classification_value": null,
+              "dimension_type": "UNIT_OF_MEASURE",
+              "label_ro": "Numar",
+              "nom_item_id": 9669,
+              "territory": null,
+              "time_period": null,
+              "unit": {
+                "code": "NUMBER",
+                "symbol": "nr."
+              }
+            }
+          ],
+          "pageInfo": {
+            "hasNextPage": false,
+            "totalCount": 1
+          }
+        }
+      }
+    ]
+  }
+}
