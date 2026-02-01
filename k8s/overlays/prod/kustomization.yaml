@@ -7,6 +7,7 @@ resources:
   - ../../base
   - ./secrets/sealed-app-secret.yaml
   - ./secrets/sealed-db-deployment.yaml
+  - ./secrets/sealed-db-ins-deployment.yaml
   - ./secrets/sealed-db-user-deployment.yaml
   - ./secrets/sealed-registry-secret.yaml
   - ./secrets/sealed-redis-auth.yaml
@@ -41,6 +42,189 @@ patches:
           requests:
             memory: "4Gi"
             cpu: "1"
+          limits:
+            memory: "16Gi"
+            cpu: "8"
+      - op: replace
+        path: /spec/postgresql/shared_preload_libraries
+        value:
+          - pg_stat_statements
+
+      - op: replace
+        path: /spec/postgresql/parameters/max_connections
+        value: "50"
+      - op: replace
+        path: /spec/postgresql/parameters/shared_buffers
+        value: "2GB"
+      - op: add
+        path: /spec/postgresql/parameters/effective_cache_size
+        value: "6GB"
+      - op: add
+        path: /spec/postgresql/parameters/work_mem
+        value: "64MB"
+      - op: add
+        path: /spec/postgresql/parameters/maintenance_work_mem
+        value: "512MB"
+      - op: add
+        path: /spec/postgresql/parameters/temp_file_limit
+        value: "10GB"
+      - op: add
+        path: /spec/postgresql/parameters/hash_mem_multiplier
+        value: "2.0"
+      - op: add
+        path: /spec/postgresql/parameters/wal_buffers
+        value: "16MB"
+      - op: add
+        path: /spec/postgresql/parameters/min_wal_size
+        value: "500MB"
+      - op: add
+        path: /spec/postgresql/parameters/max_wal_size
+        value: "2GB"
+      - op: add
+        path: /spec/postgresql/parameters/wal_compression
+        value: "lz4"
+
+      # Checkpoint Configuration - Relaxed for read workload
+      - op: add
+        path: /spec/postgresql/parameters/checkpoint_completion_target
+        value: "0.9"
+      - op: add
+        path: /spec/postgresql/parameters/checkpoint_timeout
+        value: "30min"
+
+      # Storage and IO tuning (NVMe optimized)
+      - op: add
+        path: /spec/postgresql/parameters/random_page_cost
+        value: "1.0"
+      - op: add
+        path: /spec/postgresql/parameters/effective_io_concurrency
+        value: "256"
+      - op: add
+        path: /spec/postgresql/parameters/maintenance_io_concurrency
+        value: "256"
+
+      # Parallel Query - Maximized for read performance
+      - op: add
+        path: /spec/postgresql/parameters/max_worker_processes
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_workers
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_workers_per_gather
+        value: "4"
+      - op: add
+        path: /spec/postgresql/parameters/max_parallel_maintenance_workers
+        value: "2"
+      - op: add
+        path: /spec/postgresql/parameters/parallel_setup_cost
+        value: "10"
+      - op: add
+        path: /spec/postgresql/parameters/parallel_tuple_cost
+        value: "0.001"
+      - op: add
+        path: /spec/postgresql/parameters/min_parallel_table_scan_size
+        value: "1MB"
+      - op: add
+        path: /spec/postgresql/parameters/min_parallel_index_scan_size
+        value: "64kB"
+
+      # Query Planner - Optimized for analytics
+      - op: add
+        path: /spec/postgresql/parameters/default_statistics_target
+        value: "500"
+      - op: add
+        path: /spec/postgresql/parameters/constraint_exclusion
+        value: "partition"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partition_pruning
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partitionwise_join
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/enable_partitionwise_aggregate
+        value: "on"
+
+      # Autovacuum - DISABLED (manual VACUUM after monthly writes)
+      - op: add
+        path: /spec/postgresql/parameters/autovacuum
+        value: "off"
+
+      # JIT - Enabled for complex analytical queries
+      - op: add
+        path: /spec/postgresql/parameters/jit
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/jit_above_cost
+        value: "100000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_inline_above_cost
+        value: "500000"
+      - op: add
+        path: /spec/postgresql/parameters/jit_optimize_above_cost
+        value: "500000"
+
+      # Observability - Lightweight monitoring only
+      - op: add
+        path: /spec/postgresql/parameters/pg_stat_statements.max
+        value: "10000"
+      - op: add
+        path: /spec/postgresql/parameters/pg_stat_statements.track
+        value: "all"
+      - op: add
+        path: /spec/postgresql/parameters/track_io_timing
+        value: "on"
+      - op: add
+        path: /spec/postgresql/parameters/track_functions
+        value: "all"
+      - op: add
+        path: /spec/postgresql/parameters/log_min_duration_statement
+        value: "500ms"
+      - op: add
+        path: /spec/postgresql/parameters/log_temp_files
+        value: "0"
+      - op: add
+        path: /spec/postgresql/parameters/log_lock_waits
+        value: "on"
+
+      # Timeouts
+      - op: add
+        path: /spec/postgresql/parameters/statement_timeout
+        value: "3600000"
+      - op: add
+        path: /spec/postgresql/parameters/idle_in_transaction_session_timeout
+        value: "600000"
+
+  - target:
+      kind: Cluster
+      name: postgres-ins
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/storage/size
+        value: 200Gi
+      - op: replace
+        path: /spec/instances
+        value: 1
+      - op: add
+        path: /spec/walStorage
+        value:
+          size: 50Gi
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts-prod
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts-ins-owner
+      - op: add
+        path: /spec/resources
+        value:
+          requests:
+            memory: "4Gi"
+            cpu: "0.5"
           limits:
             memory: "16Gi"
             cpu: "8"

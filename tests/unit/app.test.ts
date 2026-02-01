@@ -7,7 +7,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { buildApp, createApp } from '@/app/build-app.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
 
 describe('App Factory', () => {
   describe('buildApp', () => {
@@ -16,6 +16,7 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -32,6 +33,7 @@ describe('App Factory', () => {
         fastifyOptions: { logger: { level: 'silent' } },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -48,6 +50,7 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -70,6 +73,7 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -95,6 +99,7 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },

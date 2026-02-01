@@ -10,6 +10,8 @@
  * - TEST_GM_DATABASE_URL: Use Database mode (in-process Fastify)
  */
 
+import { createDatasetRepo } from '@/modules/datasets/index.js';
+
 import type { FastifyInstance } from 'fastify';
 
 // =============================================================================
@@ -177,6 +179,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
 
     // Override database URL for the app
     process.env['BUDGET_DATABASE_URL'] = dbUrl;
+    process.env['INS_DATABASE_URL'] = dbUrl;
     process.env['USER_DATABASE_URL'] = dbUrl;
     process.env['DATABASE_URL'] = dbUrl;
 
@@ -192,6 +195,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
       logger: { level: 'silent' as const, pretty: false },
       database: {
         budgetUrl: dbUrl,
+        insUrl: dbUrl,
         userUrl: dbUrl,
       },
       redis: { url: undefined, password: undefined, prefix: undefined },
@@ -250,11 +254,15 @@ export async function getClient(): Promise<GoldenMasterClient> {
     };
 
     const dbs = initDatabases(config);
+    const datasetRepo = createDatasetRepo({ rootDir: './datasets/yaml' });
 
     fastifyApp = await createApp({
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: dbs.budgetDb,
+        insDb: dbs.insDb,
+        userDb: dbs.userDb,
+        datasetRepo,
         config,
       },
     });

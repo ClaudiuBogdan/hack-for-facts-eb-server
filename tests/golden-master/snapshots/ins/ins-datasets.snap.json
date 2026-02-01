@@ -1,0 +1,29 @@
+{
+  "insDatasets": {
+    "nodes": [
+      {
+        "code": "ACC101B",
+        "name_ro": "Accidente colective de munca pe macroregiuni, regiuni de dezvoltare si judete",
+        "name_en": "Colective accidents at work by macroregions, development regions and counties",
+        "periodicity": ["ANNUAL"],
+        "year_range": [1992, 2024],
+        "dimension_count": 3,
+        "sync_status": "SYNCED"
+      },
+      {
+        "code": "ACC101C",
+        "name_ro": "Accidente colective de munca pe activitati economice CAEN Rev.2",
+        "name_en": "Colective accidents at work by economic activities CANE Rev.2",
+        "periodicity": ["ANNUAL"],
+        "year_range": [2008, 2024],
+        "dimension_count": 3,
+        "sync_status": "SYNCED"
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 2,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}

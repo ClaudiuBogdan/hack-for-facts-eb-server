@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: hack-for-facts
 resources:
 - postgres-deployment.yaml
+- postgres-ins.yaml
 - postgres-userdata.yaml
 - deployment.yaml
 - service.yaml

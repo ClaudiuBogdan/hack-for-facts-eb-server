@@ -1,0 +1,36 @@
+{
+  "insDataset": {
+    "code": "ACC101B",
+    "name_ro": "Accidente colective de munca pe macroregiuni, regiuni de dezvoltare si judete",
+    "name_en": "Colective accidents at work by macroregions, development regions and counties",
+    "periodicity": ["ANNUAL"],
+    "year_range": [1992, 2024],
+    "dimension_count": 3,
+    "dimensions": [
+      {
+        "index": 0,
+        "type": "TERRITORIAL",
+        "label_ro": "Macroregiuni, regiuni de dezvoltare si judete",
+        "label_en": "Macroregions, development regions and counties",
+        "option_count": 56,
+        "classification_type": null
+      },
+      {
+        "index": 1,
+        "type": "TEMPORAL",
+        "label_ro": "Ani",
+        "label_en": "Years",
+        "option_count": 33,
+        "classification_type": null
+      },
+      {
+        "index": 2,
+        "type": "UNIT_OF_MEASURE",
+        "label_ro": "UM: Numar",
+        "label_en": "MU: Number",
+        "option_count": 1,
+        "classification_type": null
+      }
+    ]
+  }
+}

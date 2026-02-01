@@ -7,6 +7,7 @@ resources:
   - ../../base
   - ./secrets/sealed-app-secret.yaml
   - ./secrets/sealed-db-deployment.yaml
+  - ./secrets/sealed-db-ins-deployment.yaml
   - ./secrets/sealed-db-user-deployment.yaml
   - ./secrets/sealed-registry-secret.yaml
   - ./secrets/sealed-redis-auth.yaml
@@ -28,6 +29,23 @@ patches:
       - op: replace
         path: /spec/bootstrap/initdb/owner
         value: hack-for-facts_user
+
+  - target:
+      kind: Cluster
+      name: postgres-ins
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/storage/size
+        value: 100Gi
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts-dev
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts-ins-owner
 
   - target:
       kind: Cluster

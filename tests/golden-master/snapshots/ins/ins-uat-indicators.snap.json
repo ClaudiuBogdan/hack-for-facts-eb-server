@@ -1,0 +1,87 @@
+{
+  "insUatIndicators": [
+    {
+      "classifications": [],
+      "dataset_code": "GOS106B",
+      "territory": {
+        "code": "54975",
+        "name_ro": "MUNICIPIUL CLUJ-NAPOCA",
+        "siruta_code": "54975"
+      },
+      "time_period": {
+        "iso_period": "2022"
+      },
+      "unit": {
+        "code": "KILOMETRI",
+        "symbol": "km"
+      },
+      "value": "694.5"
+    },
+    {
+      "classifications": [
+        {
+          "code": "TOTAL",
+          "type_code": "OWNERSHIP"
+        }
+      ],
+      "dataset_code": "LOC101B",
+      "territory": {
+        "code": "54975",
+        "name_ro": "MUNICIPIUL CLUJ-NAPOCA",
+        "siruta_code": "54975"
+      },
+      "time_period": {
+        "iso_period": "2022"
+      },
+      "unit": {
+        "code": "NUMBER",
+        "symbol": "nr."
+      },
+      "value": "159502"
+    },
+    {
+      "classifications": [
+        {
+          "code": "PROPRIETATE_PUBLICA",
+          "type_code": "OWNERSHIP"
+        }
+      ],
+      "dataset_code": "LOC101B",
+      "territory": {
+        "code": "54975",
+        "name_ro": "MUNICIPIUL CLUJ-NAPOCA",
+        "siruta_code": "54975"
+      },
+      "time_period": {
+        "iso_period": "2022"
+      },
+      "unit": {
+        "code": "NUMBER",
+        "symbol": "nr."
+      },
+      "value": "2805"
+    },
+    {
+      "classifications": [
+        {
+          "code": "PROPRIETATE_PRIVATA",
+          "type_code": "OWNERSHIP"
+        }
+      ],
+      "dataset_code": "LOC101B",
+      "territory": {
+        "code": "54975",
+        "name_ro": "MUNICIPIUL CLUJ-NAPOCA",
+        "siruta_code": "54975"
+      },
+      "time_period": {
+        "iso_period": "2022"
+      },
+      "unit": {
+        "code": "NUMBER",
+        "symbol": "nr."
+      },
+      "value": "156697"
+    }
+  ]
+}

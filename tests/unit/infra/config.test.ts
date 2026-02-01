@@ -9,6 +9,7 @@ import { parseEnv, createConfig } from '@/infra/config/index.js';
 describe('Configuration', () => {
   const requiredEnv = {
     BUDGET_DATABASE_URL: 'postgres://localhost/test',
+    INS_DATABASE_URL: 'postgres://localhost/test-ins',
     USER_DATABASE_URL: 'postgres://localhost/test',
   };
 
@@ -59,6 +60,11 @@ describe('Configuration', () => {
       expect(envWithDb.BUDGET_DATABASE_URL).toBe('postgres://localhost/test');
     });
 
+    it('accepts INS_DATABASE_URL', () => {
+      const envWithDb = parseEnv({ ...requiredEnv });
+      expect(envWithDb.INS_DATABASE_URL).toBe('postgres://localhost/test-ins');
+    });
+
     it('accepts USER_DATABASE_URL', () => {
       const envWithDb = parseEnv({ ...requiredEnv });
       expect(envWithDb.USER_DATABASE_URL).toBe('postgres://localhost/test');
@@ -79,15 +85,30 @@ describe('Configuration', () => {
     });
 
     it('throws when BUDGET_DATABASE_URL is missing', () => {
-      expect(() => parseEnv({ USER_DATABASE_URL: 'postgres://localhost/test' })).toThrow(
-        'Invalid environment configuration'
-      );
+      expect(() =>
+        parseEnv({
+          INS_DATABASE_URL: 'postgres://localhost/test-ins',
+          USER_DATABASE_URL: 'postgres://localhost/test',
+        })
+      ).toThrow('Invalid environment configuration');
+    });
+
+    it('throws when INS_DATABASE_URL is missing', () => {
+      expect(() =>
+        parseEnv({
+          BUDGET_DATABASE_URL: 'postgres://localhost/test',
+          USER_DATABASE_URL: 'postgres://localhost/test',
+        })
+      ).toThrow('Invalid environment configuration');
     });
 
     it('throws when USER_DATABASE_URL is missing', () => {
-      expect(() => parseEnv({ BUDGET_DATABASE_URL: 'postgres://localhost/test' })).toThrow(
-        'Invalid environment configuration'
-      );
+      expect(() =>
+        parseEnv({
+          BUDGET_DATABASE_URL: 'postgres://localhost/test',
+          INS_DATABASE_URL: 'postgres://localhost/test-ins',
+        })
+      ).toThrow('Invalid environment configuration');
     });
   });
 

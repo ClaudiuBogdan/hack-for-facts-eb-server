@@ -12,6 +12,7 @@ import {
   makeFakeDatasetRepo,
   makeFakeFundingSourceRepo,
   makeFakeFundingSourceLineItemRepo,
+  makeFakeInsDb,
 } from '../fixtures/fakes.js';
 
 import type { FundingSource } from '@/modules/funding-sources/index.js';
@@ -37,6 +38,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo({ sources }),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -73,6 +76,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo({ sources: [] }),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -105,6 +110,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -137,6 +144,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -171,6 +180,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -216,6 +227,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -257,6 +270,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -296,6 +311,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -335,6 +352,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -374,6 +393,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -409,6 +430,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -444,6 +467,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -481,6 +506,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -529,6 +556,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -571,6 +600,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),
@@ -610,6 +641,8 @@ describe('Funding Source GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           fundingSourceRepo: makeFakeFundingSourceRepo(),
           executionLineItemRepo: makeFakeFundingSourceLineItemRepo(),

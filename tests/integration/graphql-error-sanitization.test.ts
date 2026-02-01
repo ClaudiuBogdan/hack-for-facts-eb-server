@@ -3,7 +3,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { createApp } from '@/app/build-app.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -21,6 +21,8 @@ describe('GraphQL error sanitization (production)', () => {
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
+
+        insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
         config: makeTestConfig({
           server: {

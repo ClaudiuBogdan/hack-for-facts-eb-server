@@ -1,0 +1,28 @@
+{
+  "insObservations": {
+    "nodes": [
+      {
+        "dataset_code": "ACC101B",
+        "value": "18",
+        "value_status": null,
+        "time_period": {
+          "iso_period": "2020"
+        },
+        "territory": {
+          "code": "RO",
+          "siruta_code": null
+        },
+        "unit": {
+          "code": "NUMBER",
+          "symbol": "nr."
+        },
+        "classifications": []
+      }
+    ],
+    "pageInfo": {
+      "totalCount": 1,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}

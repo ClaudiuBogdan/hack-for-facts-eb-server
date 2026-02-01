@@ -6,7 +6,7 @@ import { createApp } from '@/app/build-app.js';
 import { makeEntityAnalyticsRepo } from '@/modules/entity-analytics/shell/repo/entity-analytics-repo.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
 
 import type { EntityAnalyticsRepository } from '@/modules/entity-analytics/core/ports.js';
 import type {
@@ -101,6 +101,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -176,6 +178,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -234,6 +238,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -296,6 +302,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -334,6 +342,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -390,6 +400,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -446,6 +458,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -507,6 +521,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -556,6 +572,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -592,6 +610,8 @@ describe('EntityAnalytics GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },

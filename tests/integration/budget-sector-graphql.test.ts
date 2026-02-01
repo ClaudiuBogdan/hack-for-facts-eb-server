@@ -11,6 +11,7 @@ import {
   makeFakeBudgetDb,
   makeFakeDatasetRepo,
   makeFakeBudgetSectorRepo,
+  makeFakeInsDb,
 } from '../fixtures/fakes.js';
 
 import type { BudgetSector } from '@/modules/budget-sector/index.js';
@@ -36,6 +37,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo({ sectors }),
           config: makeTestConfig(),
@@ -71,6 +74,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo({ sectors: [] }),
           config: makeTestConfig(),
@@ -102,6 +107,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -133,6 +140,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -166,6 +175,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -210,6 +221,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -250,6 +263,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -288,6 +303,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -326,6 +343,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -364,6 +383,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -398,6 +419,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -432,6 +455,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
@@ -466,6 +491,8 @@ describe('Budget Sector GraphQL API', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           budgetSectorRepo: makeFakeBudgetSectorRepo(),
           config: makeTestConfig(),
