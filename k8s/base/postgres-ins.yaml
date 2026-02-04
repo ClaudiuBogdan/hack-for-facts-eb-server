@@ -21,5 +21,6 @@ spec:
     parameters:
       max_connections: "100"
       shared_buffers: "256MB"
+      max_locks_per_transaction: "256"
   storage:
-    size: 100Gi
+    size: 200Gi
