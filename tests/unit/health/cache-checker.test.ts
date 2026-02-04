@@ -25,7 +25,7 @@ describe('makeCacheHealthChecker', () => {
     });
 
     it('returns latency measurement', async () => {
-      const cache = makeFakeCachePort({ delayMs: 10 });
+      const cache = makeFakeCachePort({ delayMs: 20 });
       const checker = makeCacheHealthChecker(cache);
 
       const result = await checker();
