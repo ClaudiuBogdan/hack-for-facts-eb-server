@@ -23,6 +23,7 @@ import {
   wrapEconomicClassificationRepo,
   wrapPopulationRepo,
   wrapExecutionLineItemsRepo,
+  wrapInsRepo,
 } from './cache-wrappers.js';
 import { initCache, createCacheConfig, type CacheClient } from '../infra/cache/index.js';
 import { makeWebhookVerifier } from '../infra/email/client.js';
@@ -435,7 +436,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Setup INS Module
-  const insRepo = makeInsRepo(insDb);
+  const rawInsRepo = makeInsRepo(insDb);
+  const insRepo = wrapInsRepo(rawInsRepo, cache, keyBuilder);
   const insResolvers = makeInsResolvers({ insRepo });
 
   // Combine schemas and resolvers

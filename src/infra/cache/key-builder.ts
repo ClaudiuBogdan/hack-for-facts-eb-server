@@ -24,6 +24,12 @@ export const CacheNamespace = {
   ANALYTICS_UAT: 'analytics:uat',
 
   // ─────────────────────────────────────────────────────────────────────────
+  // INS queries
+  // ─────────────────────────────────────────────────────────────────────────
+  /** INS module read queries */
+  INS_QUERIES: 'ins:queries',
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Line items (detailed row-level queries)
   // ─────────────────────────────────────────────────────────────────────────
   /** Execution line items (Entity.executionLineItems) */
