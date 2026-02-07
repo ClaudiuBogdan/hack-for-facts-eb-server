@@ -2,6 +2,7 @@ import { Decimal } from 'decimal.js';
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
+import { Frequency } from '@/common/types/temporal.js';
 import {
   MAX_COMPARE_LIMIT,
   MAX_DATASET_LIMIT,
@@ -21,6 +22,7 @@ import { compareInsUats } from '@/modules/ins/core/usecases/compare-ins-uat.js';
 import { getInsUatDashboard } from '@/modules/ins/core/usecases/get-ins-uat-dashboard.js';
 import { getInsUatIndicators } from '@/modules/ins/core/usecases/get-ins-uat-indicators.js';
 import { listInsContexts } from '@/modules/ins/core/usecases/list-ins-contexts.js';
+import { listInsDatasetDimensionValues } from '@/modules/ins/core/usecases/list-ins-dataset-dimension-values.js';
 import { listInsDatasets } from '@/modules/ins/core/usecases/list-ins-datasets.js';
 import { listInsDimensionValues } from '@/modules/ins/core/usecases/list-ins-dimension-values.js';
 import { listInsLatestDatasetValues } from '@/modules/ins/core/usecases/list-ins-latest-dataset-values.js';
@@ -201,6 +203,93 @@ describe('INS usecases', () => {
     });
   });
 
+  describe('listInsDatasetDimensionValues', () => {
+    it('returns empty connection when dataset is missing', async () => {
+      let listDimensionValuesCalled = false;
+
+      const repo = makeRepo({
+        getDatasetByCode: async () => ok(null),
+        listDimensionValues: async () => {
+          listDimensionValuesCalled = true;
+          return ok(emptyDimensionValueConnection);
+        },
+      });
+
+      const result = await listInsDatasetDimensionValues(
+        { insRepo: repo },
+        {
+          dataset_code: 'MISSING',
+          dimension_index: 0,
+          filter: {},
+          limit: 50,
+          offset: 0,
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      expect(result._unsafeUnwrap()).toEqual(emptyDimensionValueConnection);
+      expect(listDimensionValuesCalled).toBe(false);
+    });
+
+    it('delegates to dimension values usecase for existing dataset + dimension', async () => {
+      let captured: {
+        matrixId: number;
+        dimIndex: number;
+        limit: number;
+        offset: number;
+      } | null = null;
+
+      const repo = makeRepo({
+        getDatasetByCode: async () => ok(makeDataset({ id: 42, code: 'POP107D' })),
+        listDimensions: async () =>
+          ok([
+            {
+              matrix_id: 42,
+              index: 3,
+              type: 'TERRITORIAL',
+              label_ro: 'Teritoriu',
+              label_en: null,
+              classification_type: null,
+              is_hierarchical: false,
+              option_count: 0,
+            },
+          ]),
+        listDimensionValues: async (matrixId, dimIndex, _filter, limit, offset) => {
+          captured = { matrixId, dimIndex, limit, offset };
+          return ok(emptyDimensionValueConnection);
+        },
+      });
+
+      const result = await listInsDatasetDimensionValues(
+        { insRepo: repo },
+        {
+          dataset_code: 'POP107D',
+          dimension_index: 3,
+          filter: {},
+          limit: MAX_DIMENSION_VALUES_LIMIT + 10,
+          offset: -1,
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (captured === null) {
+        throw new Error('Expected listDimensionValues to be called');
+      }
+
+      const capturedValue = captured as {
+        matrixId: number;
+        dimIndex: number;
+        limit: number;
+        offset: number;
+      };
+
+      expect(capturedValue.matrixId).toBe(42);
+      expect(capturedValue.dimIndex).toBe(3);
+      expect(capturedValue.limit).toBe(MAX_DIMENSION_VALUES_LIMIT);
+      expect(capturedValue.offset).toBe(0);
+    });
+  });
+
   describe('listInsObservations', () => {
     it('returns empty when dataset_codes is empty', async () => {
       let called = false;
@@ -243,7 +332,17 @@ describe('INS usecases', () => {
         { insRepo: repo },
         {
           dataset_codes: ['ACC101B'],
-          filter: { period: '2020' },
+          filter: {
+            period: {
+              type: Frequency.YEAR,
+              selection: {
+                interval: {
+                  start: '2020',
+                  end: '2020',
+                },
+              },
+            },
+          },
           limit: MAX_OBSERVATION_LIMIT + 500,
           offset: -2,
         }
@@ -260,7 +359,17 @@ describe('INS usecases', () => {
         offset: number;
       };
       expect(capturedValue.dataset_codes).toEqual(['ACC101B']);
-      expect(capturedValue.filter).toEqual({ period: '2020' });
+      expect(capturedValue.filter).toEqual({
+        period: {
+          type: Frequency.YEAR,
+          selection: {
+            interval: {
+              start: '2020',
+              end: '2020',
+            },
+          },
+        },
+      });
       expect(capturedValue.limit).toBe(MAX_OBSERVATION_LIMIT);
       expect(capturedValue.offset).toBe(0);
     });
@@ -325,9 +434,50 @@ describe('INS usecases', () => {
         limit: number;
       };
       expect(capturedValue.dataset_codes).toEqual(['ACC101B']);
-      expect(capturedValue.filter).toEqual({ siruta_codes: ['123'], period: '2020' });
+      expect(capturedValue.filter).toEqual({
+        siruta_codes: ['123'],
+        period: {
+          type: Frequency.YEAR,
+          selection: {
+            interval: {
+              start: '2020',
+              end: '2020',
+            },
+          },
+        },
+      });
       expect(capturedValue.limit).toBe(MAX_UAT_INDICATORS_LIMIT);
       expect(result._unsafeUnwrap()).toEqual(observations);
+    });
+
+    it('returns invalid filter error when period format is invalid', async () => {
+      const repo = makeRepo();
+      const result = await getInsUatIndicators(
+        { insRepo: repo },
+        { siruta_code: '123', dataset_codes: ['ACC101B'], period: 'invalid' }
+      );
+
+      expect(result.isErr()).toBe(true);
+      const error = result._unsafeUnwrapErr();
+      if (error.type !== 'InvalidFilterError') {
+        throw new Error(`Expected InvalidFilterError, got ${error.type}`);
+      }
+      expect(error.field).toBe('period');
+    });
+
+    it('returns invalid filter error when period is null', async () => {
+      const repo = makeRepo();
+      const result = await getInsUatIndicators(
+        { insRepo: repo },
+        { siruta_code: '123', dataset_codes: ['ACC101B'], period: null as unknown as string }
+      );
+
+      expect(result.isErr()).toBe(true);
+      const error = result._unsafeUnwrapErr();
+      if (error.type !== 'InvalidFilterError') {
+        throw new Error(`Expected InvalidFilterError, got ${error.type}`);
+      }
+      expect(error.field).toBe('period');
     });
   });
 
@@ -405,9 +555,54 @@ describe('INS usecases', () => {
         limit: number;
       };
       expect(capturedValue.dataset_codes).toEqual(['ACC101B']);
-      expect(capturedValue.filter).toEqual({ siruta_codes: ['123', '456'], period: '2020' });
+      expect(capturedValue.filter).toEqual({
+        siruta_codes: ['123', '456'],
+        period: {
+          type: Frequency.YEAR,
+          selection: {
+            interval: {
+              start: '2020',
+              end: '2020',
+            },
+          },
+        },
+      });
       expect(capturedValue.limit).toBe(MAX_COMPARE_LIMIT);
       expect(result._unsafeUnwrap()).toEqual(observations);
+    });
+
+    it('returns invalid filter error when period format is invalid', async () => {
+      const repo = makeRepo();
+      const result = await compareInsUats(
+        { insRepo: repo },
+        { siruta_codes: ['123'], dataset_code: 'ACC101B', period: 'invalid' }
+      );
+
+      expect(result.isErr()).toBe(true);
+      const error = result._unsafeUnwrapErr();
+      if (error.type !== 'InvalidFilterError') {
+        throw new Error(`Expected InvalidFilterError, got ${error.type}`);
+      }
+      expect(error.field).toBe('period');
+    });
+
+    it('returns invalid filter error when period is null', async () => {
+      const repo = makeRepo();
+      const result = await compareInsUats(
+        { insRepo: repo },
+        {
+          siruta_codes: ['123'],
+          dataset_code: 'ACC101B',
+          period: null as unknown as string,
+        }
+      );
+
+      expect(result.isErr()).toBe(true);
+      const error = result._unsafeUnwrapErr();
+      if (error.type !== 'InvalidFilterError') {
+        throw new Error(`Expected InvalidFilterError, got ${error.type}`);
+      }
+      expect(error.field).toBe('period');
     });
   });
 

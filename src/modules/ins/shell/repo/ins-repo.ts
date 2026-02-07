@@ -9,6 +9,7 @@ import { Decimal } from 'decimal.js';
 import { sql } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { Frequency } from '@/common/types/temporal.js';
 import { setStatementTimeout } from '@/infra/database/query-builders/index.js';
 
 import {
@@ -278,6 +279,22 @@ const parsePeriodDate = (value: string): ParsedPeriod | null => {
   }
 
   return null;
+};
+
+const mapFrequencyToInsPeriodicity = (frequency: Frequency): InsPeriodicity => {
+  if (frequency === Frequency.MONTH) return 'MONTHLY';
+  if (frequency === Frequency.QUARTER) return 'QUARTERLY';
+  return 'ANNUAL';
+};
+
+const getPeriodSortKey = (period: ParsedPeriod): number => {
+  if (period.periodicity === 'ANNUAL') {
+    return period.year;
+  }
+  if (period.periodicity === 'QUARTERLY') {
+    return period.year * 10 + (period.quarter ?? 0);
+  }
+  return period.year * 100 + (period.month ?? 0);
 };
 
 const escapeILikePattern = (value: string): string => {
@@ -1706,75 +1723,84 @@ class KyselyInsRepo implements InsRepository {
       );
     }
 
-    if (filter.periodicity !== undefined) {
-      query = query.where('tp.periodicity', '=', filter.periodicity);
-    }
+    if (filter.period !== undefined) {
+      const expectedPeriodicity = mapFrequencyToInsPeriodicity(filter.period.type);
+      const periodSelection = filter.period.selection;
 
-    if (filter.years !== undefined && filter.years.length > 0) {
-      query = query.where('tp.year', 'in', filter.years);
-    }
+      query = query.where('tp.periodicity', '=', expectedPeriodicity);
 
-    if (filter.quarters !== undefined && filter.quarters.length > 0) {
-      query = query.where('tp.quarter', 'in', filter.quarters);
-    }
+      if (periodSelection.interval !== undefined) {
+        const start = parsePeriodDate(periodSelection.interval.start);
+        const end = parsePeriodDate(periodSelection.interval.end);
 
-    if (filter.months !== undefined && filter.months.length > 0) {
-      query = query.where('tp.month', 'in', filter.months);
-    }
-
-    if (filter.period !== undefined && filter.period.trim() !== '') {
-      const parsed = parsePeriodDate(filter.period.trim());
-      if (parsed === null) {
-        return err(createInvalidFilterError('period', 'Invalid period format'));
-      }
-
-      query = query
-        .where('tp.periodicity', '=', parsed.periodicity)
-        .where('tp.year', '=', parsed.year);
-      if (parsed.quarter !== null) {
-        query = query.where('tp.quarter', '=', parsed.quarter);
-      }
-      if (parsed.month !== null) {
-        query = query.where('tp.month', '=', parsed.month);
-      }
-    }
-
-    if (filter.period_range !== undefined) {
-      const start = parsePeriodDate(filter.period_range.start);
-      const end = parsePeriodDate(filter.period_range.end);
-
-      if (start === null || end === null || start.periodicity !== end.periodicity) {
-        return err(createInvalidFilterError('periodRange', 'Invalid period range'));
-      }
-
-      query = query.where('tp.periodicity', '=', start.periodicity);
-
-      if (start.periodicity === 'ANNUAL') {
-        query = query.where('tp.year', '>=', start.year).where('tp.year', '<=', end.year);
-      } else if (start.periodicity === 'QUARTERLY') {
-        if (start.quarter === null || end.quarter === null) {
-          return err(createInvalidFilterError('periodRange', 'Quarter range missing'));
+        if (start === null || end === null) {
+          return err(createInvalidFilterError('period', 'Invalid period range'));
         }
-        const startKey = start.year * 10 + start.quarter;
-        const endKey = end.year * 10 + end.quarter;
-        query = query.where(
-          sql<boolean>`(${sql.ref('tp.year')} * 10 + ${sql.ref('tp.quarter')}) >= ${startKey}`
-        );
-        query = query.where(
-          sql<boolean>`(${sql.ref('tp.year')} * 10 + ${sql.ref('tp.quarter')}) <= ${endKey}`
-        );
+        if (start.periodicity !== expectedPeriodicity || end.periodicity !== expectedPeriodicity) {
+          return err(
+            createInvalidFilterError('period', 'Period type does not match selected dates')
+          );
+        }
+        if (getPeriodSortKey(start) > getPeriodSortKey(end)) {
+          return err(
+            createInvalidFilterError('period', 'Period interval start must be before end')
+          );
+        }
+
+        if (expectedPeriodicity === 'ANNUAL') {
+          query = query.where('tp.year', '>=', start.year).where('tp.year', '<=', end.year);
+        } else if (expectedPeriodicity === 'QUARTERLY') {
+          if (start.quarter === null || end.quarter === null) {
+            return err(createInvalidFilterError('period', 'Quarter interval is invalid'));
+          }
+          const startKey = start.year * 10 + start.quarter;
+          const endKey = end.year * 10 + end.quarter;
+          query = query.where(
+            sql<boolean>`(${sql.ref('tp.year')} * 10 + ${sql.ref('tp.quarter')}) >= ${startKey}`
+          );
+          query = query.where(
+            sql<boolean>`(${sql.ref('tp.year')} * 10 + ${sql.ref('tp.quarter')}) <= ${endKey}`
+          );
+        } else {
+          if (start.month === null || end.month === null) {
+            return err(createInvalidFilterError('period', 'Month interval is invalid'));
+          }
+          const startKey = start.year * 100 + start.month;
+          const endKey = end.year * 100 + end.month;
+          query = query.where(
+            sql<boolean>`(${sql.ref('tp.year')} * 100 + ${sql.ref('tp.month')}) >= ${startKey}`
+          );
+          query = query.where(
+            sql<boolean>`(${sql.ref('tp.year')} * 100 + ${sql.ref('tp.month')}) <= ${endKey}`
+          );
+        }
       } else {
-        if (start.month === null || end.month === null) {
-          return err(createInvalidFilterError('periodRange', 'Month range missing'));
+        const periodDates = periodSelection.dates;
+        if (periodDates.length > 0) {
+          const parsedDates: ParsedPeriod[] = [];
+          for (const periodDate of periodDates) {
+            const parsedDate = parsePeriodDate(periodDate);
+            if (parsedDate?.periodicity !== expectedPeriodicity) {
+              return err(createInvalidFilterError('period', 'Invalid date in period selection'));
+            }
+            parsedDates.push(parsedDate);
+          }
+
+          query = query.where((eb: DynamicQuery) =>
+            eb.or(
+              parsedDates.map((parsedDate) => {
+                const clauses: DynamicQuery[] = [eb('tp.year', '=', parsedDate.year)];
+                if (parsedDate.quarter !== null) {
+                  clauses.push(eb('tp.quarter', '=', parsedDate.quarter));
+                }
+                if (parsedDate.month !== null) {
+                  clauses.push(eb('tp.month', '=', parsedDate.month));
+                }
+                return eb.and(clauses);
+              })
+            )
+          );
         }
-        const startKey = start.year * 100 + start.month;
-        const endKey = end.year * 100 + end.month;
-        query = query.where(
-          sql<boolean>`(${sql.ref('tp.year')} * 100 + ${sql.ref('tp.month')}) >= ${startKey}`
-        );
-        query = query.where(
-          sql<boolean>`(${sql.ref('tp.year')} * 100 + ${sql.ref('tp.month')}) <= ${endKey}`
-        );
       }
     }
 

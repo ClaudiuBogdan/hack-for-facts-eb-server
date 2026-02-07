@@ -5,8 +5,10 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { createInvalidFilterError, type InsError } from '../errors.js';
+import { parsePeriodDateToInput } from '../period.js';
 import {
   MAX_UAT_INDICATORS_LIMIT,
+  type InsObservationFilter,
   type InsObservation,
   type InsUatIndicatorsInput,
 } from '../types.js';
@@ -25,11 +27,15 @@ export const getInsUatIndicators = async (
     return err(createInvalidFilterError('datasetCodes', 'At least one dataset code is required'));
   }
 
-  const observationFilter: { siruta_codes: string[]; period?: string } = {
+  const observationFilter: InsObservationFilter = {
     siruta_codes: [input.siruta_code],
   };
   if (input.period !== undefined) {
-    observationFilter.period = input.period;
+    const parsedPeriod = parsePeriodDateToInput(input.period);
+    if (parsedPeriod === null) {
+      return err(createInvalidFilterError('period', 'Invalid period format'));
+    }
+    observationFilter.period = parsedPeriod;
   }
 
   const result = await deps.insRepo.listObservations({
