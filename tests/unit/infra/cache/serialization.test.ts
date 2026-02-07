@@ -30,6 +30,12 @@ describe('Cache Serialization', () => {
       expect(result).toBe('{"amount":{"__decimal__":"1234567890.123456789"}}');
     });
 
+    it('serializes Date values with marker', () => {
+      const value = new Date('2024-01-02T03:04:05.000Z');
+      const result = serialize({ at: value });
+      expect(result).toBe('{"at":{"__date__":"2024-01-02T03:04:05.000Z"}}');
+    });
+
     it('serializes nested Decimal values', () => {
       const data = {
         items: [{ price: new Decimal('99.99') }, { price: new Decimal('149.55') }],
@@ -69,6 +75,32 @@ describe('Cache Serialization', () => {
         const value = result.value as { amount: Decimal };
         expect(value.amount).toBeInstanceOf(Decimal);
         expect(value.amount.toString()).toBe('1234567890.123456789');
+      }
+    });
+
+    it('deserializes Date values from marker', () => {
+      const json = '{"at":{"__date__":"2024-01-02T03:04:05.000Z"}}';
+      const result = deserialize(json);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const value = result.value as { at: Date };
+        expect(value.at).toBeInstanceOf(Date);
+        expect(value.at.toISOString()).toBe('2024-01-02T03:04:05.000Z');
+      }
+    });
+
+    it('keeps objects with date marker plus extra fields as plain objects', () => {
+      const json = '{"meta":{"__date__":"2024-01-02T03:04:05.000Z","source":"ins"}}';
+      const result = deserialize(json);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const value = result.value as { meta: Record<string, string> };
+        expect(value.meta).toEqual({
+          __date__: '2024-01-02T03:04:05.000Z',
+          source: 'ins',
+        });
       }
     });
 
@@ -119,6 +151,25 @@ describe('Cache Serialization', () => {
         expect(amount0?.toString()).toBe('100');
         expect(amount1?.toString()).toBe('200.5');
         expect(restored.nested.value.toString()).toBe('999.999');
+      }
+    });
+
+    it('roundtrips mixed Decimal and Date data', () => {
+      const original = {
+        measuredAt: new Date('2024-03-05T06:07:08.000Z'),
+        amount: new Decimal('42.123'),
+      };
+
+      const json = serialize(original);
+      const result = deserialize(json);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const restored = result.value as typeof original;
+        expect(restored.measuredAt).toBeInstanceOf(Date);
+        expect(restored.measuredAt.toISOString()).toBe('2024-03-05T06:07:08.000Z');
+        expect(restored.amount).toBeInstanceOf(Decimal);
+        expect(restored.amount.toString()).toBe('42.123');
       }
     });
   });

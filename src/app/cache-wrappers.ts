@@ -74,6 +74,13 @@ import type {
   ExecutionLineItemFilter as FundingSourceLineItemFilter,
   ExecutionLineItemConnection as FundingSourceLineItemConnection,
 } from '../modules/funding-sources/core/types.js';
+import type { InsRepository } from '../modules/ins/core/ports.js';
+import type {
+  InsDatasetFilter,
+  InsObservationFilter,
+  ListInsLatestDatasetValuesInput,
+  ListInsObservationsInput,
+} from '../modules/ins/core/types.js';
 import type { PopulationError, PopulationRepository } from '../modules/normalization/core/ports.js';
 import type { UATAnalyticsError } from '../modules/uat-analytics/core/errors.js';
 import type { UATAnalyticsRepository } from '../modules/uat-analytics/core/ports.js';
@@ -85,6 +92,120 @@ import type { Decimal } from 'decimal.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 type FilterLike = Record<string, unknown>;
+const INS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const toSortedUniqueArray = <T extends string>(values: T[] | undefined): T[] | undefined => {
+  if (values === undefined) {
+    return undefined;
+  }
+  return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
+};
+
+const normalizeDatasetFilterForCache = (filter: InsDatasetFilter): InsDatasetFilter => {
+  const normalizedCodes = toSortedUniqueArray(filter.codes);
+  const normalizedPeriodicity = toSortedUniqueArray(filter.periodicity);
+  const normalizedSyncStatus = toSortedUniqueArray(filter.sync_status);
+
+  return {
+    ...filter,
+    ...(normalizedCodes !== undefined ? { codes: normalizedCodes } : {}),
+    ...(normalizedPeriodicity !== undefined ? { periodicity: normalizedPeriodicity } : {}),
+    ...(normalizedSyncStatus !== undefined ? { sync_status: normalizedSyncStatus } : {}),
+  };
+};
+
+const normalizeObservationFilterForCache = (
+  filter: InsObservationFilter | undefined
+): InsObservationFilter | undefined => {
+  if (filter === undefined) {
+    return undefined;
+  }
+
+  const normalizedTerritoryCodes = toSortedUniqueArray(filter.territory_codes);
+  const normalizedSirutaCodes = toSortedUniqueArray(filter.siruta_codes);
+  const normalizedTerritoryLevels = toSortedUniqueArray(filter.territory_levels);
+  const normalizedUnitCodes = toSortedUniqueArray(filter.unit_codes);
+  const normalizedClassificationValueCodes = toSortedUniqueArray(filter.classification_value_codes);
+  const normalizedClassificationTypeCodes = toSortedUniqueArray(filter.classification_type_codes);
+
+  const normalized: InsObservationFilter = {
+    ...filter,
+    ...(normalizedTerritoryCodes !== undefined
+      ? { territory_codes: normalizedTerritoryCodes }
+      : {}),
+    ...(normalizedSirutaCodes !== undefined ? { siruta_codes: normalizedSirutaCodes } : {}),
+    ...(normalizedTerritoryLevels !== undefined
+      ? { territory_levels: normalizedTerritoryLevels }
+      : {}),
+    ...(normalizedUnitCodes !== undefined ? { unit_codes: normalizedUnitCodes } : {}),
+    ...(normalizedClassificationValueCodes !== undefined
+      ? { classification_value_codes: normalizedClassificationValueCodes }
+      : {}),
+    ...(normalizedClassificationTypeCodes !== undefined
+      ? { classification_type_codes: normalizedClassificationTypeCodes }
+      : {}),
+  };
+
+  if (filter.period !== undefined) {
+    const selection = filter.period.selection;
+    if ('dates' in selection && selection.dates !== undefined) {
+      normalized.period = {
+        ...filter.period,
+        selection: {
+          dates: toSortedUniqueArray(selection.dates) ?? [],
+        },
+      };
+    } else if ('interval' in selection) {
+      normalized.period = {
+        ...filter.period,
+        selection: {
+          interval: {
+            start: selection.interval.start,
+            end: selection.interval.end,
+          },
+        },
+      };
+    }
+  }
+
+  return normalized;
+};
+
+const normalizeObservationInputForCache = (
+  input: ListInsObservationsInput
+): ListInsObservationsInput => {
+  const normalizedFilter = normalizeObservationFilterForCache(input.filter);
+
+  return {
+    ...input,
+    dataset_codes: toSortedUniqueArray(input.dataset_codes) ?? [],
+    ...(normalizedFilter !== undefined ? { filter: normalizedFilter } : {}),
+  };
+};
+
+const normalizeLatestDatasetValuesInputForCache = (
+  input: ListInsLatestDatasetValuesInput
+): ListInsLatestDatasetValuesInput => {
+  const normalizedPreferredCodes = toSortedUniqueArray(input.preferred_classification_codes);
+
+  return {
+    ...input,
+    entity: { ...input.entity },
+    // Preserve dataset_codes order: response order follows input order.
+    dataset_codes: [...input.dataset_codes],
+    ...(normalizedPreferredCodes !== undefined
+      ? { preferred_classification_codes: normalizedPreferredCodes }
+      : {}),
+  };
+};
+
+const normalizeOptionalTrimmedValue = (value: string | undefined): string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+};
 
 /**
  * Generic cache wrapper for Result-returning async functions.
@@ -92,7 +213,8 @@ type FilterLike = Record<string, unknown>;
 const wrapWithCache = <TArgs extends unknown[], TValue, TError>(
   fn: (...args: TArgs) => Promise<Result<TValue, TError>>,
   cache: SilentCachePort,
-  keyGenerator: (args: TArgs) => string
+  keyGenerator: (args: TArgs) => string,
+  ttlMs?: number
 ): ((...args: TArgs) => Promise<Result<TValue, TError>>) => {
   return async (...args: TArgs): Promise<Result<TValue, TError>> => {
     const key = keyGenerator(args);
@@ -108,12 +230,120 @@ const wrapWithCache = <TArgs extends unknown[], TValue, TError>(
 
     // Cache only successful results
     if (result.isOk()) {
-      await cache.set(key, result.value);
+      await cache.set(key, result.value, ttlMs !== undefined ? { ttlMs } : undefined);
     }
 
     return result;
   };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INS Repository Wrapper
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const wrapInsRepo = (
+  repo: InsRepository,
+  cache: SilentCachePort,
+  keyBuilder: KeyBuilder
+): InsRepository => ({
+  listDatasets: wrapWithCache(
+    repo.listDatasets.bind(repo),
+    cache,
+    ([filter, limit, offset]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listDatasets',
+        filter: normalizeDatasetFilterForCache(filter),
+        limit,
+        offset,
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listContexts: wrapWithCache(
+    repo.listContexts.bind(repo),
+    cache,
+    ([filter, limit, offset]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listContexts',
+        filter,
+        limit,
+        offset,
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  getDatasetByCode: wrapWithCache(
+    repo.getDatasetByCode.bind(repo),
+    cache,
+    ([code]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'getDatasetByCode',
+        code,
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listDimensions: wrapWithCache(
+    repo.listDimensions.bind(repo),
+    cache,
+    ([matrixId]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listDimensions',
+        matrixId,
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listDimensionValues: wrapWithCache(
+    repo.listDimensionValues.bind(repo),
+    cache,
+    ([matrixId, dimIndex, filter, limit, offset]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listDimensionValues',
+        matrixId,
+        dimIndex,
+        filter,
+        limit,
+        offset,
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listObservations: wrapWithCache(
+    repo.listObservations.bind(repo),
+    cache,
+    ([input]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listObservations',
+        input: normalizeObservationInputForCache(input),
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listLatestDatasetValues: wrapWithCache(
+    repo.listLatestDatasetValues.bind(repo),
+    cache,
+    ([input]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listLatestDatasetValues',
+        input: normalizeLatestDatasetValuesInputForCache(input),
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+
+  listUatDatasetsWithObservations: wrapWithCache(
+    repo.listUatDatasetsWithObservations.bind(repo),
+    cache,
+    ([sirutaCode, contextCode, period]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listUatDatasetsWithObservations',
+        sirutaCode,
+        contextCode: normalizeOptionalTrimmedValue(contextCode),
+        period: normalizeOptionalTrimmedValue(period),
+      } as FilterLike),
+    INS_CACHE_TTL_MS
+  ),
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // County Analytics Repository Wrapper
