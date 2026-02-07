@@ -18,6 +18,8 @@ export { getInsUatIndicators } from './core/usecases/get-ins-uat-indicators.js';
 export { compareInsUats } from './core/usecases/compare-ins-uat.js';
 export { getInsUatDashboard } from './core/usecases/get-ins-uat-dashboard.js';
 export { listInsDimensionValues } from './core/usecases/list-ins-dimension-values.js';
+export { listInsContexts } from './core/usecases/list-ins-contexts.js';
+export { listInsLatestDatasetValues } from './core/usecases/list-ins-latest-dataset-values.js';
 
 // =============================================================================
 // GraphQL
@@ -33,6 +35,10 @@ export type {
   InsDatasetFilter,
   InsDatasetConnection,
   InsDatasetPageInfo,
+  InsContext,
+  InsContextFilter,
+  InsContextConnection,
+  InsContextPageInfo,
   InsDimension,
   InsDimensionValue,
   InsDimensionValueConnection,
@@ -50,6 +56,10 @@ export type {
   InsUatDashboardInput,
   InsUatDatasetGroup,
   InsCompareInput,
+  InsLatestDatasetValue,
+  InsLatestMatchStrategy,
+  InsEntitySelectorInput,
+  ListInsLatestDatasetValuesInput,
   ListInsObservationsInput,
 } from './core/types.js';
 export {

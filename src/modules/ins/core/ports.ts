@@ -4,14 +4,18 @@
 
 import type { InsError } from './errors.js';
 import type {
+  InsContextConnection,
+  InsContextFilter,
   InsDataset,
   InsDatasetConnection,
   InsDatasetFilter,
   InsDimension,
   InsDimensionValueConnection,
   InsDimensionValueFilter,
+  InsLatestDatasetValue,
   InsObservation,
   InsObservationConnection,
+  ListInsLatestDatasetValuesInput,
   ListInsObservationsInput,
 } from './types.js';
 import type { Result } from 'neverthrow';
@@ -26,6 +30,12 @@ export interface InsRepository {
     limit: number,
     offset: number
   ): Promise<Result<InsDatasetConnection, InsError>>;
+
+  listContexts(
+    filter: InsContextFilter,
+    limit: number,
+    offset: number
+  ): Promise<Result<InsContextConnection, InsError>>;
 
   getDatasetByCode(code: string): Promise<Result<InsDataset | null, InsError>>;
 
@@ -42,6 +52,10 @@ export interface InsRepository {
   listObservations(
     input: ListInsObservationsInput
   ): Promise<Result<InsObservationConnection, InsError>>;
+
+  listLatestDatasetValues(
+    input: ListInsLatestDatasetValuesInput
+  ): Promise<Result<InsLatestDatasetValue[], InsError>>;
 
   /**
    * List datasets that have UAT-level data, with their observations for a specific territory.

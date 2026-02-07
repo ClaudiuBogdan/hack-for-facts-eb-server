@@ -6,8 +6,10 @@ import { compareInsUats } from '../../core/usecases/compare-ins-uat.js';
 import { getInsDataset } from '../../core/usecases/get-ins-dataset.js';
 import { getInsUatDashboard } from '../../core/usecases/get-ins-uat-dashboard.js';
 import { getInsUatIndicators } from '../../core/usecases/get-ins-uat-indicators.js';
+import { listInsContexts } from '../../core/usecases/list-ins-contexts.js';
 import { listInsDatasets } from '../../core/usecases/list-ins-datasets.js';
 import { listInsDimensionValues } from '../../core/usecases/list-ins-dimension-values.js';
+import { listInsLatestDatasetValues } from '../../core/usecases/list-ins-latest-dataset-values.js';
 import { listInsObservations } from '../../core/usecases/list-ins-observations.js';
 
 import type { InsRepository } from '../../core/ports.js';
@@ -15,8 +17,10 @@ import type {
   InsDataset,
   InsDimension,
   InsDimensionValueFilter,
+  InsEntitySelectorInput,
   InsObservation,
   InsObservationFilter,
+  InsContextFilter,
   ListInsObservationsInput,
 } from '../../core/types.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
@@ -29,9 +33,24 @@ interface GqlInsDatasetFilterInput {
   search?: string;
   codes?: string[];
   contextCode?: string;
+  rootContextCode?: string;
   periodicity?: ('ANNUAL' | 'QUARTERLY' | 'MONTHLY')[];
   syncStatus?: ('PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'STALE')[];
   hasUatData?: boolean;
+  hasCountyData?: boolean;
+}
+
+interface GqlInsContextFilterInput {
+  search?: string;
+  level?: number;
+  parentCode?: string;
+  rootContextCode?: string;
+}
+
+interface GqlInsEntitySelectorInput {
+  sirutaCode?: string;
+  territoryCode?: string;
+  territoryLevel?: 'NATIONAL' | 'NUTS1' | 'NUTS2' | 'NUTS3' | 'LAU';
 }
 
 interface GqlInsObservationFilterInput {
@@ -63,9 +82,11 @@ const mapDatasetFilter = (input?: GqlInsDatasetFilterInput) => {
     search?: string;
     codes?: string[];
     context_code?: string;
+    root_context_code?: string;
     periodicity?: ('ANNUAL' | 'QUARTERLY' | 'MONTHLY')[];
     sync_status?: ('PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'STALE')[];
     has_uat_data?: boolean;
+    has_county_data?: boolean;
   } = {};
 
   if (input === undefined) {
@@ -75,11 +96,38 @@ const mapDatasetFilter = (input?: GqlInsDatasetFilterInput) => {
   if (input.search !== undefined) filter.search = input.search;
   if (input.codes !== undefined) filter.codes = input.codes;
   if (input.contextCode !== undefined) filter.context_code = input.contextCode;
+  if (input.rootContextCode !== undefined) filter.root_context_code = input.rootContextCode;
   if (input.periodicity !== undefined) filter.periodicity = input.periodicity;
   if (input.syncStatus !== undefined) filter.sync_status = input.syncStatus;
   if (input.hasUatData !== undefined) filter.has_uat_data = input.hasUatData;
+  if (input.hasCountyData !== undefined) filter.has_county_data = input.hasCountyData;
 
   return filter;
+};
+
+const mapContextFilter = (input?: GqlInsContextFilterInput): InsContextFilter => {
+  const filter: InsContextFilter = {};
+
+  if (input === undefined) {
+    return filter;
+  }
+
+  if (input.search !== undefined) filter.search = input.search;
+  if (input.level !== undefined) filter.level = input.level;
+  if (input.parentCode !== undefined) filter.parent_code = input.parentCode;
+  if (input.rootContextCode !== undefined) filter.root_context_code = input.rootContextCode;
+
+  return filter;
+};
+
+const mapEntitySelector = (input: GqlInsEntitySelectorInput): InsEntitySelectorInput => {
+  const selector: InsEntitySelectorInput = {};
+
+  if (input.sirutaCode !== undefined) selector.siruta_code = input.sirutaCode;
+  if (input.territoryCode !== undefined) selector.territory_code = input.territoryCode;
+  if (input.territoryLevel !== undefined) selector.territory_level = input.territoryLevel;
+
+  return selector;
 };
 
 const mapObservationFilter = (input?: GqlInsObservationFilterInput): InsObservationFilter => {
@@ -178,6 +226,29 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
             { err: result.error, code: args.code },
             '[INS] get dataset failed'
           );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      insContexts: async (
+        _parent: unknown,
+        args: { filter?: GqlInsContextFilterInput; limit?: number; offset?: number },
+        context: MercuriusContext
+      ) => {
+        const filter = mapContextFilter(args.filter);
+        const result = await listInsContexts(
+          { insRepo },
+          {
+            filter,
+            limit: args.limit ?? 20,
+            offset: args.offset ?? 0,
+          }
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error({ err: result.error, filter }, '[INS] list contexts failed');
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 
@@ -290,6 +361,46 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
           dataset: group.dataset,
           observations: group.observations.map(toObservationOutput),
           latestPeriod: group.latest_period,
+        }));
+      },
+
+      insLatestDatasetValues: async (
+        _parent: unknown,
+        args: {
+          entity: GqlInsEntitySelectorInput;
+          datasetCodes: string[];
+          preferredClassificationCodes?: string[];
+        },
+        context: MercuriusContext
+      ) => {
+        const request = {
+          entity: mapEntitySelector(args.entity),
+          dataset_codes: args.datasetCodes,
+        } as {
+          entity: InsEntitySelectorInput;
+          dataset_codes: string[];
+          preferred_classification_codes?: string[];
+        };
+        if (args.preferredClassificationCodes !== undefined) {
+          request.preferred_classification_codes = args.preferredClassificationCodes;
+        }
+
+        const result = await listInsLatestDatasetValues({ insRepo }, request);
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, args },
+            '[INS] list latest dataset values failed'
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value.map((item) => ({
+          dataset: item.dataset,
+          observation: item.observation !== null ? toObservationOutput(item.observation) : null,
+          latestPeriod: item.latest_period,
+          matchStrategy: item.match_strategy,
+          hasData: item.has_data,
         }));
       },
     },

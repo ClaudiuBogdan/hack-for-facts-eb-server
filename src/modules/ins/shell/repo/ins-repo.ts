@@ -20,6 +20,9 @@ import {
 } from '../../core/errors.js';
 import {
   MAX_UAT_DASHBOARD_LIMIT,
+  type InsContext,
+  type InsContextConnection,
+  type InsContextFilter,
   type InsClassificationType,
   type InsClassificationValue,
   type InsDataset,
@@ -33,11 +36,15 @@ import {
   type InsObservation,
   type InsObservationConnection,
   type InsObservationFilter,
+  type InsEntitySelectorInput,
+  type InsLatestDatasetValue,
+  type InsLatestMatchStrategy,
   type InsPeriodicity,
   type InsTerritory,
   type InsTerritoryLevel,
   type InsTimePeriod,
   type InsUnit,
+  type ListInsLatestDatasetValuesInput,
   type ListInsObservationsInput,
 } from '../../core/types.js';
 
@@ -78,6 +85,20 @@ interface DatasetRow {
   context_path: string | null;
   periodicity: unknown;
   metadata?: unknown;
+  total_count?: string | number | null;
+}
+
+interface ContextRow {
+  id: number;
+  ins_code: string;
+  name_ro: string | null;
+  name_en: string | null;
+  level: number | null;
+  path: string;
+  parent_id: number | null;
+  parent_code: string | null;
+  parent_name_ro: string | null;
+  matrix_count: number | null;
   total_count?: string | number | null;
 }
 
@@ -263,6 +284,142 @@ const escapeILikePattern = (value: string): string => {
   return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 };
 
+const SAFE_LINK_PROTOCOL_REGEX = /^https?:\/\//i;
+
+const sanitizeMarkdownUrl = (url: string): string | null => {
+  const trimmed = url.trim();
+  return SAFE_LINK_PROTOCOL_REGEX.test(trimmed) ? trimmed : null;
+};
+
+const htmlToMarkdownLinks = (input: string): string => {
+  return input.replace(
+    /<a\s+[^>]*href=(['"])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi,
+    (_match, _quote: string, href: string, text: string) => {
+      const safeUrl = sanitizeMarkdownUrl(href);
+      const cleanText = text.replace(/<\/?[^>]+>/g, '').trim();
+      if (safeUrl === null || cleanText === '') {
+        return cleanText;
+      }
+      return `[${cleanText}](${safeUrl})`;
+    }
+  );
+};
+
+const normalizeContextLabel = (value: string): string => {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const toContextMarkdown = (value: string | null): string | null => {
+  if (value === null) {
+    return null;
+  }
+
+  const withMarkdownLinks = htmlToMarkdownLinks(value);
+  const withoutHtml = withMarkdownLinks.replace(/<\/?[^>]+>/g, ' ');
+  const normalized = normalizeContextLabel(withoutHtml);
+
+  return normalized === '' ? null : normalized;
+};
+
+const normalizeScoreText = (value: string): string => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+};
+
+const TOTAL_HINT_REGEX = /\b(total|total general|ambele sexe|general)\b/;
+
+const getTotalLikeClassificationCount = (observation: InsObservation): number => {
+  if (observation.classifications.length === 0) {
+    return 0;
+  }
+
+  return observation.classifications.filter((classification) => {
+    const label = classification.name_ro ?? classification.name_en ?? classification.code;
+    return TOTAL_HINT_REGEX.test(normalizeScoreText(label));
+  }).length;
+};
+
+const hasPreferredClassification = (
+  observation: InsObservation,
+  preferredCodes: Set<string>
+): boolean => {
+  if (preferredCodes.size === 0) {
+    return false;
+  }
+
+  return observation.classifications.some((classification) =>
+    preferredCodes.has(classification.code.toLowerCase())
+  );
+};
+
+const isTotalLikeObservation = (observation: InsObservation): boolean => {
+  if (observation.classifications.length === 0) {
+    return true;
+  }
+
+  return getTotalLikeClassificationCount(observation) === observation.classifications.length;
+};
+
+const getObservationRankingScore = (
+  observation: InsObservation,
+  preferredCodes: Set<string>
+): number => {
+  let score = 0;
+
+  if (hasPreferredClassification(observation, preferredCodes)) {
+    score += 1_000;
+  }
+
+  const totalLikeCount = getTotalLikeClassificationCount(observation);
+  if (observation.classifications.length === 0) {
+    score += 600;
+  } else if (totalLikeCount === observation.classifications.length) {
+    score += 500;
+  } else {
+    score += totalLikeCount * 120;
+  }
+
+  score -= observation.classifications.length * 10;
+
+  if (observation.value_status !== null && observation.value_status !== '') {
+    score -= 200;
+  }
+
+  if (observation.value !== null) {
+    score += 5;
+  }
+
+  return score;
+};
+
+const getLatestMatchStrategy = (
+  observation: InsObservation | null,
+  preferredCodes: Set<string>
+): InsLatestMatchStrategy => {
+  if (observation === null) {
+    return 'NO_DATA';
+  }
+
+  if (hasPreferredClassification(observation, preferredCodes)) {
+    return 'PREFERRED_CLASSIFICATION';
+  }
+
+  if (isTotalLikeObservation(observation)) {
+    return 'TOTAL_FALLBACK';
+  }
+
+  return 'REPRESENTATIVE_FALLBACK';
+};
+
 const buildDimensionsJson = (observation: InsObservation): Record<string, unknown> => {
   const dimensions: Record<string, unknown> = {};
 
@@ -337,6 +494,47 @@ class KyselyInsRepo implements InsRepository {
         return err(createTimeoutError('INS listDatasets timed out', error));
       }
       return err(createDatabaseError('INS listDatasets failed', error));
+    }
+  }
+
+  async listContexts(
+    filter: InsContextFilter,
+    limit: number,
+    offset: number
+  ): Promise<Result<InsContextConnection, InsError>> {
+    try {
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
+
+      let countQuery: DynamicQuery = this.db.selectFrom('v_contexts');
+      countQuery = this.applyContextFilters(countQuery, filter);
+
+      const countRow = await countQuery
+        .select(sql<string>`COUNT(*)`.as('total_count'))
+        .executeTakeFirst();
+
+      const totalCount = countRow !== undefined ? (toNumber(countRow.total_count) ?? 0) : 0;
+
+      let dataQuery: DynamicQuery = this.db.selectFrom('v_contexts').selectAll();
+      dataQuery = this.applyContextFilters(dataQuery, filter)
+        .orderBy('path', 'asc')
+        .limit(limit)
+        .offset(offset);
+
+      const rows: ContextRow[] = await dataQuery.execute();
+
+      return ok({
+        nodes: rows.map((row) => this.mapContextRow(row)),
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      });
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('INS listContexts timed out', error));
+      }
+      return err(createDatabaseError('INS listContexts failed', error));
     }
   }
 
@@ -683,6 +881,181 @@ class KyselyInsRepo implements InsRepository {
     }
   }
 
+  async listLatestDatasetValues(
+    input: ListInsLatestDatasetValuesInput
+  ): Promise<Result<InsLatestDatasetValue[], InsError>> {
+    try {
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
+
+      if (input.dataset_codes.length === 0) {
+        return ok([]);
+      }
+
+      let datasetQuery: DynamicQuery = this.db
+        .selectFrom('v_matrices')
+        .selectAll()
+        .where('ins_code', 'in', input.dataset_codes);
+
+      datasetQuery = datasetQuery.orderBy('ins_code', 'asc');
+      const datasetRows: DatasetRow[] = await datasetQuery.execute();
+      const datasetMap = new Map(datasetRows.map((row) => [row.ins_code, this.mapDatasetRow(row)]));
+
+      const preferredCodes = new Set(
+        (input.preferred_classification_codes ?? []).map((code) => code.toLowerCase())
+      );
+
+      const results: InsLatestDatasetValue[] = [];
+
+      for (const datasetCode of input.dataset_codes) {
+        const dataset = datasetMap.get(datasetCode);
+        if (dataset === undefined) {
+          continue;
+        }
+
+        let latestPeriodQuery: DynamicQuery = this.db
+          .selectFrom('statistics as s')
+          .innerJoin('time_periods as tp', 'tp.id', 's.time_period_id')
+          .innerJoin('territories as t', 't.id', 's.territory_id')
+          .select([
+            'tp.year as time_year',
+            'tp.quarter as time_quarter',
+            'tp.month as time_month',
+            'tp.periodicity as time_periodicity',
+          ])
+          .where('s.matrix_id', '=', dataset.id);
+
+        latestPeriodQuery = this.applyEntitySelectorFilter(latestPeriodQuery, input.entity);
+
+        const latestPeriodRow = await latestPeriodQuery
+          .orderBy('tp.year', 'desc')
+          .orderBy(sql`tp.quarter desc nulls last`)
+          .orderBy(sql`tp.month desc nulls last`)
+          .limit(1)
+          .executeTakeFirst();
+
+        if (latestPeriodRow === undefined) {
+          results.push({
+            dataset,
+            observation: null,
+            latest_period: null,
+            match_strategy: 'NO_DATA',
+            has_data: false,
+          });
+          continue;
+        }
+
+        const periodicity = latestPeriodRow.time_periodicity as InsPeriodicity;
+        const year = toNumber(latestPeriodRow.time_year);
+        const quarter = toNumber(latestPeriodRow.time_quarter);
+        const month = toNumber(latestPeriodRow.time_month);
+
+        if (year === null) {
+          results.push({
+            dataset,
+            observation: null,
+            latest_period: null,
+            match_strategy: 'NO_DATA',
+            has_data: false,
+          });
+          continue;
+        }
+
+        const latestPeriod = buildIsoPeriod({ year, quarter, month, periodicity });
+
+        let observationQuery: DynamicQuery = this.db
+          .selectFrom('statistics as s')
+          .innerJoin('time_periods as tp', 'tp.id', 's.time_period_id')
+          .innerJoin('territories as t', 't.id', 's.territory_id')
+          .leftJoin('units_of_measure as u', 'u.id', 's.unit_id')
+          .where('s.matrix_id', '=', dataset.id)
+          .where('tp.periodicity', '=', periodicity)
+          .where('tp.year', '=', year);
+
+        if (quarter !== null) {
+          observationQuery = observationQuery.where('tp.quarter', '=', quarter);
+        }
+        if (month !== null) {
+          observationQuery = observationQuery.where('tp.month', '=', month);
+        }
+
+        observationQuery = this.applyEntitySelectorFilter(observationQuery, input.entity);
+
+        const baseRows: Omit<ObservationRow, 'classification_values'>[] = await observationQuery
+          .select([
+            's.id as statistic_id',
+            's.matrix_id',
+            sql.lit(dataset.code).as('dataset_code'),
+            's.value',
+            's.value_status',
+            't.id as territory_id',
+            't.code as territory_code',
+            't.siruta_code as territory_siruta_code',
+            't.level as territory_level',
+            't.name as territory_name',
+            't.path as territory_path',
+            't.parent_id as territory_parent_id',
+            'tp.id as time_period_id',
+            'tp.year as time_year',
+            'tp.quarter as time_quarter',
+            'tp.month as time_month',
+            'tp.periodicity as time_periodicity',
+            'tp.period_start as time_period_start',
+            'tp.period_end as time_period_end',
+            'tp.labels as time_labels',
+            'u.id as unit_id',
+            'u.code as unit_code',
+            'u.symbol as unit_symbol',
+            'u.names as unit_names',
+          ])
+          .execute();
+
+        if (baseRows.length === 0) {
+          results.push({
+            dataset,
+            observation: null,
+            latest_period: latestPeriod,
+            match_strategy: 'NO_DATA',
+            has_data: false,
+          });
+          continue;
+        }
+
+        const statisticIds = baseRows.map((row) => row.statistic_id);
+        const classificationMap = await this.loadClassificationMap(statisticIds, dataset.id);
+        const rows: ObservationRow[] = baseRows.map((row) => ({
+          ...row,
+          classification_values: classificationMap.get(row.statistic_id) ?? [],
+        }));
+
+        const observations = rows.map((row) => this.mapObservationRow(row));
+        const sorted = observations.sort((left, right) => {
+          const leftScore = getObservationRankingScore(left, preferredCodes);
+          const rightScore = getObservationRankingScore(right, preferredCodes);
+          if (leftScore !== rightScore) {
+            return rightScore - leftScore;
+          }
+          return left.id.localeCompare(right.id);
+        });
+
+        const observation = sorted[0] ?? null;
+        results.push({
+          dataset,
+          observation,
+          latest_period: latestPeriod,
+          match_strategy: getLatestMatchStrategy(observation, preferredCodes),
+          has_data: observation !== null,
+        });
+      }
+
+      return ok(results);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('INS listLatestDatasetValues timed out', error));
+      }
+      return err(createDatabaseError('INS listLatestDatasetValues failed', error));
+    }
+  }
+
   async listUatDatasetsWithObservations(
     sirutaCode: string,
     contextCode?: string,
@@ -800,8 +1173,22 @@ class KyselyInsRepo implements InsRepository {
         index += UAT_DASHBOARD_CONCURRENCY
       ) {
         const batch = datasets.slice(index, index + UAT_DASHBOARD_CONCURRENCY);
+        if (batch.length === 0) {
+          break;
+        }
+        const quotas = new Array(batch.length).fill(0) as number[];
+        for (let quotaIndex = 0; quotaIndex < remaining; quotaIndex += 1) {
+          const position = quotaIndex % batch.length;
+          const currentQuota = quotas[position] ?? 0;
+          quotas[position] = currentQuota + 1;
+        }
+
+        const scheduledBatch = batch
+          .map((dataset, batchIndex) => ({ dataset, limit: quotas[batchIndex] ?? 0 }))
+          .filter((item) => item.limit > 0);
+
         const batchResults = await Promise.all(
-          batch.map((dataset) => fetchDataset(dataset, remaining))
+          scheduledBatch.map((item) => fetchDataset(item.dataset, item.limit))
         );
 
         for (const result of batchResults) {
@@ -857,6 +1244,23 @@ class KyselyInsRepo implements InsRepository {
         row.metadata !== undefined && row.metadata !== null && typeof row.metadata === 'object'
           ? (row.metadata as Record<string, unknown>)
           : null,
+    };
+  }
+
+  private mapContextRow(row: ContextRow): InsContext {
+    return {
+      id: row.id,
+      code: row.ins_code,
+      name_ro: row.name_ro,
+      name_en: row.name_en,
+      name_ro_markdown: toContextMarkdown(row.name_ro),
+      name_en_markdown: toContextMarkdown(row.name_en),
+      level: row.level,
+      path: row.path,
+      parent_id: row.parent_id,
+      parent_code: row.parent_code,
+      parent_name_ro: row.parent_name_ro,
+      matrix_count: row.matrix_count ?? 0,
     };
   }
 
@@ -1055,6 +1459,12 @@ class KyselyInsRepo implements InsRepository {
       query = query.where('context_code', '=', filter.context_code.trim());
     }
 
+    if (filter.root_context_code !== undefined && filter.root_context_code.trim() !== '') {
+      query = query.where(
+        sql<boolean>`split_part(${sql.ref('context_path')}, '.', 2) = ${filter.root_context_code.trim()}`
+      );
+    }
+
     if (filter.sync_status !== undefined && filter.sync_status.length > 0) {
       query = query.where('sync_status', 'in', filter.sync_status);
     }
@@ -1062,6 +1472,12 @@ class KyselyInsRepo implements InsRepository {
     if (filter.has_uat_data !== undefined) {
       query = query.where(
         sql<boolean>`coalesce(${sql.ref('has_uat_data')}, false) = ${filter.has_uat_data}`
+      );
+    }
+
+    if (filter.has_county_data !== undefined) {
+      query = query.where(
+        sql<boolean>`coalesce(${sql.ref('has_county_data')}, false) = ${filter.has_county_data}`
       );
     }
 
@@ -1074,6 +1490,57 @@ class KyselyInsRepo implements InsRepository {
     }
 
     return query;
+  }
+
+  private applyContextFilters(query: DynamicQuery, filter: InsContextFilter): DynamicQuery {
+    if (filter.search !== undefined && filter.search.trim() !== '') {
+      const pattern = `%${escapeILikePattern(filter.search.trim())}%`;
+      query = query.where((eb: DynamicQuery) =>
+        eb.or([
+          eb('ins_code', 'ilike', pattern),
+          eb('name_ro', 'ilike', pattern),
+          eb('name_en', 'ilike', pattern),
+          eb('path', 'ilike', pattern),
+        ])
+      );
+    }
+
+    if (filter.level !== undefined) {
+      query = query.where('level', '=', filter.level);
+    }
+
+    if (filter.parent_code !== undefined && filter.parent_code.trim() !== '') {
+      query = query.where('parent_code', '=', filter.parent_code.trim());
+    }
+
+    if (filter.root_context_code !== undefined && filter.root_context_code.trim() !== '') {
+      query = query.where(
+        sql<boolean>`split_part(${sql.ref('path')}, '.', 2) = ${filter.root_context_code.trim()}`
+      );
+    }
+
+    return query;
+  }
+
+  private applyEntitySelectorFilter(
+    query: DynamicQuery,
+    entity: InsEntitySelectorInput
+  ): DynamicQuery {
+    if (entity.siruta_code !== undefined && entity.siruta_code.trim() !== '') {
+      return query.where('t.siruta_code', '=', entity.siruta_code.trim());
+    }
+
+    if (
+      entity.territory_code !== undefined &&
+      entity.territory_code.trim() !== '' &&
+      entity.territory_level !== undefined
+    ) {
+      return query
+        .where('t.code', '=', entity.territory_code.trim())
+        .where('t.level', '=', entity.territory_level);
+    }
+
+    return query.where(sql<boolean>`false`);
   }
 
   private parseClassificationValues(value: unknown): InsClassificationValue[] {

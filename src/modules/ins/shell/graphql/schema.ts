@@ -35,6 +35,16 @@ export const InsSchema = /* GraphQL */ `
   }
 
   """
+  INS latest value match strategy.
+  """
+  enum InsLatestMatchStrategy {
+    PREFERRED_CLASSIFICATION
+    TOTAL_FALLBACK
+    REPRESENTATIVE_FALLBACK
+    NO_DATA
+  }
+
+  """
   INS dimension type.
   """
   enum InsDimensionType {
@@ -75,6 +85,31 @@ export const InsSchema = /* GraphQL */ `
   """
   type InsDatasetConnection {
     nodes: [InsDataset!]!
+    pageInfo: PageInfo!
+  }
+
+  """
+  INS context (taxonomy node).
+  """
+  type InsContext {
+    id: ID!
+    code: String!
+    name_ro: String
+    name_en: String
+    name_ro_markdown: String
+    name_en_markdown: String
+    level: Int
+    parent_id: Int
+    parent_code: String
+    path: String!
+    matrix_count: Int!
+  }
+
+  """
+  Paginated connection of INS contexts.
+  """
+  type InsContextConnection {
+    nodes: [InsContext!]!
     pageInfo: PageInfo!
   }
 
@@ -210,6 +245,14 @@ export const InsSchema = /* GraphQL */ `
     pageInfo: PageInfo!
   }
 
+  type InsLatestDatasetValue {
+    dataset: InsDataset!
+    observation: InsObservation
+    latestPeriod: String
+    matchStrategy: InsLatestMatchStrategy!
+    hasData: Boolean!
+  }
+
   """
   Filter datasets by code, search, and metadata.
   """
@@ -217,9 +260,24 @@ export const InsSchema = /* GraphQL */ `
     search: String
     codes: [String!]
     contextCode: String
+    rootContextCode: String
     periodicity: [InsPeriodicity!]
     syncStatus: [InsSyncStatus!]
     hasUatData: Boolean
+    hasCountyData: Boolean
+  }
+
+  input InsContextFilterInput {
+    search: String
+    level: Int
+    parentCode: String
+    rootContextCode: String
+  }
+
+  input InsEntitySelectorInput {
+    sirutaCode: String
+    territoryCode: String
+    territoryLevel: InsTerritoryLevel
   }
 
   """
@@ -271,6 +329,15 @@ export const InsSchema = /* GraphQL */ `
     insDataset(code: String!): InsDataset
 
     """
+    List INS contexts (taxonomy nodes) with optional filtering.
+    """
+    insContexts(
+      filter: InsContextFilterInput
+      limit: Int = 20
+      offset: Int = 0
+    ): InsContextConnection!
+
+    """
     Query INS observations for a dataset.
     """
     insObservations(
@@ -307,5 +374,14 @@ export const InsSchema = /* GraphQL */ `
       period: PeriodDate
       contextCode: String
     ): [InsUatDatasetGroup!]!
+
+    """
+    Return the latest available value per dataset for a selected entity.
+    """
+    insLatestDatasetValues(
+      entity: InsEntitySelectorInput!
+      datasetCodes: [String!]!
+      preferredClassificationCodes: [String!]
+    ): [InsLatestDatasetValue!]!
   }
 `;

@@ -196,6 +196,73 @@ describe('[Golden Master] INS Tempo', () => {
     );
   });
 
+  it('[GM] insDatasets - county-and-root-filter', async () => {
+    const query = /* GraphQL */ `
+      query InsDatasets($filter: InsDatasetFilterInput, $limit: Int) {
+        insDatasets(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            has_county_data
+            context_path
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { hasCountyData: true, rootContextCode: '1' },
+      limit: 5,
+    };
+
+    const data = await client.query<{
+      insDatasets: {
+        nodes: {
+          has_county_data: boolean;
+          context_path: string | null;
+        }[];
+      };
+    }>(query, variables);
+    const nodes = data.insDatasets.nodes;
+    expect(nodes.length).toBeGreaterThan(0);
+    for (const node of nodes) {
+      expect(node.has_county_data).toBe(true);
+      expect(node.context_path?.startsWith('0.1')).toBe(true);
+    }
+  });
+
+  it('[GM] insContexts - root-level', async () => {
+    const query = /* GraphQL */ `
+      query InsContexts($filter: InsContextFilterInput, $limit: Int) {
+        insContexts(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            level
+            path
+            matrix_count
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { level: 0 },
+      limit: 20,
+    };
+
+    const data = await client.query<{
+      insContexts: { nodes: { code: string; level: number | null }[] };
+    }>(query, variables);
+    const nodes = data.insContexts.nodes;
+    expect(nodes.length).toBeGreaterThanOrEqual(8);
+    expect(nodes.some((node) => node.code === '1')).toBe(true);
+  });
+
   it('[GM] insDataset - dimension-values', async () => {
     const query = /* GraphQL */ `
       query InsDataset($code: String!) {
@@ -356,6 +423,33 @@ describe('[Golden Master] INS Tempo', () => {
     const data = await client.query(query, variables);
 
     await expect(data).toMatchNormalizedSnapshot('../snapshots/ins/ins-compare.snap.json');
+  });
+
+  it('[GM] insLatestDatasetValues - UAT and county selectors', async () => {
+    const query = /* GraphQL */ `
+      query InsLatestDatasetValues($entity: InsEntitySelectorInput!, $datasetCodes: [String!]!) {
+        insLatestDatasetValues(entity: $entity, datasetCodes: $datasetCodes) {
+          dataset {
+            code
+          }
+          latestPeriod
+          hasData
+          matchStrategy
+        }
+      }
+    `;
+
+    const uat = await client.query<{ insLatestDatasetValues: unknown[] }>(query, {
+      entity: { sirutaCode: '54975' },
+      datasetCodes: ['POP107D', 'FOM104D'],
+    });
+    const county = await client.query<{ insLatestDatasetValues: unknown[] }>(query, {
+      entity: { territoryCode: 'CJ', territoryLevel: 'NUTS3' },
+      datasetCodes: ['POP107D', 'SOM103A'],
+    });
+
+    expect(uat.insLatestDatasetValues.length).toBeGreaterThan(0);
+    expect(county.insLatestDatasetValues.length).toBeGreaterThan(0);
   });
 
   it('[GM] insUatDashboard - Cluj-Napoca', async () => {
