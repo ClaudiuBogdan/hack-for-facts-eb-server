@@ -74,9 +74,11 @@ export interface InsDatasetFilter {
   search?: string;
   codes?: string[];
   context_code?: string;
+  root_context_code?: string;
   periodicity?: InsPeriodicity[];
   sync_status?: InsSyncStatus[];
   has_uat_data?: boolean;
+  has_county_data?: boolean;
 }
 
 export interface InsDatasetPageInfo {
@@ -88,6 +90,39 @@ export interface InsDatasetPageInfo {
 export interface InsDatasetConnection {
   nodes: InsDataset[];
   pageInfo: InsDatasetPageInfo;
+}
+
+export interface InsContext {
+  id: number;
+  code: string;
+  name_ro: string | null;
+  name_en: string | null;
+  name_ro_markdown: string | null;
+  name_en_markdown: string | null;
+  level: number | null;
+  path: string;
+  parent_id: number | null;
+  parent_code: string | null;
+  parent_name_ro: string | null;
+  matrix_count: number;
+}
+
+export interface InsContextFilter {
+  search?: string;
+  level?: number;
+  parent_code?: string;
+  root_context_code?: string;
+}
+
+export interface InsContextPageInfo {
+  totalCount: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface InsContextConnection {
+  nodes: InsContext[];
+  pageInfo: InsContextPageInfo;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,6 +277,32 @@ export interface ListInsObservationsInput {
   filter?: InsObservationFilter;
   limit: number;
   offset: number;
+}
+
+export interface InsEntitySelectorInput {
+  siruta_code?: string;
+  territory_code?: string;
+  territory_level?: InsTerritoryLevel;
+}
+
+export type InsLatestMatchStrategy =
+  | 'PREFERRED_CLASSIFICATION'
+  | 'TOTAL_FALLBACK'
+  | 'REPRESENTATIVE_FALLBACK'
+  | 'NO_DATA';
+
+export interface InsLatestDatasetValue {
+  dataset: InsDataset;
+  observation: InsObservation | null;
+  latest_period: string | null;
+  match_strategy: InsLatestMatchStrategy;
+  has_data: boolean;
+}
+
+export interface ListInsLatestDatasetValuesInput {
+  entity: InsEntitySelectorInput;
+  dataset_codes: string[];
+  preferred_classification_codes?: string[];
 }
 
 export interface InsUatIndicatorsInput {

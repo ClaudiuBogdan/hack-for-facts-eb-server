@@ -8,9 +8,11 @@ import {
   MAX_DIMENSION_VALUES_LIMIT,
   MAX_OBSERVATION_LIMIT,
   MAX_UAT_INDICATORS_LIMIT,
+  type InsContextConnection,
   type InsDataset,
   type InsDatasetConnection,
   type InsDimensionValueConnection,
+  type InsLatestDatasetValue,
   type InsObservation,
   type InsObservationConnection,
   type InsObservationFilter,
@@ -18,13 +20,20 @@ import {
 import { compareInsUats } from '@/modules/ins/core/usecases/compare-ins-uat.js';
 import { getInsUatDashboard } from '@/modules/ins/core/usecases/get-ins-uat-dashboard.js';
 import { getInsUatIndicators } from '@/modules/ins/core/usecases/get-ins-uat-indicators.js';
+import { listInsContexts } from '@/modules/ins/core/usecases/list-ins-contexts.js';
 import { listInsDatasets } from '@/modules/ins/core/usecases/list-ins-datasets.js';
 import { listInsDimensionValues } from '@/modules/ins/core/usecases/list-ins-dimension-values.js';
+import { listInsLatestDatasetValues } from '@/modules/ins/core/usecases/list-ins-latest-dataset-values.js';
 import { listInsObservations } from '@/modules/ins/core/usecases/list-ins-observations.js';
 
 import type { InsRepository } from '@/modules/ins/core/ports.js';
 
 const emptyDatasetConnection: InsDatasetConnection = {
+  nodes: [],
+  pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
+};
+
+const emptyContextConnection: InsContextConnection = {
   nodes: [],
   pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
 };
@@ -89,10 +98,12 @@ const makeObservation = (overrides: Partial<InsObservation> = {}): InsObservatio
 
 const makeRepo = (overrides: Partial<InsRepository> = {}): InsRepository => ({
   listDatasets: async () => ok(emptyDatasetConnection),
+  listContexts: async () => ok(emptyContextConnection),
   getDatasetByCode: async () => ok(null),
   listDimensions: async () => ok([]),
   listDimensionValues: async () => ok(emptyDimensionValueConnection),
   listObservations: async () => ok(emptyObservationConnection),
+  listLatestDatasetValues: async () => ok([]),
   listUatDatasetsWithObservations: async () => ok([]),
   ...overrides,
 });
@@ -117,6 +128,32 @@ describe('INS usecases', () => {
       expect(result.isOk()).toBe(true);
       if (captured === null) {
         throw new Error('Expected listDatasets to be called');
+      }
+      const capturedValue = captured as { limit: number; offset: number };
+      expect(capturedValue.limit).toBe(MAX_DATASET_LIMIT);
+      expect(capturedValue.offset).toBe(0);
+    });
+  });
+
+  describe('listInsContexts', () => {
+    it('clamps limit and offset', async () => {
+      let captured: { limit: number; offset: number } | null = null;
+
+      const repo = makeRepo({
+        listContexts: async (_filter, limit, offset) => {
+          captured = { limit, offset };
+          return ok(emptyContextConnection);
+        },
+      });
+
+      const result = await listInsContexts(
+        { insRepo: repo },
+        { filter: {}, limit: MAX_DATASET_LIMIT + 10, offset: -10 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (captured === null) {
+        throw new Error('Expected listContexts to be called');
       }
       const capturedValue = captured as { limit: number; offset: number };
       expect(capturedValue.limit).toBe(MAX_DATASET_LIMIT);
@@ -496,6 +533,88 @@ describe('INS usecases', () => {
       expect(capturedValue.sirutaCode).toBe('54975');
       expect(capturedValue.contextCode).toBeUndefined();
       expect(capturedValue.period).toBeUndefined();
+    });
+  });
+
+  describe('listInsLatestDatasetValues', () => {
+    it('returns empty for empty dataset list', async () => {
+      const repo = makeRepo();
+      const result = await listInsLatestDatasetValues(
+        { insRepo: repo },
+        { entity: { siruta_code: '143450' }, dataset_codes: [] }
+      );
+
+      expect(result.isOk()).toBe(true);
+      expect(result._unsafeUnwrap()).toEqual([]);
+    });
+
+    it('fails when entity selector mixes siruta and territory', async () => {
+      const repo = makeRepo();
+      const result = await listInsLatestDatasetValues(
+        { insRepo: repo },
+        {
+          entity: { siruta_code: '143450', territory_code: 'SB', territory_level: 'NUTS3' },
+          dataset_codes: ['POP107D'],
+        }
+      );
+
+      expect(result.isErr()).toBe(true);
+      const error = result._unsafeUnwrapErr();
+      if (error.type !== 'InvalidFilterError') {
+        throw new Error(`Expected InvalidFilterError, got ${error.type}`);
+      }
+      expect(error.field).toBe('entity');
+    });
+
+    it('normalizes input and calls repo', async () => {
+      let captured: {
+        entity: { siruta_code?: string; territory_code?: string; territory_level?: string };
+        dataset_codes: string[];
+        preferred_classification_codes?: string[];
+      } | null = null;
+
+      const latestRows: InsLatestDatasetValue[] = [];
+      const repo = makeRepo({
+        listLatestDatasetValues: async (input) => {
+          const capturedValue: {
+            entity: { siruta_code?: string; territory_code?: string; territory_level?: string };
+            dataset_codes: string[];
+            preferred_classification_codes?: string[];
+          } = {
+            entity: input.entity,
+            dataset_codes: input.dataset_codes,
+          };
+          if (input.preferred_classification_codes !== undefined) {
+            capturedValue.preferred_classification_codes = input.preferred_classification_codes;
+          }
+          captured = capturedValue;
+          return ok(latestRows);
+        },
+      });
+
+      const result = await listInsLatestDatasetValues(
+        { insRepo: repo },
+        {
+          entity: { territory_code: ' SB ', territory_level: 'NUTS3' },
+          dataset_codes: [' POP107D ', 'POP107D', 'FOM104D'],
+          preferred_classification_codes: [' TOTAL ', 'TOTAL', 'AMBELE'],
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (captured === null) {
+        throw new Error('Expected listLatestDatasetValues to be called');
+      }
+
+      const capturedValue = captured as {
+        entity: { siruta_code?: string; territory_code?: string; territory_level?: string };
+        dataset_codes: string[];
+        preferred_classification_codes?: string[];
+      };
+
+      expect(capturedValue.entity).toEqual({ territory_code: 'SB', territory_level: 'NUTS3' });
+      expect(capturedValue.dataset_codes).toEqual(['POP107D', 'FOM104D']);
+      expect(capturedValue.preferred_classification_codes).toEqual(['TOTAL', 'AMBELE']);
     });
   });
 });

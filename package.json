@@ -28,6 +28,7 @@
     "test:watch": "vitest --exclude 'tests/e2e/**'",
     "test:coverage": "vitest run --coverage --exclude 'tests/e2e/**'",
     "validate-datasets": "tsx scripts/validate-datasets.ts",
+    "ins:audit": "tsx scripts/audit-ins-availability.ts",
     "email:dev": "email dev --dir src/modules/email-templates/shell/templates",
     "deps:check": "madge --circular --extensions ts src/",
     "deps:summary": "madge --extensions ts --json src/ | node -e \"const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log('Files:',Object.keys(d).length);console.log('Imports:',Object.values(d).flat().length)\"",
