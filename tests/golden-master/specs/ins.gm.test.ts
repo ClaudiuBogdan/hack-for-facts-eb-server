@@ -343,7 +343,10 @@ describe('[Golden Master] INS Tempo', () => {
     const variables = {
       code: 'LOC101B',
       filter: {
-        periodRange: { start: '2020', end: '2022' },
+        period: {
+          type: 'YEAR',
+          selection: { interval: { start: '2020', end: '2022' } },
+        },
         territoryCodes: ['RO'],
       },
     };

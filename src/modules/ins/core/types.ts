@@ -5,6 +5,7 @@
  * matrices (datasets) with temporal, territorial, classification, and unit dimensions.
  */
 
+import type { ReportPeriodInput } from '@/common/types/analytics.js';
 import type { Decimal } from 'decimal.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -252,12 +253,7 @@ export interface InsObservationFilter {
   unit_codes?: string[];
   classification_value_codes?: string[];
   classification_type_codes?: string[];
-  periodicity?: InsPeriodicity;
-  years?: number[];
-  quarters?: number[];
-  months?: number[];
-  period?: string;
-  period_range?: { start: string; end: string };
+  period?: ReportPeriodInput;
   has_value?: boolean;
 }
 

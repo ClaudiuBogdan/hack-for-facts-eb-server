@@ -2,11 +2,17 @@
  * INS Module GraphQL Resolvers
  */
 
+import { err, ok, type Result } from 'neverthrow';
+
+import { Frequency } from '@/common/types/temporal.js';
+
+import { createInvalidFilterError, type InsError } from '../../core/errors.js';
 import { compareInsUats } from '../../core/usecases/compare-ins-uat.js';
 import { getInsDataset } from '../../core/usecases/get-ins-dataset.js';
 import { getInsUatDashboard } from '../../core/usecases/get-ins-uat-dashboard.js';
 import { getInsUatIndicators } from '../../core/usecases/get-ins-uat-indicators.js';
 import { listInsContexts } from '../../core/usecases/list-ins-contexts.js';
+import { listInsDatasetDimensionValues } from '../../core/usecases/list-ins-dataset-dimension-values.js';
 import { listInsDatasets } from '../../core/usecases/list-ins-datasets.js';
 import { listInsDimensionValues } from '../../core/usecases/list-ins-dimension-values.js';
 import { listInsLatestDatasetValues } from '../../core/usecases/list-ins-latest-dataset-values.js';
@@ -14,15 +20,20 @@ import { listInsObservations } from '../../core/usecases/list-ins-observations.j
 
 import type { InsRepository } from '../../core/ports.js';
 import type {
+  InsContextFilter,
   InsDataset,
   InsDimension,
   InsDimensionValueFilter,
   InsEntitySelectorInput,
   InsObservation,
   InsObservationFilter,
-  InsContextFilter,
   ListInsObservationsInput,
 } from '../../core/types.js';
+import type {
+  GqlReportPeriodInput,
+  PeriodType,
+  ReportPeriodInput,
+} from '@/common/types/analytics.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,12 +71,7 @@ interface GqlInsObservationFilterInput {
   unitCodes?: string[];
   classificationValueCodes?: string[];
   classificationTypeCodes?: string[];
-  periodicity?: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY';
-  years?: number[];
-  quarters?: number[];
-  months?: number[];
-  period?: string;
-  periodRange?: { start: string; end: string };
+  period?: GqlReportPeriodInput | null;
   hasValue?: boolean;
 }
 
@@ -130,11 +136,29 @@ const mapEntitySelector = (input: GqlInsEntitySelectorInput): InsEntitySelectorI
   return selector;
 };
 
-const mapObservationFilter = (input?: GqlInsObservationFilterInput): InsObservationFilter => {
+const mapPeriodTypeToFrequency = (periodType: PeriodType): Frequency => {
+  switch (periodType) {
+    case 'MONTH':
+      return Frequency.MONTH;
+    case 'QUARTER':
+      return Frequency.QUARTER;
+    case 'YEAR':
+      return Frequency.YEAR;
+  }
+};
+
+const mapReportPeriod = (input: GqlReportPeriodInput): ReportPeriodInput => ({
+  type: mapPeriodTypeToFrequency(input.type),
+  selection: input.selection,
+});
+
+const mapObservationFilter = (
+  input?: GqlInsObservationFilterInput | null
+): Result<InsObservationFilter, InsError> => {
   const filter: InsObservationFilter = {};
 
-  if (input === undefined) {
-    return filter;
+  if (input === undefined || input === null) {
+    return ok(filter);
   }
 
   if (input.territoryCodes !== undefined) filter.territory_codes = input.territoryCodes;
@@ -145,15 +169,13 @@ const mapObservationFilter = (input?: GqlInsObservationFilterInput): InsObservat
     filter.classification_value_codes = input.classificationValueCodes;
   if (input.classificationTypeCodes !== undefined)
     filter.classification_type_codes = input.classificationTypeCodes;
-  if (input.periodicity !== undefined) filter.periodicity = input.periodicity;
-  if (input.years !== undefined) filter.years = input.years;
-  if (input.quarters !== undefined) filter.quarters = input.quarters;
-  if (input.months !== undefined) filter.months = input.months;
-  if (input.period !== undefined) filter.period = input.period;
-  if (input.periodRange !== undefined) filter.period_range = input.periodRange;
+  if (input.period === null) {
+    return err(createInvalidFilterError('period', 'Invalid period format'));
+  }
+  if (input.period !== undefined) filter.period = mapReportPeriod(input.period);
   if (input.hasValue !== undefined) filter.has_value = input.hasValue;
 
-  return filter;
+  return ok(filter);
 };
 
 const mapDimensionValueFilter = (
@@ -232,6 +254,44 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
         return result.value;
       },
 
+      insDatasetDimensionValues: async (
+        _parent: unknown,
+        args: {
+          datasetCode: string;
+          dimensionIndex: number;
+          filter?: GqlInsDimensionValueFilterInput;
+          limit?: number;
+          offset?: number;
+        },
+        context: MercuriusContext
+      ) => {
+        const filter = mapDimensionValueFilter(args.filter);
+        const result = await listInsDatasetDimensionValues(
+          { insRepo },
+          {
+            dataset_code: args.datasetCode,
+            dimension_index: args.dimensionIndex,
+            filter,
+            limit: args.limit ?? 50,
+            offset: args.offset ?? 0,
+          }
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error(
+            {
+              err: result.error,
+              datasetCode: args.datasetCode,
+              dimensionIndex: args.dimensionIndex,
+            },
+            '[INS] list dataset dimension values failed'
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
       insContexts: async (
         _parent: unknown,
         args: { filter?: GqlInsContextFilterInput; limit?: number; offset?: number },
@@ -265,7 +325,16 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
         },
         context: MercuriusContext
       ) => {
-        const filter = mapObservationFilter(args.filter);
+        const mappedFilter = mapObservationFilter(args.filter);
+        if (mappedFilter.isErr()) {
+          context.reply.log.error(
+            { err: mappedFilter.error, filter: args.filter },
+            '[INS] invalid observations filter'
+          );
+          throw new Error(`[${mappedFilter.error.type}] ${mappedFilter.error.message}`);
+        }
+
+        const filter = mappedFilter.value;
         const input: ListInsObservationsInput = {
           dataset_codes: [args.datasetCode],
           filter,
@@ -336,17 +405,17 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
 
       insUatDashboard: async (
         _parent: unknown,
-        args: { sirutaCode: string; period?: string; contextCode?: string },
+        args: { sirutaCode: string; period?: string | null; contextCode?: string | null },
         context: MercuriusContext
       ) => {
         const input = {
           siruta_code: args.sirutaCode,
         } as { siruta_code: string; period?: string; context_code?: string };
 
-        if (args.period !== undefined) {
+        if (args.period !== undefined && args.period !== null) {
           input.period = args.period;
         }
-        if (args.contextCode !== undefined) {
+        if (args.contextCode !== undefined && args.contextCode !== null) {
           input.context_code = args.contextCode;
         }
 

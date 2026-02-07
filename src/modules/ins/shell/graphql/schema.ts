@@ -290,18 +290,8 @@ export const InsSchema = /* GraphQL */ `
     unitCodes: [String!]
     classificationValueCodes: [String!]
     classificationTypeCodes: [String!]
-    periodicity: InsPeriodicity
-    years: [Int!]
-    quarters: [Int!]
-    months: [Int!]
-    period: PeriodDate
-    periodRange: InsPeriodRangeInput
+    period: ReportPeriodInput
     hasValue: Boolean
-  }
-
-  input InsPeriodRangeInput {
-    start: PeriodDate!
-    end: PeriodDate!
   }
 
   """
@@ -327,6 +317,17 @@ export const InsSchema = /* GraphQL */ `
     Get a single INS dataset by code.
     """
     insDataset(code: String!): InsDataset
+
+    """
+    Query paginated values for one INS dataset dimension.
+    """
+    insDatasetDimensionValues(
+      datasetCode: String!
+      dimensionIndex: Int!
+      filter: InsDimensionValueFilterInput
+      limit: Int = 50
+      offset: Int = 0
+    ): InsDimensionValueConnection!
 
     """
     List INS contexts (taxonomy nodes) with optional filtering.

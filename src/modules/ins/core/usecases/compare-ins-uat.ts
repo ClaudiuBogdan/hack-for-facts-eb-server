@@ -5,7 +5,13 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { createInvalidFilterError, type InsError } from '../errors.js';
-import { MAX_COMPARE_LIMIT, type InsCompareInput, type InsObservation } from '../types.js';
+import { parsePeriodDateToInput } from '../period.js';
+import {
+  MAX_COMPARE_LIMIT,
+  type InsCompareInput,
+  type InsObservation,
+  type InsObservationFilter,
+} from '../types.js';
 
 import type { InsRepository } from '../ports.js';
 
@@ -25,11 +31,15 @@ export const compareInsUats = async (
     return err(createInvalidFilterError('datasetCode', 'Dataset code is required'));
   }
 
-  const observationFilter: { siruta_codes: string[]; period?: string } = {
+  const observationFilter: InsObservationFilter = {
     siruta_codes: input.siruta_codes,
   };
   if (input.period !== undefined) {
-    observationFilter.period = input.period;
+    const parsedPeriod = parsePeriodDateToInput(input.period);
+    if (parsedPeriod === null) {
+      return err(createInvalidFilterError('period', 'Invalid period format'));
+    }
+    observationFilter.period = parsedPeriod;
   }
 
   const result = await deps.insRepo.listObservations({
