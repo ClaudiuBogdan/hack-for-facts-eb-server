@@ -1,0 +1,78 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-db-stagging
+  namespace: hack-for-facts-prod
+  labels:
+    app.kubernetes.io/name: hack-for-facts-eb-server
+    app.kubernetes.io/part-of: hack-for-facts
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.0-202511100807-standard-trixie
+  bootstrap:
+    initdb:
+      owner: hack-for-facts_user
+      database: hack-for-facts-prod
+      secret:
+        name: postgres-deployment-credentials
+  postgresql:
+    shared_preload_libraries:
+      - pg_stat_statements
+    parameters:
+      max_connections: "50"
+      shared_buffers: "2GB"
+      effective_cache_size: "6GB"
+      work_mem: "64MB"
+      maintenance_work_mem: "512MB"
+      temp_file_limit: "10GB"
+      hash_mem_multiplier: "2.0"
+      wal_buffers: "16MB"
+      min_wal_size: "500MB"
+      max_wal_size: "2GB"
+      wal_compression: "lz4"
+      checkpoint_completion_target: "0.9"
+      checkpoint_timeout: "30min"
+      random_page_cost: "1.0"
+      effective_io_concurrency: "256"
+      maintenance_io_concurrency: "256"
+      max_worker_processes: "4"
+      max_parallel_workers: "4"
+      max_parallel_workers_per_gather: "4"
+      max_parallel_maintenance_workers: "2"
+      parallel_setup_cost: "10"
+      parallel_tuple_cost: "0.001"
+      min_parallel_table_scan_size: "1MB"
+      min_parallel_index_scan_size: "64kB"
+      default_statistics_target: "500"
+      constraint_exclusion: "partition"
+      enable_partition_pruning: "on"
+      enable_partitionwise_join: "on"
+      enable_partitionwise_aggregate: "on"
+      autovacuum: "off"
+      jit: "on"
+      jit_above_cost: "100000"
+      jit_inline_above_cost: "500000"
+      jit_optimize_above_cost: "500000"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      track_io_timing: "on"
+      track_functions: "all"
+      log_min_duration_statement: "500ms"
+      log_temp_files: "0"
+      log_lock_waits: "on"
+      statement_timeout: "3600000"
+      idle_in_transaction_session_timeout: "600000"
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "1"
+    limits:
+      memory: "16Gi"
+      cpu: "8"
+  storage:
+    size: 200Gi
+  walStorage:
+    size: 50Gi
