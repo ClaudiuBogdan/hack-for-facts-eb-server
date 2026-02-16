@@ -5,6 +5,7 @@ namespace: hack-for-facts-prod
 
 resources:
   - ../../base
+  - ./postgres-db-stagging.yaml
   - ./secrets/sealed-app-secret.yaml
   - ./secrets/sealed-db-deployment.yaml
   - ./secrets/sealed-db-ins-deployment.yaml
