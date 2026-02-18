@@ -398,14 +398,14 @@ const getObservationRankingScore = (
 
   const totalLikeCount = getTotalLikeClassificationCount(observation);
   if (observation.classifications.length === 0) {
-    score += 600;
+    score += 300;
   } else if (totalLikeCount === observation.classifications.length) {
-    score += 500;
+    score += 700 + totalLikeCount * 120;
   } else {
     score += totalLikeCount * 120;
   }
 
-  score -= observation.classifications.length * 10;
+  score += observation.classifications.length * 5;
 
   if (observation.value_status !== null && observation.value_status !== '') {
     score -= 200;
@@ -416,6 +416,24 @@ const getObservationRankingScore = (
   }
 
   return score;
+};
+
+const hasClassificationFilters = (filter: InsObservationFilter | undefined): boolean => {
+  if (filter === undefined) {
+    return false;
+  }
+  return (
+    (filter.classification_type_codes?.length ?? 0) > 0 ||
+    (filter.classification_value_codes?.length ?? 0) > 0
+  );
+};
+
+const getObservationPeriodSortKey = (observation: InsObservation): number => {
+  return (
+    observation.time_period.year * 10_000 +
+    (observation.time_period.quarter ?? 0) * 100 +
+    (observation.time_period.month ?? 0)
+  );
 };
 
 const getLatestMatchStrategy = (
@@ -795,14 +813,33 @@ class KyselyInsRepo implements InsRepository {
         return err(filteredIdResult.error);
       }
 
-      const idRows: { statistic_id: string; matrix_id: number }[] = await filteredIdResult.value
+      const representativePoolSize =
+        input.limit <= 250 && !hasClassificationFilters(input.filter)
+          ? Math.min(Math.max(input.limit * 5, input.limit), 1_000)
+          : 0;
+      const shouldPrioritizeRepresentativeTotals =
+        representativePoolSize > 0 && input.offset < representativePoolSize;
+      const idFetchLimit = shouldPrioritizeRepresentativeTotals
+        ? representativePoolSize
+        : input.limit;
+      const idFetchOffset = shouldPrioritizeRepresentativeTotals ? 0 : input.offset;
+
+      const baseIdQuery = filteredIdResult.value
         .select(['s.id as statistic_id', 's.matrix_id'])
         .orderBy('tp.year', 'desc')
         .orderBy('tp.quarter', 'desc')
         .orderBy('tp.month', 'desc')
         .orderBy('t.code', 'asc')
-        .limit(input.limit)
-        .offset(input.offset)
+        .orderBy('s.id', 'asc');
+
+      interface ObservationIdRow {
+        statistic_id: string;
+        matrix_id: number;
+      }
+
+      const idRows: ObservationIdRow[] = await baseIdQuery
+        .limit(idFetchLimit)
+        .offset(idFetchOffset)
         .execute();
 
       if (idRows.length === 0) {
@@ -816,74 +853,118 @@ class KyselyInsRepo implements InsRepository {
         });
       }
 
-      const orderMap = new Map<string, number>();
-      const statisticIds = idRows.map((row, index) => {
-        const id = row.statistic_id;
-        orderMap.set(id, index);
-        return id;
-      });
+      const loadObservationsForIdRows = async (
+        rows: ObservationIdRow[]
+      ): Promise<InsObservation[]> => {
+        const orderMap = new Map<string, number>();
+        const statisticIds = rows.map((row, index) => {
+          const id = row.statistic_id;
+          orderMap.set(id, index);
+          return id;
+        });
 
-      let dataQuery: DynamicQuery = this.db
-        .selectFrom('statistics as s')
-        .innerJoin('matrices as m', 'm.id', 's.matrix_id')
-        .innerJoin('time_periods as tp', 'tp.id', 's.time_period_id')
-        .leftJoin('territories as t', 't.id', 's.territory_id')
-        .leftJoin('units_of_measure as u', 'u.id', 's.unit_id')
-        .where('s.id', 'in', statisticIds);
+        let dataQuery: DynamicQuery = this.db
+          .selectFrom('statistics as s')
+          .innerJoin('matrices as m', 'm.id', 's.matrix_id')
+          .innerJoin('time_periods as tp', 'tp.id', 's.time_period_id')
+          .leftJoin('territories as t', 't.id', 's.territory_id')
+          .leftJoin('units_of_measure as u', 'u.id', 's.unit_id')
+          .where('s.id', 'in', statisticIds);
 
-      if (matrixIds !== null) {
-        dataQuery = dataQuery.where('s.matrix_id', 'in', matrixIds);
+        if (matrixIds !== null) {
+          dataQuery = dataQuery.where('s.matrix_id', 'in', matrixIds);
+        }
+
+        const baseRows: Omit<ObservationRow, 'classification_values'>[] = await dataQuery
+          .select([
+            's.id as statistic_id',
+            's.matrix_id',
+            'm.ins_code as dataset_code',
+            's.value',
+            's.value_status',
+            't.id as territory_id',
+            't.code as territory_code',
+            't.siruta_code as territory_siruta_code',
+            't.level as territory_level',
+            't.name as territory_name',
+            't.path as territory_path',
+            't.parent_id as territory_parent_id',
+            'tp.id as time_period_id',
+            'tp.year as time_year',
+            'tp.quarter as time_quarter',
+            'tp.month as time_month',
+            'tp.periodicity as time_periodicity',
+            'tp.period_start as time_period_start',
+            'tp.period_end as time_period_end',
+            'tp.labels as time_labels',
+            'u.id as unit_id',
+            'u.code as unit_code',
+            'u.symbol as unit_symbol',
+            'u.names as unit_names',
+          ])
+          .execute();
+
+        const classificationMatrixId =
+          matrixIds !== null && matrixIds.length === 1 ? matrixIds[0] : undefined;
+        const classificationMap = await this.loadClassificationMap(
+          statisticIds,
+          classificationMatrixId
+        );
+        const observationRows: ObservationRow[] = baseRows.map((row) => ({
+          ...row,
+          classification_values: classificationMap.get(row.statistic_id) ?? [],
+        }));
+
+        const observations = observationRows.map((row) => this.mapObservationRow(row));
+        observations.sort((a, b) => {
+          const aIndex = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          const bIndex = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          return aIndex - bIndex;
+        });
+        return observations;
+      };
+
+      const observations = await loadObservationsForIdRows(idRows);
+      let outputNodes: InsObservation[] = observations;
+
+      if (shouldPrioritizeRepresentativeTotals) {
+        const noPreferredCodes = new Set<string>();
+        const rankedObservations = observations.slice().sort((left, right) => {
+          const leftPeriodKey = getObservationPeriodSortKey(left);
+          const rightPeriodKey = getObservationPeriodSortKey(right);
+          if (leftPeriodKey !== rightPeriodKey) {
+            return rightPeriodKey - leftPeriodKey;
+          }
+
+          const leftScore = getObservationRankingScore(left, noPreferredCodes);
+          const rightScore = getObservationRankingScore(right, noPreferredCodes);
+          if (leftScore !== rightScore) {
+            return rightScore - leftScore;
+          }
+
+          return left.id.localeCompare(right.id);
+        });
+
+        outputNodes = rankedObservations.slice(input.offset, input.offset + input.limit);
+
+        const needsSpillover =
+          outputNodes.length < input.limit && representativePoolSize < totalCount;
+        if (needsSpillover) {
+          const remainingCount = input.limit - outputNodes.length;
+          const spillRows: ObservationIdRow[] = await baseIdQuery
+            .limit(remainingCount)
+            .offset(representativePoolSize)
+            .execute();
+
+          if (spillRows.length > 0) {
+            const spillObservations = await loadObservationsForIdRows(spillRows);
+            outputNodes = [...outputNodes, ...spillObservations];
+          }
+        }
       }
 
-      const baseRows: Omit<ObservationRow, 'classification_values'>[] = await dataQuery
-        .select([
-          's.id as statistic_id',
-          's.matrix_id',
-          'm.ins_code as dataset_code',
-          's.value',
-          's.value_status',
-          't.id as territory_id',
-          't.code as territory_code',
-          't.siruta_code as territory_siruta_code',
-          't.level as territory_level',
-          't.name as territory_name',
-          't.path as territory_path',
-          't.parent_id as territory_parent_id',
-          'tp.id as time_period_id',
-          'tp.year as time_year',
-          'tp.quarter as time_quarter',
-          'tp.month as time_month',
-          'tp.periodicity as time_periodicity',
-          'tp.period_start as time_period_start',
-          'tp.period_end as time_period_end',
-          'tp.labels as time_labels',
-          'u.id as unit_id',
-          'u.code as unit_code',
-          'u.symbol as unit_symbol',
-          'u.names as unit_names',
-        ])
-        .execute();
-
-      const classificationMatrixId =
-        matrixIds !== null && matrixIds.length === 1 ? matrixIds[0] : undefined;
-      const classificationMap = await this.loadClassificationMap(
-        statisticIds,
-        classificationMatrixId
-      );
-      const rows: ObservationRow[] = baseRows.map((row) => ({
-        ...row,
-        classification_values: classificationMap.get(row.statistic_id) ?? [],
-      }));
-
-      const observations = rows.map((row) => this.mapObservationRow(row));
-      observations.sort((a, b) => {
-        const aIndex = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-        const bIndex = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-        return aIndex - bIndex;
-      });
-
       return ok({
-        nodes: observations,
+        nodes: outputNodes,
         pageInfo: {
           totalCount,
           hasNextPage: input.offset + input.limit < totalCount,
@@ -1688,39 +1769,57 @@ class KyselyInsRepo implements InsRepository {
       query = query.where('u.code', 'in', filter.unit_codes);
     }
 
-    if (
-      filter.classification_value_codes !== undefined &&
-      filter.classification_value_codes.length > 0
-    ) {
-      const codes = filter.classification_value_codes;
-      query = query.where((eb: DynamicQuery) =>
-        eb.exists(
-          eb
-            .selectFrom('statistic_classifications as sc')
-            .innerJoin('classification_values as cv', 'cv.id', 'sc.classification_value_id')
-            .whereRef('sc.matrix_id', '=', 's.matrix_id')
-            .whereRef('sc.statistic_id', '=', 's.id')
-            .where('cv.code', 'in', codes)
-        )
-      );
-    }
+    const classificationValueCodes = filter.classification_value_codes ?? [];
+    const classificationTypeCodes = filter.classification_type_codes ?? [];
 
-    if (
-      filter.classification_type_codes !== undefined &&
-      filter.classification_type_codes.length > 0
-    ) {
-      const codes = filter.classification_type_codes;
-      query = query.where((eb: DynamicQuery) =>
-        eb.exists(
-          eb
-            .selectFrom('statistic_classifications as sc')
-            .innerJoin('classification_values as cv', 'cv.id', 'sc.classification_value_id')
-            .innerJoin('classification_types as ct', 'ct.id', 'cv.type_id')
-            .whereRef('sc.matrix_id', '=', 's.matrix_id')
-            .whereRef('sc.statistic_id', '=', 's.id')
-            .where('ct.code', 'in', codes)
-        )
-      );
+    if (classificationValueCodes.length > 0 && classificationTypeCodes.length > 0) {
+      const valueCodes = Array.from(new Set(classificationValueCodes));
+      const typeCodes = Array.from(new Set(classificationTypeCodes));
+
+      // When both filters are provided, enforce type-aware matching:
+      // each requested classification type must have at least one value
+      // from the requested value set on the same observation.
+      for (const typeCode of typeCodes) {
+        query = query.where((eb: DynamicQuery) =>
+          eb.exists(
+            eb
+              .selectFrom('statistic_classifications as sc')
+              .innerJoin('classification_values as cv', 'cv.id', 'sc.classification_value_id')
+              .innerJoin('classification_types as ct', 'ct.id', 'cv.type_id')
+              .whereRef('sc.matrix_id', '=', 's.matrix_id')
+              .whereRef('sc.statistic_id', '=', 's.id')
+              .where('ct.code', '=', typeCode)
+              .where('cv.code', 'in', valueCodes)
+          )
+        );
+      }
+    } else {
+      if (classificationValueCodes.length > 0) {
+        query = query.where((eb: DynamicQuery) =>
+          eb.exists(
+            eb
+              .selectFrom('statistic_classifications as sc')
+              .innerJoin('classification_values as cv', 'cv.id', 'sc.classification_value_id')
+              .whereRef('sc.matrix_id', '=', 's.matrix_id')
+              .whereRef('sc.statistic_id', '=', 's.id')
+              .where('cv.code', 'in', classificationValueCodes)
+          )
+        );
+      }
+
+      if (classificationTypeCodes.length > 0) {
+        query = query.where((eb: DynamicQuery) =>
+          eb.exists(
+            eb
+              .selectFrom('statistic_classifications as sc')
+              .innerJoin('classification_values as cv', 'cv.id', 'sc.classification_value_id')
+              .innerJoin('classification_types as ct', 'ct.id', 'cv.type_id')
+              .whereRef('sc.matrix_id', '=', 's.matrix_id')
+              .whereRef('sc.statistic_id', '=', 's.id')
+              .where('ct.code', 'in', classificationTypeCodes)
+          )
+        );
+      }
     }
 
     if (filter.period !== undefined) {
