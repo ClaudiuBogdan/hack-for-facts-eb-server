@@ -404,6 +404,9 @@ patches:
       - op: replace
         path: /metadata/namespace
         value: hack-for-facts-prod
+      - op: replace
+        path: /spec/replicas
+        value: 2
 
   - target:
       kind: Service
