@@ -78,6 +78,14 @@ describe('Configuration', () => {
       expect(envWithoutRedis.REDIS_URL).toBeUndefined();
     });
 
+    it('accepts optional EXPERIMENTAL_MAP_ALLOWED_USER_IDS', () => {
+      const envWithAllowlist = parseEnv({
+        ...requiredEnv,
+        EXPERIMENTAL_MAP_ALLOWED_USER_IDS: 'user_1,user_2',
+      });
+      expect(envWithAllowlist.EXPERIMENTAL_MAP_ALLOWED_USER_IDS).toBe('user_1,user_2');
+    });
+
     it('throws on invalid PORT (non-numeric)', () => {
       expect(() => parseEnv({ ...requiredEnv, PORT: 'invalid' })).toThrow(
         'Invalid environment configuration'
@@ -143,6 +151,17 @@ describe('Configuration', () => {
 
       expect(config.server.port).toBe(8080);
       expect(config.server.host).toBe('127.0.0.1');
+    });
+
+    it('parses experimental map allowed user ids', () => {
+      const config = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          EXPERIMENTAL_MAP_ALLOWED_USER_IDS: 'user_1, user_2 , ,user_3',
+        })
+      );
+
+      expect(config.experimentalMap.allowedUserIds).toEqual(['user_1', 'user_2', 'user_3']);
     });
   });
 });

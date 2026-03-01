@@ -115,7 +115,7 @@ const main = async (): Promise<void> => {
           },
         }),
       },
-      disableRequestLogging: false,
+      disableRequestLogging: true,
     },
     deps: {
       healthCheckers: [],

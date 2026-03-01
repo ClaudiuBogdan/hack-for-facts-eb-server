@@ -54,6 +54,8 @@ export const CacheNamespace = {
   // ─────────────────────────────────────────────────────────────────────────
   // Other
   // ─────────────────────────────────────────────────────────────────────────
+  /** Experimental map per-series extracted vectors */
+  EXPERIMENTAL_MAP_SERIES: 'experimental-map:series',
   /** Dataset files */
   DATASETS: 'datasets',
 } as const;

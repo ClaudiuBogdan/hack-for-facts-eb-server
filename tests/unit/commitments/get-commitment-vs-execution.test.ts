@@ -41,6 +41,7 @@ describe('getCommitmentVsExecution', () => {
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
     };
 
     const { report_type: reportType, ...filterWithoutReportType } = baseFilter;
@@ -81,6 +82,7 @@ describe('getCommitmentVsExecution', () => {
           ],
           counts: { matched_count: 2, unmatched_commitment_count: 0, unmatched_execution_count: 0 },
         }),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
     };
 
     const result = await getCommitmentVsExecution(

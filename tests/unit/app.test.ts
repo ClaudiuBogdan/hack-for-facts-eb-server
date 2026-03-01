@@ -2,12 +2,133 @@
  * Unit tests for app factory
  */
 
+import { Writable } from 'node:stream';
+
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import { buildApp, createApp } from '@/app/build-app.js';
+import { deserialize } from '@/infra/cache/serialization.js';
+import { createTestAuthProvider } from '@/modules/auth/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
+import {
+  makeFakeBudgetDb,
+  makeFakeDatasetRepo,
+  makeFakeInsDb,
+  makeFakeKyselyDb,
+} from '../fixtures/fakes.js';
+
+interface LogEntry {
+  msg?: string;
+  req?: {
+    url?: string;
+  };
+  res?: {
+    statusCode?: number;
+  };
+  responseTime?: number;
+  userId?: string;
+}
+
+interface LogCollector {
+  entries: LogEntry[];
+  stream: Writable;
+}
+
+function isLogEntry(value: unknown): value is LogEntry {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+
+  const msg = candidate['msg'];
+  if (msg !== undefined && typeof msg !== 'string') {
+    return false;
+  }
+
+  const responseTime = candidate['responseTime'];
+  if (responseTime !== undefined && typeof responseTime !== 'number') {
+    return false;
+  }
+
+  const userId = candidate['userId'];
+  if (userId !== undefined && typeof userId !== 'string') {
+    return false;
+  }
+
+  const req = candidate['req'];
+  if (req !== undefined) {
+    if (req === null || typeof req !== 'object') {
+      return false;
+    }
+
+    const reqUrl = (req as Record<string, unknown>)['url'];
+    if (reqUrl !== undefined && typeof reqUrl !== 'string') {
+      return false;
+    }
+  }
+
+  const res = candidate['res'];
+  if (res !== undefined) {
+    if (res === null || typeof res !== 'object') {
+      return false;
+    }
+
+    const statusCode = (res as Record<string, unknown>)['statusCode'];
+    if (statusCode !== undefined && typeof statusCode !== 'number') {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function createLogCollector(): LogCollector {
+  const entries: LogEntry[] = [];
+
+  const stream = new Writable({
+    write(
+      chunk: string | Uint8Array,
+      _encoding: BufferEncoding,
+      callback: (error?: Error | null) => void
+    ) {
+      const lines = chunk.toString().split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) {
+          continue;
+        }
+
+        const parsed = deserialize(trimmed);
+        if (!parsed.ok) {
+          // Ignore non-JSON lines from logger transport internals.
+          continue;
+        }
+
+        if (isLogEntry(parsed.value)) {
+          entries.push(parsed.value);
+        }
+      }
+
+      callback();
+    },
+  });
+
+  return { entries, stream };
+}
+
+function getLogsForPath(entries: LogEntry[], path: string, message: string): LogEntry[] {
+  return entries.filter((entry) => entry.msg === message && entry.req?.url === path);
+}
+
+async function flushLogs(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setImmediate(() => {
+      resolve();
+    });
+  });
+}
 
 describe('App Factory', () => {
   describe('buildApp', () => {
@@ -62,6 +183,144 @@ describe('App Factory', () => {
       expect(routes).toContain('live');
       expect(routes).toContain('ready');
       expect(routes).toContain('health');
+
+      await app.close();
+    });
+
+    it('registers experimental map routes when auth-enabled REST modules are active', async () => {
+      const { provider } = createTestAuthProvider();
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            experimentalMap: {
+              allowedUserIds: ['user_test_1'],
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+      const routes = app.printRoutes();
+
+      expect(routes).toContain('experimental/map/grouped-series');
+
+      await app.close();
+    });
+
+    it('logs incoming and completed once for non-health routes', async () => {
+      const logs = createLogCollector();
+
+      const app = await buildApp({
+        fastifyOptions: {
+          logger: { level: 'info', stream: logs.stream },
+          disableRequestLogging: true,
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      app.get('/probe', async () => ({ ok: true }));
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/probe',
+      });
+
+      await flushLogs();
+
+      expect(response.statusCode).toBe(200);
+
+      const incoming = getLogsForPath(logs.entries, '/probe', 'incoming request');
+      const completed = getLogsForPath(logs.entries, '/probe', 'request completed');
+
+      expect(incoming).toHaveLength(1);
+      expect(completed).toHaveLength(1);
+      expect(completed[0]?.res?.statusCode).toBe(200);
+      expect(typeof completed[0]?.responseTime).toBe('number');
+
+      await app.close();
+    });
+
+    it('does not emit custom request logs for health routes', async () => {
+      const logs = createLogCollector();
+
+      const app = await buildApp({
+        fastifyOptions: {
+          logger: { level: 'info', stream: logs.stream },
+          disableRequestLogging: true,
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+      });
+
+      await flushLogs();
+
+      expect(response.statusCode).toBe(200);
+      expect(getLogsForPath(logs.entries, '/health/live', 'incoming request')).toHaveLength(0);
+      expect(getLogsForPath(logs.entries, '/health/live', 'request completed')).toHaveLength(0);
+
+      await app.close();
+    });
+
+    it('includes userId in completion logs when auth context is available', async () => {
+      const logs = createLogCollector();
+      const testAuth = createTestAuthProvider();
+
+      const app = await buildApp({
+        fastifyOptions: {
+          logger: { level: 'info', stream: logs.stream },
+          disableRequestLogging: true,
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      app.get('/probe-auth', async () => ({ ok: true }));
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/probe-auth',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+        },
+      });
+
+      await flushLogs();
+
+      expect(response.statusCode).toBe(200);
+
+      const completed = getLogsForPath(logs.entries, '/probe-auth', 'request completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]?.userId).toBe(testAuth.userIds.user1);
 
       await app.close();
     });

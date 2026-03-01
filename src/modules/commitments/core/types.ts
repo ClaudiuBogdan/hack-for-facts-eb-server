@@ -290,6 +290,14 @@ export interface CommitmentsAnalyticsSeries {
   data: CommitmentsAnalyticsDataPoint[];
 }
 
+export interface CommitmentsUatMetricRow {
+  siruta_code: string;
+  population: number | null;
+  year: number;
+  period_value: number;
+  amount: Decimal;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Aggregated
 // ─────────────────────────────────────────────────────────────────────────────

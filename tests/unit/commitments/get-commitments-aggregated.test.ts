@@ -37,6 +37,7 @@ describe('getCommitmentsAggregated', () => {
       listLineItems: async () => err(createDatabaseError('not used')),
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       getAggregated: async () => {
         repoCalled = true;
         return err(createDatabaseError('not used'));
@@ -87,6 +88,7 @@ describe('getCommitmentsAggregated', () => {
       listLineItems: async () => err(createDatabaseError('not used')),
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       getAggregated: async (filter, metric, factorMap, pagination, aggregateFilters) => {
         expect(filter.show_period_growth).toBe(false);
         expect(metric).toBe('PLATI_TREZOR');

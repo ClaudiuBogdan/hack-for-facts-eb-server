@@ -35,6 +35,7 @@ describe('getCommitmentsAnalytics', () => {
       listLineItems: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       getAnalyticsSeries: async () =>
         ok({
           frequency: Frequency.MONTH,
@@ -73,6 +74,7 @@ describe('getCommitmentsAnalytics', () => {
       listLineItems: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       getAnalyticsSeries: async () => {
         repoCalled = true;
         return err(createDatabaseError('not used'));

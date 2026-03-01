@@ -93,6 +93,9 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       dailyLimit: 100,
       cacheTtlSeconds: 86400,
     },
+    experimentalMap: {
+      allowedUserIds: [],
+    },
     mcp: {
       enabled: false,
       authRequired: false,
@@ -141,6 +144,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     redis: { ...defaults.redis, ...overrides.redis },
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
+    experimentalMap: { ...defaults.experimentalMap, ...overrides.experimentalMap },
     mcp: { ...defaults.mcp, ...overrides.mcp },
     gpt: { ...defaults.gpt, ...overrides.gpt },
     email: { ...defaults.email, ...overrides.email },
