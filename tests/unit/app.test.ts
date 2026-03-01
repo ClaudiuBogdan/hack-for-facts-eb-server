@@ -187,7 +187,7 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('registers experimental map routes when auth-enabled REST modules are active', async () => {
+    it('registers grouped-series advanced map analytics route when auth-enabled REST modules are active', async () => {
       const { provider } = createTestAuthProvider();
 
       const app = await buildApp({
@@ -199,7 +199,7 @@ describe('App Factory', () => {
           authProvider: provider,
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
-            experimentalMap: {
+            advancedMapAnalytics: {
               allowedUserIds: ['user_test_1'],
             },
           }),
@@ -209,7 +209,8 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('experimental/map/grouped-series');
+      expect(routes).toContain('advanced-map-analytics/');
+      expect(routes).toContain('grouped-series (POST)');
 
       await app.close();
     });

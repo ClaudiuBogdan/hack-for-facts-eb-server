@@ -1,5 +1,5 @@
 /**
- * Wide CSV serializer for experimental map payloads.
+ * Wide CSV serializer for advanced map analytics payloads.
  */
 
 import type { GroupedSeriesMatrixRow } from '../../core/types.js';

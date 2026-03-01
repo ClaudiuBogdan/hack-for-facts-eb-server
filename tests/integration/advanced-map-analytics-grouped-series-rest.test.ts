@@ -2,11 +2,11 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import { ok } from 'neverthrow';
 import { describe, expect, it, afterAll, beforeEach } from 'vitest';
 
-import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import {
-  makeExperimentalMapRoutes,
-  type MapSeriesProvider,
-} from '@/modules/experimental-map/index.js';
+  makeAdvancedMapAnalyticsGroupedSeriesRoutes,
+  type GroupedSeriesProvider,
+} from '@/modules/advanced-map-analytics/index.js';
+import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 
 const requestBody = {
   granularity: 'UAT' as const,
@@ -51,7 +51,7 @@ const requestBody = {
   },
 };
 
-function makeProvider(): MapSeriesProvider {
+function makeProvider(): GroupedSeriesProvider {
   return {
     fetchGroupedSeriesVectors: async () =>
       ok({
@@ -78,7 +78,7 @@ function makeProvider(): MapSeriesProvider {
 
 const createTestApp = async (options: {
   allowedUserIds: string[];
-  provider: MapSeriesProvider;
+  provider: GroupedSeriesProvider;
 }) => {
   const testAuth = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -97,8 +97,8 @@ const createTestApp = async (options: {
   app.addHook('preHandler', makeAuthMiddleware({ authProvider: testAuth.provider }));
 
   await app.register(
-    makeExperimentalMapRoutes({
-      mapSeriesProvider: options.provider,
+    makeAdvancedMapAnalyticsGroupedSeriesRoutes({
+      groupedSeriesProvider: options.provider,
       allowedUserIds: options.allowedUserIds,
     })
   );
@@ -111,7 +111,7 @@ const createTestApp = async (options: {
   };
 };
 
-describe('Experimental Map REST API', () => {
+describe('Advanced Map Analytics REST API', () => {
   let app: FastifyInstance;
   let testAuth: ReturnType<typeof createTestAuthProvider>;
 
@@ -138,7 +138,7 @@ describe('Experimental Map REST API', () => {
   it('returns 401 without authentication', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/experimental/map/grouped-series',
+      url: '/api/v1/advanced-map-analytics/grouped-series',
       headers: {
         'content-type': 'application/json',
       },
@@ -154,7 +154,7 @@ describe('Experimental Map REST API', () => {
   it('returns 403 for authenticated but non-allowlisted users', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/experimental/map/grouped-series',
+      url: '/api/v1/advanced-map-analytics/grouped-series',
       headers: {
         authorization: `Bearer ${testAuth.tokens.user2}`,
         'content-type': 'application/json',
@@ -171,7 +171,7 @@ describe('Experimental Map REST API', () => {
   it('returns wide matrix csv for authenticated allowlisted users', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/experimental/map/grouped-series',
+      url: '/api/v1/advanced-map-analytics/grouped-series',
       headers: {
         authorization: `Bearer ${testAuth.tokens.user1}`,
         'content-type': 'application/json',

@@ -118,3 +118,64 @@ export {
   defaultAdvancedMapAnalyticsIdGenerator,
   type AdvancedMapAnalyticsIdGenerator,
 } from './shell/utils/id-generator.js';
+
+// Grouped-series subdomain (map data extraction)
+export type {
+  MapGranularity,
+  MapSeriesNormalizationMode,
+  ExecutionMapSeriesFilter,
+  CommitmentsMapSeriesFilter,
+  ExecutionMapSeries,
+  CommitmentsMapSeries,
+  InsMapSeries,
+  MapRequestSeries,
+  GroupedSeriesDataRequest,
+  GroupedSeriesWarning,
+  MapSeriesVector,
+  GroupedSeriesProviderOutput,
+  GroupedSeriesManifestEntry,
+  GroupedSeriesManifest,
+  GroupedSeriesMatrixRow,
+  GroupedSeriesMatrixData,
+} from './grouped-series/core/types.js';
+
+export type {
+  UnauthorizedError as GroupedSeriesUnauthorizedError,
+  ForbiddenError as GroupedSeriesForbiddenError,
+  InvalidInputError as GroupedSeriesInvalidInputError,
+  ProviderError as GroupedSeriesProviderError,
+  GroupedSeriesError,
+} from './grouped-series/core/errors.js';
+
+export {
+  createUnauthorizedError as createGroupedSeriesUnauthorizedError,
+  createForbiddenError as createGroupedSeriesForbiddenError,
+  createInvalidInputError as createGroupedSeriesInvalidInputError,
+  createProviderError as createGroupedSeriesProviderError,
+  GROUPED_SERIES_ERROR_HTTP_STATUS,
+  getHttpStatusForError as getGroupedSeriesHttpStatusForError,
+} from './grouped-series/core/errors.js';
+
+export type { GroupedSeriesProvider } from './grouped-series/core/ports.js';
+
+export {
+  getGroupedSeriesData,
+  type GetGroupedSeriesDataDeps,
+  type GetGroupedSeriesDataInput,
+} from './grouped-series/core/usecases/get-grouped-series-data.js';
+
+export {
+  makeMockAdvancedMapAnalyticsGroupedSeriesProvider,
+  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
+  type MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps,
+} from './grouped-series/index.js';
+
+export {
+  makeAdvancedMapAnalyticsGroupedSeriesRoutes,
+  type MakeAdvancedMapAnalyticsGroupedSeriesRoutesDeps,
+  GroupedSeriesDataBodySchema,
+  GroupedSeriesDataResponseSchema,
+  ErrorResponseSchema as GroupedSeriesErrorResponseSchema,
+  type GroupedSeriesDataBody,
+  serializeWideMatrixCsv,
+} from './grouped-series/index.js';

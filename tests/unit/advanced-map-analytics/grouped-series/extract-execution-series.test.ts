@@ -3,9 +3,9 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { Frequency } from '@/common/types/temporal.js';
-import { extractExecutionSeriesVector } from '@/modules/experimental-map/shell/providers/extract-execution-series.js';
+import { extractExecutionSeriesVector } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/extract-execution-series.js';
 
-import type { ExecutionMapSeries } from '@/modules/experimental-map/index.js';
+import type { ExecutionMapSeries } from '@/modules/advanced-map-analytics/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
 import type { UATAnalyticsRepository } from '@/modules/uat-analytics/index.js';
 

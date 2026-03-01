@@ -1,9 +1,9 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
-import { createProviderError, type ExperimentalMapError } from '../../core/errors.js';
+import { createProviderError, type GroupedSeriesError } from '../../core/errors.js';
 
-import type { ExperimentalMapWarning, InsMapSeries } from '../../core/types.js';
+import type { GroupedSeriesWarning, InsMapSeries } from '../../core/types.js';
 import type { InsObservation, InsObservationFilter, InsRepository } from '@/modules/ins/index.js';
 
 const PAGE_SIZE = 1000;
@@ -17,7 +17,7 @@ interface PeriodBucketValue {
 export interface InsSeriesExtractionOutput {
   valuesBySirutaCode: Map<string, number | undefined>;
   unit?: string;
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 function resolveObservationUnit(observation: InsObservation): string | undefined {
@@ -138,8 +138,8 @@ export async function extractInsSeriesVector(
   insRepo: InsRepository,
   series: InsMapSeries,
   sirutaUniverse: Set<string>
-): Promise<Result<InsSeriesExtractionOutput, ExperimentalMapError>> {
-  const warnings: ExperimentalMapWarning[] = [];
+): Promise<Result<InsSeriesExtractionOutput, GroupedSeriesError>> {
+  const warnings: GroupedSeriesWarning[] = [];
 
   if (series.datasetCode === undefined || series.datasetCode.trim() === '') {
     warnings.push({

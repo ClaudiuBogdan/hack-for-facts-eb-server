@@ -6,8 +6,8 @@ import {
   getGroupedSeriesData,
   type GroupedSeriesDataRequest,
   type GroupedSeriesMatrixData,
-  type MapSeriesProvider,
-} from '@/modules/experimental-map/index.js';
+  type GroupedSeriesProvider,
+} from '@/modules/advanced-map-analytics/index.js';
 
 function makeProvider(output: {
   sirutaUniverse?: string[];
@@ -16,7 +16,7 @@ function makeProvider(output: {
     unit?: string;
     valuesBySirutaCode: Map<string, number | undefined>;
   }[];
-}): MapSeriesProvider {
+}): GroupedSeriesProvider {
   return {
     fetchGroupedSeriesVectors: async () =>
       ok({
