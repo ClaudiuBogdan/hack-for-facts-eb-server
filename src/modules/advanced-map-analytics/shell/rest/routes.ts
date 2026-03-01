@@ -9,6 +9,7 @@ import { requireAuthHandler } from '@/modules/auth/shell/middleware/fastify-auth
 
 import {
   CreateMapBodySchema,
+  DeleteMapResponseSchema,
   ErrorResponseSchema,
   MapIdParamsSchema,
   MapListResponseSchema,
@@ -30,6 +31,7 @@ import {
 } from './schemas.js';
 import { getHttpStatusForError } from '../../core/errors.js';
 import { createMap, type CreateMapDeps } from '../../core/usecases/create-map.js';
+import { deleteMap } from '../../core/usecases/delete-map.js';
 import { getMapSnapshot } from '../../core/usecases/get-map-snapshot.js';
 import { getMap } from '../../core/usecases/get-map.js';
 import { getPublicMap } from '../../core/usecases/get-public-map.js';
@@ -508,6 +510,48 @@ export const makeAdvancedMapAnalyticsRoutes = (
         return reply.status(200).send({
           ok: true,
           data: toMapDetail(result.value),
+        });
+      }
+    );
+
+    fastify.delete<{ Params: MapIdParams }>(
+      '/api/v1/advanced-map-analytics/maps/:mapId',
+      {
+        preHandler: requireAuthHandler,
+        schema: {
+          params: MapIdParamsSchema,
+          response: {
+            200: DeleteMapResponseSchema,
+            401: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        if (!isAuthenticated(request.auth)) {
+          return sendUnauthorized(reply);
+        }
+
+        const result = await deleteMap(
+          { repo: deps.repo },
+          {
+            userId: request.auth.userId,
+            mapId: request.params.mapId,
+          }
+        );
+
+        if (result.isErr()) {
+          const status = getHttpStatusForError(result.error);
+          return reply.status(status as 404 | 500).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
         });
       }
     );

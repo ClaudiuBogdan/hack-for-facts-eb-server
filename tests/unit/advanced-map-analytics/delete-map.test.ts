@@ -1,7 +1,7 @@
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
-import { updateMap } from '@/modules/advanced-map-analytics/core/usecases/update-map.js';
+import { deleteMap } from '@/modules/advanced-map-analytics/core/usecases/delete-map.js';
 
 import type {
   AdvancedMapAnalyticsRepository,
@@ -20,8 +20,8 @@ function makeMap(overrides: Partial<AdvancedMapAnalyticsMap> = {}): AdvancedMapA
   return {
     mapId: 'map_1',
     userId: 'user_1',
-    title: 'Current map title',
-    description: 'Current description',
+    title: 'Map',
+    description: null,
     visibility: 'private',
     publicId: null,
     lastSnapshotId: null,
@@ -35,33 +35,25 @@ function makeMap(overrides: Partial<AdvancedMapAnalyticsMap> = {}): AdvancedMapA
 }
 
 function makeRepo(
-  overrides: { updateMap?: (input: UpdateMapParams) => AdvancedMapAnalyticsMap | null } = {}
-): {
-  repo: AdvancedMapAnalyticsRepository;
-  getUpdateCalls: () => number;
-} {
-  let updateCalls = 0;
-
-  const repo: AdvancedMapAnalyticsRepository = {
+  overrides: {
+    softDeleteMap?: (
+      mapId: string,
+      userId: string
+    ) => ReturnType<AdvancedMapAnalyticsRepository['softDeleteMap']>;
+  } = {}
+): AdvancedMapAnalyticsRepository {
+  return {
     createMap: async (_input: CreateMapParams) => ok(makeMap()),
     getMapForUser: async () => ok(makeMap()),
     listMapsForUser: async () => ok([makeMap()]),
-    updateMap: async (input: UpdateMapParams) => {
-      updateCalls += 1;
-      if (overrides.updateMap !== undefined) {
-        return ok(overrides.updateMap(input));
+    updateMap: async (_input: UpdateMapParams) => ok(makeMap()),
+    softDeleteMap: async (mapId: string, userId: string) => {
+      if (overrides.softDeleteMap !== undefined) {
+        return overrides.softDeleteMap(mapId, userId);
       }
 
-      return ok(
-        makeMap({
-          title: input.title,
-          description: input.description,
-          visibility: input.visibility,
-          publicId: input.publicId,
-        })
-      );
+      return ok(true);
     },
-    softDeleteMap: async (_mapId: string, _userId: string) => ok(true),
     appendSnapshot: async (_input: AppendSnapshotParams) =>
       ok({
         map: makeMap(),
@@ -86,37 +78,62 @@ function makeRepo(
       ok(null as AdvancedMapAnalyticsPublicView | null),
     incrementPublicViewCount: async (_mapId: string) => ok(undefined),
   };
-
-  return {
-    repo,
-    getUpdateCalls: () => updateCalls,
-  };
 }
 
-describe('updateMap', () => {
-  it('returns InvalidInputError for whitespace-only title and does not persist update', async () => {
-    const { repo, getUpdateCalls } = makeRepo();
+describe('deleteMap', () => {
+  it('returns ok when repository soft deletes the map', async () => {
+    const repo = makeRepo();
 
-    const result = await updateMap(
+    const result = await deleteMap(
+      { repo },
       {
-        repo,
-        generatePublicId: () => 'public_1',
-      },
+        userId: 'user_1',
+        mapId: 'map_1',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+  });
+
+  it('returns NotFoundError when repository reports map not found', async () => {
+    const repo = makeRepo({
+      softDeleteMap: async () => ok(false),
+    });
+
+    const result = await deleteMap(
+      { repo },
       {
-        request: {
-          userId: 'user_1',
-          mapId: 'map_1',
-          title: '   ',
-        },
+        userId: 'user_1',
+        mapId: 'map_missing',
       }
     );
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error.type).toBe('InvalidInputError');
-      expect(result.error.message).toBe('title cannot be empty');
+      expect(result.error.type).toBe('NotFoundError');
+      expect(result.error.message).toBe('Map not found');
     }
+  });
 
-    expect(getUpdateCalls()).toBe(0);
+  it('returns ProviderError when repository throws', async () => {
+    const repo = makeRepo({
+      softDeleteMap: async () => {
+        throw new Error('db unavailable');
+      },
+    });
+
+    const result = await deleteMap(
+      { repo },
+      {
+        userId: 'user_1',
+        mapId: 'map_1',
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('ProviderError');
+      expect(result.error.message).toBe('Failed to delete map');
+    }
   });
 });
