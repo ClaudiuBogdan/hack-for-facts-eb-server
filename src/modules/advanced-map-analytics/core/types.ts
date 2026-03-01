@@ -25,6 +25,7 @@ export interface AdvancedMapAnalyticsMap {
   lastSnapshotId: string | null;
   lastSnapshot: AdvancedMapAnalyticsSnapshotDocument | null;
   snapshotCount: number;
+  viewCount: number;
   createdAt: Date;
   updatedAt: Date;
 }

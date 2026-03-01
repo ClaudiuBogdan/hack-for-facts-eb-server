@@ -85,6 +85,7 @@ export const MapSummarySchema = Type.Object(
     visibility: VisibilitySchema,
     publicId: Type.Union([Type.String(), Type.Null()]),
     snapshotCount: Type.Number({ minimum: 0 }),
+    viewCount: Type.Number({ minimum: 0 }),
     lastSnapshotId: Type.Union([Type.String(), Type.Null()]),
     createdAt: Type.String({ format: 'date-time' }),
     updatedAt: Type.String({ format: 'date-time' }),

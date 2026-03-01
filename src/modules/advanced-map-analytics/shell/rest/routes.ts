@@ -89,6 +89,15 @@ function sendUnauthorized(reply: FastifyReply) {
   });
 }
 
+function incrementPublicViewCountFireAndForget(
+  repo: AdvancedMapAnalyticsRepository,
+  mapId: string
+): void {
+  void repo.incrementPublicViewCount(mapId).catch(() => {
+    // Silently ignore view counter failures - not critical for public reads
+  });
+}
+
 function toMapSummary(map: AdvancedMapAnalyticsMap) {
   return {
     mapId: map.mapId,
@@ -97,6 +106,7 @@ function toMapSummary(map: AdvancedMapAnalyticsMap) {
     visibility: map.visibility,
     publicId: map.publicId,
     snapshotCount: map.snapshotCount,
+    viewCount: map.viewCount,
     lastSnapshotId: map.lastSnapshotId,
     createdAt: map.createdAt.toISOString(),
     updatedAt: map.updatedAt.toISOString(),
@@ -701,6 +711,10 @@ export const makeAdvancedMapAnalyticsRoutes = (
             error: groupedSeriesDataResult.error.type,
             message: groupedSeriesDataResult.error.message,
           });
+        }
+
+        if (request.method === 'GET') {
+          incrementPublicViewCountFireAndForget(deps.repo, result.value.mapId);
         }
 
         return reply.status(200).send({

@@ -27,6 +27,7 @@ function makeMap(): AdvancedMapAnalyticsMap {
     lastSnapshotId: null,
     lastSnapshot: null,
     snapshotCount: 0,
+    viewCount: 0,
     createdAt: new Date('2026-03-01T10:00:00.000Z'),
     updatedAt: new Date('2026-03-01T10:00:00.000Z'),
   };
@@ -62,6 +63,7 @@ function makeRepo(
       ok(null as AdvancedMapAnalyticsSnapshotDetail | null),
     getPublicViewByPublicId: async (_publicId: string) =>
       ok(null as AdvancedMapAnalyticsPublicView | null),
+    incrementPublicViewCount: async (_mapId: string) => ok(undefined),
   };
 }
 

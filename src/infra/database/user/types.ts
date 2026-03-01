@@ -121,6 +121,7 @@ export interface AdvancedMapAnalyticsMaps {
   last_snapshot: JSONColumnType<Record<string, unknown>> | null;
   last_snapshot_id: string | null;
   snapshot_count: Generated<number>;
+  public_view_count: Generated<number>;
   created_at: Generated<Timestamp>;
   updated_at: Generated<Timestamp>;
   deleted_at: Timestamp | null;

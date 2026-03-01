@@ -26,6 +26,11 @@ type InMemorySnapshotRecord = AdvancedMapAnalyticsSnapshotDetail;
 class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
   private maps = new Map<string, InMemoryMapRecord>();
   private snapshots = new Map<string, InMemorySnapshotRecord[]>();
+  private failIncrementPublicViewCount = false;
+
+  setFailIncrementPublicViewCount(value: boolean) {
+    this.failIncrementPublicViewCount = value;
+  }
 
   async createMap(input: CreateMapParams) {
     const now = new Date('2026-03-01T10:00:00.000Z');
@@ -39,6 +44,7 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
       lastSnapshotId: null,
       lastSnapshot: null,
       snapshotCount: 0,
+      viewCount: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -163,6 +169,25 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
 
     return ok(view);
   }
+
+  async incrementPublicViewCount(mapId: string) {
+    if (this.failIncrementPublicViewCount) {
+      throw new Error('Failed to increment public view count');
+    }
+
+    const map = this.maps.get(mapId);
+    if (map?.visibility !== 'public') {
+      return ok(undefined);
+    }
+
+    const updatedMap: InMemoryMapRecord = {
+      ...map,
+      viewCount: map.viewCount + 1,
+    };
+
+    this.maps.set(mapId, updatedMap);
+    return ok(undefined);
+  }
 }
 
 function makeGroupedSeriesProvider(): GroupedSeriesProvider {
@@ -183,7 +208,11 @@ function makeGroupedSeriesProvider(): GroupedSeriesProvider {
   };
 }
 
-const createTestApp = async () => {
+interface CreateTestAppOptions {
+  failIncrementPublicViewCount?: boolean;
+}
+
+const createTestApp = async (options: CreateTestAppOptions = {}) => {
   const testAuth = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
 
@@ -201,6 +230,7 @@ const createTestApp = async () => {
   app.addHook('preHandler', makeAuthMiddleware({ authProvider: testAuth.provider }));
 
   const repo = new InMemoryAdvancedMapAnalyticsRepo();
+  repo.setFailIncrementPublicViewCount(options.failIncrementPublicViewCount ?? false);
   let mapIdCounter = 0;
   let snapshotIdCounter = 0;
 
@@ -228,12 +258,14 @@ const createTestApp = async () => {
   return {
     app,
     testAuth,
+    repo,
   };
 };
 
 describe('Advanced Map Analytics REST API', () => {
   let app: FastifyInstance;
   let testAuth: ReturnType<typeof createTestAuthProvider>;
+  let repo: InMemoryAdvancedMapAnalyticsRepo;
 
   afterAll(async () => {
     if (app !== undefined) {
@@ -249,6 +281,7 @@ describe('Advanced Map Analytics REST API', () => {
     const setup = await createTestApp();
     app = setup.app;
     testAuth = setup.testAuth;
+    repo = setup.repo;
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -638,5 +671,137 @@ describe('Advanced Map Analytics REST API', () => {
     expect(
       publicBody.data.groupedSeriesData.payload.data.startsWith('siruta_code,s_public_exec\n')
     ).toBe(true);
+
+    const ownerMapResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(ownerMapResponse.statusCode).toBe(200);
+    const ownerMapBody = ownerMapResponse.json<{
+      data: {
+        viewCount: number;
+      };
+    }>();
+    expect(ownerMapBody.data.viewCount).toBe(1);
+  });
+
+  it('still returns 200 from public endpoint when view counter increment fails', async () => {
+    repo.setFailIncrementPublicViewCount(true);
+
+    const createMapResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Public counter failure',
+      },
+    });
+
+    const mapBody = createMapResponse.json<{ data: { mapId: string } }>();
+    const mapId = mapBody.data.mapId;
+
+    const saveSnapshotResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Published snapshot',
+        state: { bins: [1] },
+        mapPatch: { visibility: 'public' },
+      },
+    });
+
+    expect(saveSnapshotResponse.statusCode).toBe(201);
+
+    const publicResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/advanced-map-analytics/public/public_1',
+    });
+
+    expect(publicResponse.statusCode).toBe(200);
+    const publicBody = publicResponse.json<{ ok: boolean }>();
+    expect(publicBody.ok).toBe(true);
+
+    const ownerMapResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(ownerMapResponse.statusCode).toBe(200);
+    const ownerMapBody = ownerMapResponse.json<{
+      data: {
+        viewCount: number;
+      };
+    }>();
+    expect(ownerMapBody.data.viewCount).toBe(0);
+  });
+
+  it('does not increment view counter for HEAD public endpoint requests', async () => {
+    const createMapResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Public HEAD candidate',
+      },
+    });
+
+    const mapBody = createMapResponse.json<{ data: { mapId: string } }>();
+    const mapId = mapBody.data.mapId;
+
+    const saveSnapshotResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Published snapshot',
+        state: { bins: [1] },
+        mapPatch: { visibility: 'public' },
+      },
+    });
+
+    expect(saveSnapshotResponse.statusCode).toBe(201);
+
+    const headResponse = await app.inject({
+      method: 'HEAD',
+      url: '/api/v1/advanced-map-analytics/public/public_1',
+    });
+
+    expect(headResponse.statusCode).toBe(200);
+
+    const ownerMapResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(ownerMapResponse.statusCode).toBe(200);
+    const ownerMapBody = ownerMapResponse.json<{
+      data: {
+        viewCount: number;
+      };
+    }>();
+    expect(ownerMapBody.data.viewCount).toBe(0);
   });
 });

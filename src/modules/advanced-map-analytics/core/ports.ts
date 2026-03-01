@@ -84,4 +84,6 @@ export interface AdvancedMapAnalyticsRepository {
   getPublicViewByPublicId(
     publicId: string
   ): Promise<Result<AdvancedMapAnalyticsPublicView | null, AdvancedMapAnalyticsError>>;
+
+  incrementPublicViewCount(mapId: string): Promise<Result<void, AdvancedMapAnalyticsError>>;
 }
