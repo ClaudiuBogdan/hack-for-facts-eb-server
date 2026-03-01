@@ -2,6 +2,8 @@
  * Advanced Map Analytics REST Routes
  */
 
+import { Value } from '@sinclair/typebox/value';
+
 import { isAuthenticated } from '@/modules/auth/index.js';
 import { requireAuthHandler } from '@/modules/auth/shell/middleware/fastify-auth.js';
 
@@ -35,22 +37,49 @@ import { listMapSnapshots } from '../../core/usecases/list-map-snapshots.js';
 import { listMaps } from '../../core/usecases/list-maps.js';
 import { saveMapSnapshot } from '../../core/usecases/save-map-snapshot.js';
 import { updateMap } from '../../core/usecases/update-map.js';
+import {
+  createInvalidInputError as createGroupedSeriesInvalidInputError,
+  getHttpStatusForError as getGroupedSeriesHttpStatusForError,
+  type GroupedSeriesError,
+} from '../../grouped-series/core/errors.js';
+import { getGroupedSeriesData } from '../../grouped-series/core/usecases/get-grouped-series-data.js';
+import { mapGroupedSeriesBodyToRequest } from '../../grouped-series/shell/rest/map-request-mapper.js';
+import {
+  GroupedSeriesDataBodySchema,
+  type GroupedSeriesData,
+  type GroupedSeriesDataBody,
+} from '../../grouped-series/shell/rest/schemas.js';
+import { serializeWideMatrixCsv } from '../../grouped-series/shell/rest/wide-csv.js';
 
 import type { AdvancedMapAnalyticsRepository } from '../../core/ports.js';
 import type {
   AdvancedMapAnalyticsMap,
   AdvancedMapAnalyticsPublicView,
+  AdvancedMapAnalyticsSnapshotDocument,
   AdvancedMapAnalyticsSnapshotDetail,
   AdvancedMapAnalyticsSnapshotSummary,
 } from '../../core/types.js';
+import type { GroupedSeriesProvider } from '../../grouped-series/core/ports.js';
 import type { AdvancedMapAnalyticsIdGenerator } from '../utils/id-generator.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 
 export interface MakeAdvancedMapAnalyticsRoutesDeps {
   repo: AdvancedMapAnalyticsRepository;
+  groupedSeriesProvider: GroupedSeriesProvider;
   idGenerator: AdvancedMapAnalyticsIdGenerator;
   now?: () => Date;
 }
+
+const REMOTE_GROUPED_SERIES_TYPES = new Set<string>([
+  'line-items-aggregated-yearly',
+  'commitments-analytics',
+  'ins-series',
+]);
+
+const GROUPED_SERIES_EMPTY_PAYLOAD = {
+  format: 'csv_wide_matrix_v1',
+  compression: 'none',
+} as const;
 
 function sendUnauthorized(reply: FastifyReply) {
   return reply.status(401).send({
@@ -74,10 +103,11 @@ function toMapSummary(map: AdvancedMapAnalyticsMap) {
   };
 }
 
-function toMapDetail(map: AdvancedMapAnalyticsMap) {
+function toMapDetail(map: AdvancedMapAnalyticsMap, groupedSeriesData?: GroupedSeriesData) {
   return {
     ...toMapSummary(map),
     lastSnapshot: map.lastSnapshot,
+    ...(groupedSeriesData !== undefined ? { groupedSeriesData } : {}),
   };
 }
 
@@ -98,7 +128,7 @@ function toSnapshotDetail(snapshot: AdvancedMapAnalyticsSnapshotDetail) {
   };
 }
 
-function toPublicView(view: AdvancedMapAnalyticsPublicView) {
+function toPublicView(view: AdvancedMapAnalyticsPublicView, groupedSeriesData?: GroupedSeriesData) {
   return {
     mapId: view.mapId,
     publicId: view.publicId,
@@ -106,7 +136,161 @@ function toPublicView(view: AdvancedMapAnalyticsPublicView) {
     description: view.description,
     snapshotId: view.snapshotId,
     snapshot: view.snapshot,
+    ...(groupedSeriesData !== undefined ? { groupedSeriesData } : {}),
     updatedAt: view.updatedAt.toISOString(),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readSeriesId(series: unknown): string {
+  if (!isRecord(series)) {
+    return '';
+  }
+
+  const id = series['id'];
+  return typeof id === 'string' ? id.trim() : '';
+}
+
+function isRemoteGroupedSeriesCandidate(series: unknown): boolean {
+  if (!isRecord(series)) {
+    return false;
+  }
+
+  const type = series['type'];
+  return typeof type === 'string' && REMOTE_GROUPED_SERIES_TYPES.has(type);
+}
+
+function buildGroupedSeriesDataBody(
+  state: Record<string, unknown>
+): { body: GroupedSeriesDataBody } | { error: GroupedSeriesError } {
+  const rawSeries = state['series'];
+
+  if (rawSeries === undefined) {
+    return {
+      body: {
+        granularity: 'UAT',
+        series: [],
+        payload: GROUPED_SERIES_EMPTY_PAYLOAD,
+      } as GroupedSeriesDataBody,
+    };
+  }
+
+  if (!Array.isArray(rawSeries)) {
+    return {
+      error: createGroupedSeriesInvalidInputError(
+        'Stored map snapshot state.series must be an array'
+      ),
+    };
+  }
+
+  const remoteSeries = rawSeries.filter((series) => isRemoteGroupedSeriesCandidate(series));
+  remoteSeries.sort((left, right) => readSeriesId(left).localeCompare(readSeriesId(right)));
+
+  if (remoteSeries.length === 0) {
+    return {
+      body: {
+        granularity: 'UAT',
+        series: [],
+        payload: GROUPED_SERIES_EMPTY_PAYLOAD,
+      } as GroupedSeriesDataBody,
+    };
+  }
+
+  const candidateBody: unknown = {
+    granularity: 'UAT',
+    series: remoteSeries,
+    payload: GROUPED_SERIES_EMPTY_PAYLOAD,
+  };
+
+  if (!Value.Check(GroupedSeriesDataBodySchema, candidateBody)) {
+    return {
+      error: createGroupedSeriesInvalidInputError(
+        'Stored map snapshot contains invalid grouped-series configuration'
+      ),
+    };
+  }
+
+  return {
+    body: candidateBody,
+  };
+}
+
+function toEmptyGroupedSeriesData(now: () => Date): GroupedSeriesData {
+  return {
+    manifest: {
+      generated_at: now().toISOString(),
+      format: 'wide_matrix_v1',
+      granularity: 'UAT',
+      series: [],
+    },
+    payload: {
+      mime: 'text/csv',
+      compression: 'none',
+      data: 'siruta_code',
+    },
+    warnings: [],
+  };
+}
+
+async function resolveBundledGroupedSeriesData(
+  deps: MakeAdvancedMapAnalyticsRoutesDeps,
+  snapshot: AdvancedMapAnalyticsSnapshotDocument | null
+): Promise<{ data: GroupedSeriesData } | { error: GroupedSeriesError }> {
+  const now = deps.now ?? (() => new Date());
+
+  if (snapshot === null) {
+    return {
+      data: toEmptyGroupedSeriesData(now),
+    };
+  }
+
+  const bodyResult = buildGroupedSeriesDataBody(snapshot.state);
+  if ('error' in bodyResult) {
+    return {
+      error: bodyResult.error,
+    };
+  }
+
+  if (bodyResult.body.series.length === 0) {
+    return {
+      data: toEmptyGroupedSeriesData(now),
+    };
+  }
+
+  const groupedSeriesResult = await getGroupedSeriesData(
+    {
+      provider: deps.groupedSeriesProvider,
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+    },
+    {
+      request: mapGroupedSeriesBodyToRequest(bodyResult.body),
+    }
+  );
+
+  if (groupedSeriesResult.isErr()) {
+    return {
+      error: groupedSeriesResult.error,
+    };
+  }
+
+  const csvData = serializeWideMatrixCsv(
+    groupedSeriesResult.value.seriesOrder,
+    groupedSeriesResult.value.rows
+  );
+
+  return {
+    data: {
+      manifest: groupedSeriesResult.value.manifest,
+      payload: {
+        mime: 'text/csv',
+        compression: 'none',
+        data: csvData,
+      },
+      warnings: groupedSeriesResult.value.warnings,
+    },
   };
 }
 
@@ -210,7 +394,9 @@ export const makeAdvancedMapAnalyticsRoutes = (
           params: MapIdParamsSchema,
           response: {
             200: MapResponseSchema,
+            400: ErrorResponseSchema,
             401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             404: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -238,9 +424,23 @@ export const makeAdvancedMapAnalyticsRoutes = (
           });
         }
 
+        const groupedSeriesDataResult = await resolveBundledGroupedSeriesData(
+          deps,
+          result.value.lastSnapshot
+        );
+
+        if ('error' in groupedSeriesDataResult) {
+          const status = getGroupedSeriesHttpStatusForError(groupedSeriesDataResult.error);
+          return reply.status(status as 400 | 401 | 403 | 500).send({
+            ok: false,
+            error: groupedSeriesDataResult.error.type,
+            message: groupedSeriesDataResult.error.message,
+          });
+        }
+
         return reply.status(200).send({
           ok: true,
-          data: toMapDetail(result.value),
+          data: toMapDetail(result.value, groupedSeriesDataResult.data),
         });
       }
     );
@@ -464,6 +664,9 @@ export const makeAdvancedMapAnalyticsRoutes = (
           params: PublicMapParamsSchema,
           response: {
             200: PublicMapResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             404: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -486,9 +689,23 @@ export const makeAdvancedMapAnalyticsRoutes = (
           });
         }
 
+        const groupedSeriesDataResult = await resolveBundledGroupedSeriesData(
+          deps,
+          result.value.snapshot
+        );
+
+        if ('error' in groupedSeriesDataResult) {
+          const status = getGroupedSeriesHttpStatusForError(groupedSeriesDataResult.error);
+          return reply.status(status as 400 | 401 | 403 | 500).send({
+            ok: false,
+            error: groupedSeriesDataResult.error.type,
+            message: groupedSeriesDataResult.error.message,
+          });
+        }
+
         return reply.status(200).send({
           ok: true,
-          data: toPublicView(result.value),
+          data: toPublicView(result.value, groupedSeriesDataResult.data),
         });
       }
     );

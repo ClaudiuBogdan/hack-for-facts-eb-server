@@ -787,16 +787,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       logger: repoLogger,
     });
 
-    await app.register(
-      makeAdvancedMapAnalyticsRoutes({
-        repo: advancedMapAnalyticsRepo,
-        idGenerator: defaultAdvancedMapAnalyticsIdGenerator,
-      })
-    );
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup Advanced Map Analytics Grouped-Series Module (REST API)
-    // ─────────────────────────────────────────────────────────────────────────
     const groupedSeriesProvider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb,
       commitmentsRepo,
@@ -807,6 +797,17 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       keyBuilder,
     });
 
+    await app.register(
+      makeAdvancedMapAnalyticsRoutes({
+        repo: advancedMapAnalyticsRepo,
+        groupedSeriesProvider,
+        idGenerator: defaultAdvancedMapAnalyticsIdGenerator,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Advanced Map Analytics Grouped-Series Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
     await app.register(
       makeAdvancedMapAnalyticsGroupedSeriesRoutes({
         groupedSeriesProvider,

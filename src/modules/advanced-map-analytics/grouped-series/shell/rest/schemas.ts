@@ -183,17 +183,19 @@ export const GroupedSeriesPayloadResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const GroupedSeriesDataSchema = Type.Object(
+  {
+    manifest: GroupedSeriesManifestSchema,
+    payload: GroupedSeriesPayloadResponseSchema,
+    warnings: Type.Array(GroupedSeriesWarningSchema),
+  },
+  { additionalProperties: false }
+);
+
 export const GroupedSeriesDataResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
-    data: Type.Object(
-      {
-        manifest: GroupedSeriesManifestSchema,
-        payload: GroupedSeriesPayloadResponseSchema,
-        warnings: Type.Array(GroupedSeriesWarningSchema),
-      },
-      { additionalProperties: false }
-    ),
+    data: GroupedSeriesDataSchema,
   },
   { additionalProperties: false }
 );
@@ -206,3 +208,5 @@ export const ErrorResponseSchema = Type.Object(
   },
   { additionalProperties: false }
 );
+
+export type GroupedSeriesData = Static<typeof GroupedSeriesDataSchema>;

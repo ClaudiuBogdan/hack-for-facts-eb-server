@@ -174,8 +174,10 @@ export {
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
   type MakeAdvancedMapAnalyticsGroupedSeriesRoutesDeps,
   GroupedSeriesDataBodySchema,
+  GroupedSeriesDataSchema,
   GroupedSeriesDataResponseSchema,
   ErrorResponseSchema as GroupedSeriesErrorResponseSchema,
   type GroupedSeriesDataBody,
+  type GroupedSeriesData,
   serializeWideMatrixCsv,
 } from './grouped-series/index.js';

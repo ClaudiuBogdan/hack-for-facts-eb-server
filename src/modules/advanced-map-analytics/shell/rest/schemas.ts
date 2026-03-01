@@ -4,6 +4,8 @@
 
 import { Type, type Static } from '@sinclair/typebox';
 
+import { GroupedSeriesDataSchema } from '../../grouped-series/shell/rest/schemas.js';
+
 export const VisibilitySchema = Type.Union([Type.Literal('private'), Type.Literal('public')]);
 
 export const MapIdParamsSchema = Type.Object(
@@ -94,6 +96,7 @@ export const MapDetailSchema = Type.Object(
   {
     ...MapSummarySchema.properties,
     lastSnapshot: Type.Union([SnapshotDocumentSchema, Type.Null()]),
+    groupedSeriesData: Type.Optional(GroupedSeriesDataSchema),
   },
   { additionalProperties: false }
 );
@@ -125,6 +128,7 @@ export const PublicMapViewSchema = Type.Object(
     description: Type.Union([Type.String(), Type.Null()]),
     snapshotId: Type.String(),
     snapshot: SnapshotDocumentSchema,
+    groupedSeriesData: Type.Optional(GroupedSeriesDataSchema),
     updatedAt: Type.String({ format: 'date-time' }),
   },
   { additionalProperties: false }

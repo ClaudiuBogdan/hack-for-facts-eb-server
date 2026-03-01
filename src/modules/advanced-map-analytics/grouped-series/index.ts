@@ -83,9 +83,11 @@ export {
 
 export {
   GroupedSeriesDataBodySchema,
+  GroupedSeriesDataSchema,
   GroupedSeriesDataResponseSchema,
   ErrorResponseSchema,
   type GroupedSeriesDataBody,
+  type GroupedSeriesData,
 } from './shell/rest/schemas.js';
 
 export { serializeWideMatrixCsv } from './shell/rest/wide-csv.js';
