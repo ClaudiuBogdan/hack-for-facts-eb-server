@@ -169,3 +169,52 @@ CREATE TABLE IF NOT EXISTS ResendWebhookEvents (
 CREATE INDEX IF NOT EXISTS idx_resend_events_email_id ON ResendWebhookEvents(resend_email_id);
 CREATE INDEX IF NOT EXISTS idx_resend_events_delivery_id ON ResendWebhookEvents(delivery_id) WHERE delivery_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_resend_events_unprocessed ON ResendWebhookEvents(created_at) WHERE processed_at IS NULL;
+
+-- AdvancedMapAnalyticsMaps: User-owned map analytics projects with latest snapshot cache
+CREATE TABLE IF NOT EXISTS AdvancedMapAnalyticsMaps (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  public_id TEXT UNIQUE,
+  last_snapshot JSONB NULL,
+  last_snapshot_id TEXT NULL,
+  snapshot_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ NULL
+);
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+DROP CONSTRAINT IF EXISTS advanced_map_analytics_maps_visibility_check;
+ALTER TABLE AdvancedMapAnalyticsMaps
+ADD CONSTRAINT advanced_map_analytics_maps_visibility_check
+CHECK (visibility IN ('private', 'public'));
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+DROP CONSTRAINT IF EXISTS advanced_map_analytics_maps_snapshot_count_check;
+ALTER TABLE AdvancedMapAnalyticsMaps
+ADD CONSTRAINT advanced_map_analytics_maps_snapshot_count_check
+CHECK (snapshot_count >= 0);
+
+CREATE INDEX IF NOT EXISTS idx_advanced_map_analytics_maps_user_updated
+ON AdvancedMapAnalyticsMaps(user_id, updated_at DESC)
+WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_advanced_map_analytics_maps_public_id
+ON AdvancedMapAnalyticsMaps(public_id)
+WHERE public_id IS NOT NULL AND deleted_at IS NULL;
+
+-- AdvancedMapAnalyticsSnapshots: append-only immutable snapshots
+CREATE TABLE IF NOT EXISTS AdvancedMapAnalyticsSnapshots (
+  id TEXT PRIMARY KEY,
+  map_id TEXT NOT NULL REFERENCES AdvancedMapAnalyticsMaps(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NULL,
+  snapshot JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_advanced_map_analytics_snapshots_map_created_at
+ON AdvancedMapAnalyticsSnapshots(map_id, created_at DESC);

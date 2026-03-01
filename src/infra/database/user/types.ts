@@ -110,6 +110,32 @@ export interface ResendWebhookEvents {
   created_at: Generated<Timestamp>;
 }
 
+// Advanced Map Analytics Maps Table
+export interface AdvancedMapAnalyticsMaps {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  visibility: 'private' | 'public';
+  public_id: string | null;
+  last_snapshot: JSONColumnType<Record<string, unknown>> | null;
+  last_snapshot_id: string | null;
+  snapshot_count: Generated<number>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+}
+
+// Advanced Map Analytics Snapshots Table
+export interface AdvancedMapAnalyticsSnapshots {
+  id: string;
+  map_id: string;
+  title: string;
+  description: string | null;
+  snapshot: JSONColumnType<Record<string, unknown>>;
+  created_at: Generated<Timestamp>;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE Notifications
@@ -121,4 +147,6 @@ export interface UserDatabase {
   unsubscribetokens: UnsubscribeTokens;
   learningprogress: LearningProgress;
   resendwebhookevents: ResendWebhookEvents;
+  advancedmapanalyticsmaps: AdvancedMapAnalyticsMaps;
+  advancedmapanalyticssnapshots: AdvancedMapAnalyticsSnapshots;
 }

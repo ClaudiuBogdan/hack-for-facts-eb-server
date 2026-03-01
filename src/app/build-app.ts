@@ -35,6 +35,11 @@ import {
 import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import {
+  makeAdvancedMapAnalyticsRepo,
+  makeAdvancedMapAnalyticsRoutes,
+  defaultAdvancedMapAnalyticsIdGenerator,
+} from '../modules/advanced-map-analytics/index.js';
+import {
   makeAggregatedLineItemsResolvers,
   AggregatedLineItemsSchema,
   makeAggregatedLineItemsRepo,
@@ -773,6 +778,21 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         cache: noopCache, // Using noop cache - share links are cached at DB level
         hasher: cryptoHasher,
         config: shareConfig,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Advanced Map Analytics Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
+    const advancedMapAnalyticsRepo = makeAdvancedMapAnalyticsRepo({
+      db: userDb,
+      logger: repoLogger,
+    });
+
+    await app.register(
+      makeAdvancedMapAnalyticsRoutes({
+        repo: advancedMapAnalyticsRepo,
+        idGenerator: defaultAdvancedMapAnalyticsIdGenerator,
       })
     );
 
