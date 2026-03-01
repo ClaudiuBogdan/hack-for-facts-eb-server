@@ -94,6 +94,10 @@ import {
   type ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
 } from '../modules/execution-line-items/index.js';
 import {
+  makeDbMapSeriesProvider,
+  makeExperimentalMapRoutes,
+} from '../modules/experimental-map/index.js';
+import {
   makeFundingSourceResolvers,
   FundingSourceSchema,
   makeFundingSourceRepo,
@@ -212,6 +216,45 @@ export interface AppOptions {
   version?: string | undefined;
 }
 
+const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
+
+function getRequestPath(url: string): string {
+  const queryIndex = url.indexOf('?');
+  return queryIndex === -1 ? url : url.slice(0, queryIndex);
+}
+
+function isHealthRoute(url: string): boolean {
+  return HEALTH_ROUTE_PATHS.has(getRequestPath(url));
+}
+
+function getLogBindingUserId(request: import('fastify').FastifyRequest): string | undefined {
+  const candidate = request.log as unknown as {
+    bindings?: () => Record<string, unknown>;
+  };
+
+  if (typeof candidate.bindings !== 'function') {
+    return undefined;
+  }
+
+  const userId = candidate.bindings()['userId'];
+  return typeof userId === 'string' && userId.length > 0 ? userId : undefined;
+}
+
+function getRequestUserId(request: import('fastify').FastifyRequest): string | undefined {
+  const authCandidate = request as unknown as {
+    auth?: {
+      userId?: unknown;
+    };
+  };
+
+  const authUserId = authCandidate.auth?.userId;
+  if (typeof authUserId === 'string' && authUserId.length > 0) {
+    return authUserId;
+  }
+
+  return getLogBindingUserId(request);
+}
+
 /**
  * Creates and configures the Fastify application
  * This is the composition root where all modules are wired together
@@ -236,6 +279,69 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Create Fastify instance
   const app = fastifyLib({
     ...fastifyOptions,
+  });
+
+  const requestStartTimes = new WeakMap<import('fastify').FastifyRequest, bigint>();
+
+  // Emit a consistent completion log where userId is included if auth middleware enriched request.log.
+  app.addHook('onRequest', (request, _reply, done) => {
+    if (isHealthRoute(request.url)) {
+      done();
+      return;
+    }
+
+    requestStartTimes.set(request, process.hrtime.bigint());
+
+    const userId = getRequestUserId(request);
+
+    app.log.info(
+      {
+        reqId: request.id,
+        req: {
+          method: request.method,
+          url: request.url,
+          host: request.host,
+          remoteAddress: request.ip,
+          remotePort: request.socket.remotePort,
+        },
+        ...(userId !== undefined ? { userId } : {}),
+      },
+      'incoming request'
+    );
+
+    done();
+  });
+
+  app.addHook('onResponse', (request, reply, done) => {
+    if (isHealthRoute(request.url)) {
+      done();
+      return;
+    }
+
+    const startedAt = requestStartTimes.get(request);
+    const responseTime =
+      startedAt !== undefined ? Number(process.hrtime.bigint() - startedAt) / 1_000_000 : undefined;
+
+    const userId = getRequestUserId(request);
+
+    app.log.info(
+      {
+        reqId: request.id,
+        req: {
+          method: request.method,
+          url: request.url,
+          host: request.host,
+          remoteAddress: request.ip,
+          remotePort: request.socket.remotePort,
+        },
+        res: { statusCode: reply.statusCode },
+        ...(responseTime !== undefined ? { responseTime } : {}),
+        ...(userId !== undefined ? { userId } : {}),
+      },
+      'request completed'
+    );
+
+    done();
   });
 
   // Register CORS plugin
@@ -667,6 +773,26 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         cache: noopCache, // Using noop cache - share links are cached at DB level
         hasher: cryptoHasher,
         config: shareConfig,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Experimental Map Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
+    const mapSeriesProvider = makeDbMapSeriesProvider({
+      budgetDb,
+      commitmentsRepo,
+      insRepo,
+      normalizationService,
+      uatAnalyticsRepo,
+      cache,
+      keyBuilder,
+    });
+
+    await app.register(
+      makeExperimentalMapRoutes({
+        mapSeriesProvider,
+        allowedUserIds: config.experimentalMap.allowedUserIds,
       })
     );
 

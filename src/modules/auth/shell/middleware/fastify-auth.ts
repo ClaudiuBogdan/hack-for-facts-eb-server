@@ -5,11 +5,11 @@
  */
 
 import { AUTH_ERROR_HTTP_STATUS } from '../../core/errors.js';
+import { isAuthenticated, type AuthContext } from '../../core/types.js';
 import { authenticate, type AuthenticateDeps } from '../../core/usecases/authenticate.js';
 import { requireAuth } from '../../core/usecases/require-auth.js';
 import { httpSessionExtractor } from '../extractors/http-extractor.js';
 
-import type { AuthContext } from '../../core/types.js';
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,6 +31,16 @@ declare module 'fastify' {
  * Dependencies for creating auth middleware.
  */
 export type MakeAuthMiddlewareDeps = AuthenticateDeps;
+
+function enrichRequestLoggerWithUserId(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  userId: string
+): void {
+  const child = request.log.child({ userId });
+  request.log = child;
+  reply.log = child;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global Middleware
@@ -81,6 +91,10 @@ export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHook
 
     // Attach to request for downstream handlers
     request.auth = result.value;
+
+    if (isAuthenticated(result.value)) {
+      enrichRequestLoggerWithUserId(request, reply, result.value.userId as string);
+    }
   };
 
   return handler as preHandlerHookHandler;

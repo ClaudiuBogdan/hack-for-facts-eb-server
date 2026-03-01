@@ -4,6 +4,7 @@ import type {
   CommitmentsFilter,
   CommitmentsLineItemConnection,
   CommitmentsSummaryConnection,
+  CommitmentsUatMetricRow,
 } from './types.js';
 import type { CommitmentsMetric } from '@/common/types/commitments.js';
 import type { DataSeries } from '@/common/types/temporal.js';
@@ -82,4 +83,9 @@ export interface CommitmentsRepository {
     filter: CommitmentsFilter,
     metric: CommitmentsMetric
   ): Promise<Result<CommitmentExecutionMonthData, CommitmentsError>>;
+
+  getUatMetricRows(
+    filter: CommitmentsFilter,
+    metric: CommitmentsMetric
+  ): Promise<Result<CommitmentsUatMetricRow[], CommitmentsError>>;
 }

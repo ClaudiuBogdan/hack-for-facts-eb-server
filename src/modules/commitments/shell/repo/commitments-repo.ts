@@ -50,6 +50,7 @@ import type {
   CommitmentsLineItemConnection,
   CommitmentsSummaryConnection,
   CommitmentsSummaryResult,
+  CommitmentsUatMetricRow,
 } from '../../core/types.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 
@@ -59,6 +60,7 @@ import type { BudgetDbClient } from '@/infra/database/client.js';
 
 const QUERY_TIMEOUT_MS = 30_000;
 const MAX_DATA_POINTS = 10_000;
+const BUCHAREST_SIRUTA_CODE = '179132';
 
 // ============================================================================
 // Helpers
@@ -2021,6 +2023,224 @@ class KyselyCommitmentsRepo implements CommitmentsRepository {
         : rowsQuery.whereRef('priority', '=', 'min_priority');
 
     return rowsQuery.execute();
+  }
+
+  async getUatMetricRows(
+    filter: CommitmentsFilter,
+    metric: CommitmentsMetric
+  ): Promise<Result<CommitmentsUatMetricRow[], CommitmentsError>> {
+    const frequency = filter.report_period.type;
+    if (!isMetricAvailableForPeriod(metric, frequency)) {
+      return err(createDatabaseError('Invalid metric for period type', { metric, frequency }));
+    }
+
+    const reportTypeParam = filter.report_type ?? null;
+    const selection = filter.report_period.selection;
+
+    const metricCol = metricToFactColumn(metric, frequency);
+    const metricRef = sql.ref(`eli.${metricCol}`);
+
+    const periodValueExpr =
+      frequency === Frequency.MONTH
+        ? sql.ref('eli.month')
+        : frequency === Frequency.QUARTER
+          ? sql.ref('eli.quarter')
+          : sql.ref('eli.year');
+
+    try {
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
+
+      let base = this.db
+        .selectFrom('angajamentelineitems as eli')
+        .innerJoin('entities as e', 'eli.entity_cui', 'e.cui')
+        .innerJoin('uats as u', 'e.uat_id', 'u.id')
+        .select([
+          'u.siruta_code',
+          sql<number | null>`u.population`.as('population'),
+          'eli.year',
+          sql<number>`${periodValueExpr}`.as('period_value'),
+          sql<string>`COALESCE(${metricRef}, 0)::text`.as('metric_value'),
+          sql<string>`eli.report_type`.as('report_type'),
+          reportTypePriorityExpr(sql.ref('eli.report_type')).as('priority'),
+          sql<number>`MIN(${reportTypePriorityExpr(sql.ref('eli.report_type'))}) OVER (PARTITION BY eli.entity_cui, eli.year)`.as(
+            'min_priority'
+          ),
+        ]);
+
+      // Exclude county-level rows from map series extraction.
+      base = base.where(
+        sql<boolean>`NOT (
+          u.siruta_code = u.county_code
+          OR (u.county_code = 'B' AND u.siruta_code = ${BUCHAREST_SIRUTA_CODE})
+        )`
+      );
+
+      // Period flags
+      if (frequency === Frequency.QUARTER) {
+        base = base.where('eli.is_quarterly', '=', true);
+      } else if (frequency === Frequency.YEAR) {
+        base = base.where('eli.is_yearly', '=', true);
+      }
+
+      base = this.applySummaryPeriodFilters(
+        base,
+        selection,
+        frequency,
+        'eli',
+        'year',
+        'month',
+        'quarter'
+      );
+
+      // Dimension filters
+      if (filter.report_type !== undefined) {
+        base = base.where('eli.report_type', '=', filter.report_type);
+      }
+      if (filter.entity_cuis !== undefined && filter.entity_cuis.length > 0) {
+        base = base.where('eli.entity_cui', 'in', filter.entity_cuis);
+      }
+      if (filter.main_creditor_cui !== undefined) {
+        base = base.where('eli.main_creditor_cui', '=', filter.main_creditor_cui);
+      }
+      if (filter.funding_source_ids !== undefined && filter.funding_source_ids.length > 0) {
+        const ids = toNumericIds(filter.funding_source_ids);
+        if (ids.length > 0) base = base.where('eli.funding_source_id', 'in', ids);
+      }
+      if (filter.budget_sector_ids !== undefined && filter.budget_sector_ids.length > 0) {
+        const ids = toNumericIds(filter.budget_sector_ids);
+        if (ids.length > 0) base = base.where('eli.budget_sector_id', 'in', ids);
+      }
+
+      // Code filters
+      if (filter.functional_codes !== undefined && filter.functional_codes.length > 0) {
+        base = base.where('eli.functional_code', 'in', filter.functional_codes);
+      }
+      if (filter.functional_prefixes !== undefined && filter.functional_prefixes.length > 0) {
+        const prefixes = filter.functional_prefixes;
+        base = base.where((eb) =>
+          eb.or(
+            prefixes.map((p) => eb('eli.functional_code', 'like', escapeLikeWildcards(p) + '%'))
+          )
+        );
+      }
+      if (filter.economic_codes !== undefined && filter.economic_codes.length > 0) {
+        base = base.where('eli.economic_code', 'in', filter.economic_codes);
+      }
+      if (filter.economic_prefixes !== undefined && filter.economic_prefixes.length > 0) {
+        const prefixes = filter.economic_prefixes;
+        base = base.where((eb) =>
+          eb.or(prefixes.map((p) => eb('eli.economic_code', 'like', escapeLikeWildcards(p) + '%')))
+        );
+      }
+
+      if (filter.exclude_transfers) {
+        base = base.where((eb) =>
+          eb.and([
+            eb.or([
+              eb('eli.economic_code', 'is', null),
+              eb.and([
+                eb('eli.economic_code', 'not like', '51.01%'),
+                eb('eli.economic_code', 'not like', '51.02%'),
+              ]),
+            ]),
+            eb.and([
+              eb('eli.functional_code', 'not like', '36.02.05%'),
+              eb('eli.functional_code', 'not like', '37.02.03%'),
+              eb('eli.functional_code', 'not like', '37.02.04%'),
+              eb('eli.functional_code', 'not like', '47.02.04%'),
+            ]),
+          ])
+        );
+      }
+
+      // Entity/geographic + shared exclusions
+      base = this.applySummaryCommonFilters(base, filter, 'eli');
+
+      // Exclusions by classification
+      const exclude = filter.exclude;
+      if (exclude?.functional_codes !== undefined && exclude.functional_codes.length > 0) {
+        base = base.where('eli.functional_code', 'not in', exclude.functional_codes);
+      }
+      if (exclude?.functional_prefixes !== undefined && exclude.functional_prefixes.length > 0) {
+        const prefixes = exclude.functional_prefixes;
+        base = base.where((eb) =>
+          eb.and(
+            prefixes.map((p) => eb('eli.functional_code', 'not like', escapeLikeWildcards(p) + '%'))
+          )
+        );
+      }
+      if (exclude?.economic_codes !== undefined && exclude.economic_codes.length > 0) {
+        const codes = exclude.economic_codes;
+        base = base.where((eb) =>
+          eb.or([eb('eli.economic_code', 'is', null), eb('eli.economic_code', 'not in', codes)])
+        );
+      }
+      if (exclude?.economic_prefixes !== undefined && exclude.economic_prefixes.length > 0) {
+        const prefixes = exclude.economic_prefixes;
+        base = base.where((eb) =>
+          eb.or([
+            eb('eli.economic_code', 'is', null),
+            eb.and(
+              prefixes.map((p) => eb('eli.economic_code', 'not like', escapeLikeWildcards(p) + '%'))
+            ),
+          ])
+        );
+      }
+
+      if (filter.item_min_amount !== undefined && filter.item_min_amount !== null) {
+        base = base.where(sql`COALESCE(${metricRef}, 0)`, '>=', filter.item_min_amount);
+      }
+      if (filter.item_max_amount !== undefined && filter.item_max_amount !== null) {
+        base = base.where(sql`COALESCE(${metricRef}, 0)`, '<=', filter.item_max_amount);
+      }
+
+      let rowsQuery = this.db
+        .with('base', () => base)
+        .selectFrom('base')
+        .select([
+          'siruta_code',
+          'population',
+          'year',
+          'period_value',
+          sql<string>`COALESCE(SUM(metric_value::numeric), 0)::text`.as('amount'),
+        ])
+        .groupBy(['siruta_code', 'population', 'year', 'period_value']);
+
+      rowsQuery =
+        reportTypeParam !== null
+          ? rowsQuery.where('report_type', '=', reportTypeParam)
+          : rowsQuery.whereRef('priority', '=', 'min_priority');
+
+      const aggregateSumExpr = sql`COALESCE(SUM(metric_value::numeric), 0)`;
+      if (filter.aggregate_min_amount !== undefined && filter.aggregate_min_amount !== null) {
+        rowsQuery = rowsQuery.having(aggregateSumExpr, '>=', filter.aggregate_min_amount);
+      }
+      if (filter.aggregate_max_amount !== undefined && filter.aggregate_max_amount !== null) {
+        rowsQuery = rowsQuery.having(aggregateSumExpr, '<=', filter.aggregate_max_amount);
+      }
+
+      rowsQuery = rowsQuery
+        .orderBy('siruta_code', 'asc')
+        .orderBy('year', 'asc')
+        .orderBy('period_value', 'asc');
+
+      const rows = await rowsQuery.execute();
+
+      return ok(
+        rows.map((row) => ({
+          siruta_code: row.siruta_code,
+          population: row.population,
+          year: row.year,
+          period_value: row.period_value,
+          amount: new Decimal(row.amount),
+        }))
+      );
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('commitmentsUatMetricRows query timed out', error));
+      }
+      return err(createDatabaseError('commitmentsUatMetricRows query failed', error));
+    }
   }
 
   // --------------------------------------------------------------------------

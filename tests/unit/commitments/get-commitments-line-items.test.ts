@@ -88,6 +88,7 @@ describe('getCommitmentsLineItems', () => {
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       listLineItems: async () => err(createDatabaseError('not used')),
     };
 
@@ -114,6 +115,7 @@ describe('getCommitmentsLineItems', () => {
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       listLineItems: async (filter, _limit, _offset) => {
         repoSawShowPeriodGrowth = filter.show_period_growth;
         return ok({
@@ -152,6 +154,7 @@ describe('getCommitmentsLineItems', () => {
       getAnalyticsSeries: async () => err(createDatabaseError('not used')),
       getAggregated: async () => err(createDatabaseError('not used')),
       getCommitmentVsExecutionMonthData: async () => err(createDatabaseError('not used')),
+      getUatMetricRows: async () => err(createDatabaseError('not used')),
       listLineItems: async () =>
         ok({
           nodes: [makeLineItem({ population: 100 })],

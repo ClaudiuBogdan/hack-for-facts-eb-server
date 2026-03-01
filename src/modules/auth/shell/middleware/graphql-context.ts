@@ -5,7 +5,12 @@
  */
 
 import { AUTH_ERROR_GQL_CODE, type AuthError } from '../../core/errors.js';
-import { ANONYMOUS_SESSION, type AuthContext, type UserId } from '../../core/types.js';
+import {
+  ANONYMOUS_SESSION,
+  isAuthenticated,
+  type AuthContext,
+  type UserId,
+} from '../../core/types.js';
 import { authenticate, type AuthenticateDeps } from '../../core/usecases/authenticate.js';
 import { requireAuth } from '../../core/usecases/require-auth.js';
 import { httpSessionExtractor } from '../extractors/http-extractor.js';
@@ -32,6 +37,16 @@ export interface AuthenticatedMercuriusContext extends MercuriusContext {
  * Dependencies for creating GraphQL context.
  */
 export type MakeGraphQLContextDeps = AuthenticateDeps;
+
+function enrichGraphQLLoggerWithUserId(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  userId: string
+): void {
+  const child = request.log.child({ userId });
+  request.log = child;
+  reply.log = child;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context Builder
@@ -66,6 +81,10 @@ export const makeGraphQLContext = (deps: MakeGraphQLContextDeps) => {
     // For GraphQL, we don't reject - we let resolvers decide
     // Invalid tokens result in anonymous context
     const auth: AuthContext = result.isOk() ? result.value : ANONYMOUS_SESSION;
+
+    if (isAuthenticated(auth)) {
+      enrichGraphQLLoggerWithUserId(request, reply, auth.userId as string);
+    }
 
     return {
       reply,
