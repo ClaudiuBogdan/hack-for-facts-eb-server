@@ -36,6 +36,22 @@ interface SirutaRow {
 const DEFAULT_SERIES_CACHE_TTL_MS = 60 * 60 * 1000;
 const SERIES_CACHE_KEY_VERSION = 1;
 const SERIES_CACHE_ENTRY_VERSION = 1;
+const SET_LIKE_FILTER_ARRAY_KEYS = [
+  'report_ids',
+  'entity_cuis',
+  'functional_codes',
+  'functional_prefixes',
+  'economic_codes',
+  'economic_prefixes',
+  'funding_source_ids',
+  'budget_sector_ids',
+  'expense_types',
+  'program_codes',
+  'county_codes',
+  'regions',
+  'uat_ids',
+  'entity_types',
+] as const;
 
 interface CachedSeriesWarning {
   type: string;
@@ -161,6 +177,48 @@ function normalizeInsClassificationsForKey(
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+function normalizeSetLikeArrayValueForKey(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const values = value.filter((entry): entry is string => typeof entry === 'string');
+  return toSortedUniqueStrings(values);
+}
+
+function normalizeSetLikeFilterObjectForKey(
+  filter: Record<string, unknown>
+): Record<string, unknown> {
+  const normalizedFilter: Record<string, unknown> = { ...filter };
+
+  for (const key of SET_LIKE_FILTER_ARRAY_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(normalizedFilter, key)) {
+      continue;
+    }
+
+    const normalizedValue = normalizeSetLikeArrayValueForKey(normalizedFilter[key]);
+    if (normalizedValue !== undefined) {
+      normalizedFilter[key] = normalizedValue;
+    }
+  }
+
+  return normalizedFilter;
+}
+
+function normalizeSeriesFilterForCacheKey(
+  filter: Record<string, unknown>
+): Record<string, unknown> {
+  const normalizedFilter = normalizeSetLikeFilterObjectForKey(filter);
+  const rawExclude = normalizedFilter['exclude'];
+
+  if (!isPlainObject(rawExclude)) {
+    return normalizedFilter;
+  }
+
+  normalizedFilter['exclude'] = normalizeSetLikeFilterObjectForKey(rawExclude);
+  return normalizedFilter;
+}
+
 function createExecutionSeriesCacheKeyPayload(
   granularity: GroupedSeriesDataRequest['granularity'],
   series: ExecutionMapSeries
@@ -170,17 +228,20 @@ function createExecutionSeriesCacheKeyPayload(
     return err(normalized.error);
   }
 
+  const normalizedFilter = normalizeSeriesFilterForCacheKey({
+    ...normalized.value.filter,
+    report_period: normalizePeriodForKey(normalized.value.filter.report_period),
+    normalization: normalized.value.options.normalization,
+    currency: normalized.value.options.currency,
+    inflation_adjusted: normalized.value.options.inflationAdjusted,
+    show_period_growth: series.filter.show_period_growth === true,
+  });
+
   return ok({
     version: SERIES_CACHE_KEY_VERSION,
     granularity,
     seriesType: series.type,
-    filter: {
-      ...normalized.value.filter,
-      normalization: normalized.value.options.normalization,
-      currency: normalized.value.options.currency,
-      inflation_adjusted: normalized.value.options.inflationAdjusted,
-      show_period_growth: series.filter.show_period_growth === true,
-    },
+    filter: normalizedFilter,
     options: normalized.value.options,
   });
 }
@@ -194,12 +255,17 @@ function createCommitmentsSeriesCacheKeyPayload(
     return err(normalized.error);
   }
 
+  const normalizedFilter = normalizeSeriesFilterForCacheKey({
+    ...normalized.value.filter,
+    report_period: normalizePeriodForKey(normalized.value.filter.report_period),
+  });
+
   return ok({
     version: SERIES_CACHE_KEY_VERSION,
     granularity,
     seriesType: series.type,
     metric: series.metric,
-    filter: normalized.value.filter,
+    filter: normalizedFilter,
     transforms: normalized.value.transforms,
   });
 }

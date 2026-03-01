@@ -12,6 +12,7 @@ import {
   type SilentCachePort,
 } from '@/infra/cache/index.js';
 import {
+  type CommitmentsMapSeries,
   type ExecutionMapSeries,
   type GroupedSeriesDataRequest,
   type InsMapSeries,
@@ -57,7 +58,11 @@ function createMockLogger(): Logger {
 
 function makeExecutionSeries(
   id: string,
-  options?: { accountCategory?: 'ch' | 'vn'; showGrowth?: boolean }
+  options?: {
+    accountCategory?: 'ch' | 'vn';
+    showGrowth?: boolean;
+    filterPatch?: Partial<ExecutionMapSeries['filter']>;
+  }
 ) {
   const series: ExecutionMapSeries = {
     id,
@@ -75,10 +80,36 @@ function makeExecutionSeries(
         },
       },
       ...(options?.showGrowth === true ? { show_period_growth: true } : {}),
+      ...(options?.filterPatch ?? {}),
     },
   };
 
   return series;
+}
+
+function makeCommitmentsSeries(
+  id: string,
+  options?: {
+    filterPatch?: Partial<CommitmentsMapSeries['filter']>;
+  }
+): CommitmentsMapSeries {
+  return {
+    id,
+    type: 'commitments-analytics',
+    metric: 'CREDITE_ANGAJAMENT',
+    filter: {
+      report_period: {
+        type: Frequency.YEAR,
+        selection: {
+          interval: {
+            start: '2025',
+            end: '2025',
+          },
+        },
+      },
+      ...(options?.filterPatch ?? {}),
+    },
+  };
 }
 
 function makeNormalizationService(): NormalizationService {
@@ -301,6 +332,262 @@ describe('db map series provider cache behavior', () => {
     });
 
     expect(executionCalls).toBe(2);
+  });
+
+  it('canonicalizes execution set-like filter arrays for cache keys', async () => {
+    let executionCalls = 0;
+    const uatAnalyticsRepo: UATAnalyticsRepository = {
+      getHeatmapData: async () => {
+        executionCalls += 1;
+        return ok([
+          {
+            uat_id: 1,
+            uat_code: '1001',
+            uat_name: 'UAT 1001',
+            siruta_code: '1001',
+            county_code: 'CJ',
+            county_name: 'Cluj',
+            region: 'Nord-Vest',
+            population: 100,
+            year: 2025,
+            total_amount: new Decimal(100),
+          },
+        ]);
+      },
+    };
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeExecutionSeries('exec-a', {
+          filterPatch: {
+            functional_codes: ['51.01', '50.01'],
+            county_codes: ['CJ', 'AB'],
+            uat_ids: ['1002', '1001'],
+          },
+        }),
+      ],
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeExecutionSeries('exec-b', {
+          filterPatch: {
+            functional_codes: ['50.01', '51.01'],
+            county_codes: ['AB', 'CJ'],
+            uat_ids: ['1001', '1002'],
+          },
+        }),
+      ],
+    });
+
+    expect(executionCalls).toBe(1);
+  });
+
+  it('canonicalizes execution exclude set-like filter arrays for cache keys', async () => {
+    let executionCalls = 0;
+    const uatAnalyticsRepo: UATAnalyticsRepository = {
+      getHeatmapData: async () => {
+        executionCalls += 1;
+        return ok([
+          {
+            uat_id: 1,
+            uat_code: '1001',
+            uat_name: 'UAT 1001',
+            siruta_code: '1001',
+            county_code: 'CJ',
+            county_name: 'Cluj',
+            region: 'Nord-Vest',
+            population: 100,
+            year: 2025,
+            total_amount: new Decimal(100),
+          },
+        ]);
+      },
+    };
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeExecutionSeries('exec-a', {
+          filterPatch: {
+            exclude: {
+              functional_codes: ['51.01', '50.01'],
+              entity_cuis: ['123', '456'],
+            },
+          },
+        }),
+      ],
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeExecutionSeries('exec-b', {
+          filterPatch: {
+            exclude: {
+              functional_codes: ['50.01', '51.01'],
+              entity_cuis: ['456', '123'],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(executionCalls).toBe(1);
+  });
+
+  it('canonicalizes commitments set-like filter arrays for cache keys', async () => {
+    let commitmentsCalls = 0;
+    const commitmentsRepo: CommitmentsRepository = {
+      getUatMetricRows: async () => {
+        commitmentsCalls += 1;
+        return ok([
+          {
+            siruta_code: '1001',
+            population: 100,
+            year: 2025,
+            period_value: 1,
+            amount: new Decimal(100),
+          },
+        ]);
+      },
+    } as unknown as CommitmentsRepository;
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      commitmentsRepo,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeCommitmentsSeries('commit-a', {
+          filterPatch: {
+            report_type: 'PRINCIPAL_AGGREGATED',
+            functional_codes: ['51.01', '50.01'],
+            county_codes: ['CJ', 'AB'],
+            exclude: {
+              entity_cuis: ['123', '456'],
+            },
+          },
+        }),
+      ],
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeCommitmentsSeries('commit-b', {
+          filterPatch: {
+            report_type: 'PRINCIPAL_AGGREGATED',
+            functional_codes: ['50.01', '51.01'],
+            county_codes: ['AB', 'CJ'],
+            exclude: {
+              entity_cuis: ['456', '123'],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(commitmentsCalls).toBe(1);
+  });
+
+  it('canonicalizes commitments report period dates ordering for cache keys', async () => {
+    let commitmentsCalls = 0;
+    const commitmentsRepo: CommitmentsRepository = {
+      getUatMetricRows: async () => {
+        commitmentsCalls += 1;
+        return ok([
+          {
+            siruta_code: '1001',
+            population: 100,
+            year: 2024,
+            period_value: 1,
+            amount: new Decimal(100),
+          },
+        ]);
+      },
+    } as unknown as CommitmentsRepository;
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      commitmentsRepo,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeCommitmentsSeries('commit-a', {
+          filterPatch: {
+            report_period: {
+              type: Frequency.YEAR,
+              selection: {
+                dates: ['2025', '2024'],
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeCommitmentsSeries('commit-b', {
+          filterPatch: {
+            report_period: {
+              type: Frequency.YEAR,
+              selection: {
+                dates: ['2024', '2025'],
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(commitmentsCalls).toBe(1);
   });
 
   it('writes cache entries with 1h TTL by default', async () => {
