@@ -63,6 +63,8 @@ export interface AdvancedMapAnalyticsRepository {
     input: UpdateMapParams
   ): Promise<Result<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>>;
 
+  softDeleteMap(mapId: string, userId: string): Promise<Result<boolean, AdvancedMapAnalyticsError>>;
+
   appendSnapshot(
     input: AppendSnapshotParams
   ): Promise<

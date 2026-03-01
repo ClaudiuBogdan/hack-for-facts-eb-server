@@ -56,6 +56,7 @@ export { createMap, type CreateMapDeps, type CreateMapInput } from './core/useca
 export { listMaps, type ListMapsDeps, type ListMapsInput } from './core/usecases/list-maps.js';
 export { getMap, type GetMapDeps, type GetMapInput } from './core/usecases/get-map.js';
 export { updateMap, type UpdateMapDeps, type UpdateMapInput } from './core/usecases/update-map.js';
+export { deleteMap, type DeleteMapDeps, type DeleteMapInput } from './core/usecases/delete-map.js';
 export {
   saveMapSnapshot,
   type SaveMapSnapshotDeps,
@@ -98,6 +99,7 @@ export {
   CreateMapBodySchema,
   UpdateMapBodySchema,
   SaveSnapshotBodySchema,
+  DeleteMapResponseSchema,
   MapResponseSchema,
   MapListResponseSchema,
   SnapshotListResponseSchema,

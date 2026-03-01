@@ -69,6 +69,7 @@ function makeRepo(
     getMapForUser: async () => ok(map),
     listMapsForUser: async () => ok(map !== null ? [map] : []),
     updateMap: async (_input: UpdateMapParams) => ok(map),
+    softDeleteMap: async (_mapId: string, _userId: string) => ok(true),
     appendSnapshot: async (input: AppendSnapshotParams) => {
       if (overrides.appendSnapshot !== undefined) {
         return ok(overrides.appendSnapshot(input));

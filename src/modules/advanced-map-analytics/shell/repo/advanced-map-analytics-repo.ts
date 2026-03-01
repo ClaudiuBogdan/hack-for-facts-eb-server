@@ -264,6 +264,33 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     }
   }
 
+  async softDeleteMap(
+    mapId: string,
+    userId: string
+  ): Promise<Result<boolean, AdvancedMapAnalyticsError>> {
+    try {
+      const now = new Date();
+
+      const result = await this.db
+        .updateTable('advancedmapanalyticsmaps')
+        .set({
+          deleted_at: now,
+          updated_at: now,
+        } as never)
+        .where('id', '=', mapId)
+        .where('user_id', '=', userId)
+        .where('deleted_at', 'is', null)
+        .executeTakeFirst();
+
+      const updatedCount = Number(result.numUpdatedRows);
+
+      return ok(updatedCount > 0);
+    } catch (error) {
+      this.log.error({ err: error, mapId, userId }, 'Failed to soft delete map');
+      return err(createProviderError('Failed to delete map', error));
+    }
+  }
+
   async appendSnapshot(
     input: AppendSnapshotParams
   ): Promise<

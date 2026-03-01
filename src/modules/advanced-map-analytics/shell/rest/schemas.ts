@@ -143,6 +143,13 @@ export const MapResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const DeleteMapResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+  },
+  { additionalProperties: false }
+);
+
 export const MapListResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),

@@ -26,6 +26,7 @@ type InMemorySnapshotRecord = AdvancedMapAnalyticsSnapshotDetail;
 class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
   private maps = new Map<string, InMemoryMapRecord>();
   private snapshots = new Map<string, InMemorySnapshotRecord[]>();
+  private deletedMapIds = new Set<string>();
   private failIncrementPublicViewCount = false;
 
   setFailIncrementPublicViewCount(value: boolean) {
@@ -51,11 +52,16 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
 
     this.maps.set(record.mapId, record);
     this.snapshots.set(record.mapId, []);
+    this.deletedMapIds.delete(record.mapId);
 
     return ok(record);
   }
 
   async getMapForUser(mapId: string, userId: string) {
+    if (this.deletedMapIds.has(mapId)) {
+      return ok(null);
+    }
+
     const map = this.maps.get(mapId);
     if (map?.userId !== userId) {
       return ok(null);
@@ -65,10 +71,18 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
   }
 
   async listMapsForUser(userId: string) {
-    return ok(Array.from(this.maps.values()).filter((map) => map.userId === userId));
+    return ok(
+      Array.from(this.maps.values()).filter(
+        (map) => map.userId === userId && !this.deletedMapIds.has(map.mapId)
+      )
+    );
   }
 
   async updateMap(input: UpdateMapParams) {
+    if (this.deletedMapIds.has(input.mapId)) {
+      return ok(null);
+    }
+
     const map = this.maps.get(input.mapId);
     if (map === undefined || map.userId !== input.userId) {
       return ok(null);
@@ -88,6 +102,10 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
   }
 
   async appendSnapshot(input: AppendSnapshotParams) {
+    if (this.deletedMapIds.has(input.mapId)) {
+      return err(createNotFoundError('Map not found'));
+    }
+
     const map = this.maps.get(input.mapId);
 
     if (map === undefined || map.userId !== input.userId) {
@@ -150,7 +168,10 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
   async getPublicViewByPublicId(publicId: string) {
     const map = Array.from(this.maps.values()).find(
       (item) =>
-        item.publicId === publicId && item.visibility === 'public' && item.lastSnapshot !== null
+        item.publicId === publicId &&
+        item.visibility === 'public' &&
+        item.lastSnapshot !== null &&
+        !this.deletedMapIds.has(item.mapId)
     );
 
     if (map?.publicId == null || map?.lastSnapshotId == null || map?.lastSnapshot == null) {
@@ -170,9 +191,27 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
     return ok(view);
   }
 
+  async softDeleteMap(mapId: string, userId: string) {
+    const map = this.maps.get(mapId);
+    if (map?.userId !== userId || this.deletedMapIds.has(mapId)) {
+      return ok(false);
+    }
+
+    this.deletedMapIds.add(mapId);
+    this.maps.set(mapId, {
+      ...map,
+      updatedAt: new Date('2026-03-01T12:00:00.000Z'),
+    });
+    return ok(true);
+  }
+
   async incrementPublicViewCount(mapId: string) {
     if (this.failIncrementPublicViewCount) {
       throw new Error('Failed to increment public view count');
+    }
+
+    if (this.deletedMapIds.has(mapId)) {
+      return ok(undefined);
     }
 
     const map = this.maps.get(mapId);
@@ -581,6 +620,143 @@ describe('Advanced Map Analytics REST API', () => {
     const mapBody = mapResponse.json<{ ok: boolean; error: string }>();
     expect(mapBody.ok).toBe(false);
     expect(mapBody.error).toBe('InvalidInputError');
+  });
+
+  it('soft deletes map for owner and makes it inaccessible', async () => {
+    const createMapResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Delete candidate',
+      },
+    });
+
+    expect(createMapResponse.statusCode).toBe(201);
+    const mapId = createMapResponse.json<{ data: { mapId: string } }>().data.mapId;
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json<{ ok: boolean }>().ok).toBe(true);
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(getResponse.statusCode).toBe(404);
+    expect(getResponse.json<{ error: string }>().error).toBe('NotFoundError');
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<{ data: { mapId: string }[] }>().data).toEqual([]);
+  });
+
+  it('returns 404 when deleting the same map twice', async () => {
+    const createMapResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Delete twice candidate',
+      },
+    });
+
+    expect(createMapResponse.statusCode).toBe(201);
+    const mapId = createMapResponse.json<{ data: { mapId: string } }>().data.mapId;
+
+    const firstDeleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+    expect(firstDeleteResponse.statusCode).toBe(200);
+
+    const secondDeleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+    expect(secondDeleteResponse.statusCode).toBe(404);
+    expect(secondDeleteResponse.json<{ error: string }>().error).toBe('NotFoundError');
+  });
+
+  it('returns 404 for public endpoint after map soft delete', async () => {
+    const createMapResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/advanced-map-analytics/maps',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Public delete candidate',
+      },
+    });
+
+    expect(createMapResponse.statusCode).toBe(201);
+    const mapId = createMapResponse.json<{ data: { mapId: string } }>().data.mapId;
+
+    const saveSnapshotResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        title: 'Published snapshot',
+        state: { bins: [1] },
+        mapPatch: { visibility: 'public' },
+      },
+    });
+
+    expect(saveSnapshotResponse.statusCode).toBe(201);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+
+    const publicResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/advanced-map-analytics/public/public_1',
+    });
+
+    expect(publicResponse.statusCode).toBe(404);
+    expect(publicResponse.json<{ error: string }>().error).toBe('NotFoundError');
   });
 
   it('returns latest snapshot from public endpoint when map is public', async () => {
