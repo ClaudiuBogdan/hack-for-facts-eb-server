@@ -181,10 +181,24 @@ CREATE TABLE IF NOT EXISTS AdvancedMapAnalyticsMaps (
   last_snapshot JSONB NULL,
   last_snapshot_id TEXT NULL,
   snapshot_count INT NOT NULL DEFAULT 0,
+  public_view_count INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ NULL
 );
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+ADD COLUMN IF NOT EXISTS public_view_count INT NOT NULL DEFAULT 0;
+
+UPDATE AdvancedMapAnalyticsMaps
+SET public_view_count = 0
+WHERE public_view_count IS NULL;
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+ALTER COLUMN public_view_count SET DEFAULT 0;
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+ALTER COLUMN public_view_count SET NOT NULL;
 
 ALTER TABLE AdvancedMapAnalyticsMaps
 DROP CONSTRAINT IF EXISTS advanced_map_analytics_maps_visibility_check;
@@ -197,6 +211,12 @@ DROP CONSTRAINT IF EXISTS advanced_map_analytics_maps_snapshot_count_check;
 ALTER TABLE AdvancedMapAnalyticsMaps
 ADD CONSTRAINT advanced_map_analytics_maps_snapshot_count_check
 CHECK (snapshot_count >= 0);
+
+ALTER TABLE AdvancedMapAnalyticsMaps
+DROP CONSTRAINT IF EXISTS advanced_map_analytics_maps_public_view_count_check;
+ALTER TABLE AdvancedMapAnalyticsMaps
+ADD CONSTRAINT advanced_map_analytics_maps_public_view_count_check
+CHECK (public_view_count >= 0);
 
 CREATE INDEX IF NOT EXISTS idx_advanced_map_analytics_maps_user_updated
 ON AdvancedMapAnalyticsMaps(user_id, updated_at DESC)

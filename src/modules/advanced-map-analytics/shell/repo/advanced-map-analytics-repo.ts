@@ -84,6 +84,7 @@ interface MapRow {
   last_snapshot: unknown;
   last_snapshot_id: string | null;
   snapshot_count: number;
+  public_view_count: number;
   created_at: unknown;
   updated_at: unknown;
 }
@@ -108,6 +109,7 @@ function mapMapRow(row: MapRow): AdvancedMapAnalyticsMap {
     lastSnapshotId: row.last_snapshot_id,
     lastSnapshot: toSnapshotDocument(row.last_snapshot),
     snapshotCount: row.snapshot_count,
+    viewCount: row.public_view_count,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
   };
@@ -166,6 +168,7 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
           last_snapshot: null,
           last_snapshot_id: null,
           snapshot_count: 0,
+          public_view_count: 0,
           updated_at: new Date(),
         } as never)
         .returningAll()
@@ -433,6 +436,25 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     } catch (error) {
       this.log.error({ err: error, publicId }, 'Failed to get public map view');
       return err(createProviderError('Failed to get public map', error));
+    }
+  }
+
+  async incrementPublicViewCount(mapId: string): Promise<Result<void, AdvancedMapAnalyticsError>> {
+    try {
+      await this.db
+        .updateTable('advancedmapanalyticsmaps')
+        .set({
+          public_view_count: sql<number>`public_view_count + 1`,
+        } as never)
+        .where('id', '=', mapId)
+        .where('visibility', '=', 'public')
+        .where('deleted_at', 'is', null)
+        .execute();
+
+      return ok(undefined);
+    } catch (error) {
+      this.log.error({ err: error, mapId }, 'Failed to increment public view count');
+      return err(createProviderError('Failed to increment public view count', error));
     }
   }
 }
