@@ -214,6 +214,32 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('registers advanced map analytics routes when userDb is enabled', async () => {
+      const { provider } = createTestAuthProvider();
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+      const routes = app.printRoutes();
+
+      expect(routes).toContain('advanced-map-analytics/');
+      expect(routes).toContain('maps (POST, GET, HEAD)');
+      expect(routes).toContain('public/');
+      expect(routes).toContain(':publicId (GET, HEAD)');
+
+      await app.close();
+    });
+
     it('logs incoming and completed once for non-health routes', async () => {
       const logs = createLogCollector();
 
