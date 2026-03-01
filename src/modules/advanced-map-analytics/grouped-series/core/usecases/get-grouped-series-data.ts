@@ -9,10 +9,10 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   createInvalidInputError,
   createProviderError,
-  type ExperimentalMapError,
+  type GroupedSeriesError,
 } from '../errors.js';
 
-import type { MapSeriesProvider } from '../ports.js';
+import type { GroupedSeriesProvider } from '../ports.js';
 import type {
   GroupedSeriesDataRequest,
   GroupedSeriesMatrixData,
@@ -22,7 +22,7 @@ import type {
 } from '../types.js';
 
 export interface GetGroupedSeriesDataDeps {
-  provider: MapSeriesProvider;
+  provider: GroupedSeriesProvider;
   now?: () => Date;
 }
 
@@ -87,7 +87,7 @@ function normalizeVector(vector: MapSeriesVector): MapSeriesVector {
 export async function getGroupedSeriesData(
   deps: GetGroupedSeriesDataDeps,
   input: GetGroupedSeriesDataInput
-): Promise<Result<GroupedSeriesMatrixData, ExperimentalMapError>> {
+): Promise<Result<GroupedSeriesMatrixData, GroupedSeriesError>> {
   const { request } = input;
 
   if (request.series.length === 0) {
@@ -103,7 +103,7 @@ export async function getGroupedSeriesData(
     return err(createInvalidInputError(`Duplicate series id: ${duplicateSeriesId}`));
   }
 
-  let providerResult: Awaited<ReturnType<MapSeriesProvider['fetchGroupedSeriesVectors']>>;
+  let providerResult: Awaited<ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']>>;
   try {
     providerResult = await deps.provider.fetchGroupedSeriesVectors(request);
   } catch (error) {

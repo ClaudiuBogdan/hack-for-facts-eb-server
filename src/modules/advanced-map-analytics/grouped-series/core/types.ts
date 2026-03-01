@@ -1,5 +1,5 @@
 /**
- * Experimental Map Module - Core Types
+ * Advanced Map Analytics Module - Core Types
  *
  * Domain types for grouped map-series payloads.
  */
@@ -92,7 +92,7 @@ export interface GroupedSeriesDataRequest {
 // Warning Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ExperimentalMapWarning {
+export interface GroupedSeriesWarning {
   type: string;
   message: string;
   seriesId?: string;
@@ -110,10 +110,10 @@ export interface MapSeriesVector {
   valuesBySirutaCode: Map<string, number | undefined>;
 }
 
-export interface MapSeriesProviderOutput {
+export interface GroupedSeriesProviderOutput {
   sirutaUniverse: string[];
   vectors: MapSeriesVector[];
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,5 +142,5 @@ export interface GroupedSeriesMatrixData {
   manifest: GroupedSeriesManifest;
   seriesOrder: string[];
   rows: GroupedSeriesMatrixRow[];
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }

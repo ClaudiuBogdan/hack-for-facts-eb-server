@@ -52,7 +52,7 @@ export const EnvSchema = Type.Object({
   // Short Links
   SHORT_LINK_DAILY_LIMIT: Type.Optional(Type.Number({ minimum: 1, default: 100 })),
   SHORT_LINK_CACHE_TTL: Type.Optional(Type.Number({ minimum: 0, default: 86400 })),
-  EXPERIMENTAL_MAP_ALLOWED_USER_IDS: Type.Optional(Type.String()),
+  ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS: Type.Optional(Type.String()),
 
   // MCP (Model Context Protocol)
   MCP_ENABLED: Type.Optional(Type.Boolean({ default: false })),
@@ -150,7 +150,7 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['SHORT_LINK_CACHE_TTL'] != null && env['SHORT_LINK_CACHE_TTL'] !== ''
         ? Number.parseInt(env['SHORT_LINK_CACHE_TTL'], 10)
         : 86400,
-    EXPERIMENTAL_MAP_ALLOWED_USER_IDS: env['EXPERIMENTAL_MAP_ALLOWED_USER_IDS'],
+    ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS: env['ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS'],
     MCP_ENABLED: env['MCP_ENABLED'] === 'true',
     // SECURITY: SEC-004 - Default to true, only disable if explicitly set to 'false'
     MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] !== 'false',
@@ -254,10 +254,10 @@ export const createConfig = (env: Env) => ({
     /** Cache TTL in seconds for resolved links (0 = no caching) */
     cacheTtlSeconds: env.SHORT_LINK_CACHE_TTL ?? 86400,
   },
-  experimentalMap: {
-    /** User IDs allowed to access experimental map APIs */
+  advancedMapAnalytics: {
+    /** User IDs allowed to access advanced map analytics grouped-series API */
     allowedUserIds:
-      env.EXPERIMENTAL_MAP_ALLOWED_USER_IDS?.split(',')
+      env.ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS?.split(',')
         .map((value) => value.trim())
         .filter((value) => value.length > 0) ?? [],
   },

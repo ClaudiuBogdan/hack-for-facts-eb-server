@@ -37,6 +37,8 @@ import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js
 import {
   makeAdvancedMapAnalyticsRepo,
   makeAdvancedMapAnalyticsRoutes,
+  makeAdvancedMapAnalyticsGroupedSeriesRoutes,
+  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
   defaultAdvancedMapAnalyticsIdGenerator,
 } from '../modules/advanced-map-analytics/index.js';
 import {
@@ -98,10 +100,6 @@ import {
   createExecutionLineItemLoaders,
   type ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
 } from '../modules/execution-line-items/index.js';
-import {
-  makeDbMapSeriesProvider,
-  makeExperimentalMapRoutes,
-} from '../modules/experimental-map/index.js';
 import {
   makeFundingSourceResolvers,
   FundingSourceSchema,
@@ -797,9 +795,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Setup Experimental Map Module (REST API)
+    // Setup Advanced Map Analytics Grouped-Series Module (REST API)
     // ─────────────────────────────────────────────────────────────────────────
-    const mapSeriesProvider = makeDbMapSeriesProvider({
+    const groupedSeriesProvider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb,
       commitmentsRepo,
       insRepo,
@@ -810,9 +808,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     });
 
     await app.register(
-      makeExperimentalMapRoutes({
-        mapSeriesProvider,
-        allowedUserIds: config.experimentalMap.allowedUserIds,
+      makeAdvancedMapAnalyticsGroupedSeriesRoutes({
+        groupedSeriesProvider,
+        allowedUserIds: config.advancedMapAnalytics.allowedUserIds,
       })
     );
 

@@ -1,5 +1,5 @@
 /**
- * Experimental Map - Mock Map Series Provider
+ * Advanced Map Analytics - Mock Map Series Provider
  *
  * Deterministic mock data for phase 1 contract validation.
  */
@@ -12,13 +12,13 @@ import { err, ok } from 'neverthrow';
 
 import { createProviderError } from '../../core/errors.js';
 
-import type { MapSeriesProvider } from '../../core/ports.js';
+import type { GroupedSeriesProvider } from '../../core/ports.js';
 import type {
   CommitmentsMapSeries,
   ExecutionMapSeries,
   GroupedSeriesDataRequest,
   MapRequestSeries,
-  MapSeriesProviderOutput,
+  GroupedSeriesProviderOutput,
 } from '../../core/types.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 
@@ -152,15 +152,17 @@ async function loadNonCountySirutaCodes(db: BudgetDbClient): Promise<string[]> {
   return rows.map((row) => row.siruta_code);
 }
 
-export function makeMockMapSeriesProvider(db: BudgetDbClient): MapSeriesProvider {
+export function makeMockAdvancedMapAnalyticsGroupedSeriesProvider(
+  db: BudgetDbClient
+): GroupedSeriesProvider {
   return {
     async fetchGroupedSeriesVectors(
       request: GroupedSeriesDataRequest
-    ): ReturnType<MapSeriesProvider['fetchGroupedSeriesVectors']> {
+    ): ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']> {
       try {
         const sirutaCodes = await loadNonCountySirutaCodes(db);
 
-        const vectors: MapSeriesProviderOutput['vectors'] = request.series.map((series) => {
+        const vectors: GroupedSeriesProviderOutput['vectors'] = request.series.map((series) => {
           const valuesBySirutaCode = new Map<string, number | undefined>();
           const unit = resolveSeriesUnit(series);
 
@@ -186,7 +188,7 @@ export function makeMockMapSeriesProvider(db: BudgetDbClient): MapSeriesProvider
           warnings: [],
         });
       } catch (error) {
-        return err(createProviderError('Failed to build experimental map mock data', error));
+        return err(createProviderError('Failed to build advanced map analytics mock data', error));
       }
     },
   };

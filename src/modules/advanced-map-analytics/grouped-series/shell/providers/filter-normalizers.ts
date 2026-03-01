@@ -19,7 +19,7 @@ import type {
   CommitmentsMapSeriesFilter,
   CommitmentsMapSeries,
   ExecutionMapSeries,
-  ExperimentalMapWarning,
+  GroupedSeriesWarning,
   MapSeriesNormalizationMode,
 } from '../../core/types.js';
 import type {
@@ -45,13 +45,13 @@ interface NormalizedTransforms {
 export interface NormalizedExecutionSeriesInput {
   filter: AnalyticsFilter;
   options: HeatmapTransformationOptions;
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 export interface NormalizedCommitmentsSeriesInput {
   filter: CommitmentsFilter;
   transforms: NormalizedTransforms;
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -111,8 +111,8 @@ function normalizeTransforms(
   rawCurrency: Currency | undefined,
   rawInflationAdjusted: boolean | undefined,
   rawShowPeriodGrowth: boolean | undefined
-): { transforms: NormalizedTransforms; warnings: ExperimentalMapWarning[] } {
-  const warnings: ExperimentalMapWarning[] = [];
+): { transforms: NormalizedTransforms; warnings: GroupedSeriesWarning[] } {
+  const warnings: GroupedSeriesWarning[] = [];
   const mapped = normalizeNormalizationMode(rawNormalization, rawCurrency);
   const showPeriodGrowth = rawShowPeriodGrowth === true;
 

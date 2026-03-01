@@ -15,8 +15,8 @@ import {
   type ExecutionMapSeries,
   type GroupedSeriesDataRequest,
   type InsMapSeries,
-  makeDbMapSeriesProvider,
-} from '@/modules/experimental-map/index.js';
+  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
+} from '@/modules/advanced-map-analytics/index.js';
 
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
@@ -164,7 +164,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const memoryCache = createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 });
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -215,7 +215,7 @@ describe('db map series provider cache behavior', () => {
       },
     };
 
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -275,7 +275,7 @@ describe('db map series provider cache behavior', () => {
       },
     };
 
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -306,7 +306,7 @@ describe('db map series provider cache behavior', () => {
   it('writes cache entries with 1h TTL by default', async () => {
     const cache = new RecordingCache();
 
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -357,7 +357,7 @@ describe('db map series provider cache behavior', () => {
       },
     } as unknown as InsRepository;
 
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001', '1002']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo,

@@ -1,5 +1,5 @@
 /**
- * Experimental Map Module - Public API
+ * Advanced Map Analytics Module - Public API
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,9 +16,9 @@ export type {
   InsMapSeries,
   MapRequestSeries,
   GroupedSeriesDataRequest,
-  ExperimentalMapWarning,
+  GroupedSeriesWarning,
   MapSeriesVector,
-  MapSeriesProviderOutput,
+  GroupedSeriesProviderOutput,
   GroupedSeriesManifestEntry,
   GroupedSeriesManifest,
   GroupedSeriesMatrixRow,
@@ -34,7 +34,7 @@ export type {
   ForbiddenError,
   InvalidInputError,
   ProviderError,
-  ExperimentalMapError,
+  GroupedSeriesError,
 } from './core/errors.js';
 
 export {
@@ -42,7 +42,7 @@ export {
   createForbiddenError,
   createInvalidInputError,
   createProviderError,
-  EXPERIMENTAL_MAP_ERROR_HTTP_STATUS,
+  GROUPED_SERIES_ERROR_HTTP_STATUS,
   getHttpStatusForError,
 } from './core/errors.js';
 
@@ -50,7 +50,7 @@ export {
 // Core Ports
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { MapSeriesProvider } from './core/ports.js';
+export type { GroupedSeriesProvider } from './core/ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Use Cases
@@ -66,10 +66,10 @@ export {
 // Shell - Providers
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { makeMockMapSeriesProvider } from './shell/providers/mock-map-series-provider.js';
+export { makeMockAdvancedMapAnalyticsGroupedSeriesProvider } from './shell/providers/mock-map-series-provider.js';
 export {
-  makeDbMapSeriesProvider,
-  type MakeDbMapSeriesProviderDeps,
+  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
+  type MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps,
 } from './shell/providers/db-map-series-provider.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,8 +77,8 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export {
-  makeExperimentalMapRoutes,
-  type MakeExperimentalMapRoutesDeps,
+  makeAdvancedMapAnalyticsGroupedSeriesRoutes,
+  type MakeAdvancedMapAnalyticsGroupedSeriesRoutesDeps,
 } from './shell/rest/routes.js';
 
 export {

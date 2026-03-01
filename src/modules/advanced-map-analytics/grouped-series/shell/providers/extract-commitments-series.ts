@@ -10,9 +10,9 @@ import {
 } from '@/modules/commitments/index.js';
 
 import { normalizeCommitmentsSeriesInput } from './filter-normalizers.js';
-import { createProviderError, type ExperimentalMapError } from '../../core/errors.js';
+import { createProviderError, type GroupedSeriesError } from '../../core/errors.js';
 
-import type { CommitmentsMapSeries, ExperimentalMapWarning } from '../../core/types.js';
+import type { CommitmentsMapSeries, GroupedSeriesWarning } from '../../core/types.js';
 import type { NormalizationFactors, NormalizationService } from '@/modules/normalization/index.js';
 
 export interface CommitmentsSeriesExtractionDeps {
@@ -23,7 +23,7 @@ export interface CommitmentsSeriesExtractionDeps {
 export interface CommitmentsSeriesExtractionOutput {
   valuesBySirutaCode: Map<string, number | undefined>;
   unit: string;
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 function resolveUnit(
@@ -55,7 +55,7 @@ export async function extractCommitmentsSeriesVector(
   deps: CommitmentsSeriesExtractionDeps,
   series: CommitmentsMapSeries,
   sirutaUniverse: Set<string>
-): Promise<Result<CommitmentsSeriesExtractionOutput, ExperimentalMapError>> {
+): Promise<Result<CommitmentsSeriesExtractionOutput, GroupedSeriesError>> {
   const normalized = normalizeCommitmentsSeriesInput(series);
   if (normalized.isErr()) {
     return err(normalized.error);

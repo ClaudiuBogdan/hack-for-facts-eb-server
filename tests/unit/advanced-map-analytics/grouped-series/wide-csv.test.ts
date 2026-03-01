@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { serializeWideMatrixCsv } from '@/modules/experimental-map/index.js';
+import { serializeWideMatrixCsv } from '@/modules/advanced-map-analytics/index.js';
 
 describe('serializeWideMatrixCsv', () => {
   it('serializes null markers for missing values', () => {

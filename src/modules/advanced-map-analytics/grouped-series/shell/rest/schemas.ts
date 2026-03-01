@@ -1,5 +1,5 @@
 /**
- * Experimental Map REST API Schemas
+ * Advanced Map Analytics REST API Schemas
  */
 
 import { Type, type Static } from '@sinclair/typebox';
@@ -144,7 +144,7 @@ export type GroupedSeriesDataBody = Static<typeof GroupedSeriesDataBodySchema>;
 // Response Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const ExperimentalMapWarningSchema = Type.Object(
+export const GroupedSeriesWarningSchema = Type.Object(
   {
     type: Type.String({ minLength: 1 }),
     message: Type.String({ minLength: 1 }),
@@ -190,7 +190,7 @@ export const GroupedSeriesDataResponseSchema = Type.Object(
       {
         manifest: GroupedSeriesManifestSchema,
         payload: GroupedSeriesPayloadResponseSchema,
-        warnings: Type.Array(ExperimentalMapWarningSchema),
+        warnings: Type.Array(GroupedSeriesWarningSchema),
       },
       { additionalProperties: false }
     ),

@@ -12,11 +12,11 @@ import {
 } from './filter-normalizers.js';
 import { createProviderError } from '../../core/errors.js';
 
-import type { MapSeriesProvider } from '../../core/ports.js';
+import type { GroupedSeriesProvider } from '../../core/ports.js';
 import type {
   CommitmentsMapSeries,
   ExecutionMapSeries,
-  ExperimentalMapWarning,
+  GroupedSeriesWarning,
   GroupedSeriesDataRequest,
   InsMapSeries,
   MapRequestSeries,
@@ -52,7 +52,7 @@ interface CachedSeriesVectorEntry {
   warnings: CachedSeriesWarning[];
 }
 
-export interface MakeDbMapSeriesProviderDeps {
+export interface MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps {
   budgetDb: BudgetDbClient;
   commitmentsRepo: CommitmentsRepository;
   insRepo: InsRepository;
@@ -238,7 +238,7 @@ function createSeriesCacheKeyPayload(
   return ok(createInsSeriesCacheKeyPayload(granularity, series));
 }
 
-function toCachedWarnings(warnings: ExperimentalMapWarning[]): CachedSeriesWarning[] {
+function toCachedWarnings(warnings: GroupedSeriesWarning[]): CachedSeriesWarning[] {
   return warnings.map((warning) => ({
     type: warning.type,
     message: warning.message,
@@ -250,7 +250,7 @@ function toCachedWarnings(warnings: ExperimentalMapWarning[]): CachedSeriesWarni
 function fromCachedWarnings(
   warnings: CachedSeriesWarning[],
   seriesId: string
-): ExperimentalMapWarning[] {
+): GroupedSeriesWarning[] {
   return warnings.map((warning) => ({
     type: warning.type,
     message: warning.message,
@@ -292,7 +292,7 @@ function toCachedSeriesEntry(
   seriesType: MapRequestSeries['type'],
   unit: string | undefined,
   valuesBySirutaCode: Map<string, number | undefined>,
-  warnings: ExperimentalMapWarning[]
+  warnings: GroupedSeriesWarning[]
 ): CachedSeriesVectorEntry {
   return {
     version: SERIES_CACHE_ENTRY_VERSION,
@@ -397,7 +397,9 @@ async function loadNonCountySirutaCodes(db: BudgetDbClient): Promise<string[]> {
   return rows.map((row) => row.siruta_code.trim()).filter((value) => value !== '');
 }
 
-export function makeDbMapSeriesProvider(deps: MakeDbMapSeriesProviderDeps): MapSeriesProvider {
+export function makeDbAdvancedMapAnalyticsGroupedSeriesProvider(
+  deps: MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps
+): GroupedSeriesProvider {
   const ttlMs = deps.seriesCacheTtlMs ?? DEFAULT_SERIES_CACHE_TTL_MS;
   const cache = deps.cache;
   const keyBuilder = deps.keyBuilder;
@@ -405,13 +407,13 @@ export function makeDbMapSeriesProvider(deps: MakeDbMapSeriesProviderDeps): MapS
   return {
     async fetchGroupedSeriesVectors(
       request: GroupedSeriesDataRequest
-    ): ReturnType<MapSeriesProvider['fetchGroupedSeriesVectors']> {
+    ): ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']> {
       try {
         const sirutaUniverse = await loadNonCountySirutaCodes(deps.budgetDb);
         const sirutaUniverseSet = new Set<string>(sirutaUniverse);
 
         const vectors: MapSeriesVector[] = [];
-        const warnings: ExperimentalMapWarning[] = [];
+        const warnings: GroupedSeriesWarning[] = [];
 
         for (const series of request.series) {
           let cacheKey: string | undefined;
@@ -422,7 +424,7 @@ export function makeDbMapSeriesProvider(deps: MakeDbMapSeriesProviderDeps): MapS
             }
 
             cacheKey = keyBuilder.fromFilter(
-              CacheNamespace.EXPERIMENTAL_MAP_SERIES,
+              CacheNamespace.ADVANCED_MAP_ANALYTICS_SERIES,
               keyPayloadResult.value
             );
 
@@ -542,7 +544,7 @@ export function makeDbMapSeriesProvider(deps: MakeDbMapSeriesProviderDeps): MapS
         });
       } catch (error) {
         return err(
-          createProviderError('Failed to extract experimental map grouped series data', error)
+          createProviderError('Failed to extract advanced map analytics grouped series data', error)
         );
       }
     },

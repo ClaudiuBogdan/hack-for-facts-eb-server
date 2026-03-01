@@ -3,9 +3,9 @@ import { err, ok, type Result } from 'neverthrow';
 import { getHeatmapData, type UATAnalyticsRepository } from '@/modules/uat-analytics/index.js';
 
 import { normalizeExecutionSeriesInput } from './filter-normalizers.js';
-import { createProviderError, type ExperimentalMapError } from '../../core/errors.js';
+import { createProviderError, type GroupedSeriesError } from '../../core/errors.js';
 
-import type { ExecutionMapSeries, ExperimentalMapWarning } from '../../core/types.js';
+import type { ExecutionMapSeries, GroupedSeriesWarning } from '../../core/types.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
 
 export interface ExecutionSeriesExtractionDeps {
@@ -16,7 +16,7 @@ export interface ExecutionSeriesExtractionDeps {
 export interface ExecutionSeriesExtractionOutput {
   valuesBySirutaCode: Map<string, number | undefined>;
   unit: string;
-  warnings: ExperimentalMapWarning[];
+  warnings: GroupedSeriesWarning[];
 }
 
 function resolveUnit(
@@ -38,7 +38,7 @@ export async function extractExecutionSeriesVector(
   deps: ExecutionSeriesExtractionDeps,
   series: ExecutionMapSeries,
   sirutaUniverse: Set<string>
-): Promise<Result<ExecutionSeriesExtractionOutput, ExperimentalMapError>> {
+): Promise<Result<ExecutionSeriesExtractionOutput, GroupedSeriesError>> {
   const normalized = normalizeExecutionSeriesInput(series);
   if (normalized.isErr()) {
     return err(normalized.error);

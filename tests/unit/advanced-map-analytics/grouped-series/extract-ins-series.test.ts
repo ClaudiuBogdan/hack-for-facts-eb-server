@@ -2,9 +2,9 @@ import { Decimal } from 'decimal.js';
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
-import { extractInsSeriesVector } from '@/modules/experimental-map/shell/providers/extract-ins-series.js';
+import { extractInsSeriesVector } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/extract-ins-series.js';
 
-import type { InsMapSeries } from '@/modules/experimental-map/index.js';
+import type { InsMapSeries } from '@/modules/advanced-map-analytics/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
 
 function makeObservation(params: {

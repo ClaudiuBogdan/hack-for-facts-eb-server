@@ -3,10 +3,10 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { Frequency } from '@/common/types/temporal.js';
-import { extractCommitmentsSeriesVector } from '@/modules/experimental-map/shell/providers/extract-commitments-series.js';
+import { extractCommitmentsSeriesVector } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/extract-commitments-series.js';
 
+import type { CommitmentsMapSeries } from '@/modules/advanced-map-analytics/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
-import type { CommitmentsMapSeries } from '@/modules/experimental-map/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
 
 const baseSeries: CommitmentsMapSeries = {

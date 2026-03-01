@@ -1,5 +1,5 @@
 /**
- * Experimental Map REST Routes
+ * Advanced Map Analytics REST Routes
  */
 
 import { Frequency } from '@/common/types/temporal.js';
@@ -20,13 +20,13 @@ import {
 } from '../../core/errors.js';
 import { getGroupedSeriesData } from '../../core/usecases/get-grouped-series-data.js';
 
-import type { MapSeriesProvider } from '../../core/ports.js';
+import type { GroupedSeriesProvider } from '../../core/ports.js';
 import type { MapRequestSeries } from '../../core/types.js';
 import type { PeriodDate, ReportPeriodInput } from '@/common/types/analytics.js';
 import type { FastifyPluginAsync } from 'fastify';
 
-export interface MakeExperimentalMapRoutesDeps {
-  mapSeriesProvider: MapSeriesProvider;
+export interface MakeAdvancedMapAnalyticsGroupedSeriesRoutesDeps {
+  groupedSeriesProvider: GroupedSeriesProvider;
   allowedUserIds: string[];
 }
 
@@ -100,17 +100,17 @@ function toMapRequestSeries(series: GroupedSeriesDataBody['series'][number]): Ma
     : rest;
 }
 
-export const makeExperimentalMapRoutes = (
-  deps: MakeExperimentalMapRoutesDeps
+export const makeAdvancedMapAnalyticsGroupedSeriesRoutes = (
+  deps: MakeAdvancedMapAnalyticsGroupedSeriesRoutesDeps
 ): FastifyPluginAsync => {
-  const { mapSeriesProvider } = deps;
+  const { groupedSeriesProvider } = deps;
   const allowedUserIds = new Set(
     deps.allowedUserIds.map((userId) => userId.trim()).filter((userId) => userId !== '')
   );
 
-  return async (fastify) => {
+  return (fastify) => {
     fastify.post<{ Body: GroupedSeriesDataBody }>(
-      '/api/v1/experimental/map/grouped-series',
+      '/api/v1/advanced-map-analytics/grouped-series',
       {
         preHandler: requireAuthHandler,
         schema: {
@@ -146,7 +146,7 @@ export const makeExperimentalMapRoutes = (
 
         const result = await getGroupedSeriesData(
           {
-            provider: mapSeriesProvider,
+            provider: groupedSeriesProvider,
           },
           {
             request: {
@@ -181,5 +181,7 @@ export const makeExperimentalMapRoutes = (
         });
       }
     );
+
+    return Promise.resolve();
   };
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { makeDbMapSeriesProvider } from '@/modules/experimental-map/index.js';
+import { makeDbAdvancedMapAnalyticsGroupedSeriesProvider } from '@/modules/advanced-map-analytics/index.js';
 
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
@@ -27,9 +27,9 @@ function makeBudgetDb(sirutaCodes: string[]): BudgetDbClient {
   } as unknown as BudgetDbClient;
 }
 
-describe('makeDbMapSeriesProvider', () => {
+describe('makeDbAdvancedMapAnalyticsGroupedSeriesProvider', () => {
   it('returns full non-county siruta universe and sparse vectors when series has soft warnings', async () => {
-    const provider = makeDbMapSeriesProvider({
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb: makeBudgetDb(['1001', '1002', '1003']),
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,

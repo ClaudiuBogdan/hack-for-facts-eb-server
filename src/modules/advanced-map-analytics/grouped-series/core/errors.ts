@@ -1,5 +1,5 @@
 /**
- * Experimental Map Module - Core Errors
+ * Advanced Map Analytics Module - Core Errors
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ export interface ProviderError {
   cause?: unknown;
 }
 
-export type ExperimentalMapError =
+export type GroupedSeriesError =
   | UnauthorizedError
   | ForbiddenError
   | InvalidInputError
@@ -64,13 +64,13 @@ export const createProviderError = (message: string, cause?: unknown): ProviderE
 // HTTP Mapping
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const EXPERIMENTAL_MAP_ERROR_HTTP_STATUS: Record<ExperimentalMapError['type'], number> = {
+export const GROUPED_SERIES_ERROR_HTTP_STATUS: Record<GroupedSeriesError['type'], number> = {
   UnauthorizedError: 401,
   ForbiddenError: 403,
   InvalidInputError: 400,
   ProviderError: 500,
 };
 
-export const getHttpStatusForError = (error: ExperimentalMapError): number => {
-  return EXPERIMENTAL_MAP_ERROR_HTTP_STATUS[error.type];
+export const getHttpStatusForError = (error: GroupedSeriesError): number => {
+  return GROUPED_SERIES_ERROR_HTTP_STATUS[error.type];
 };
