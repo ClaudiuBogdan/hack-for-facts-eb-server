@@ -3,19 +3,6 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Error Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface UnauthorizedError {
-  type: 'UnauthorizedError';
-  message: string;
-}
-
-export interface ForbiddenError {
-  type: 'ForbiddenError';
-  message: string;
-}
-
 export interface InvalidInputError {
   type: 'InvalidInputError';
   message: string;
@@ -27,27 +14,11 @@ export interface ProviderError {
   cause?: unknown;
 }
 
-export type GroupedSeriesError =
-  | UnauthorizedError
-  | ForbiddenError
-  | InvalidInputError
-  | ProviderError;
+export type GroupedSeriesError = InvalidInputError | ProviderError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructors
 // ─────────────────────────────────────────────────────────────────────────────
-
-export const createUnauthorizedError = (
-  message = 'Authentication required'
-): UnauthorizedError => ({
-  type: 'UnauthorizedError',
-  message,
-});
-
-export const createForbiddenError = (message = 'Access denied for this user'): ForbiddenError => ({
-  type: 'ForbiddenError',
-  message,
-});
 
 export const createInvalidInputError = (message: string): InvalidInputError => ({
   type: 'InvalidInputError',
@@ -65,8 +36,6 @@ export const createProviderError = (message: string, cause?: unknown): ProviderE
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const GROUPED_SERIES_ERROR_HTTP_STATUS: Record<GroupedSeriesError['type'], number> = {
-  UnauthorizedError: 401,
-  ForbiddenError: 403,
   InvalidInputError: 400,
   ProviderError: 500,
 };

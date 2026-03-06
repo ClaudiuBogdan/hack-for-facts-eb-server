@@ -187,22 +187,15 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('registers grouped-series advanced map analytics route when auth-enabled REST modules are active', async () => {
-      const { provider } = createTestAuthProvider();
-
+    it('registers grouped-series advanced map analytics route when userDb is enabled', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
-          authProvider: provider,
           datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig({
-            advancedMapAnalytics: {
-              allowedUserIds: ['user_test_1'],
-            },
-          }),
+          config: makeTestConfig(),
         },
       });
 

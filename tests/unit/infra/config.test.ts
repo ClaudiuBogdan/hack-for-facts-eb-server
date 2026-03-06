@@ -78,14 +78,6 @@ describe('Configuration', () => {
       expect(envWithoutRedis.REDIS_URL).toBeUndefined();
     });
 
-    it('accepts optional ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS', () => {
-      const envWithAllowlist = parseEnv({
-        ...requiredEnv,
-        ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS: 'user_1,user_2',
-      });
-      expect(envWithAllowlist.ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS).toBe('user_1,user_2');
-    });
-
     it('throws on invalid PORT (non-numeric)', () => {
       expect(() => parseEnv({ ...requiredEnv, PORT: 'invalid' })).toThrow(
         'Invalid environment configuration'
@@ -151,17 +143,6 @@ describe('Configuration', () => {
 
       expect(config.server.port).toBe(8080);
       expect(config.server.host).toBe('127.0.0.1');
-    });
-
-    it('parses advanced map analytics grouped-series allowed user ids', () => {
-      const config = createConfig(
-        parseEnv({
-          ...requiredEnv,
-          ADVANCED_MAP_ANALYTICS_ALLOWED_USER_IDS: 'user_1, user_2 , ,user_3',
-        })
-      );
-
-      expect(config.advancedMapAnalytics.allowedUserIds).toEqual(['user_1', 'user_2', 'user_3']);
     });
   });
 });
