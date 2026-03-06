@@ -29,17 +29,9 @@ export type {
 // Core Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type {
-  UnauthorizedError,
-  ForbiddenError,
-  InvalidInputError,
-  ProviderError,
-  GroupedSeriesError,
-} from './core/errors.js';
+export type { InvalidInputError, ProviderError, GroupedSeriesError } from './core/errors.js';
 
 export {
-  createUnauthorizedError,
-  createForbiddenError,
   createInvalidInputError,
   createProviderError,
   GROUPED_SERIES_ERROR_HTTP_STATUS,

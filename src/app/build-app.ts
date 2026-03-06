@@ -811,7 +811,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     await app.register(
       makeAdvancedMapAnalyticsGroupedSeriesRoutes({
         groupedSeriesProvider,
-        allowedUserIds: config.advancedMapAnalytics.allowedUserIds,
       })
     );
 

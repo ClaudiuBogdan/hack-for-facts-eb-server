@@ -93,9 +93,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       dailyLimit: 100,
       cacheTtlSeconds: 86400,
     },
-    advancedMapAnalytics: {
-      allowedUserIds: [],
-    },
     mcp: {
       enabled: false,
       authRequired: false,
@@ -144,7 +141,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     redis: { ...defaults.redis, ...overrides.redis },
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
-    advancedMapAnalytics: { ...defaults.advancedMapAnalytics, ...overrides.advancedMapAnalytics },
     mcp: { ...defaults.mcp, ...overrides.mcp },
     gpt: { ...defaults.gpt, ...overrides.gpt },
     email: { ...defaults.email, ...overrides.email },

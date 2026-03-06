@@ -214,9 +214,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
         dailyLimit: 100,
         cacheTtlSeconds: 86400,
       },
-      advancedMapAnalytics: {
-        allowedUserIds: [],
-      },
       mcp: {
         enabled: false,
         authRequired: false,

@@ -6,7 +6,6 @@ import {
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
   type GroupedSeriesProvider,
 } from '@/modules/advanced-map-analytics/index.js';
-import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 
 const requestBody = {
   granularity: 'UAT' as const,
@@ -76,11 +75,7 @@ function makeProvider(): GroupedSeriesProvider {
   };
 }
 
-const createTestApp = async (options: {
-  allowedUserIds: string[];
-  provider: GroupedSeriesProvider;
-}) => {
-  const testAuth = createTestAuthProvider();
+const createTestApp = async (provider: GroupedSeriesProvider) => {
   const app = fastifyLib({ logger: false });
 
   app.setErrorHandler((err, _request, reply) => {
@@ -94,26 +89,19 @@ const createTestApp = async (options: {
     });
   });
 
-  app.addHook('preHandler', makeAuthMiddleware({ authProvider: testAuth.provider }));
-
   await app.register(
     makeAdvancedMapAnalyticsGroupedSeriesRoutes({
-      groupedSeriesProvider: options.provider,
-      allowedUserIds: options.allowedUserIds,
+      groupedSeriesProvider: provider,
     })
   );
 
   await app.ready();
 
-  return {
-    app,
-    testAuth,
-  };
+  return app;
 };
 
 describe('Advanced Map Analytics REST API', () => {
   let app: FastifyInstance;
-  let testAuth: ReturnType<typeof createTestAuthProvider>;
 
   afterAll(async () => {
     if (app !== undefined) {
@@ -126,54 +114,14 @@ describe('Advanced Map Analytics REST API', () => {
       await app.close();
     }
 
-    const testContext = await createTestApp({
-      allowedUserIds: ['user_test_1'],
-      provider: makeProvider(),
-    });
-
-    app = testContext.app;
-    testAuth = testContext.testAuth;
+    app = await createTestApp(makeProvider());
   });
 
-  it('returns 401 without authentication', async () => {
+  it('returns wide matrix csv without authentication', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/advanced-map-analytics/grouped-series',
       headers: {
-        'content-type': 'application/json',
-      },
-      payload: requestBody,
-    });
-
-    expect(response.statusCode).toBe(401);
-    const body = response.json();
-    expect(body.ok).toBe(false);
-    expect(body.error).toBe('AuthenticationRequiredError');
-  });
-
-  it('returns 403 for authenticated but non-allowlisted users', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/advanced-map-analytics/grouped-series',
-      headers: {
-        authorization: `Bearer ${testAuth.tokens.user2}`,
-        'content-type': 'application/json',
-      },
-      payload: requestBody,
-    });
-
-    expect(response.statusCode).toBe(403);
-    const body = response.json();
-    expect(body.ok).toBe(false);
-    expect(body.error).toBe('ForbiddenError');
-  });
-
-  it('returns wide matrix csv for authenticated allowlisted users', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/advanced-map-analytics/grouped-series',
-      headers: {
-        authorization: `Bearer ${testAuth.tokens.user1}`,
         'content-type': 'application/json',
       },
       payload: requestBody,

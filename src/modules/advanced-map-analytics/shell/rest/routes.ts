@@ -408,7 +408,6 @@ export const makeAdvancedMapAnalyticsRoutes = (
             200: MapResponseSchema,
             400: ErrorResponseSchema,
             401: ErrorResponseSchema,
-            403: ErrorResponseSchema,
             404: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -443,7 +442,7 @@ export const makeAdvancedMapAnalyticsRoutes = (
 
         if ('error' in groupedSeriesDataResult) {
           const status = getGroupedSeriesHttpStatusForError(groupedSeriesDataResult.error);
-          return reply.status(status as 400 | 401 | 403 | 500).send({
+          return reply.status(status as 400 | 500).send({
             ok: false,
             error: groupedSeriesDataResult.error.type,
             message: groupedSeriesDataResult.error.message,
@@ -719,8 +718,6 @@ export const makeAdvancedMapAnalyticsRoutes = (
           response: {
             200: PublicMapResponseSchema,
             400: ErrorResponseSchema,
-            401: ErrorResponseSchema,
-            403: ErrorResponseSchema,
             404: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -750,7 +747,7 @@ export const makeAdvancedMapAnalyticsRoutes = (
 
         if ('error' in groupedSeriesDataResult) {
           const status = getGroupedSeriesHttpStatusForError(groupedSeriesDataResult.error);
-          return reply.status(status as 400 | 401 | 403 | 500).send({
+          return reply.status(status as 400 | 500).send({
             ok: false,
             error: groupedSeriesDataResult.error.type,
             message: groupedSeriesDataResult.error.message,

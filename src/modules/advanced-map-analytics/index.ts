@@ -142,16 +142,12 @@ export type {
 } from './grouped-series/core/types.js';
 
 export type {
-  UnauthorizedError as GroupedSeriesUnauthorizedError,
-  ForbiddenError as GroupedSeriesForbiddenError,
   InvalidInputError as GroupedSeriesInvalidInputError,
   ProviderError as GroupedSeriesProviderError,
   GroupedSeriesError,
 } from './grouped-series/core/errors.js';
 
 export {
-  createUnauthorizedError as createGroupedSeriesUnauthorizedError,
-  createForbiddenError as createGroupedSeriesForbiddenError,
   createInvalidInputError as createGroupedSeriesInvalidInputError,
   createProviderError as createGroupedSeriesProviderError,
   GROUPED_SERIES_ERROR_HTTP_STATUS,
