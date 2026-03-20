@@ -37,12 +37,16 @@ import type {
   ExecutionLineItemConnection as FundingSourceLineItemConnection,
 } from '@/modules/funding-sources/index.js';
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
+import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
-  LearningProgressRepository,
-  LearningProgressData,
-  UpsertEventsResult,
-} from '@/modules/learning-progress/core/ports.js';
-import type { LearningProgressEvent } from '@/modules/learning-progress/core/types.js';
+  InteractiveAuditEvent,
+  InteractiveStateRecord,
+  LearningInteractiveUpdatedEvent,
+  LearningProgressEvent,
+  LearningProgressRecordRow,
+  StoredInteractiveAuditEvent,
+  UpsertInteractiveRecordInput,
+} from '@/modules/learning-progress/core/types.js';
 import type { DeliveryError } from '@/modules/notification-delivery/core/errors.js';
 import type {
   DeliveryRepository,
@@ -1294,88 +1298,229 @@ export const createTestUrlMetadata = (overrides: Partial<UrlMetadata> = {}): Url
 // =============================================================================
 
 interface FakeLearningProgressRepoOptions {
-  /** Initial events per user (Map<userId, events>) */
-  initialEvents?: Map<string, LearningProgressEvent[]>;
+  /** Initial records per user (Map<userId, records>) */
+  initialRecords?: Map<string, LearningProgressRecordRow[]>;
   /** Enable database error simulation */
   simulateDbError?: boolean;
+  /** Fail when a specific upsert attempt is reached (1-based) */
+  failOnUpsertAttempt?: number;
+  /** Fail when a specific reset attempt is reached (1-based) */
+  failOnResetAttempt?: number;
 }
 
 /**
  * Creates a fake learning progress repository for testing.
  *
- * Implements all LearningProgressRepository methods using an in-memory Map.
- * Events are stored per user and deduplicated by eventId on upsert.
+ * Implements the generic record store using an in-memory Map.
  */
 export const makeFakeLearningProgressRepo = (
   options: FakeLearningProgressRepoOptions = {}
 ): LearningProgressRepository => {
-  const store = new Map<string, LearningProgressEvent[]>();
+  const store = new Map<string, Map<string, LearningProgressRecordRow>>();
   const simulateDbError = options.simulateDbError ?? false;
+  const failOnUpsertAttempt = options.failOnUpsertAttempt;
+  const failOnResetAttempt = options.failOnResetAttempt;
+  let nextSeq = 1n;
+  let upsertAttempts = 0;
+  let resetAttempts = 0;
 
-  // Seed initial events
-  if (options.initialEvents !== undefined) {
-    for (const [userId, events] of options.initialEvents.entries()) {
-      store.set(userId, [...events]);
+  if (options.initialRecords !== undefined) {
+    for (const [userId, records] of options.initialRecords.entries()) {
+      const userStore = new Map<string, LearningProgressRecordRow>();
+      for (const record of records) {
+        userStore.set(record.recordKey, {
+          ...record,
+          auditEvents: [...record.auditEvents],
+        });
+        const recordSeq = BigInt(record.updatedSeq);
+        if (recordSeq >= nextSeq) {
+          nextSeq = recordSeq + 1n;
+        }
+      }
+      store.set(userId, userStore);
     }
   }
 
   const createDbError = (): Result<never, LearningProgressError> =>
     err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
 
-  return {
-    getProgress: async (
-      userId: string
-    ): Promise<Result<LearningProgressData | null, LearningProgressError>> => {
-      if (simulateDbError) return createDbError();
+  const compareTimestamps = (leftTimestamp: string, rightTimestamp: string): number => {
+    const leftValue = Date.parse(leftTimestamp);
+    const rightValue = Date.parse(rightTimestamp);
 
-      const events = store.get(userId);
-      if (events === undefined || events.length === 0) {
-        return ok(null);
+    if (Number.isNaN(leftValue) || Number.isNaN(rightValue)) {
+      return leftTimestamp.localeCompare(rightTimestamp);
+    }
+
+    if (leftValue < rightValue) return -1;
+    if (leftValue > rightValue) return 1;
+    return 0;
+  };
+
+  const cloneStore = (source: Map<string, Map<string, LearningProgressRecordRow>>) => {
+    const clonedStore = new Map<string, Map<string, LearningProgressRecordRow>>();
+
+    for (const [userId, userStore] of source.entries()) {
+      const clonedUserStore = new Map<string, LearningProgressRecordRow>();
+
+      for (const [recordKey, row] of userStore.entries()) {
+        clonedUserStore.set(recordKey, {
+          ...row,
+          record: row.record,
+          auditEvents: [...row.auditEvents],
+        });
       }
 
-      // Find latest event timestamp
-      const lastEventAt = events.reduce<string | null>((latest, event) => {
-        if (latest === null || event.occurredAt > latest) {
-          return event.occurredAt;
-        }
-        return latest;
-      }, null);
+      clonedStore.set(userId, clonedUserStore);
+    }
 
-      return ok({
-        events: [...events],
-        lastEventAt,
-        eventCount: events.length,
-      });
-    },
-
-    upsertEvents: async (
-      userId: string,
-      newEvents: LearningProgressEvent[]
-    ): Promise<Result<UpsertEventsResult, LearningProgressError>> => {
-      if (simulateDbError) return createDbError();
-
-      const existingEvents = store.get(userId) ?? [];
-      const existingIds = new Set(existingEvents.map((e) => e.eventId));
-
-      // Filter to only new events
-      const actuallyNew = newEvents.filter((e) => !existingIds.has(e.eventId));
-
-      // Merge
-      const merged = [...existingEvents, ...actuallyNew];
-      store.set(userId, merged);
-
-      return ok({
-        newEventsCount: actuallyNew.length,
-        totalEventCount: merged.length,
-      });
-    },
-
-    getEventCount: async (userId: string): Promise<Result<number, LearningProgressError>> => {
-      if (simulateDbError) return createDbError();
-      const events = store.get(userId);
-      return ok(events?.length ?? 0);
-    },
+    return clonedStore;
   };
+
+  const noopCommitStore = (
+    _nextStore: Map<string, Map<string, LearningProgressRecordRow>>
+  ): undefined => {
+    return undefined;
+  };
+
+  const buildRepo = (
+    currentStore: Map<string, Map<string, LearningProgressRecordRow>>,
+    commitStore: (nextStore: Map<string, Map<string, LearningProgressRecordRow>>) => void
+  ): LearningProgressRepository => {
+    return {
+      getRecords: async (
+        userId: string
+      ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const userStore = currentStore.get(userId);
+        if (userStore === undefined) {
+          return ok([]);
+        }
+
+        return ok(
+          [...userStore.values()].sort((leftRecord, rightRecord) => {
+            const leftSeq = BigInt(leftRecord.updatedSeq);
+            const rightSeq = BigInt(rightRecord.updatedSeq);
+            if (leftSeq < rightSeq) return -1;
+            if (leftSeq > rightSeq) return 1;
+            return leftRecord.recordKey.localeCompare(rightRecord.recordKey);
+          })
+        );
+      },
+
+      upsertInteractiveRecord: async (
+        input: UpsertInteractiveRecordInput
+      ): Promise<
+        Result<{ applied: boolean; row: LearningProgressRecordRow }, LearningProgressError>
+      > => {
+        if (simulateDbError) return createDbError();
+
+        upsertAttempts += 1;
+        if (failOnUpsertAttempt !== undefined && upsertAttempts === failOnUpsertAttempt) {
+          return createDbError();
+        }
+
+        const userStore =
+          currentStore.get(input.userId) ?? new Map<string, LearningProgressRecordRow>();
+        const existing = userStore.get(input.record.key) ?? null;
+
+        const isDuplicateAuditUpdate =
+          input.auditEvents.length > 0 &&
+          existing?.auditEvents.some(
+            (auditEvent) => auditEvent.sourceClientEventId === input.eventId
+          ) === true;
+
+        const isDuplicateRecordOnlyUpdate =
+          input.auditEvents.length === 0 &&
+          existing !== null &&
+          JSON.stringify(existing.record) === JSON.stringify(input.record);
+
+        const isIncomingRecordStale =
+          existing !== null &&
+          compareTimestamps(input.record.updatedAt, existing.record.updatedAt) < 0;
+
+        const hasNewAuditEvents = input.auditEvents.length > 0 && !isDuplicateAuditUpdate;
+        const shouldReplaceRecord = !isDuplicateRecordOnlyUpdate && !isIncomingRecordStale;
+
+        if (isDuplicateAuditUpdate || (!shouldReplaceRecord && !hasNewAuditEvents)) {
+          if (existing === null) throw new Error('Invariant: expected existing row');
+          return ok({
+            applied: false,
+            row: existing,
+          });
+        }
+
+        const seq = String(nextSeq);
+        nextSeq += 1n;
+
+        const storedAuditEvents: StoredInteractiveAuditEvent[] = [
+          ...(existing?.auditEvents ?? []),
+          ...input.auditEvents.map((auditEvent) => ({
+            ...auditEvent,
+            seq,
+            sourceClientEventId: input.eventId,
+            sourceClientId: input.clientId,
+          })),
+        ];
+
+        const nextRow: LearningProgressRecordRow = {
+          userId: input.userId,
+          recordKey: input.record.key,
+          record: shouldReplaceRecord ? input.record : existing.record,
+          auditEvents: storedAuditEvents,
+          updatedSeq: seq,
+          createdAt: existing?.createdAt ?? input.record.updatedAt,
+          updatedAt: shouldReplaceRecord ? input.record.updatedAt : existing.updatedAt,
+        };
+
+        userStore.set(input.record.key, nextRow);
+        currentStore.set(input.userId, userStore);
+
+        return ok({
+          applied: true,
+          row: nextRow,
+        });
+      },
+
+      resetProgress: async (userId: string): Promise<Result<void, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        resetAttempts += 1;
+        if (failOnResetAttempt !== undefined && resetAttempts === failOnResetAttempt) {
+          return createDbError();
+        }
+
+        currentStore.delete(userId);
+        return ok(undefined);
+      },
+
+      withTransaction: async <T>(
+        callback: (repo: LearningProgressRepository) => Promise<Result<T, LearningProgressError>>
+      ): Promise<Result<T, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const transactionalStore = cloneStore(currentStore);
+        const startingNextSeq = nextSeq;
+        const result = await callback(buildRepo(transactionalStore, noopCommitStore));
+
+        if (result.isErr()) {
+          nextSeq = startingNextSeq;
+          return result;
+        }
+
+        commitStore(transactionalStore);
+        return result;
+      },
+    };
+  };
+
+  return buildRepo(store, (nextStore) => {
+    store.clear();
+    for (const [userId, userStore] of nextStore.entries()) {
+      store.set(userId, userStore);
+    }
+  });
 };
 
 // =============================================================================
@@ -1384,74 +1529,105 @@ export const makeFakeLearningProgressRepo = (
 
 let learningEventIdCounter = 0;
 
-interface TestContentProgressedPayload {
-  contentId?: string;
-  status?: 'not_started' | 'in_progress' | 'completed' | 'passed' | 'failed';
-  score?: number;
-  interaction?: {
-    interactionId: string;
-    state: Record<string, unknown> | null;
-  };
-}
+export const createTestInteractiveRecord = (
+  overrides: Partial<InteractiveStateRecord> = {}
+): InteractiveStateRecord => {
+  learningEventIdCounter++;
 
-/**
- * Creates a test content progressed event with sensible defaults.
- */
-export const createTestContentProgressedEvent = (
+  return {
+    key: overrides.key ?? `quiz-${String(learningEventIdCounter)}::global`,
+    interactionId: overrides.interactionId ?? `quiz-${String(learningEventIdCounter)}`,
+    lessonId: overrides.lessonId ?? `lesson-${String(learningEventIdCounter)}`,
+    kind: overrides.kind ?? 'quiz',
+    scope: overrides.scope ?? { type: 'global' },
+    completionRule: overrides.completionRule ?? { type: 'outcome', outcome: 'correct' },
+    phase: overrides.phase ?? 'draft',
+    value: overrides.value ?? {
+      kind: 'choice',
+      choice: { selectedId: null },
+    },
+    result: overrides.result ?? null,
+    updatedAt: overrides.updatedAt ?? new Date().toISOString(),
+    ...(overrides.submittedAt !== undefined ? { submittedAt: overrides.submittedAt } : {}),
+  };
+};
+
+export const createTestSubmittedAuditEvent = (
+  overrides: Partial<Extract<InteractiveAuditEvent, { type: 'submitted' }>> = {}
+): Extract<InteractiveAuditEvent, { type: 'submitted' }> => {
+  learningEventIdCounter++;
+
+  return {
+    id: overrides.id ?? `submitted-${String(learningEventIdCounter)}`,
+    recordKey: overrides.recordKey ?? 'quiz-1::global',
+    lessonId: overrides.lessonId ?? 'lesson-1',
+    interactionId: overrides.interactionId ?? 'quiz-1',
+    type: 'submitted',
+    at: overrides.at ?? new Date().toISOString(),
+    actor: 'user',
+    value: overrides.value ?? {
+      kind: 'choice',
+      choice: { selectedId: 'option-a' },
+    },
+  };
+};
+
+export const createTestEvaluatedAuditEvent = (
+  overrides: Partial<Extract<InteractiveAuditEvent, { type: 'evaluated' }>> = {}
+): Extract<InteractiveAuditEvent, { type: 'evaluated' }> => {
+  learningEventIdCounter++;
+
+  return {
+    id: overrides.id ?? `evaluated-${String(learningEventIdCounter)}`,
+    recordKey: overrides.recordKey ?? 'quiz-1::global',
+    lessonId: overrides.lessonId ?? 'lesson-1',
+    interactionId: overrides.interactionId ?? 'quiz-1',
+    type: 'evaluated',
+    at: overrides.at ?? new Date().toISOString(),
+    actor: 'system',
+    phase: overrides.phase ?? 'resolved',
+    result: overrides.result ?? {
+      outcome: 'correct',
+      evaluatedAt: new Date().toISOString(),
+    },
+  };
+};
+
+export const createTestInteractiveUpdatedEvent = (
   overrides: {
     eventId?: string;
     occurredAt?: string;
     clientId?: string;
-    payload?: TestContentProgressedPayload;
+    payload?: Partial<LearningInteractiveUpdatedEvent['payload']>;
   } = {}
-): LearningProgressEvent => {
+): LearningInteractiveUpdatedEvent => {
   learningEventIdCounter++;
-  const payload = overrides.payload ?? {};
+  const record = overrides.payload?.record ?? createTestInteractiveRecord();
+
   return {
-    eventId: overrides.eventId ?? `event-${String(learningEventIdCounter)}`,
-    occurredAt: overrides.occurredAt ?? new Date().toISOString(),
+    eventId: overrides.eventId ?? `interactive-${String(learningEventIdCounter)}`,
+    occurredAt: overrides.occurredAt ?? record.updatedAt,
     clientId: overrides.clientId ?? 'test-client',
-    type: 'content.progressed',
+    type: 'interactive.updated',
     payload: {
-      contentId: payload.contentId ?? `content-${String(learningEventIdCounter)}`,
-      status: payload.status ?? 'in_progress',
-      ...(payload.score !== undefined && { score: payload.score }),
-      ...(payload.interaction !== undefined && { interaction: payload.interaction }),
+      record,
+      ...(overrides.payload?.auditEvents !== undefined
+        ? { auditEvents: overrides.payload.auditEvents }
+        : {}),
     },
-  } as LearningProgressEvent;
+  };
 };
 
-/**
- * Creates a test onboarding completed event.
- */
-export const createTestOnboardingCompletedEvent = (
-  pathId: string,
+export const createTestProgressResetEvent = (
   overrides: Partial<LearningProgressEvent> = {}
 ): LearningProgressEvent => {
   learningEventIdCounter++;
-  return {
-    eventId: overrides.eventId ?? `onboarding-${String(learningEventIdCounter)}`,
-    occurredAt: overrides.occurredAt ?? new Date().toISOString(),
-    clientId: overrides.clientId ?? 'test-client',
-    type: 'onboarding.completed',
-    payload: { pathId },
-  } as LearningProgressEvent;
-};
 
-/**
- * Creates a test active path set event.
- */
-export const createTestActivePathSetEvent = (
-  pathId: string | null,
-  overrides: Partial<LearningProgressEvent> = {}
-): LearningProgressEvent => {
-  learningEventIdCounter++;
   return {
-    eventId: overrides.eventId ?? `path-${String(learningEventIdCounter)}`,
+    eventId: overrides.eventId ?? `reset-${String(learningEventIdCounter)}`,
     occurredAt: overrides.occurredAt ?? new Date().toISOString(),
     clientId: overrides.clientId ?? 'test-client',
-    type: 'activePath.set',
-    payload: { pathId },
+    type: 'progress.reset',
   } as LearningProgressEvent;
 };
 

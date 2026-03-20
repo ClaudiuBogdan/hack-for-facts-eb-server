@@ -76,26 +76,86 @@ export interface UnsubscribeTokens {
 }
 
 // Learning Progress Table
-// Stores all learning progress events in a JSONB array per user.
-// Events are immutable and append-only (semantically).
+// Stores one row per user and per client-controlled record key.
 export interface LearningProgress {
   user_id: string;
-  events: JSONColumnType<LearningProgressEventRow[]>;
-  last_event_at: Timestamp | null;
-  event_count: Generated<number>;
+  record_key: string;
+  record: JSONColumnType<LearningProgressRecordValueRow>;
+  audit_events: JSONColumnType<LearningProgressAuditEventRow[]>;
+  updated_seq: Generated<string>;
   created_at: Generated<Timestamp>;
   updated_at: Generated<Timestamp>;
 }
 
-// Raw event structure stored in JSONB
-// This matches the client's LearningProgressEvent type
-export interface LearningProgressEventRow {
-  eventId: string;
-  occurredAt: string;
-  clientId: string;
-  type: string;
-  payload: Record<string, unknown>;
+export interface LearningProgressRecordValueRow {
+  key: string;
+  interactionId: string;
+  lessonId: string;
+  kind: 'quiz' | 'url' | 'text-input' | 'custom';
+  scope: { type: 'global' } | { type: 'entity'; entityCui: string };
+  completionRule:
+    | { type: 'outcome'; outcome: 'correct' | 'incorrect' }
+    | { type: 'resolved' }
+    | { type: 'score-threshold'; minScore: number }
+    | { type: 'component-flag'; flag: string };
+  phase: 'idle' | 'draft' | 'pending' | 'resolved' | 'error';
+  value:
+    | { kind: 'choice'; choice: { selectedId: string | null } }
+    | { kind: 'text'; text: { value: string } }
+    | { kind: 'url'; url: { value: string } }
+    | { kind: 'number'; number: { value: number | null } }
+    | { kind: 'json'; json: { value: Record<string, unknown> } }
+    | null;
+  result: {
+    outcome: 'correct' | 'incorrect' | null;
+    score?: number | null;
+    feedbackText?: string | null;
+    response?: Record<string, unknown> | null;
+    evaluatedAt?: string | null;
+  } | null;
+  updatedAt: string;
+  submittedAt?: string | null;
 }
+
+export type LearningProgressAuditEventRow =
+  | {
+      id: string;
+      recordKey: string;
+      lessonId: string;
+      interactionId: string;
+      type: 'submitted';
+      at: string;
+      actor: 'user';
+      value:
+        | { kind: 'choice'; choice: { selectedId: string | null } }
+        | { kind: 'text'; text: { value: string } }
+        | { kind: 'url'; url: { value: string } }
+        | { kind: 'number'; number: { value: number | null } }
+        | { kind: 'json'; json: { value: Record<string, unknown> } };
+      seq: string;
+      sourceClientEventId: string;
+      sourceClientId: string;
+    }
+  | {
+      id: string;
+      recordKey: string;
+      lessonId: string;
+      interactionId: string;
+      type: 'evaluated';
+      at: string;
+      actor: 'system';
+      phase: 'resolved' | 'error';
+      result: {
+        outcome: 'correct' | 'incorrect' | null;
+        score?: number | null;
+        feedbackText?: string | null;
+        response?: Record<string, unknown> | null;
+        evaluatedAt?: string | null;
+      };
+      seq: string;
+      sourceClientEventId: string;
+      sourceClientId: string;
+    };
 
 // Resend Webhook Events Table
 // Tracks webhook events for idempotent processing using svix-id

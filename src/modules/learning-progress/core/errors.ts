@@ -29,16 +29,6 @@ export interface TooManyEventsError {
 }
 
 /**
- * User has reached maximum event storage limit.
- */
-export interface EventLimitExceededError {
-  readonly type: 'EventLimitExceededError';
-  readonly message: string;
-  readonly limit: number;
-  readonly current: number;
-}
-
-/**
  * Invalid event data provided.
  */
 export interface InvalidEventError {
@@ -54,11 +44,7 @@ export interface InvalidEventError {
 /**
  * Union of all learning progress errors.
  */
-export type LearningProgressError =
-  | DatabaseError
-  | TooManyEventsError
-  | EventLimitExceededError
-  | InvalidEventError;
+export type LearningProgressError = DatabaseError | TooManyEventsError | InvalidEventError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors
@@ -85,19 +71,6 @@ export const createTooManyEventsError = (limit: number, provided: number): TooMa
 });
 
 /**
- * Create an event limit exceeded error.
- */
-export const createEventLimitExceededError = (
-  limit: number,
-  current: number
-): EventLimitExceededError => ({
-  type: 'EventLimitExceededError',
-  message: `User has reached the maximum event storage limit of ${String(limit)}. Current count: ${String(current)}.`,
-  limit,
-  current,
-});
-
-/**
  * Create an invalid event error.
  */
 export const createInvalidEventError = (message: string, eventId?: string): InvalidEventError => ({
@@ -116,7 +89,6 @@ export const createInvalidEventError = (message: string, eventId?: string): Inva
 export const LEARNING_PROGRESS_ERROR_HTTP_STATUS: Record<LearningProgressError['type'], number> = {
   DatabaseError: 500,
   TooManyEventsError: 400,
-  EventLimitExceededError: 400,
   InvalidEventError: 400,
 };
 

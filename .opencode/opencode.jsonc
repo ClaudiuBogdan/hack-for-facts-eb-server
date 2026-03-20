@@ -8,8 +8,6 @@
   "model": "anthropic/opus-deep",
   // Lightweight model for title generation and simple tasks
   "small_model": "anthropic/claude-haiku-4-5-20251001",
-  // Theme
-  "theme": "opencode",
   // Auto-update OpenCode
   "autoupdate": true,
   // ============================================================================
@@ -22,15 +20,6 @@
     "docs/CORE-SHELL-ARCHITECTURE.md",
     "docs/MODULE-DEPENDENCIES.md",
   ],
-  // ============================================================================
-  // TUI CONFIGURATION
-  // ============================================================================
-  "tui": {
-    "scroll_speed": 1,
-    "scroll_acceleration": {
-      "enabled": false
-    },
-  },
   // ============================================================================
   // FORMATTER CONFIGURATION - Use Prettier for code formatting
   // ============================================================================

@@ -1,193 +1,185 @@
 /**
  * Learning Progress REST API Schemas
- *
- * TypeBox schemas for request/response validation.
- * Implements strict validation to catch client bugs.
  */
 
 import { Type, type Static } from '@sinclair/typebox';
 
 import { MAX_EVENTS_PER_REQUEST } from '../../core/types.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Event Schemas
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Content status enum.
- * Per client spec: not_started | in_progress | completed | passed
- */
-export const LearningContentStatusSchema = Type.Union([
-  Type.Literal('not_started'),
-  Type.Literal('in_progress'),
-  Type.Literal('completed'),
-  Type.Literal('passed'),
+const InteractionScopeSchema = Type.Union([
+  Type.Object({
+    type: Type.Literal('entity'),
+    entityCui: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    type: Type.Literal('global'),
+  }),
 ]);
 
-/**
- * Event type enum.
- */
-export const LearningProgressEventTypeSchema = Type.Union([
-  Type.Literal('content.progressed'),
-  Type.Literal('onboarding.completed'),
-  Type.Literal('onboarding.reset'),
-  Type.Literal('activePath.set'),
-  Type.Literal('progress.reset'),
+const InteractionValueSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal('choice'),
+    choice: Type.Object({
+      selectedId: Type.Union([Type.String(), Type.Null()]),
+    }),
+  }),
+  Type.Object({
+    kind: Type.Literal('text'),
+    text: Type.Object({
+      value: Type.String(),
+    }),
+  }),
+  Type.Object({
+    kind: Type.Literal('url'),
+    url: Type.Object({
+      value: Type.String(),
+    }),
+  }),
+  Type.Object({
+    kind: Type.Literal('number'),
+    number: Type.Object({
+      value: Type.Union([Type.Number(), Type.Null()]),
+    }),
+  }),
+  Type.Object({
+    kind: Type.Literal('json'),
+    json: Type.Object({
+      value: Type.Record(Type.String(), Type.Unknown()),
+    }),
+  }),
 ]);
 
-/**
- * Interaction state (flexible JSON object).
- */
-export const LearningInteractionStateSchema = Type.Record(Type.String(), Type.Unknown(), {
-  description: 'Interaction state data',
-});
-
-/**
- * Interaction update within content progress.
- */
-export const InteractionUpdateSchema = Type.Object(
+const InteractionResultSchema = Type.Object(
   {
-    interactionId: Type.String({ minLength: 1, maxLength: 200 }),
-    state: Type.Union([LearningInteractionStateSchema, Type.Null()]),
+    outcome: Type.Union([Type.Literal('correct'), Type.Literal('incorrect'), Type.Null()]),
+    score: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+    feedbackText: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    response: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+    evaluatedAt: Type.Optional(Type.Union([Type.String({ format: 'date-time' }), Type.Null()])),
   },
   { additionalProperties: false }
 );
 
-/**
- * Payload for content.progressed events.
- */
-export const ContentProgressPayloadSchema = Type.Object(
+const InteractionCompletionRuleSchema = Type.Union([
+  Type.Object({
+    type: Type.Literal('outcome'),
+    outcome: Type.Union([Type.Literal('correct'), Type.Literal('incorrect')]),
+  }),
+  Type.Object({
+    type: Type.Literal('resolved'),
+  }),
+  Type.Object({
+    type: Type.Literal('score-threshold'),
+    minScore: Type.Number(),
+  }),
+  Type.Object({
+    type: Type.Literal('component-flag'),
+    flag: Type.String({ minLength: 1 }),
+  }),
+]);
+
+const InteractiveStateRecordSchema = Type.Object(
   {
-    contentId: Type.String({ minLength: 1, maxLength: 200 }),
-    status: LearningContentStatusSchema,
-    score: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
-    contentVersion: Type.Optional(Type.String({ maxLength: 50 })),
-    interaction: Type.Optional(InteractionUpdateSchema),
+    key: Type.String({ minLength: 1 }),
+    interactionId: Type.String({ minLength: 1 }),
+    lessonId: Type.String({ minLength: 1 }),
+    kind: Type.Union([
+      Type.Literal('quiz'),
+      Type.Literal('url'),
+      Type.Literal('text-input'),
+      Type.Literal('custom'),
+    ]),
+    scope: InteractionScopeSchema,
+    completionRule: InteractionCompletionRuleSchema,
+    phase: Type.Union([
+      Type.Literal('idle'),
+      Type.Literal('draft'),
+      Type.Literal('pending'),
+      Type.Literal('resolved'),
+      Type.Literal('error'),
+    ]),
+    value: Type.Union([InteractionValueSchema, Type.Null()]),
+    result: Type.Union([InteractionResultSchema, Type.Null()]),
+    updatedAt: Type.String({ format: 'date-time' }),
+    submittedAt: Type.Optional(Type.Union([Type.String({ format: 'date-time' }), Type.Null()])),
   },
   { additionalProperties: false }
 );
 
-/**
- * Base event fields (shared by all event types).
- */
+const InteractiveAuditEventSchema = Type.Union([
+  Type.Object({
+    id: Type.String({ minLength: 1 }),
+    recordKey: Type.String({ minLength: 1 }),
+    lessonId: Type.String({ minLength: 1 }),
+    interactionId: Type.String({ minLength: 1 }),
+    type: Type.Literal('submitted'),
+    at: Type.String({ format: 'date-time' }),
+    actor: Type.Literal('user'),
+    value: InteractionValueSchema,
+  }),
+  Type.Object({
+    id: Type.String({ minLength: 1 }),
+    recordKey: Type.String({ minLength: 1 }),
+    lessonId: Type.String({ minLength: 1 }),
+    interactionId: Type.String({ minLength: 1 }),
+    type: Type.Literal('evaluated'),
+    at: Type.String({ format: 'date-time' }),
+    actor: Type.Literal('system'),
+    phase: Type.Union([Type.Literal('resolved'), Type.Literal('error')]),
+    result: InteractionResultSchema,
+  }),
+]);
+
 const EventBaseSchema = {
-  eventId: Type.String({
-    minLength: 1,
-    maxLength: 100,
-    description: 'Unique event identifier (client-generated UUID)',
-  }),
-  occurredAt: Type.String({
-    format: 'date-time',
-    description: 'When the event occurred (ISO 8601)',
-  }),
-  clientId: Type.String({
-    minLength: 1,
-    maxLength: 100,
-    description: 'Client/device identifier',
-  }),
+  eventId: Type.String({ minLength: 1, maxLength: 200 }),
+  occurredAt: Type.String({ format: 'date-time' }),
+  clientId: Type.String({ minLength: 1, maxLength: 200 }),
 };
 
-/**
- * Content progressed event.
- */
-export const ContentProgressedEventSchema = Type.Object({
-  ...EventBaseSchema,
-  type: Type.Literal('content.progressed'),
-  payload: ContentProgressPayloadSchema,
-});
+export const InteractiveUpdatedEventSchema = Type.Object(
+  {
+    ...EventBaseSchema,
+    type: Type.Literal('interactive.updated'),
+    payload: Type.Object(
+      {
+        record: InteractiveStateRecordSchema,
+        auditEvents: Type.Optional(Type.Array(InteractiveAuditEventSchema)),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
 
-/**
- * Onboarding completed event.
- */
-export const OnboardingCompletedEventSchema = Type.Object({
-  ...EventBaseSchema,
-  type: Type.Literal('onboarding.completed'),
-  payload: Type.Object(
-    {
-      pathId: Type.String({ minLength: 1, maxLength: 100 }),
-    },
-    { additionalProperties: false }
-  ),
-});
+export const ProgressResetEventSchema = Type.Object(
+  {
+    ...EventBaseSchema,
+    type: Type.Literal('progress.reset'),
+  },
+  { additionalProperties: false }
+);
 
-/**
- * Onboarding reset event.
- * This event has NO payload field per client specification.
- */
-export const OnboardingResetEventSchema = Type.Object({
-  ...EventBaseSchema,
-  type: Type.Literal('onboarding.reset'),
-});
-
-/**
- * Active path set event.
- */
-export const ActivePathSetEventSchema = Type.Object({
-  ...EventBaseSchema,
-  type: Type.Literal('activePath.set'),
-  payload: Type.Object(
-    {
-      pathId: Type.Union([Type.String({ minLength: 1, maxLength: 100 }), Type.Null()]),
-    },
-    { additionalProperties: false }
-  ),
-});
-
-/**
- * Progress reset event.
- * Resets all learning progress for the user.
- * This event has NO payload field.
- */
-export const ProgressResetEventSchema = Type.Object({
-  ...EventBaseSchema,
-  type: Type.Literal('progress.reset'),
-});
-
-/**
- * Union of all event types.
- */
 export const LearningProgressEventSchema = Type.Union([
-  ContentProgressedEventSchema,
-  OnboardingCompletedEventSchema,
-  OnboardingResetEventSchema,
-  ActivePathSetEventSchema,
+  InteractiveUpdatedEventSchema,
   ProgressResetEventSchema,
 ]);
 
 export type LearningProgressEventBody = Static<typeof LearningProgressEventSchema>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Request Schemas
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Query params for GET /progress.
- */
 export const GetProgressQuerySchema = Type.Object(
   {
-    since: Type.Optional(
-      Type.String({
-        description: 'Cursor (ISO timestamp) to get events since',
-      })
-    ),
+    since: Type.Optional(Type.String({ minLength: 1 })),
   },
   { additionalProperties: false }
 );
 
 export type GetProgressQuery = Static<typeof GetProgressQuerySchema>;
 
-/**
- * Request body for PUT /progress.
- */
 export const SyncEventsBodySchema = Type.Object(
   {
-    clientUpdatedAt: Type.String({
-      format: 'date-time',
-      description: 'Client timestamp when sync was initiated',
-    }),
+    clientUpdatedAt: Type.String({ format: 'date-time' }),
     events: Type.Array(LearningProgressEventSchema, {
       maxItems: MAX_EVENTS_PER_REQUEST,
-      description: `Array of events to sync (max ${String(MAX_EVENTS_PER_REQUEST)})`,
     }),
   },
   { additionalProperties: false }
@@ -195,71 +187,43 @@ export const SyncEventsBodySchema = Type.Object(
 
 export type SyncEventsBody = Static<typeof SyncEventsBodySchema>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Response Schemas
-// ─────────────────────────────────────────────────────────────────────────────
+export const LearningProgressSnapshotSchema = Type.Object(
+  {
+    version: Type.Number(),
+    recordsByKey: Type.Record(Type.String(), InteractiveStateRecordSchema),
+    lastUpdated: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
 
-/**
- * Content progress in snapshot.
- */
-export const LearningContentProgressSchema = Type.Object({
-  contentId: Type.String(),
-  status: LearningContentStatusSchema,
-  score: Type.Optional(Type.Number()),
-  completedAt: Type.Optional(Type.String()),
-  lastAttemptAt: Type.Optional(Type.String()),
-  interactions: Type.Record(
-    Type.String(),
-    Type.Union([LearningInteractionStateSchema, Type.Null()])
-  ),
-});
+export const GetProgressResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        snapshot: LearningProgressSnapshotSchema,
+        events: Type.Array(InteractiveUpdatedEventSchema),
+        cursor: Type.String(),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
 
-/**
- * Streak information.
- */
-export const LearningStreakSchema = Type.Object({
-  currentStreak: Type.Number(),
-  longestStreak: Type.Number(),
-  lastActivityDate: Type.Union([Type.String(), Type.Null()]),
-});
+export const SyncEventsResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+  },
+  { additionalProperties: false }
+);
 
-/**
- * Learning progress snapshot.
- */
-export const LearningProgressSnapshotSchema = Type.Object({
-  version: Type.Number(),
-  activePath: Type.Union([Type.String(), Type.Null()]),
-  onboardingCompletedAt: Type.Union([Type.String(), Type.Null()]),
-  onboardingPathId: Type.Union([Type.String(), Type.Null()]),
-  content: Type.Record(Type.String(), LearningContentProgressSchema),
-  streak: LearningStreakSchema,
-  lastUpdated: Type.Union([Type.String(), Type.Null()]),
-});
-
-/**
- * Success response for GET /progress.
- * Client derives snapshot from events.
- */
-export const GetProgressResponseSchema = Type.Object({
-  ok: Type.Literal(true),
-  data: Type.Object({
-    events: Type.Array(LearningProgressEventSchema),
-    cursor: Type.String(),
-  }),
-});
-
-/**
- * Success response for PUT /progress.
- */
-export const SyncEventsResponseSchema = Type.Object({
-  ok: Type.Literal(true),
-});
-
-/**
- * Error response.
- */
-export const ErrorResponseSchema = Type.Object({
-  ok: Type.Literal(false),
-  error: Type.String(),
-  message: Type.String(),
-});
+export const ErrorResponseSchema = Type.Object(
+  {
+    ok: Type.Optional(Type.Literal(false)),
+    error: Type.String(),
+    message: Type.String(),
+    details: Type.Optional(Type.Unknown()),
+  },
+  { additionalProperties: false }
+);
