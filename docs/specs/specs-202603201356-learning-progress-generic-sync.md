@@ -1,0 +1,179 @@
+# Generic Learning Progress Sync and Storage
+
+**Status**: Draft
+**Date**: 2026-03-20
+**Author**: Codex
+
+## Problem
+
+The previous learning-progress backend stored one JSONB event array per user and encoded domain-specific semantics directly into server-side event types and snapshot logic. That design no longer matched the client progress model and introduced correctness issues:
+
+- stale writes could overwrite newer record state based on arrival order
+- concurrent writes to the same logical record could race and lose audit events
+- the backend understood onboarding, content progress, and other domain-specific concerns that the client had already moved into generic records
+- the client and server no longer shared one canonical sync contract
+
+The current system needed a single generic contract where the server stores opaque progress records safely and the client owns projection into learning or campaign-specific views.
+
+## Context
+
+### Current Constraints
+
+- The route remains `GET /api/v1/learning/progress` and `PUT /api/v1/learning/progress`.
+- The server stores one row per `user_id + record_key`.
+- Client-owned reserved keys such as onboarding, active path, streak, lesson summaries, and campaign state must remain opaque to the backend.
+- The client uses `InteractiveStateRecord` and `InteractiveAuditEvent` as the shared envelope for both user-facing and reserved/system state.
+- Sync must be safe under retries, stale offline updates, and concurrent device/tab writes.
+
+### Why This Matters Now
+
+- The client now projects `LearningGuestProgress` from generic records rather than syncing domain-specific events.
+- The server had to stop interpreting old event types such as `content.progressed`, `onboarding.completed`, `onboarding.reset`, and `activePath.set`.
+- Atomicity and write ordering had to be corrected so progress state is determined by record freshness and transaction boundaries rather than request arrival order.
+
+## Decision
+
+### 1. The server accepts only generic progress transport events
+
+The only accepted event types are:
+
+- `interactive.updated`
+- `progress.reset`
+
+Rules:
+
+- `interactive.updated` carries one `InteractiveStateRecord` and optional `InteractiveAuditEvent[]`.
+- `progress.reset` clears all learning-progress rows for the user.
+- The server rejects old learning-specific transport events and does not expose replacement server-specific domain events.
+
+### 2. The server snapshot is generic, not projected
+
+The response snapshot shape is:
+
+```ts
+{
+  version: 1,
+  recordsByKey: Record<string, InteractiveStateRecord>,
+  lastUpdated: string | null,
+}
+```
+
+Rules:
+
+- The snapshot is authoritative remote state.
+- The server does not return `LearningGuestProgress` or any projected fields such as onboarding, active path, streak, or content summaries.
+- The client is responsible for projecting generic records into app-specific state.
+
+### 3. Storage is one row per `user_id + record_key`
+
+Each learning-progress row stores:
+
+- `record_key`
+- current `record` (`InteractiveStateRecord`)
+- inline `audit_events` (`StoredInteractiveAuditEvent[]`)
+- `updated_seq`
+- timestamps
+
+Rules:
+
+- `record_key` is fully client-controlled.
+- `updated_seq` is a monotonic server cursor and write-order marker.
+- `updated_seq` is not a freshness signal; record freshness is determined by `record.updatedAt`.
+- The backend remains agnostic to keys such as `system:learning-onboarding`, `system:learning-streak`, `system:lesson-progress:<contentId>`, or campaign keys.
+
+### 4. Sync batches are atomic
+
+A sync request is processed inside one repository transaction.
+
+Rules:
+
+- a batch such as `progress.reset` followed by `interactive.updated` either fully commits or fully rolls back
+- sync use cases call repository work through `withTransaction()`
+- the transaction boundary is the unit of correctness for a sync request
+
+### 5. Writes are serialized per existing row and safe under first-write races
+
+`upsertInteractiveRecord()` enforces write safety with two behaviors:
+
+- existing rows are locked during update
+- first-write races use conflict-safe insert retry
+
+Rules:
+
+- concurrent writes to the same `record_key` must not drop audit events
+- the implementation must handle two clients creating the same row concurrently
+- writes that start from the same previous state must not overwrite each other’s merged audit history
+
+### 6. Stale record snapshots are rejected by `record.updatedAt`
+
+The server compares incoming and stored record freshness using `record.updatedAt`.
+
+Rules:
+
+- if the incoming record is older than the stored record, the stored row snapshot stays newer
+- unseen audit events may still merge into the row even when the stored record remains the authoritative snapshot
+- final row state is determined by record freshness, not request arrival order
+
+### 7. Remote delta ordering is still expressed by `updated_seq`
+
+The server exposes deltas by cursor using `updated_seq`.
+
+Rules:
+
+- `GET /api/v1/learning/progress` without `since` returns the authoritative snapshot and may return `events: []`
+- `GET /api/v1/learning/progress?since=<cursor>` returns synthetic `interactive.updated` deltas for rows changed after that sequence
+- `updated_seq` is the server-owned ordering token used for sync cursors
+- `updated_seq` must not be used by the client as a replacement for `record.updatedAt` freshness
+
+## Alternatives Considered
+
+### 1. Keep old content/onboarding/active-path event types
+
+Rejected because:
+
+- it keeps server-side domain knowledge that the client has already moved into reserved records
+- it creates two overlapping progress contracts
+- it reintroduces schema drift between client projection rules and backend storage
+
+### 2. Use a special server meta row for onboarding, active path, or sync metadata
+
+Rejected because:
+
+- it breaks the generic record model
+- it makes the server aware of client-specific state meanings
+- the client already has a reserved-key convention that serves the same purpose without backend semantics
+
+### 3. Normalize into multiple backend tables and projections
+
+Rejected because:
+
+- it adds complexity without changing the client contract
+- the chosen model optimizes for one generic sync backend with minimal schema surface
+- a single table plus opaque records is sufficient for current needs
+
+## Consequences
+
+**Positive**
+
+- The client and server now share one generic sync contract.
+- Stale offline updates no longer overwrite newer record state.
+- Concurrent writes to the same logical record are handled safely.
+- The backend stays simple and agnostic to learning- or campaign-specific semantics.
+- Reserved keys can evolve on the client without backend schema changes.
+
+**Negative**
+
+- The server no longer provides projected app state; the client must own all projection logic.
+- Cold snapshots still do not include historical audit logs unless the API is extended to embed them.
+- The meaning of reserved keys is intentionally undocumented in the backend schema itself and must be tracked in client specs and code.
+
+## References
+
+- `src/modules/learning-progress/core/types.ts`
+- `src/modules/learning-progress/core/ports.ts`
+- `src/modules/learning-progress/core/usecases/get-progress.ts`
+- `src/modules/learning-progress/core/usecases/sync-events.ts`
+- `src/modules/learning-progress/core/reducer.ts`
+- `src/modules/learning-progress/shell/repo/learning-progress-repo.ts`
+- `src/modules/learning-progress/shell/rest/schemas.ts`
+- `src/infra/database/user/schema.sql`

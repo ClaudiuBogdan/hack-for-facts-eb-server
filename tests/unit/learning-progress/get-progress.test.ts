@@ -1,175 +1,227 @@
-/**
- * Get Progress Use Case Tests
- *
- * Tests the event retrieval logic.
- * Client derives snapshot from events (not tested here).
- */
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { getProgress } from '@/modules/learning-progress/core/usecases/get-progress.js';
 
 import {
+  createTestEvaluatedAuditEvent,
+  createTestInteractiveRecord,
   makeFakeLearningProgressRepo,
-  createTestContentProgressedEvent,
-  createTestOnboardingCompletedEvent,
 } from '../../fixtures/fakes.js';
 
-import type { LearningProgressEvent } from '@/modules/learning-progress/core/types.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────────────────────
+import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
 describe('getProgress', () => {
-  it('returns empty events and cursor for user with no progress', async () => {
+  it('returns an empty snapshot and cursor 0 for users without progress', async () => {
     const repo = makeFakeLearningProgressRepo();
 
     const result = await getProgress({ repo }, { userId: 'user-1', since: undefined });
 
     expect(result.isOk()).toBe(true);
-    const data = result._unsafeUnwrap();
-    expect(data.events).toEqual([]);
-    expect(data.cursor).toBe('');
+    expect(result._unsafeUnwrap()).toEqual({
+      snapshot: {
+        version: 1,
+        recordsByKey: {},
+        lastUpdated: null,
+      },
+      events: [],
+      cursor: '0',
+    });
   });
 
-  it('returns all events when no cursor provided', async () => {
-    const events: LearningProgressEvent[] = [
-      createTestContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-      createTestOnboardingCompletedEvent('path-basics', {
-        eventId: 'e2',
-        occurredAt: '2024-01-15T11:00:00Z',
-      }),
-    ];
+  it('returns snapshot only on cold load', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '5',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
 
-    const initialEvents = new Map<string, LearningProgressEvent[]>();
-    initialEvents.set('user-1', events);
-
-    const repo = makeFakeLearningProgressRepo({ initialEvents });
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
 
     const result = await getProgress({ repo }, { userId: 'user-1', since: undefined });
 
     expect(result.isOk()).toBe(true);
-    const data = result._unsafeUnwrap();
-
-    // Should return ALL events when no cursor
-    expect(data.events).toHaveLength(2);
-    expect(data.events[0]!.eventId).toBe('e1');
-    expect(data.events[1]!.eventId).toBe('e2');
-
-    // Cursor should be the latest event timestamp
-    expect(data.cursor).toBe('2024-01-15T11:00:00Z');
+    expect(result._unsafeUnwrap()).toEqual({
+      snapshot: {
+        version: 1,
+        recordsByKey: {
+          [record.key]: record,
+        },
+        lastUpdated: '2024-01-15T10:00:00.000Z',
+      },
+      events: [],
+      cursor: '5',
+    });
   });
 
-  it('returns events since cursor when provided', async () => {
-    const events: LearningProgressEvent[] = [
-      createTestContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
+  it('returns changed rows as synthetic interactive.updated deltas', async () => {
+    const recordA = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const recordB = createTestInteractiveRecord({
+      key: 'quiz-2::entity:123',
+      interactionId: 'quiz-2',
+      lessonId: 'lesson-2',
+      phase: 'resolved',
+      updatedAt: '2024-01-15T11:00:00.000Z',
+      result: {
+        outcome: 'correct',
+        evaluatedAt: '2024-01-15T11:00:00.000Z',
+      },
+    });
+    const evaluatedAudit = {
+      ...createTestEvaluatedAuditEvent({
+        recordKey: recordB.key,
+        lessonId: recordB.lessonId,
+        interactionId: recordB.interactionId,
+        result: {
+          outcome: 'correct',
+          evaluatedAt: '2024-01-15T11:00:00.000Z',
+        },
       }),
-      createTestContentProgressedEvent({
-        eventId: 'e2',
-        occurredAt: '2024-01-15T11:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-      createTestContentProgressedEvent({
-        eventId: 'e3',
-        occurredAt: '2024-01-15T12:00:00Z',
-        payload: { contentId: 'lesson-2', status: 'in_progress' },
-      }),
-    ];
+      seq: '7',
+      sourceClientEventId: 'event-7',
+      sourceClientId: 'device-1',
+    };
 
-    const initialEvents = new Map<string, LearningProgressEvent[]>();
-    initialEvents.set('user-1', events);
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: recordA.key,
+        record: recordA,
+        auditEvents: [],
+        updatedSeq: '5',
+        createdAt: recordA.updatedAt,
+        updatedAt: recordA.updatedAt,
+      },
+      {
+        userId: 'user-1',
+        recordKey: recordB.key,
+        record: recordB,
+        auditEvents: [evaluatedAudit],
+        updatedSeq: '7',
+        createdAt: recordB.updatedAt,
+        updatedAt: recordB.updatedAt,
+      },
+    ]);
 
-    const repo = makeFakeLearningProgressRepo({ initialEvents });
-
-    // Get events since the first event
-    const result = await getProgress({ repo }, { userId: 'user-1', since: '2024-01-15T10:30:00Z' });
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const result = await getProgress({ repo }, { userId: 'user-1', since: '5' });
 
     expect(result.isOk()).toBe(true);
     const data = result._unsafeUnwrap();
-
-    // Should return events after the cursor
-    expect(data.events).toHaveLength(2);
-    expect(data.events[0]!.eventId).toBe('e2');
-    expect(data.events[1]!.eventId).toBe('e3');
+    expect(data.cursor).toBe('7');
+    expect(data.events).toEqual([
+      {
+        eventId: 'server:7:quiz-2::entity:123',
+        occurredAt: '2024-01-15T11:00:00.000Z',
+        clientId: 'server',
+        type: 'interactive.updated',
+        payload: {
+          record: recordB,
+          auditEvents: [
+            {
+              id: evaluatedAudit.id,
+              recordKey: evaluatedAudit.recordKey,
+              lessonId: evaluatedAudit.lessonId,
+              interactionId: evaluatedAudit.interactionId,
+              type: 'evaluated',
+              at: evaluatedAudit.at,
+              actor: 'system',
+              phase: 'resolved',
+              result: evaluatedAudit.result,
+            },
+          ],
+        },
+      },
+    ]);
   });
 
-  it('returns database error on failure', async () => {
+  it('treats empty string cursor as a cold load', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '3',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const result = await getProgress({ repo }, { userId: 'user-1', since: '' });
+
+    expect(result.isOk()).toBe(true);
+    const data = result._unsafeUnwrap();
+    expect(data.events).toEqual([]);
+    expect(data.snapshot.recordsByKey[record.key]).toEqual(record);
+    expect(data.cursor).toBe('3');
+  });
+
+  it('returns all records as deltas when since is 0', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '5',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const result = await getProgress({ repo }, { userId: 'user-1', since: '0' });
+
+    expect(result.isOk()).toBe(true);
+    const data = result._unsafeUnwrap();
+    expect(data.snapshot.recordsByKey[record.key]).toEqual(record);
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0]?.type).toBe('interactive.updated');
+    expect(data.events[0]?.payload.record).toEqual(record);
+    expect(data.cursor).toBe('5');
+  });
+
+  it('returns an invalid cursor error for non-numeric cursors', async () => {
+    const repo = makeFakeLearningProgressRepo();
+
+    const result = await getProgress({ repo }, { userId: 'user-1', since: 'not-a-sequence' });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().type).toBe('InvalidEventError');
+  });
+
+  it('returns database errors from the repository', async () => {
     const repo = makeFakeLearningProgressRepo({ simulateDbError: true });
 
     const result = await getProgress({ repo }, { userId: 'user-1', since: undefined });
 
     expect(result.isErr()).toBe(true);
-    const error = result._unsafeUnwrapErr();
-    expect(error.type).toBe('DatabaseError');
-  });
-
-  it('returns all events when empty cursor provided', async () => {
-    const events: LearningProgressEvent[] = [
-      createTestContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-
-    const initialEvents = new Map<string, LearningProgressEvent[]>();
-    initialEvents.set('user-1', events);
-
-    const repo = makeFakeLearningProgressRepo({ initialEvents });
-
-    const result = await getProgress({ repo }, { userId: 'user-1', since: '' });
-
-    expect(result.isOk()).toBe(true);
-    const data = result._unsafeUnwrap();
-
-    // Empty since should return ALL events (same as undefined)
-    expect(data.events).toHaveLength(1);
-    expect(data.events[0]!.eventId).toBe('e1');
-  });
-
-  it('isolates progress between users', async () => {
-    const user1Events: LearningProgressEvent[] = [
-      createTestContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-    const user2Events: LearningProgressEvent[] = [
-      createTestContentProgressedEvent({
-        eventId: 'e2',
-        payload: { contentId: 'lesson-2', status: 'in_progress' },
-      }),
-    ];
-
-    const initialEvents = new Map<string, LearningProgressEvent[]>();
-    initialEvents.set('user-1', user1Events);
-    initialEvents.set('user-2', user2Events);
-
-    const repo = makeFakeLearningProgressRepo({ initialEvents });
-
-    const result1 = await getProgress({ repo }, { userId: 'user-1', since: undefined });
-    const result2 = await getProgress({ repo }, { userId: 'user-2', since: undefined });
-
-    expect(result1.isOk()).toBe(true);
-    expect(result2.isOk()).toBe(true);
-
-    const data1 = result1._unsafeUnwrap();
-    const data2 = result2._unsafeUnwrap();
-
-    // User 1 should only see their events
-    expect(data1.events).toHaveLength(1);
-    expect(data1.events[0]!.eventId).toBe('e1');
-
-    // User 2 should only see their events
-    expect(data2.events).toHaveLength(1);
-    expect(data2.events[0]!.eventId).toBe('e2');
+    expect(result._unsafeUnwrapErr().type).toBe('DatabaseError');
   });
 });

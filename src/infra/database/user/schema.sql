@@ -130,28 +130,26 @@ CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_user ON UnsubscribeTokens(user
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_expires ON UnsubscribeTokens(expires_at) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_notification ON UnsubscribeTokens(notification_id);
 
--- LearningProgress: User learning progress events (event-sourced)
--- Stores all events in a JSONB array for simple load/save operations.
--- The client derives the snapshot from events; server stores and syncs.
-CREATE TABLE IF NOT EXISTS LearningProgress (
-  user_id TEXT PRIMARY KEY,
-  
-  -- All progress events as JSONB array (event-sourced, append-only semantically)
-  -- Each event has: eventId, occurredAt, clientId, type, payload
-  events JSONB NOT NULL DEFAULT '[]'::jsonb,
-  
-  -- Timestamp of the most recent event (used as cursor for sync)
-  last_event_at TIMESTAMPTZ,
-  
-  -- Event count for quick limit checking (max 10,000 per user)
-  event_count INT NOT NULL DEFAULT 0,
-  
+-- LearningProgress: generic record storage for learning and challenge state.
+-- Clean cut from the old per-user event array model.
+DROP TABLE IF EXISTS LearningProgress;
+DROP SEQUENCE IF EXISTS learningprogress_updated_seq;
+
+CREATE SEQUENCE learningprogress_updated_seq;
+
+CREATE TABLE LearningProgress (
+  user_id TEXT NOT NULL,
+  record_key TEXT NOT NULL,
+  record JSONB NOT NULL,
+  audit_events JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_seq BIGINT NOT NULL DEFAULT nextval('learningprogress_updated_seq'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, record_key)
 );
 
--- Index for quick user lookup (primary key covers this)
--- No additional indexes needed since we always load the full row
+CREATE INDEX IF NOT EXISTS idx_learningprogress_user_updated_seq
+ON LearningProgress(user_id, updated_seq);
 
 -- ResendWebhookEvents: Tracks Resend webhook events for idempotent processing
 -- Uses svix-id header as unique event identifier (NOT event.id from payload)

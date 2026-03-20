@@ -74,6 +74,7 @@ export const makeLearningProgressRoutes = (
           querystring: GetProgressQuerySchema,
           response: {
             200: GetProgressResponseSchema,
+            400: ErrorResponseSchema,
             401: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -91,7 +92,7 @@ export const makeLearningProgressRoutes = (
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 500).send({
+          return reply.status(status as 400 | 500).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,

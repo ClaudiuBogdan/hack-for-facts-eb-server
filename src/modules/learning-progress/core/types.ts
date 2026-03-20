@@ -1,272 +1,161 @@
 /**
  * Learning Progress Module - Domain Types
  *
- * Types for event-sourced learning progress sync.
- * Matches the client specification for LearningProgressEvent and LearningProgressSnapshot.
+ * The server stores one row per user and per client-controlled record key.
+ * It treats all synced state as generic interactive records.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Maximum events allowed per PUT request */
 export const MAX_EVENTS_PER_REQUEST = 100;
-
-/** Maximum total events stored per user */
-export const MAX_EVENTS_PER_USER = 10_000;
-
-/** Snapshot version for forward compatibility */
 export const SNAPSHOT_VERSION = 1;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Event Types
-// ─────────────────────────────────────────────────────────────────────────────
+export type LessonId = string;
 
-/**
- * Supported event types for learning progress.
- */
-export type LearningProgressEventType =
-  | 'content.progressed'
-  | 'onboarding.completed'
-  | 'onboarding.reset'
-  | 'activePath.set'
-  | 'progress.reset';
+export type InteractionScope =
+  | { readonly type: 'global' }
+  | { readonly type: 'entity'; readonly entityCui: string };
 
-/**
- * Content status progression.
- * Status precedence (highest to lowest): passed > completed > in_progress > not_started
- */
-export type LearningContentStatus = 'not_started' | 'in_progress' | 'completed' | 'passed';
+export type InteractionValue =
+  | { readonly kind: 'choice'; readonly choice: { readonly selectedId: string | null } }
+  | { readonly kind: 'text'; readonly text: { readonly value: string } }
+  | { readonly kind: 'url'; readonly url: { readonly value: string } }
+  | { readonly kind: 'number'; readonly number: { readonly value: number | null } }
+  | { readonly kind: 'json'; readonly json: { readonly value: Readonly<Record<string, unknown>> } };
 
-/**
- * Status precedence map for conflict resolution.
- * Higher number = higher precedence.
- */
-export const STATUS_PRECEDENCE: Record<LearningContentStatus, number> = {
-  not_started: 0,
-  in_progress: 1,
-  completed: 2,
-  passed: 3,
+export type InteractionPhase = 'idle' | 'draft' | 'pending' | 'resolved' | 'error';
+
+export type InteractionOutcome = 'correct' | 'incorrect' | null;
+
+export interface InteractionResult {
+  readonly outcome: InteractionOutcome;
+  readonly score?: number | null;
+  readonly feedbackText?: string | null;
+  readonly response?: Readonly<Record<string, unknown>> | null;
+  readonly evaluatedAt?: string | null;
+}
+
+export type InteractiveDefinitionKind = 'quiz' | 'url' | 'text-input' | 'custom';
+
+export type InteractionCompletionRule =
+  | { readonly type: 'outcome'; readonly outcome: Exclude<InteractionOutcome, null> }
+  | { readonly type: 'resolved' }
+  | { readonly type: 'score-threshold'; readonly minScore: number }
+  | { readonly type: 'component-flag'; readonly flag: string };
+
+export interface InteractiveStateRecord {
+  readonly key: string;
+  readonly interactionId: string;
+  readonly lessonId: LessonId;
+  readonly kind: InteractiveDefinitionKind;
+  readonly scope: InteractionScope;
+  readonly completionRule: InteractionCompletionRule;
+  readonly phase: InteractionPhase;
+  readonly value: InteractionValue | null;
+  readonly result: InteractionResult | null;
+  readonly updatedAt: string;
+  readonly submittedAt?: string | null;
+}
+
+export type InteractiveAuditEvent =
+  | {
+      readonly id: string;
+      readonly recordKey: string;
+      readonly lessonId: LessonId;
+      readonly interactionId: string;
+      readonly type: 'submitted';
+      readonly at: string;
+      readonly actor: 'user';
+      readonly value: InteractionValue;
+    }
+  | {
+      readonly id: string;
+      readonly recordKey: string;
+      readonly lessonId: LessonId;
+      readonly interactionId: string;
+      readonly type: 'evaluated';
+      readonly at: string;
+      readonly actor: 'system';
+      readonly phase: 'resolved' | 'error';
+      readonly result: InteractionResult;
+    };
+
+export type StoredInteractiveAuditEvent = InteractiveAuditEvent & {
+  readonly seq: string;
+  readonly sourceClientEventId: string;
+  readonly sourceClientId: string;
 };
 
-/**
- * Interaction state for quizzes and interactive content.
- * The exact structure depends on interaction type (quiz, drag-drop, etc).
- */
-export type LearningInteractionState = Record<string, unknown>;
-
-/**
- * Base fields for all learning progress events.
- */
-export interface LearningProgressEventBase {
-  /** Unique event identifier (client-generated UUID) */
-  eventId: string;
-  /** When the event occurred (ISO 8601 timestamp) */
-  occurredAt: string;
-  /** Client/device identifier */
-  clientId: string;
-  /** Event type discriminator */
-  type: LearningProgressEventType;
-}
-
-/**
- * Payload for content.progressed events.
- */
-export interface ContentProgressPayload {
-  /** Unique content identifier */
-  contentId: string;
-  /** New status for the content */
-  status: LearningContentStatus;
-  /** Optional score (0-100) for assessments */
-  score?: number;
-  /** Content version for tracking changes */
-  contentVersion?: string;
-  /** Optional interaction state update */
-  interaction?: {
-    /** Unique interaction identifier */
-    interactionId: string;
-    /** Interaction state (null to clear/reset) */
-    state: LearningInteractionState | null;
-  };
-}
-
-/**
- * Event: User progressed on content (lesson, quiz, etc).
- */
-export interface ContentProgressedEvent extends LearningProgressEventBase {
-  type: 'content.progressed';
-  payload: ContentProgressPayload;
-}
-
-/**
- * Event: User completed onboarding with a specific path.
- */
-export interface OnboardingCompletedEvent extends LearningProgressEventBase {
-  type: 'onboarding.completed';
-  payload: {
-    /** The path selected during onboarding */
-    pathId: string;
-  };
-}
-
-/**
- * Event: User reset their onboarding state.
- * Note: This event has NO payload field per client specification.
- */
-export interface OnboardingResetEvent extends LearningProgressEventBase {
-  type: 'onboarding.reset';
-}
-
-/**
- * Event: User changed their active learning path.
- */
-export interface ActivePathSetEvent extends LearningProgressEventBase {
-  type: 'activePath.set';
-  payload: {
-    /** The new active path (null to clear) */
-    pathId: string | null;
-  };
-}
-
-/**
- * Event: User reset all their learning progress.
- * Note: This event has NO payload field.
- */
-export interface ProgressResetEvent extends LearningProgressEventBase {
-  type: 'progress.reset';
-}
-
-/**
- * Union of all learning progress event types.
- */
-export type LearningProgressEvent =
-  | ContentProgressedEvent
-  | OnboardingCompletedEvent
-  | OnboardingResetEvent
-  | ActivePathSetEvent
-  | ProgressResetEvent;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Snapshot Types (Derived State)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Progress state for a single content item.
- */
-export interface LearningContentProgress {
-  /** Content identifier */
-  contentId: string;
-  /** Current status */
-  status: LearningContentStatus;
-  /** Best score achieved (if applicable) */
-  score?: number;
-  /** When the content was first completed/passed */
-  completedAt?: string;
-  /** When the content was last attempted */
-  lastAttemptAt?: string;
-  /** Interaction states keyed by interactionId */
-  interactions: Record<string, LearningInteractionState | null>;
-}
-
-/**
- * Learning streak information.
- */
-export interface LearningStreak {
-  /** Current consecutive days streak */
-  currentStreak: number;
-  /** Longest streak ever achieved */
-  longestStreak: number;
-  /** Date of last activity (YYYY-MM-DD) */
-  lastActivityDate: string | null;
-}
-
-/**
- * Complete learning progress snapshot.
- * This is derived from the event log and represents the current state.
- */
 export interface LearningProgressSnapshot {
-  /** Schema version for forward compatibility */
-  version: number;
-  /** Currently active learning path (null if none) */
-  activePath: string | null;
-  /** When onboarding was completed (ISO timestamp) */
-  onboardingCompletedAt: string | null;
-  /** Path selected during onboarding */
-  onboardingPathId: string | null;
-  /** Content progress keyed by contentId */
-  content: Record<string, LearningContentProgress>;
-  /** Streak information */
-  streak: LearningStreak;
-  /** When progress was last updated (max occurredAt from events) */
-  lastUpdated: string | null;
+  readonly version: typeof SNAPSHOT_VERSION;
+  readonly recordsByKey: Readonly<Record<string, InteractiveStateRecord>>;
+  readonly lastUpdated: string | null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// API Types
-// ─────────────────────────────────────────────────────────────────────────────
+export type LearningProgressEventType = 'interactive.updated' | 'progress.reset';
 
-/**
- * Response data for GET /progress endpoint.
- * Client derives snapshot from events.
- */
+export interface LearningProgressEventBase {
+  readonly eventId: string;
+  readonly occurredAt: string;
+  readonly clientId: string;
+  readonly type: LearningProgressEventType;
+}
+
+export type LearningInteractiveUpdatedEvent = LearningProgressEventBase & {
+  readonly type: 'interactive.updated';
+  readonly payload: {
+    readonly record: InteractiveStateRecord;
+    readonly auditEvents?: readonly InteractiveAuditEvent[];
+  };
+};
+
+export type LearningProgressResetEvent = LearningProgressEventBase & {
+  readonly type: 'progress.reset';
+};
+
+export type LearningProgressEvent = LearningInteractiveUpdatedEvent | LearningProgressResetEvent;
+
 export interface GetProgressResponse {
-  /** All events (or events since cursor if provided) */
-  events: LearningProgressEvent[];
-  /** Cursor for subsequent sync requests (ISO timestamp of latest event) */
-  cursor: string;
+  readonly snapshot: LearningProgressSnapshot;
+  readonly events: readonly LearningInteractiveUpdatedEvent[];
+  readonly cursor: string;
 }
 
-/**
- * Request body for PUT /progress endpoint.
- */
 export interface SyncEventsRequest {
-  /** Client's timestamp when sync was initiated */
-  clientUpdatedAt: string;
-  /** Events to sync (max 100) */
-  events: LearningProgressEvent[];
+  readonly clientUpdatedAt: string;
+  readonly events: readonly LearningProgressEvent[];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Type Guards
-// ─────────────────────────────────────────────────────────────────────────────
+export interface LearningProgressRecordRow {
+  readonly userId: string;
+  readonly recordKey: string;
+  readonly record: InteractiveStateRecord;
+  readonly auditEvents: readonly StoredInteractiveAuditEvent[];
+  readonly updatedSeq: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
 
-/**
- * Check if an event is a content.progressed event.
- */
-export const isContentProgressedEvent = (
+export interface UpsertInteractiveRecordInput {
+  readonly userId: string;
+  readonly eventId: string;
+  readonly clientId: string;
+  readonly occurredAt: string;
+  readonly record: InteractiveStateRecord;
+  readonly auditEvents: readonly InteractiveAuditEvent[];
+}
+
+export interface UpsertInteractiveRecordResult {
+  readonly applied: boolean;
+  readonly row: LearningProgressRecordRow;
+}
+
+export const isInteractiveUpdatedEvent = (
   event: LearningProgressEvent
-): event is ContentProgressedEvent => {
-  return event.type === 'content.progressed';
+): event is LearningInteractiveUpdatedEvent => {
+  return event.type === 'interactive.updated';
 };
 
-/**
- * Check if an event is an onboarding.completed event.
- */
-export const isOnboardingCompletedEvent = (
+export const isProgressResetEvent = (
   event: LearningProgressEvent
-): event is OnboardingCompletedEvent => {
-  return event.type === 'onboarding.completed';
-};
-
-/**
- * Check if an event is an onboarding.reset event.
- */
-export const isOnboardingResetEvent = (
-  event: LearningProgressEvent
-): event is OnboardingResetEvent => {
-  return event.type === 'onboarding.reset';
-};
-
-/**
- * Check if an event is an activePath.set event.
- */
-export const isActivePathSetEvent = (event: LearningProgressEvent): event is ActivePathSetEvent => {
-  return event.type === 'activePath.set';
-};
-
-/**
- * Check if an event is a progress.reset event.
- */
-export const isProgressResetEvent = (event: LearningProgressEvent): event is ProgressResetEvent => {
+): event is LearningProgressResetEvent => {
   return event.type === 'progress.reset';
 };

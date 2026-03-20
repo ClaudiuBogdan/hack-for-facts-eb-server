@@ -1,90 +1,62 @@
 /**
  * Learning Progress Module - Public API
- *
- * Exports for learning progress sync functionality.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type {
-  LearningProgressEvent,
+  LessonId,
+  InteractionScope,
+  InteractionValue,
+  InteractionPhase,
+  InteractionOutcome,
+  InteractionResult,
+  InteractiveDefinitionKind,
+  InteractionCompletionRule,
+  InteractiveStateRecord,
+  InteractiveAuditEvent,
+  StoredInteractiveAuditEvent,
+  LearningProgressSnapshot,
   LearningProgressEventType,
   LearningProgressEventBase,
-  ContentProgressedEvent,
-  OnboardingCompletedEvent,
-  OnboardingResetEvent,
-  ActivePathSetEvent,
-  ProgressResetEvent,
-  ContentProgressPayload,
-  LearningContentStatus,
-  LearningInteractionState,
-  LearningProgressSnapshot,
-  LearningContentProgress,
-  LearningStreak,
+  LearningInteractiveUpdatedEvent,
+  LearningProgressResetEvent,
+  LearningProgressEvent,
   GetProgressResponse,
   SyncEventsRequest,
+  LearningProgressRecordRow,
+  UpsertInteractiveRecordInput,
+  UpsertInteractiveRecordResult,
 } from './core/types.js';
 
 export {
   MAX_EVENTS_PER_REQUEST,
-  MAX_EVENTS_PER_USER,
   SNAPSHOT_VERSION,
-  STATUS_PRECEDENCE,
-  isContentProgressedEvent,
-  isOnboardingCompletedEvent,
-  isOnboardingResetEvent,
-  isActivePathSetEvent,
+  isInteractiveUpdatedEvent,
   isProgressResetEvent,
 } from './core/types.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Errors
-// ─────────────────────────────────────────────────────────────────────────────
 
 export type {
   LearningProgressError,
   DatabaseError,
   TooManyEventsError,
-  EventLimitExceededError,
   InvalidEventError,
 } from './core/errors.js';
 
 export {
   createDatabaseError,
   createTooManyEventsError,
-  createEventLimitExceededError,
   createInvalidEventError,
   getHttpStatusForError,
   LEARNING_PROGRESS_ERROR_HTTP_STATUS,
 } from './core/errors.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Ports
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type {
-  LearningProgressRepository,
-  LearningProgressData,
-  UpsertEventsResult,
-} from './core/ports.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Reducer (Pure Functions)
-// ─────────────────────────────────────────────────────────────────────────────
+export type { LearningProgressRepository } from './core/ports.js';
 
 export {
-  reduceEventsToSnapshot,
-  filterEventsSinceCursor,
-  mergeEvents,
-  countNewEvents,
   createEmptySnapshot,
+  buildSnapshotFromRecords,
+  buildDeltaEventsFromRecords,
+  getLatestCursor,
 } from './core/reducer.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Use Cases
-// ─────────────────────────────────────────────────────────────────────────────
 
 export {
   getProgress,
@@ -99,27 +71,15 @@ export {
   type SyncEventsOutput,
 } from './core/usecases/sync-events.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shell - Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
 export {
   makeLearningProgressRepo,
   type LearningProgressRepoOptions,
 } from './shell/repo/learning-progress-repo.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shell - REST Routes
-// ─────────────────────────────────────────────────────────────────────────────
-
 export {
   makeLearningProgressRoutes,
   type MakeLearningProgressRoutesDeps,
 } from './shell/rest/routes.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shell - REST Schemas
-// ─────────────────────────────────────────────────────────────────────────────
 
 export {
   GetProgressQuerySchema,

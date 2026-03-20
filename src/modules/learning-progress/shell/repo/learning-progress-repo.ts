@@ -1,202 +1,330 @@
 /**
  * Learning Progress Repository - Kysely Implementation
  *
- * Implements the LearningProgressRepository interface using Kysely.
- * Stores all events in a JSONB array per user row.
+ * Stores one row per user and per client-controlled record key.
  */
 
-import { sql } from 'kysely';
-import { ok, err, type Result } from 'neverthrow';
+import { sql, type Transaction } from 'kysely';
+import { err, ok, type Result } from 'neverthrow';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
-import { mergeEvents, countNewEvents } from '../../core/reducer.js';
 
+import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
-  LearningProgressRepository,
-  LearningProgressData,
-  UpsertEventsResult,
-} from '../../core/ports.js';
-import type { LearningProgressEvent } from '../../core/types.js';
+  LearningProgressRecordRow,
+  StoredInteractiveAuditEvent,
+  UpsertInteractiveRecordInput,
+  UpsertInteractiveRecordResult,
+} from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
-import type { LearningProgressEventRow } from '@/infra/database/user/types.js';
+import type {
+  LearningProgressAuditEventRow,
+  LearningProgressRecordValueRow,
+  UserDatabase,
+} from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Options for creating the repository.
- */
 export interface LearningProgressRepoOptions {
-  db: UserDbClient;
+  db: UserDbConnection;
   logger: Logger;
+  transactionScoped?: boolean;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Implementation
-// ─────────────────────────────────────────────────────────────────────────────
+const LEARNING_PROGRESS_ROW_COLUMNS = [
+  'user_id',
+  'record_key',
+  'record',
+  'audit_events',
+  'updated_seq',
+  'created_at',
+  'updated_at',
+] as const;
+
+type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+
+function sortAuditEvents(
+  leftEvent: StoredInteractiveAuditEvent,
+  rightEvent: StoredInteractiveAuditEvent
+): number {
+  const leftSeq = BigInt(leftEvent.seq);
+  const rightSeq = BigInt(rightEvent.seq);
+
+  if (leftSeq < rightSeq) return -1;
+  if (leftSeq > rightSeq) return 1;
+
+  return leftEvent.id.localeCompare(rightEvent.id);
+}
+
+function recordsAreEqual(
+  leftRecord: LearningProgressRecordValueRow,
+  rightRecord: LearningProgressRecordValueRow
+): boolean {
+  return JSON.stringify(leftRecord) === JSON.stringify(rightRecord);
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function compareTimestamps(leftTimestamp: string, rightTimestamp: string): number {
+  const leftValue = Date.parse(leftTimestamp);
+  const rightValue = Date.parse(rightTimestamp);
+
+  if (Number.isNaN(leftValue) || Number.isNaN(rightValue)) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+
+  if (leftValue < rightValue) return -1;
+  if (leftValue > rightValue) return 1;
+  return 0;
+}
+
+class LearningProgressTransactionRollbackError extends Error {
+  readonly failure: LearningProgressError;
+
+  constructor(failure: LearningProgressError) {
+    super('Learning progress transaction rolled back');
+    this.failure = failure;
+  }
+}
 
 class KyselyLearningProgressRepo implements LearningProgressRepository {
-  private readonly db: UserDbClient;
+  private readonly db: UserDbConnection;
   private readonly log: Logger;
+  private readonly transactionScoped: boolean;
 
   constructor(options: LearningProgressRepoOptions) {
     this.db = options.db;
     this.log = options.logger.child({ module: 'learning-progress-repo' });
+    this.transactionScoped = options.transactionScoped ?? false;
   }
 
-  async getProgress(
+  async getRecords(
     userId: string
-  ): Promise<Result<LearningProgressData | null, LearningProgressError>> {
+  ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> {
     try {
-      const row = await this.db
+      const rows = await this.db
         .selectFrom('learningprogress')
-        .select(['events', 'last_event_at', 'event_count'])
+        .select(LEARNING_PROGRESS_ROW_COLUMNS)
         .where('user_id', '=', userId)
+        .orderBy('updated_seq', 'asc')
+        .execute();
+
+      return ok(rows.map((row) => this.mapRow(row as unknown as QueryRow)));
+    } catch (error) {
+      this.log.error({ err: error, userId }, 'Failed to load learning progress records');
+      return err(createDatabaseError('Failed to load learning progress records', error));
+    }
+  }
+
+  async upsertInteractiveRecord(
+    input: UpsertInteractiveRecordInput
+  ): Promise<Result<UpsertInteractiveRecordResult, LearningProgressError>> {
+    try {
+      if (!this.transactionScoped) {
+        return await this.withTransaction((transactionalRepo) =>
+          transactionalRepo.upsertInteractiveRecord(input)
+        );
+      }
+
+      return await this.doUpsertInteractiveRecord(input);
+    } catch (error) {
+      this.log.error(
+        { err: error, userId: input.userId, recordKey: input.record.key },
+        'Failed to upsert learning progress record'
+      );
+      return err(createDatabaseError('Failed to upsert learning progress record', error));
+    }
+  }
+
+  async resetProgress(userId: string): Promise<Result<void, LearningProgressError>> {
+    try {
+      await this.db.deleteFrom('learningprogress').where('user_id', '=', userId).execute();
+      return ok(undefined);
+    } catch (error) {
+      this.log.error({ err: error, userId }, 'Failed to reset learning progress');
+      return err(createDatabaseError('Failed to reset learning progress', error));
+    }
+  }
+
+  async withTransaction<T>(
+    callback: (repo: LearningProgressRepository) => Promise<Result<T, LearningProgressError>>
+  ): Promise<Result<T, LearningProgressError>> {
+    if (this.transactionScoped) {
+      return callback(this);
+    }
+
+    try {
+      const value = await this.db.transaction().execute(async (transaction) => {
+        const transactionalRepo = new KyselyLearningProgressRepo({
+          db: transaction,
+          logger: this.log,
+          transactionScoped: true,
+        });
+        const result = await callback(transactionalRepo);
+
+        if (result.isErr()) {
+          throw new LearningProgressTransactionRollbackError(result.error);
+        }
+
+        return result.value;
+      });
+
+      return ok(value);
+    } catch (error) {
+      if (error instanceof LearningProgressTransactionRollbackError) {
+        return err(error.failure);
+      }
+
+      this.log.error({ err: error }, 'Failed to execute learning progress transaction');
+      return err(createDatabaseError('Failed to execute learning progress transaction', error));
+    }
+  }
+
+  private mapRow(row: QueryRow): LearningProgressRecordRow {
+    return {
+      userId: row.user_id,
+      recordKey: row.record_key,
+      record: row.record,
+      auditEvents: [...row.audit_events].sort(sortAuditEvents),
+      updatedSeq: row.updated_seq,
+      createdAt: toIsoString(row.created_at),
+      updatedAt: toIsoString(row.updated_at),
+    };
+  }
+
+  private async doUpsertInteractiveRecord(
+    input: UpsertInteractiveRecordInput
+  ): Promise<Result<UpsertInteractiveRecordResult, LearningProgressError>> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existingRow = await this.db
+        .selectFrom('learningprogress')
+        .select(LEARNING_PROGRESS_ROW_COLUMNS)
+        .where('user_id', '=', input.userId)
+        .where('record_key', '=', input.record.key)
+        .forUpdate()
         .executeTakeFirst();
 
-      if (row === undefined) {
-        return ok(null);
-      }
-
-      // Parse JSONB events to domain types
-      const events = this.mapRowEventsToEvents(row.events);
-
-      return ok({
-        events,
-        lastEventAt: row.last_event_at !== null ? row.last_event_at.toISOString() : null,
-        eventCount: row.event_count,
-      });
-    } catch (error) {
-      this.log.error({ err: error, userId }, 'Failed to get learning progress');
-      return err(createDatabaseError('Failed to get learning progress', error));
-    }
-  }
-
-  async upsertEvents(
-    userId: string,
-    events: LearningProgressEvent[]
-  ): Promise<Result<UpsertEventsResult, LearningProgressError>> {
-    if (events.length === 0) {
-      return ok({ newEventsCount: 0, totalEventCount: 0 });
-    }
-
-    try {
-      // Get existing progress (or create new)
-      const existingResult = await this.getProgress(userId);
-      if (existingResult.isErr()) {
-        return err(existingResult.error);
-      }
-
-      const existingData = existingResult.value;
-      const existingEvents = existingData?.events ?? [];
-
-      // Merge events (deduplicates by eventId)
-      const mergedEvents = mergeEvents(existingEvents, events);
-      const newEventsCount = countNewEvents(existingEvents, events);
-
-      // Find the latest event timestamp
-      const latestEvent = mergedEvents.reduce<LearningProgressEvent | null>((latest, event) => {
-        if (latest === null || event.occurredAt > latest.occurredAt) {
-          return event;
-        }
-        return latest;
-      }, null);
-
-      const lastEventAt = latestEvent?.occurredAt ?? null;
-
-      // Convert to row format
-      const eventsJson = this.mapEventsToRowEvents(mergedEvents);
-
-      if (existingData === null) {
-        // Insert new row
-        await this.db
+      if (existingRow === undefined) {
+        const updatedSeq = await this.allocateSequence();
+        const insertedRow = await this.db
           .insertInto('learningprogress')
           .values({
-            user_id: userId,
-            events: sql`${JSON.stringify(eventsJson)}::jsonb`,
-            last_event_at: lastEventAt !== null ? new Date(lastEventAt) : null,
-            event_count: mergedEvents.length,
+            user_id: input.userId,
+            record_key: input.record.key,
+            record: sql`${JSON.stringify(input.record)}::jsonb`,
+            audit_events: sql`${JSON.stringify(
+              input.auditEvents.map(
+                (auditEvent): StoredInteractiveAuditEvent => ({
+                  ...auditEvent,
+                  seq: updatedSeq,
+                  sourceClientEventId: input.eventId,
+                  sourceClientId: input.clientId,
+                })
+              )
+            )}::jsonb`,
+            updated_seq: sql`${updatedSeq}::bigint`,
+            created_at: new Date(input.record.updatedAt),
+            updated_at: new Date(input.record.updatedAt),
           } as never)
-          .execute();
-      } else {
-        // Update existing row
-        await this.db
-          .updateTable('learningprogress')
-          .set({
-            events: sql`${JSON.stringify(eventsJson)}::jsonb`,
-            last_event_at: lastEventAt !== null ? new Date(lastEventAt) : null,
-            event_count: mergedEvents.length,
-            updated_at: new Date(),
-          } as never)
-          .where('user_id', '=', userId)
-          .execute();
+          .onConflict((conflict) => conflict.columns(['user_id', 'record_key']).doNothing())
+          .returning(LEARNING_PROGRESS_ROW_COLUMNS)
+          .executeTakeFirst();
+
+        if (insertedRow !== undefined) {
+          return ok({
+            applied: true,
+            row: this.mapRow(insertedRow as unknown as QueryRow),
+          });
+        }
+
+        continue;
       }
 
+      const existingRecord = this.mapRow(existingRow as unknown as QueryRow);
+      const hasDuplicateAuditEvent =
+        input.auditEvents.length > 0 &&
+        existingRecord.auditEvents.some(
+          (auditEvent) => auditEvent.sourceClientEventId === input.eventId
+        );
+      const hasDuplicateRecordOnlyUpdate =
+        input.auditEvents.length === 0 && recordsAreEqual(existingRecord.record, input.record);
+      const isIncomingRecordStale =
+        compareTimestamps(input.record.updatedAt, existingRecord.record.updatedAt) < 0;
+      const hasNewAuditEvents = input.auditEvents.length > 0 && !hasDuplicateAuditEvent;
+      const shouldReplaceRecord = !hasDuplicateRecordOnlyUpdate && !isIncomingRecordStale;
+
+      if (hasDuplicateAuditEvent || (!shouldReplaceRecord && !hasNewAuditEvents)) {
+        return ok({
+          applied: false,
+          row: existingRecord,
+        });
+      }
+
+      const updatedSeq = await this.allocateSequence();
+      const nextAuditEvents = [
+        ...existingRecord.auditEvents,
+        ...input.auditEvents.map(
+          (auditEvent): StoredInteractiveAuditEvent => ({
+            ...auditEvent,
+            seq: updatedSeq,
+            sourceClientEventId: input.eventId,
+            sourceClientId: input.clientId,
+          })
+        ),
+      ].sort(sortAuditEvents);
+
+      const nextRecord = shouldReplaceRecord ? input.record : existingRecord.record;
+      const nextUpdatedAt = shouldReplaceRecord
+        ? new Date(input.record.updatedAt)
+        : new Date(existingRecord.updatedAt);
+
+      const updatedRow = await this.db
+        .updateTable('learningprogress')
+        .set({
+          record: sql`${JSON.stringify(nextRecord)}::jsonb`,
+          audit_events: sql`${JSON.stringify(nextAuditEvents)}::jsonb`,
+          updated_seq: sql`${updatedSeq}::bigint`,
+          updated_at: nextUpdatedAt,
+        } as never)
+        .where('user_id', '=', input.userId)
+        .where('record_key', '=', input.record.key)
+        .returning(LEARNING_PROGRESS_ROW_COLUMNS)
+        .executeTakeFirstOrThrow();
+
       return ok({
-        newEventsCount,
-        totalEventCount: mergedEvents.length,
+        applied: true,
+        row: this.mapRow(updatedRow as unknown as QueryRow),
       });
-    } catch (error) {
-      this.log.error({ err: error, userId, eventCount: events.length }, 'Failed to upsert events');
-      return err(createDatabaseError('Failed to upsert learning progress events', error));
     }
+
+    throw new Error('Failed to upsert learning progress record after concurrent insert retry');
   }
 
-  async getEventCount(userId: string): Promise<Result<number, LearningProgressError>> {
-    try {
-      const row = await this.db
-        .selectFrom('learningprogress')
-        .select(['event_count'])
-        .where('user_id', '=', userId)
-        .executeTakeFirst();
+  private async allocateSequence(): Promise<string> {
+    const sequenceResult = await sql<{ updated_seq: string }>`
+      select nextval('learningprogress_updated_seq')::text as updated_seq
+    `.execute(this.db);
 
-      return ok(row?.event_count ?? 0);
-    } catch (error) {
-      this.log.error({ err: error, userId }, 'Failed to get event count');
-      return err(createDatabaseError('Failed to get event count', error));
+    const updatedSeq = sequenceResult.rows[0]?.updated_seq;
+    if (updatedSeq === undefined) {
+      throw new Error('Failed to allocate learning progress sequence value');
     }
-  }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Private Helpers
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Maps database row events to domain events.
-   */
-  private mapRowEventsToEvents(rowEvents: LearningProgressEventRow[]): LearningProgressEvent[] {
-    return rowEvents.map((row) => ({
-      eventId: row.eventId,
-      occurredAt: row.occurredAt,
-      clientId: row.clientId,
-      type: row.type,
-      payload: row.payload,
-    })) as LearningProgressEvent[];
-  }
-
-  /**
-   * Maps domain events to database row format.
-   */
-  private mapEventsToRowEvents(events: LearningProgressEvent[]): LearningProgressEventRow[] {
-    return events.map((event) => ({
-      eventId: event.eventId,
-      occurredAt: event.occurredAt,
-      clientId: event.clientId,
-      type: event.type,
-      payload: 'payload' in event ? (event.payload as Record<string, unknown>) : {},
-    }));
+    return updatedSeq;
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Factory Function
-// ─────────────────────────────────────────────────────────────────────────────
+interface QueryRow {
+  user_id: string;
+  record_key: string;
+  record: LearningProgressRecordValueRow;
+  audit_events: LearningProgressAuditEventRow[];
+  updated_seq: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
 
-/**
- * Creates a learning progress repository.
- */
 export const makeLearningProgressRepo = (
   options: LearningProgressRepoOptions
 ): LearningProgressRepository => {

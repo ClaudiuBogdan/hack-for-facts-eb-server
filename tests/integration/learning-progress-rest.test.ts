@@ -1,38 +1,23 @@
-/**
- * Integration tests for Learning Progress REST API
- *
- * Tests cover:
- * - Authentication handling
- * - Route behavior (request/response mapping)
- * - Error responses
- * - HTTP status codes
- *
- * Uses in-memory fakes for repositories and the test auth provider.
- */
-
 import fastifyLib, { type FastifyInstance } from 'fastify';
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import { makeLearningProgressRoutes } from '@/modules/learning-progress/shell/rest/routes.js';
 
 import {
+  createTestInteractiveRecord,
+  createTestInteractiveUpdatedEvent,
+  createTestProgressResetEvent,
   makeFakeLearningProgressRepo,
-  createTestContentProgressedEvent,
 } from '../fixtures/fakes.js';
 
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
-import type { LearningProgressEvent } from '@/modules/learning-progress/core/types.js';
+import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
-/**
- * Creates a test Fastify app with learning progress routes.
- */
 const createTestApp = async (options: { learningProgressRepo?: LearningProgressRepository }) => {
   const { provider } = createTestAuthProvider();
-
   const app = fastifyLib({ logger: false });
 
-  // Add custom error handler to format all errors consistently
   app.setErrorHandler((err, _request, reply) => {
     const error = err as { statusCode?: number; code?: string; name?: string; message?: string };
     const statusCode = error.statusCode ?? 500;
@@ -43,15 +28,11 @@ const createTestApp = async (options: { learningProgressRepo?: LearningProgressR
     });
   });
 
-  // Add auth middleware
   app.addHook('preHandler', makeAuthMiddleware({ authProvider: provider }));
-
-  // Register learning progress routes
-  const learningProgressRepo = options.learningProgressRepo ?? makeFakeLearningProgressRepo();
 
   await app.register(
     makeLearningProgressRoutes({
-      learningProgressRepo,
+      learningProgressRepo: options.learningProgressRepo ?? makeFakeLearningProgressRepo(),
     })
   );
 
@@ -73,466 +54,415 @@ describe('Learning Progress REST API', () => {
     }
   });
 
-  describe('authentication', () => {
-    beforeEach(async () => {
-      if (app != null) await app.close();
-      app = await createTestApp({});
+  beforeEach(async () => {
+    if (app != null) {
+      await app.close();
+    }
+  });
+
+  it('requires authentication', async () => {
+    app = await createTestApp({});
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress',
     });
 
-    it('returns 401 when no auth token provided for GET', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-      });
+    expect(response.statusCode).toBe(401);
+  });
 
-      expect(response.statusCode).toBe(401);
+  it('returns an empty generic snapshot on cold load', async () => {
+    app = await createTestApp({});
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
     });
 
-    it('returns 401 when invalid auth token provided', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: 'Bearer invalid-token',
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        snapshot: {
+          version: 1,
+          recordsByKey: {},
+          lastUpdated: null,
         },
-      });
-
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('returns 401 when no auth token provided for PUT', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [],
-        },
-      });
-
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('allows access with valid token for GET', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('allows access with valid token for PUT', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [],
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
+        events: [],
+        cursor: '0',
+      },
     });
   });
 
-  describe('GET /api/v1/learning/progress', () => {
-    beforeEach(async () => {
-      if (app != null) await app.close();
+  it('returns row deltas when a since cursor is provided', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::entity:123',
+      updatedAt: '2024-01-15T11:00:00.000Z',
     });
 
-    it('returns empty events for user with no progress', async () => {
-      app = await createTestApp({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      {
+        userId: testAuth.userIds.user1,
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '4',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
+    app = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress?since=3',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      ok: boolean;
+      data: {
+        snapshot: { recordsByKey: Record<string, unknown> };
+        events: { type: string; payload: { record: { key: string } } }[];
+        cursor: string;
+      };
+    }>();
+
+    expect(body.ok).toBe(true);
+    expect(body.data.snapshot.recordsByKey[record.key]).toBeDefined();
+    expect(body.data.events).toEqual([
+      {
+        eventId: 'server:4:quiz-1::entity:123',
+        occurredAt: '2024-01-15T11:00:00.000Z',
+        clientId: 'server',
+        type: 'interactive.updated',
+        payload: {
+          record,
         },
-      });
-
-      expect(response.statusCode).toBe(200);
-
-      const body = response.json<{
-        ok: boolean;
-        data: { events: unknown[]; cursor: string };
-      }>();
-      expect(body.ok).toBe(true);
-      expect(body.data.events).toEqual([]);
-      expect(body.data.cursor).toBe('');
-    });
-
-    it('returns all events when no cursor provided', async () => {
-      const events: LearningProgressEvent[] = [
-        createTestContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-      ];
-
-      const initialEvents = new Map<string, LearningProgressEvent[]>();
-      // testAuth.userIds.user1 is the user ID for the test token
-      initialEvents.set(testAuth.userIds.user1, events);
-
-      app = await createTestApp({
-        learningProgressRepo: makeFakeLearningProgressRepo({ initialEvents }),
-      });
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-
-      const body = response.json<{
-        ok: boolean;
-        data: {
-          events: { eventId: string; payload: { contentId: string; status: string } }[];
-          cursor: string;
-        };
-      }>();
-      expect(body.ok).toBe(true);
-      expect(body.data.events).toHaveLength(1);
-      expect(body.data.events[0]!.eventId).toBe('e1');
-      expect(body.data.events[0]!.payload.contentId).toBe('lesson-1');
-      expect(body.data.cursor).toBe('2024-01-15T10:00:00Z');
-    });
-
-    it('returns events since cursor when provided', async () => {
-      const events: LearningProgressEvent[] = [
-        createTestContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-        createTestContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T12:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-      ];
-
-      const initialEvents = new Map<string, LearningProgressEvent[]>();
-      initialEvents.set(testAuth.userIds.user1, events);
-
-      app = await createTestApp({
-        learningProgressRepo: makeFakeLearningProgressRepo({ initialEvents }),
-      });
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress?since=2024-01-15T11:00:00Z',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-
-      const body = response.json<{
-        ok: boolean;
-        data: { events: { eventId: string }[] };
-      }>();
-      expect(body.data.events).toHaveLength(1);
-      expect(body.data.events[0]!.eventId).toBe('e2');
-    });
+      },
+    ]);
+    expect(body.data.cursor).toBe('4');
   });
 
-  describe('PUT /api/v1/learning/progress', () => {
-    beforeEach(async () => {
-      if (app != null) await app.close();
-      app = await createTestApp({});
+  it('syncs interactive.updated events', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const record = createTestInteractiveRecord({
+      key: 'system:learning-onboarding',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: { value: { step: 'done' } },
+      },
+      result: {
+        outcome: null,
+        evaluatedAt: '2024-01-15T12:00:00.000Z',
+      },
+      updatedAt: '2024-01-15T12:00:00.000Z',
     });
 
-    it('accepts empty events array', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [],
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = response.json<{ ok: boolean }>();
-      expect(body.ok).toBe(true);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:00:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-1',
+            payload: { record },
+          }),
+        ],
+      },
     });
 
-    it('stores content.progressed events', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'test-event-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'content.progressed',
-              payload: {
-                contentId: 'lesson-1',
-                status: 'completed',
-                score: 85,
-              },
-            },
-          ],
-        },
-      });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json<{ ok: boolean }>();
-      expect(body.ok).toBe(true);
-    });
-
-    it('stores onboarding.completed events', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'onboarding-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'onboarding.completed',
-              payload: {
-                pathId: 'path-basics',
-              },
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('stores activePath.set events', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'path-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'activePath.set',
-              payload: {
-                pathId: 'advanced-path',
-              },
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('stores progress.reset events', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'reset-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'progress.reset',
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('rejects invalid event type', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'bad-event',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'invalid.type',
-              payload: {},
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('rejects missing required fields', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              // Missing eventId, occurredAt, clientId
-              type: 'content.progressed',
-              payload: {
-                contentId: 'lesson-1',
-                status: 'completed',
-              },
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('rejects invalid content status', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'event-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'content.progressed',
-              payload: {
-                contentId: 'lesson-1',
-                status: 'invalid_status',
-              },
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('rejects score out of range', async () => {
-      const response = await app.inject({
-        method: 'PUT',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user1}`,
-          'content-type': 'application/json',
-        },
-        payload: {
-          clientUpdatedAt: new Date().toISOString(),
-          events: [
-            {
-              eventId: 'event-1',
-              occurredAt: new Date().toISOString(),
-              clientId: 'test-client',
-              type: 'content.progressed',
-              payload: {
-                contentId: 'lesson-1',
-                status: 'passed',
-                score: 150, // > 100
-              },
-            },
-          ],
-        },
-      });
-
-      expect(response.statusCode).toBe(400);
-    });
+    const records = await repo.getRecords(testAuth.userIds.user1);
+    expect(records.isOk()).toBe(true);
+    expect(records._unsafeUnwrap()[0]?.record).toEqual(record);
   });
 
-  describe('user isolation', () => {
-    beforeEach(async () => {
-      if (app != null) await app.close();
+  it('accepts progress.reset and clears stored rows', async () => {
+    const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      {
+        userId: testAuth.userIds.user1,
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:30:00.000Z',
+        events: [createTestProgressResetEvent({ eventId: 'reset-1' })],
+      },
     });
 
-    it('user cannot see other user progress', async () => {
-      const user1Events: LearningProgressEvent[] = [
-        createTestContentProgressedEvent({
-          eventId: 'u1-e1',
-          payload: { contentId: 'secret-lesson', status: 'completed' },
-        }),
-      ];
+    expect(response.statusCode).toBe(200);
 
-      const initialEvents = new Map<string, LearningProgressEvent[]>();
-      initialEvents.set(testAuth.userIds.user1, user1Events);
+    const records = await repo.getRecords(testAuth.userIds.user1);
+    expect(records.isOk()).toBe(true);
+    expect(records._unsafeUnwrap()).toEqual([]);
+  });
 
-      app = await createTestApp({
-        learningProgressRepo: makeFakeLearningProgressRepo({ initialEvents }),
-      });
+  it('returns 400 for non-numeric since cursor', async () => {
+    app = await createTestApp({});
 
-      // User 2 should not see user 1's progress
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/learning/progress',
-        headers: {
-          authorization: `Bearer ${testAuth.tokens.user2}`,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = response.json<{
-        ok: boolean;
-        data: { events: unknown[] };
-      }>();
-      // User 2 should have no events (user 1's events are not visible)
-      expect(body.data.events).toEqual([]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress?since=abc',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
     });
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ ok: boolean; error: string }>();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('InvalidEventError');
+  });
+
+  it('accepts empty events array on PUT', async () => {
+    app = await createTestApp({});
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:00:00.000Z',
+        events: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+  });
+
+  it('returns a serializable 400 error for invalid PUT payloads', async () => {
+    app = await createTestApp({});
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:00:00.000Z',
+        events: [
+          {
+            eventId: 'event-1',
+            occurredAt: '2024-01-15T12:00:00.000Z',
+            clientId: 'client-1',
+            type: 'interactive.updated',
+            payload: {
+              record: {
+                key: 'quiz-1::entity',
+                interactionId: 'quiz-1',
+                lessonId: 'lesson-1',
+                kind: 'quiz',
+                scope: {
+                  type: 'entity',
+                },
+                completionRule: {
+                  type: 'outcome',
+                  outcome: 'correct',
+                },
+                phase: 'resolved',
+                value: {
+                  kind: 'choice',
+                  choice: { selectedId: 'a' },
+                },
+                result: {
+                  outcome: 'incorrect',
+                },
+                updatedAt: '2024-01-15T12:00:00.000Z',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{
+      ok?: false;
+      error: string;
+      message: string;
+      details?: unknown;
+    }>();
+    expect(body.error).toBe('FST_ERR_VALIDATION');
+    expect(body.message.length).toBeGreaterThan(0);
+  });
+
+  it('isolates records between users', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      {
+        userId: testAuth.userIds.user1,
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    app = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user2}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json<{
+      data: { snapshot: { recordsByKey: Record<string, unknown> }; events: unknown[] };
+    }>();
+    expect(body.data.snapshot.recordsByKey).toEqual({});
+    expect(body.data.events).toEqual([]);
+  });
+
+  it('processes reset followed by interactive.updated in single batch', async () => {
+    const oldRecord = createTestInteractiveRecord({
+      key: 'quiz-old::global',
+      updatedAt: '2024-01-15T09:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      {
+        userId: testAuth.userIds.user1,
+        recordKey: oldRecord.key,
+        record: oldRecord,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: oldRecord.updatedAt,
+        updatedAt: oldRecord.updatedAt,
+      },
+    ]);
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const newRecord = createTestInteractiveRecord({
+      key: 'quiz-new::global',
+      interactionId: 'quiz-new',
+      lessonId: 'lesson-new',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T10:00:00.000Z',
+        events: [
+          createTestProgressResetEvent({ eventId: 'reset-1' }),
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-2',
+            payload: { record: newRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(putResponse.statusCode).toBe(200);
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    const body = getResponse.json<{
+      data: {
+        snapshot: { recordsByKey: Record<string, unknown> };
+      };
+    }>();
+    expect(body.data.snapshot.recordsByKey[newRecord.key]).toBeDefined();
+    expect(body.data.snapshot.recordsByKey[oldRecord.key]).toBeUndefined();
+  });
+
+  it('rejects old content.progressed payloads', async () => {
+    app = await createTestApp({});
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:30:00.000Z',
+        events: [
+          {
+            eventId: 'old-1',
+            occurredAt: '2024-01-15T12:30:00.000Z',
+            clientId: 'device-1',
+            type: 'content.progressed',
+            payload: {
+              contentId: 'lesson-1',
+              status: 'completed',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 });

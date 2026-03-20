@@ -1,71 +1,33 @@
 /**
  * Sync Events Use Case
- *
- * Upserts learning progress events for a user.
- * Events are deduplicated by eventId (idempotent).
  */
 
-import { ok, err, type Result } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
-import {
-  createTooManyEventsError,
-  createEventLimitExceededError,
-  type LearningProgressError,
-} from '../errors.js';
+import { createTooManyEventsError, type LearningProgressError } from '../errors.js';
 import {
   MAX_EVENTS_PER_REQUEST,
-  MAX_EVENTS_PER_USER,
+  isInteractiveUpdatedEvent,
+  isProgressResetEvent,
   type LearningProgressEvent,
 } from '../types.js';
 
 import type { LearningProgressRepository } from '../ports.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Dependencies for sync events use case.
- */
 export interface SyncEventsDeps {
   repo: LearningProgressRepository;
 }
 
-/**
- * Input for sync events use case.
- */
 export interface SyncEventsInput {
-  /** User identifier */
   userId: string;
-  /** Client's timestamp when sync was initiated */
   clientUpdatedAt: string;
-  /** Events to sync */
-  events: LearningProgressEvent[];
+  events: readonly LearningProgressEvent[];
 }
 
-/**
- * Output for sync events use case.
- */
 export interface SyncEventsOutput {
-  /** Number of new events added */
   newEventsCount: number;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Use Case
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Syncs learning progress events for a user.
- *
- * - Validates event count limits
- * - Upserts events (deduplicates by eventId)
- * - Returns count of new events added
- *
- * @param deps - Repository dependencies
- * @param input - User ID and events to sync
- * @returns Result with count of new events
- */
 export async function syncEvents(
   deps: SyncEventsDeps,
   input: SyncEventsInput
@@ -73,35 +35,47 @@ export async function syncEvents(
   const { repo } = deps;
   const { userId, events } = input;
 
-  // Validate request size
   if (events.length > MAX_EVENTS_PER_REQUEST) {
     return err(createTooManyEventsError(MAX_EVENTS_PER_REQUEST, events.length));
   }
 
-  // Empty request is a no-op
   if (events.length === 0) {
     return ok({ newEventsCount: 0 });
   }
 
-  // Check current event count against limit
-  const countResult = await repo.getEventCount(userId);
-  if (countResult.isErr()) {
-    return err(countResult.error);
-  }
+  return repo.withTransaction(async (transactionalRepo) => {
+    let appliedCount = 0;
 
-  const currentCount = countResult.value;
+    for (const event of events) {
+      if (isProgressResetEvent(event)) {
+        const resetResult = await transactionalRepo.resetProgress(userId);
+        if (resetResult.isErr()) {
+          return err(resetResult.error);
+        }
+        appliedCount += 1;
+        continue;
+      }
 
-  // Check if adding all events would exceed limit
-  // Note: Some events may be duplicates, but we check worst case
-  if (currentCount + events.length > MAX_EVENTS_PER_USER) {
-    return err(createEventLimitExceededError(MAX_EVENTS_PER_USER, currentCount));
-  }
+      if (isInteractiveUpdatedEvent(event)) {
+        const upsertResult = await transactionalRepo.upsertInteractiveRecord({
+          userId,
+          eventId: event.eventId,
+          clientId: event.clientId,
+          occurredAt: event.occurredAt,
+          record: event.payload.record,
+          auditEvents: event.payload.auditEvents ?? [],
+        });
 
-  // Upsert events
-  const upsertResult = await repo.upsertEvents(userId, events);
-  if (upsertResult.isErr()) {
-    return err(upsertResult.error);
-  }
+        if (upsertResult.isErr()) {
+          return err(upsertResult.error);
+        }
 
-  return ok({ newEventsCount: upsertResult.value.newEventsCount });
+        if (upsertResult.value.applied) {
+          appliedCount += 1;
+        }
+      }
+    }
+
+    return ok({ newEventsCount: appliedCount });
+  });
 }

@@ -1,738 +1,271 @@
-/**
- * Learning Progress Reducer Tests
- *
- * Tests for the pure event reducer that derives snapshots from event logs.
- */
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
-  reduceEventsToSnapshot,
-  filterEventsSinceCursor,
-  mergeEvents,
-  countNewEvents,
+  buildDeltaEventsFromRecords,
+  buildSnapshotFromRecords,
   createEmptySnapshot,
+  getLatestCursor,
 } from '@/modules/learning-progress/core/reducer.js';
 
-import type {
-  LearningProgressEvent,
-  ContentProgressedEvent,
-  OnboardingCompletedEvent,
-  OnboardingResetEvent,
-  ActivePathSetEvent,
-  ProgressResetEvent,
-} from '@/modules/learning-progress/core/types.js';
+import {
+  createTestEvaluatedAuditEvent,
+  createTestInteractiveRecord,
+  createTestSubmittedAuditEvent,
+} from '../../fixtures/fakes.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
-const createContentProgressedEvent = (
-  overrides: Partial<ContentProgressedEvent> & { payload: ContentProgressedEvent['payload'] }
-): ContentProgressedEvent => ({
-  eventId: 'event-1',
-  occurredAt: '2024-01-15T10:00:00Z',
-  clientId: 'client-1',
-  type: 'content.progressed',
-  ...overrides,
-});
+describe('learning progress reducer helpers', () => {
+  it('creates an empty generic snapshot', () => {
+    expect(createEmptySnapshot()).toEqual({
+      version: 1,
+      recordsByKey: {},
+      lastUpdated: null,
+    });
+  });
 
-const createOnboardingCompletedEvent = (
-  pathId: string,
-  overrides: Partial<OnboardingCompletedEvent> = {}
-): OnboardingCompletedEvent => ({
-  eventId: 'onboarding-1',
-  occurredAt: '2024-01-15T10:00:00Z',
-  clientId: 'client-1',
-  type: 'onboarding.completed',
-  payload: { pathId },
-  ...overrides,
-});
+  it('builds a snapshot from stored records', () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
 
-const createOnboardingResetEvent = (
-  overrides: Partial<OnboardingResetEvent> = {}
-): OnboardingResetEvent => ({
-  eventId: 'reset-1',
-  occurredAt: '2024-01-15T10:00:00Z',
-  clientId: 'client-1',
-  type: 'onboarding.reset',
-  ...overrides,
-});
+    const rows: LearningProgressRecordRow[] = [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '3',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ];
 
-const createActivePathSetEvent = (
-  pathId: string | null,
-  overrides: Partial<ActivePathSetEvent> = {}
-): ActivePathSetEvent => ({
-  eventId: 'path-1',
-  occurredAt: '2024-01-15T10:00:00Z',
-  clientId: 'client-1',
-  type: 'activePath.set',
-  payload: { pathId },
-  ...overrides,
-});
+    expect(buildSnapshotFromRecords(rows)).toEqual({
+      version: 1,
+      recordsByKey: {
+        [record.key]: record,
+      },
+      lastUpdated: '2024-01-15T10:00:00.000Z',
+    });
+  });
 
-const createProgressResetEvent = (
-  overrides: Partial<ProgressResetEvent> = {}
-): ProgressResetEvent => ({
-  eventId: 'progress-reset-1',
-  occurredAt: '2024-01-15T10:00:00Z',
-  clientId: 'client-1',
-  type: 'progress.reset',
-  ...overrides,
-});
+  it('builds delta events using row sequence and filtered audit events', () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::entity:123',
+      updatedAt: '2024-01-15T11:00:00.000Z',
+      phase: 'resolved',
+      result: {
+        outcome: 'correct',
+        evaluatedAt: '2024-01-15T11:00:00.000Z',
+      },
+    });
+    const submittedAudit = {
+      ...createTestSubmittedAuditEvent({
+        recordKey: record.key,
+        lessonId: record.lessonId,
+        interactionId: record.interactionId,
+      }),
+      seq: '2',
+      sourceClientEventId: 'event-1',
+      sourceClientId: 'device-1',
+    };
+    const evaluatedAudit = {
+      ...createTestEvaluatedAuditEvent({
+        recordKey: record.key,
+        lessonId: record.lessonId,
+        interactionId: record.interactionId,
+        result: {
+          outcome: 'correct',
+          evaluatedAt: '2024-01-15T11:00:00.000Z',
+        },
+      }),
+      seq: '4',
+      sourceClientEventId: 'event-2',
+      sourceClientId: 'device-1',
+    };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// createEmptySnapshot Tests
-// ─────────────────────────────────────────────────────────────────────────────
+    const rows: LearningProgressRecordRow[] = [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [submittedAudit, evaluatedAudit],
+        updatedSeq: '4',
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: record.updatedAt,
+      },
+    ];
 
-describe('createEmptySnapshot', () => {
-  it('returns a snapshot with default values', () => {
-    const snapshot = createEmptySnapshot();
+    expect(buildDeltaEventsFromRecords(rows, '3')).toEqual([
+      {
+        eventId: 'server:4:quiz-1::entity:123',
+        occurredAt: '2024-01-15T11:00:00.000Z',
+        clientId: 'server',
+        type: 'interactive.updated',
+        payload: {
+          record,
+          auditEvents: [
+            {
+              id: evaluatedAudit.id,
+              recordKey: evaluatedAudit.recordKey,
+              lessonId: evaluatedAudit.lessonId,
+              interactionId: evaluatedAudit.interactionId,
+              type: 'evaluated',
+              at: evaluatedAudit.at,
+              actor: 'system',
+              phase: evaluatedAudit.phase,
+              result: evaluatedAudit.result,
+            },
+          ],
+        },
+      },
+    ]);
+  });
 
+  it('builds a snapshot from multiple records and picks the latest updatedAt', () => {
+    const recordA = createTestInteractiveRecord({
+      key: 'quiz-a::global',
+      updatedAt: '2024-01-15T08:00:00.000Z',
+    });
+    const recordB = createTestInteractiveRecord({
+      key: 'quiz-b::entity:123',
+      interactionId: 'quiz-b',
+      lessonId: 'lesson-b',
+      updatedAt: '2024-01-15T11:00:00.000Z',
+    });
+    const recordC = createTestInteractiveRecord({
+      key: 'quiz-c::global',
+      interactionId: 'quiz-c',
+      lessonId: 'lesson-c',
+      updatedAt: '2024-01-15T09:00:00.000Z',
+    });
+
+    const rows: LearningProgressRecordRow[] = [
+      {
+        userId: 'user-1',
+        recordKey: recordA.key,
+        record: recordA,
+        auditEvents: [],
+        updatedSeq: '2',
+        createdAt: recordA.updatedAt,
+        updatedAt: recordA.updatedAt,
+      },
+      {
+        userId: 'user-1',
+        recordKey: recordC.key,
+        record: recordC,
+        auditEvents: [],
+        updatedSeq: '5',
+        createdAt: recordC.updatedAt,
+        updatedAt: recordC.updatedAt,
+      },
+      {
+        userId: 'user-1',
+        recordKey: recordB.key,
+        record: recordB,
+        auditEvents: [],
+        updatedSeq: '10',
+        createdAt: recordB.updatedAt,
+        updatedAt: recordB.updatedAt,
+      },
+    ];
+
+    const snapshot = buildSnapshotFromRecords(rows);
     expect(snapshot.version).toBe(1);
-    expect(snapshot.activePath).toBeNull();
-    expect(snapshot.onboardingCompletedAt).toBeNull();
-    expect(snapshot.onboardingPathId).toBeNull();
-    expect(snapshot.content).toEqual({});
-    expect(snapshot.streak.currentStreak).toBe(0);
-    expect(snapshot.streak.longestStreak).toBe(0);
-    expect(snapshot.streak.lastActivityDate).toBeNull();
-    expect(snapshot.lastUpdated).toBeNull();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// reduceEventsToSnapshot Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('reduceEventsToSnapshot', () => {
-  it('returns empty snapshot for empty event array', () => {
-    const snapshot = reduceEventsToSnapshot([]);
-
-    expect(snapshot.version).toBe(1);
-    expect(snapshot.content).toEqual({});
-    expect(snapshot.lastUpdated).toBeNull();
+    expect(Object.keys(snapshot.recordsByKey)).toHaveLength(3);
+    expect(snapshot.recordsByKey[recordA.key]).toEqual(recordA);
+    expect(snapshot.recordsByKey[recordB.key]).toEqual(recordB);
+    expect(snapshot.recordsByKey[recordC.key]).toEqual(recordC);
+    expect(snapshot.lastUpdated).toBe('2024-01-15T11:00:00.000Z');
   });
 
-  describe('content.progressed events', () => {
-    it('creates content progress from first event', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          payload: {
-            contentId: 'lesson-1',
-            status: 'in_progress',
-          },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-      const progress = snapshot.content['lesson-1'];
-
-      expect(progress).toBeDefined();
-      expect(progress?.status).toBe('in_progress');
-      expect(progress?.lastAttemptAt).toBe('2024-01-15T10:00:00Z');
+  it('excludes rows and audit events at the since boundary from delta events', () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T11:00:00.000Z',
     });
-
-    it('updates status following precedence rules', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.content['lesson-1']!.status).toBe('completed');
-    });
-
-    it('does not regress status based on precedence', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      // Should stay at 'completed' (higher precedence)
-      expect(snapshot.content['lesson-1']!.status).toBe('completed');
-    });
-
-    it('keeps max score across attempts', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'quiz-1', status: 'in_progress', score: 60 },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'quiz-1', status: 'passed', score: 85 },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-15T12:00:00Z',
-          payload: { contentId: 'quiz-1', status: 'passed', score: 75 },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.content['quiz-1']!.score).toBe(85);
-    });
-
-    it('sets completedAt on first completion', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.content['lesson-1']!.completedAt).toBe('2024-01-15T11:00:00Z');
-    });
-
-    it('handles interaction state updates', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          payload: {
-            contentId: 'quiz-1',
-            status: 'in_progress',
-            interaction: {
-              interactionId: 'q1',
-              state: { answer: 'A', correct: true },
-            },
-          },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.content['quiz-1']!.interactions['q1']).toEqual({
-        answer: 'A',
-        correct: true,
-      });
-    });
-
-    it('handles interaction removal (null state)', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: {
-            contentId: 'quiz-1',
-            status: 'in_progress',
-            interaction: {
-              interactionId: 'q1',
-              state: { answer: 'A' },
-            },
-          },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: {
-            contentId: 'quiz-1',
-            status: 'in_progress',
-            interaction: {
-              interactionId: 'q1',
-              state: null,
-            },
-          },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.content['quiz-1']!.interactions['q1']).toBeNull();
-    });
-  });
-
-  describe('onboarding events', () => {
-    it('sets onboarding state on completion', () => {
-      const events: LearningProgressEvent[] = [
-        createOnboardingCompletedEvent('path-budget-basics'),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.onboardingCompletedAt).toBe('2024-01-15T10:00:00Z');
-      expect(snapshot.onboardingPathId).toBe('path-budget-basics');
-      expect(snapshot.activePath).toBe('path-budget-basics');
-    });
-
-    it('clears onboarding state on reset', () => {
-      const events: LearningProgressEvent[] = [
-        createOnboardingCompletedEvent('path-budget-basics', {
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-        }),
-        createOnboardingResetEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.onboardingCompletedAt).toBeNull();
-      expect(snapshot.onboardingPathId).toBeNull();
-    });
-  });
-
-  describe('activePath events', () => {
-    it('sets active path', () => {
-      const events: LearningProgressEvent[] = [createActivePathSetEvent('path-advanced')];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.activePath).toBe('path-advanced');
-    });
-
-    it('clears active path with null', () => {
-      const events: LearningProgressEvent[] = [
-        createActivePathSetEvent('path-advanced', {
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-        }),
-        createActivePathSetEvent(null, {
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.activePath).toBeNull();
-    });
-  });
-
-  describe('progress.reset events', () => {
-    it('resets all progress to empty state', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createOnboardingCompletedEvent('path-basics', {
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-        }),
-        createProgressResetEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-15T12:00:00Z',
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      // All progress should be reset
-      expect(snapshot.content).toEqual({});
-      expect(snapshot.activePath).toBeNull();
-      expect(snapshot.onboardingCompletedAt).toBeNull();
-      expect(snapshot.onboardingPathId).toBeNull();
-      expect(snapshot.streak.currentStreak).toBe(0);
-      expect(snapshot.streak.longestStreak).toBe(0);
-      // lastUpdated should be set to the reset event time
-      expect(snapshot.lastUpdated).toBe('2024-01-15T12:00:00Z');
-    });
-
-    it('allows new progress after reset', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createProgressResetEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-        }),
-        createContentProgressedEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-15T12:00:00Z',
-          payload: { contentId: 'lesson-2', status: 'in_progress' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      // Old progress should be gone
-      expect(snapshot.content['lesson-1']).toBeUndefined();
-      // New progress should be present
-      expect(snapshot.content['lesson-2']).toBeDefined();
-      expect(snapshot.content['lesson-2']!.status).toBe('in_progress');
-    });
-  });
-
-  describe('streak calculation', () => {
-    it('increments streak on consecutive day completions', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-16T10:00:00Z',
-          payload: { contentId: 'lesson-2', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-17T10:00:00Z',
-          payload: { contentId: 'lesson-3', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.streak.currentStreak).toBe(3);
-      expect(snapshot.streak.longestStreak).toBe(3);
-      expect(snapshot.streak.lastActivityDate).toBe('2024-01-17');
-    });
-
-    it('resets streak after gap in activity', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-16T10:00:00Z',
-          payload: { contentId: 'lesson-2', status: 'completed' },
-        }),
-        // Gap: Jan 17 is missing
-        createContentProgressedEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-18T10:00:00Z',
-          payload: { contentId: 'lesson-3', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.streak.currentStreak).toBe(1);
-      expect(snapshot.streak.longestStreak).toBe(2);
-    });
-
-    it('does not count same-day completions twice', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T14:00:00Z',
-          payload: { contentId: 'lesson-2', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.streak.currentStreak).toBe(1);
-    });
-  });
-
-  describe('event ordering', () => {
-    it('sorts events by occurredAt', () => {
-      // Events in wrong order
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      // Should process in_progress first, then completed
-      expect(snapshot.content['lesson-1']!.status).toBe('completed');
-    });
-
-    it('tie-breaks by eventId for deterministic ordering', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'b-event',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'a-event',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      // 'a-event' comes before 'b-event' alphabetically
-      // So in_progress is applied first, then completed
-      expect(snapshot.content['lesson-1']!.status).toBe('completed');
-    });
-  });
-
-  describe('lastUpdated tracking', () => {
-    it('sets lastUpdated to max occurredAt', () => {
-      const events: LearningProgressEvent[] = [
-        createContentProgressedEvent({
-          eventId: 'e1',
-          occurredAt: '2024-01-15T10:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'in_progress' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e2',
-          occurredAt: '2024-01-15T12:00:00Z',
-          payload: { contentId: 'lesson-2', status: 'completed' },
-        }),
-        createContentProgressedEvent({
-          eventId: 'e3',
-          occurredAt: '2024-01-15T11:00:00Z',
-          payload: { contentId: 'lesson-1', status: 'completed' },
-        }),
-      ];
-
-      const snapshot = reduceEventsToSnapshot(events);
-
-      expect(snapshot.lastUpdated).toBe('2024-01-15T12:00:00Z');
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// filterEventsSinceCursor Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('filterEventsSinceCursor', () => {
-  it('returns events after cursor', () => {
-    const events: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
+    const atBoundaryAudit = {
+      ...createTestSubmittedAuditEvent({
+        id: 'audit-at-boundary',
+        recordKey: record.key,
+        lessonId: record.lessonId,
+        interactionId: record.interactionId,
       }),
-      createContentProgressedEvent({
-        eventId: 'e2',
-        occurredAt: '2024-01-15T11:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
+      seq: '5',
+      sourceClientEventId: 'event-old',
+      sourceClientId: 'device-1',
+    };
+    const afterBoundaryAudit = {
+      ...createTestEvaluatedAuditEvent({
+        id: 'audit-after-boundary',
+        recordKey: record.key,
+        lessonId: record.lessonId,
+        interactionId: record.interactionId,
       }),
-      createContentProgressedEvent({
-        eventId: 'e3',
-        occurredAt: '2024-01-15T12:00:00Z',
-        payload: { contentId: 'lesson-2', status: 'in_progress' },
+      seq: '8',
+      sourceClientEventId: 'event-new',
+      sourceClientId: 'device-1',
+    };
+
+    const rowAtBoundary: LearningProgressRecordRow = {
+      userId: 'user-1',
+      recordKey: 'at-boundary',
+      record: createTestInteractiveRecord({
+        key: 'at-boundary',
+        updatedAt: '2024-01-15T09:00:00.000Z',
       }),
+      auditEvents: [],
+      updatedSeq: '5',
+      createdAt: '2024-01-15T09:00:00.000Z',
+      updatedAt: '2024-01-15T09:00:00.000Z',
+    };
+    const rowAfterBoundary: LearningProgressRecordRow = {
+      userId: 'user-1',
+      recordKey: record.key,
+      record,
+      auditEvents: [atBoundaryAudit, afterBoundaryAudit],
+      updatedSeq: '8',
+      createdAt: '2024-01-15T10:00:00.000Z',
+      updatedAt: record.updatedAt,
+    };
+
+    const deltas = buildDeltaEventsFromRecords([rowAtBoundary, rowAfterBoundary], '5');
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]?.eventId).toBe(`server:8:${record.key}`);
+    const auditEvents = deltas[0]?.payload.auditEvents;
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents?.[0]?.id).toBe('audit-after-boundary');
+  });
+
+  it('returns 0 for getLatestCursor with an empty array', () => {
+    expect(getLatestCursor([])).toBe('0');
+  });
+
+  it('returns the latest cursor from the max row sequence', () => {
+    const rows: LearningProgressRecordRow[] = [
+      {
+        userId: 'user-1',
+        recordKey: 'record-a',
+        record: createTestInteractiveRecord({ key: 'record-a' }),
+        auditEvents: [],
+        updatedSeq: '9',
+        createdAt: '2024-01-15T10:00:00.000Z',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      },
+      {
+        userId: 'user-1',
+        recordKey: 'record-b',
+        record: createTestInteractiveRecord({ key: 'record-b' }),
+        auditEvents: [],
+        updatedSeq: '12',
+        createdAt: '2024-01-15T11:00:00.000Z',
+        updatedAt: '2024-01-15T11:00:00.000Z',
+      },
     ];
 
-    const filtered = filterEventsSinceCursor(events, '2024-01-15T10:30:00Z');
-
-    expect(filtered).toHaveLength(2);
-    expect(filtered[0]!.eventId).toBe('e2');
-    expect(filtered[1]!.eventId).toBe('e3');
-  });
-
-  it('returns empty array when cursor is after all events', () => {
-    const events: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-    ];
-
-    const filtered = filterEventsSinceCursor(events, '2024-01-15T12:00:00Z');
-
-    expect(filtered).toHaveLength(0);
-  });
-
-  it('returns all events when cursor is before all events', () => {
-    const events: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-      createContentProgressedEvent({
-        eventId: 'e2',
-        occurredAt: '2024-01-15T11:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-
-    const filtered = filterEventsSinceCursor(events, '2024-01-14T00:00:00Z');
-
-    expect(filtered).toHaveLength(2);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// mergeEvents Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('mergeEvents', () => {
-  it('combines events from both arrays', () => {
-    const existing: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-    ];
-
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e2',
-        payload: { contentId: 'lesson-2', status: 'completed' },
-      }),
-    ];
-
-    const merged = mergeEvents(existing, incoming);
-
-    expect(merged).toHaveLength(2);
-    expect(merged.map((e) => e.eventId)).toContain('e1');
-    expect(merged.map((e) => e.eventId)).toContain('e2');
-  });
-
-  it('deduplicates by eventId', () => {
-    const existing: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        occurredAt: '2024-01-15T10:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-    ];
-
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1', // Same eventId
-        occurredAt: '2024-01-15T11:00:00Z',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-
-    const merged = mergeEvents(existing, incoming);
-
-    expect(merged).toHaveLength(1);
-    // Should keep existing (first occurrence)
-    expect(merged[0]!.occurredAt).toBe('2024-01-15T10:00:00Z');
-  });
-
-  it('handles empty arrays', () => {
-    const existing: LearningProgressEvent[] = [];
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-
-    const merged = mergeEvents(existing, incoming);
-
-    expect(merged).toHaveLength(1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// countNewEvents Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('countNewEvents', () => {
-  it('counts events not in existing', () => {
-    const existing: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-    ];
-
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1', // Duplicate
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-      createContentProgressedEvent({
-        eventId: 'e2', // New
-        payload: { contentId: 'lesson-2', status: 'completed' },
-      }),
-      createContentProgressedEvent({
-        eventId: 'e3', // New
-        payload: { contentId: 'lesson-3', status: 'in_progress' },
-      }),
-    ];
-
-    const count = countNewEvents(existing, incoming);
-
-    expect(count).toBe(2);
-  });
-
-  it('returns 0 when all events are duplicates', () => {
-    const existing: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-    ];
-
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'completed' },
-      }),
-    ];
-
-    const count = countNewEvents(existing, incoming);
-
-    expect(count).toBe(0);
-  });
-
-  it('returns incoming length when no existing events', () => {
-    const existing: LearningProgressEvent[] = [];
-    const incoming: LearningProgressEvent[] = [
-      createContentProgressedEvent({
-        eventId: 'e1',
-        payload: { contentId: 'lesson-1', status: 'in_progress' },
-      }),
-      createContentProgressedEvent({
-        eventId: 'e2',
-        payload: { contentId: 'lesson-2', status: 'completed' },
-      }),
-    ];
-
-    const count = countNewEvents(existing, incoming);
-
-    expect(count).toBe(2);
+    expect(getLatestCursor(rows)).toBe('12');
   });
 });
