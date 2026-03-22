@@ -124,3 +124,7 @@ old_code_repositories/
 **/*.secret.yaml
 
 .scannerwork/
+__pycache__/
+scripts/input/
+scripts/output/
+
