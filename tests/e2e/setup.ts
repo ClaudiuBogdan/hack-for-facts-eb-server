@@ -38,28 +38,40 @@ function isDockerAvailable(): boolean {
 /** Exported so tests can check Docker availability */
 export let dockerAvailable = false;
 
+const printDockerWarning = (details?: string): void => {
+  console.warn('\n' + '='.repeat(70));
+  console.warn('WARNING: Docker is not available - E2E tests will be skipped');
+  console.warn('='.repeat(70));
+  console.warn('\nE2E tests require Docker Desktop to be running.');
+  console.warn('\nTo run E2E tests:');
+  console.warn('  1. Open Docker Desktop application');
+  console.warn('  2. Wait for it to fully start (check the whale icon in menu bar)');
+  console.warn('  3. Run `docker ps` to verify connectivity');
+  console.warn('  4. Re-run the tests with `pnpm test:e2e`');
+  if (details !== undefined) {
+    console.warn(`\nSetup failed: ${details}`);
+  }
+  console.warn('\n' + '='.repeat(70) + '\n');
+};
+
 beforeAll(async () => {
   console.log('Checking Docker availability...');
 
   if (!isDockerAvailable()) {
-    console.warn('\n' + '='.repeat(70));
-    console.warn('WARNING: Docker is not available - E2E tests will be skipped');
-    console.warn('='.repeat(70));
-    console.warn('\nE2E tests require Docker Desktop to be running.');
-    console.warn('\nTo run E2E tests:');
-    console.warn('  1. Open Docker Desktop application');
-    console.warn('  2. Wait for it to fully start (check the whale icon in menu bar)');
-    console.warn('  3. Run `docker ps` to verify connectivity');
-    console.warn('  4. Re-run the tests with `pnpm test:e2e`');
-    console.warn('\n' + '='.repeat(70) + '\n');
-    // Don't throw - let tests handle the skip
+    printDockerWarning();
     return;
   }
 
-  dockerAvailable = true;
   console.log('Docker is available. Starting E2E test environment...');
-  await setupTestDatabase();
-  console.log('E2E test environment ready.');
+
+  try {
+    await setupTestDatabase();
+    dockerAvailable = true;
+    console.log('E2E test environment ready.');
+  } catch (error) {
+    dockerAvailable = false;
+    printDockerWarning(error instanceof Error ? error.message : 'Unknown setup error');
+  }
 }, 60_000); // 60s timeout for container startup
 
 afterAll(async () => {
