@@ -195,8 +195,9 @@ export interface McpConfig {
 }
 
 /** Default MCP configuration */
+// SECURITY: SEC-018 - Default to auth required; overridden in env config
 export const DEFAULT_MCP_CONFIG: McpConfig = {
-  authRequired: false,
+  authRequired: true,
   allowJwt: true,
   sessionTtlSeconds: 3600,
   rateLimitWindowMs: 60_000,

@@ -995,10 +995,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   // Not found handler
+  // SECURITY: SEC-015 - Do not echo request URL in production to prevent information disclosure
   app.setNotFoundHandler((request, reply) => {
     return reply.status(404).send({
       error: 'NotFoundError',
-      message: `Route ${request.method} ${request.url} not found`,
+      message: config.server.isProduction
+        ? 'Not found'
+        : `Route ${request.method} ${request.url} not found`,
     });
   });
 

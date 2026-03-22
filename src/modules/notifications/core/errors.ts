@@ -137,7 +137,8 @@ export const createNotificationForbiddenError = (
   notificationId: string
 ): NotificationForbiddenError => ({
   type: 'NotificationForbiddenError',
-  message: `User '${userId}' does not have permission to access notification '${notificationId}'`,
+  // SECURITY: SEC-016 - Generic message to prevent internal ID leakage to client
+  message: 'You do not have permission to access this notification',
   userId,
   notificationId,
 });
