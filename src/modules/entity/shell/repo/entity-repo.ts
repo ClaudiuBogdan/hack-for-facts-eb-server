@@ -28,6 +28,13 @@ import type { BudgetDbClient } from '@/infra/database/client.js';
 const SIMILARITY_THRESHOLD_VALUE = 0.1;
 const QUERY_TIMEOUT_MS = 30_000;
 
+/**
+ * Escapes special characters for ILIKE pattern matching.
+ */
+function escapeILikePattern(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -346,11 +353,15 @@ class KyselyEntityRepo implements EntityRepository {
     let q = query;
 
     if (filter.name !== undefined && filter.name.trim() !== '') {
-      q = q.where('name', 'ilike', `%${filter.name}%`);
+      // SECURITY: SEC-011 - Escape LIKE wildcards to prevent pattern injection
+      const escapedName = escapeILikePattern(filter.name);
+      q = q.where('name', 'ilike', `%${escapedName}%`);
     }
 
     if (filter.address !== undefined && filter.address.trim() !== '') {
-      q = q.where('address', 'ilike', `%${filter.address}%`);
+      // SECURITY: SEC-011 - Escape LIKE wildcards to prevent pattern injection
+      const escapedAddress = escapeILikePattern(filter.address);
+      q = q.where('address', 'ilike', `%${escapedAddress}%`);
     }
 
     // Default ordering when no search

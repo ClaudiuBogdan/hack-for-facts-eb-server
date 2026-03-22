@@ -504,6 +504,7 @@ describe('Notifications REST API', () => {
           id: 'd1',
           userId: testAuth.userIds.user1,
           periodKey: '2024-01',
+          toEmail: 'user1@example.com',
         }),
         createTestDelivery({
           id: 'd2',
@@ -529,6 +530,7 @@ describe('Notifications REST API', () => {
       const body = response.json();
       expect(body.ok).toBe(true);
       expect(body.data).toHaveLength(2);
+      expect(body.data[0]).not.toHaveProperty('toEmail');
     });
 
     it('supports pagination parameters', async () => {

@@ -136,7 +136,8 @@ export type EntityCuiParams = Static<typeof EntityCuiParamsSchema>;
  * Unsubscribe token params schema.
  */
 export const UnsubscribeTokenParamsSchema = Type.Object({
-  token: Type.String({ minLength: 64, maxLength: 64 }),
+  // SECURITY: SEC-017 - Restrict token to hex characters to prevent special character injection
+  token: Type.String({ minLength: 64, maxLength: 64, pattern: '^[a-f0-9]{64}$' }),
 });
 
 export type UnsubscribeTokenParams = Static<typeof UnsubscribeTokenParamsSchema>;

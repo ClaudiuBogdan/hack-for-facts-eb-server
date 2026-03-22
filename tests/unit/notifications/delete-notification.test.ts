@@ -52,8 +52,7 @@ describe('deleteNotification use case', () => {
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
         expect(result.error.type).toBe('NotificationForbiddenError');
-        expect(result.error.message).toContain('other-user');
-        expect(result.error.message).toContain('notification-1');
+        expect(result.error.message).toBe('You do not have permission to access this notification');
       }
     });
   });

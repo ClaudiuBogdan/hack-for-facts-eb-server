@@ -89,6 +89,19 @@ export interface EmailSender {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const redactEmailAddress = (email: string): string => {
+  const separatorIndex = email.indexOf('@');
+  if (separatorIndex <= 0 || separatorIndex === email.length - 1) {
+    return '***';
+  }
+
+  const localPart = email.slice(0, separatorIndex);
+  const domain = email.slice(separatorIndex);
+  const visibleLength = Math.min(3, localPart.length);
+
+  return `${localPart.slice(0, visibleLength)}***${domain}`;
+};
+
 /**
  * Creates a Resend email client.
  *
@@ -106,7 +119,12 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
     async send(params: SendEmailParams): Promise<Result<SendEmailResult, EmailError>> {
       const { to, subject, html, text, idempotencyKey, unsubscribeUrl, tags } = params;
 
-      log.debug({ to, subject, idempotencyKey, tagCount: tags.length }, 'Sending email');
+      // SECURITY: SEC-013 - Redact email address in logs to prevent PII leakage
+      const redactedTo = redactEmailAddress(to);
+      log.debug(
+        { to: redactedTo, subject, idempotencyKey, tagCount: tags.length },
+        'Sending email'
+      );
 
       try {
         // CORRECT: Idempotency key goes in SDK options (2nd argument), NOT headers
@@ -131,18 +149,24 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
         );
 
         if (result.error !== null) {
-          log.warn({ error: result.error, to, idempotencyKey }, 'Resend API returned error');
+          log.warn(
+            { error: result.error, to: redactedTo, idempotencyKey },
+            'Resend API returned error'
+          );
           return err(mapResendError(result.error));
         }
 
         // At this point TypeScript knows result.data is non-null
-        log.info({ emailId: result.data.id, to, idempotencyKey }, 'Email sent successfully');
+        log.info(
+          { emailId: result.data.id, to: redactedTo, idempotencyKey },
+          'Email sent successfully'
+        );
 
         return ok({
           emailId: result.data.id,
         });
       } catch (error) {
-        log.error({ error, to, idempotencyKey }, 'Failed to send email');
+        log.error({ error, to: redactedTo, idempotencyKey }, 'Failed to send email');
         return err(mapCaughtError(error));
       }
     },

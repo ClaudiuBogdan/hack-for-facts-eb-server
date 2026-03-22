@@ -76,6 +76,8 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
     this.log.debug({ userId, limit, offset }, 'Finding deliveries by user ID');
 
     try {
+      // Keep the full delivery record in the domain model.
+      // The REST serializer decides which fields are safe to expose.
       const rows = await this.db
         .selectFrom('notificationdeliveries')
         .select([
@@ -137,7 +139,7 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
       contentHash: row.content_hash,
       templateName: row.template_name,
       templateVersion: row.template_version,
-      toEmail: row.to_email,
+      toEmail: row.to_email ?? null,
       resendEmailId: row.resend_email_id,
       lastError: row.last_error,
       attemptCount: row.attempt_count,

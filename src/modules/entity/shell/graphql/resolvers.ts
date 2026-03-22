@@ -16,6 +16,12 @@ import {
 } from '@/common/types/report-types.js';
 import { Frequency } from '@/common/types/temporal.js';
 import {
+  SORTABLE_FIELDS,
+  type ExecutionLineItem,
+  type ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
+  type SortableField,
+} from '@/modules/execution-line-items/index.js';
+import {
   resolveNormalizationRequest,
   type DataPoint,
   type GqlNormalization,
@@ -41,11 +47,6 @@ import type {
   PeriodSelection,
   PeriodType,
 } from '@/common/types/analytics.js';
-import type {
-  ExecutionLineItem,
-  ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
-  SortableField,
-} from '@/modules/execution-line-items/index.js';
 import type { ReportFilter, ReportRepository, ReportSort } from '@/modules/report/index.js';
 import type { UATRepository } from '@/modules/uat/index.js';
 import type { IResolvers, MercuriusContext } from 'mercurius';
@@ -737,10 +738,14 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           report_type: reportType,
         };
 
-        const sortField = args.sort?.field ?? args.sort?.by ?? 'year';
+        const rawSortField = args.sort?.field ?? args.sort?.by ?? 'year';
+        // SECURITY: SEC-012 - Validate sort field against allowlist
+        const sortField = SORTABLE_FIELDS.includes(rawSortField as SortableField)
+          ? (rawSortField as SortableField)
+          : 'year';
         const sortOrder: 'ASC' | 'DESC' =
           args.sort?.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-        const sort = { field: sortField as SortableField, order: sortOrder };
+        const sort = { field: sortField, order: sortOrder };
 
         const result = await executionLineItemRepo.list(
           filter,

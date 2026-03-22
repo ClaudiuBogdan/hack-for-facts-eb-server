@@ -4,7 +4,7 @@
  * Manual trigger endpoint for notification collection.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { Type, type Static } from '@sinclair/typebox';
 
@@ -45,6 +45,23 @@ const TriggerResponseSchema = Type.Object({
   collectJobEnqueued: Type.Boolean(),
 });
 
+function isValidTriggerApiKey(
+  apiKey: string | string[] | undefined,
+  expectedApiKeyBuffer: Buffer
+): boolean {
+  if (typeof apiKey !== 'string') {
+    return false;
+  }
+
+  const providedApiKeyBuffer = Buffer.from(apiKey, 'utf-8');
+  if (providedApiKeyBuffer.length !== expectedApiKeyBuffer.length) {
+    timingSafeEqual(expectedApiKeyBuffer, expectedApiKeyBuffer);
+    return false;
+  }
+
+  return timingSafeEqual(providedApiKeyBuffer, expectedApiKeyBuffer);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +86,7 @@ export interface TriggerRoutesDeps {
 export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync => {
   const { collectQueue, notificationsRepo, triggerApiKey, logger } = deps;
   const log = logger.child({ routes: 'trigger' });
+  const triggerApiKeyBuffer = Buffer.from(triggerApiKey, 'utf-8');
 
   // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync pattern requires async
   return async (fastify) => {
@@ -80,7 +98,10 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
     ): void => {
       const apiKey = request.headers['x-notification-api-key'];
 
-      if (apiKey !== triggerApiKey) {
+      // SECURITY: SEC-010 - Use constant-time comparison to prevent timing attacks
+      const isValid = isValidTriggerApiKey(apiKey, triggerApiKeyBuffer);
+
+      if (!isValid) {
         log.warn({ hasKey: Boolean(apiKey) }, 'Invalid or missing API key');
         reply.status(401).send({ error: 'Invalid API key' });
         return;

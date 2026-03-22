@@ -386,13 +386,12 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         return ok(null);
       }
 
-      // Delete in order: tokens, deliveries, then notification
-      await this.db.deleteFrom('unsubscribetokens').where('notification_id', '=', id).execute();
-      await this.db
-        .deleteFrom('notificationdeliveries')
-        .where('notification_id', '=', id)
-        .execute();
-      await this.db.deleteFrom('notifications').where('id', '=', id).execute();
+      // SECURITY: SEC-019 - Atomic cascade deletion to prevent data inconsistency
+      await this.db.transaction().execute(async (trx) => {
+        await trx.deleteFrom('unsubscribetokens').where('notification_id', '=', id).execute();
+        await trx.deleteFrom('notificationdeliveries').where('notification_id', '=', id).execute();
+        await trx.deleteFrom('notifications').where('id', '=', id).execute();
+      });
 
       this.log.debug({ notificationId: id }, 'Notification deleted successfully with cascade');
       return ok(notification);
