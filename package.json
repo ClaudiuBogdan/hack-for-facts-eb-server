@@ -22,7 +22,7 @@
     "test": "vitest run --exclude 'tests/e2e/**' --exclude 'tests/golden-master/**'",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:e2e": "vitest run tests/e2e",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:gm": "export TEST_GM_API_URL=http://localhost:3001/graphql && vitest run tests/golden-master --config vitest.gm.config.ts",
     "test:gm:update": "export TEST_GM_API_URL=http://localhost:3001/graphql && vitest run tests/golden-master --config vitest.gm.config.ts --update",
     "test:watch": "vitest --exclude 'tests/e2e/**'",

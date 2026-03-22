@@ -170,6 +170,56 @@ export interface ResendWebhookEvents {
   created_at: Generated<Timestamp>;
 }
 
+export type InstitutionEmailThreadStatus =
+  | 'draft'
+  | 'waiting_reply'
+  | 'replied'
+  | 'closed'
+  | 'failed';
+
+export interface InstitutionEmailThreads {
+  id: Generated<string>;
+  entity_cui: string;
+  owner_user_id: string | null;
+  campaign_ref: string | null;
+  request_type: string;
+  thread_key: string;
+  subject: string;
+  status: Generated<InstitutionEmailThreadStatus>;
+  status_reason: string | null;
+  last_email_at: Timestamp | null;
+  last_reply_at: Timestamp | null;
+  closed_at: Timestamp | null;
+  metadata: JSONColumnType<Record<string, unknown>>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface ResendWhEmails {
+  id: Generated<string>;
+  svix_id: string;
+  event_type: string;
+  webhook_received_at: Generated<Timestamp>;
+  event_created_at: Timestamp;
+  email_id: string;
+  from_address: string;
+  to_addresses: string[];
+  subject: string;
+  email_created_at: Timestamp;
+  broadcast_id: string | null;
+  template_id: string | null;
+  tags: JSONColumnType<Record<string, unknown> | Record<string, unknown>[]> | null;
+  bounce_type: string | null;
+  bounce_sub_type: string | null;
+  bounce_message: string | null;
+  bounce_diagnostic_code: string[] | null;
+  click_ip_address: string | null;
+  click_link: string | null;
+  click_timestamp: Timestamp | null;
+  click_user_agent: string | null;
+  thread_key: string | null;
+}
+
 // Advanced Map Analytics Maps Table
 export interface AdvancedMapAnalyticsMaps {
   id: string;
@@ -208,6 +258,8 @@ export interface UserDatabase {
   unsubscribetokens: UnsubscribeTokens;
   learningprogress: LearningProgress;
   resendwebhookevents: ResendWebhookEvents;
+  institutionemailthreads: InstitutionEmailThreads;
+  resend_wh_emails: ResendWhEmails;
   advancedmapanalyticsmaps: AdvancedMapAnalyticsMaps;
   advancedmapanalyticssnapshots: AdvancedMapAnalyticsSnapshots;
 }
