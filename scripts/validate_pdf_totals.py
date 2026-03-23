@@ -132,6 +132,31 @@ def build_rollup_groups(
     return groups
 
 
+def _all_children_duplicate_parent(
+    parent_entry: dict[str, dict[str, Decimal] | dict[str, int]],
+    child_entries: list[dict[str, dict[str, Decimal] | dict[str, int]]],
+) -> bool:
+    """Detect source-PDF duplication where every child carries the parent total.
+
+    Some Romanian budget PDFs repeat the chapter total on each subcapitol
+    credit line.  When all children have the same non-zero value as the
+    parent for every present column, the rollup ``parent == sum(children)``
+    is guaranteed to fail and the mismatch is a data-source artefact.
+    """
+    for column in ADDITIVE_VALIDATION_COLUMNS:
+        parent_val = parent_entry["values"][column]
+        if parent_val == Decimal("0"):
+            continue
+        if parent_entry["present_counts"][column] == 0:
+            continue
+        for child_entry in child_entries:
+            if child_entry["present_counts"][column] == 0:
+                continue
+            if child_entry["values"][column] != parent_val:
+                return False
+    return True
+
+
 def validate_groups(
     groups: dict[
         tuple[str, str, str],
@@ -148,6 +173,10 @@ def validate_groups(
         for parent_key, parent_values in key_values.items():
             children = [child_key for child_key in keys if is_immediate_child(parent_key, child_key)]
             if not children:
+                continue
+            if len(children) > 1 and _all_children_duplicate_parent(
+                parent_values, [key_values[child_key] for child_key in children]
+            ):
                 continue
             checks += 1
             for column in ADDITIVE_VALIDATION_COLUMNS:
@@ -182,9 +211,24 @@ def format_decimal(value: Decimal) -> str:
     return format(value, "f")
 
 
+def _is_sinteza_partea_row(row: dict[str, str]) -> bool:
+    """Detect Sinteza 'Partea' grouping rows that aggregate multiple chapters.
+
+    In the Sinteza table, rows like 'Partea I-a SERVICII PUBLICE GENERALE'
+    carry a subcapitol code (e.g. ``5100.01.00``) but span multiple
+    functional chapters.  Including them in the functional hierarchy
+    creates false parent-child relationships with chapter-level totals.
+    """
+    return (
+        row.get("table_type") == "Sinteza"
+        and row.get("subcapitol", "00") != "00"
+    )
+
+
 def validate_budget_indicator_rows(rows: list[dict[str, str]]) -> ValidationSummary:
+    functional_rows = [row for row in rows if not _is_sinteza_partea_row(row)]
     functional_groups = build_rollup_groups(
-        rows,
+        functional_rows,
         fixed_key_field="economic",
         varying_key_field="functional",
     )

@@ -319,6 +319,247 @@ describe('extract_pdf_tables.py', () => {
     );
   });
 
+  it('keeps ordered budget indicator numeric values on compressed Sinteza pages', () => {
+    const maiResult = runExtractorOnFixtures(['page-905.txt']);
+    const mfResult = runExtractorOnFixtures(['page-906.txt']);
+    const maiRow = getTable(maiResult, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 905 &&
+        entry['row_code'] === '5000' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+    const mfRow = getTable(mfResult, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 906 &&
+        entry['row_code'] === '5000' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(maiRow).toBeDefined();
+    expect(getString(maiRow, 'propuneri_2026')).toBe('35755208');
+    expect(getString(maiRow, 'estimari_2029')).toBe('35199630');
+
+    expect(mfRow).toBeDefined();
+    expect(getString(mfRow, 'propuneri_2026')).toBe('12169298');
+    expect(getString(mfRow, 'estimari_2029')).toBe('13521183');
+  });
+
+  it('keeps ordered budget indicator numeric values on compressed state-budget pages', () => {
+    const result = runExtractorOnFixtures(['page-907.txt']);
+    const row = getTable(result, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 907 &&
+        entry['row_code'] === '5001' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(row).toBeDefined();
+    expect(getString(row, 'section')).toContain(budgetStateTitle);
+    expect(getString(row, 'propuneri_2026')).toBe('34761963');
+    expect(getString(row, 'estimari_2027')).toBe('35087121');
+    expect(getString(row, 'estimari_2028')).toBe('35267319');
+    expect(getString(row, 'estimari_2029')).toBe('35090129');
+  });
+
+  it('maps short two-value FEN rows to the early year columns', () => {
+    const result = runExtractorOnFixtures(['page-910.txt']);
+    const row = getTable(result, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 910 &&
+        entry['row_code'] === '5008' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(row).toBeDefined();
+    expect(getString(row, 'realizari_2024')).toBe('4');
+    expect(getString(row, 'executie_preliminata_2025')).toBe('2');
+    expect(getString(row, 'propuneri_2026')).toBe('');
+  });
+
+  it('keeps continuation-page child rows under the active economic title', () => {
+    const result = runExtractorOnFixtures(['page-908.txt', 'page-909.txt']);
+    const fundRow = getTable(result, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 909 &&
+        entry['description'] === 'Fondul pentru azil, migratie si integrare 2021-2027' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+    const nationalFundingRow = getTable(result, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 909 &&
+        entry['description'] === 'Finantare nationala' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(fundRow).toBeDefined();
+    expect(getString(fundRow, 'economic')).toBe('56.58.00');
+
+    expect(nationalFundingRow).toBeDefined();
+    expect(getString(nationalFundingRow, 'economic')).toBe('56.58.01');
+  });
+
+  it('does not mix a later annex institution into the first entity output', () => {
+    const result = runExtractorOnFixtures(['page-931.txt', 'page-932.txt']);
+    const totalRows = getTable(result, 'budget_indicator_summary').filter(
+      (entry) => entry['row_code'] === '5000' && entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(totalRows).toHaveLength(1);
+    expect(getString(totalRows[0], 'section')).toContain('MINISTERUL CULTURII');
+    expect(getNumber(totalRows[0], 'source_page')).toBe(931);
+  });
+
+  it('detects and corrects a one-column-left shift in budget indicator values', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import detect_and_correct_budget_indicator_shift
+
+shifted = {
+    "realizari_2024": "100000",
+    "executie_preliminata_2025": "200000",
+    "propuneri_2026": "100",
+    "crestere_descrestere_2026_2025": "300000",
+    "estimari_2027": "400000",
+    "estimari_2028": "500000",
+    "estimari_2029": "",
+}
+print(json.dumps(detect_and_correct_budget_indicator_shift(shifted)))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as Record<string, string>;
+
+    expect(result['realizari_2024']).toBe('');
+    expect(result['executie_preliminata_2025']).toBe('100000');
+    expect(result['propuneri_2026']).toBe('200000');
+    expect(result['crestere_descrestere_2026_2025']).toBe('100');
+    expect(result['estimari_2027']).toBe('300000');
+    expect(result['estimari_2028']).toBe('400000');
+    expect(result['estimari_2029']).toBe('500000');
+  });
+
+  it('does not alter correctly-mapped budget indicator values', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import detect_and_correct_budget_indicator_shift
+
+correct = {
+    "realizari_2024": "50000",
+    "executie_preliminata_2025": "100000",
+    "propuneri_2026": "200000",
+    "crestere_descrestere_2026_2025": "100",
+    "estimari_2027": "300000",
+    "estimari_2028": "400000",
+    "estimari_2029": "500000",
+}
+print(json.dumps(detect_and_correct_budget_indicator_shift(correct)))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as Record<string, string>;
+
+    expect(result['realizari_2024']).toBe('50000');
+    expect(result['propuneri_2026']).toBe('200000');
+    expect(result['crestere_descrestere_2026_2025']).toBe('100');
+  });
+
+  it('shifts sparse CES-style rows back into realizari_2024 using right-edge anchors', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import (
+    BUDGET_INDICATOR_COLUMNS,
+    correct_budget_indicator_sparse_first_value,
+    map_numeric_columns,
+)
+
+line = "                               II.Credite bugetare                                    5                      11                          12             13             13"
+starts = [79, 91, 103, 119, 131, 146, 161]
+end_anchors = [87, 99, 109, 128, 137, 152, 167]
+values = map_numeric_columns(
+    line,
+    BUDGET_INDICATOR_COLUMNS,
+    starts,
+    tolerance=16,
+    ordered=True,
+)
+print(json.dumps(correct_budget_indicator_sparse_first_value(line, values, end_anchors)))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as Record<string, string>;
+
+    expect(result['realizari_2024']).toBe('5');
+    expect(result['executie_preliminata_2025']).toBe('');
+    expect(result['propuneri_2026']).toBe('11');
+    expect(result['estimari_2027']).toBe('12');
+  });
+
+  it('shifts sparse CNCD-style rows back into realizari_2024 using right-edge anchors', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import (
+    BUDGET_INDICATOR_COLUMNS,
+    correct_budget_indicator_sparse_first_value,
+    map_numeric_columns,
+)
+
+line = "                               II.Credite bugetare                               6                     100                         107            111            111"
+starts = [74, 86, 98, 114, 126, 141, 156]
+end_anchors = [82, 94, 106, 123, 134, 149, 164]
+values = map_numeric_columns(
+    line,
+    BUDGET_INDICATOR_COLUMNS,
+    starts,
+    tolerance=16,
+    ordered=True,
+)
+print(json.dumps(correct_budget_indicator_sparse_first_value(line, values, end_anchors)))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as Record<string, string>;
+
+    expect(result['realizari_2024']).toBe('6');
+    expect(result['executie_preliminata_2025']).toBe('');
+    expect(result['propuneri_2026']).toBe('100');
+    expect(result['estimari_2027']).toBe('107');
+  });
+
+  it('handles the 4=3/2 column header format in wide-layout pages', () => {
+    const result = runExtractorOnFixtures(['page-933.txt']);
+    const row = getTable(result, 'budget_indicator_summary').find(
+      (entry) =>
+        getNumber(entry, 'source_page') === 933 &&
+        entry['row_code'] === '5000' &&
+        entry['credit_type'] === 'II.Credite bugetare'
+    );
+
+    expect(row).toBeDefined();
+    expect(getString(row, 'realizari_2024')).toBe('3988');
+    expect(getString(row, 'executie_preliminata_2025')).toBe('4493');
+    expect(getString(row, 'propuneri_2026')).toBe('4350');
+    expect(getString(row, 'crestere_descrestere_2026_2025')).toBe('-3.18');
+    expect(getString(row, 'estimari_2027')).toBe('4600');
+    expect(getString(row, 'estimari_2028')).toBe('4800');
+    expect(getString(row, 'estimari_2029')).toBe('4800');
+  });
+
   it('parses the project sheet financing row from page 54', () => {
     const result = runExtractorOnFixtures(['page-054.txt']);
     const row = getTable(result, 'project_sheet_financing').find(
