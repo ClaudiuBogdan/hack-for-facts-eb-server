@@ -66,6 +66,129 @@ describe('syncEvents', () => {
     expect(storedRecords._unsafeUnwrap()[0]?.auditEvents[0]?.sourceClientEventId).toBe('event-1');
   });
 
+  it('rejects public sync attempts to author record.review', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const record = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Not allowed from client.',
+      },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-23T19:30:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-review',
+            payload: {
+              record,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-review',
+      })
+    );
+  });
+
+  it('preserves stored review metadata on newer public resubmits', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const resubmittedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: reviewedRecord.phase,
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: reviewedRecord.key,
+        record: reviewedRecord,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: reviewedRecord.updatedAt,
+        updatedAt: reviewedRecord.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-23T19:45:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-resubmit',
+            payload: {
+              record: resubmittedRecord,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+
+    const storedRecord = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
+    expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
+  });
+
   it('deduplicates interactive updates by client event id when audit events are present', async () => {
     const record = createTestInteractiveRecord({
       key: 'quiz-1::global',
