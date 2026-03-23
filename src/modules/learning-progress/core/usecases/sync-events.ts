@@ -4,7 +4,11 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { createTooManyEventsError, type LearningProgressError } from '../errors.js';
+import {
+  createInvalidEventError,
+  createTooManyEventsError,
+  type LearningProgressError,
+} from '../errors.js';
 import {
   MAX_EVENTS_PER_REQUEST,
   isInteractiveUpdatedEvent,
@@ -57,12 +61,34 @@ export async function syncEvents(
       }
 
       if (isInteractiveUpdatedEvent(event)) {
+        if (typeof event.payload.record.review !== 'undefined') {
+          return err(
+            createInvalidEventError('Public progress sync cannot set record.review.', event.eventId)
+          );
+        }
+
+        const existingRowResult = await transactionalRepo.getRecordForUpdate(
+          userId,
+          event.payload.record.key
+        );
+        if (existingRowResult.isErr()) {
+          return err(existingRowResult.error);
+        }
+
+        const nextRecord =
+          existingRowResult.value?.record.review !== undefined
+            ? {
+                ...event.payload.record,
+                review: existingRowResult.value.record.review,
+              }
+            : event.payload.record;
+
         const upsertResult = await transactionalRepo.upsertInteractiveRecord({
           userId,
           eventId: event.eventId,
           clientId: event.clientId,
           occurredAt: event.occurredAt,
-          record: event.payload.record,
+          record: nextRecord,
           auditEvents: event.payload.auditEvents ?? [],
         });
 

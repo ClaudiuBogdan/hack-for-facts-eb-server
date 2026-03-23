@@ -200,6 +200,136 @@ describe('Learning Progress REST API', () => {
     expect(records._unsafeUnwrap()[0]?.record).toEqual(record);
   });
 
+  it('rejects public sync payloads that include record.review', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const record = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Not allowed from client.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2026-03-23T19:30:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-review',
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'InvalidEventError',
+      message: 'Public progress sync cannot set record.review.',
+    });
+  });
+
+  it('preserves stored review metadata on public resubmits that omit record.review', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const resubmittedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: reviewedRecord.phase,
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      {
+        userId: testAuth.userIds.user1,
+        recordKey: reviewedRecord.key,
+        record: reviewedRecord,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: reviewedRecord.updatedAt,
+        updatedAt: reviewedRecord.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2026-03-23T19:45:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-resubmit',
+            payload: { record: resubmittedRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+
+    const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
+    expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
+    expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
+  });
+
   it('accepts progress.reset and clears stored rows', async () => {
     const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
