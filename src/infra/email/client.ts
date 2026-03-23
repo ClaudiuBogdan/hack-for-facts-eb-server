@@ -7,6 +7,7 @@
 
 import { ok, err, type Result } from 'neverthrow';
 import { Resend } from 'resend';
+import { Webhook } from 'svix';
 
 import type { Logger } from 'pino';
 
@@ -289,23 +290,40 @@ export type ResendEventType =
   | 'email.sent'
   | 'email.delivered'
   | 'email.delivery_delayed'
-  | 'email.bounced'
   | 'email.complained'
+  | 'email.bounced'
+  | 'email.opened'
+  | 'email.clicked'
   | 'email.suppressed'
-  | 'email.failed';
+  | 'email.failed'
+  | 'email.scheduled'
+  | 'email.received';
 
 /**
  * Resend webhook event structure.
  */
 export interface ResendWebhookEvent {
   type: ResendEventType;
+  created_at: string;
   data: {
     email_id: string;
-    to?: string[];
-    subject?: string;
+    from: string;
+    to: string[];
+    subject: string;
+    created_at: string;
+    broadcast_id?: string;
+    template_id?: string;
     bounce?: {
-      type: 'Permanent' | 'Transient';
+      diagnosticCode?: string[];
+      message?: string;
+      type: string;
       subType: string;
+    };
+    click?: {
+      ipAddress: string;
+      link: string;
+      timestamp: string;
+      userAgent: string;
     };
     reason?: string;
     error?: string;
@@ -332,17 +350,16 @@ export interface WebhookVerifier {
 /**
  * Creates a Resend webhook verifier.
  *
- * Uses the Resend SDK's built-in webhook verification which is based on svix.
+ * Uses Svix directly, which is the same signature mechanism used by Resend webhooks.
  */
 export const makeWebhookVerifier = (config: WebhookVerifierConfig): WebhookVerifier => {
   const { webhookSecret, logger } = config;
   const log = logger.child({ component: 'WebhookVerifier' });
-  const resend = new Resend();
+  const webhook = new Webhook(webhookSecret);
 
   log.info('Initializing Resend webhook verifier');
 
   return {
-    // Resend SDK's verify method is synchronous, so we wrap in Promise.resolve
     verify(
       rawBody: string,
       headers: SvixHeaders
@@ -352,18 +369,12 @@ export const makeWebhookVerifier = (config: WebhookVerifierConfig): WebhookVerif
       log.debug({ svixId }, 'Verifying webhook signature');
 
       try {
-        // Resend SDK's webhook verify method - single object argument (synchronous)
-        const event = resend.webhooks.verify({
-          payload: rawBody,
-          headers: {
-            id: svixId,
-            timestamp: svixTimestamp,
-            signature: svixSignature,
-          },
-          webhookSecret,
+        const event = webhook.verify(rawBody, {
+          'svix-id': svixId,
+          'svix-timestamp': svixTimestamp,
+          'svix-signature': svixSignature,
         });
 
-        // The event is returned directly, not wrapped in a promise
         log.debug({ svixId, eventType: (event as ResendWebhookEvent).type }, 'Webhook verified');
 
         return Promise.resolve(ok(event as ResendWebhookEvent));
@@ -371,7 +382,13 @@ export const makeWebhookVerifier = (config: WebhookVerifierConfig): WebhookVerif
         log.warn({ error, svixId }, 'Webhook verification failed');
 
         if (error instanceof Error) {
-          if (error.message.includes('expired')) {
+          const lowerMessage = error.message.toLowerCase();
+
+          if (
+            lowerMessage.includes('expired') ||
+            lowerMessage.includes('too old') ||
+            lowerMessage.includes('too new')
+          ) {
             return Promise.resolve(
               err({
                 type: 'EXPIRED',
@@ -380,7 +397,11 @@ export const makeWebhookVerifier = (config: WebhookVerifierConfig): WebhookVerif
             );
           }
 
-          if (error.message.includes('signature')) {
+          if (
+            lowerMessage.includes('signature') ||
+            lowerMessage.includes('matching signature') ||
+            lowerMessage.includes('required headers')
+          ) {
             return Promise.resolve(
               err({
                 type: 'INVALID_SIGNATURE',
