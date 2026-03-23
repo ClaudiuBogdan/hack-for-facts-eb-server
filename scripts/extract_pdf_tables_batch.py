@@ -13,10 +13,18 @@ from typing import Any, Callable
 try:
     from scripts.csvs_to_xlsx import list_csv_files, write_workbook
     from scripts.extract_pdf_tables import EXPECTED_FAMILY_ORDER, extract_pdf_to_dir
+    from scripts.validate_budget_indicator_consistency import (
+        ConsistencyValidationSummary,
+        validate_budget_indicator_consistency_csv,
+    )
     from scripts.validate_pdf_totals import ValidationSummary, validate_budget_indicator_csv
 except ModuleNotFoundError:
     from csvs_to_xlsx import list_csv_files, write_workbook
     from extract_pdf_tables import EXPECTED_FAMILY_ORDER, extract_pdf_to_dir
+    from validate_budget_indicator_consistency import (
+        ConsistencyValidationSummary,
+        validate_budget_indicator_consistency_csv,
+    )
     from validate_pdf_totals import ValidationSummary, validate_budget_indicator_csv
 
 DEFAULT_SOURCE_DIR = "/Users/claudiuconstantinbogdan/Downloads/Anexa_3"
@@ -105,6 +113,35 @@ def serialize_validation_summary(summary: ValidationSummary) -> dict[str, Any]:
     }
 
 
+def serialize_consistency_validation_summary(
+    summary: ConsistencyValidationSummary,
+) -> dict[str, Any]:
+    return {
+        "top_total_checks": summary.top_total_checks,
+        "chapter_checks": summary.chapter_checks,
+        "main_group_checks": summary.main_group_checks,
+        "mismatch_count": len(summary.mismatches),
+        "mismatches": [
+            {
+                "level": mismatch.level,
+                "entity": mismatch.entity,
+                "credit_type": mismatch.credit_type,
+                "detail_table_type": mismatch.detail_table_type,
+                "functional": mismatch.functional,
+                "economic": mismatch.economic,
+                "code": mismatch.code,
+                "column": mismatch.column,
+                "sinteza_value": mismatch.sinteza_value,
+                "detail_value": mismatch.detail_value,
+                "sinteza_section": mismatch.sinteza_section,
+                "detail_section": mismatch.detail_section,
+                "description": mismatch.description,
+            }
+            for mismatch in summary.mismatches
+        ],
+    }
+
+
 def build_validation_markdown(document_summary: dict[str, Any], *, preview_limit: int) -> str:
     lines = [
         f"# Validation Report: {document_summary['source_pdf_name']}",
@@ -172,6 +209,48 @@ def build_validation_markdown(document_summary: dict[str, Any], *, preview_limit
                     f"- Truncated preview: showing {preview_limit} of {len(mismatches)} mismatches."
                 )
 
+    consistency_validation = document_summary.get("consistency_validation")
+    if consistency_validation is not None:
+        lines.extend(["", "## Consistency Validation", ""])
+        lines.append(f"- Consistency validation status: `{consistency_validation['status']}`")
+
+        consistency_note = consistency_validation.get("note")
+        if consistency_note:
+            lines.append(f"- Note: {consistency_note}")
+
+        if consistency_validation.get("summary") is not None:
+            summary = consistency_validation["summary"]
+            lines.extend(
+                [
+                    f"- Top total checks: `{summary['top_total_checks']}`",
+                    f"- Chapter checks: `{summary['chapter_checks']}`",
+                    f"- Main-group checks: `{summary['main_group_checks']}`",
+                    f"- Mismatch count: `{summary['mismatch_count']}`",
+                ]
+            )
+
+            mismatches = summary["mismatches"]
+            if mismatches:
+                lines.extend(["", "### Consistency Mismatch Preview", ""])
+                for mismatch in mismatches[:preview_limit]:
+                    lines.append(
+                        "- "
+                        f"level=`{mismatch['level']}` "
+                        f"entity=`{mismatch['entity']}` "
+                        f"detail_table_type=`{mismatch['detail_table_type']}` "
+                        f"credit_type=`{mismatch['credit_type']}` "
+                        f"functional=`{mismatch['functional']}` "
+                        f"economic=`{mismatch['economic']}` "
+                        f"code=`{mismatch['code']}` "
+                        f"column=`{mismatch['column']}` "
+                        f"sinteza=`{mismatch['sinteza_value']}` "
+                        f"detail=`{mismatch['detail_value']}`"
+                    )
+                if len(mismatches) > preview_limit:
+                    lines.append(
+                        f"- Truncated preview: showing {preview_limit} of {len(mismatches)} consistency mismatches."
+                    )
+
     return "\n".join(lines) + "\n"
 
 
@@ -227,6 +306,10 @@ def default_validator(csv_path: Path) -> ValidationSummary:
     return validate_budget_indicator_csv(csv_path)
 
 
+def default_consistency_validator(csv_path: Path) -> ConsistencyValidationSummary:
+    return validate_budget_indicator_consistency_csv(csv_path)
+
+
 def process_pdf_document(
     staged_pdf: Path,
     document_dir: Path,
@@ -234,6 +317,7 @@ def process_pdf_document(
     extractor: Callable[[Path, Path], dict[str, Any]],
     xlsx_writer: Callable[[Path, Path], None],
     validator: Callable[[Path], ValidationSummary],
+    consistency_validator: Callable[[Path], ConsistencyValidationSummary] | None = None,
     preview_limit: int,
 ) -> dict[str, Any]:
     shutil.rmtree(document_dir, ignore_errors=True)
@@ -253,6 +337,7 @@ def process_pdf_document(
         "families": {},
         "extraction": {"status": "failure"},
         "validation": {"status": "not_run"},
+        "consistency_validation": {"status": "not_run"},
         "xlsx": {"status": "not_run"},
     }
 
@@ -325,6 +410,11 @@ def process_pdf_document(
             "note": "budget_indicator_summary.csv missing or empty; validation skipped",
             "summary": None,
         }
+        document_summary["consistency_validation"] = {
+            "status": "warning",
+            "note": "budget_indicator_summary.csv missing or empty; consistency validation skipped",
+            "summary": None,
+        }
         document_summary["status"] = "warning"
         document_summary["interpretation"] = "acceptable"
         document_summary["summary_note"] = "Extraction completed, but validation input was missing or empty"
@@ -342,23 +432,60 @@ def process_pdf_document(
             return document_summary
 
         validation_data = serialize_validation_summary(validation_summary)
-        if validation_summary.mismatches:
+        consistency_summary = None
+        consistency_data = None
+        consistency_mismatch_count = 0
+        if consistency_validator is not None:
+            try:
+                consistency_summary = consistency_validator(budget_csv_path)
+            except Exception as error:  # noqa: BLE001
+                document_summary["consistency_validation"] = {
+                    "status": "failure",
+                    "note": str(error),
+                    "summary": None,
+                }
+                document_summary["summary_note"] = f"Consistency validator crashed: {error}"
+                write_artifacts()
+                return document_summary
+            consistency_data = serialize_consistency_validation_summary(consistency_summary)
+            consistency_mismatch_count = len(consistency_summary.mismatches)
+            document_summary["consistency_validation"] = {
+                "status": "warning" if consistency_mismatch_count else "success",
+                "note": (
+                    f"{consistency_mismatch_count} consistency mismatches detected"
+                    if consistency_mismatch_count
+                    else "All checked Sinteza/detail totals matched"
+                ),
+                "summary": consistency_data,
+            }
+
+        validation_mismatch_count = len(validation_summary.mismatches)
+        if validation_mismatch_count or consistency_mismatch_count:
+            notes: list[str] = []
+            if validation_mismatch_count:
+                notes.append(f"{validation_mismatch_count} rollup mismatches")
+            if consistency_mismatch_count:
+                notes.append(f"{consistency_mismatch_count} consistency mismatches")
             document_summary["validation"] = {
                 "status": "warning",
-                "note": f"{len(validation_summary.mismatches)} mismatches detected",
+                "note": f"{validation_mismatch_count} mismatches detected",
                 "summary": validation_data,
             }
             document_summary["status"] = "warning"
             document_summary["interpretation"] = "acceptable"
-            document_summary["summary_note"] = (
-                f"Extraction completed with {len(validation_summary.mismatches)} validator mismatches"
-            )
+            document_summary["summary_note"] = f"Extraction completed with {', '.join(notes)}"
         else:
             document_summary["validation"] = {
                 "status": "success",
                 "note": "All checked rollups matched",
                 "summary": validation_data,
             }
+            if consistency_validator is None:
+                document_summary["consistency_validation"] = {
+                    "status": "not_run",
+                    "note": "Consistency validator not configured",
+                    "summary": None,
+                }
             document_summary["status"] = "success"
             document_summary["interpretation"] = "acceptable"
             document_summary["summary_note"] = "Extraction and validation succeeded"
@@ -374,6 +501,7 @@ def parse_batch_documents(
     extractor: Callable[[Path, Path], dict[str, Any]],
     xlsx_writer: Callable[[Path, Path], None],
     validator: Callable[[Path], ValidationSummary],
+    consistency_validator: Callable[[Path], ConsistencyValidationSummary] | None = None,
     preview_limit: int,
 ) -> list[dict[str, Any]]:
     used_ids: set[str] = set()
@@ -389,6 +517,7 @@ def parse_batch_documents(
             extractor=extractor,
             xlsx_writer=xlsx_writer,
             validator=validator,
+            consistency_validator=consistency_validator,
             preview_limit=preview_limit,
         )
         document_summaries.append(document_summary)
@@ -419,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
         extractor=default_extractor,
         xlsx_writer=default_xlsx_writer,
         validator=default_validator,
+        consistency_validator=default_consistency_validator,
         preview_limit=args.preview_limit,
     )
 

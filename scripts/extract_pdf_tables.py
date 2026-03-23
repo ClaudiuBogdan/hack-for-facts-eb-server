@@ -10,7 +10,9 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 NUMERIC_PATTERN = re.compile(r"[+-]?\d[\d.]*(?:,\d+)?")
@@ -179,13 +181,21 @@ FUNCTIONAL_CODE_COLUMNS = ["capitol", "subcapitol", "paragraph"]
 ECONOMIC_CODE_COLUMNS = ["grupa_titlu", "articol", "alineat"]
 BUDGET_INDICATOR_CODE_ZONES = {
     "capitol": (0, 6),
-    "subcapitol": (6, 12),
-    "paragraph": (12, 17),
+    "subcapitol": (6, 11),
+    "paragraph": (11, 17),
     "grupa_titlu": (17, 22),
-    "articol": (22, 27),
-    "alineat": (27, 30),
+    "articol": (22, 26),
+    "alineat": (26, 30),
 }
 BUDGET_INDICATOR_DESCRIPTION_START = 30
+BUDGET_INDICATOR_TITLE_MARKERS = (
+    "SINTEZA",
+    "fondurilor alocate",
+    "Bugetul pe capitole",
+    "BUGETUL",
+    "(sume alocate",
+    "(sumele alocate",
+)
 
 NINE_VALUE_COLUMNS = [
     "valoarea_totala",
@@ -308,6 +318,13 @@ def split_multi_space(line: str) -> list[str]:
     return parts
 
 
+def _find_description_start(line: str) -> int:
+    for i in range(26, min(36, len(line))):
+        if line[i].isalpha():
+            return i
+    return BUDGET_INDICATOR_DESCRIPTION_START
+
+
 def is_footer_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
@@ -330,7 +347,11 @@ def map_numeric_columns(
     starts: list[int],
     *,
     tolerance: int = 8,
+    ordered: bool = False,
 ) -> dict[str, str]:
+    if ordered:
+        return map_numeric_columns_ordered(line, columns, starts, tolerance=tolerance)
+
     values = {column: "" for column in columns}
     first_start = starts[0]
     for match in NUMERIC_PATTERN.finditer(line):
@@ -344,6 +365,64 @@ def map_numeric_columns(
         if values[column]:
             continue
         values[column] = normalize_numeric_value(match.group())
+    return values
+
+
+def map_numeric_columns_ordered(
+    line: str,
+    columns: list[str],
+    starts: list[int],
+    *,
+    tolerance: int,
+) -> dict[str, str]:
+    values = {column: "" for column in columns}
+    first_start = starts[0]
+    matches = [
+        (match.start(), normalize_numeric_value(match.group()))
+        for match in NUMERIC_PATTERN.finditer(line)
+        if match.start() >= first_start - tolerance
+        and any(abs(start - match.start()) <= tolerance for start in starts)
+    ]
+    if not matches:
+        return values
+
+    impossible = 10**9
+    match_count = len(matches)
+    column_count = len(columns)
+    skip_penalty = 4
+
+    @lru_cache(maxsize=None)
+    def best_cost(match_index: int, column_index: int) -> int:
+        if match_index == match_count:
+            return 0
+        if column_index == column_count:
+            return impossible
+
+        cost = skip_penalty + best_cost(match_index, column_index + 1)
+        distance = abs(starts[column_index] - matches[match_index][0])
+        if distance <= tolerance:
+            candidate = best_cost(match_index + 1, column_index + 1)
+            if candidate != impossible:
+                cost = min(cost, distance + candidate)
+        return cost
+
+    if best_cost(0, 0) == impossible:
+        return map_numeric_columns(line, columns, starts, tolerance=tolerance, ordered=False)
+
+    match_index = 0
+    column_index = 0
+    while match_index < match_count and column_index < column_count:
+        skip_cost = skip_penalty + best_cost(match_index, column_index + 1)
+        distance = abs(starts[column_index] - matches[match_index][0])
+        take_cost = impossible
+        if distance <= tolerance:
+            candidate = best_cost(match_index + 1, column_index + 1)
+            if candidate != impossible:
+                take_cost = distance + candidate
+        if take_cost <= skip_cost:
+            values[columns[column_index]] = matches[match_index][1]
+            match_index += 1
+        column_index += 1
     return values
 
 
@@ -492,6 +571,9 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
     functional_state = {column: "" for column in FUNCTIONAL_CODE_COLUMNS}
     economic_state = {column: "" for column in ECONOMIC_CODE_COLUMNS}
     current_table_title = ""
+    expected_entity_prefix = ""
+    continuation_article_active = False
+    skip_foreign_entity = False
 
     def flush() -> None:
         nonlocal item
@@ -504,14 +586,36 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
         item = None
 
     for page_number, page_text in pages:
-        page_table_title = extract_budget_indicator_table_title(page_text, current_table_title)
+        title_lines = extract_budget_indicator_title_lines(page_text)
+        page_entity_prefix = extract_budget_indicator_entity_prefix(title_lines)
+        page_has_explicit_title = has_budget_indicator_title_markers(title_lines)
+        if page_has_explicit_title and page_entity_prefix:
+            if not expected_entity_prefix:
+                expected_entity_prefix = page_entity_prefix
+                skip_foreign_entity = False
+            elif page_entity_prefix == expected_entity_prefix:
+                skip_foreign_entity = False
+            else:
+                if item is not None:
+                    flush()
+                skip_foreign_entity = True
+                continue
+        if skip_foreign_entity:
+            continue
+
+        page_table_title = extract_budget_indicator_table_title_from_lines(
+            title_lines,
+            current_table_title,
+        )
         page_numeric_starts = extract_budget_indicator_numeric_starts(page_text)
+        page_numeric_end_anchors = extract_budget_indicator_numeric_end_anchors(page_text)
         if page_table_title != current_table_title:
             if item is not None:
                 flush()
             current_table_title = page_table_title
             functional_state = {column: "" for column in FUNCTIONAL_CODE_COLUMNS}
             economic_state = {column: "" for column in ECONOMIC_CODE_COLUMNS}
+            continuation_article_active = False
         for line in page_text.splitlines():
             stripped = line.strip()
             if (
@@ -531,7 +635,19 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
             if stripped.startswith("I.Credite de angajament") or stripped.startswith("II.Credite bugetare"):
                 if item is None:
                     continue
-                values = map_numeric_columns(line, BUDGET_INDICATOR_COLUMNS, page_numeric_starts)
+                values = map_numeric_columns(
+                    line,
+                    BUDGET_INDICATOR_COLUMNS,
+                    page_numeric_starts,
+                    tolerance=16,
+                    ordered=True,
+                )
+                values = detect_and_correct_budget_indicator_shift(values)
+                values = correct_budget_indicator_sparse_first_value(
+                    line,
+                    values,
+                    page_numeric_end_anchors,
+                )
                 item.rows.append(
                     PendingRow(
                         source_page=page_number,
@@ -540,8 +656,13 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
                     )
                 )
                 continue
-            detected_codes = extract_budget_indicator_codes(line)
-            description_fragment = line[BUDGET_INDICATOR_DESCRIPTION_START:].strip()
+            description_fragment = line[_find_description_start(line):].strip()
+            detected_codes, promoted_group_to_article, promoted_article_to_alineat = normalize_budget_indicator_codes(
+                extract_budget_indicator_codes(line),
+                description_fragment,
+                economic_state,
+                continuation_article_active,
+            )
             has_functional_codes = any(detected_codes[column] for column in FUNCTIONAL_CODE_COLUMNS)
             has_economic_codes = any(detected_codes[column] for column in ECONOMIC_CODE_COLUMNS)
             if description_fragment and (has_functional_codes or has_economic_codes):
@@ -550,10 +671,17 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
                 if has_functional_codes and not has_economic_codes:
                     for column in ECONOMIC_CODE_COLUMNS:
                         economic_state[column] = ""
+                    continuation_article_active = False
                 fill_missing_parent_codes(functional_state, detected_codes, FUNCTIONAL_CODE_COLUMNS)
                 fill_missing_parent_codes(economic_state, detected_codes, ECONOMIC_CODE_COLUMNS)
                 apply_hierarchy_update(functional_state, detected_codes, FUNCTIONAL_CODE_COLUMNS)
                 apply_hierarchy_update(economic_state, detected_codes, ECONOMIC_CODE_COLUMNS)
+                if promoted_group_to_article or promoted_article_to_alineat:
+                    continuation_article_active = True
+                elif detected_codes["grupa_titlu"] or has_functional_codes:
+                    continuation_article_active = False
+                elif detected_codes["articol"] and not promoted_article_to_alineat:
+                    continuation_article_active = False
                 row_metadata = make_budget_indicator_metadata(functional_state, economic_state)
                 item = PendingItem(
                     source_page=page_number,
@@ -581,7 +709,76 @@ def extract_budget_indicator_codes(line: str) -> dict[str, str]:
     return values
 
 
+def is_budget_indicator_group_header(description_fragment: str) -> bool:
+    description = normalize_spaces(description_fragment)
+    if not description:
+        return False
+    if description.startswith(
+        (
+            "TOTAL GENERAL",
+            "CHELTUIELI",
+            "TITLUL",
+            "PLATI",
+            "OPERATIUNI",
+            "DOBANZI",
+            "FONDURI EXTERNE NERAMBURSABILE",
+            "VENITURI PROPRII - TOTAL CHELTUIELI",
+            "CREDITE EXTERNE",
+        )
+    ):
+        return True
+    letters = [character for character in description if character.isalpha()]
+    if not letters:
+        return False
+    uppercase_ratio = sum(character.isupper() for character in letters) / len(letters)
+    return uppercase_ratio >= 0.8
+
+
+def normalize_budget_indicator_codes(
+    detected_codes: dict[str, str],
+    description_fragment: str,
+    economic_state: dict[str, str],
+    continuation_article_active: bool,
+) -> tuple[dict[str, str], bool, bool]:
+    if any(detected_codes[column] for column in FUNCTIONAL_CODE_COLUMNS):
+        return detected_codes, False, False
+    if detected_codes["alineat"]:
+        return detected_codes, False, False
+    current_group = economic_state.get("grupa_titlu") or ""
+    detected_group = detected_codes["grupa_titlu"]
+    if not current_group or not detected_group or is_budget_indicator_group_header(description_fragment):
+        remapped = dict(detected_codes)
+        promoted_group_to_article = False
+    else:
+        remapped = dict(detected_codes)
+        remapped["articol"] = detected_group
+        remapped["grupa_titlu"] = ""
+        promoted_group_to_article = True
+
+    current_article = economic_state.get("articol") or ""
+    detected_article = remapped["articol"]
+    promoted_article_to_alineat = False
+    if (
+        continuation_article_active
+        and not promoted_group_to_article
+        and current_article
+        and detected_article
+        and not remapped["alineat"]
+    ):
+        if not is_budget_indicator_group_header(description_fragment):
+            remapped["alineat"] = detected_article
+            remapped["articol"] = current_article
+            promoted_article_to_alineat = True
+
+    return remapped, promoted_group_to_article, promoted_article_to_alineat
+
+
 def extract_budget_indicator_table_title(page_text: str, current_title: str) -> str:
+    title_lines = extract_budget_indicator_title_lines(page_text)
+    return extract_budget_indicator_table_title_from_lines(title_lines, current_title)
+
+
+def extract_budget_indicator_title_lines(page_text: str) -> list[str]:
     title_lines: list[str] = []
     for line in page_text.splitlines():
         stripped = line.strip()
@@ -598,16 +795,37 @@ def extract_budget_indicator_table_title(page_text: str, current_title: str) -> 
         ):
             continue
         title_lines.append(stripped)
+    return title_lines
+
+
+def has_budget_indicator_title_markers(title_lines: list[str]) -> bool:
+    return any(
+        any(marker in line for marker in BUDGET_INDICATOR_TITLE_MARKERS)
+        for line in title_lines
+    )
+
+
+def extract_budget_indicator_entity_prefix(title_lines: list[str]) -> str:
+    marker_index = next(
+        (
+            index
+            for index, line in enumerate(title_lines)
+            if any(marker in line for marker in BUDGET_INDICATOR_TITLE_MARKERS)
+        ),
+        None,
+    )
+    prefix_lines = title_lines[:marker_index] if marker_index is not None else title_lines
+    return join_parts(prefix_lines)
+
+
+def extract_budget_indicator_table_title_from_lines(
+    title_lines: list[str],
+    current_title: str,
+) -> str:
     if not title_lines:
         return current_title
-    meaningful_title_markers = (
-        "SINTEZA",
-        "fondurilor alocate",
-        "Bugetul pe capitole",
-        "(sume alocate",
-    )
     if current_title and not any(
-        any(marker in line for marker in meaningful_title_markers) for line in title_lines
+        any(marker in line for marker in BUDGET_INDICATOR_TITLE_MARKERS) for line in title_lines
     ):
         return current_title
     return join_parts([" | ".join(title_lines)])
@@ -615,11 +833,31 @@ def extract_budget_indicator_table_title(page_text: str, current_title: str) -> 
 
 def extract_budget_indicator_numeric_starts(page_text: str) -> list[int]:
     for line in page_text.splitlines():
-        if re.fullmatch(r"\s*A\s+B\s+1\s+2\s+3\s+4\s+5\s+6\s+7\s*", line):
-            positions = [match.start() for match in re.finditer(r"[1-7]", line)]
+        if re.fullmatch(r"\s*A\s+B\s+1\s+2\s+3\s+4\S*\s+5\s+6\s+7\s*", line):
+            positions = [match.start() for match in re.finditer(r"(?<!\S)[1-7]", line)]
             if len(positions) == 7:
                 return positions
     return BUDGET_INDICATOR_STARTS
+
+
+def extract_budget_indicator_numeric_end_anchors(page_text: str) -> list[int] | None:
+    end_positions: list[list[int]] = []
+    for line in page_text.splitlines():
+        stripped = line.strip()
+        if not (
+            stripped.startswith("I.Credite de angajament")
+            or stripped.startswith("II.Credite bugetare")
+        ):
+            continue
+        matches = list(NUMERIC_PATTERN.finditer(line))
+        if len(matches) != len(BUDGET_INDICATOR_COLUMNS):
+            continue
+        end_positions.append([match.end() for match in matches])
+    if not end_positions:
+        return None
+    return [
+        int(round(median(column_positions))) for column_positions in zip(*end_positions)
+    ]
 
 
 def derive_budget_indicator_table_type(section: str) -> str:
@@ -675,6 +913,89 @@ def make_budget_indicator_metadata(
     metadata["functional"] = join_code_path(functional_state, FUNCTIONAL_CODE_COLUMNS)
     metadata["economic"] = join_code_path(economic_state, ECONOMIC_CODE_COLUMNS)
     return metadata
+
+
+def _try_float_value(raw: str) -> float | None:
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    try:
+        return float(stripped)
+    except ValueError:
+        return None
+
+
+def _percentage_matches(executie: float, propuneri: float, crestere: float) -> bool:
+    if abs(executie) < 0.01:
+        return False
+    expected = (propuneri - executie) / executie * 100
+    return abs(expected - crestere) <= 1.0
+
+
+def detect_and_correct_budget_indicator_shift(values: dict[str, str]) -> dict[str, str]:
+    """Detect and correct a one-column-left shift in budget indicator values.
+
+    The DP column mapper sometimes assigns the first numeric value to
+    realizari_2024 instead of executie_preliminata_2025, shifting all
+    values left by one position.  Detection relies on the percentage
+    column ``crestere_descrestere_2026_2025`` which must satisfy
+    ``(propuneri - executie) / executie * 100``.  When shifting right by
+    one position makes the formula hold, the values are corrected.
+    """
+    executie = _try_float_value(values.get("executie_preliminata_2025", ""))
+    propuneri = _try_float_value(values.get("propuneri_2026", ""))
+    crestere = _try_float_value(values.get("crestere_descrestere_2026_2025", ""))
+
+    if executie is None or propuneri is None or crestere is None:
+        return values
+
+    if _percentage_matches(executie, propuneri, crestere):
+        return values
+
+    realizari = _try_float_value(values.get("realizari_2024", ""))
+    if realizari is None:
+        return values
+
+    if _percentage_matches(realizari, executie, propuneri):
+        columns = BUDGET_INDICATOR_COLUMNS
+        corrected = {columns[0]: ""}
+        for i in range(1, len(columns)):
+            corrected[columns[i]] = values.get(columns[i - 1], "")
+        return corrected
+
+    return values
+
+
+def correct_budget_indicator_sparse_first_value(
+    line: str,
+    values: dict[str, str],
+    end_anchors: list[int] | None,
+) -> dict[str, str]:
+    if end_anchors is None:
+        return values
+    if (
+        values.get("realizari_2024", "")
+        or not values.get("executie_preliminata_2025", "")
+        or not values.get("propuneri_2026", "")
+        or values.get("crestere_descrestere_2026_2025", "")
+    ):
+        return values
+
+    matches = list(NUMERIC_PATTERN.finditer(line))
+    if len(matches) != 5:
+        return values
+
+    first_end = matches[0].end()
+    second_end = matches[1].end()
+    if abs(first_end - end_anchors[0]) > abs(first_end - end_anchors[1]):
+        return values
+    if abs(second_end - end_anchors[2]) >= abs(second_end - end_anchors[1]):
+        return values
+
+    corrected = dict(values)
+    corrected["realizari_2024"] = corrected["executie_preliminata_2025"]
+    corrected["executie_preliminata_2025"] = ""
+    return corrected
 
 
 def select_budget_indicator_row_code(detected_codes: dict[str, str]) -> str:
