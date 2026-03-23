@@ -145,8 +145,7 @@ import {
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
   makeDeliveryRepo,
-  makeWebhookEventRepo,
-  makeWebhookRoutes,
+  makeResendWebhookDeliverySideEffect,
 } from '../modules/notification-delivery/index.js';
 import {
   makeNotificationRoutes,
@@ -161,6 +160,10 @@ import {
   makeReportRepo,
   createReportLoaders,
 } from '../modules/report/index.js';
+import {
+  makeResendWebhookEmailEventsRepo,
+  makeResendWebhookRoutes,
+} from '../modules/resend-webhooks/index.js';
 import {
   makeShareRoutes,
   makeShortLinkRepo,
@@ -678,63 +681,33 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     //
     // The delivery repos and webhook endpoint are wired here.
     // Workers require the adapters above to function.
-    if (
-      config.notifications.enabled &&
-      config.email.apiKey !== undefined &&
-      config.redis.url !== undefined
-    ) {
-      // Create delivery repos for the pipeline
-      const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
-      const webhookEventRepo = makeWebhookEventRepo({ db: userDb, logger: repoLogger });
+    if (config.email.webhookSecret !== undefined) {
+      const webhookVerifier = makeWebhookVerifier({
+        webhookSecret: config.email.webhookSecret,
+        logger: repoLogger,
+      });
 
-      // Log that notification delivery is partially enabled
-      app.log.info(
-        {
-          hasWebhookSecret: config.email.webhookSecret !== undefined,
-          hasTriggerApiKey: config.notifications.triggerApiKey !== undefined,
-          processRole: config.jobs.processRole,
-        },
-        'Notification delivery repos initialized (full pipeline requires additional adapters)'
+      const emailEventsRepo = makeResendWebhookEmailEventsRepo({
+        db: userDb,
+        logger: repoLogger,
+      });
+      const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
+      const resendWebhookSideEffect = makeResendWebhookDeliverySideEffect({
+        deliveryRepo,
+        notificationsRepo,
+        logger: repoLogger,
+      });
+
+      await app.register(
+        makeResendWebhookRoutes({
+          webhookVerifier,
+          emailEventsRepo,
+          sideEffect: resendWebhookSideEffect,
+          logger: repoLogger,
+        })
       );
 
-      // Webhook routes (Resend event ingestion) - can work standalone
-      if (config.email.webhookSecret !== undefined) {
-        const webhookVerifier = makeWebhookVerifier({
-          webhookSecret: config.email.webhookSecret,
-          logger: repoLogger,
-        });
-
-        // Stub notifications repo for webhook routes (just needs deactivate)
-        // TODO: Replace with real ExtendedNotificationsRepository when available
-        const stubNotificationsRepo = {
-          findById: async () => {
-            const { ok } = await import('neverthrow');
-            return ok(null);
-          },
-          findEligibleForDelivery: async () => {
-            const { ok } = await import('neverthrow');
-            return ok([]);
-          },
-          deactivate: async (id: string) => {
-            // Deactivate via base repo
-            const { ok } = await import('neverthrow');
-            repoLogger.warn({ notificationId: id }, 'Deactivate called but not implemented');
-            return ok(undefined);
-          },
-        };
-
-        await app.register(
-          makeWebhookRoutes({
-            webhookVerifier,
-            webhookEventRepo,
-            deliveryRepo,
-            notificationsRepo: stubNotificationsRepo,
-            logger: repoLogger,
-          })
-        );
-
-        app.log.info('Resend webhook endpoint enabled at /api/v1/webhooks/resend');
-      }
+      app.log.info('Resend webhook endpoint enabled at /api/v1/webhooks/resend');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

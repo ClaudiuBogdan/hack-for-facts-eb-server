@@ -234,6 +234,36 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('registers resend webhook route when userDb and webhook secret are configured', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            email: {
+              apiKey: undefined,
+              webhookSecret: 'w'.repeat(32),
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+      const routes = app.printRoutes();
+
+      expect(routes).toContain('webhooks/');
+      expect(routes).toContain('resend (POST)');
+
+      await app.close();
+    });
+
     it('logs incoming and completed once for non-health routes', async () => {
       const logs = createLogCollector();
 

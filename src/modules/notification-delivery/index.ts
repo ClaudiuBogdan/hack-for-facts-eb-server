@@ -106,6 +106,11 @@ export type { TriggerRoutesDeps } from './shell/rest/trigger-routes.js';
 export { makeWebhookRoutes } from './shell/rest/webhook-routes.js';
 export type { WebhookRoutesDeps } from './shell/rest/webhook-routes.js';
 
+export {
+  makeResendWebhookDeliverySideEffect,
+  type ResendWebhookDeliverySideEffectDeps,
+} from './shell/webhook/resend-side-effect.js';
+
 // Core Use Cases
 export { recoverStuckSending } from './core/usecases/recover-stuck-sending.js';
 export type {
