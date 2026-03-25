@@ -8,6 +8,7 @@
  * @see https://github.com/mercurius-js/mercurius/blob/master/docs/loaders.md
  */
 
+import type { EntityProfileRepository } from '../../core/ports.js';
 import type { Entity } from '../../core/types.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { MercuriusContext, MercuriusLoaders } from 'mercurius';
@@ -21,6 +22,11 @@ interface LoaderQuery<T> {
   params: Record<string, unknown>;
 }
 
+interface CreateEntityLoadersDeps {
+  db: BudgetDbClient;
+  entityProfileRepo: EntityProfileRepository;
+}
+
 // ============================================================================
 // Loader Factory
 // ============================================================================
@@ -28,10 +34,13 @@ interface LoaderQuery<T> {
 /**
  * Creates Mercurius loaders for Entity nested fields.
  *
- * @param db - Database client for queries
+ * @param deps - Loader dependencies
  * @returns Mercurius loaders object
  */
-export const createEntityLoaders = (db: BudgetDbClient): MercuriusLoaders => {
+export const createEntityLoaders = ({
+  db,
+  entityProfileRepo,
+}: CreateEntityLoadersDeps): MercuriusLoaders => {
   return {
     Entity: {
       /**
@@ -76,6 +85,29 @@ export const createEntityLoaders = (db: BudgetDbClient): MercuriusLoaders => {
           }
           return uatMap.get(q.obj.uat_id) ?? null;
         });
+      },
+
+      /**
+       * Batch load entity profiles.
+       */
+      profile: async (queries: LoaderQuery<Entity>[], context: MercuriusContext) => {
+        const cuis = [...new Set(queries.map((q) => q.obj.cui))];
+
+        if (cuis.length === 0) {
+          return queries.map(() => null);
+        }
+
+        const result = await entityProfileRepo.getByEntityCuis(cuis);
+        if (result.isErr()) {
+          context.reply.log.error(
+            { err: result.error, cuis },
+            `[${result.error.type}] ${result.error.message}`
+          );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        const profileMap = result.value;
+        return queries.map((q) => profileMap.get(q.obj.cui) ?? null);
       },
     },
   };

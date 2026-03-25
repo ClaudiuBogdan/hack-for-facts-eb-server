@@ -13,6 +13,7 @@
 
 export type {
   Entity,
+  EntityProfile,
   EntityFilter,
   EntityConnection,
   EntityPageInfo,
@@ -48,7 +49,11 @@ export {
 // Ports
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { EntityRepository, EntityAnalyticsSummaryRepository } from './core/ports.js';
+export type {
+  EntityRepository,
+  EntityProfileRepository,
+  EntityAnalyticsSummaryRepository,
+} from './core/ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Use Cases
@@ -67,6 +72,7 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeEntityRepo } from './shell/repo/entity-repo.js';
+export { makeEntityProfileRepo } from './shell/repo/entity-profile-repo.js';
 export { makeEntityAnalyticsSummaryRepo } from './shell/repo/entity-analytics-repo.js';
 
 // ─────────────────────────────────────────────────────────────────────────────

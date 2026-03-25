@@ -80,6 +80,7 @@ import {
   makeEntityResolvers,
   EntitySchema,
   makeEntityRepo,
+  makeEntityProfileRepo,
   makeEntityAnalyticsSummaryRepo,
   createEntityLoaders,
 } from '../modules/entity/index.js';
@@ -495,6 +496,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Setup Entity Module
   const entityRepo = makeEntityRepo(budgetDb);
+  const entityProfileRepo = makeEntityProfileRepo(budgetDb);
   const entityAnalyticsSummaryRepo = makeEntityAnalyticsSummaryRepo(budgetDb);
   const uatRepo = makeUATRepo(budgetDb);
   const reportRepo = makeReportRepo(budgetDb);
@@ -602,7 +604,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Create Mercurius loaders for N+1 prevention
   // Combine loaders from all modules
   const executionLineItemLoaders = createExecutionLineItemLoaders(budgetDb);
-  const entityLoaders = createEntityLoaders(budgetDb);
+  const entityLoaders = createEntityLoaders({ db: budgetDb, entityProfileRepo });
   const uatLoaders = createUATLoaders(budgetDb);
   const reportLoaders = createReportLoaders(budgetDb);
 
