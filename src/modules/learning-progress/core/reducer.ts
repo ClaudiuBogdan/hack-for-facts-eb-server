@@ -99,7 +99,7 @@ export function buildDeltaEventsFromRecords(
 }
 
 export function getLatestCursor(records: readonly LearningProgressRecordRow[]): string {
-  return records.reduce<string>((latest, row) => {
+  return records.reduce((latest, row) => {
     return compareSequence(row.updatedSeq, latest) > 0 ? row.updatedSeq : latest;
   }, '0');
 }

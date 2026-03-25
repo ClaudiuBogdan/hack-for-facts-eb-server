@@ -84,7 +84,7 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
     }
 
     const map = this.maps.get(input.mapId);
-    if (map === undefined || map.userId !== input.userId) {
+    if (map?.userId !== input.userId) {
       return ok(null);
     }
 
@@ -108,7 +108,7 @@ class InMemoryAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository
 
     const map = this.maps.get(input.mapId);
 
-    if (map === undefined || map.userId !== input.userId) {
+    if (map?.userId !== input.userId) {
       return err(createNotFoundError('Map not found'));
     }
 

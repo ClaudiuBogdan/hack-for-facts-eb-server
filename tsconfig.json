@@ -10,7 +10,6 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@/infra/*": ["./src/infra/*"],

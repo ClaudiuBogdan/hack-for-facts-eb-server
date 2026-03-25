@@ -171,7 +171,7 @@ beforeAll(() => {
   // Set test environment
   process.env['NODE_ENV'] = 'test';
   process.env['LOG_LEVEL'] = 'silent';
-  process.env.TZ = 'UTC';
+  process.env['TZ'] = 'UTC';
 
   // Validate configuration
   try {
