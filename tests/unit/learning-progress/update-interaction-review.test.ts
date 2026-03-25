@@ -127,7 +127,7 @@ describe('updateInteractionReview', () => {
 
     expect(result.isOk()).toBe(true);
     const value = result._unsafeUnwrap();
-    expect(value.row.record.phase).toBe('error');
+    expect(value.row.record.phase).toBe('failed');
     expect(value.row.record.review).toEqual({
       status: 'rejected',
       reviewedAt: value.row.record.updatedAt,
@@ -136,7 +136,7 @@ describe('updateInteractionReview', () => {
     expect(value.row.auditEvents.at(-1)).toEqual(
       expect.objectContaining({
         type: 'evaluated',
-        phase: 'error',
+        phase: 'failed',
         result: expect.objectContaining({
           feedbackText: 'The submitted URL does not match the campaign requirement.',
         }),

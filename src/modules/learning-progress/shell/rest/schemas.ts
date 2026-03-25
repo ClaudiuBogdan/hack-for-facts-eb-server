@@ -6,7 +6,7 @@ import { Type, type Static } from '@sinclair/typebox';
 
 import { MAX_EVENTS_PER_REQUEST } from '../../core/types.js';
 
-const InteractionScopeSchema = Type.Union([
+export const InteractionScopeSchema = Type.Union([
   Type.Object({
     type: Type.Literal('entity'),
     entityCui: Type.String({ minLength: 1 }),
@@ -16,7 +16,7 @@ const InteractionScopeSchema = Type.Union([
   }),
 ]);
 
-const InteractionValueSchema = Type.Union([
+export const InteractionValueSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('choice'),
     choice: Type.Object({
@@ -49,7 +49,7 @@ const InteractionValueSchema = Type.Union([
   }),
 ]);
 
-const InteractionResultSchema = Type.Object(
+export const InteractionResultSchema = Type.Object(
   {
     outcome: Type.Union([Type.Literal('correct'), Type.Literal('incorrect'), Type.Null()]),
     score: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
@@ -60,7 +60,20 @@ const InteractionResultSchema = Type.Object(
   { additionalProperties: false }
 );
 
-const InteractionCompletionRuleSchema = Type.Union([
+export const InteractionReviewSchema = Type.Object(
+  {
+    status: Type.Union([
+      Type.Literal('pending'),
+      Type.Literal('approved'),
+      Type.Literal('rejected'),
+    ]),
+    reviewedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    feedbackText: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  },
+  { additionalProperties: false }
+);
+
+export const InteractionCompletionRuleSchema = Type.Union([
   Type.Object({
     type: Type.Literal('outcome'),
     outcome: Type.Union([Type.Literal('correct'), Type.Literal('incorrect')]),
@@ -78,7 +91,7 @@ const InteractionCompletionRuleSchema = Type.Union([
   }),
 ]);
 
-const InteractiveStateRecordSchema = Type.Object(
+export const InteractiveStateRecordSchema = Type.Object(
   {
     key: Type.String({ minLength: 1 }),
     interactionId: Type.String({ minLength: 1 }),
@@ -96,17 +109,21 @@ const InteractiveStateRecordSchema = Type.Object(
       Type.Literal('draft'),
       Type.Literal('pending'),
       Type.Literal('resolved'),
-      Type.Literal('error'),
+      Type.Literal('failed'),
     ]),
     value: Type.Union([InteractionValueSchema, Type.Null()]),
     result: Type.Union([InteractionResultSchema, Type.Null()]),
+    // Public GET responses may include server-owned review state. Public PUT
+    // accepts this field only as an unchanged echo from the server; sync strips
+    // echoed values and rejects client-authored changes.
+    review: Type.Optional(Type.Union([InteractionReviewSchema, Type.Null()])),
     updatedAt: Type.String({ format: 'date-time' }),
     submittedAt: Type.Optional(Type.Union([Type.String({ format: 'date-time' }), Type.Null()])),
   },
   { additionalProperties: false }
 );
 
-const InteractiveAuditEventSchema = Type.Union([
+export const InteractiveAuditEventSchema = Type.Union([
   Type.Object({
     id: Type.String({ minLength: 1 }),
     recordKey: Type.String({ minLength: 1 }),
@@ -125,7 +142,7 @@ const InteractiveAuditEventSchema = Type.Union([
     type: Type.Literal('evaluated'),
     at: Type.String({ format: 'date-time' }),
     actor: Type.Literal('system'),
-    phase: Type.Union([Type.Literal('resolved'), Type.Literal('error')]),
+    phase: Type.Union([Type.Literal('resolved'), Type.Literal('failed')]),
     result: InteractionResultSchema,
   }),
 ]);

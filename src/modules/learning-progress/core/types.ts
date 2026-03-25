@@ -21,7 +21,7 @@ export type InteractionValue =
   | { readonly kind: 'number'; readonly number: { readonly value: number | null } }
   | { readonly kind: 'json'; readonly json: { readonly value: Readonly<Record<string, unknown>> } };
 
-export type InteractionPhase = 'idle' | 'draft' | 'pending' | 'resolved' | 'error';
+export type InteractionPhase = 'idle' | 'draft' | 'pending' | 'resolved' | 'failed';
 
 export type InteractionOutcome = 'correct' | 'incorrect' | null;
 
@@ -33,6 +33,22 @@ export interface InteractionResult {
   readonly evaluatedAt?: string | null;
 }
 
+export type InteractionReviewStatus = 'pending' | 'approved' | 'rejected';
+export type ReviewDecisionStatus = Exclude<InteractionReviewStatus, 'pending'>;
+
+export interface InteractionReview {
+  /**
+   * Server-owned review metadata for asynchronous validation workflows.
+   *
+   * Public client sync may submit interaction values, but it may not set or
+   * overwrite this field. Review updates are performed through server-side
+   * use cases so authoritativeness stays on the backend.
+   */
+  readonly status: InteractionReviewStatus;
+  readonly reviewedAt: string | null;
+  readonly feedbackText?: string | null;
+}
+
 export type InteractiveDefinitionKind = 'quiz' | 'url' | 'text-input' | 'custom';
 
 export type InteractionCompletionRule =
@@ -42,6 +58,23 @@ export type InteractionCompletionRule =
   | { readonly type: 'component-flag'; readonly flag: string };
 
 export interface InteractiveStateRecord {
+  /**
+   * Canonical interactive lifecycle envelope.
+   *
+   * See `docs/specs/specs-202603201356-learning-progress-generic-sync.md`
+   * for the normative lifecycle state machine and field ownership rules.
+   *
+   * Summary:
+   * - `idle` / `draft`: not yet submitted; `result` and `review` are absent.
+   * - `pending`: submitted and waiting for async review; `submittedAt` is set,
+   *   `result` remains null, and `review` is still absent.
+   * - `resolved`: persisted success value. Shared client lifecycle helpers
+   *   should interpret this as `passed`. Immediate-eval interactions use
+   *   `result`; async-review interactions use `review.status = approved`.
+   * - `failed`: persisted retry-needed failure value. Shared client lifecycle
+   *   helpers should interpret this as `failed` for async-review interactions
+   *   with `review.status = rejected`.
+   */
   readonly key: string;
   readonly interactionId: string;
   readonly lessonId: LessonId;
@@ -51,6 +84,12 @@ export interface InteractiveStateRecord {
   readonly phase: InteractionPhase;
   readonly value: InteractionValue | null;
   readonly result: InteractionResult | null;
+  /**
+   * First-class review state for interactions that are submitted by the user
+   * and later validated by the server. Kept separate from `result` so quiz
+   * evaluation/scoring semantics stay generic and unaffected.
+   */
+  readonly review?: InteractionReview | null;
   readonly updatedAt: string;
   readonly submittedAt?: string | null;
 }
@@ -74,7 +113,7 @@ export type InteractiveAuditEvent =
       readonly type: 'evaluated';
       readonly at: string;
       readonly actor: 'system';
-      readonly phase: 'resolved' | 'error';
+      readonly phase: 'resolved' | 'failed';
       readonly result: InteractionResult;
     };
 
@@ -132,6 +171,34 @@ export interface LearningProgressRecordRow {
   readonly updatedSeq: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface ReviewDecision {
+  readonly userId: string;
+  readonly recordKey: string;
+  readonly expectedUpdatedAt: string;
+  readonly status: ReviewDecisionStatus;
+  readonly feedbackText?: string;
+}
+
+export interface GetRecordsOptions {
+  readonly recordKeyPrefix?: string;
+}
+
+export interface ListReviewRowsInput {
+  readonly status: InteractionReviewStatus;
+  readonly userId?: string;
+  readonly recordKey?: string;
+  readonly recordKeyPrefix?: string;
+  readonly interactionId?: string;
+  readonly lessonId?: string;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface ListReviewRowsOutput {
+  readonly rows: readonly LearningProgressRecordRow[];
+  readonly hasMore: boolean;
 }
 
 export interface UpsertInteractiveRecordInput {

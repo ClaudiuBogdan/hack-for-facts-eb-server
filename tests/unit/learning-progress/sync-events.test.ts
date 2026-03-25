@@ -4,7 +4,10 @@ import {
   MAX_EVENTS_PER_REQUEST,
   type LearningProgressRecordRow,
 } from '@/modules/learning-progress/core/types.js';
-import { syncEvents } from '@/modules/learning-progress/core/usecases/sync-events.js';
+import {
+  normalizePublicInteractiveRecord,
+  syncEvents,
+} from '@/modules/learning-progress/core/usecases/sync-events.js';
 
 import {
   createTestInteractiveRecord,
@@ -13,6 +16,182 @@ import {
   createTestSubmittedAuditEvent,
   makeFakeLearningProgressRepo,
 } from '../../fixtures/fakes.js';
+
+function makeRow(userId: string, record: LearningProgressRecordRow['record'], updatedSeq: string) {
+  return {
+    userId,
+    recordKey: record.key,
+    record,
+    auditEvents: [],
+    updatedSeq,
+    createdAt: record.updatedAt,
+    updatedAt: record.updatedAt,
+  } satisfies LearningProgressRecordRow;
+}
+
+describe('normalizePublicInteractiveRecord', () => {
+  it('accepts echoed stored review data on exact round-trips', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: reviewedRecord,
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-roundtrip',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual(reviewedRecord);
+  });
+
+  it('preserves stored review metadata on ordinary public updates', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+    const updatedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: reviewedRecord.phase,
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: updatedRecord,
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-preserve',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({
+      ...updatedRecord,
+      review: reviewedRecord.review,
+    });
+  });
+
+  it('clears stored review metadata on newer retries back to pending', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+    const retryRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: 'pending',
+      value: reviewedRecord.value,
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+      submittedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: retryRecord,
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-retry',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().review).toBeUndefined();
+  });
+
+  it('rejects attempts to modify stored review metadata', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+    const modifiedReviewRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: reviewedRecord.phase,
+      value: reviewedRecord.value,
+      result: reviewedRecord.result,
+      review: {
+        status: 'approved',
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? null,
+        feedbackText: 'Client changed this feedback.',
+      },
+      updatedAt: reviewedRecord.updatedAt,
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: modifiedReviewRecord,
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-modified-review',
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-modified-review',
+        message: 'Public progress sync cannot set record.review.',
+      })
+    );
+  });
+});
 
 describe('syncEvents', () => {
   it('returns success for empty requests', async () => {
@@ -105,7 +284,7 @@ describe('syncEvents', () => {
     );
   });
 
-  it('preserves stored review metadata on newer public resubmits', async () => {
+  it('preserves stored review metadata on newer public updates after review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'campaign:primarie-website-url::entity:4305857',
       interactionId: 'campaign:primarie-website-url',
@@ -150,17 +329,7 @@ describe('syncEvents', () => {
     });
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: reviewedRecord.key,
-        record: reviewedRecord,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: reviewedRecord.updatedAt,
-        updatedAt: reviewedRecord.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', reviewedRecord, '1')]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
 
@@ -187,6 +356,207 @@ describe('syncEvents', () => {
     expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
     expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
+
+    const reviewQueueResult = await repo.listReviewRows({
+      status: 'approved',
+      limit: 10,
+      offset: 0,
+    });
+    expect(reviewQueueResult.isOk()).toBe(true);
+    expect(reviewQueueResult._unsafeUnwrap().rows).toEqual([
+      expect.objectContaining({ recordKey: reviewedRecord.key }),
+    ]);
+  });
+
+  it('clears stored review metadata on newer public retries back to pending', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const retriedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: 'pending',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+      submittedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', reviewedRecord, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-23T19:45:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-retry',
+            payload: {
+              record: retriedRecord,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+
+    const storedRecord = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRecord?.record.value).toEqual(retriedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(retriedRecord.updatedAt);
+    expect(storedRecord?.record.review).toBeUndefined();
+  });
+
+  it('rejects pending public records that include result data', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const record = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'pending',
+      result: {
+        outcome: null,
+        evaluatedAt: '2026-03-24T19:30:00.000Z',
+      },
+      submittedAt: '2026-03-24T19:30:00.000Z',
+      updatedAt: '2026-03-24T19:30:00.000Z',
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-24T19:30:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-invalid-pending-result',
+            payload: {
+              record,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-invalid-pending-result',
+        message: `Interactive record "${record.key}" cannot include result data while phase is "pending".`,
+      })
+    );
+  });
+
+  it('rejects pending public records that omit submittedAt', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const record = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'pending',
+      updatedAt: '2026-03-24T19:30:00.000Z',
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-24T19:30:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-invalid-pending-submitted-at',
+            payload: {
+              record,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-invalid-pending-submitted-at',
+        message: `Interactive record "${record.key}" must include submittedAt while phase is "pending".`,
+      })
+    );
+  });
+
+  it('rejects draft public records that include result data', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      phase: 'draft',
+      result: {
+        outcome: 'correct',
+        score: 100,
+        evaluatedAt: '2026-03-24T19:30:00.000Z',
+      },
+      updatedAt: '2026-03-24T19:30:00.000Z',
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-03-24T19:30:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-invalid-draft-result',
+            payload: {
+              record,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-invalid-draft-result',
+        message: `Interactive record "${record.key}" cannot include result data while phase is "draft".`,
+      })
+    );
   });
 
   it('deduplicates interactive updates by client event id when audit events are present', async () => {
@@ -263,17 +633,7 @@ describe('syncEvents', () => {
     });
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: newerRecord.key,
-        record: newerRecord,
-        auditEvents: [],
-        updatedSeq: '3',
-        createdAt: newerRecord.updatedAt,
-        updatedAt: newerRecord.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', newerRecord, '3')]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
 
@@ -305,17 +665,7 @@ describe('syncEvents', () => {
   it('resets all rows for a user on progress.reset', async () => {
     const record = createTestInteractiveRecord({ key: 'system:learning-onboarding' });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: record.key,
-        record,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: record.updatedAt,
-        updatedAt: record.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
 
@@ -339,17 +689,7 @@ describe('syncEvents', () => {
   it('rolls back earlier writes when a later event in the batch fails', async () => {
     const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: record.key,
-        record,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: record.updatedAt,
-        updatedAt: record.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
 
     const repo = makeFakeLearningProgressRepo({
       initialRecords,
@@ -392,17 +732,7 @@ describe('syncEvents', () => {
       updatedAt: '2024-01-15T09:00:00.000Z',
     });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: oldRecord.key,
-        record: oldRecord,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: oldRecord.updatedAt,
-        updatedAt: oldRecord.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', oldRecord, '1')]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
     const newRecord = createTestInteractiveRecord({
@@ -446,17 +776,7 @@ describe('syncEvents', () => {
     });
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [
-      {
-        userId: 'user-1',
-        recordKey: newerRecord.key,
-        record: newerRecord,
-        auditEvents: [],
-        updatedSeq: '3',
-        createdAt: newerRecord.updatedAt,
-        updatedAt: newerRecord.updatedAt,
-      },
-    ]);
+    initialRecords.set('user-1', [makeRow('user-1', newerRecord, '3')]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
 
@@ -467,6 +787,7 @@ describe('syncEvents', () => {
       phase: 'pending',
       updatedAt: '2024-01-15T10:00:00.000Z',
       result: null,
+      submittedAt: '2024-01-15T10:00:00.000Z',
     });
     const auditEvent = createTestSubmittedAuditEvent({
       recordKey: olderRecord.key,
@@ -537,7 +858,7 @@ describe('syncEvents', () => {
     expect(storedRecords.isOk()).toBe(true);
     const rows = storedRecords._unsafeUnwrap();
     expect(rows).toHaveLength(2);
-    expect(rows.map((r) => r.recordKey).sort()).toEqual(['quiz-a::global', 'quiz-b::entity:456']);
+    expect(rows.map((r) => r.recordKey).sort()).toEqual([recordA.key, recordB.key]);
   });
 
   it('rejects requests larger than the configured batch size', async () => {

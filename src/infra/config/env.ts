@@ -97,6 +97,9 @@ export const EnvSchema = Type.Object({
   /** Platform base URL for building unsubscribe links */
   PLATFORM_BASE_URL: Type.Optional(Type.String()),
 
+  // Learning Progress Admin Review API
+  LEARNING_PROGRESS_REVIEW_API_KEY: Type.Optional(Type.String({ minLength: 1 })),
+
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
@@ -179,6 +182,8 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     // Notifications
     NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
     PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
+    // Learning Progress Admin Review API
+    LEARNING_PROGRESS_REVIEW_API_KEY: env['LEARNING_PROGRESS_REVIEW_API_KEY'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -196,6 +201,16 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     const errors = [...Value.Errors(EnvSchema, rawEnv)];
     const errorMessages = errors.map((e) => `${e.path}: ${e.message}`).join(', ');
     throw new Error(`Invalid environment configuration: ${errorMessages}`);
+  }
+
+  if (
+    rawEnv.NODE_ENV === 'production' &&
+    rawEnv.LEARNING_PROGRESS_REVIEW_API_KEY !== undefined &&
+    rawEnv.LEARNING_PROGRESS_REVIEW_API_KEY.length < 32
+  ) {
+    throw new Error(
+      'Invalid environment configuration: /LEARNING_PROGRESS_REVIEW_API_KEY: Expected string length greater or equal to 32 in production'
+    );
   }
 
   return rawEnv;
@@ -302,6 +317,12 @@ export const createConfig = (env: Env) => ({
       env.RESEND_API_KEY !== undefined &&
       env.JOBS_ENABLED === true &&
       env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
+  },
+  learningProgress: {
+    /** API key for the admin review endpoints */
+    reviewApiKey: env.LEARNING_PROGRESS_REVIEW_API_KEY,
+    /** Whether admin review endpoints are enabled */
+    reviewApiEnabled: env.LEARNING_PROGRESS_REVIEW_API_KEY !== undefined,
   },
   telemetry: {
     /** OTLP endpoint for SigNoz */

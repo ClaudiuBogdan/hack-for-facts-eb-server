@@ -118,6 +118,7 @@ import {
 } from '../modules/health/index.js';
 import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
 import {
+  makeLearningProgressAdminReviewRoutes,
   makeLearningProgressRoutes,
   makeLearningProgressRepo,
 } from '../modules/learning-progress/index.js';
@@ -223,6 +224,7 @@ export interface AppOptions {
 }
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
+const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
 
 function getRequestPath(url: string): string {
   const queryIndex = url.indexOf('?');
@@ -231,6 +233,10 @@ function getRequestPath(url: string): string {
 
 function isHealthRoute(url: string): boolean {
   return HEALTH_ROUTE_PATHS.has(getRequestPath(url));
+}
+
+function isLearningProgressAdminReviewRoute(url: string): boolean {
+  return getRequestPath(url) === LEARNING_PROGRESS_ADMIN_REVIEW_PATH;
 }
 
 function getLogBindingUserId(request: import('fastify').FastifyRequest): string | undefined {
@@ -639,7 +645,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // Add global auth middleware for REST routes
     if (deps.authProvider !== undefined) {
       // Full auth middleware with token verification
-      app.addHook('preHandler', makeAuthMiddleware({ authProvider: deps.authProvider }));
+      const authMiddleware = makeAuthMiddleware({ authProvider: deps.authProvider });
+      app.addHook('preHandler', async (request, reply) => {
+        if (isLearningProgressAdminReviewRoute(request.url)) {
+          request.auth = ANONYMOUS_SESSION;
+          return;
+        }
+
+        await (authMiddleware as (req: typeof request, rep: typeof reply) => Promise<void>)(
+          request,
+          reply
+        );
+      });
     } else {
       // Fallback: set anonymous session when no auth provider configured
       // This allows routes to be registered but protected endpoints will return 401
@@ -721,6 +738,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         learningProgressRepo,
       })
     );
+
+    if (
+      config.learningProgress.reviewApiEnabled &&
+      config.learningProgress.reviewApiKey !== undefined
+    ) {
+      await app.register(
+        makeLearningProgressAdminReviewRoutes({
+          learningProgressRepo,
+          apiKey: config.learningProgress.reviewApiKey,
+        })
+      );
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Share Module (REST API)

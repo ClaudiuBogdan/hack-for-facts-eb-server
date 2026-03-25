@@ -196,6 +196,33 @@ BUDGET_INDICATOR_TITLE_MARKERS = (
     "(sume alocate",
     "(sumele alocate",
 )
+PROJECT_FINANCING_GROUP_CODES = {"56", "58"}
+PROJECT_FINANCING_SUBITEM_CODES = {"01", "02", "03"}
+PROJECT_FINANCING_SUBITEM_DESCRIPTION_PREFIXES = (
+    "finantare nationala",
+    "finantarea nationala",
+    "finantare externa nerambursabila",
+    "finantarea externa nerambursabila",
+    "cheltuieli neeligibile",
+    "transferuri catre",
+    "transferuri din bugetul de stat catre",
+    "sume din fondul de modernizare",
+    "sume aferente contributiei proprii a beneficiarilor",
+)
+BUDGET_INDICATOR_CONTINUATION_GROUP_CODES = {"56", "58", "71", "85"}
+ACTIVE_FIXE_PARENT_ARTICLE_CODE = "01"
+ACTIVE_FIXE_SUBITEM_CODES = {"01", "02", "03", "30"}
+ACTIVE_FIXE_SUBITEM_DESCRIPTION_PREFIXES = (
+    "constructii",
+    "masini",
+    "mobilier",
+    "alte active fixe",
+)
+PREVIOUS_PAYMENTS_PARENT_ARTICLE_CODE = "01"
+PREVIOUS_PAYMENTS_SUBITEM_CODES = {"03", "04", "05"}
+PREVIOUS_PAYMENTS_SUBITEM_DESCRIPTION_PREFIX = (
+    "plati efectuate in anii precedenti si recuperate in"
+)
 
 NINE_VALUE_COLUMNS = [
     "valoarea_totala",
@@ -676,12 +703,12 @@ def parse_budget_indicator_summary(pages: list[tuple[int, str]]) -> list[dict[st
                 fill_missing_parent_codes(economic_state, detected_codes, ECONOMIC_CODE_COLUMNS)
                 apply_hierarchy_update(functional_state, detected_codes, FUNCTIONAL_CODE_COLUMNS)
                 apply_hierarchy_update(economic_state, detected_codes, ECONOMIC_CODE_COLUMNS)
-                if promoted_group_to_article or promoted_article_to_alineat:
-                    continuation_article_active = True
-                elif detected_codes["grupa_titlu"] or has_functional_codes:
+                if has_functional_codes:
                     continuation_article_active = False
-                elif detected_codes["articol"] and not promoted_article_to_alineat:
-                    continuation_article_active = False
+                else:
+                    continuation_article_active = should_keep_budget_indicator_continuation_active(
+                        economic_state
+                    )
                 row_metadata = make_budget_indicator_metadata(functional_state, economic_state)
                 item = PendingItem(
                     source_page=page_number,
@@ -734,6 +761,59 @@ def is_budget_indicator_group_header(description_fragment: str) -> bool:
     return uppercase_ratio >= 0.8
 
 
+def is_project_financing_group_code(code: str) -> bool:
+    return code in PROJECT_FINANCING_GROUP_CODES
+
+
+def is_project_financing_subitem_description(description_fragment: str) -> bool:
+    normalized = normalize_spaces(description_fragment).lower()
+    return normalized.startswith(PROJECT_FINANCING_SUBITEM_DESCRIPTION_PREFIXES)
+
+
+def is_active_fixe_subitem_description(description_fragment: str) -> bool:
+    normalized = normalize_spaces(description_fragment).lower()
+    return normalized.startswith(ACTIVE_FIXE_SUBITEM_DESCRIPTION_PREFIXES)
+
+
+def is_previous_payments_subitem_description(description_fragment: str) -> bool:
+    normalized = normalize_spaces(description_fragment).lower()
+    return normalized.startswith(PREVIOUS_PAYMENTS_SUBITEM_DESCRIPTION_PREFIX)
+
+
+def should_promote_project_financing_article_to_alineat(
+    current_group: str,
+    current_article: str,
+    detected_article: str,
+    description_fragment: str,
+) -> bool:
+    if is_budget_indicator_group_header(description_fragment):
+        return False
+    if current_group in PROJECT_FINANCING_GROUP_CODES:
+        return (
+            detected_article in PROJECT_FINANCING_SUBITEM_CODES
+            and is_project_financing_subitem_description(description_fragment)
+        )
+    if current_group == "71":
+        return (
+            current_article == ACTIVE_FIXE_PARENT_ARTICLE_CODE
+            and detected_article in ACTIVE_FIXE_SUBITEM_CODES
+            and is_active_fixe_subitem_description(description_fragment)
+        )
+    if current_group == "85":
+        return (
+            current_article == PREVIOUS_PAYMENTS_PARENT_ARTICLE_CODE
+            and detected_article in PREVIOUS_PAYMENTS_SUBITEM_CODES
+            and is_previous_payments_subitem_description(description_fragment)
+        )
+    return False
+
+
+def should_keep_budget_indicator_continuation_active(economic_state: dict[str, str]) -> bool:
+    current_group = economic_state.get("grupa_titlu") or ""
+    current_article = economic_state.get("articol") or ""
+    return bool(current_article) and current_group in BUDGET_INDICATOR_CONTINUATION_GROUP_CODES
+
+
 def normalize_budget_indicator_codes(
     detected_codes: dict[str, str],
     description_fragment: str,
@@ -760,12 +840,16 @@ def normalize_budget_indicator_codes(
     promoted_article_to_alineat = False
     if (
         continuation_article_active
-        and not promoted_group_to_article
         and current_article
         and detected_article
         and not remapped["alineat"]
     ):
-        if not is_budget_indicator_group_header(description_fragment):
+        if should_promote_project_financing_article_to_alineat(
+            current_group,
+            current_article,
+            detected_article,
+            description_fragment,
+        ):
             remapped["alineat"] = detected_article
             remapped["articol"] = current_article
             promoted_article_to_alineat = True

@@ -243,6 +243,10 @@ export async function getClient(): Promise<GoldenMasterClient> {
         platformBaseUrl: 'https://test.example.com',
         enabled: false,
       },
+      learningProgress: {
+        reviewApiKey: undefined,
+        reviewApiEnabled: false,
+      },
       telemetry: {
         endpoint: undefined,
         headers: undefined,

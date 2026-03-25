@@ -134,7 +134,7 @@ export async function updateInteractionReview(
       );
     }
 
-    if (compareTimestampInstants(existingRow.record.updatedAt, input.expectedUpdatedAt) !== 0) {
+    if (compareTimestampInstants(existingRow.updatedAt, input.expectedUpdatedAt) !== 0) {
       return err(
         createConflictError(
           `Interaction record "${input.recordKey}" changed since it was loaded for review.`
@@ -144,7 +144,7 @@ export async function updateInteractionReview(
 
     const nextUpdatedAt = getNextTimestamp(existingRow.record.updatedAt);
     const feedbackText = trimmedFeedbackText ?? null;
-    const nextPhase: InteractionPhase = input.status === 'approved' ? 'resolved' : 'error';
+    const nextPhase: InteractionPhase = input.status === 'approved' ? 'resolved' : 'failed';
     const nextRecord = {
       ...existingRow.record,
       phase: nextPhase,

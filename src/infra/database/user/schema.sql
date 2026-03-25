@@ -130,26 +130,47 @@ CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_user ON UnsubscribeTokens(user
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_expires ON UnsubscribeTokens(expires_at) WHERE used_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_notification ON UnsubscribeTokens(notification_id);
 
--- LearningProgress: generic record storage for learning and challenge state.
+-- UserInteractions: generic record storage for learning and challenge state.
 -- Clean cut from the old per-user event array model.
+DROP TABLE IF EXISTS UserInteractions;
 DROP TABLE IF EXISTS LearningProgress;
+DROP SEQUENCE IF EXISTS userinteractions_updated_seq;
 DROP SEQUENCE IF EXISTS learningprogress_updated_seq;
 
-CREATE SEQUENCE learningprogress_updated_seq;
+CREATE SEQUENCE userinteractions_updated_seq;
 
-CREATE TABLE LearningProgress (
+CREATE TABLE UserInteractions (
   user_id TEXT NOT NULL,
   record_key TEXT NOT NULL,
   record JSONB NOT NULL,
   audit_events JSONB NOT NULL DEFAULT '[]'::jsonb,
-  updated_seq BIGINT NOT NULL DEFAULT nextval('learningprogress_updated_seq'),
+  updated_seq BIGINT NOT NULL DEFAULT nextval('userinteractions_updated_seq'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, record_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_learningprogress_user_updated_seq
-ON LearningProgress(user_id, updated_seq);
+CREATE INDEX IF NOT EXISTS idx_userinteractions_user_updated_seq
+ON UserInteractions(user_id, updated_seq);
+
+CREATE INDEX IF NOT EXISTS idx_userinteractions_user_record_key_prefix
+ON UserInteractions(user_id, record_key text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_userinteractions_record_key_prefix
+ON UserInteractions(record_key text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_userinteractions_review_pending_updated_at
+ON UserInteractions(updated_at DESC, user_id, record_key)
+WHERE record->>'phase' = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_userinteractions_review_status_updated_at
+ON UserInteractions (
+  ((record->'review'->>'status')),
+  updated_at DESC,
+  user_id,
+  record_key
+)
+WHERE record ? 'review';
 
 -- ResendWebhookEvents: Tracks Resend webhook events for idempotent processing
 -- Uses svix-id header as unique event identifier (NOT event.id from payload)

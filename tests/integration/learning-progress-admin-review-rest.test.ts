@@ -177,6 +177,140 @@ describe('Learning Progress Admin Review REST API', () => {
     });
   });
 
+  it('supports direct raw recordKeyPrefix filtering', async () => {
+    const prefixedA = createTestInteractiveRecord({
+      key: 'record-prefix-001/a',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:10:00.000Z',
+    });
+    const prefixedB = createTestInteractiveRecord({
+      key: 'record-prefix-001/b',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:09:00.000Z',
+    });
+    const otherPrefix = createTestInteractiveRecord({
+      key: 'record-prefixed-001/c',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:08:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      makeRow('user-1', prefixedA, '1'),
+      makeRow('user-1', prefixedB, '2'),
+      makeRow('user-1', otherPrefix, '3'),
+    ]);
+
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/learning-progress/reviews?recordKeyPrefix=record-prefix-001&limit=10&offset=0',
+      headers: {
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          expect.objectContaining({ recordKey: prefixedA.key }),
+          expect.objectContaining({ recordKey: prefixedB.key }),
+        ],
+        page: {
+          offset: 0,
+          limit: 10,
+          hasMore: false,
+        },
+      },
+    });
+  });
+
+  it('keeps lessonId and interactionId as exact JSON-field filters', async () => {
+    const lessonOneInteractionA = createTestInteractiveRecord({
+      key: 'custom-prefix/a',
+      lessonId: 'lesson-1',
+      interactionId: 'interaction-a',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:10:00.000Z',
+    });
+    const lessonOneInteractionB = createTestInteractiveRecord({
+      key: 'custom-prefix/b',
+      lessonId: 'lesson-1',
+      interactionId: 'interaction-b',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:09:00.000Z',
+    });
+    const lessonTwoInteractionA = createTestInteractiveRecord({
+      key: 'custom-prefix/c',
+      lessonId: 'lesson-2',
+      interactionId: 'interaction-a',
+      phase: 'pending',
+      updatedAt: '2026-03-23T20:08:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      makeRow('user-1', lessonOneInteractionA, '1'),
+      makeRow('user-1', lessonOneInteractionB, '2'),
+      makeRow('user-1', lessonTwoInteractionA, '3'),
+    ]);
+
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+    });
+
+    const lessonResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/learning-progress/reviews?lessonId=lesson-1&limit=10&offset=0',
+      headers: {
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+    });
+    const lessonInteractionResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/learning-progress/reviews?lessonId=lesson-1&interactionId=interaction-a&limit=10&offset=0',
+      headers: {
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+    });
+
+    expect(lessonResponse.statusCode).toBe(200);
+    expect(lessonResponse.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          expect.objectContaining({ recordKey: lessonOneInteractionA.key }),
+          expect.objectContaining({ recordKey: lessonOneInteractionB.key }),
+        ],
+        page: {
+          offset: 0,
+          limit: 10,
+          hasMore: false,
+        },
+      },
+    });
+
+    expect(lessonInteractionResponse.statusCode).toBe(200);
+    expect(lessonInteractionResponse.json()).toEqual({
+      ok: true,
+      data: {
+        items: [expect.objectContaining({ recordKey: lessonOneInteractionA.key })],
+        page: {
+          offset: 0,
+          limit: 10,
+          hasMore: false,
+        },
+      },
+    });
+  });
+
   it('submits review decisions and persists sync-visible updatedAt changes', async () => {
     const record = createTestInteractiveRecord({
       key: 'review-target::global',

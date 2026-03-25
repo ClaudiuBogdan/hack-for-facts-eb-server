@@ -122,6 +122,10 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       platformBaseUrl: 'https://test.example.com',
       enabled: false,
     },
+    learningProgress: {
+      reviewApiKey: undefined,
+      reviewApiEnabled: false,
+    },
     telemetry: {
       endpoint: undefined,
       headers: undefined,
@@ -146,6 +150,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     email: { ...defaults.email, ...overrides.email },
     jobs: { ...defaults.jobs, ...overrides.jobs },
     notifications: { ...defaults.notifications, ...overrides.notifications },
+    learningProgress: { ...defaults.learningProgress, ...overrides.learningProgress },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
 };
