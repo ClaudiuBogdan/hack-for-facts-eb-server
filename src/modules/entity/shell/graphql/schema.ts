@@ -48,6 +48,9 @@ export const EntitySchema = /* GraphQL */ `
     "Associated UAT (Administrative Territorial Unit)"
     uat: UAT
 
+    "Scraped website/contact profile snapshot for this entity. Identity fields remain on Entity."
+    profile: EntityProfile
+
     "Child entities where this entity is their main creditor"
     children: [Entity!]!
 
@@ -189,6 +192,23 @@ export const EntitySchema = /* GraphQL */ `
 
     "Pagination metadata"
     pageInfo: PageInfo!
+  }
+
+  "Curated scraped website/contact profile for an entity. Identity and canonical classification stay on Entity."
+  type EntityProfile {
+    institution_type: String
+    website_url: String
+    official_email: String
+    phone_primary: String
+    address_raw: String
+    address_locality: String
+    county_code: String
+    county_name: String
+    leader_name: String
+    leader_title: String
+    leader_party: String
+    scraped_at: DateTime!
+    extraction_confidence: Float
   }
 
   # ---------------------------------------------------------------------------

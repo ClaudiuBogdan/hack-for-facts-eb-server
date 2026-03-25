@@ -7,6 +7,7 @@
 import type { EntityError } from './errors.js';
 import type {
   Entity,
+  EntityProfile,
   EntityConnection,
   EntityFilter,
   EntityTotals,
@@ -85,6 +86,27 @@ export interface EntityRepository {
    * @returns County entity if found
    */
   getCountyEntity(countyCode: string | null): Promise<Result<Entity | null, EntityError>>;
+}
+
+/**
+ * Repository interface for entity profile reads.
+ */
+export interface EntityProfileRepository {
+  /**
+   * Find a single entity profile by entity CUI.
+   *
+   * @param cui - The unique fiscal identification code
+   * @returns The profile if found, null if not found, or an error
+   */
+  getByEntityCui(cui: string): Promise<Result<EntityProfile | null, EntityError>>;
+
+  /**
+   * Batch load entity profiles by entity CUIs.
+   *
+   * @param cuis - Array of entity CUIs
+   * @returns Sparse map keyed by entity CUI
+   */
+  getByEntityCuis(cuis: string[]): Promise<Result<Map<string, EntityProfile>, EntityError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

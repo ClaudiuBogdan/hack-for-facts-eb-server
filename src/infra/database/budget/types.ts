@@ -1,6 +1,6 @@
 // Ignore naming conventions for database tables
 
-import { Generated, ColumnType } from 'kysely';
+import { Generated, ColumnType, JSONColumnType } from 'kysely';
 
 import type { DbReportType } from '@/common/types/report-types.js';
 
@@ -10,9 +10,11 @@ export type ReportType = DbReportType;
 export type ExpenseType = 'dezvoltare' | 'functionare';
 export type AccountCategory = 'vn' | 'ch';
 export type AnomalyType = 'YTD_ANOMALY' | 'MISSING_LINE_ITEM';
+export type EntityProfileType = 'uat' | 'public';
 
 // Helper for timestamps which can be strings or Dates depending on driver config
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+export type JsonValue = Record<string, unknown>;
 
 // UATs Table
 export interface UATs {
@@ -40,6 +42,29 @@ export interface Entities {
   last_updated: Generated<Timestamp>;
   main_creditor_1_cui: string | null;
   main_creditor_2_cui: string | null;
+}
+
+// EntityProfiles Table
+export interface EntityProfiles {
+  cui: string;
+  profile_type: EntityProfileType;
+  institution_name: string | null;
+  institution_type: string | null;
+  website_url: string | null;
+  official_email: string | null;
+  phone_primary: string | null;
+  address_raw: string | null;
+  address_locality: string | null;
+  county_code: string | null;
+  county_name: string | null;
+  leader_name: string | null;
+  leader_title: string | null;
+  leader_party: string | null;
+  scraped_at: Timestamp;
+  extraction_confidence: string | null;
+  full_profile: JSONColumnType<JsonValue>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
 }
 
 // Functional Classifications Table
@@ -289,6 +314,7 @@ export interface MvAngajamenteSummaryAnnual {
 export interface BudgetDatabase {
   uats: UATs;
   entities: Entities;
+  entityprofiles: EntityProfiles;
   functionalclassifications: FunctionalClassifications;
   economicclassifications: EconomicClassifications;
   fundingsources: FundingSources;

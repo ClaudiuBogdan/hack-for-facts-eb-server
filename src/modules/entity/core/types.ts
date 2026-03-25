@@ -83,6 +83,27 @@ export interface Entity {
 }
 
 /**
+ * Curated scraped website/contact profile for an entity.
+ *
+ * Entity identity and canonical classification stay on Entity.
+ */
+export interface EntityProfile {
+  institution_type: string | null;
+  website_url: string | null;
+  official_email: string | null;
+  phone_primary: string | null;
+  address_raw: string | null;
+  address_locality: string | null;
+  county_code: string | null;
+  county_name: string | null;
+  leader_name: string | null;
+  leader_title: string | null;
+  leader_party: string | null;
+  scraped_at: string;
+  extraction_confidence: number | null;
+}
+
+/**
  * Filter options for entity queries.
  */
 export interface EntityFilter {
