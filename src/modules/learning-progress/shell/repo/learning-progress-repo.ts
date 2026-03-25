@@ -11,6 +11,11 @@ import { createDatabaseError, type LearningProgressError } from '../../core/erro
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
+  GetRecordsOptions,
+  InteractiveStateRecord,
+  InteractionPhase,
+  ListReviewRowsInput,
+  ListReviewRowsOutput,
   LearningProgressRecordRow,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
@@ -30,6 +35,8 @@ export interface LearningProgressRepoOptions {
   transactionScoped?: boolean;
 }
 
+const USER_INTERACTIONS_TABLE = 'userinteractions' as const;
+
 const LEARNING_PROGRESS_ROW_COLUMNS = [
   'user_id',
   'record_key',
@@ -41,6 +48,36 @@ const LEARNING_PROGRESS_ROW_COLUMNS = [
 ] as const;
 
 type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+
+function normalizeRecordPhase(phase: LearningProgressRecordValueRow['phase']) {
+  return (phase === 'error' ? 'failed' : phase) as InteractionPhase;
+}
+
+function normalizeAuditPhase(
+  phase: Extract<LearningProgressAuditEventRow, { type: 'evaluated' }>['phase']
+): Extract<StoredInteractiveAuditEvent, { type: 'evaluated' }>['phase'] {
+  return phase === 'error' ? 'failed' : phase;
+}
+
+function normalizeRecordValueRow(record: LearningProgressRecordValueRow): InteractiveStateRecord {
+  return {
+    ...record,
+    phase: normalizeRecordPhase(record.phase),
+  };
+}
+
+function normalizeAuditEventRow(
+  auditEvent: LearningProgressAuditEventRow
+): StoredInteractiveAuditEvent {
+  if (auditEvent.type !== 'evaluated') {
+    return auditEvent;
+  }
+
+  return {
+    ...auditEvent,
+    phase: normalizeAuditPhase(auditEvent.phase),
+  } as StoredInteractiveAuditEvent;
+}
 
 function sortAuditEvents(
   leftEvent: StoredInteractiveAuditEvent,
@@ -64,6 +101,10 @@ function recordsAreEqual(
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
 function compareTimestamps(leftTimestamp: string, rightTimestamp: string): number {
@@ -100,20 +141,102 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   }
 
   async getRecords(
-    userId: string
+    userId: string,
+    options?: GetRecordsOptions
   ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> {
     try {
-      const rows = await this.db
-        .selectFrom('learningprogress')
+      let query = this.db
+        .selectFrom(USER_INTERACTIONS_TABLE)
         .select(LEARNING_PROGRESS_ROW_COLUMNS)
-        .where('user_id', '=', userId)
-        .orderBy('updated_seq', 'asc')
-        .execute();
+        .where('user_id', '=', userId);
+
+      if (options?.recordKeyPrefix !== undefined) {
+        query = query.where(
+          sql<boolean>`record_key LIKE ${`${escapeLikePattern(options.recordKeyPrefix)}%`} ESCAPE '\\'`
+        );
+      }
+
+      const rows = await query.orderBy('updated_seq', 'asc').execute();
 
       return ok(rows.map((row) => this.mapRow(row as unknown as QueryRow)));
     } catch (error) {
-      this.log.error({ err: error, userId }, 'Failed to load learning progress records');
+      this.log.error({ err: error, userId, options }, 'Failed to load learning progress records');
       return err(createDatabaseError('Failed to load learning progress records', error));
+    }
+  }
+
+  async getRecordForUpdate(
+    userId: string,
+    recordKey: string
+  ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> {
+    try {
+      let query = this.db
+        .selectFrom(USER_INTERACTIONS_TABLE)
+        .select(LEARNING_PROGRESS_ROW_COLUMNS)
+        .where('user_id', '=', userId)
+        .where('record_key', '=', recordKey);
+
+      if (this.transactionScoped) {
+        query = query.forUpdate();
+      }
+
+      const row = await query.executeTakeFirst();
+      return ok(row === undefined ? null : this.mapRow(row as unknown as QueryRow));
+    } catch (error) {
+      this.log.error({ err: error, userId, recordKey }, 'Failed to load learning progress record');
+      return err(createDatabaseError('Failed to load learning progress record', error));
+    }
+  }
+
+  async listReviewRows(
+    input: ListReviewRowsInput
+  ): Promise<Result<ListReviewRowsOutput, LearningProgressError>> {
+    try {
+      let query = this.db.selectFrom(USER_INTERACTIONS_TABLE).select(LEARNING_PROGRESS_ROW_COLUMNS);
+
+      query =
+        input.status === 'pending'
+          ? query.where(sql<boolean>`record->>'phase' = 'pending'`)
+          : query.where(sql<boolean>`record->'review'->>'status' = ${input.status}`);
+
+      if (input.userId !== undefined) {
+        query = query.where('user_id', '=', input.userId);
+      }
+
+      if (input.recordKey !== undefined) {
+        query = query.where('record_key', '=', input.recordKey);
+      }
+
+      if (input.recordKeyPrefix !== undefined) {
+        query = query.where(
+          sql<boolean>`record_key LIKE ${`${escapeLikePattern(input.recordKeyPrefix)}%`} ESCAPE '\\'`
+        );
+      }
+
+      if (input.interactionId !== undefined) {
+        query = query.where(sql<boolean>`record->>'interactionId' = ${input.interactionId}`);
+      }
+
+      if (input.lessonId !== undefined) {
+        query = query.where(sql<boolean>`record->>'lessonId' = ${input.lessonId}`);
+      }
+
+      const rows = await query
+        .orderBy('updated_at', 'desc')
+        .orderBy('user_id', 'asc')
+        .orderBy('record_key', 'asc')
+        .offset(input.offset)
+        .limit(input.limit + 1)
+        .execute();
+
+      const hasMore = rows.length > input.limit;
+      return ok({
+        rows: rows.slice(0, input.limit).map((row) => this.mapRow(row as unknown as QueryRow)),
+        hasMore,
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to list learning progress review rows');
+      return err(createDatabaseError('Failed to list learning progress review rows', error));
     }
   }
 
@@ -139,7 +262,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
   async resetProgress(userId: string): Promise<Result<void, LearningProgressError>> {
     try {
-      await this.db.deleteFrom('learningprogress').where('user_id', '=', userId).execute();
+      await this.db.deleteFrom(USER_INTERACTIONS_TABLE).where('user_id', '=', userId).execute();
       return ok(undefined);
     } catch (error) {
       this.log.error({ err: error, userId }, 'Failed to reset learning progress');
@@ -185,8 +308,8 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     return {
       userId: row.user_id,
       recordKey: row.record_key,
-      record: row.record,
-      auditEvents: [...row.audit_events].sort(sortAuditEvents),
+      record: normalizeRecordValueRow(row.record),
+      auditEvents: row.audit_events.map(normalizeAuditEventRow).sort(sortAuditEvents),
       updatedSeq: row.updated_seq,
       createdAt: toIsoString(row.created_at),
       updatedAt: toIsoString(row.updated_at),
@@ -198,7 +321,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   ): Promise<Result<UpsertInteractiveRecordResult, LearningProgressError>> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const existingRow = await this.db
-        .selectFrom('learningprogress')
+        .selectFrom(USER_INTERACTIONS_TABLE)
         .select(LEARNING_PROGRESS_ROW_COLUMNS)
         .where('user_id', '=', input.userId)
         .where('record_key', '=', input.record.key)
@@ -207,8 +330,9 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
       if (existingRow === undefined) {
         const updatedSeq = await this.allocateSequence();
+        const rowTimestamp = new Date();
         const insertedRow = await this.db
-          .insertInto('learningprogress')
+          .insertInto(USER_INTERACTIONS_TABLE)
           .values({
             user_id: input.userId,
             record_key: input.record.key,
@@ -224,8 +348,8 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
               )
             )}::jsonb`,
             updated_seq: sql`${updatedSeq}::bigint`,
-            created_at: new Date(input.record.updatedAt),
-            updated_at: new Date(input.record.updatedAt),
+            created_at: rowTimestamp,
+            updated_at: rowTimestamp,
           } as never)
           .onConflict((conflict) => conflict.columns(['user_id', 'record_key']).doNothing())
           .returning(LEARNING_PROGRESS_ROW_COLUMNS)
@@ -275,17 +399,15 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       ].sort(sortAuditEvents);
 
       const nextRecord = shouldReplaceRecord ? input.record : existingRecord.record;
-      const nextUpdatedAt = shouldReplaceRecord
-        ? new Date(input.record.updatedAt)
-        : new Date(existingRecord.updatedAt);
+      const rowTimestamp = new Date();
 
       const updatedRow = await this.db
-        .updateTable('learningprogress')
+        .updateTable(USER_INTERACTIONS_TABLE)
         .set({
           record: sql`${JSON.stringify(nextRecord)}::jsonb`,
           audit_events: sql`${JSON.stringify(nextAuditEvents)}::jsonb`,
           updated_seq: sql`${updatedSeq}::bigint`,
-          updated_at: nextUpdatedAt,
+          updated_at: rowTimestamp,
         } as never)
         .where('user_id', '=', input.userId)
         .where('record_key', '=', input.record.key)
@@ -303,7 +425,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
   private async allocateSequence(): Promise<string> {
     const sequenceResult = await sql<{ updated_seq: string }>`
-      select nextval('learningprogress_updated_seq')::text as updated_seq
+      select nextval('userinteractions_updated_seq')::text as updated_seq
     `.execute(this.db);
 
     const updatedSeq = sequenceResult.rows[0]?.updated_seq;

@@ -75,9 +75,9 @@ export interface UnsubscribeTokens {
   used_at: Timestamp | null;
 }
 
-// Learning Progress Table
+// User Interactions Table
 // Stores one row per user and per client-controlled record key.
-export interface LearningProgress {
+export interface UserInteractionsTable {
   user_id: string;
   record_key: string;
   record: JSONColumnType<LearningProgressRecordValueRow>;
@@ -98,7 +98,7 @@ export interface LearningProgressRecordValueRow {
     | { type: 'resolved' }
     | { type: 'score-threshold'; minScore: number }
     | { type: 'component-flag'; flag: string };
-  phase: 'idle' | 'draft' | 'pending' | 'resolved' | 'error';
+  phase: 'idle' | 'draft' | 'pending' | 'resolved' | 'failed' | 'error';
   value:
     | { kind: 'choice'; choice: { selectedId: string | null } }
     | { kind: 'text'; text: { value: string } }
@@ -112,6 +112,11 @@ export interface LearningProgressRecordValueRow {
     feedbackText?: string | null;
     response?: Record<string, unknown> | null;
     evaluatedAt?: string | null;
+  } | null;
+  review?: {
+    status: 'pending' | 'approved' | 'rejected';
+    reviewedAt: string | null;
+    feedbackText?: string | null;
   } | null;
   updatedAt: string;
   submittedAt?: string | null;
@@ -144,7 +149,7 @@ export type LearningProgressAuditEventRow =
       type: 'evaluated';
       at: string;
       actor: 'system';
-      phase: 'resolved' | 'error';
+      phase: 'resolved' | 'failed' | 'error';
       result: {
         outcome: 'correct' | 'incorrect' | null;
         score?: number | null;
@@ -256,7 +261,7 @@ export interface UserDatabase {
   notifications: Notifications;
   notificationdeliveries: NotificationDeliveries;
   unsubscribetokens: UnsubscribeTokens;
-  learningprogress: LearningProgress;
+  userinteractions: UserInteractionsTable;
   resendwebhookevents: ResendWebhookEvents;
   institutionemailthreads: InstitutionEmailThreads;
   resend_wh_emails: ResendWhEmails;

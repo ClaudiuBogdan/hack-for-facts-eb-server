@@ -78,6 +78,25 @@ describe('Configuration', () => {
       expect(envWithoutRedis.REDIS_URL).toBeUndefined();
     });
 
+    it('accepts optional LEARNING_PROGRESS_REVIEW_API_KEY', () => {
+      const apiKey = 'local-key';
+      const env = parseEnv({ ...requiredEnv, LEARNING_PROGRESS_REVIEW_API_KEY: apiKey });
+
+      expect(env.LEARNING_PROGRESS_REVIEW_API_KEY).toBe(apiKey);
+    });
+
+    it('rejects short LEARNING_PROGRESS_REVIEW_API_KEY values in production', () => {
+      expect(() =>
+        parseEnv({
+          ...requiredEnv,
+          NODE_ENV: 'production',
+          LEARNING_PROGRESS_REVIEW_API_KEY: 'local-key',
+        })
+      ).toThrow(
+        'Invalid environment configuration: /LEARNING_PROGRESS_REVIEW_API_KEY: Expected string length greater or equal to 32 in production'
+      );
+    });
+
     it('throws on invalid PORT (non-numeric)', () => {
       expect(() => parseEnv({ ...requiredEnv, PORT: 'invalid' })).toThrow(
         'Invalid environment configuration'
@@ -143,6 +162,16 @@ describe('Configuration', () => {
 
       expect(config.server.port).toBe(8080);
       expect(config.server.host).toBe('127.0.0.1');
+    });
+
+    it('enables learning progress admin review config when the API key is set', () => {
+      const apiKey = 'r'.repeat(32);
+      const config = createConfig(
+        parseEnv({ ...requiredEnv, LEARNING_PROGRESS_REVIEW_API_KEY: apiKey })
+      );
+
+      expect(config.learningProgress.reviewApiKey).toBe(apiKey);
+      expect(config.learningProgress.reviewApiEnabled).toBe(true);
     });
   });
 });

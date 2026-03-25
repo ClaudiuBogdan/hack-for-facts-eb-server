@@ -264,6 +264,69 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('does not register learning progress admin review routes when the API key is unset', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/learning-progress/reviews',
+      });
+
+      expect(response.statusCode).toBe(404);
+
+      await app.close();
+    });
+
+    it('registers learning progress admin review routes and bypasses bearer auth validation', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            learningProgress: {
+              reviewApiKey: 'r'.repeat(32),
+              reviewApiEnabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/learning-progress/reviews',
+        headers: {
+          authorization: 'Bearer invalid-token',
+        },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        ok: false,
+        error: 'UNAUTHORIZED',
+        message: 'X-Learning-Progress-Review-Api-Key header required',
+      });
+
+      await app.close();
+    });
+
     it('logs incoming and completed once for non-health routes', async () => {
       const logs = createLogCollector();
 

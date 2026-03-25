@@ -398,6 +398,209 @@ describe('extract_pdf_tables.py', () => {
     expect(getString(nationalFundingRow, 'economic')).toBe('56.58.01');
   });
 
+  it('does not collapse new project-financing article codes into the previous article', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import (
+    normalize_budget_indicator_codes,
+    should_keep_budget_indicator_continuation_active,
+)
+
+state = {
+    "grupa_titlu": "56",
+    "articol": "62",
+    "alineat": "03",
+}
+new_article, _, promoted_new_article = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "",
+        "articol": "63",
+        "alineat": "",
+    },
+    "Transferuri cu titlul de prefinantare",
+    state,
+    True,
+)
+subitem, _, promoted_subitem = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "",
+        "articol": "03",
+        "alineat": "",
+    },
+    "Cheltuieli neeligibile",
+    {
+        "grupa_titlu": "56",
+        "articol": "63",
+        "alineat": "",
+    },
+    should_keep_budget_indicator_continuation_active(
+        {"grupa_titlu": "56", "articol": "63", "alineat": ""}
+    ),
+)
+print(json.dumps({
+    "new_article": new_article,
+    "promoted_new_article": promoted_new_article,
+    "subitem": subitem,
+    "promoted_subitem": promoted_subitem,
+}))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as {
+      new_article: Record<string, string>;
+      promoted_new_article: boolean;
+      subitem: Record<string, string>;
+      promoted_subitem: boolean;
+    };
+
+    expect(result.promoted_new_article).toBe(false);
+    expect(result.new_article['articol']).toBe('63');
+    expect(result.new_article['alineat']).toBe('');
+
+    expect(result.promoted_subitem).toBe(true);
+    expect(result.subitem['articol']).toBe('63');
+    expect(result.subitem['alineat']).toBe('03');
+  });
+
+  it('promotes only financing-style 58 subitems and keeps new program articles distinct', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import (
+    normalize_budget_indicator_codes,
+    should_keep_budget_indicator_continuation_active,
+)
+
+continuation = should_keep_budget_indicator_continuation_active(
+    {"grupa_titlu": "58", "articol": "31", "alineat": ""}
+)
+program_article, _, promoted_program_article = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "",
+        "articol": "01",
+        "alineat": "",
+    },
+    "Programe din Fondul European de Dezvoltare Regionala (FEDR)",
+    {"grupa_titlu": "58", "articol": "31", "alineat": ""},
+    continuation,
+)
+financing_subitem, _, promoted_financing_subitem = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "",
+        "articol": "02",
+        "alineat": "",
+    },
+    "Finantarea externa nerambursabila",
+    {"grupa_titlu": "58", "articol": "31", "alineat": ""},
+    continuation,
+)
+print(json.dumps({
+    "program_article": program_article,
+    "promoted_program_article": promoted_program_article,
+    "financing_subitem": financing_subitem,
+    "promoted_financing_subitem": promoted_financing_subitem,
+}))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as {
+      program_article: Record<string, string>;
+      promoted_program_article: boolean;
+      financing_subitem: Record<string, string>;
+      promoted_financing_subitem: boolean;
+    };
+
+    expect(result.promoted_program_article).toBe(false);
+    expect(result.program_article['articol']).toBe('01');
+    expect(result.program_article['alineat']).toBe('');
+
+    expect(result.promoted_financing_subitem).toBe(true);
+    expect(result.financing_subitem['articol']).toBe('31');
+    expect(result.financing_subitem['alineat']).toBe('02');
+  });
+
+  it('promotes known 71 and 85 continuation subitems under their parent article', () => {
+    const python = `
+import json
+from scripts.extract_pdf_tables import (
+    normalize_budget_indicator_codes,
+    should_keep_budget_indicator_continuation_active,
+)
+
+active_fixe = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "",
+        "articol": "03",
+        "alineat": "",
+    },
+    "Mobilier, aparatura birotica si alte active corporale",
+    {"grupa_titlu": "71", "articol": "01", "alineat": ""},
+    should_keep_budget_indicator_continuation_active(
+        {"grupa_titlu": "71", "articol": "01", "alineat": ""}
+    ),
+)
+previous_payments = normalize_budget_indicator_codes(
+    {
+        "capitol": "",
+        "subcapitol": "",
+        "paragraph": "",
+        "grupa_titlu": "04",
+        "articol": "",
+        "alineat": "",
+    },
+    "Plati efectuate in anii precedenti si recuperate in anul curent aferente cheltuielilor de capital ale altor institutii publice",
+    {"grupa_titlu": "85", "articol": "01", "alineat": ""},
+    should_keep_budget_indicator_continuation_active(
+        {"grupa_titlu": "85", "articol": "01", "alineat": ""}
+    ),
+)
+print(json.dumps({
+    "active_fixe": active_fixe,
+    "previous_payments": previous_payments,
+}))
+`;
+    const stdout = execFileSync('python3', ['-c', python], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const parsed = deserialize(stdout);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    const result = parsed.value as {
+      active_fixe: [Record<string, string>, boolean, boolean];
+      previous_payments: [Record<string, string>, boolean, boolean];
+    };
+
+    expect(result.active_fixe[0]['articol']).toBe('01');
+    expect(result.active_fixe[0]['alineat']).toBe('03');
+    expect(result.active_fixe[2]).toBe(true);
+
+    expect(result.previous_payments[0]['articol']).toBe('01');
+    expect(result.previous_payments[0]['alineat']).toBe('04');
+    expect(result.previous_payments[2]).toBe(true);
+  });
+
   it('does not mix a later annex institution into the first entity output', () => {
     const result = runExtractorOnFixtures(['page-931.txt', 'page-932.txt']);
     const totalRows = getTable(result, 'budget_indicator_summary').filter(

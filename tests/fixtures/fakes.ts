@@ -39,11 +39,14 @@ import type {
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
+  GetRecordsOptions,
   InteractiveAuditEvent,
   InteractiveStateRecord,
+  ListReviewRowsInput,
   LearningInteractiveUpdatedEvent,
   LearningProgressEvent,
   LearningProgressRecordRow,
+  ListReviewRowsOutput,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
 } from '@/modules/learning-progress/core/types.js';
@@ -1357,6 +1360,23 @@ export const makeFakeLearningProgressRepo = (
     return 0;
   };
 
+  const compareReviewRows = (
+    leftRow: LearningProgressRecordRow,
+    rightRow: LearningProgressRecordRow
+  ): number => {
+    const updatedAtComparison = compareTimestamps(rightRow.updatedAt, leftRow.updatedAt);
+    if (updatedAtComparison !== 0) {
+      return updatedAtComparison;
+    }
+
+    const userComparison = leftRow.userId.localeCompare(rightRow.userId);
+    if (userComparison !== 0) {
+      return userComparison;
+    }
+
+    return leftRow.recordKey.localeCompare(rightRow.recordKey);
+  };
+
   const cloneStore = (source: Map<string, Map<string, LearningProgressRecordRow>>) => {
     const clonedStore = new Map<string, Map<string, LearningProgressRecordRow>>();
 
@@ -1385,11 +1405,13 @@ export const makeFakeLearningProgressRepo = (
 
   const buildRepo = (
     currentStore: Map<string, Map<string, LearningProgressRecordRow>>,
-    commitStore: (nextStore: Map<string, Map<string, LearningProgressRecordRow>>) => void
+    commitStore: (nextStore: Map<string, Map<string, LearningProgressRecordRow>>) => void,
+    transactionScoped = false
   ): LearningProgressRepository => {
-    return {
+    const repo: LearningProgressRepository = {
       getRecords: async (
-        userId: string
+        userId: string,
+        options?: GetRecordsOptions
       ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
@@ -1399,14 +1421,86 @@ export const makeFakeLearningProgressRepo = (
         }
 
         return ok(
-          [...userStore.values()].sort((leftRecord, rightRecord) => {
-            const leftSeq = BigInt(leftRecord.updatedSeq);
-            const rightSeq = BigInt(rightRecord.updatedSeq);
-            if (leftSeq < rightSeq) return -1;
-            if (leftSeq > rightSeq) return 1;
-            return leftRecord.recordKey.localeCompare(rightRecord.recordKey);
-          })
+          [...userStore.values()]
+            .filter((row) => {
+              if (options?.recordKeyPrefix === undefined) {
+                return true;
+              }
+
+              return row.recordKey.startsWith(options.recordKeyPrefix);
+            })
+            .sort((leftRecord, rightRecord) => {
+              const leftSeq = BigInt(leftRecord.updatedSeq);
+              const rightSeq = BigInt(rightRecord.updatedSeq);
+              if (leftSeq < rightSeq) return -1;
+              if (leftSeq > rightSeq) return 1;
+              return leftRecord.recordKey.localeCompare(rightRecord.recordKey);
+            })
         );
+      },
+
+      getRecordForUpdate: async (
+        userId: string,
+        recordKey: string
+      ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const userStore = currentStore.get(userId);
+        return ok(userStore?.get(recordKey) ?? null);
+      },
+
+      listReviewRows: async (
+        input: ListReviewRowsInput
+      ): Promise<Result<ListReviewRowsOutput, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const rows = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) => {
+            const matchesStatus =
+              input.status === 'pending'
+                ? row.record.phase === 'pending'
+                : row.record.review?.status === input.status;
+
+            if (!matchesStatus) {
+              return false;
+            }
+
+            if (input.userId !== undefined && row.userId !== input.userId) {
+              return false;
+            }
+
+            if (input.recordKey !== undefined && row.recordKey !== input.recordKey) {
+              return false;
+            }
+
+            if (
+              input.recordKeyPrefix !== undefined &&
+              !row.recordKey.startsWith(input.recordKeyPrefix)
+            ) {
+              return false;
+            }
+
+            if (
+              input.interactionId !== undefined &&
+              row.record.interactionId !== input.interactionId
+            ) {
+              return false;
+            }
+
+            if (input.lessonId !== undefined && row.record.lessonId !== input.lessonId) {
+              return false;
+            }
+
+            return true;
+          })
+          .sort(compareReviewRows);
+
+        const pagedRows = rows.slice(input.offset, input.offset + input.limit + 1);
+        return ok({
+          rows: pagedRows.slice(0, input.limit),
+          hasMore: pagedRows.length > input.limit,
+        });
       },
 
       upsertInteractiveRecord: async (
@@ -1453,6 +1547,7 @@ export const makeFakeLearningProgressRepo = (
 
         const seq = String(nextSeq);
         nextSeq += 1n;
+        const rowUpdatedAt = new Date().toISOString();
 
         const storedAuditEvents: StoredInteractiveAuditEvent[] = [
           ...(existing?.auditEvents ?? []),
@@ -1470,8 +1565,8 @@ export const makeFakeLearningProgressRepo = (
           record: shouldReplaceRecord ? input.record : existing.record,
           auditEvents: storedAuditEvents,
           updatedSeq: seq,
-          createdAt: existing?.createdAt ?? input.record.updatedAt,
-          updatedAt: shouldReplaceRecord ? input.record.updatedAt : existing.updatedAt,
+          createdAt: existing?.createdAt ?? rowUpdatedAt,
+          updatedAt: rowUpdatedAt,
         };
 
         userStore.set(input.record.key, nextRow);
@@ -1500,9 +1595,13 @@ export const makeFakeLearningProgressRepo = (
       ): Promise<Result<T, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
+        if (transactionScoped) {
+          return callback(repo);
+        }
+
         const transactionalStore = cloneStore(currentStore);
         const startingNextSeq = nextSeq;
-        const result = await callback(buildRepo(transactionalStore, noopCommitStore));
+        const result = await callback(buildRepo(transactionalStore, noopCommitStore, true));
 
         if (result.isErr()) {
           nextSeq = startingNextSeq;
@@ -1513,6 +1612,8 @@ export const makeFakeLearningProgressRepo = (
         return result;
       },
     };
+
+    return repo;
   };
 
   return buildRepo(store, (nextStore) => {
@@ -1529,17 +1630,53 @@ export const makeFakeLearningProgressRepo = (
 
 let learningEventIdCounter = 0;
 
+function parseLegacyRecordKey(
+  recordKey: string
+): Partial<Pick<InteractiveStateRecord, 'interactionId' | 'scope'>> {
+  if (recordKey.endsWith('::global')) {
+    return {
+      interactionId: recordKey.slice(0, -'::global'.length),
+      scope: { type: 'global' },
+    };
+  }
+
+  const entityMatch = /^(.*)::entity:([^:]+)$/.exec(recordKey);
+  if (entityMatch?.[1] !== undefined && entityMatch[2] !== undefined) {
+    return {
+      interactionId: entityMatch[1],
+      scope: { type: 'entity', entityCui: entityMatch[2] },
+    };
+  }
+
+  return {};
+}
+
+function buildTestRecordKey(interactionId: string, scope: InteractiveStateRecord['scope']): string {
+  return scope.type === 'global'
+    ? `${interactionId}::global`
+    : `${interactionId}::entity:${scope.entityCui}`;
+}
+
 export const createTestInteractiveRecord = (
   overrides: Partial<InteractiveStateRecord> = {}
 ): InteractiveStateRecord => {
   learningEventIdCounter++;
 
+  const legacyRecordKeyDetails =
+    overrides.key !== undefined ? parseLegacyRecordKey(overrides.key) : {};
+  const lessonId = overrides.lessonId ?? `lesson-${String(learningEventIdCounter)}`;
+  const interactionId =
+    overrides.interactionId ??
+    legacyRecordKeyDetails.interactionId ??
+    `quiz-${String(learningEventIdCounter)}`;
+  const scope = overrides.scope ?? legacyRecordKeyDetails.scope ?? { type: 'global' };
+
   return {
-    key: overrides.key ?? `quiz-${String(learningEventIdCounter)}::global`,
-    interactionId: overrides.interactionId ?? `quiz-${String(learningEventIdCounter)}`,
-    lessonId: overrides.lessonId ?? `lesson-${String(learningEventIdCounter)}`,
+    key: overrides.key ?? buildTestRecordKey(interactionId, scope),
+    interactionId,
+    lessonId,
     kind: overrides.kind ?? 'quiz',
-    scope: overrides.scope ?? { type: 'global' },
+    scope,
     completionRule: overrides.completionRule ?? { type: 'outcome', outcome: 'correct' },
     phase: overrides.phase ?? 'draft',
     value: overrides.value ?? {
@@ -1547,6 +1684,7 @@ export const createTestInteractiveRecord = (
       choice: { selectedId: null },
     },
     result: overrides.result ?? null,
+    ...(overrides.review !== undefined ? { review: overrides.review } : {}),
     updatedAt: overrides.updatedAt ?? new Date().toISOString(),
     ...(overrides.submittedAt !== undefined ? { submittedAt: overrides.submittedAt } : {}),
   };
@@ -1557,11 +1695,16 @@ export const createTestSubmittedAuditEvent = (
 ): Extract<InteractiveAuditEvent, { type: 'submitted' }> => {
   learningEventIdCounter++;
 
+  const legacyRecordKeyDetails =
+    overrides.recordKey !== undefined ? parseLegacyRecordKey(overrides.recordKey) : {};
+  const lessonId = overrides.lessonId ?? 'lesson-1';
+  const interactionId = overrides.interactionId ?? legacyRecordKeyDetails.interactionId ?? 'quiz-1';
+
   return {
     id: overrides.id ?? `submitted-${String(learningEventIdCounter)}`,
-    recordKey: overrides.recordKey ?? 'quiz-1::global',
-    lessonId: overrides.lessonId ?? 'lesson-1',
-    interactionId: overrides.interactionId ?? 'quiz-1',
+    recordKey: overrides.recordKey ?? buildTestRecordKey(interactionId, { type: 'global' }),
+    lessonId,
+    interactionId,
     type: 'submitted',
     at: overrides.at ?? new Date().toISOString(),
     actor: 'user',
@@ -1577,11 +1720,16 @@ export const createTestEvaluatedAuditEvent = (
 ): Extract<InteractiveAuditEvent, { type: 'evaluated' }> => {
   learningEventIdCounter++;
 
+  const legacyRecordKeyDetails =
+    overrides.recordKey !== undefined ? parseLegacyRecordKey(overrides.recordKey) : {};
+  const lessonId = overrides.lessonId ?? 'lesson-1';
+  const interactionId = overrides.interactionId ?? legacyRecordKeyDetails.interactionId ?? 'quiz-1';
+
   return {
     id: overrides.id ?? `evaluated-${String(learningEventIdCounter)}`,
-    recordKey: overrides.recordKey ?? 'quiz-1::global',
-    lessonId: overrides.lessonId ?? 'lesson-1',
-    interactionId: overrides.interactionId ?? 'quiz-1',
+    recordKey: overrides.recordKey ?? buildTestRecordKey(interactionId, { type: 'global' }),
+    lessonId,
+    interactionId,
     type: 'evaluated',
     at: overrides.at ?? new Date().toISOString(),
     actor: 'system',

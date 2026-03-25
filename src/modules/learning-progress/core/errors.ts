@@ -37,6 +37,22 @@ export interface InvalidEventError {
   readonly eventId: string | undefined;
 }
 
+/**
+ * Requested record was not found.
+ */
+export interface NotFoundError {
+  readonly type: 'NotFoundError';
+  readonly message: string;
+}
+
+/**
+ * Requested operation conflicts with current state.
+ */
+export interface ConflictError {
+  readonly type: 'ConflictError';
+  readonly message: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Union
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,7 +60,12 @@ export interface InvalidEventError {
 /**
  * Union of all learning progress errors.
  */
-export type LearningProgressError = DatabaseError | TooManyEventsError | InvalidEventError;
+export type LearningProgressError =
+  | DatabaseError
+  | TooManyEventsError
+  | InvalidEventError
+  | NotFoundError
+  | ConflictError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors
@@ -79,6 +100,22 @@ export const createInvalidEventError = (message: string, eventId?: string): Inva
   eventId,
 });
 
+/**
+ * Create a not found error.
+ */
+export const createNotFoundError = (message: string): NotFoundError => ({
+  type: 'NotFoundError',
+  message,
+});
+
+/**
+ * Create a conflict error.
+ */
+export const createConflictError = (message: string): ConflictError => ({
+  type: 'ConflictError',
+  message,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HTTP Status Mapping
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,6 +127,8 @@ export const LEARNING_PROGRESS_ERROR_HTTP_STATUS: Record<LearningProgressError['
   DatabaseError: 500,
   TooManyEventsError: 400,
   InvalidEventError: 400,
+  NotFoundError: 404,
+  ConflictError: 409,
 };
 
 /**

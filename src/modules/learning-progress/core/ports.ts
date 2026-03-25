@@ -4,6 +4,9 @@
 
 import type { LearningProgressError } from './errors.js';
 import type {
+  GetRecordsOptions,
+  ListReviewRowsInput,
+  ListReviewRowsOutput,
   LearningProgressRecordRow,
   UpsertInteractiveRecordInput,
   UpsertInteractiveRecordResult,
@@ -12,8 +15,18 @@ import type { Result } from 'neverthrow';
 
 export interface LearningProgressRepository {
   getRecords(
-    userId: string
+    userId: string,
+    options?: GetRecordsOptions
   ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>>;
+
+  getRecordForUpdate(
+    userId: string,
+    recordKey: string
+  ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>>;
+
+  listReviewRows(
+    input: ListReviewRowsInput
+  ): Promise<Result<ListReviewRowsOutput, LearningProgressError>>;
 
   upsertInteractiveRecord(
     input: UpsertInteractiveRecordInput

@@ -14,6 +14,22 @@ import {
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
+function makeRow(
+  userId: string,
+  record: LearningProgressRecordRow['record'],
+  updatedSeq: string
+): LearningProgressRecordRow {
+  return {
+    userId,
+    recordKey: record.key,
+    record,
+    auditEvents: [],
+    updatedSeq,
+    createdAt: record.updatedAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
 const createTestApp = async (options: { learningProgressRepo?: LearningProgressRepository }) => {
   const { provider } = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -104,17 +120,7 @@ describe('Learning Progress REST API', () => {
     });
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set(testAuth.userIds.user1, [
-      {
-        userId: testAuth.userIds.user1,
-        recordKey: record.key,
-        record,
-        auditEvents: [],
-        updatedSeq: '4',
-        createdAt: record.updatedAt,
-        updatedAt: record.updatedAt,
-      },
-    ]);
+    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, record, '4')]);
 
     app = await createTestApp({
       learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
@@ -142,7 +148,7 @@ describe('Learning Progress REST API', () => {
     expect(body.data.snapshot.recordsByKey[record.key]).toBeDefined();
     expect(body.data.events).toEqual([
       {
-        eventId: 'server:4:quiz-1::entity:123',
+        eventId: `server:4:${record.key}`,
         occurredAt: '2024-01-15T11:00:00.000Z',
         clientId: 'server',
         type: 'interactive.updated',
@@ -200,7 +206,7 @@ describe('Learning Progress REST API', () => {
     expect(records._unsafeUnwrap()[0]?.record).toEqual(record);
   });
 
-  it('rejects public sync payloads that include record.review', async () => {
+  it('rejects client-authored record.review for unreviewed rows', async () => {
     const repo = makeFakeLearningProgressRepo();
     app = await createTestApp({ learningProgressRepo: repo });
 
@@ -243,7 +249,152 @@ describe('Learning Progress REST API', () => {
     });
   });
 
-  it('preserves stored review metadata on public resubmits that omit record.review', async () => {
+  it('accepts exact round-trips of reviewed records returned by GET', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://reviewed.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    const roundTrippedRecord = getResponse.json<{
+      data: { snapshot: { recordsByKey: Record<string, LearningProgressRecordRow['record']> } };
+    }>().data.snapshot.recordsByKey[reviewedRecord.key];
+    expect(roundTrippedRecord).toBeDefined();
+    if (roundTrippedRecord === undefined) {
+      throw new Error('Expected reviewed record to be present in snapshot.');
+    }
+    expect(roundTrippedRecord).toEqual(reviewedRecord);
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: reviewedRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-roundtrip',
+            occurredAt: reviewedRecord.updatedAt,
+            payload: {
+              record: roundTrippedRecord,
+            },
+          }),
+        ],
+      },
+    });
+
+    expect(putResponse.statusCode).toBe(200);
+    expect(putResponse.json()).toEqual({ ok: true });
+
+    const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
+    expect(storedRecord?.record).toEqual(reviewedRecord);
+  });
+
+  it('rejects attempts to modify stored record.review', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+    const modifiedReviewRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: reviewedRecord.phase,
+      value: reviewedRecord.value,
+      result: reviewedRecord.result,
+      review: {
+        status: 'approved',
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? null,
+        feedbackText: 'Client changed this feedback.',
+      },
+      updatedAt: reviewedRecord.updatedAt,
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: reviewedRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-modified-review',
+            payload: { record: modifiedReviewRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'InvalidEventError',
+      message: 'Public progress sync cannot set record.review.',
+    });
+  });
+
+  it('preserves stored review metadata on ordinary public updates after review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'campaign:primarie-website-url::entity:4305857',
       interactionId: 'campaign:primarie-website-url',
@@ -267,7 +418,7 @@ describe('Learning Progress REST API', () => {
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
 
-    const resubmittedRecord = createTestInteractiveRecord({
+    const updatedRecord = createTestInteractiveRecord({
       key: reviewedRecord.key,
       interactionId: reviewedRecord.interactionId,
       lessonId: reviewedRecord.lessonId,
@@ -289,15 +440,7 @@ describe('Learning Progress REST API', () => {
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
     initialRecords.set(testAuth.userIds.user1, [
-      {
-        userId: testAuth.userIds.user1,
-        recordKey: reviewedRecord.key,
-        record: reviewedRecord,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: reviewedRecord.updatedAt,
-        updatedAt: reviewedRecord.updatedAt,
-      },
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
     ]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
@@ -315,7 +458,7 @@ describe('Learning Progress REST API', () => {
         events: [
           createTestInteractiveUpdatedEvent({
             eventId: 'event-resubmit',
-            payload: { record: resubmittedRecord },
+            payload: { record: updatedRecord },
           }),
         ],
       },
@@ -325,25 +468,105 @@ describe('Learning Progress REST API', () => {
     expect(response.json()).toEqual({ ok: true });
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
-    expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
-    expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
+    expect(storedRecord?.record.value).toEqual(updatedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(updatedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
+
+    const reviewQueueResult = await repo.listReviewRows({
+      status: 'approved',
+      limit: 10,
+      offset: 0,
+    });
+    expect(reviewQueueResult.isOk()).toBe(true);
+    expect(reviewQueueResult._unsafeUnwrap().rows).toEqual([
+      expect.objectContaining({ recordKey: reviewedRecord.key }),
+    ]);
+  });
+
+  it('clears stored review metadata on newer public retries back to pending', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'campaign:primarie-website-url::entity:4305857',
+      interactionId: 'campaign:primarie-website-url',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const retriedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: reviewedRecord.interactionId,
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: reviewedRecord.scope,
+      completionRule: reviewedRecord.completionRule,
+      phase: 'pending',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+      submittedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2026-03-23T19:45:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-retry',
+            payload: { record: retriedRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+
+    const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
+    expect(storedRecord?.record.value).toEqual(retriedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(retriedRecord.updatedAt);
+    expect(storedRecord?.record.review).toBeUndefined();
   });
 
   it('accepts progress.reset and clears stored rows', async () => {
     const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set(testAuth.userIds.user1, [
-      {
-        userId: testAuth.userIds.user1,
-        recordKey: record.key,
-        record,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: record.updatedAt,
-        updatedAt: record.updatedAt,
-      },
-    ]);
+    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, record, '1')]);
     const repo = makeFakeLearningProgressRepo({ initialRecords });
     app = await createTestApp({ learningProgressRepo: repo });
 
@@ -468,17 +691,7 @@ describe('Learning Progress REST API', () => {
       updatedAt: '2024-01-15T10:00:00.000Z',
     });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set(testAuth.userIds.user1, [
-      {
-        userId: testAuth.userIds.user1,
-        recordKey: record.key,
-        record,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: record.updatedAt,
-        updatedAt: record.updatedAt,
-      },
-    ]);
+    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, record, '1')]);
 
     app = await createTestApp({
       learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
@@ -506,17 +719,7 @@ describe('Learning Progress REST API', () => {
       updatedAt: '2024-01-15T09:00:00.000Z',
     });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set(testAuth.userIds.user1, [
-      {
-        userId: testAuth.userIds.user1,
-        recordKey: oldRecord.key,
-        record: oldRecord,
-        auditEvents: [],
-        updatedSeq: '1',
-        createdAt: oldRecord.updatedAt,
-        updatedAt: oldRecord.updatedAt,
-      },
-    ]);
+    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, oldRecord, '1')]);
     const repo = makeFakeLearningProgressRepo({ initialRecords });
     app = await createTestApp({ learningProgressRepo: repo });
 

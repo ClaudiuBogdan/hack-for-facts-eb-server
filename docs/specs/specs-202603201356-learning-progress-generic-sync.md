@@ -24,6 +24,7 @@ The current system needed a single generic contract where the server stores opaq
 - Client-owned reserved keys such as onboarding, active path, streak, lesson summaries, and campaign state must remain opaque to the backend.
 - The client uses `InteractiveStateRecord` and `InteractiveAuditEvent` as the shared envelope for both user-facing and reserved/system state.
 - Sync must be safe under retries, stale offline updates, and concurrent device/tab writes.
+- Review-required interactions need a server-owned review field without turning the whole record into a server-owned object.
 
 ### Why This Matters Now
 
@@ -45,6 +46,9 @@ Rules:
 - `interactive.updated` carries one `InteractiveStateRecord` and optional `InteractiveAuditEvent[]`.
 - `progress.reset` clears all learning-progress rows for the user.
 - The server rejects old learning-specific transport events and does not expose replacement server-specific domain events.
+- Public sync must reject client-authored `record.review`; review state is written only through server-side use cases.
+- Public sync may receive an unchanged echoed `record.review` from a prior server snapshot or delta; the server strips the echo and preserves the stored review state.
+- A public retry back to `phase = pending` clears previously stored `record.review` only when the retry is newer than the reviewed row.
 
 ### 2. The server snapshot is generic, not projected
 
@@ -80,6 +84,106 @@ Rules:
 - `updated_seq` is a monotonic server cursor and write-order marker.
 - `updated_seq` is not a freshness signal; record freshness is determined by `record.updatedAt`.
 - The backend remains agnostic to keys such as `system:learning-onboarding`, `system:learning-streak`, `system:lesson-progress:<contentId>`, or campaign keys.
+- Field ownership can still differ inside the opaque record: for review-required interactions, `record.review` is server-owned even though the server remains agnostic to domain-specific record keys.
+
+### Review-required record example
+
+Example reviewed interaction row payload:
+
+```ts
+{
+  key: 'campaign:primarie-website-url::entity:4305857',
+  interactionId: 'campaign:primarie-website-url',
+  lessonId: 'civic-monitor-and-request',
+  kind: 'custom',
+  scope: { type: 'entity', entityCui: '4305857' },
+  completionRule: { type: 'resolved' },
+  phase: 'resolved',
+  value: {
+    kind: 'json',
+    json: {
+      value: {
+        websiteUrl: 'https://example.com',
+        submittedAt: '2026-03-23T19:27:40.526Z',
+      },
+    },
+  },
+  result: null,
+  review: {
+    status: 'approved',
+    reviewedAt: '2026-03-23T19:30:00.000Z',
+    feedbackText: 'Approved by review.',
+  },
+  updatedAt: '2026-03-23T19:30:00.000Z',
+  submittedAt: '2026-03-23T19:27:40.527Z',
+}
+```
+
+Operational rule for future review-required interactives:
+
+- user submissions go through public `interactive.updated`
+- server review updates must go through a server-side use case
+- the server should append a system `evaluated` audit event when review is applied
+
+### Canonical Interactive Lifecycle
+
+`InteractiveStateRecord` is the only authoritative lifecycle envelope.
+
+Local client definition metadata may classify an interactive as:
+
+- `immediate`
+- `async_review`
+
+That metadata is not synced; the synced contract remains the generic record.
+
+Canonical phase meanings:
+
+- `idle`: no meaningful submission yet
+- `draft`: editable unsent value
+- `pending`: submitted and waiting for async review
+- `resolved`: successful terminal state
+- `failed`: terminal retry-needed state
+
+Field expectations:
+
+- `idle` / `draft`
+  - `result = null`
+  - `review` absent
+  - `submittedAt` absent or null
+- `pending`
+  - `value` is present
+  - `result = null`
+  - `review` absent
+  - `submittedAt` is present
+  - one user `submitted` audit event exists for the attempt
+- `resolved` for immediate-eval interactions
+  - `result` carries the evaluation outcome
+  - `review` stays absent
+- `resolved` for async-review interactions
+  - `review.status = approved`
+  - `review.reviewedAt` is present
+  - `submittedAt` is preserved from the user attempt
+- `failed` for async-review interactions
+  - `review.status = rejected`
+  - `review.reviewedAt` is present
+  - `review.feedbackText` is required
+  - `submittedAt` is preserved from the user attempt
+
+Ownership rules:
+
+- client-owned through public sync: `value`, `phase`, `submittedAt`, and `result` for immediate-eval flows
+- server-owned: `review` for all async-review flows
+- public sync must never author `review`
+- public sync may echo a previously returned `review`, but the server ignores the echoed field unless it differs, in which case the request is rejected
+- review outcomes must not be encoded in `result.response`, `result.feedbackText`, or legacy `reviewStatus` payloads
+
+Retry rule:
+
+- a retry is represented as a new public submit of the same record key
+- the retried record re-enters `phase = pending`
+- server-owned `review` from the previous attempt is cleared
+- `submittedAt` and `updatedAt` advance for the new attempt
+- a new user `submitted` audit event is appended
 
 ### 4. Sync batches are atomic
 

@@ -13,6 +13,8 @@ import {
   MAX_EVENTS_PER_REQUEST,
   isInteractiveUpdatedEvent,
   isProgressResetEvent,
+  type InteractiveStateRecord,
+  type LearningProgressRecordRow,
   type LearningProgressEvent,
 } from '../types.js';
 
@@ -30,6 +32,167 @@ export interface SyncEventsInput {
 
 export interface SyncEventsOutput {
   newEventsCount: number;
+}
+
+function compareTimestampInstants(leftTimestamp: string, rightTimestamp: string): number {
+  const leftMilliseconds = Date.parse(leftTimestamp);
+  const rightMilliseconds = Date.parse(rightTimestamp);
+
+  if (!Number.isNaN(leftMilliseconds) && !Number.isNaN(rightMilliseconds)) {
+    if (leftMilliseconds < rightMilliseconds) return -1;
+    if (leftMilliseconds > rightMilliseconds) return 1;
+    return 0;
+  }
+
+  return leftTimestamp.localeCompare(rightTimestamp);
+}
+
+function hasReviewField(record: Pick<InteractiveStateRecord, 'review'>): boolean {
+  return typeof record.review !== 'undefined';
+}
+
+function hasReviewValue(record: Pick<InteractiveStateRecord, 'review'>): boolean {
+  return typeof record.review !== 'undefined' && record.review !== null;
+}
+
+function reviewsAreEqual(
+  leftReview: InteractiveStateRecord['review'],
+  rightReview: InteractiveStateRecord['review']
+): boolean {
+  return JSON.stringify(leftReview ?? null) === JSON.stringify(rightReview ?? null);
+}
+
+function stripReview(record: InteractiveStateRecord): InteractiveStateRecord {
+  if (!hasReviewField(record)) {
+    return record;
+  }
+
+  const { review, ...recordWithoutReview } = record;
+  void review;
+  return recordWithoutReview;
+}
+
+function shouldClearStoredReview(params: {
+  incomingRecord: InteractiveStateRecord;
+  storedRow: LearningProgressRecordRow | null;
+}): boolean {
+  const { incomingRecord, storedRow } = params;
+
+  if (
+    storedRow === null ||
+    !hasReviewField(storedRow.record) ||
+    incomingRecord.phase !== 'pending' ||
+    incomingRecord.submittedAt === undefined ||
+    incomingRecord.submittedAt === null
+  ) {
+    return false;
+  }
+
+  return compareTimestampInstants(incomingRecord.updatedAt, storedRow.record.updatedAt) > 0;
+}
+
+export function normalizePublicInteractiveRecord(params: {
+  incomingRecord: InteractiveStateRecord;
+  storedRow: LearningProgressRecordRow | null;
+  eventId: string;
+}): Result<InteractiveStateRecord, LearningProgressError> {
+  const { incomingRecord, storedRow, eventId } = params;
+
+  if (hasReviewField(incomingRecord)) {
+    if (storedRow === null || !hasReviewField(storedRow.record)) {
+      return err(
+        createInvalidEventError('Public progress sync cannot set record.review.', eventId)
+      );
+    }
+
+    if (!reviewsAreEqual(incomingRecord.review, storedRow.record.review)) {
+      return err(
+        createInvalidEventError('Public progress sync cannot set record.review.', eventId)
+      );
+    }
+  }
+
+  const normalizedRecord = stripReview(incomingRecord);
+  if (storedRow === null || !hasReviewField(storedRow.record)) {
+    return ok(normalizedRecord);
+  }
+
+  const storedReview = storedRow.record.review;
+  if (typeof storedReview === 'undefined') {
+    return ok(normalizedRecord);
+  }
+
+  if (shouldClearStoredReview({ incomingRecord: normalizedRecord, storedRow })) {
+    return ok(normalizedRecord);
+  }
+
+  if (storedReview === null) {
+    return ok({
+      ...normalizedRecord,
+      review: null,
+    });
+  }
+
+  return ok({
+    ...normalizedRecord,
+    review: storedReview,
+  });
+}
+
+function validatePublicInteractiveRecord(
+  record: InteractiveStateRecord,
+  eventId: string
+): Result<void, LearningProgressError> {
+  if (record.phase === 'idle' || record.phase === 'draft') {
+    if (record.result !== null) {
+      return err(
+        createInvalidEventError(
+          `Interactive record "${record.key}" cannot include result data while phase is "${record.phase}".`,
+          eventId
+        )
+      );
+    }
+
+    if (hasReviewValue(record)) {
+      return err(
+        createInvalidEventError(
+          `Interactive record "${record.key}" cannot include review data while phase is "${record.phase}".`,
+          eventId
+        )
+      );
+    }
+  }
+
+  if (record.phase === 'pending') {
+    if (record.result !== null) {
+      return err(
+        createInvalidEventError(
+          `Interactive record "${record.key}" cannot include result data while phase is "pending".`,
+          eventId
+        )
+      );
+    }
+
+    if (hasReviewValue(record)) {
+      return err(
+        createInvalidEventError(
+          `Interactive record "${record.key}" cannot include review data while phase is "pending".`,
+          eventId
+        )
+      );
+    }
+
+    if (record.submittedAt === undefined || record.submittedAt === null) {
+      return err(
+        createInvalidEventError(
+          `Interactive record "${record.key}" must include submittedAt while phase is "pending".`,
+          eventId
+        )
+      );
+    }
+  }
+
+  return ok(undefined);
 }
 
 export async function syncEvents(
@@ -61,12 +224,6 @@ export async function syncEvents(
       }
 
       if (isInteractiveUpdatedEvent(event)) {
-        if (typeof event.payload.record.review !== 'undefined') {
-          return err(
-            createInvalidEventError('Public progress sync cannot set record.review.', event.eventId)
-          );
-        }
-
         const existingRowResult = await transactionalRepo.getRecordForUpdate(
           userId,
           event.payload.record.key
@@ -75,20 +232,29 @@ export async function syncEvents(
           return err(existingRowResult.error);
         }
 
-        const nextRecord =
-          existingRowResult.value?.record.review !== undefined
-            ? {
-                ...event.payload.record,
-                review: existingRowResult.value.record.review,
-              }
-            : event.payload.record;
+        const normalizedRecordResult = normalizePublicInteractiveRecord({
+          incomingRecord: event.payload.record,
+          storedRow: existingRowResult.value,
+          eventId: event.eventId,
+        });
+        if (normalizedRecordResult.isErr()) {
+          return err(normalizedRecordResult.error);
+        }
+
+        const validationResult = validatePublicInteractiveRecord(
+          normalizedRecordResult.value,
+          event.eventId
+        );
+        if (validationResult.isErr()) {
+          return err(validationResult.error);
+        }
 
         const upsertResult = await transactionalRepo.upsertInteractiveRecord({
           userId,
           eventId: event.eventId,
           clientId: event.clientId,
           occurredAt: event.occurredAt,
-          record: nextRecord,
+          record: normalizedRecordResult.value,
           auditEvents: event.payload.auditEvents ?? [],
         });
 
