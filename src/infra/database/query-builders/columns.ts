@@ -41,7 +41,7 @@ import type { Frequency } from '@/common/types/temporal.js';
  * Union of all valid column names across all tables.
  * Note: Some column names overlap between tables (e.g., entity_cui exists in multiple)
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents -- Intentional: includes all tables for completeness */
+
 export type AnyColumn =
   | ExecutionLineItemColumn
   | EntityColumn
@@ -50,7 +50,6 @@ export type AnyColumn =
   | EconomicClassificationColumn
   | ReportColumn
   | AggregateColumn;
-/* eslint-enable @typescript-eslint/no-redundant-type-constituents -- End of AnyColumn type */
 
 /**
  * Maps table aliases to their valid columns.

@@ -99,16 +99,10 @@ function groupLineItems(
   for (const item of items) {
     if (item.account_category !== accountCategory) continue;
 
-    let code: string | null = null;
-    let name: string | null = null;
-
-    if (groupBy === 'functional') {
-      code = item.functional_code ?? null;
-      name = item.functional_name ?? null;
-    } else {
-      code = item.economic_code ?? null;
-      name = item.economic_name ?? null;
-    }
+    const code =
+      groupBy === 'functional' ? (item.functional_code ?? null) : (item.economic_code ?? null);
+    const name =
+      groupBy === 'functional' ? (item.functional_name ?? null) : (item.economic_name ?? null);
 
     if (code === null) continue;
 
@@ -216,18 +210,18 @@ export async function analyzeEntityBudget(
   } = input;
 
   // 1. Resolve entity
-  let entity: EntityRow | null = null;
+  let entity: EntityRow;
 
   if (entityCui !== undefined && entityCui !== '') {
     const result = await deps.entityRepo.getById(entityCui);
     if (result.isErr()) {
       return err(databaseError());
     }
-    entity = result.value;
 
-    if (entity === null) {
+    if (result.value === null) {
       return err(entityNotFoundError(entityCui));
     }
+    entity = result.value;
   } else if (entitySearch !== undefined && entitySearch !== '') {
     const result = await deps.entityRepo.getAll({ search: entitySearch }, 1, 0);
     if (result.isErr()) {

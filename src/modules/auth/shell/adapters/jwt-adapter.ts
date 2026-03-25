@@ -228,7 +228,8 @@ export const makeJWTAdapter = (options: MakeJWTAdapterOptions): AuthProvider => 
       return cachedKey;
     } catch (error) {
       throw new Error(
-        `Failed to import public key: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to import public key: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { cause: error }
       );
     }
   };

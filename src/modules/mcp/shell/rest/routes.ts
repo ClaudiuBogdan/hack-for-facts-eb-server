@@ -13,6 +13,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { McpSessionStore, McpRateLimiter } from '../../core/ports.js';
 import type { McpConfig, McpSession } from '../../core/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,7 +193,9 @@ export async function makeMcpRoutes(
       transport = newTransport;
 
       // Connect to MCP server
-      await mcpServer.connect(transport);
+      // Cast needed: StreamableHTTPServerTransport uses `| undefined` for onclose
+      // which conflicts with exactOptionalPropertyTypes in Transport interface
+      await mcpServer.connect(transport as unknown as Transport);
     } else {
       // Update session access time
       if (sessionIdHeader !== undefined) {

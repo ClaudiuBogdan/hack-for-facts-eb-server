@@ -1217,7 +1217,7 @@ class KyselyCommitmentsRepo implements CommitmentsRepository {
     const firstRow = (finalRows as unknown as { total_count: string }[])[0];
     const totalCount = firstRow !== undefined ? Number.parseInt(firstRow.total_count, 10) : 0;
 
-    let nodes: CommitmentsSummaryResult[] = [];
+    let nodes: CommitmentsSummaryResult[];
 
     if (frequency === Frequency.MONTH) {
       const rows = finalRows as unknown as SummaryFactMonthlyRow[];

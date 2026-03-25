@@ -80,7 +80,7 @@ export async function getEntitySnapshot(
   const { entityCui, entitySearch, year } = input;
 
   // 1. Resolve entity
-  let entity: { cui: string; name: string; address: string | null } | null = null;
+  let entity: { cui: string; name: string; address: string | null };
 
   if (entityCui !== undefined && entityCui !== '') {
     // Try by CUI first
@@ -88,11 +88,11 @@ export async function getEntitySnapshot(
     if (result.isErr()) {
       return err(databaseError());
     }
-    entity = result.value;
 
-    if (entity === null) {
+    if (result.value === null) {
       return err(entityNotFoundError(entityCui));
     }
+    entity = result.value;
   } else if (entitySearch !== undefined && entitySearch !== '') {
     // Fallback to search
     const result = await deps.entityRepo.getAll({ search: entitySearch }, 1, 0);

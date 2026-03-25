@@ -1,8 +1,8 @@
 import eslint from '@eslint/js';
+import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import { defineConfig } from "eslint/config";
 import prettierConfig from 'eslint-config-prettier';
 import boundaries from 'eslint-plugin-boundaries';
-import comments from 'eslint-plugin-eslint-comments';
 import { flatConfigs as importPluginFlatConfigs } from 'eslint-plugin-import-x';
 import promise from 'eslint-plugin-promise';
 import unicorn from 'eslint-plugin-unicorn';

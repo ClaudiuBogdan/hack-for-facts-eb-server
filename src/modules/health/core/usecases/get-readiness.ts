@@ -61,7 +61,7 @@ export async function getReadiness(
   deps: GetReadinessDeps,
   input: GetReadinessInput
 ): Promise<ReadinessResponse> {
-  const { checkers = [], version } = deps;
+  const { checkers, version } = deps;
   const { uptime, timestamp } = input;
 
   // Run all health checkers in parallel
