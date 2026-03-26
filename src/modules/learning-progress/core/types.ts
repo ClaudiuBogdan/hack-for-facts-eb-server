@@ -90,6 +90,7 @@ export interface InteractiveStateRecord {
    * evaluation/scoring semantics stay generic and unaffected.
    */
   readonly review?: InteractionReview | null;
+  readonly sourceUrl?: string;
   readonly updatedAt: string;
   readonly submittedAt?: string | null;
 }

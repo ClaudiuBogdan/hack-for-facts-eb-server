@@ -117,6 +117,7 @@ export const InteractiveStateRecordSchema = Type.Object(
     // accepts this field only as an unchanged echo from the server; sync strips
     // echoed values and rejects client-authored changes.
     review: Type.Optional(Type.Union([InteractionReviewSchema, Type.Null()])),
+    sourceUrl: Type.Optional(Type.String({ minLength: 1 })),
     updatedAt: Type.String({ format: 'date-time' }),
     submittedAt: Type.Optional(Type.Union([Type.String({ format: 'date-time' }), Type.Null()])),
   },

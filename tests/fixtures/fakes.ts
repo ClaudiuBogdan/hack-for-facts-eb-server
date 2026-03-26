@@ -5,6 +5,8 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
+import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
+
 import type { CachePort, CacheError, CacheSetOptions, CacheStats } from '@/infra/cache/index.js';
 import type { BudgetDbClient, InsDbClient } from '@/infra/database/client.js';
 import type {
@@ -1528,7 +1530,7 @@ export const makeFakeLearningProgressRepo = (
         const isDuplicateRecordOnlyUpdate =
           input.auditEvents.length === 0 &&
           existing !== null &&
-          JSON.stringify(existing.record) === JSON.stringify(input.record);
+          jsonValuesAreEqual(existing.record, input.record);
 
         const isIncomingRecordStale =
           existing !== null &&
