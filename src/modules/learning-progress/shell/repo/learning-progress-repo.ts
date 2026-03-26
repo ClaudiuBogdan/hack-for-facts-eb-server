@@ -8,6 +8,7 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
+import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
@@ -96,7 +97,7 @@ function recordsAreEqual(
   leftRecord: LearningProgressRecordValueRow,
   rightRecord: LearningProgressRecordValueRow
 ): boolean {
-  return JSON.stringify(leftRecord) === JSON.stringify(rightRecord);
+  return jsonValuesAreEqual(leftRecord, rightRecord);
 }
 
 function toIsoString(value: Date | string): string {

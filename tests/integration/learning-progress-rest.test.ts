@@ -30,6 +30,38 @@ function makeRow(
   };
 }
 
+function createStoredSourceUrlRecord(): LearningProgressRecordRow['record'] {
+  return {
+    key: 'custom-submit::global',
+    interactionId: 'custom-submit',
+    lessonId: 'lesson-source-url',
+    kind: 'custom',
+    scope: { type: 'global' },
+    completionRule: { type: 'resolved' },
+    phase: 'pending',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          websiteUrl: 'https://example.com',
+        },
+      },
+    },
+    result: null,
+    sourceUrl: 'https://transparenta.eu/ro/learning/path/module/lesson-1?section=submit',
+    updatedAt: '2024-01-15T12:00:00.000Z',
+    submittedAt: '2024-01-15T12:00:00.000Z',
+  };
+}
+
+function stripSourceUrl(
+  record: LearningProgressRecordRow['record']
+): LearningProgressRecordRow['record'] {
+  const { sourceUrl, ...legacyRecord } = record;
+  void sourceUrl;
+  return legacyRecord;
+}
+
 const createTestApp = async (options: { learningProgressRepo?: LearningProgressRepository }) => {
   const { provider } = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -325,6 +357,74 @@ describe('Learning Progress REST API', () => {
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
     expect(storedRecord?.record).toEqual(reviewedRecord);
+  });
+
+  it('does not bump cursor for legacy round-trips that omit sourceUrl', async () => {
+    const storedRecord = createStoredSourceUrlRecord();
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, storedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: storedRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-source-url-legacy-roundtrip',
+            occurredAt: storedRecord.updatedAt,
+            payload: {
+              record: stripSourceUrl(storedRecord),
+            },
+          }),
+        ],
+      },
+    });
+
+    expect(putResponse.statusCode).toBe(200);
+    expect(putResponse.json()).toEqual({ ok: true });
+
+    const records = await repo.getRecords(testAuth.userIds.user1);
+    expect(records.isOk()).toBe(true);
+    expect(records._unsafeUnwrap()[0]).toEqual(
+      expect.objectContaining({
+        updatedSeq: '1',
+        record: storedRecord,
+      })
+    );
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress?since=1',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({
+      ok: true,
+      data: {
+        snapshot: {
+          version: 1,
+          recordsByKey: {
+            [storedRecord.key]: storedRecord,
+          },
+          lastUpdated: storedRecord.updatedAt,
+        },
+        events: [],
+        cursor: '1',
+      },
+    });
   });
 
   it('rejects attempts to modify stored record.review', async () => {

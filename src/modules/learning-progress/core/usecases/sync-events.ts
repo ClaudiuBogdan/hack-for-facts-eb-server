@@ -72,6 +72,52 @@ function stripReview(record: InteractiveStateRecord): InteractiveStateRecord {
   return recordWithoutReview;
 }
 
+function sanitizeSourceUrl(sourceUrl: string | undefined): string | undefined {
+  if (typeof sourceUrl !== 'string') {
+    return undefined;
+  }
+
+  const trimmedSourceUrl = sourceUrl.trim();
+  if (trimmedSourceUrl.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedSourceUrl);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return undefined;
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function stripSourceUrl(record: InteractiveStateRecord): InteractiveStateRecord {
+  if (record.sourceUrl === undefined) {
+    return record;
+  }
+
+  const { sourceUrl, ...recordWithoutSourceUrl } = record;
+  void sourceUrl;
+  return recordWithoutSourceUrl;
+}
+
+function withSourceUrl(
+  record: InteractiveStateRecord,
+  sourceUrl: string | undefined
+): InteractiveStateRecord {
+  if (sourceUrl === undefined) {
+    return stripSourceUrl(record);
+  }
+
+  return {
+    ...record,
+    sourceUrl,
+  };
+}
+
 function shouldClearStoredReview(params: {
   incomingRecord: InteractiveStateRecord;
   storedRow: LearningProgressRecordRow | null;
@@ -97,6 +143,18 @@ export function normalizePublicInteractiveRecord(params: {
   eventId: string;
 }): Result<InteractiveStateRecord, LearningProgressError> {
   const { incomingRecord, storedRow, eventId } = params;
+  const sanitizedIncomingSourceUrl = sanitizeSourceUrl(incomingRecord.sourceUrl);
+  const storedSourceUrl =
+    storedRow === null ? undefined : sanitizeSourceUrl(storedRow.record.sourceUrl);
+
+  if (incomingRecord.sourceUrl !== undefined && sanitizedIncomingSourceUrl === undefined) {
+    return err(
+      createInvalidEventError(
+        `Interactive record "${incomingRecord.key}" must include a valid absolute sourceUrl when provided.`,
+        eventId
+      )
+    );
+  }
 
   if (hasReviewField(incomingRecord)) {
     if (storedRow === null || !hasReviewField(storedRow.record)) {
@@ -112,7 +170,10 @@ export function normalizePublicInteractiveRecord(params: {
     }
   }
 
-  const normalizedRecord = stripReview(incomingRecord);
+  const normalizedRecord = withSourceUrl(
+    stripReview(incomingRecord),
+    sanitizedIncomingSourceUrl ?? storedSourceUrl
+  );
   if (storedRow === null || !hasReviewField(storedRow.record)) {
     return ok(normalizedRecord);
   }

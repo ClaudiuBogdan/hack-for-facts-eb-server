@@ -118,6 +118,7 @@ export interface LearningProgressRecordValueRow {
     reviewedAt: string | null;
     feedbackText?: string | null;
   } | null;
+  sourceUrl?: string;
   updatedAt: string;
   submittedAt?: string | null;
 }
