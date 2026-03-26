@@ -158,29 +158,44 @@ export default defineConfig(
         },
       ],
 
-      // Module Boundaries
-      'boundaries/element-types': [
+      // Module Boundaries + Pure Core Dependencies (v6 object-based selectors)
+      'boundaries/dependencies': [
         'error',
         {
           default: 'allow',
           rules: [
-            { from: 'core', allow: ['common'], disallow: ['shell', 'infra', 'app'], message: 'Core must be pure.' },
-            { from: 'shell', allow: ['core', 'common', 'infra'], message: 'Shell orchestrates Core/Infra.' },
-            { from: 'infra', allow: ['common'], disallow: ['core', 'shell'], message: 'Infra must be generic.' },
-          ],
-        },
-      ],
-
-      // Pure Core Dependencies
-      'boundaries/external': [
-        'error',
-        {
-          default: 'allow',
-          rules: [
+            // Element-type boundaries
             {
-              from: 'core',
-              allow: ['decimal.js', 'neverthrow', '@sinclair/typebox', 'date-fns', 'ramda'],
-              disallow: ['fastify', 'kysely', 'pg', 'redis', 'bullmq', 'axios', 'fs', 'http', '@modelcontextprotocol/sdk'],
+              from: { type: 'core' },
+              allow: { to: { type: 'common' } },
+              disallow: { to: { type: ['shell', 'infra', 'app'] } },
+              message: 'Core must be pure.',
+            },
+            {
+              from: { type: 'shell' },
+              allow: { to: { type: ['core', 'common', 'infra'] } },
+              message: 'Shell orchestrates Core/Infra.',
+            },
+            {
+              from: { type: 'infra' },
+              allow: { to: { type: 'common' } },
+              disallow: { to: { type: ['core', 'shell'] } },
+              message: 'Infra must be generic.',
+            },
+            // External dependency boundaries for core
+            {
+              from: { type: 'core' },
+              disallow: [
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'fastify' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'kysely' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'pg' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'redis' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'bullmq' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'axios' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'fs' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: 'http' } },
+                { to: { origin: ['external', 'core'] }, dependency: { module: '@modelcontextprotocol/sdk' } },
+              ],
               message: 'Core modules must not import I/O libraries.',
             },
           ],
