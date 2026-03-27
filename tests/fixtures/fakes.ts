@@ -57,14 +57,8 @@ import type {
   DeliveryRepository,
   CreateDeliveryInput,
   UpdateDeliveryStatusInput,
-  WebhookEventRepository,
-  InsertWebhookEventInput,
 } from '@/modules/notification-delivery/core/ports.js';
-import type {
-  DeliveryRecord,
-  DeliveryStatus,
-  StoredWebhookEvent,
-} from '@/modules/notification-delivery/core/types.js';
+import type { DeliveryRecord, DeliveryStatus } from '@/modules/notification-delivery/core/types.js';
 import type { NotificationError } from '@/modules/notifications/core/errors.js';
 import type {
   NotificationsRepository,
@@ -1974,99 +1968,6 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
   };
 };
 
-interface FakeWebhookEventRepoOptions {
-  /** Initial events to seed the store with */
-  events?: StoredWebhookEvent[];
-  /** Enable database error simulation */
-  simulateDbError?: boolean;
-}
-
-/**
- * Creates a fake webhook event repository for testing.
- */
-export const makeFakeWebhookEventRepo = (
-  options: FakeWebhookEventRepoOptions = {}
-): WebhookEventRepository => {
-  const store = new Map<string, StoredWebhookEvent>();
-  const simulateDbError = options.simulateDbError ?? false;
-
-  // Seed initial events (keyed by svixId)
-  if (options.events !== undefined) {
-    for (const e of options.events) {
-      store.set(e.svixId, { ...e });
-    }
-  }
-
-  const createDbError = (): Result<never, DeliveryError> =>
-    err({
-      type: 'DatabaseError',
-      message: 'Simulated database error',
-      retryable: true,
-    } as DeliveryError);
-
-  return {
-    insert: async (
-      input: InsertWebhookEventInput
-    ): Promise<Result<StoredWebhookEvent, DeliveryError>> => {
-      if (simulateDbError) return createDbError();
-
-      // Check for duplicate svix_id
-      if (store.has(input.svixId)) {
-        return err({
-          type: 'DuplicateWebhookEvent',
-          svixId: input.svixId,
-        } as DeliveryError);
-      }
-
-      const id = crypto.randomUUID();
-      const now = new Date();
-      const event: StoredWebhookEvent = {
-        id,
-        svixId: input.svixId,
-        eventType: input.eventType,
-        resendEmailId: input.resendEmailId,
-        deliveryId: input.deliveryId ?? null,
-        payload: input.payload,
-        processedAt: null,
-        createdAt: now,
-      };
-      store.set(input.svixId, event);
-      return ok(event);
-    },
-
-    markProcessed: async (svixId: string): Promise<Result<void, DeliveryError>> => {
-      if (simulateDbError) return createDbError();
-
-      const event = store.get(svixId);
-      if (event !== undefined) {
-        const updated: StoredWebhookEvent = {
-          ...event,
-          processedAt: new Date(),
-        };
-        store.set(svixId, updated);
-      }
-      return ok(undefined);
-    },
-
-    findUnprocessed: async (
-      olderThanMinutes: number
-    ): Promise<Result<StoredWebhookEvent[], DeliveryError>> => {
-      if (simulateDbError) return createDbError();
-
-      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
-      const unprocessed: StoredWebhookEvent[] = [];
-
-      for (const event of store.values()) {
-        if (event.processedAt === null && event.createdAt < threshold) {
-          unprocessed.push(event);
-        }
-      }
-
-      return ok(unprocessed);
-    },
-  };
-};
-
 // =============================================================================
 // Notification Delivery Test Builders
 // =============================================================================
@@ -2108,28 +2009,6 @@ export const createTestDeliveryRecord = (
     lastAttemptAt: overrides.lastAttemptAt ?? null,
     sentAt: overrides.sentAt ?? null,
     metadata: overrides.metadata ?? {},
-    createdAt: overrides.createdAt ?? now,
-  };
-};
-
-let webhookEventIdCounter = 0;
-
-/**
- * Creates a test stored webhook event with sensible defaults.
- */
-export const createTestStoredWebhookEvent = (
-  overrides: Partial<StoredWebhookEvent> = {}
-): StoredWebhookEvent => {
-  webhookEventIdCounter++;
-  const now = new Date();
-  return {
-    id: overrides.id ?? `event-${String(webhookEventIdCounter)}`,
-    svixId: overrides.svixId ?? `svix-${String(webhookEventIdCounter)}`,
-    eventType: overrides.eventType ?? 'email.sent',
-    resendEmailId: overrides.resendEmailId ?? `resend-${String(webhookEventIdCounter)}`,
-    deliveryId: overrides.deliveryId ?? null,
-    payload: overrides.payload ?? {},
-    processedAt: overrides.processedAt ?? null,
     createdAt: overrides.createdAt ?? now,
   };
 };

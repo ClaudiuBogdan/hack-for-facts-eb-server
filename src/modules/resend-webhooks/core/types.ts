@@ -32,10 +32,22 @@ export interface ClickData {
   userAgent: string;
 }
 
+export interface ReceivedAttachmentData {
+  id: string;
+  filename: string;
+  content_type: string;
+  content_disposition?: string | null;
+  content_id?: string | null;
+}
+
 export interface ResendEmailWebhookEventData {
   email_id: string;
   from: string;
   to: string[];
+  cc?: string[];
+  bcc?: string[];
+  message_id?: string;
+  attachments?: ReceivedAttachmentData[];
   subject: string;
   created_at: string;
   broadcast_id?: string;
@@ -62,11 +74,15 @@ export interface StoredResendEmailEvent {
   emailId: string;
   fromAddress: string;
   toAddresses: string[];
+  ccAddresses?: string[];
+  bccAddresses?: string[];
+  messageId?: string | null;
   subject: string;
   emailCreatedAt: Date;
   broadcastId: string | null;
   templateId: string | null;
   tags: ResendWebhookTags | null;
+  attachmentsJson?: Record<string, unknown>[] | null;
   bounceType: string | null;
   bounceSubType: string | null;
   bounceMessage: string | null;
@@ -76,6 +92,7 @@ export interface StoredResendEmailEvent {
   clickTimestamp: Date | null;
   clickUserAgent: string | null;
   threadKey: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface ResendWebhookEmailEventInsert {
@@ -85,11 +102,15 @@ export interface ResendWebhookEmailEventInsert {
   email_id: string;
   from_address: string;
   to_addresses: string[];
+  cc_addresses: string[];
+  bcc_addresses: string[];
+  message_id: string | null;
   subject: string;
   email_created_at: Date;
   broadcast_id: string | null;
   template_id: string | null;
   tags: string | null;
+  attachments_json: string | null;
   bounce_type: string | null;
   bounce_sub_type: string | null;
   bounce_message: string | null;
@@ -99,4 +120,5 @@ export interface ResendWebhookEmailEventInsert {
   click_timestamp: Date | null;
   click_user_agent: string | null;
   thread_key: string | null;
+  metadata: Record<string, unknown>;
 }

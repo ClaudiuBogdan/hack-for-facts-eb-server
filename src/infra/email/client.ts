@@ -43,6 +43,12 @@ export interface EmailTag {
 export interface SendEmailParams {
   /** Recipient email address */
   to: string;
+  /** Optional CC recipients */
+  cc?: string[];
+  /** Optional BCC recipients */
+  bcc?: string[];
+  /** Optional Reply-To addresses */
+  replyTo?: string[];
   /** Email subject line */
   subject: string;
   /** HTML content */
@@ -82,8 +88,40 @@ export interface EmailError {
  * Email sender interface (port).
  */
 export interface EmailSender {
+  /** Get the configured from address used for outbound emails */
+  getFromAddress(): string;
   /** Send an email via Resend */
   send(params: SendEmailParams): Promise<Result<SendEmailResult, EmailError>>;
+}
+
+export interface ReceivedEmailAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  contentDisposition: string | null;
+  contentId: string | null;
+}
+
+export interface ReceivedEmail {
+  id: string;
+  to: string[];
+  from: string;
+  createdAt: Date;
+  subject: string;
+  html: string | null;
+  text: string | null;
+  headers: Record<string, string>;
+  bcc: string[];
+  cc: string[];
+  replyTo: string[];
+  messageId: string | null;
+  attachments: ReceivedEmailAttachment[];
+  rawDownloadUrl: string | null;
+  rawExpiresAt: Date | null;
+}
+
+export interface ReceivedEmailFetcher {
+  getReceivedEmail(emailId: string): Promise<Result<ReceivedEmail, EmailError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,13 +155,26 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
   log.info('Initializing Resend email client');
 
   return {
+    getFromAddress(): string {
+      return fromAddress;
+    },
+
     async send(params: SendEmailParams): Promise<Result<SendEmailResult, EmailError>> {
-      const { to, subject, html, text, idempotencyKey, unsubscribeUrl, tags } = params;
+      const { to, cc, bcc, replyTo, subject, html, text, idempotencyKey, unsubscribeUrl, tags } =
+        params;
 
       // SECURITY: SEC-013 - Redact email address in logs to prevent PII leakage
       const redactedTo = redactEmailAddress(to);
       log.debug(
-        { to: redactedTo, subject, idempotencyKey, tagCount: tags.length },
+        {
+          to: redactedTo,
+          subject,
+          idempotencyKey,
+          tagCount: tags.length,
+          ccCount: cc?.length ?? 0,
+          bccCount: bcc?.length ?? 0,
+          replyToCount: replyTo?.length ?? 0,
+        },
         'Sending email'
       );
 
@@ -133,6 +184,9 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
           {
             from: fromAddress,
             to,
+            ...(cc !== undefined && cc.length > 0 ? { cc } : {}),
+            ...(bcc !== undefined && bcc.length > 0 ? { bcc } : {}),
+            ...(replyTo !== undefined && replyTo.length > 0 ? { replyTo } : {}),
             subject,
             html,
             text,
@@ -260,6 +314,113 @@ function mapCaughtError(error: unknown): EmailError {
  */
 export const isRetryableEmailError = (error: EmailError): boolean => error.retryable;
 
+const mapReceivedEmail = (value: unknown): ReceivedEmail => {
+  const row = value as {
+    id: string;
+    to?: string[];
+    from: string;
+    created_at: string;
+    subject: string;
+    html?: string | null;
+    text?: string | null;
+    headers?: Record<string, string>;
+    bcc?: string[];
+    cc?: string[];
+    reply_to?: string[];
+    message_id?: string | null;
+    attachments?: {
+      id: string;
+      filename: string;
+      content_type: string;
+      content_disposition?: string | null;
+      content_id?: string | null;
+    }[];
+    raw?: {
+      download_url?: string | null;
+      expires_at?: string | null;
+    } | null;
+  };
+
+  return {
+    id: row.id,
+    to: row.to ?? [],
+    from: row.from,
+    createdAt: new Date(row.created_at),
+    subject: row.subject,
+    html: row.html ?? null,
+    text: row.text ?? null,
+    headers: row.headers ?? {},
+    bcc: row.bcc ?? [],
+    cc: row.cc ?? [],
+    replyTo: row.reply_to ?? [],
+    messageId: row.message_id ?? null,
+    attachments:
+      row.attachments?.map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        contentType: attachment.content_type,
+        contentDisposition: attachment.content_disposition ?? null,
+        contentId: attachment.content_id ?? null,
+      })) ?? [],
+    rawDownloadUrl: row.raw?.download_url ?? null,
+    rawExpiresAt:
+      row.raw?.expires_at !== undefined && row.raw.expires_at !== null
+        ? new Date(row.raw.expires_at)
+        : null,
+  };
+};
+
+export const makeReceivedEmailFetcher = (config: EmailClientConfig): ReceivedEmailFetcher => {
+  const resend = new Resend(config.apiKey);
+  const log = config.logger.child({ component: 'ReceivedEmailFetcher' });
+
+  return {
+    async getReceivedEmail(emailId: string): Promise<Result<ReceivedEmail, EmailError>> {
+      try {
+        const receiving = resend.emails as unknown as {
+          receiving?: {
+            get(id: string): Promise<{
+              data: Record<string, unknown> | null;
+              error: {
+                statusCode: number | null;
+                message: string;
+                name: string;
+              } | null;
+            }>;
+          };
+        };
+
+        if (receiving.receiving === undefined) {
+          return err({
+            type: 'UNKNOWN',
+            message: 'Resend receiving client is unavailable in this SDK version',
+            retryable: false,
+          });
+        }
+
+        const result = await receiving.receiving.get(emailId);
+        if (result.error !== null) {
+          log.warn({ emailId, error: result.error }, 'Failed to fetch received email');
+          return err(mapResendError(result.error));
+        }
+
+        if (result.data === null) {
+          return err({
+            type: 'UNKNOWN',
+            message: 'Received email payload missing from Resend response',
+            retryable: false,
+          });
+        }
+
+        return ok(mapReceivedEmail(result.data));
+      } catch (error) {
+        log.error({ emailId, error }, 'Failed to fetch received email');
+        return err(mapCaughtError(error));
+      }
+    },
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Webhook Verification
 // ─────────────────────────────────────────────────────────────────────────────
@@ -309,10 +470,20 @@ export interface ResendWebhookEvent {
     email_id: string;
     from: string;
     to: string[];
+    cc?: string[];
+    bcc?: string[];
+    message_id?: string;
     subject: string;
     created_at: string;
     broadcast_id?: string;
     template_id?: string;
+    attachments?: {
+      id: string;
+      filename: string;
+      content_type: string;
+      content_disposition?: string | null;
+      content_id?: string | null;
+    }[];
     bounce?: {
       diagnosticCode?: string[];
       message?: string;

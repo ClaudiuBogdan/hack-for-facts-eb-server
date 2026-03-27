@@ -1,0 +1,816 @@
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI SOLIDARITATII SOCIALE
+
+                                           Sinteza veniturilor si cheltuielilor alocate pe surse si pe titluri
+                                                                   pe anii 2024-2029
+
+
+                                                                                                                            Anexa nr. 1 / 03 Pag.              1 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                    Denumire indicator                    Realizari Executie Propuneri Crestere / Estimari              Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                              2024    preliminata 2026   descrestere  2027                  2028         2029
+       tol graf Titlu col at                                                                       2025            2026/2025
+
+             A                                           B                                1           2           3         4              5           6           7
+0001   03                      VENITURI - TOTAL                                       134.867.593 158.250.664 159.129.501        0,56 170.386.185 181.375.521 189.817.986
+0002   03                      I.VENITURI CURENTE                                     110.266.167 118.900.593 127.536.809        7,26 135.815.141 145.431.438 154.733.078
+2000   03                      B.CONTRIBUTII DE ASIGURARI                             110.068.859 118.686.414 127.307.354        7,26 135.570.260 145.170.727 154.456.817
+2003                           CONTRIBUTIILE ANGAJATORILOR                              1.244.099 1.215.968 1.326.833            9,12   1.361.606    1.451.180     1.537.820
+       01                       Contributii de asigurari sociale de stat datorate de    1.002.231     910.605     954.846        4,86   1.019.586    1.084.939     1.148.152
+                               angajatori
+       04                       Contributii de asigurari pentru accidente de munca          2.327         650
+                               si boli profesionale datorate de angajatori
+       09                       Venituri din contributia asiguratorie pentru munca        239.541     304.713     371.987       22,08    342.020      366.241       389.668
+                               pentru accidente de munca si boli profesionale
+2103                           CONTRIBUTIILE ASIGURATILOR                             108.824.760 117.470.446 125.980.521        7,24 134.208.654 143.719.547 152.918.997
+       01                       Contributii de asigurari sociale de stat datorate de 114.230.636 136.955.293 148.305.221         8,29 158.217.589 169.428.685 180.272.666
+                               asigurati
+       04                       Contributii de asigurari sociale datorate de              196.347     203.584     214.794        5,51    230.999      247.357       263.179
+                               persoane asigurate pe baza de contract de asigurare
+       07                       Contributia la fondul de pensii, administrat privat -17.898.106 -22.320.267 -23.799.529          6,63 -25.595.030 -27.407.553 -29.160.724
+                               (se scade)
+       10                       Contributii ale persoanelor care realizeaza venituri           19         808
+                               de natura profesionala, altele decat cele de natura
+                               salariala, platite de angajatori
+       11                       Contributii de asigurari sociale ale persoanelor          131.649     135.443     142.903        5,51    153.684      164.567       175.094
+                               pentru perioadele in care acestea nu au avut
+                               calitatea de asigurat in sistemul de pensii
+       12                      Contributii de asigurari sociale de stat datorate de        28.518       5.207       5.488        5,40      5.902        6.320          6.724
+                               persoane care realizeaza venituri din activitati
+                               independente, activitati agricole si asocieri fara
+                               personalitate juridica
+       13                      Contributia individuala de asigurari sociale                25.475      28.156      29.685        5,43     31.924       34.185         36.371
+                               datorata de persoanele care realizeaza venituri din
+                               drepturi de proprietate intelectuala
+       14                      Contributia individuala de asigurari sociale                   550          40
+                               datorata de persoanele care realizeaza venituri din
+                               activitati desfasurate in baza
+                               contractelor/conventiilor civile incheiate potrivit
+                               Codului civil, precum si a contractelor de agent
+       28                       Contributia de asigurari sociale datorata de               88.666     101.530     106.909        5,30    114.975      123.117       130.992
+                               persoanele fizice care realizeaza venituri in baza
+                               contractelor de activitate sportiva
+       47                       Contributia de asigurari sociale datorata de           11.054.396 1.433.825
+                               persoanele care realizeaza venituri din salarii din
+                               domeniul constructiilor, sectorului agricol si
+                               industriei alimentare si din activitati de creare de
+                               programe pentru calculator
+       48                       Contributii de asigurari aferente declaratiei unice       966.604     926.823     975.050        5,20   1.048.611    1.122.869     1.194.695
+       50                       Alte contributii pentru asigurari sociale datorate de           6           4
+                               asigurati
+2900   03                      C.VENITURI NEFISCALE                                       197.308     214.179     229.455        7,13    244.881      260.711       276.261
+3000   03                      C1.VENITURI DIN PROPRIETATE                                 12.935      13.373      14.483        8,30     15.457       16.456         17.437
+3103                           VENITURI DIN DOBANZI                                        12.935      13.373      14.483        8,30     15.457       16.456         17.437
+       05                       Venituri din dobanzi ale bugetului asigurarilor               122         113
+                               sociale de stat
+       06                       Venituri din dobanzi ale sistemului de asigurari de        12.814      13.260      14.483        9,22     15.457       16.456         17.437
+                               accidente de munca si boli profesionale
+3300   03                      C2.VANZARI DE BUNURI SI SERVICII                           184.373     200.806     214.972        7,05    229.424      244.255       258.824
+3303                           VENITURI DIN PRESTARI DE SERVICII SI                       123.039     142.375     152.534        7,14    162.788      173.312       183.649
+                               ALTE ACTIVITATI
+       08                       Venituri din prestari de servicii                             136         186         200        7,53        213          227            240
+       11                       Contributia pentru bilete de tratament si odihna          122.903     142.189     152.334        7,13    162.575      173.085       183.409
+3503                           AMENZI, PENALITATI SI CONFISCARI                                49         150
+ BUGETUL ASIGURARILOR SOCIALE DE STAT                                                                                     Anexa nr. 1 / 03 Pag.                2 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                   Denumire indicator                    Realizari Executie Propuneri Crestere / Estimari               Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                             2024    preliminata 2026   descrestere  2027                   2028           2029
+       tol graf Titlu col at                                                                      2025            2026/2025
+
+             A                                          B                                1           2          3         4             5              6              7
+       01                      Venituri din amenzi si alte sanctiuni aplicate                49         150
+                               potrivit dispozitiilor legale
+3603                           DIVERSE VENITURI                                          61.285      58.281      62.438        7,13     66.636         70.943         75.175
+       01                       Venituri din aplicarea prescriptiei extinctive           25.066      23.939      25.647        7,13     27.371         29.140         30.878
+       03                       Sume din recuperarea debitelor provenite din             30.326      26.984      28.908        7,13     30.852         32.846         34.805
+                               drepturile necuvenite
+       24                       Venituri din compensarea creantelor din                      64         256
+                               despagubiri
+       50                       Alte venituri                                             5.830       7.102       7.883       11,00         8.413          8.957          9.492
+4100   03                      IV.SUBVENTII                                          24.305.237 39.236.931 31.419.238     -19,92 34.571.044 35.944.083 35.084.908
+4200   03                      SUBVENTII DE LA ALTE NIVELE ALE                       24.305.237 39.236.931 31.419.238     -19,92 34.571.044 35.944.083 35.084.908
+                               ADMINISTRATIEI PUBLICE
+4203                           SUBVENTII DE LA BUGETUL DE STAT                       24.305.237 39.236.931 31.419.238     -19,92 34.571.044 35.944.083 35.084.908
+       24                       Subventii primite de bugetul asigurarilor sociale    24.305.237 39.236.931 31.419.238     -19,92 34.571.044 35.944.083 35.084.908
+                               de stat
+4503                           SUME PRIMITE DE LA UE / ALTI DONATORI                                  7.093
+                               IN CONTUL PLATILOR EFECTUATE SI
+                               PREFINANTARI
+       02                       Fondul Social European                                                7.093
+4703                           SUME IN CURS DE DISTRIBUIRE                              277.077      31.404
+       02                      Venituri ale bugetului asigurarilor sociale de stat,     277.077      31.404
+                               incasate in contul unic, in curs de distribuire
+4803                           SUME PRIMITE DE LA UE/ALTI DONATORI                        5.643
+                               IN CONTUL PLATILOR EFECTUATE SI
+                               PREFINANTARI AFERENTE CADRULUI
+                               FINANCIAR 2014-2020
+       02                      Fondul Social European (FSE)                               5.643
+4903                           SUME AFERENTE ASISTENTEI FINANCIARE                       13.469      74.643     173.454   132,38
+                               NERAMBURSABILE ALOCATE PENTRU
+                               PNRR
+       02                       Sume rambursate din PNRR                                 13.469      74.643     173.454   132,38
+4903   81                      Venituri sistem public de pensii                     134.612.913 157.932.041 158.743.031        0,51 170.028.708 180.992.824 189.410.881
+4903   82                      Venituri sistem accidente de munca si boli               254.682     318.623     386.470       21,29    357.477        382.697        407.105
+                               profesionale
+5000                           TOTAL GENERAL
+                               I.Credite de angajament                                          158.185.277 158.792.814        0,38 170.226.123 181.221.025 189.669.082
+                               II.Credite bugetare                                  137.822.461 158.076.463 158.908.897        0,53 170.226.123 181.221.025 189.669.082
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                                          158.187.556 158.779.314        0,37 170.212.623 181.207.525 189.655.582
+                               II.Credite bugetare                                  137.824.060 158.078.742 158.895.397        0,52 170.212.623 181.207.525 189.655.582
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                              529.335     512.167       -3,24    538.890        556.135        556.135
+                               II.Credite bugetare                                      522.327     529.335     512.167       -3,24    538.890        556.135        556.135
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                                              810.814     825.000        1,75    844.886        853.723        858.723
+                               II.Credite bugetare                                      780.467     810.814     825.000        1,75    844.886        853.723        858.723
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                                              138.151     140.000        1,34    149.100        153.872        153.872
+                               II.Credite bugetare                                      110.641     138.151     140.000        1,34    149.100        153.872        153.872
+                 55            TITLUL VII ALTE TRANSFERURI
+                               I.Credite de angajament                                                  165         215       30,30          229            237            237
+                               II.Credite bugetare                                          161         165         215       30,30          229            237            237
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                                          156.510.246 157.200.000        0,44 168.675.600 179.639.514 188.082.571
+                               II.Credite bugetare                                  136.235.477 156.510.246 157.200.000        0,44 168.675.600 179.639.514 188.082.571
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                                3.417       3.678        7,64         3.918          4.044          4.044
+                               II.Credite bugetare                                        3.216       3.417       3.678        7,64         3.918          4.044          4.044
+                 60            TITLUL XII PROIECTE CU FINANTARE DIN
+                               SUMELE REPREZENTAND ASISTENTA
+ BUGETUL ASIGURARILOR SOCIALE DE STAT                                                                        Anexa nr. 1 / 03 Pag.                3 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                 Denumire indicator             Realizari Executie Propuneri Crestere / Estimari           Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                    2024    preliminata 2026   descrestere  2027               2028           2029
+       tol graf Titlu col at                                                             2025            2026/2025
+
+             A                                       B                         1         2         3         4             5              6              7
+                               FINANCIARA NERAMBURSABILA
+                               AFERENTA PNRR
+                               I.Credite de angajament                               195.428      98.254      -49,72
+                               II.Credite bugetare                       171.771      86.614     214.337     147,46
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                11.958      13.500         12,90     13.500         13.500         13.500
+                               II.Credite bugetare                        10.184      11.958      13.500         12,90     13.500         13.500         13.500
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                11.958      13.500         12,90     13.500         13.500         13.500
+                               II.Credite bugetare                        10.184      11.958      13.500         12,90     13.500         13.500         13.500
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                               -14.237
+                               II.Credite bugetare                       -11.783     -14.237
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                               -14.237
+                               II.Credite bugetare                       -11.783     -14.237
+5003                           BUGETUL ASIGURARILOR SOCIALE DE
+                               STAT
+                               I.Credite de angajament                           158.185.277 158.792.814          0,38 170.226.123 181.221.025 189.669.082
+                               II.Credite bugetare                   137.822.461 158.076.463 158.908.897          0,53 170.226.123 181.221.025 189.669.082
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                           158.187.556 158.779.314          0,37 170.212.623 181.207.525 189.655.582
+                               II.Credite bugetare                   137.824.060 158.078.742 158.895.397          0,52 170.212.623 181.207.525 189.655.582
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                               529.335     512.167         -3,24    538.890        556.135        556.135
+                               II.Credite bugetare                       522.327     529.335     512.167         -3,24    538.890        556.135        556.135
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                               810.814     825.000          1,75    844.886        853.723        858.723
+                               II.Credite bugetare                       780.467     810.814     825.000          1,75    844.886        853.723        858.723
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                               138.151     140.000          1,34    149.100        153.872        153.872
+                               II.Credite bugetare                       110.641     138.151     140.000          1,34    149.100        153.872        153.872
+                 55            TITLUL VII ALTE TRANSFERURI
+                               I.Credite de angajament                                   165         215         30,30          229            237            237
+                               II.Credite bugetare                           161         165         215         30,30          229            237            237
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                           156.510.246 157.200.000          0,44 168.675.600 179.639.514 188.082.571
+                               II.Credite bugetare                   136.235.477 156.510.246 157.200.000          0,44 168.675.600 179.639.514 188.082.571
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                 3.417       3.678          7,64         3.918          4.044          4.044
+                               II.Credite bugetare                         3.216       3.417       3.678          7,64         3.918          4.044          4.044
+                 60            TITLUL XII PROIECTE CU FINANTARE DIN
+                               SUMELE REPREZENTAND ASISTENTA
+                               FINANCIARA NERAMBURSABILA
+                               AFERENTA PNRR
+                               I.Credite de angajament                               195.428      98.254      -49,72
+                               II.Credite bugetare                       171.771      86.614     214.337     147,46
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                11.958      13.500         12,90     13.500         13.500         13.500
+                               II.Credite bugetare                        10.184      11.958      13.500         12,90     13.500         13.500         13.500
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                11.958      13.500         12,90     13.500         13.500         13.500
+                               II.Credite bugetare                        10.184      11.958      13.500         12,90     13.500         13.500         13.500
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                               -14.237
+ BUGETUL ASIGURARILOR SOCIALE DE STAT                                                                            Anexa nr. 1 / 03 Pag.                4 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-               Denumire indicator          Realizari Executie Propuneri Crestere / Estimari                    Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                               2024    preliminata 2026   descrestere  2027                        2028           2029
+       tol graf Titlu col at                                                        2025            2026/2025
+
+             A                                     B                        1             2          3           4             5              6              7
+                               II.Credite bugetare                         -11.783       -14.237
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                                   -14.237
+                               II.Credite bugetare                         -11.783       -14.237
+6800   03                      Partea a III-a CHELTUIELI SOCIAL-
+                               CULTURALE
+                               I.Credite de angajament                               158.185.277 158.792.814          0,38 170.226.123 181.221.025 189.669.082
+                               II.Credite bugetare                     137.822.461 158.076.463 158.908.897            0,53 170.226.123 181.221.025 189.669.082
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                               158.187.556 158.779.314          0,37 170.212.623 181.207.525 189.655.582
+                               II.Credite bugetare                     137.824.060 158.078.742 158.895.397            0,52 170.212.623 181.207.525 189.655.582
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                  529.335     512.167          -3,24    538.890        556.135        556.135
+                               II.Credite bugetare                         522.327      529.335     512.167          -3,24    538.890        556.135        556.135
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                                  810.814     825.000           1,75    844.886        853.723        858.723
+                               II.Credite bugetare                         780.467      810.814     825.000           1,75    844.886        853.723        858.723
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                                  138.151     140.000           1,34    149.100        153.872        153.872
+                               II.Credite bugetare                         110.641      138.151     140.000           1,34    149.100        153.872        153.872
+                 55            TITLUL VII ALTE TRANSFERURI
+                               I.Credite de angajament                                      165           215        30,30          229            237            237
+                               II.Credite bugetare                             161          165           215        30,30          229            237            237
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                               156.510.246 157.200.000          0,44 168.675.600 179.639.514 188.082.571
+                               II.Credite bugetare                     136.235.477 156.510.246 157.200.000            0,44 168.675.600 179.639.514 188.082.571
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                     3.417         3.678        7,64         3.918          4.044          4.044
+                               II.Credite bugetare                           3.216         3.417         3.678        7,64         3.918          4.044          4.044
+                 60            TITLUL XII PROIECTE CU FINANTARE DIN
+                               SUMELE REPREZENTAND ASISTENTA
+                               FINANCIARA NERAMBURSABILA
+                               AFERENTA PNRR
+                               I.Credite de angajament                                  195.428      98.254      -49,72
+                               II.Credite bugetare                         171.771        86.614    214.337      147,46
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                    11.958     13.500          12,90     13.500         13.500         13.500
+                               II.Credite bugetare                          10.184        11.958     13.500          12,90     13.500         13.500         13.500
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                    11.958     13.500          12,90     13.500         13.500         13.500
+                               II.Credite bugetare                          10.184        11.958     13.500          12,90     13.500         13.500         13.500
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                                   -14.237
+                               II.Credite bugetare                         -11.783       -14.237
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                                   -14.237
+                               II.Credite bugetare                         -11.783       -14.237
+6803                           ASIGURARI SI ASISTENTA SOCIALA
+                               I.Credite de angajament                               158.040.855 158.626.948          0,37 170.028.708 180.992.824 189.410.881
+                               II.Credite bugetare                     137.651.409 157.932.041 158.743.031            0,51 170.028.708 180.992.824 189.410.881
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                               158.042.650 158.613.748          0,36 170.015.508 180.979.624 189.397.681
+                               II.Credite bugetare                     137.652.642 157.933.836 158.729.831            0,50 170.015.508 180.979.624 189.397.681
+ BUGETUL ASIGURARILOR SOCIALE DE STAT                                                                        Anexa nr. 1 / 03 Pag.                5 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                 Denumire indicator             Realizari Executie Propuneri Crestere / Estimari           Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                    2024    preliminata 2026   descrestere  2027               2028           2029
+       tol graf Titlu col at                                                             2025            2026/2025
+
+             A                                       B                         1         2         3         4             5              6              7
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                               515.596     498.633         -3,29    524.903        541.699        541.699
+                               II.Credite bugetare                       508.287     515.596     498.633         -3,29    524.903        541.699        541.699
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                               809.455     823.141          1,69    842.141        850.641        855.641
+                               II.Credite bugetare                       779.086     809.455     823.141          1,69    842.141        850.641        855.641
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                               138.145     139.975          1,32    149.025        153.797        153.797
+                               II.Credite bugetare                       110.633     138.145     139.975          1,32    149.025        153.797        153.797
+                 55            TITLUL VII ALTE TRANSFERURI
+                               I.Credite de angajament                                   165         215         30,30          229            237            237
+                               II.Credite bugetare                           161         165         215         30,30          229            237            237
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                           156.380.586 157.050.000          0,43 168.495.600 179.429.514 187.842.571
+                               II.Credite bugetare                   136.079.616 156.380.586 157.050.000          0,43 168.495.600 179.429.514 187.842.571
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                 3.275       3.530          7,79         3.610          3.736          3.736
+                               II.Credite bugetare                         3.088       3.275       3.530          7,79         3.610          3.736          3.736
+                 60            TITLUL XII PROIECTE CU FINANTARE DIN
+                               SUMELE REPREZENTAND ASISTENTA
+                               FINANCIARA NERAMBURSABILA
+                               AFERENTA PNRR
+                               I.Credite de angajament                               195.428      98.254      -49,72
+                               II.Credite bugetare                       171.771      86.614     214.337     147,46
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                11.860      13.200         11,30     13.200         13.200         13.200
+                               II.Credite bugetare                        10.095      11.860      13.200         11,30     13.200         13.200         13.200
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                11.860      13.200         11,30     13.200         13.200         13.200
+                               II.Credite bugetare                        10.095      11.860      13.200         11,30     13.200         13.200         13.200
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                               -13.655
+                               II.Credite bugetare                       -11.328     -13.655
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                               -13.655
+                               II.Credite bugetare                       -11.328     -13.655
+6903                           ASIGURARI SI ASISTENTA SOCIALA
+                               PENTRU ACCIDENTE DE MUNCA SI BOLI
+                               PROFESIONALE
+                               I.Credite de angajament                               144.422     165.866         14,85    197.415        228.201        258.201
+                               II.Credite bugetare                       171.052     144.422     165.866         14,85    197.415        228.201        258.201
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                               144.906     165.566         14,26    197.115        227.901        257.901
+                               II.Credite bugetare                       171.418     144.906     165.566         14,26    197.115        227.901        257.901
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                13.739      13.534         -1,49     13.987         14.436         14.436
+                               II.Credite bugetare                        14.040      13.739      13.534         -1,49     13.987         14.436         14.436
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                                 1.359       1.859         36,79         2.745          3.082          3.082
+                               II.Credite bugetare                         1.381       1.359       1.859         36,79         2.745          3.082          3.082
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                                     6          25     316,67              75             75             75
+                               II.Credite bugetare                             8           6          25     316,67              75             75             75
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                               129.660     150.000         15,69    180.000        210.000        240.000
+ BUGETUL ASIGURARILOR SOCIALE DE STAT                                                                             Anexa nr. 1 / 03 Pag.            6 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                  Denumire indicator                 Realizari Executie Propuneri Crestere / Estimari       Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                         2024    preliminata 2026   descrestere  2027           2028         2029
+       tol graf Titlu col at                                                                  2025            2026/2025
+
+             A                                        B                             1          2         3        4            5           6             7
+                               II.Credite bugetare                                 155.861    129.660   150.000       15,69   180.000     210.000       240.000
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                           142       148         4,23      308          308            308
+                               II.Credite bugetare                                     128       142       148         4,23      308          308            308
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                            98       300    206,12         300          300            300
+                               II.Credite bugetare                                      89        98       300    206,12         300          300            300
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                            98       300    206,12         300          300            300
+                               II.Credite bugetare                                      89        98       300    206,12         300          300            300
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                                           -582
+                               II.Credite bugetare                                    -455       -582
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                                           -582
+                               II.Credite bugetare                                    -455       -582
+9903                           EXCEDENT/DEFICIT                                  -2.954.868   174.201   220.604       26,64   160.062     154.496       148.904
+9903   10                        Excedent/Deficit sistem public de pensii        -3.038.496
+9903   11                        Excedent/Deficit sistem accidente de munca si      83.630    174.201   220.604       26,64   160.062     154.496       148.904
+                               boli profesionale
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE
+                                Bugetul pe capitole, subcapitole, paragrafe, titluri de cheltuieli, articole si alineate
+                                                                 pe anii 2024-2029
+                                             (sume alocate din Bugetul asigurarilor sociale de stat)
+
+                                                                                                                             Anexa nr. 2 / 03 Pag.                1 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                     Denumire indicator                    Realizari Executie Propuneri Crestere / Estimari                Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                               2024    preliminata 2026   descrestere  2027                    2028           2029
+       tol graf Titlu col at                                                                        2025            2026/2025
+
+             A                                            B                                1           2           3         4             5              6              7
+5003                            BUGETUL ASIGURARILOR SOCIALE DE
+                                STAT
+                                I.Credite de angajament                                            158.185.277 158.792.814        0,38 170.226.123 181.221.025 189.669.082
+                                II.Credite bugetare                                    137.822.461 158.076.463 158.908.897        0,53 170.226.123 181.221.025 189.669.082
+                 01             CHELTUIELI CURENTE
+                                I.Credite de angajament                                            158.187.556 158.779.314        0,37 170.212.623 181.207.525 189.655.582
+                                II.Credite bugetare                                    137.824.060 158.078.742 158.895.397        0,52 170.212.623 181.207.525 189.655.582
+                 10             TITLUL I CHELTUIELI DE PERSONAL
+                                I.Credite de angajament                                                529.335     512.167       -3,24    538.890        556.135        556.135
+                                II.Credite bugetare                                        522.327     529.335     512.167       -3,24    538.890        556.135        556.135
+                 20             TITLUL II BUNURI SI SERVICII
+                                I.Credite de angajament                                                810.814     825.000        1,75    844.886        853.723        858.723
+                                II.Credite bugetare                                        780.467     810.814     825.000        1,75    844.886        853.723        858.723
+                 30             TITLUL III DOBANZI
+                                I.Credite de angajament                                                138.151     140.000        1,34    149.100        153.872        153.872
+                                II.Credite bugetare                                        110.641     138.151     140.000        1,34    149.100        153.872        153.872
+                      03        Alte dobanzi
+                                I.Credite de angajament                                                138.151
+                                II.Credite bugetare                                        110.641     138.151     140.000        1,34
+                           02     Dobanda datorata trezoreriei statului
+                                I.Credite de angajament                                                138.151
+                                II.Credite bugetare                                        110.641     138.151     140.000        1,34
+                 55             TITLUL VII ALTE TRANSFERURI
+                                I.Credite de angajament                                                    165         215       30,30          229            237            237
+                                II.Credite bugetare                                            161         165         215       30,30          229            237            237
+                      02         B. Transferuri curente in strainatate (catre
+                                organizatii internationale)
+                                I.Credite de angajament                                                    165
+                                II.Credite bugetare                                            161         165         215       30,30
+                           01     Contributii si cotizatii la organisme internationale
+                                I.Credite de angajament                                                    165
+                                II.Credite bugetare                                            161         165         215       30,30
+                 57             TITLUL IX ASISTENTA SOCIALA
+                                I.Credite de angajament                                            156.510.246 157.200.000        0,44 168.675.600 179.639.514 188.082.571
+                                II.Credite bugetare                                    136.235.477 156.510.246 157.200.000        0,44 168.675.600 179.639.514 188.082.571
+                      01         Asigurari sociale
+                                I.Credite de angajament                                            154.279.382
+                                II.Credite bugetare                                    134.181.346 154.279.382 154.820.000        0,35
+                      02         Ajutoare sociale
+                                I.Credite de angajament                                              2.230.864
+                                II.Credite bugetare                                      2.054.131   2.230.864 2.380.000          6,69
+                           01     Ajutoare sociale in numerar
+                                I.Credite de angajament                                              1.814.176
+                                II.Credite bugetare                                      1.663.301 1.814.176 1.939.000            6,88
+                           02     Ajutoare sociale in natura
+                                I.Credite de angajament                                                416.688
+                                II.Credite bugetare                                        390.830     416.688     441.000        5,83
+                 59             TITLUL XI ALTE CHELTUIELI
+                                I.Credite de angajament                                                  3.417       3.678        7,64         3.918          4.044          4.044
+                                II.Credite bugetare                                          3.216       3.417       3.678        7,64         3.918          4.044          4.044
+                      17         Despagubiri civile
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                            Anexa nr. 2 / 03 Pag.           2 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                     Denumire indicator                      Realizari Executie Propuneri Crestere / Estimari              Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                                 2024    preliminata 2026   descrestere  2027                  2028         2029
+       tol graf Titlu col at                                                                          2025            2026/2025
+
+             A                                            B                                 1            2            3           4           5           6              7
+                                I.Credite de angajament                                                       445
+                                II.Credite bugetare                                              507          445          648        45,62
+                      40        Sume aferente persoanelor cu handicap neincadrate
+                                I.Credite de angajament                                                      2.972
+                                II.Credite bugetare                                             2.709        2.972        3.030        1,95
+                 60             TITLUL XII PROIECTE CU FINANTARE DIN
+                                SUMELE REPREZENTAND ASISTENTA
+                                FINANCIARA NERAMBURSABILA
+                                AFERENTA PNRR
+                                I.Credite de angajament                                                 195.428       98.254      -49,72
+                                II.Credite bugetare                                        171.771       86.614      214.337      147,46
+                      01        Fonduri europene nerambursabile
+                                I.Credite de angajament                                                 163.300
+                                II.Credite bugetare                                        159.909       72.389      173.454      139,61
+                      03        Sume aferente TVA
+                                I.Credite de angajament                                                  32.128
+                                II.Credite bugetare                                         11.862       14.225       40.883      187,40
+                 70             CHELTUIELI DE CAPITAL
+                                I.Credite de angajament                                                  11.958       13.500          12,90   13.500      13.500         13.500
+                                II.Credite bugetare                                         10.184       11.958       13.500          12,90   13.500      13.500         13.500
+                 71             TITLUL XV ACTIVE NEFINANCIARE
+                                I.Credite de angajament                                                  11.958       13.500          12,90   13.500      13.500         13.500
+                                II.Credite bugetare                                         10.184       11.958       13.500          12,90   13.500      13.500         13.500
+                      01         Active fixe
+                                I.Credite de angajament                                                  11.157
+                                II.Credite bugetare                                             9.881    11.157       11.500           3,07
+                           02    Masini, echipamente si mijloace de transport
+                                I.Credite de angajament                                                      1.537
+                                II.Credite bugetare                                             2.207        1.537        5.100   231,82
+                           03    Mobilier, aparatura birotica si alte active corporale
+                                I.Credite de angajament                                                        70
+                                II.Credite bugetare                                                5           70          200    185,71
+                           30     Alte active fixe
+                                I.Credite de angajament                                                      9.550
+                                II.Credite bugetare                                             7.668        9.550        6.200   -35,08
+                      03         Reparatii capitale aferente activelor fixe
+                                I.Credite de angajament                                                       801
+                                II.Credite bugetare                                              303          801         2.000   149,69
+                 84             PLATI EFECTUATE IN ANII PRECEDENTI SI
+                                RECUPERATE IN ANUL CURENT
+                                I.Credite de angajament                                                 -14.237
+                                II.Credite bugetare                                         -11.783     -14.237
+                 85             TITLUL XXI PLATI EFECTUATE IN ANII
+                                PRECEDENTI SI RECUPERATE IN ANUL
+                                CURENT
+                                I.Credite de angajament                                                 -14.237
+                                II.Credite bugetare                                         -11.783     -14.237
+                      01         Plati efectuate in anii precedenti si recuperate in
+                                anul curent
+                                I.Credite de angajament                                                 -14.237
+                                II.Credite bugetare                                         -11.783     -14.237
+                           03    Plati efectuate in anii precedenti si recuperate in
+                                anul curent aferente cheltuielilor curente si
+                                operatiunilor financiare ale altor institutii publice
+                                I.Credite de angajament                                                 -14.237
+                                II.Credite bugetare                                         -11.771     -14.237
+                           05   Plati efectuate in anii precedenti si recuperate in
+                                anul curent aferente fondurilor externe
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                Anexa nr. 2 / 03 Pag.                3 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-               Denumire indicator          Realizari Executie Propuneri Crestere / Estimari                         Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                               2024    preliminata 2026   descrestere  2027                             2028           2029
+       tol graf Titlu col at                                                        2025            2026/2025
+
+             A                                     B                        1                2            3           4             5              6              7
+                               nerambursabile
+                               II.Credite bugetare                                -12
+6800   03                      Partea a III-a CHELTUIELI SOCIAL-
+                               CULTURALE
+                               I.Credite de angajament                                  158.185.277 158.792.814            0,38 170.226.123 181.221.025 189.669.082
+                               II.Credite bugetare                     137.822.461 158.076.463 158.908.897                 0,53 170.226.123 181.221.025 189.669.082
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                                  158.187.556 158.779.314            0,37 170.212.623 181.207.525 189.655.582
+                               II.Credite bugetare                     137.824.060 158.078.742 158.895.397                 0,52 170.212.623 181.207.525 189.655.582
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                     529.335       512.167          -3,24    538.890        556.135        556.135
+                               II.Credite bugetare                         522.327         529.335       512.167          -3,24    538.890        556.135        556.135
+                 20            TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                                     810.814       825.000           1,75    844.886        853.723        858.723
+                               II.Credite bugetare                         780.467         810.814       825.000           1,75    844.886        853.723        858.723
+                 30            TITLUL III DOBANZI
+                               I.Credite de angajament                                     138.151       140.000           1,34    149.100        153.872        153.872
+                               II.Credite bugetare                         110.641         138.151       140.000           1,34    149.100        153.872        153.872
+                 55            TITLUL VII ALTE TRANSFERURI
+                               I.Credite de angajament                                            165          215        30,30          229            237            237
+                               II.Credite bugetare                               161              165          215        30,30          229            237            237
+                 57            TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                                  156.510.246 157.200.000            0,44 168.675.600 179.639.514 188.082.571
+                               II.Credite bugetare                     136.235.477 156.510.246 157.200.000                 0,44 168.675.600 179.639.514 188.082.571
+                 59            TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                           3.417        3.678        7,64         3.918          4.044          4.044
+                               II.Credite bugetare                              3.216            3.417        3.678        7,64         3.918          4.044          4.044
+                 60            TITLUL XII PROIECTE CU FINANTARE DIN
+                               SUMELE REPREZENTAND ASISTENTA
+                               FINANCIARA NERAMBURSABILA
+                               AFERENTA PNRR
+                               I.Credite de angajament                                     195.428        98.254      -49,72
+                               II.Credite bugetare                         171.771           86.614      214.337      147,46
+                 70            CHELTUIELI DE CAPITAL
+                               I.Credite de angajament                                       11.958       13.500          12,90     13.500         13.500         13.500
+                               II.Credite bugetare                          10.184           11.958       13.500          12,90     13.500         13.500         13.500
+                 71            TITLUL XV ACTIVE NEFINANCIARE
+                               I.Credite de angajament                                       11.958       13.500          12,90     13.500         13.500         13.500
+                               II.Credite bugetare                          10.184           11.958       13.500          12,90     13.500         13.500         13.500
+                 84            PLATI EFECTUATE IN ANII PRECEDENTI SI
+                               RECUPERATE IN ANUL CURENT
+                               I.Credite de angajament                                      -14.237
+                               II.Credite bugetare                         -11.783          -14.237
+                 85            TITLUL XXI PLATI EFECTUATE IN ANII
+                               PRECEDENTI SI RECUPERATE IN ANUL
+                               CURENT
+                               I.Credite de angajament                                      -14.237
+                               II.Credite bugetare                         -11.783          -14.237
+6803                           ASIGURARI SI ASISTENTA SOCIALA
+                               I.Credite de angajament                                  158.040.855 158.626.948            0,37 170.028.708 180.992.824 189.410.881
+                               II.Credite bugetare                     137.651.409 157.932.041 158.743.031                 0,51 170.028.708 180.992.824 189.410.881
+                 01            CHELTUIELI CURENTE
+                               I.Credite de angajament                                  158.042.650 158.613.748            0,36 170.015.508 180.979.624 189.397.681
+                               II.Credite bugetare                     137.652.642 157.933.836 158.729.831                 0,50 170.015.508 180.979.624 189.397.681
+                 10            TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                      515.596      498.633          -3,29    524.903        541.699        541.699
+                               II.Credite bugetare                         508.287          515.596      498.633          -3,29    524.903        541.699        541.699
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                       Anexa nr. 2 / 03 Pag.                4 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                     Denumire indicator                    Realizari Executie Propuneri Crestere / Estimari                Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                               2024    preliminata 2026   descrestere  2027                    2028           2029
+       tol graf Titlu col at                                                                        2025            2026/2025
+
+             A                                            B                                1           2           3         4             5              6              7
+                 20             TITLUL II BUNURI SI SERVICII
+                                I.Credite de angajament                                                809.455     823.141        1,69    842.141        850.641        855.641
+                                II.Credite bugetare                                        779.086     809.455     823.141        1,69    842.141        850.641        855.641
+                 30             TITLUL III DOBANZI
+                                I.Credite de angajament                                                138.145     139.975        1,32    149.025        153.797        153.797
+                                II.Credite bugetare                                        110.633     138.145     139.975        1,32    149.025        153.797        153.797
+                      03         Alte dobanzi
+                                I.Credite de angajament                                                138.145
+                                II.Credite bugetare                                        110.633     138.145     139.975        1,32
+                           02     Dobanda datorata trezoreriei statului
+                                I.Credite de angajament                                                138.145
+                                II.Credite bugetare                                        110.633     138.145     139.975        1,32
+                 55             TITLUL VII ALTE TRANSFERURI
+                                I.Credite de angajament                                                    165         215       30,30          229            237            237
+                                II.Credite bugetare                                            161         165         215       30,30          229            237            237
+                      02         B. Transferuri curente in strainatate (catre
+                                organizatii internationale)
+                                I.Credite de angajament                                                    165
+                                II.Credite bugetare                                            161         165         215       30,30
+                           01     Contributii si cotizatii la organisme internationale
+                                I.Credite de angajament                                                    165
+                                II.Credite bugetare                                            161         165         215       30,30
+                 57             TITLUL IX ASISTENTA SOCIALA
+                                I.Credite de angajament                                            156.380.586 157.050.000        0,43 168.495.600 179.429.514 187.842.571
+                                II.Credite bugetare                                    136.079.616 156.380.586 157.050.000        0,43 168.495.600 179.429.514 187.842.571
+                      01         Asigurari sociale
+                                I.Credite de angajament                                            154.220.714
+                                II.Credite bugetare                                    134.099.070 154.220.714 154.755.000        0,35
+                      02         Ajutoare sociale
+                                I.Credite de angajament                                              2.159.872
+                                II.Credite bugetare                                      1.980.546 2.159.872 2.295.000            6,26
+                           01     Ajutoare sociale in numerar
+                                I.Credite de angajament                                              1.769.136
+                                II.Credite bugetare                                      1.618.905 1.769.136 1.885.000            6,55
+                           02     Ajutoare sociale in natura
+                                I.Credite de angajament                                                390.736
+                                II.Credite bugetare                                        361.641     390.736     410.000        4,93
+                 59             TITLUL XI ALTE CHELTUIELI
+                                I.Credite de angajament                                                  3.275       3.530        7,79         3.610          3.736          3.736
+                                II.Credite bugetare                                          3.088       3.275       3.530        7,79         3.610          3.736          3.736
+                      17         Despagubiri civile
+                                I.Credite de angajament                                                    429
+                                II.Credite bugetare                                            495         429         630       46,85
+                      40        Sume aferente persoanelor cu handicap neincadrate
+                                I.Credite de angajament                                                  2.846
+                                II.Credite bugetare                                          2.593       2.846       2.900        1,90
+                 60             TITLUL XII PROIECTE CU FINANTARE DIN
+                                SUMELE REPREZENTAND ASISTENTA
+                                FINANCIARA NERAMBURSABILA
+                                AFERENTA PNRR
+                                I.Credite de angajament                                                195.428      98.254   -49,72
+                                II.Credite bugetare                                        171.771      86.614     214.337   147,46
+                      01        Fonduri europene nerambursabile
+                                I.Credite de angajament                                                163.300
+                                II.Credite bugetare                                        159.909      72.389     173.454   139,61
+                      03        Sume aferente TVA
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                       Anexa nr. 2 / 03 Pag.           5 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                     Denumire indicator                    Realizari Executie Propuneri Crestere / Estimari           Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                               2024    preliminata 2026   descrestere  2027               2028         2029
+       tol graf Titlu col at                                                                        2025            2026/2025
+
+             A                                            B                                1           2           3         4           5           6              7
+                                I.Credite de angajament                                                 32.128
+                                II.Credite bugetare                                         11.862      14.225      40.883   187,40
+                 70             CHELTUIELI DE CAPITAL
+                                I.Credite de angajament                                                 11.860      13.200       11,30   13.200      13.200         13.200
+                                II.Credite bugetare                                         10.095      11.860      13.200       11,30   13.200      13.200         13.200
+                 71             TITLUL XV ACTIVE NEFINANCIARE
+                                I.Credite de angajament                                                 11.860      13.200       11,30   13.200      13.200         13.200
+                                II.Credite bugetare                                         10.095      11.860      13.200       11,30   13.200      13.200         13.200
+                      01         Active fixe
+                                I.Credite de angajament                                                 11.059
+                                II.Credite bugetare                                          9.792      11.059      11.200        1,27
+                           02     Masini, echipamente si mijloace de transport
+                                I.Credite de angajament                                                  1.439
+                                II.Credite bugetare                                          2.118       1.439       4.800   233,56
+                           03    Mobilier, aparatura birotica si alte active corporale
+                                I.Credite de angajament                                                     70
+                                II.Credite bugetare                                              5          70         200   185,71
+                           30     Alte active fixe
+                                I.Credite de angajament                                                  9.550
+                                II.Credite bugetare                                          7.668       9.550       6.200   -35,08
+                      03         Reparatii capitale aferente activelor fixe
+                                I.Credite de angajament                                                    801
+                                II.Credite bugetare                                            303         801       2.000   149,69
+                 84             PLATI EFECTUATE IN ANII PRECEDENTI SI
+                                RECUPERATE IN ANUL CURENT
+                                I.Credite de angajament                                                -13.655
+                                II.Credite bugetare                                        -11.328     -13.655
+                 85             TITLUL XXI PLATI EFECTUATE IN ANII
+                                PRECEDENTI SI RECUPERATE IN ANUL
+                                CURENT
+                                I.Credite de angajament                                                -13.655
+                                II.Credite bugetare                                        -11.328     -13.655
+                      01         Plati efectuate in anii precedenti si recuperate in
+                                anul curent
+                                I.Credite de angajament                                                -13.655
+                                II.Credite bugetare                                        -11.328     -13.655
+                           03    Plati efectuate in anii precedenti si recuperate in
+                                anul curent aferente cheltuielilor curente si
+                                operatiunilor financiare ale altor institutii publice
+                                I.Credite de angajament                                                -13.655
+                                II.Credite bugetare                                        -11.316     -13.655
+                           05   Plati efectuate in anii precedenti si recuperate in
+                                anul curent aferente fondurilor externe
+                                nerambursabile
+                                II.Credite bugetare                                            -12
+      03                         Pensii si ajutoare pentru batranete
+                                I.Credite de angajament                                            154.220.714
+                                II.Credite bugetare                                    134.099.071 154.220.714 154.755.000        0,35
+      04                         Asistenta acordata persoanelor in varsta
+                                I.Credite de angajament                                                390.736
+                                II.Credite bugetare                                        361.641     390.736     410.000        4,93
+      09                         Ajutoare pentru urmasi
+                                I.Credite de angajament                                              1.769.136
+                                II.Credite bugetare                                      1.613.901 1.769.136 1.885.000            6,55
+      15                         Prevenirea excluderii sociale
+                                I.Credite de angajament                                                    165
+                                II.Credite bugetare                                            161         165         215       30,30
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                          Anexa nr. 2 / 03 Pag.               6 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                     Denumire indicator                  Realizari Executie Propuneri Crestere / Estimari                    Estimari       Estimari
+ tol capi- ra- pa/ ti- ne-                                                             2024    preliminata 2026   descrestere  2027                        2028           2029
+       tol graf Titlu col at                                                                      2025            2026/2025
+
+              A                                          B                              1             2             3           4            5              6              7
+            50                   Alte cheltuieli in domeniul prevenirii excluderii
+                               sociale
+                               I.Credite de angajament                                                     165
+                               II.Credite bugetare                                           161           165           215        30,30
+       50                       Alte cheltuieli in domeniul asigurarilor si
+                               asistentei sociale
+                               I.Credite de angajament                                              1.660.104
+                               II.Credite bugetare                                    1.582.982     1.551.290     1.692.816          9,12
+            02                   Cheltuieli cu transmiterea si plata drepturilor
+                               I.Credite de angajament                                               710.284
+                               II.Credite bugetare                                     640.145       710.284       710.000          -0,04
+            03                   Alte cheltuieli de administrare fond
+                               I.Credite de angajament                                               949.820
+                               II.Credite bugetare                                     942.837       841.006       982.816          16,86
+6903                           ASIGURARI SI ASISTENTA SOCIALA
+                               PENTRU ACCIDENTE DE MUNCA SI BOLI
+                               PROFESIONALE
+                               I.Credite de angajament                                               144.422       165.866          14,85   197.415        228.201        258.201
+                               II.Credite bugetare                                     171.052       144.422       165.866          14,85   197.415        228.201        258.201
+                  01           CHELTUIELI CURENTE
+                               I.Credite de angajament                                               144.906       165.566          14,26   197.115        227.901        257.901
+                               II.Credite bugetare                                     171.418       144.906       165.566          14,26   197.115        227.901        257.901
+                  10           TITLUL I CHELTUIELI DE PERSONAL
+                               I.Credite de angajament                                                13.739        13.534          -1,49    13.987         14.436         14.436
+                               II.Credite bugetare                                      14.040        13.739        13.534          -1,49    13.987         14.436         14.436
+                  20           TITLUL II BUNURI SI SERVICII
+                               I.Credite de angajament                                                    1.359         1.859       36,79        2.745          3.082          3.082
+                               II.Credite bugetare                                          1.381         1.359         1.859       36,79        2.745          3.082          3.082
+                  30           TITLUL III DOBANZI
+                               I.Credite de angajament                                                       6            25    316,67             75             75             75
+                               II.Credite bugetare                                             8             6            25    316,67             75             75             75
+                       03       Alte dobanzi
+                               I.Credite de angajament                                                       6
+                               II.Credite bugetare                                             8             6            25    316,67
+                            02   Dobanda datorata trezoreriei statului
+                               I.Credite de angajament                                                       6
+                               II.Credite bugetare                                             8             6            25    316,67
+                  57           TITLUL IX ASISTENTA SOCIALA
+                               I.Credite de angajament                                               129.660       150.000          15,69   180.000        210.000        240.000
+                               II.Credite bugetare                                     155.861       129.660       150.000          15,69   180.000        210.000        240.000
+                       01       Asigurari sociale
+                               I.Credite de angajament                                                58.668
+                               II.Credite bugetare                                      82.276        58.668        65.000          10,79
+                       02       Ajutoare sociale
+                               I.Credite de angajament                                                70.992
+                               II.Credite bugetare                                      73.585        70.992        85.000          19,73
+                            01   Ajutoare sociale in numerar
+                               I.Credite de angajament                                                45.040
+                               II.Credite bugetare                                      44.396        45.040        54.000          19,89
+                            02   Ajutoare sociale in natura
+                               I.Credite de angajament                                                25.952
+                               II.Credite bugetare                                      29.189        25.952        31.000          19,45
+                  59           TITLUL XI ALTE CHELTUIELI
+                               I.Credite de angajament                                                     142           148         4,23         308            308            308
+                               II.Credite bugetare                                           128           142           148         4,23         308            308            308
+                       17       Despagubiri civile
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                                       Anexa nr. 2 / 03 Pag.            7 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                   Denumire indicator                     Realizari Executie Propuneri Crestere / Estimari             Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                              2024    preliminata 2026   descrestere  2027                 2028         2029
+       tol graf Titlu col at                                                                       2025            2026/2025
+
+             A                                          B                                1           2           3           4           5            6              7
+                              I.Credite de angajament                                                      16
+                              II.Credite bugetare                                              12          16          18        12,50
+                      40      Sume aferente persoanelor cu handicap neincadrate
+                              I.Credite de angajament                                                     126
+                              II.Credite bugetare                                             116         126         130         3,17
+                 70           CHELTUIELI DE CAPITAL
+                              I.Credite de angajament                                                      98         300    206,12          300          300            300
+                              II.Credite bugetare                                              89          98         300    206,12          300          300            300
+                 71           TITLUL XV ACTIVE NEFINANCIARE
+                              I.Credite de angajament                                                      98         300    206,12          300          300            300
+                              II.Credite bugetare                                              89          98         300    206,12          300          300            300
+                      01       Active fixe
+                              I.Credite de angajament                                                      98
+                              II.Credite bugetare                                              89          98         300    206,12
+                           02   Masini, echipamente si mijloace de transport
+                              I.Credite de angajament                                                      98
+                              II.Credite bugetare                                              89          98         300    206,12
+                 84           PLATI EFECTUATE IN ANII PRECEDENTI SI
+                              RECUPERATE IN ANUL CURENT
+                              I.Credite de angajament                                                    -582
+                              II.Credite bugetare                                            -455        -582
+                 85           TITLUL XXI PLATI EFECTUATE IN ANII
+                              PRECEDENTI SI RECUPERATE IN ANUL
+                              CURENT
+                              I.Credite de angajament                                                    -582
+                              II.Credite bugetare                                            -455        -582
+                      01       Plati efectuate in anii precedenti si recuperate in
+                              anul curent
+                              I.Credite de angajament                                                    -582
+                              II.Credite bugetare                                            -455        -582
+                           03 Plati efectuate in anii precedenti si recuperate in
+                              anul curent aferente cheltuielilor curente si
+                              operatiunilor financiare ale altor institutii publice
+                              I.Credite de angajament                                                    -582
+                              II.Credite bugetare                                            -455        -582
+      03                       Pensii si ajutoare pentru batranete
+                              I.Credite de angajament                                                58.668
+                              II.Credite bugetare                                        82.276      58.668      65.000          10,79
+      05                       Asitenta sociala in caz de boli si invaliditati
+                              I.Credite de angajament                                                66.297
+                              II.Credite bugetare                                        68.767      66.297      78.000          17,65
+           01                   Asistenta sociala in caz de boli
+                              I.Credite de angajament                                                34.751
+                              II.Credite bugetare                                        34.785      34.751      40.000          15,10
+           02                   Asistenta sociala in caz de invaliditate
+                              I.Credite de angajament                                                31.546
+                              II.Credite bugetare                                        33.983      31.546      38.000          20,46
+      09                       Ajutoare pentru urmasi
+                              I.Credite de angajament                                                    4.695
+                              II.Credite bugetare                                            4.818       4.695       7.000       49,09
+      50                       Alte cheltuieli in domeniul asigurarilor si
+                              asistentei sociale
+                              I.Credite de angajament                                                14.762
+                              II.Credite bugetare                                        15.191      14.762      15.866           7,48
+           02                   Cheltuieli cu transmiterea si plata drepturilor
+                              I.Credite de angajament                                                     357
+                              II.Credite bugetare                                             529         357         360         0,84
+ MINISTERUL MUNCII, FAMILIEI, TINERETULUI SI
+ SOLIDARITATII SOCIALE                                                                                   Anexa nr. 2 / 03 Pag.        8 - mii lei -
+Capi- Sub- Pa- Gru- Ar- Ali-                    Denumire indicator      Realizari Executie Propuneri Crestere / Estimari   Estimari     Estimari
+ tol capi- ra- pa/ ti- ne-                                                2024    preliminata 2026   descrestere  2027       2028         2029
+       tol graf Titlu col at                                                         2025            2026/2025
+
+             A                                          B                  1         2         3         4          5         6              7
+           03                    Alte cheltuieli de administrare fond
+                               I.Credite de angajament                               14.405
+                               II.Credite bugetare                         14.662    14.405    15.506        7,64
+

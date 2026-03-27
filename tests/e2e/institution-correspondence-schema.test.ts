@@ -1,11 +1,14 @@
-import { sql } from 'kysely';
+import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
+
+import { makeInstitutionCorrespondenceRepo } from '@/modules/institution-correspondence/index.js';
+import { makeResendWebhookEmailEventsRepo } from '@/modules/resend-webhooks/index.js';
 
 import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
-describe('Institution email workflow schema', () => {
-  it('creates institution threads and generic resend rows', async () => {
+describe('Institution correspondence schema', () => {
+  it('stores thread aggregates and resend metadata rows', async () => {
     if (!dockerAvailable) {
       return;
     }
@@ -16,33 +19,49 @@ describe('Institution email workflow schema', () => {
       .insertInto('institutionemailthreads')
       .values({
         entity_cui: '12345678',
-        owner_user_id: null,
-        campaign_ref: null,
-        request_type: 'cerere_544',
-        thread_key: 'inst-thread-1',
-        subject: 'Cerere informatii',
-        status: 'draft',
-        metadata: JSON.stringify({}),
+        campaign_key: 'public-debate-2026',
+        thread_key: 'thread-key-1',
+        phase: 'awaiting_reply',
+        last_email_at: new Date('2026-03-22T12:00:00.000Z'),
+        last_reply_at: null,
+        next_action_at: null,
+        closed_at: null,
+        record: JSON.stringify({
+          version: 1,
+          campaign: 'public_debate',
+          campaignKey: 'public-debate-2026',
+          ownerUserId: 'user-1',
+          subject: 'Solicitare [teu:thread-key-1]',
+          submissionPath: 'platform_send',
+          institutionEmail: 'contact@institutie.ro',
+          ngoIdentity: 'funky_citizens',
+          requesterOrganizationName: 'Asociatia Test',
+          budgetPublicationDate: '2026-03-20T00:00:00.000Z',
+          consentCapturedAt: null,
+          contestationDeadlineAt: null,
+          captureAddress: 'debate@transparenta.test',
+          correspondence: [],
+          latestReview: null,
+          metadata: {},
+        }),
       })
-      .returning(['thread_key', 'owner_user_id', 'campaign_ref', 'request_type'])
+      .returning(['campaign_key', 'thread_key'])
       .executeTakeFirstOrThrow();
 
-    expect(insertedThread.owner_user_id).toBeNull();
-    expect(insertedThread.campaign_ref).toBeNull();
-    expect(insertedThread.request_type).toBe('cerere_544');
-    expect(insertedThread.thread_key).toBe('inst-thread-1');
+    expect(insertedThread.campaign_key).toBe('public-debate-2026');
+    expect(insertedThread.thread_key).toBe('thread-key-1');
 
-    const insertedEventWithoutThread = await userDb
+    const insertedEvent = await userDb
       .insertInto('resend_wh_emails')
       .values({
-        svix_id: 'svix_test_null_thread',
-        event_type: 'email.sent',
-        event_created_at: new Date('2026-03-22T12:00:00.000Z'),
+        svix_id: 'svix_test_metadata',
+        event_type: 'email.received',
+        event_created_at: new Date('2026-03-22T12:05:00.000Z'),
         email_id: 'email_shared_1',
-        from_address: 'noreply@transparenta.eu',
-        to_addresses: ['contact@institutie.ro'],
-        subject: 'Cerere informatii',
-        email_created_at: new Date('2026-03-22T12:00:00.000Z'),
+        from_address: 'contact@institutie.ro',
+        to_addresses: ['debate@transparenta.test'],
+        subject: 'Salut [teu:thread-key-1]',
+        email_created_at: new Date('2026-03-22T12:05:00.000Z'),
         broadcast_id: null,
         template_id: null,
         tags: null,
@@ -55,84 +74,49 @@ describe('Institution email workflow schema', () => {
         click_timestamp: null,
         click_user_agent: null,
         thread_key: null,
+        metadata: JSON.stringify({
+          matchStatus: 'unmatched',
+          matchReason: 'thread_key_missing',
+        }),
       })
-      .returning(['thread_key'])
+      .returning(['metadata'])
       .executeTakeFirstOrThrow();
 
-    const insertedEventWithThread = await userDb
-      .insertInto('resend_wh_emails')
-      .values({
-        svix_id: 'svix_test_thread_key',
-        event_type: 'email.delivered',
-        event_created_at: new Date('2026-03-22T12:05:00.000Z'),
-        email_id: 'email_shared_1',
-        from_address: 'contact@institutie.ro',
-        to_addresses: ['inbox@transparenta.eu'],
-        subject: 'Cerere informatii',
-        email_created_at: new Date('2026-03-22T12:00:00.000Z'),
-        broadcast_id: null,
-        template_id: null,
-        tags: null,
-        bounce_type: null,
-        bounce_sub_type: null,
-        bounce_message: null,
-        bounce_diagnostic_code: null,
-        click_ip_address: null,
-        click_link: null,
-        click_timestamp: null,
-        click_user_agent: null,
-        thread_key: 'inst-thread-1',
-      })
-      .returning(['thread_key', 'email_id'])
-      .executeTakeFirstOrThrow();
-
-    expect(insertedEventWithoutThread.thread_key).toBeNull();
-    expect(insertedEventWithThread.thread_key).toBe('inst-thread-1');
-    expect(insertedEventWithThread.email_id).toBe('email_shared_1');
+    expect(insertedEvent.metadata).toBeDefined();
   });
 
-  it('enforces thread status and uniqueness constraints', async () => {
+  it('allows multiple threads for the same entity and campaign while keeping thread_key unique', async () => {
     if (!dockerAvailable) {
       return;
     }
 
     const { userDb } = getTestClients();
 
-    await expect(
-      sql`
-        INSERT INTO institutionemailthreads (
-          entity_cui,
-          owner_user_id,
-          campaign_ref,
-          request_type,
-          thread_key,
-          subject,
-          status,
-          metadata
-        ) VALUES (
-          ${'87654321'},
-          ${null},
-          ${null},
-          ${'generic'},
-          ${'thread-invalid-status'},
-          ${'Subiect'},
-          ${'invalid'},
-          ${sql`${JSON.stringify({})}::jsonb`}
-        )
-      `.execute(userDb)
-    ).rejects.toThrow();
-
     await userDb
       .insertInto('institutionemailthreads')
       .values({
         entity_cui: '87654321',
-        owner_user_id: null,
-        campaign_ref: 'campaign-1',
-        request_type: 'generic',
-        thread_key: 'thread-dup',
-        subject: 'Subiect',
-        status: 'draft',
-        metadata: JSON.stringify({}),
+        campaign_key: 'public-debate-2026',
+        thread_key: 'thread-key-a',
+        phase: 'awaiting_reply',
+        record: JSON.stringify({
+          version: 1,
+          campaign: 'public_debate',
+          campaignKey: 'public-debate-2026',
+          ownerUserId: null,
+          subject: 'Solicitare [teu:thread-key-a]',
+          submissionPath: 'platform_send',
+          institutionEmail: 'contact@institutie.ro',
+          ngoIdentity: 'funky_citizens',
+          requesterOrganizationName: null,
+          budgetPublicationDate: null,
+          consentCapturedAt: null,
+          contestationDeadlineAt: null,
+          captureAddress: 'debate@transparenta.test',
+          correspondence: [],
+          latestReview: null,
+          metadata: {},
+        }),
       })
       .execute();
 
@@ -141,92 +125,68 @@ describe('Institution email workflow schema', () => {
         .insertInto('institutionemailthreads')
         .values({
           entity_cui: '87654321',
-          owner_user_id: null,
-          campaign_ref: 'campaign-2',
-          request_type: 'generic',
-          thread_key: 'thread-dup',
-          subject: 'Alt subiect',
-          status: 'draft',
-          metadata: JSON.stringify({}),
+          campaign_key: 'public-debate-2026',
+          thread_key: 'thread-key-b',
+          phase: 'sending',
+          record: JSON.stringify({
+            version: 1,
+            campaign: 'public_debate',
+            campaignKey: 'public-debate-2026',
+            ownerUserId: null,
+            subject: 'Solicitare [teu:thread-key-b]',
+            submissionPath: 'self_send_cc',
+            institutionEmail: 'contact@institutie.ro',
+            ngoIdentity: 'funky_citizens',
+            requesterOrganizationName: null,
+            budgetPublicationDate: null,
+            consentCapturedAt: null,
+            contestationDeadlineAt: null,
+            captureAddress: 'debate@transparenta.test',
+            correspondence: [],
+            latestReview: null,
+            metadata: {},
+          }),
         })
         .execute()
-    ).rejects.toThrow();
-
-    await userDb
-      .insertInto('resend_wh_emails')
-      .values({
-        svix_id: 'svix_dup',
-        event_type: 'email.received',
-        event_created_at: new Date('2026-03-22T13:01:00.000Z'),
-        email_id: 'email_dup_1',
-        from_address: 'contact@institutie.ro',
-        to_addresses: ['inbox@transparenta.eu'],
-        subject: 'Salut',
-        email_created_at: new Date('2026-03-22T13:01:00.000Z'),
-        broadcast_id: null,
-        template_id: null,
-        tags: null,
-        bounce_type: null,
-        bounce_sub_type: null,
-        bounce_message: null,
-        bounce_diagnostic_code: null,
-        click_ip_address: null,
-        click_link: null,
-        click_timestamp: null,
-        click_user_agent: null,
-        thread_key: 'thread-dup',
-      })
-      .execute();
+    ).resolves.toBeDefined();
 
     await expect(
       userDb
-        .insertInto('resend_wh_emails')
+        .insertInto('institutionemailthreads')
         .values({
-          svix_id: 'svix_dup',
-          event_type: 'email.received',
-          event_created_at: new Date('2026-03-22T13:02:00.000Z'),
-          email_id: 'email_dup_2',
-          from_address: 'contact@institutie.ro',
-          to_addresses: ['inbox@transparenta.eu'],
-          subject: 'Salut din nou',
-          email_created_at: new Date('2026-03-22T13:02:00.000Z'),
-          broadcast_id: null,
-          template_id: null,
-          tags: null,
-          bounce_type: null,
-          bounce_sub_type: null,
-          bounce_message: null,
-          bounce_diagnostic_code: null,
-          click_ip_address: null,
-          click_link: null,
-          click_timestamp: null,
-          click_user_agent: null,
-          thread_key: null,
+          entity_cui: '87654321',
+          campaign_key: 'public-debate-2026',
+          thread_key: 'thread-key-a',
+          phase: 'sending',
+          record: JSON.stringify({
+            version: 1,
+            campaign: 'public_debate',
+            campaignKey: 'public-debate-2026',
+            ownerUserId: null,
+            subject: 'Solicitare [teu:thread-key-a]',
+            submissionPath: 'platform_send',
+            institutionEmail: 'contact@institutie.ro',
+            ngoIdentity: 'funky_citizens',
+            requesterOrganizationName: null,
+            budgetPublicationDate: null,
+            consentCapturedAt: null,
+            contestationDeadlineAt: null,
+            captureAddress: 'debate@transparenta.test',
+            correspondence: [],
+            latestReview: null,
+            metadata: {},
+          }),
         })
         .execute()
     ).rejects.toThrow();
   });
 
-  it('queries provider rows by thread_key and allows multiple events per email', async () => {
+  it('queries provider rows by thread_key and preserves metadata for later routing review', async () => {
     if (!dockerAvailable) {
       return;
     }
 
     const { userDb } = getTestClients();
-
-    await userDb
-      .insertInto('institutionemailthreads')
-      .values({
-        entity_cui: '55555555',
-        owner_user_id: 'user_1',
-        campaign_ref: null,
-        request_type: 'public_debate',
-        thread_key: 'query-thread',
-        subject: 'Dezbatere publica',
-        status: 'waiting_reply',
-        metadata: JSON.stringify({}),
-      })
-      .execute();
 
     await userDb
       .insertInto('resend_wh_emails')
@@ -237,7 +197,7 @@ describe('Institution email workflow schema', () => {
         email_id: 'email_query_1',
         from_address: 'noreply@transparenta.eu',
         to_addresses: ['office@primarie.ro'],
-        subject: 'Dezbatere publica',
+        subject: 'Dezbatere publica [teu:query-thread]',
         email_created_at: new Date('2026-03-22T14:00:00.000Z'),
         broadcast_id: null,
         template_id: null,
@@ -251,6 +211,7 @@ describe('Institution email workflow schema', () => {
         click_timestamp: null,
         click_user_agent: null,
         thread_key: 'query-thread',
+        metadata: JSON.stringify({}),
       })
       .execute();
 
@@ -258,16 +219,16 @@ describe('Institution email workflow schema', () => {
       .insertInto('resend_wh_emails')
       .values({
         svix_id: 'svix_query_2',
-        event_type: 'email.delivered',
+        event_type: 'email.received',
         event_created_at: new Date('2026-03-22T14:01:00.000Z'),
-        email_id: 'email_query_1',
-        from_address: 'noreply@transparenta.eu',
-        to_addresses: ['office@primarie.ro'],
-        subject: 'Dezbatere publica',
-        email_created_at: new Date('2026-03-22T14:00:00.000Z'),
+        email_id: 'email_query_2',
+        from_address: 'office@primarie.ro',
+        to_addresses: ['debate@transparenta.test'],
+        subject: 'Re: Dezbatere publica [teu:query-thread]',
+        email_created_at: new Date('2026-03-22T14:01:00.000Z'),
         broadcast_id: null,
         template_id: null,
-        tags: JSON.stringify([{ name: 'thread_key', value: 'query-thread' }]),
+        tags: null,
         bounce_type: null,
         bounce_sub_type: null,
         bounce_message: null,
@@ -276,19 +237,245 @@ describe('Institution email workflow schema', () => {
         click_link: null,
         click_timestamp: null,
         click_user_agent: null,
-        thread_key: 'query-thread',
+        thread_key: null,
+        metadata: JSON.stringify({ matchStatus: 'unmatched' }),
       })
       .execute();
 
     const linkedEvents = await userDb
       .selectFrom('resend_wh_emails')
-      .select(['svix_id', 'email_id', 'event_type'])
-      .where('thread_key', '=', 'query-thread')
-      .orderBy('event_type', 'asc')
+      .select(['svix_id', 'thread_key', 'metadata'])
+      .where('svix_id', 'in', ['svix_query_1', 'svix_query_2'])
+      .orderBy('svix_id', 'asc')
       .execute();
 
     expect(linkedEvents).toHaveLength(2);
-    expect(linkedEvents[0]?.email_id).toBe('email_query_1');
-    expect(linkedEvents[1]?.email_id).toBe('email_query_1');
+    expect(linkedEvents[0]?.thread_key).toBe('query-thread');
+    expect(linkedEvents[1]?.thread_key).toBeNull();
+  });
+
+  it('round-trips typed object JSONB writes for thread records and resend metadata', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const logger = pinoLogger({ level: 'silent' });
+    const correspondenceRepo = makeInstitutionCorrespondenceRepo({
+      db: userDb,
+      logger,
+    });
+    const resendRepo = makeResendWebhookEmailEventsRepo({
+      db: userDb,
+      logger,
+    });
+
+    const createThreadResult = await correspondenceRepo.createThread({
+      entityCui: '99999999',
+      campaignKey: 'campaign-proof',
+      threadKey: 'proof-thread-key',
+      phase: 'sending',
+      record: {
+        version: 1,
+        campaign: 'public_debate',
+        campaignKey: 'campaign-proof',
+        ownerUserId: 'user-proof',
+        subject: 'Proof [teu:proof-thread-key]',
+        submissionPath: 'platform_send',
+        institutionEmail: 'proof@institutie.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: null,
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {
+          proof: true,
+        },
+      },
+    });
+
+    expect(createThreadResult.isOk()).toBe(true);
+    if (createThreadResult.isOk()) {
+      expect(createThreadResult.value.record.metadata['proof']).toBe(true);
+    }
+
+    const insertEventResult = await resendRepo.insert({
+      svixId: 'svix_proof_insert',
+      event: {
+        type: 'email.received',
+        created_at: '2026-03-23T16:00:00.000Z',
+        data: {
+          email_id: 'email_proof_insert',
+          from: 'proof@institutie.ro',
+          to: ['debate@transparenta.test'],
+          subject: 'Proof [teu:proof-thread-key]',
+          created_at: '2026-03-23T16:00:00.000Z',
+        },
+      },
+    });
+
+    expect(insertEventResult.isOk()).toBe(true);
+    if (insertEventResult.isErr()) {
+      return;
+    }
+
+    const updateEventResult = await resendRepo.updateStoredEvent(insertEventResult.value.id, {
+      metadata: {
+        matchStatus: 'unmatched',
+        matchReason: 'proof',
+        rawMessage: {
+          subject: 'Proof [teu:proof-thread-key]',
+        },
+      },
+    });
+
+    expect(updateEventResult.isOk()).toBe(true);
+    if (updateEventResult.isOk()) {
+      expect(updateEventResult.value.metadata['matchStatus']).toBe('unmatched');
+      expect(updateEventResult.value.metadata['rawMessage']).toEqual({
+        subject: 'Proof [teu:proof-thread-key]',
+      });
+    }
+  });
+
+  it('finds an existing platform-send thread by entity while ignoring self-send, failed threads, and other entities', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const logger = pinoLogger({ level: 'silent' });
+    const correspondenceRepo = makeInstitutionCorrespondenceRepo({
+      db: userDb,
+      logger,
+    });
+
+    await correspondenceRepo.createThread({
+      entityCui: '42424242',
+      campaignKey: null,
+      threadKey: 'self-send-thread',
+      phase: 'awaiting_reply',
+      record: {
+        version: 1,
+        campaign: 'public_debate',
+        campaignKey: null,
+        ownerUserId: 'user-self',
+        subject: 'Self send [teu:self-send-thread]',
+        submissionPath: 'self_send_cc',
+        institutionEmail: 'contact@entity.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: null,
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {},
+      },
+    });
+
+    await correspondenceRepo.createThread({
+      entityCui: '99999999',
+      campaignKey: null,
+      threadKey: 'other-entity-thread',
+      phase: 'awaiting_reply',
+      record: {
+        version: 1,
+        campaign: 'public_debate',
+        campaignKey: null,
+        ownerUserId: 'user-other',
+        subject: 'Other entity [teu:other-entity-thread]',
+        submissionPath: 'platform_send',
+        institutionEmail: 'contact@other.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: null,
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {},
+      },
+    });
+
+    // Failed threads should be ignored — allows retry
+    await correspondenceRepo.createThread({
+      entityCui: '42424242',
+      campaignKey: null,
+      threadKey: 'platform-thread-failed',
+      phase: 'failed',
+      record: {
+        version: 1,
+        campaign: 'public_debate',
+        campaignKey: null,
+        ownerUserId: 'user-platform',
+        subject: 'Platform send [teu:platform-thread-failed]',
+        submissionPath: 'platform_send',
+        institutionEmail: 'contact@entity.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: null,
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {},
+      },
+    });
+
+    // Should return null — only a failed thread exists for this entity
+    const noActiveResult = await correspondenceRepo.findPlatformSendThreadByEntity({
+      entityCui: '42424242',
+      campaign: 'public_debate',
+    });
+
+    expect(noActiveResult.isOk()).toBe(true);
+    if (noActiveResult.isOk()) {
+      expect(noActiveResult.value).toBeNull();
+    }
+
+    // Add a non-failed platform-send thread
+    await correspondenceRepo.createThread({
+      entityCui: '42424242',
+      campaignKey: null,
+      threadKey: 'platform-thread-active',
+      phase: 'awaiting_reply',
+      record: {
+        version: 1,
+        campaign: 'public_debate',
+        campaignKey: null,
+        ownerUserId: 'user-platform',
+        subject: 'Platform send [teu:platform-thread-active]',
+        submissionPath: 'platform_send',
+        institutionEmail: 'contact@entity.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: null,
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {},
+      },
+    });
+
+    const threadResult = await correspondenceRepo.findPlatformSendThreadByEntity({
+      entityCui: '42424242',
+      campaign: 'public_debate',
+    });
+
+    expect(threadResult.isOk()).toBe(true);
+    if (threadResult.isOk()) {
+      expect(threadResult.value?.threadKey).toBe('platform-thread-active');
+      expect(threadResult.value?.record.submissionPath).toBe('platform_send');
+      expect(threadResult.value?.entityCui).toBe('42424242');
+    }
   });
 });

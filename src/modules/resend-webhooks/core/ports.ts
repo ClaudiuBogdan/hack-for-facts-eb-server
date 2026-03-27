@@ -15,6 +15,17 @@ export interface ResendWebhookEmailEventsRepository {
     input: InsertResendWebhookEmailEventInput
   ): Promise<Result<StoredResendEmailEvent, ResendWebhookError>>;
   findBySvixId(svixId: string): Promise<Result<StoredResendEmailEvent | null, ResendWebhookError>>;
+  findThreadKeyByMessageReferences(
+    messageReferences: string[]
+  ): Promise<Result<string | null, ResendWebhookError>>;
+  updateStoredEvent(
+    id: string,
+    input: {
+      threadKey?: string | null;
+      messageId?: string | null;
+      metadata?: Record<string, unknown>;
+    }
+  ): Promise<Result<StoredResendEmailEvent, ResendWebhookError>>;
 }
 
 export interface ResendWebhookSideEffectInput {
