@@ -115,7 +115,7 @@ describe('CORS Plugin', () => {
         },
       });
 
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(403);
       expect(response.json().message).toContain('CORS origin not allowed');
     });
 
@@ -177,7 +177,7 @@ describe('CORS Plugin', () => {
       });
 
       // Should be blocked with CORS error
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(403);
       expect(response.json().message).toContain('CORS origin not allowed');
     });
 
@@ -290,8 +290,8 @@ describe('CORS Plugin', () => {
         },
       });
 
-      expect(response.statusCode).toBe(500);
-      expect(response.json().message).toContain('CORS origin not allowed');
+      expect(response.statusCode).toBe(403);
+      expect(response.json().message).toBe('Access denied');
     });
 
     it('handles multiple origins in ALLOWED_ORIGINS', async () => {
@@ -485,7 +485,7 @@ describe('CORS Plugin', () => {
         url: '/health/live',
         headers: { origin: 'https://malicious.com' },
       });
-      expect(response4.statusCode).toBe(500);
+      expect(response4.statusCode).toBe(403);
     });
   });
 
@@ -681,8 +681,8 @@ describe('CORS Plugin', () => {
         url: '/health/live',
         headers: { origin: 'https://malicious.com' },
       });
-      expect(response.statusCode).toBe(500);
-      expect(response.json().message).toContain('CORS origin not allowed');
+      expect(response.statusCode).toBe(403);
+      expect(response.json().message).toBe('Access denied');
     });
 
     it('allows localhost with any port using glob pattern', async () => {
@@ -811,7 +811,7 @@ describe('CORS Plugin', () => {
       });
 
       // Should block since no origins are allowed
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(403);
     });
 
     it('handles whitespace in ALLOWED_ORIGINS', async () => {

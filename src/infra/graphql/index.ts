@@ -188,7 +188,12 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
             }
 
             const code = extensions?.['code'];
-            if (typeof code !== 'string' || !SAFE_CODES.has(code)) {
+            const isSafeCode = typeof code === 'string' && SAFE_CODES.has(code);
+            const hasPath = Array.isArray((e as Record<string, unknown>)['path']);
+            const hasLocations = Array.isArray((e as Record<string, unknown>)['locations']);
+            const isValidationStyleGraphQLError = !hasPath && hasLocations;
+
+            if (!isSafeCode && !isValidationStyleGraphQLError) {
               next['message'] = 'Internal server error';
             }
 
