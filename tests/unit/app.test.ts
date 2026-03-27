@@ -537,5 +537,44 @@ describe('App Factory', () => {
       expect(response.statusCode).toBe(404);
       expect(response.json().message).toContain('POST');
     });
+
+    it('uses a client error code for unsupported media types', async () => {
+      const localApp = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: true,
+              port: 3000,
+              host: '0.0.0.0',
+            },
+          }),
+        },
+      });
+
+      const response = await localApp.inject({
+        method: 'POST',
+        url: '/api/v1/notifications',
+        headers: {
+          'content-type': 'application/xml',
+        },
+        payload: '<notification />',
+      });
+
+      expect(response.statusCode).toBe(415);
+      expect(response.json()).toMatchObject({
+        ok: false,
+        error: 'BadRequestError',
+        message: 'Unsupported Media Type',
+      });
+
+      await localApp.close();
+    });
   });
 });

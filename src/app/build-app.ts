@@ -242,6 +242,30 @@ export interface AppOptions {
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
 const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
 const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
+const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
+const WEBHOOK_RESEND_ROUTE_PATH = '/api/v1/webhooks/resend';
+const NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX = '/api/v1/notifications/unsubscribe/';
+const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
+const ADVANCED_MAP_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-analytics/public/';
+const ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH = '/api/v1/advanced-map-analytics/grouped-series';
+const SAFE_ERROR_CODES = new Set([
+  'ValidationError',
+  'NotFoundError',
+  'AuthenticationRequiredError',
+  'ForbiddenError',
+  'RateLimitExceededError',
+  'BadRequestError',
+  'ConflictError',
+]);
+const GENERIC_MESSAGES: Record<number, string> = {
+  400: 'Invalid request',
+  401: 'Authentication required',
+  403: 'Access denied',
+  404: 'Resource not found',
+  409: 'Conflict with current state',
+  422: 'Unprocessable request',
+  429: 'Too many requests',
+};
 
 function getRequestPath(url: string): string {
   const queryIndex = url.indexOf('?');
@@ -258,6 +282,75 @@ function isLearningProgressAdminReviewRoute(url: string): boolean {
 
 function isInstitutionCorrespondenceAdminRoute(url: string): boolean {
   return getRequestPath(url).startsWith(INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX);
+}
+
+function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequest): boolean {
+  const path = getRequestPath(request.url);
+
+  if (request.method === 'OPTIONS') {
+    return true;
+  }
+
+  if (isHealthRoute(path)) {
+    return true;
+  }
+
+  if (isLearningProgressAdminReviewRoute(path) || isInstitutionCorrespondenceAdminRoute(path)) {
+    return true;
+  }
+
+  if (
+    path === '/mcp' ||
+    path === '/openapi.json' ||
+    path === WEBHOOK_RESEND_ROUTE_PATH ||
+    path === ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH ||
+    path.startsWith(GPT_ROUTE_PREFIX) ||
+    path.startsWith(NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX) ||
+    path.startsWith(ADVANCED_MAP_PUBLIC_ROUTE_PREFIX)
+  ) {
+    return true;
+  }
+
+  if (
+    (request.method === 'GET' || request.method === 'HEAD') &&
+    path.startsWith(SHORT_LINK_RESOLVE_ROUTE_PREFIX)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getPublicErrorCode(error: FastifyError, statusCode: number): string {
+  if (error.validation != null) {
+    return 'ValidationError';
+  }
+
+  if (SAFE_ERROR_CODES.has(error.name)) {
+    return error.name;
+  }
+
+  if (SAFE_ERROR_CODES.has(error.code)) {
+    return error.code;
+  }
+
+  switch (statusCode) {
+    case 400:
+    case 422:
+      return 'ValidationError';
+    case 401:
+      return 'AuthenticationRequiredError';
+    case 403:
+      return 'ForbiddenError';
+    case 404:
+      return 'NotFoundError';
+    case 409:
+      return 'ConflictError';
+    case 429:
+      return 'RateLimitExceededError';
+    default:
+      return statusCode >= 400 && statusCode < 500 ? 'BadRequestError' : 'InternalServerError';
+  }
 }
 
 function getLogBindingUserId(request: import('fastify').FastifyRequest): string | undefined {
@@ -312,6 +405,57 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Create Fastify instance
   const app = fastifyLib({
     ...fastifyOptions,
+  });
+
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    request.log.error({ err: error }, 'Request error');
+
+    const isProduction = config.server.isProduction;
+
+    if (error.validation != null) {
+      return reply.status(400).send({
+        ok: false,
+        error: 'ValidationError',
+        message: 'Request validation failed',
+        ...(isProduction ? {} : { details: error.validation }),
+      });
+    }
+
+    if (error.statusCode != null) {
+      const statusCode = error.statusCode;
+      const isSafeError = SAFE_ERROR_CODES.has(error.name) || SAFE_ERROR_CODES.has(error.code);
+
+      const message =
+        isSafeError || statusCode < 500
+          ? isProduction
+            ? (GENERIC_MESSAGES[statusCode] ?? error.message)
+            : error.message
+          : isProduction
+            ? 'An unexpected error occurred'
+            : error.message;
+
+      return reply.status(statusCode).send({
+        ok: false,
+        error: getPublicErrorCode(error, statusCode),
+        message,
+      });
+    }
+
+    return reply.status(500).send({
+      ok: false,
+      error: 'InternalServerError',
+      message: isProduction ? 'An unexpected error occurred' : error.message,
+    });
+  });
+
+  app.setNotFoundHandler((request, reply) => {
+    return reply.status(404).send({
+      ok: false,
+      error: 'NotFoundError',
+      message: config.server.isProduction
+        ? 'Not found'
+        : `Route ${request.method} ${request.url} not found`,
+    });
   });
 
   const requestStartTimes = new WeakMap<import('fastify').FastifyRequest, bigint>();
@@ -669,10 +813,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       // Full auth middleware with token verification
       const authMiddleware = makeAuthMiddleware({ authProvider: deps.authProvider });
       app.addHook('preHandler', async (request, reply) => {
-        if (
-          isLearningProgressAdminReviewRoute(request.url) ||
-          isInstitutionCorrespondenceAdminRoute(request.url)
-        ) {
+        if (shouldBypassGlobalAuthValidation(request)) {
           request.auth = ANONYMOUS_SESSION;
           return;
         }
@@ -1070,94 +1211,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     await app.register(makeGptRoutes(gptRoutesOptions));
   }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Global Error Handler
-  // SECURITY: SEC-005 - Sanitize error messages in production
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Error codes that are safe to expose to clients.
-   * These are domain-specific errors with controlled messages.
-   */
-  const SAFE_ERROR_CODES = new Set([
-    'ValidationError',
-    'NotFoundError',
-    'AuthenticationRequiredError',
-    'ForbiddenError',
-    'RateLimitExceededError',
-    'BadRequestError',
-    'ConflictError',
-  ]);
-
-  /**
-   * Maps HTTP status codes to generic messages for production.
-   */
-  const GENERIC_MESSAGES: Record<number, string> = {
-    400: 'Invalid request',
-    401: 'Authentication required',
-    403: 'Access denied',
-    404: 'Resource not found',
-    409: 'Conflict with current state',
-    422: 'Unprocessable request',
-    429: 'Too many requests',
-  };
-
-  app.setErrorHandler((error: FastifyError, request, reply) => {
-    // Always log full error server-side
-    request.log.error({ err: error }, 'Request error');
-
-    const isProduction = config.server.isProduction;
-
-    // Handle validation errors
-    if (error.validation != null) {
-      return reply.status(400).send({
-        error: 'ValidationError',
-        message: 'Request validation failed',
-        // Only include details in non-production
-        ...(isProduction ? {} : { details: error.validation }),
-      });
-    }
-
-    // Handle known HTTP errors
-    if (error.statusCode != null) {
-      const statusCode = error.statusCode;
-      const isSafeError = SAFE_ERROR_CODES.has(error.name) || SAFE_ERROR_CODES.has(error.code);
-
-      // Safe errors or client errors (4xx) can show their message
-      // Server errors (5xx) are hidden in production
-      const message =
-        isSafeError || statusCode < 500
-          ? isProduction
-            ? (GENERIC_MESSAGES[statusCode] ?? error.message)
-            : error.message
-          : isProduction
-            ? 'An unexpected error occurred'
-            : error.message;
-
-      return reply.status(statusCode).send({
-        error: error.name,
-        message,
-      });
-    }
-
-    // Handle unexpected errors - always generic in production
-    return reply.status(500).send({
-      error: 'InternalServerError',
-      message: isProduction ? 'An unexpected error occurred' : error.message,
-    });
-  });
-
-  // Not found handler
-  // SECURITY: SEC-015 - Do not echo request URL in production to prevent information disclosure
-  app.setNotFoundHandler((request, reply) => {
-    return reply.status(404).send({
-      error: 'NotFoundError',
-      message: config.server.isProduction
-        ? 'Not found'
-        : `Route ${request.method} ${request.url} not found`,
-    });
-  });
 
   return app;
 };

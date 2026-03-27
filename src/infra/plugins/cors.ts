@@ -84,6 +84,15 @@ function isLocalhostOrigin(origin: string): boolean {
   }
 }
 
+function createCorsOriginNotAllowedError(
+  message: string
+): Error & { statusCode: number; code: string } {
+  const error = new Error(message) as Error & { statusCode: number; code: string };
+  error.statusCode = 403;
+  error.code = 'ForbiddenError';
+  return error;
+}
+
 /**
  * Register CORS plugin with Fastify
  */
@@ -112,7 +121,7 @@ export async function registerCors(fastify: FastifyInstance, config: AppConfig):
           cb(null, true);
           return;
         }
-        cb(new Error('CORS origin not allowed in development'), false);
+        cb(createCorsOriginNotAllowedError('CORS origin not allowed in development'), false);
         return;
       }
 
@@ -122,7 +131,7 @@ export async function registerCors(fastify: FastifyInstance, config: AppConfig):
         return;
       }
 
-      cb(new Error('CORS origin not allowed'), false);
+      cb(createCorsOriginNotAllowedError('CORS origin not allowed'), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS', 'DELETE'],
     allowedHeaders: [
