@@ -21,13 +21,13 @@ Without this system, users could not receive their subscribed notifications, def
 
 ### Existing Infrastructure
 
-| Component             | Status     | Location                                        |
-| --------------------- | ---------- | ----------------------------------------------- |
-| Subscription CRUD API | Exists     | `src/modules/notifications/`                    |
-| Database Schema       | Extended   | `NotificationDeliveries`, `ResendWebhookEvents` |
-| Notification Types    | Defined    | newsletter (monthly/quarterly/yearly), alerts   |
-| BullMQ                | Installed  | `package.json` dependency                       |
-| Redis                 | Configured | Reused for job queues                           |
+| Component             | Status     | Location                                      |
+| --------------------- | ---------- | --------------------------------------------- |
+| Subscription CRUD API | Exists     | `src/modules/notifications/`                  |
+| Database Schema       | Extended   | `NotificationDeliveries`                      |
+| Notification Types    | Defined    | newsletter (monthly/quarterly/yearly), alerts |
+| BullMQ                | Installed  | `package.json` dependency                     |
+| Redis                 | Configured | Reused for job queues                         |
 
 ### Constraints
 

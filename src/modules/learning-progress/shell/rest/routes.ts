@@ -33,6 +33,10 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
  */
 export interface MakeLearningProgressRoutesDeps {
   learningProgressRepo: LearningProgressRepository;
+  onSyncEventsApplied?: (input: {
+    userId: string;
+    events: readonly LearningProgressEvent[];
+  }) => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,7 +64,7 @@ function sendUnauthorized(reply: FastifyReply) {
 export const makeLearningProgressRoutes = (
   deps: MakeLearningProgressRoutesDeps
 ): FastifyPluginAsync => {
-  const { learningProgressRepo } = deps;
+  const { learningProgressRepo, onSyncEventsApplied } = deps;
 
   return async (fastify) => {
     // ─────────────────────────────────────────────────────────────────────────
@@ -146,6 +150,15 @@ export const makeLearningProgressRoutes = (
             ok: false,
             error: result.error.type,
             message: result.error.message,
+          });
+        }
+
+        if (onSyncEventsApplied !== undefined) {
+          void onSyncEventsApplied({
+            userId,
+            events: events as LearningProgressEvent[],
+          }).catch((error: unknown) => {
+            request.log.error({ error, userId }, 'Learning progress post-sync hook failed');
           });
         }
 

@@ -15,7 +15,6 @@ export type {
   SendJobPayload,
   ResendEventType,
   ResendWebhookEvent,
-  StoredWebhookEvent,
 } from './core/types.js';
 
 export {
@@ -60,8 +59,6 @@ export type {
   DeliveryRepository,
   CreateDeliveryInput,
   UpdateDeliveryStatusInput,
-  WebhookEventRepository,
-  InsertWebhookEventInput,
   ExtendedNotificationsRepository,
   ExtendedTokensRepository,
   UserEmailFetcher,
@@ -79,9 +76,6 @@ export type {
 // Shell - Repositories
 export { makeDeliveryRepo } from './shell/repo/delivery-repo.js';
 export type { DeliveryRepoConfig } from './shell/repo/delivery-repo.js';
-
-export { makeWebhookEventRepo } from './shell/repo/webhook-event-repo.js';
-export type { WebhookEventRepoConfig } from './shell/repo/webhook-event-repo.js';
 
 // Shell - Queue Workers
 export {
@@ -102,9 +96,6 @@ export type {
 // Shell - REST Routes
 export { makeTriggerRoutes } from './shell/rest/trigger-routes.js';
 export type { TriggerRoutesDeps } from './shell/rest/trigger-routes.js';
-
-export { makeWebhookRoutes } from './shell/rest/webhook-routes.js';
-export type { WebhookRoutesDeps } from './shell/rest/webhook-routes.js';
 
 export {
   makeResendWebhookDeliverySideEffect,

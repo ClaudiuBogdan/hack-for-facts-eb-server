@@ -264,6 +264,39 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('registers public institution correspondence routes when email is enabled', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+      const routes = app.printRoutes();
+
+      expect(routes).toContain('institution-correspondence/');
+      expect(routes).toContain('public-debate/');
+      expect(routes).toContain('self-send/prepare (POST)');
+
+      await app.close();
+    });
+
     it('does not register learning progress admin review routes when the API key is unset', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },

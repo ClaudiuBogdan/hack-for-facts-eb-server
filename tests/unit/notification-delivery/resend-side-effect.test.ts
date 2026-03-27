@@ -69,6 +69,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -115,6 +116,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -186,6 +188,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -232,6 +235,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -291,6 +295,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -354,6 +359,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -402,6 +408,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -452,6 +459,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 
@@ -480,6 +488,7 @@ describe('makeResendWebhookDeliverySideEffect', () => {
         clickTimestamp: null,
         clickUserAgent: null,
         threadKey: null,
+        metadata: {},
       },
     });
 

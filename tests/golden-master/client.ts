@@ -247,6 +247,12 @@ export async function getClient(): Promise<GoldenMasterClient> {
         reviewApiKey: undefined,
         reviewApiEnabled: false,
       },
+      institutionCorrespondence: {
+        adminApiKey: undefined,
+        receiveDomain: 'transparenta.test',
+        auditCcRecipients: [],
+        adminRoutesEnabled: false,
+      },
       telemetry: {
         endpoint: undefined,
         headers: undefined,

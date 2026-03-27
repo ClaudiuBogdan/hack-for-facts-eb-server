@@ -4,6 +4,8 @@
 **Date**: 2026-03-22
 **Author**: Codex
 
+> Note (2026-03-25): The current direction models institution workflow as a JSONB thread aggregate in `InstitutionEmailThreads`, keeps `campaign_key` optional, removes `InstitutionEmailMessages` and `InstitutionEmailCaptureTokens`, uses header/subject-key matching plus `resend_wh_emails.metadata` for unmatched inbound routing diagnostics, and keeps institution correspondence callable through internal flows plus admin review rather than public institution HTTP endpoints.
+
 ## Problem
 
 The current `userdb` email-related storage is specialized around notifications and does not provide a clean generic email store that other product areas can reuse. That makes it awkward to build institution workflows now and future user-facing emails later without copying or adapting notification-specific delivery tables.

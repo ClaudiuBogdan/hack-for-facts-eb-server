@@ -5,12 +5,7 @@
  */
 
 import type { DeliveryError } from './errors.js';
-import type {
-  DeliveryRecord,
-  DeliveryStatus,
-  StoredWebhookEvent,
-  ResendWebhookEvent,
-} from './types.js';
+import type { DeliveryRecord, DeliveryStatus, ResendWebhookEvent } from './types.js';
 import type { Notification, NotificationType } from '@/modules/notifications/core/types.js';
 import type { Result } from 'neverthrow';
 
@@ -103,42 +98,6 @@ export interface DeliveryRepository {
    * Checks if a delivery exists by key.
    */
   existsByDeliveryKey(deliveryKey: string): Promise<Result<boolean, DeliveryError>>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Webhook Event Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Input for inserting a webhook event.
- */
-export interface InsertWebhookEventInput {
-  svixId: string;
-  eventType: string;
-  resendEmailId: string;
-  deliveryId?: string;
-  payload: Record<string, unknown>;
-}
-
-/**
- * Repository for Resend webhook events.
- */
-export interface WebhookEventRepository {
-  /**
-   * Inserts a webhook event for idempotent processing.
-   * Returns DuplicateWebhookEvent error if svix_id already exists.
-   */
-  insert(input: InsertWebhookEventInput): Promise<Result<StoredWebhookEvent, DeliveryError>>;
-
-  /**
-   * Marks an event as processed.
-   */
-  markProcessed(svixId: string): Promise<Result<void, DeliveryError>>;
-
-  /**
-   * Finds unprocessed events older than threshold.
-   */
-  findUnprocessed(olderThanMinutes: number): Promise<Result<StoredWebhookEvent[], DeliveryError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

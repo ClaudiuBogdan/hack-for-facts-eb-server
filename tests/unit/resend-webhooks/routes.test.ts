@@ -48,6 +48,7 @@ const createStoredEvent = (): StoredResendEmailEvent => ({
   clickTimestamp: null,
   clickUserAgent: null,
   threadKey: 'thread-1',
+  metadata: {},
 });
 
 const createTestApp = async (
@@ -55,6 +56,8 @@ const createTestApp = async (
 ): Promise<FastifyInstance> => {
   const insert = vi.fn().mockResolvedValue(ok(createStoredEvent()));
   const findBySvixId = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+  const findThreadKeyByMessageReferences = vi.fn().mockResolvedValue(ok(null));
+  const updateStoredEvent = vi.fn().mockResolvedValue(ok(createStoredEvent()));
   const handle = vi.fn().mockResolvedValue(undefined);
 
   const app = fastifyLib({ logger: false });
@@ -66,6 +69,8 @@ const createTestApp = async (
       emailEventsRepo: {
         insert,
         findBySvixId,
+        findThreadKeyByMessageReferences,
+        updateStoredEvent,
       },
       sideEffect: {
         handle,
@@ -137,7 +142,12 @@ describe('makeResendWebhookRoutes', () => {
     const handle = vi.fn().mockResolvedValue(undefined);
 
     app = await createTestApp({
-      emailEventsRepo: { insert, findBySvixId },
+      emailEventsRepo: {
+        insert,
+        findBySvixId,
+        findThreadKeyByMessageReferences: vi.fn().mockResolvedValue(ok(null)),
+        updateStoredEvent: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+      },
       sideEffect: { handle },
     });
 
@@ -172,6 +182,8 @@ describe('makeResendWebhookRoutes', () => {
             svixId: 'svix-1',
           }),
         findBySvixId,
+        findThreadKeyByMessageReferences: vi.fn().mockResolvedValue(ok(null)),
+        updateStoredEvent: vi.fn().mockResolvedValue(ok(createStoredEvent())),
       },
       sideEffect: { handle },
     });
@@ -200,7 +212,12 @@ describe('makeResendWebhookRoutes', () => {
     const handle = vi.fn().mockRejectedValue(new Error('boom'));
 
     app = await createTestApp({
-      emailEventsRepo: { insert, findBySvixId },
+      emailEventsRepo: {
+        insert,
+        findBySvixId,
+        findThreadKeyByMessageReferences: vi.fn().mockResolvedValue(ok(null)),
+        updateStoredEvent: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+      },
       sideEffect: { handle },
     });
 

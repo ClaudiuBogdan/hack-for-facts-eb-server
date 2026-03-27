@@ -213,20 +213,6 @@ export interface ResendWebhookEvent {
   };
 }
 
-/**
- * Stored webhook event.
- */
-export interface StoredWebhookEvent {
-  id: string;
-  svixId: string;
-  eventType: string;
-  resendEmailId: string;
-  deliveryId: string | null;
-  payload: Record<string, unknown>;
-  processedAt: Date | null;
-  createdAt: Date;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────

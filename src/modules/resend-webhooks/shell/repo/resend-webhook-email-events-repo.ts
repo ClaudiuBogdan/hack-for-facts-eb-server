@@ -35,7 +35,7 @@ const toDate = (value: unknown): Date => {
     return new Date((value as { toISOString: () => string }).toISOString());
   }
 
-  return new Date();
+  throw new Error(`Unexpected date value in resend webhook repo: ${String(value)}`);
 };
 
 const toTags = (value: unknown): ResendWebhookTags | null => {
@@ -47,6 +47,44 @@ const toTags = (value: unknown): ResendWebhookTags | null => {
   return parseTags(value);
 };
 
+const toAttachmentArray = (value: unknown): Record<string, unknown>[] | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = deserialize(value);
+    if (!parsed.ok || !Array.isArray(parsed.value)) {
+      return null;
+    }
+
+    return parsed.value.filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+    );
+  }
+
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+  );
+};
+
+const toMetadata = (value: unknown): Record<string, unknown> => {
+  if (typeof value === 'string') {
+    const parsed = deserialize(value);
+    return parsed.ok && typeof parsed.value === 'object' && parsed.value !== null
+      ? (parsed.value as Record<string, unknown>)
+      : {};
+  }
+
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+};
+
 const mapRow = (row: Record<string, unknown>): StoredResendEmailEvent => ({
   id: row['id'] as string,
   svixId: row['svix_id'] as string,
@@ -56,11 +94,15 @@ const mapRow = (row: Record<string, unknown>): StoredResendEmailEvent => ({
   emailId: row['email_id'] as string,
   fromAddress: row['from_address'] as string,
   toAddresses: row['to_addresses'] as string[],
+  ccAddresses: (row['cc_addresses'] as string[] | null) ?? [],
+  bccAddresses: (row['bcc_addresses'] as string[] | null) ?? [],
+  messageId: (row['message_id'] as string | null) ?? null,
   subject: row['subject'] as string,
   emailCreatedAt: toDate(row['email_created_at']),
   broadcastId: (row['broadcast_id'] as string | null) ?? null,
   templateId: (row['template_id'] as string | null) ?? null,
   tags: toTags(row['tags']),
+  attachmentsJson: toAttachmentArray(row['attachments_json']),
   bounceType: (row['bounce_type'] as string | null) ?? null,
   bounceSubType: (row['bounce_sub_type'] as string | null) ?? null,
   bounceMessage: (row['bounce_message'] as string | null) ?? null,
@@ -70,6 +112,7 @@ const mapRow = (row: Record<string, unknown>): StoredResendEmailEvent => ({
   clickTimestamp: row['click_timestamp'] !== null ? toDate(row['click_timestamp']) : null,
   clickUserAgent: (row['click_user_agent'] as string | null) ?? null,
   threadKey: (row['thread_key'] as string | null) ?? null,
+  metadata: toMetadata(row['metadata']),
 });
 
 export const makeResendWebhookEmailEventsRepo = (
@@ -125,6 +168,60 @@ export const makeResendWebhookEmailEventsRepo = (
         );
       } catch (error) {
         log.error({ error, svixId }, 'Failed to load resend webhook email event');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async findThreadKeyByMessageReferences(
+      messageReferences
+    ): Promise<Result<string | null, ResendWebhookError>> {
+      if (messageReferences.length === 0) {
+        return ok(null);
+      }
+
+      try {
+        const refs = [...new Set(messageReferences)];
+        const rows = await db
+          .selectFrom('resend_wh_emails')
+          .select(['thread_key'])
+          .where('message_id', 'in', refs)
+          .where('thread_key', 'is not', null)
+          .execute();
+
+        const threadKeys = [...new Set(rows.map((row) => row.thread_key).filter(Boolean))];
+        return ok(threadKeys.length === 1 ? (threadKeys[0] ?? null) : null);
+      } catch (error) {
+        log.error(
+          { error, messageReferences },
+          'Failed to resolve thread key by message references'
+        );
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async updateStoredEvent(
+      id,
+      input
+    ): Promise<Result<StoredResendEmailEvent, ResendWebhookError>> {
+      try {
+        const result = await db
+          .updateTable('resend_wh_emails')
+          .set({
+            ...(input.threadKey !== undefined ? { thread_key: input.threadKey } : {}),
+            ...(input.messageId !== undefined ? { message_id: input.messageId } : {}),
+            ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+          })
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirst();
+
+        if (result === undefined) {
+          return err(createDatabaseError(`Stored resend webhook event "${id}" not found`, false));
+        }
+
+        return ok(mapRow(result as unknown as Record<string, unknown>));
+      } catch (error) {
+        log.error({ error, id, input }, 'Failed to update resend webhook email event');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },

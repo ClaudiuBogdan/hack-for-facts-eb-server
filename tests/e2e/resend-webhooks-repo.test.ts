@@ -131,4 +131,55 @@ describe('Resend webhook email events repository', () => {
       expect(found.value?.eventType).toBe('email.delivered');
     }
   });
+
+  it('updates stored rows with thread_key, message_id, and metadata', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const repo = makeResendWebhookEmailEventsRepo({
+      db: userDb,
+      logger: pinoLogger({ level: 'silent' }),
+    });
+
+    const inserted = await repo.insert({
+      svixId: 'svix_repo_update_1',
+      event: {
+        type: 'email.received',
+        created_at: '2026-03-23T13:01:00.000Z',
+        data: {
+          email_id: 'email_repo_update_1',
+          from: 'office@primarie.ro',
+          to: ['debate@transparenta.test'],
+          subject: 'Salut',
+          created_at: '2026-03-23T13:00:00.000Z',
+        },
+      },
+    });
+
+    expect(inserted.isOk()).toBe(true);
+    if (inserted.isErr()) {
+      return;
+    }
+
+    const updated = await repo.updateStoredEvent(inserted.value.id, {
+      threadKey: 'repo-update-thread-1',
+      messageId: '<repo-update-message-1>',
+      metadata: {
+        matchStatus: 'matched',
+        matchedBy: 'subject',
+      },
+    });
+
+    expect(updated.isOk()).toBe(true);
+    if (updated.isOk()) {
+      expect(updated.value.threadKey).toBe('repo-update-thread-1');
+      expect(updated.value.messageId).toBe('<repo-update-message-1>');
+      expect(updated.value.metadata).toEqual({
+        matchStatus: 'matched',
+        matchedBy: 'subject',
+      });
+    }
+  });
 });

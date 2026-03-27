@@ -25,8 +25,14 @@ import {
   wrapExecutionLineItemsRepo,
   wrapInsRepo,
 } from './cache-wrappers.js';
+import { makePublicDebateRequestSyncHook } from './public-debate-request-dispatcher.js';
+import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
 import { initCache, createCacheConfig, type CacheClient } from '../infra/cache/index.js';
-import { makeWebhookVerifier } from '../infra/email/client.js';
+import {
+  makeEmailClient,
+  makeReceivedEmailFetcher,
+  makeWebhookVerifier,
+} from '../infra/email/client.js';
 import {
   makeGraphQLPlugin,
   CommonGraphQLSchema,
@@ -118,6 +124,15 @@ import {
   type HealthChecker,
 } from '../modules/health/index.js';
 import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
+import {
+  makeInstitutionCorrespondenceAdminRoutes,
+  makeInstitutionCorrespondenceRoutes,
+  makeInstitutionCorrespondenceRepo,
+  makeInstitutionCorrespondenceResendSideEffect,
+  makeOfficialEmailLookup,
+  makePublicDebateTemplateRenderer,
+  buildSharedCorrespondenceInboxAddress,
+} from '../modules/institution-correspondence/index.js';
 import {
   makeLearningProgressAdminReviewRoutes,
   makeLearningProgressRoutes,
@@ -226,6 +241,7 @@ export interface AppOptions {
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
 const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
+const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
 
 function getRequestPath(url: string): string {
   const queryIndex = url.indexOf('?');
@@ -238,6 +254,10 @@ function isHealthRoute(url: string): boolean {
 
 function isLearningProgressAdminReviewRoute(url: string): boolean {
   return getRequestPath(url) === LEARNING_PROGRESS_ADMIN_REVIEW_PATH;
+}
+
+function isInstitutionCorrespondenceAdminRoute(url: string): boolean {
+  return getRequestPath(url).startsWith(INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX);
 }
 
 function getLogBindingUserId(request: import('fastify').FastifyRequest): string | undefined {
@@ -649,7 +669,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       // Full auth middleware with token verification
       const authMiddleware = makeAuthMiddleware({ authProvider: deps.authProvider });
       app.addHook('preHandler', async (request, reply) => {
-        if (isLearningProgressAdminReviewRoute(request.url)) {
+        if (
+          isLearningProgressAdminReviewRoute(request.url) ||
+          isInstitutionCorrespondenceAdminRoute(request.url)
+        ) {
           request.auth = ANONYMOUS_SESSION;
           return;
         }
@@ -673,6 +696,25 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const notificationsRepo = makeNotificationsRepo({ db: userDb, logger: repoLogger });
     const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
     const tokensRepo = makeTokensRepo({ db: userDb, logger: repoLogger });
+    const emailEventsRepo =
+      config.email.webhookSecret !== undefined
+        ? makeResendWebhookEmailEventsRepo({
+            db: userDb,
+            logger: repoLogger,
+          })
+        : undefined;
+    const resendWebhookSideEffects: {
+      handle(input: {
+        event: import('../modules/resend-webhooks/index.js').ResendEmailWebhookEvent;
+        storedEvent: import('../modules/resend-webhooks/index.js').StoredResendEmailEvent;
+      }): Promise<void>;
+    }[] = [];
+    let learningProgressOnSyncEventsApplied:
+      | ((input: {
+          userId: string;
+          events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
+        }) => Promise<void>)
+      | undefined;
 
     // Register notification routes
     await app.register(
@@ -683,6 +725,94 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         hasher: sha256Hasher,
       })
     );
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Institution Correspondence Module (Admin REST API + Webhook Side Effects)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.email.enabled) {
+      const emailApiKey = config.email.apiKey;
+      if (emailApiKey === undefined) {
+        throw new Error('Email is enabled but RESEND_API_KEY is missing.');
+      }
+
+      const correspondenceRepo = makeInstitutionCorrespondenceRepo({
+        db: userDb,
+        logger: repoLogger,
+      });
+      const emailSender = makeEmailClient({
+        apiKey: emailApiKey,
+        fromAddress: config.email.fromAddress,
+        logger: repoLogger,
+      });
+      const correspondenceTemplateRenderer = makePublicDebateTemplateRenderer();
+      const officialEmailLookup = makeOfficialEmailLookup({
+        db: budgetDb,
+        logger: repoLogger,
+      });
+      const selfSendContextLookup = makePublicDebateSelfSendContextLookup({
+        db: userDb,
+        logger: repoLogger,
+      });
+      const receivedEmailFetcher = makeReceivedEmailFetcher({
+        apiKey: emailApiKey,
+        fromAddress: config.email.fromAddress,
+        logger: repoLogger,
+      });
+      const correspondenceInboxAddress = buildSharedCorrespondenceInboxAddress(
+        config.institutionCorrespondence.receiveDomain
+      );
+
+      learningProgressOnSyncEventsApplied = makePublicDebateRequestSyncHook({
+        repo: correspondenceRepo,
+        emailSender,
+        templateRenderer: correspondenceTemplateRenderer,
+        auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+        platformBaseUrl: config.notifications.platformBaseUrl,
+        captureAddress: correspondenceInboxAddress,
+        logger: repoLogger,
+      });
+
+      await app.register(
+        makeInstitutionCorrespondenceRoutes({
+          repo: correspondenceRepo,
+          emailSender,
+          templateRenderer: correspondenceTemplateRenderer,
+          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          platformBaseUrl: config.notifications.platformBaseUrl,
+          captureAddress: correspondenceInboxAddress,
+        })
+      );
+
+      if (
+        config.institutionCorrespondence.adminRoutesEnabled &&
+        config.institutionCorrespondence.adminApiKey !== undefined
+      ) {
+        await app.register(
+          makeInstitutionCorrespondenceAdminRoutes({
+            repo: correspondenceRepo,
+            apiKey: config.institutionCorrespondence.adminApiKey,
+          })
+        );
+      }
+
+      resendWebhookSideEffects.push(
+        makeInstitutionCorrespondenceResendSideEffect({
+          repo: correspondenceRepo,
+          officialEmailLookup,
+          selfSendContextLookup,
+          emailEventsRepo:
+            emailEventsRepo ??
+            makeResendWebhookEmailEventsRepo({
+              db: userDb,
+              logger: repoLogger,
+            }),
+          receivedEmailFetcher,
+          captureAddress: correspondenceInboxAddress,
+          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          logger: repoLogger,
+        })
+      );
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Notification Delivery Module (Background Jobs + Webhooks)
@@ -706,23 +836,40 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         logger: repoLogger,
       });
 
-      const emailEventsRepo = makeResendWebhookEmailEventsRepo({
-        db: userDb,
-        logger: repoLogger,
-      });
       const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
-      const resendWebhookSideEffect = makeResendWebhookDeliverySideEffect({
-        deliveryRepo,
-        notificationsRepo,
-        logger: repoLogger,
-      });
+      resendWebhookSideEffects.push(
+        makeResendWebhookDeliverySideEffect({
+          deliveryRepo,
+          notificationsRepo,
+          logger: repoLogger,
+        })
+      );
+
+      const resendWebhookSideEffect =
+        resendWebhookSideEffects.length === 1
+          ? resendWebhookSideEffects[0]
+          : {
+              handle: async (input: {
+                event: import('../modules/resend-webhooks/index.js').ResendEmailWebhookEvent;
+                storedEvent: import('../modules/resend-webhooks/index.js').StoredResendEmailEvent;
+              }) => {
+                for (const sideEffect of resendWebhookSideEffects) {
+                  await sideEffect.handle(input);
+                }
+              },
+            };
 
       await app.register(
         makeResendWebhookRoutes({
           webhookVerifier,
-          emailEventsRepo,
-          sideEffect: resendWebhookSideEffect,
+          emailEventsRepo:
+            emailEventsRepo ??
+            makeResendWebhookEmailEventsRepo({
+              db: userDb,
+              logger: repoLogger,
+            }),
           logger: repoLogger,
+          ...(resendWebhookSideEffect !== undefined ? { sideEffect: resendWebhookSideEffect } : {}),
         })
       );
 
@@ -738,6 +885,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     await app.register(
       makeLearningProgressRoutes({
         learningProgressRepo,
+        ...(learningProgressOnSyncEventsApplied !== undefined
+          ? { onSyncEventsApplied: learningProgressOnSyncEventsApplied }
+          : {}),
       })
     );
 

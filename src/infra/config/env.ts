@@ -100,6 +100,11 @@ export const EnvSchema = Type.Object({
   // Learning Progress Admin Review API
   LEARNING_PROGRESS_REVIEW_API_KEY: Type.Optional(Type.String({ minLength: 1 })),
 
+  // Institution Correspondence
+  INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN: Type.Optional(Type.String({ minLength: 1 })),
+  INSTITUTION_CORRESPONDENCE_AUDIT_CC: Type.Optional(Type.String()),
+
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
@@ -184,6 +189,9 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
     // Learning Progress Admin Review API
     LEARNING_PROGRESS_REVIEW_API_KEY: env['LEARNING_PROGRESS_REVIEW_API_KEY'],
+    INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: env['INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY'],
+    INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN: env['INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN'],
+    INSTITUTION_CORRESPONDENCE_AUDIT_CC: env['INSTITUTION_CORRESPONDENCE_AUDIT_CC'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -323,6 +331,22 @@ export const createConfig = (env: Env) => ({
     reviewApiKey: env.LEARNING_PROGRESS_REVIEW_API_KEY,
     /** Whether admin review endpoints are enabled */
     reviewApiEnabled: env.LEARNING_PROGRESS_REVIEW_API_KEY !== undefined,
+  },
+  institutionCorrespondence: {
+    /** API key for institution correspondence admin routes */
+    adminApiKey: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY,
+    /** Receiving domain used for correspondence capture aliases */
+    receiveDomain:
+      env.INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN ??
+      (env.EMAIL_FROM_ADDRESS ?? 'noreply@transparenta.eu').split('@')[1] ??
+      '',
+    /** Additional audit CC recipients */
+    auditCcRecipients:
+      env.INSTITUTION_CORRESPONDENCE_AUDIT_CC?.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean) ?? [],
+    /** Whether admin review routes are enabled */
+    adminRoutesEnabled: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY !== undefined,
   },
   telemetry: {
     /** OTLP endpoint for SigNoz */

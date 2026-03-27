@@ -163,40 +163,42 @@ export type LearningProgressAuditEventRow =
       sourceClientId: string;
     };
 
-// Resend Webhook Events Table
-// Tracks webhook events for idempotent processing using svix-id
-export interface ResendWebhookEvents {
-  id: Generated<string>; // BIGSERIAL
-  svix_id: string; // Unique event ID from svix-id header
-  event_type: string; // email.sent, email.delivered, etc.
-  resend_email_id: string; // Resend's email ID
-  delivery_id: string | null; // Our delivery UUID from tags
-  payload: JSONColumnType<Record<string, unknown>>;
-  processed_at: Timestamp | null; // When processing completed
-  created_at: Generated<Timestamp>;
-}
+export type InstitutionEmailThreadSubmissionPath = 'platform_send' | 'self_send_cc';
 
-export type InstitutionEmailThreadStatus =
-  | 'draft'
-  | 'waiting_reply'
-  | 'replied'
-  | 'closed'
+export type InstitutionEmailThreadPhase =
+  | 'sending'
+  | 'awaiting_reply'
+  | 'reply_received_unreviewed'
+  | 'manual_follow_up_needed'
+  | 'resolved_positive'
+  | 'resolved_negative'
+  | 'closed_no_response'
   | 'failed';
+
+export type InstitutionEmailResolutionCode =
+  | 'debate_announced'
+  | 'already_scheduled'
+  | 'request_refused'
+  | 'wrong_contact'
+  | 'auto_reply'
+  | 'not_actionable'
+  | 'other';
 
 export interface InstitutionEmailThreads {
   id: Generated<string>;
   entity_cui: string;
-  owner_user_id: string | null;
-  campaign_ref: string | null;
-  request_type: string;
+  campaign_key: string | null;
   thread_key: string;
-  subject: string;
-  status: Generated<InstitutionEmailThreadStatus>;
-  status_reason: string | null;
+  phase: string;
   last_email_at: Timestamp | null;
   last_reply_at: Timestamp | null;
+  next_action_at: Timestamp | null;
   closed_at: Timestamp | null;
-  metadata: JSONColumnType<Record<string, unknown>>;
+  record: JSONColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string,
+    Record<string, unknown> | string
+  >;
   created_at: Generated<Timestamp>;
   updated_at: Generated<Timestamp>;
 }
@@ -210,11 +212,15 @@ export interface ResendWhEmails {
   email_id: string;
   from_address: string;
   to_addresses: string[];
+  cc_addresses: Generated<string[]>;
+  bcc_addresses: Generated<string[]>;
+  message_id: string | null;
   subject: string;
   email_created_at: Timestamp;
   broadcast_id: string | null;
   template_id: string | null;
   tags: JSONColumnType<Record<string, unknown> | Record<string, unknown>[]> | null;
+  attachments_json: JSONColumnType<Record<string, unknown>[]> | null;
   bounce_type: string | null;
   bounce_sub_type: string | null;
   bounce_message: string | null;
@@ -224,6 +230,11 @@ export interface ResendWhEmails {
   click_timestamp: Timestamp | null;
   click_user_agent: string | null;
   thread_key: string | null;
+  metadata: JSONColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string,
+    Record<string, unknown> | string
+  >;
 }
 
 // Advanced Map Analytics Maps Table
@@ -263,7 +274,6 @@ export interface UserDatabase {
   notificationdeliveries: NotificationDeliveries;
   unsubscribetokens: UnsubscribeTokens;
   userinteractions: UserInteractionsTable;
-  resendwebhookevents: ResendWebhookEvents;
   institutionemailthreads: InstitutionEmailThreads;
   resend_wh_emails: ResendWhEmails;
   advancedmapanalyticsmaps: AdvancedMapAnalyticsMaps;

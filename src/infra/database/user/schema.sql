@@ -172,63 +172,39 @@ ON UserInteractions (
 )
 WHERE record ? 'review';
 
--- ResendWebhookEvents: Tracks Resend webhook events for idempotent processing
--- Uses svix-id header as unique event identifier (NOT event.id from payload)
-CREATE TABLE IF NOT EXISTS ResendWebhookEvents (
-  id BIGSERIAL PRIMARY KEY,
-  svix_id TEXT UNIQUE NOT NULL,  -- Use svix-id header as unique event ID
-  event_type TEXT NOT NULL,  -- email.sent, email.delivered, email.bounced, etc.
-  resend_email_id TEXT NOT NULL,  -- Resend's email ID from the event
-  delivery_id UUID,  -- Our delivery UUID from tags (if present)
-  payload JSONB NOT NULL,  -- Full event payload for audit
-  processed_at TIMESTAMPTZ,  -- When we finished processing (null = still processing)
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_resend_events_email_id ON ResendWebhookEvents(resend_email_id);
-CREATE INDEX IF NOT EXISTS idx_resend_events_delivery_id ON ResendWebhookEvents(delivery_id) WHERE delivery_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_resend_events_unprocessed ON ResendWebhookEvents(created_at) WHERE processed_at IS NULL;
-
--- InstitutionEmailThreads: business workflow for institution outreach
+-- InstitutionEmailThreads: generic correspondence thread aggregates.
+-- Valid phase values are enforced in application code to keep campaigns flexible.
 CREATE TABLE IF NOT EXISTS InstitutionEmailThreads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_cui VARCHAR(20) NOT NULL,
-  owner_user_id TEXT NULL,
-  campaign_ref TEXT NULL,
-  request_type TEXT NOT NULL,
+  campaign_key TEXT NULL,
   thread_key TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft',
-  status_reason TEXT NULL,
+  phase TEXT NOT NULL,
   last_email_at TIMESTAMPTZ NULL,
   last_reply_at TIMESTAMPTZ NULL,
+  next_action_at TIMESTAMPTZ NULL,
   closed_at TIMESTAMPTZ NULL,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  record JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE InstitutionEmailThreads
-DROP CONSTRAINT IF EXISTS institution_email_threads_status_check;
-ALTER TABLE InstitutionEmailThreads
-ADD CONSTRAINT institution_email_threads_status_check
-CHECK (status IN (
-  'draft', 'waiting_reply', 'replied', 'closed', 'failed'
-));
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_institution_email_threads_thread_key_unique
 ON InstitutionEmailThreads(thread_key);
 
-CREATE INDEX IF NOT EXISTS idx_institution_email_threads_entity_cui
-ON InstitutionEmailThreads(entity_cui);
+CREATE INDEX IF NOT EXISTS idx_institution_email_threads_entity_campaign_recent
+ON InstitutionEmailThreads(entity_cui, campaign_key, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_institution_email_threads_owner_user_id
-ON InstitutionEmailThreads(owner_user_id)
-WHERE owner_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_institution_email_threads_phase
+ON InstitutionEmailThreads(phase, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_institution_email_threads_campaign_ref
-ON InstitutionEmailThreads(campaign_ref)
-WHERE campaign_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_institution_email_threads_pending_reply
+ON InstitutionEmailThreads(last_reply_at DESC)
+WHERE phase = 'reply_received_unreviewed' AND last_reply_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_institution_email_threads_next_action_at
+ON InstitutionEmailThreads(next_action_at)
+WHERE next_action_at IS NOT NULL;
 
 -- resend_wh_emails: generic shared Resend email event store
 CREATE TABLE IF NOT EXISTS resend_wh_emails (
@@ -240,11 +216,15 @@ CREATE TABLE IF NOT EXISTS resend_wh_emails (
   email_id TEXT NOT NULL,
   from_address TEXT NOT NULL,
   to_addresses TEXT[] NOT NULL,
+  cc_addresses TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  bcc_addresses TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  message_id TEXT NULL,
   subject TEXT NOT NULL,
   email_created_at TIMESTAMPTZ NOT NULL,
   broadcast_id TEXT NULL,
   template_id TEXT NULL,
   tags JSONB NULL,
+  attachments_json JSONB NULL,
   bounce_type TEXT NULL,
   bounce_sub_type TEXT NULL,
   bounce_message TEXT NULL,
@@ -253,7 +233,8 @@ CREATE TABLE IF NOT EXISTS resend_wh_emails (
   click_link TEXT NULL,
   click_timestamp TIMESTAMPTZ NULL,
   click_user_agent TEXT NULL,
-  thread_key TEXT NULL
+  thread_key TEXT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_resend_wh_emails_svix_id_unique ON resend_wh_emails(svix_id);
@@ -261,6 +242,9 @@ CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_email_id ON resend_wh_emails(ema
 CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_event_type ON resend_wh_emails(event_type);
 CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_webhook_received_at ON resend_wh_emails(webhook_received_at);
 CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_from_address ON resend_wh_emails(from_address);
+CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_message_id
+ON resend_wh_emails(message_id)
+WHERE message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_resend_wh_emails_thread_key ON resend_wh_emails(thread_key) WHERE thread_key IS NOT NULL;
 
 -- AdvancedMapAnalyticsMaps: User-owned map analytics projects with latest snapshot cache

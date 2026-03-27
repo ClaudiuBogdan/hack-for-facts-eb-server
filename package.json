@@ -30,6 +30,7 @@
     "validate-datasets": "tsx scripts/validate-datasets.ts",
     "pdf:extract-tables": "python3 scripts/extract_pdf_tables.py",
     "pdf:extract-batch-anexa3": "python3 scripts/extract_pdf_tables_batch.py",
+    "pdf:extract-alte-bugete": "python3 scripts/alte-bugete/extract_budget_items.py",
     "pdf:merge-budget-summary": "python3 scripts/merge_budget_indicator_summaries.py",
     "pdf:validate-consistency": "python3 scripts/validate_budget_indicator_consistency.py",
     "pdf:validate-totals": "python3 scripts/validate_pdf_totals.py",

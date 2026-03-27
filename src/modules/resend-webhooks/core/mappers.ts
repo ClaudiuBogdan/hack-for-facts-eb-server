@@ -64,11 +64,16 @@ export const mapResendEmailWebhookEventToInsert = (
     email_id: event.data.email_id,
     from_address: event.data.from,
     to_addresses: event.data.to,
+    cc_addresses: event.data.cc ?? [],
+    bcc_addresses: event.data.bcc ?? [],
+    message_id: event.data.message_id ?? null,
     subject: event.data.subject,
     email_created_at: new Date(event.data.created_at),
     broadcast_id: event.data.broadcast_id ?? null,
     template_id: event.data.template_id ?? null,
     tags: tags !== null ? JSON.stringify(tags) : null,
+    attachments_json:
+      event.data.attachments !== undefined ? JSON.stringify(event.data.attachments) : null,
     bounce_type: event.data.bounce?.type ?? null,
     bounce_sub_type: event.data.bounce?.subType ?? null,
     bounce_message: event.data.bounce?.message ?? null,
@@ -79,5 +84,6 @@ export const mapResendEmailWebhookEventToInsert = (
       event.data.click?.timestamp !== undefined ? new Date(event.data.click.timestamp) : null,
     click_user_agent: event.data.click?.userAgent ?? null,
     thread_key: extractThreadKey(tags),
+    metadata: {},
   };
 };
