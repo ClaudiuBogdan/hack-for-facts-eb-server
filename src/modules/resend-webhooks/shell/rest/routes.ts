@@ -1,4 +1,4 @@
-import { deserialize } from '@/infra/cache/serialization.js';
+import { fromThrowable } from 'neverthrow';
 
 import type {
   ResendWebhookEmailEventsRepository,
@@ -52,12 +52,16 @@ export const makeResendWebhookRoutes = (deps: ResendWebhookRoutesDeps): FastifyP
       { parseAs: 'string' },
       (request: FastifyRequest, body: string, done) => {
         (request as RequestWithRawBody).rawBody = body;
-        const parsed = deserialize(body);
-        if (!parsed.ok) {
-          done(new Error(parsed.error.message), undefined);
+        // SECURITY: Use plain JSON parsing instead of the custom cache
+        // deserializer which has revivers that convert {__decimal__: "..."} and
+        // {__date__: "..."} markers into Decimal/Date objects. Webhook payloads
+        // should not trigger custom type coercion.
+        const safeJsonParse = fromThrowable(JSON.parse);
+        const parsed = safeJsonParse(body);
+        if (parsed.isErr()) {
+          done(new Error('Invalid JSON in webhook body'), undefined);
           return;
         }
-
         done(null, parsed.value);
       }
     );

@@ -144,7 +144,7 @@ jobs:
             -v "${{ github.workspace }}/.trivycache:/root/.cache/" \
             aquasec/trivy:0.69.1 image \
             --format table \
-            --exit-code 0 \
+            --exit-code 1 \
             --ignore-unfixed \
             --vuln-type os,library \
             --severity CRITICAL,HIGH \

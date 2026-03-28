@@ -148,6 +148,10 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       path: '/graphql',
       // SECURITY: Apply validation rules for depth limiting and introspection control
       validationRules,
+      // SECURITY: Explicitly disable batched queries to prevent DoS via
+      // sending hundreds of operations in a single HTTP request.
+      // Mercurius 16+ defaults to false, but we set it explicitly for clarity.
+      allowBatchedQueries: false,
       // Mercurius loaders for batching N+1 queries (only add if defined)
       ...(loaders !== undefined && { loaders }),
       // Custom context builder (e.g., for authentication)

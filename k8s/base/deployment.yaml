@@ -19,6 +19,15 @@ spec:
       containers:
         - name: hack-for-facts-eb-server
           image: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server:latest
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 3000
           envFrom:
