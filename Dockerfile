@@ -23,7 +23,7 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 # Install pnpm via corepack
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Copy package files first for better layer caching
 COPY package.json pnpm-lock.yaml ./
@@ -45,6 +45,13 @@ RUN pnpm build
 # -----------------------------------------------------------------------------
 FROM node:24-alpine
 
+# SECURITY: Upgrade all Alpine packages to pick up OS-level fixes (e.g. zlib)
+RUN apk upgrade --no-cache
+
+# SECURITY: Remove npm (unused — app uses pnpm) to eliminate bundled vuln surface
+# npm ships minimatch, tar, etc. which accumulate CVEs we don't need
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # SECURITY: Create non-root user BEFORE installing dependencies
 # This avoids running chown on node_modules (which is slow and unnecessary)
 RUN addgroup -g 1001 -S nodejs && \
@@ -53,7 +60,7 @@ RUN addgroup -g 1001 -S nodejs && \
 WORKDIR /app
 
 # Enable corepack and install pnpm (requires root for symlinks in /usr/local/bin)
-RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Set ownership of workdir to nodejs user
 RUN chown nodejs:nodejs /app
