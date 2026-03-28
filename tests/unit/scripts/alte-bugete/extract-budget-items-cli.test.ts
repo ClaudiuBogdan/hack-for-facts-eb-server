@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdtemp, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { deserialize } from '@/infra/cache/serialization.js';
 
 const repoRoot = process.cwd();
-const cliPath = path.join(repoRoot, 'scripts/alte-bugete/extract_budget_items.py');
-const sourceInputDir = path.join(repoRoot, 'scripts/input/alte-bugete');
+const scriptDir = path.join(repoRoot, 'scripts/alte-bugete');
+const fixtureDir = path.join(repoRoot, 'tests/fixtures/alte-bugete/layout-text');
 
 async function makeTempDir(prefix: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), prefix));
@@ -23,9 +23,39 @@ function runCli(
   stdout: string;
   stderr: string;
 } {
+  const harness = `
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve()))
+
+import budget_items
+from extract_budget_items import main
+
+fixture_dir = pathlib.Path(sys.argv[2]).resolve()
+fixture_map = {
+    'Anexa_10.pdf': fixture_dir / 'cnas-pages-001-014.txt',
+    'AnexeproiectlegeBASS_09032026.pdf': None,
+}
+bass_layout = (fixture_dir / 'bass-pages-001-014.txt').read_text(encoding='utf-8')
+bas_layout = (fixture_dir / 'bas-pages-043-060.txt').read_text(encoding='utf-8')
+
+def fake_run_pdftotext_layout(pdf_path):
+    name = pathlib.Path(pdf_path).name
+    if name == 'AnexeproiectlegeBASS_09032026.pdf':
+        return bass_layout + '\\n' + bas_layout
+    fixture_path = fixture_map.get(name)
+    if fixture_path is None:
+        raise RuntimeError(f'Unexpected PDF fixture request: {name}')
+    return fixture_path.read_text(encoding='utf-8')
+
+budget_items.run_pdftotext_layout = fake_run_pdftotext_layout
+raise SystemExit(main(['--input-dir', sys.argv[3], '--output-root', sys.argv[4]]))
+`;
+
   const result = spawnSync(
     'python3',
-    [cliPath, '--input-dir', inputDir, '--output-root', outputRoot],
+    ['-c', harness, scriptDir, fixtureDir, inputDir, outputRoot],
     {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -41,8 +71,13 @@ function runCli(
 
 describe('alte-bugete extract_budget_items.py', () => {
   it('writes per-slice outputs, batch-summary.json, and merged-budget-indicator-summary.csv', async () => {
+    const inputDir = await makeTempDir('alte-bugete-cli-input-success-');
     const outputRoot = await makeTempDir('alte-bugete-cli-success-');
-    const result = runCli(sourceInputDir, outputRoot);
+    await mkdir(inputDir, { recursive: true });
+    await writeFile(path.join(inputDir, 'Anexa_10.pdf'), '');
+    await writeFile(path.join(inputDir, 'AnexeproiectlegeBASS_09032026.pdf'), '');
+
+    const result = runCli(inputDir, outputRoot);
     const batchSummaryFile = await readFile(path.join(outputRoot, 'batch-summary.json'), 'utf8');
     const batchSummaryResult = deserialize(batchSummaryFile);
     const merged = await readFile(
@@ -70,9 +105,9 @@ describe('alte-bugete extract_budget_items.py', () => {
     expect(merged.split('\n')[0]).toBe(
       'slice_id;source_page;family;section;table_type;row_code;capitol;subcapitol;paragraph;grupa_titlu;articol;alineat;functional;economic;description;credit_type;realizari_2024;executie_preliminata_2025;propuneri_2026;crestere_descrestere_2026_2025;estimari_2027;estimari_2028;estimari_2029'
     );
-    expect(merged).toContain('cnas;8;budget_indicator_summary;');
-    expect(merged).toContain('bass;7;budget_indicator_summary;');
-    expect(merged).toContain('bas;50;budget_indicator_summary;');
+    expect(merged).toMatch(/\ncnas;\d+;budget_indicator_summary;/);
+    expect(merged).toMatch(/\nbass;\d+;budget_indicator_summary;/);
+    expect(merged).toMatch(/\nbas;\d+;budget_indicator_summary;/);
   });
 
   it('writes batch-summary.json but skips the merged file when any slice fails', async () => {
@@ -80,7 +115,7 @@ describe('alte-bugete extract_budget_items.py', () => {
     const outputRoot = await makeTempDir('alte-bugete-cli-failure-');
 
     await mkdir(inputDir, { recursive: true });
-    await copyFile(path.join(sourceInputDir, 'Anexa_10.pdf'), path.join(inputDir, 'Anexa_10.pdf'));
+    await writeFile(path.join(inputDir, 'Anexa_10.pdf'), '');
 
     const result = runCli(inputDir, outputRoot);
     const batchSummaryFile = await readFile(path.join(outputRoot, 'batch-summary.json'), 'utf8');
