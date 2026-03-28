@@ -208,6 +208,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
         clerkSecretKey: undefined,
         clerkJwtKey: undefined,
         clerkAuthorizedParties: undefined,
+        clerkWebhookSigningSecret: undefined,
         enabled: false,
       },
       rateLimit: {

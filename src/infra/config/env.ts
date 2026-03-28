@@ -48,6 +48,7 @@ export const EnvSchema = Type.Object({
   CLERK_SECRET_KEY: Type.Optional(Type.String()),
   CLERK_JWT_KEY: Type.Optional(Type.String()),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String()),
+  CLERK_WEBHOOK_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 32 })),
 
   // Short Links
   SHORT_LINK_DAILY_LIMIT: Type.Optional(Type.Number({ minimum: 1, default: 100 })),
@@ -156,6 +157,7 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     CLERK_SECRET_KEY: env['CLERK_SECRET_KEY'],
     CLERK_JWT_KEY: env['CLERK_JWT_KEY'],
     CLERK_AUTHORIZED_PARTIES: env['CLERK_AUTHORIZED_PARTIES'],
+    CLERK_WEBHOOK_SIGNING_SECRET: env['CLERK_WEBHOOK_SIGNING_SECRET'],
     SHORT_LINK_DAILY_LIMIT:
       env['SHORT_LINK_DAILY_LIMIT'] != null && env['SHORT_LINK_DAILY_LIMIT'] !== ''
         ? Number.parseInt(env['SHORT_LINK_DAILY_LIMIT'], 10)
@@ -292,6 +294,8 @@ export const createConfig = (env: Env) => ({
     clerkAuthorizedParties: env.CLERK_AUTHORIZED_PARTIES?.split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    /** Clerk webhook signing secret for verifying inbound Svix deliveries */
+    clerkWebhookSigningSecret: env.CLERK_WEBHOOK_SIGNING_SECRET,
     /** Whether auth is enabled (true if any Clerk config is set) */
     enabled:
       env.CLERK_SECRET_KEY !== undefined ||

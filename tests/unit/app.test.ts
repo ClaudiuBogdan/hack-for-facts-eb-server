@@ -4,6 +4,7 @@
 
 import { Writable } from 'node:stream';
 
+import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import { buildApp, createApp } from '@/app/build-app.js';
@@ -128,6 +129,32 @@ async function flushLogs(): Promise<void> {
       resolve();
     });
   });
+}
+
+const clerkWebhookSigningSecret = 'whsec_dGVzdC1zZWNyZXQtMzItYnl0ZXMtMTIzNDU2Nzg5MDEy';
+
+function createClerkWebhookEvent() {
+  return {
+    data: {
+      id: 'user_123',
+      email_addresses: [],
+    },
+    object: 'event',
+    type: 'user.created',
+    timestamp: 1_654_012_591_835,
+    instance_id: 'ins_123',
+  };
+}
+
+function signClerkWebhookPayload(payload: string, date: Date) {
+  const webhook = new Webhook(clerkWebhookSigningSecret);
+  const signature = webhook.sign('msg_1', date, payload);
+
+  return {
+    'svix-id': 'msg_1',
+    'svix-timestamp': String(Math.floor(date.getTime() / 1000)),
+    'svix-signature': signature,
+  };
 }
 
 describe('App Factory', () => {
@@ -260,6 +287,99 @@ describe('App Factory', () => {
 
       expect(routes).toContain('webhooks/');
       expect(routes).toContain('resend (POST)');
+
+      await app.close();
+    });
+
+    it('registers Clerk webhook route when the signing secret is configured without userDb', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret,
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+      const routes = app.printRoutes();
+
+      expect(routes).toContain('webhooks/');
+      expect(routes).toContain('clerk (POST)');
+
+      await app.close();
+    });
+
+    it('does not register Clerk webhook route when the signing secret is absent', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/clerk',
+      });
+
+      expect(response.statusCode).toBe(404);
+
+      await app.close();
+    });
+
+    it('bypasses bearer auth validation for the public Clerk webhook route', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret,
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      const payload = JSON.stringify(createClerkWebhookEvent());
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/clerk',
+        headers: {
+          authorization: 'Bearer invalid-token',
+          'content-type': 'application/json',
+          ...signClerkWebhookPayload(payload, new Date()),
+        },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ status: 'received' });
 
       await app.close();
     });

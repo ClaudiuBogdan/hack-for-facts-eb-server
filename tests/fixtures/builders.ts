@@ -87,6 +87,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       clerkSecretKey: undefined,
       clerkJwtKey: undefined,
       clerkAuthorizedParties: undefined,
+      clerkWebhookSigningSecret: undefined,
       enabled: false,
     },
     rateLimit: {
