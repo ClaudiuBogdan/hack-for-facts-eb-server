@@ -104,6 +104,21 @@ jobs:
           node-version: 24
           cache: 'pnpm'
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003
+
+      - name: Verify distroless runtime base
+        run: |
+          runtime_base="$(sed -n 's/^ARG DISTROLLESS_BASE=//p' Dockerfile)"
+          if [ -z "${runtime_base}" ]; then
+            echo "Failed to resolve DISTROLLESS_BASE from Dockerfile" >&2
+            exit 1
+          fi
+
+          cosign verify "${runtime_base}" \
+            --certificate-oidc-issuer https://accounts.google.com \
+            --certificate-identity keyless@distroless.iam.gserviceaccount.com
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

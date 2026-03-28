@@ -400,15 +400,40 @@ import { buildApp } from './app/build-app.js';
 **Dockerfile**:
 
 ```dockerfile
-FROM node:20-alpine
+ARG NODE_BUILD_BASE=node:24-trixie-slim@sha256:c319bb4fac67c01ced508b67193a0397e02d37555d8f9b72958649efd302b7f8
+ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:924918584d0e6793e578fc0e98b8b8026ae4ac2ccf2fea283bc54a7165441ccd
+
+FROM ${NODE_BUILD_BASE} AS builder
 
 WORKDIR /app
 
-COPY package*.json pnpm-lock.yaml ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-COPY . .
+COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json ./
+RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts
+
+COPY src ./src
 RUN pnpm build
+
+FROM ${NODE_BUILD_BASE} AS prod-deps
+
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
+    pnpm install --prod --frozen-lockfile --ignore-scripts
+
+FROM ${DISTROLLESS_BASE}
+
+WORKDIR /app
+
+COPY --from=prod-deps --chown=65532:65532 /app/node_modules ./node_modules
+COPY --from=builder --chown=65532:65532 /app/dist ./dist
+COPY --from=builder --chown=65532:65532 /app/package.json ./package.json
+COPY --chown=65532:65532 datasets ./datasets
 
 # OpenTelemetry environment variables for SigNoz
 ENV OTEL_EXPORTER_OTLP_ENDPOINT="https://ingest.eu.signoz.cloud:443"
@@ -419,7 +444,10 @@ ENV NODE_OPTIONS="--require @opentelemetry/auto-instrumentations-node/register"
 
 EXPOSE 3000
 
-CMD ["node", "dist/api.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://localhost:3000/health/live').then((response)=>process.exit(response.ok ? 0 : 1)).catch(()=>process.exit(1))"]
+
+CMD ["dist/api.js"]
 ```
 
 **docker-compose.yml (with self-hosted SigNoz)**:

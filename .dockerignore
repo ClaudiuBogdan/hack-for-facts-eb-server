@@ -13,6 +13,12 @@ coverage/
 .vscode/
 .cursor/
 .husky/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+prompt.md
+TODO.md
+app.log
 
 # Test files
 tests/
@@ -39,6 +45,10 @@ argocd/
 
 # Scripts not needed at runtime
 scripts/
+security-testing/
+security-tests/
+tmp/
+output/
 
 # Config files not needed at runtime
 .eslintrc*
