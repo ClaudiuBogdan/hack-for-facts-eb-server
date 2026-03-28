@@ -360,6 +360,102 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('does not grant the elevated rate limit for an invalid special key', async () => {
+      const specialKey = 'trusted-service-key';
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            rateLimit: {
+              max: 1,
+              window: '1 minute',
+              specialHeader: 'x-api-key',
+              specialKey,
+              specialMax: 2,
+            },
+          }),
+        },
+      });
+
+      app.get('/probe-rate-limit', async () => ({ ok: true }));
+      await app.ready();
+
+      const first = await app.inject({
+        method: 'GET',
+        url: '/probe-rate-limit',
+      });
+      const second = await app.inject({
+        method: 'GET',
+        url: '/probe-rate-limit',
+        headers: {
+          'x-api-key': 'invalid-service-key',
+        },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(429);
+      expect(second.json()).toMatchObject({
+        ok: false,
+        error: 'RateLimitExceededError',
+      });
+
+      await app.close();
+    });
+
+    it('grants the elevated rate limit for a matching special key', async () => {
+      const specialKey = 'trusted-service-key';
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            rateLimit: {
+              max: 1,
+              window: '1 minute',
+              specialHeader: 'x-api-key',
+              specialKey,
+              specialMax: 2,
+            },
+          }),
+        },
+      });
+
+      app.get('/probe-rate-limit', async () => ({ ok: true }));
+      await app.ready();
+
+      const first = await app.inject({
+        method: 'GET',
+        url: '/probe-rate-limit',
+      });
+      const second = await app.inject({
+        method: 'GET',
+        url: '/probe-rate-limit',
+        headers: {
+          'x-api-key': specialKey,
+        },
+      });
+      const third = await app.inject({
+        method: 'GET',
+        url: '/probe-rate-limit',
+        headers: {
+          'x-api-key': specialKey,
+        },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(third.statusCode).toBe(429);
+
+      await app.close();
+    });
+
     it('logs incoming and completed once for non-health routes', async () => {
       const logs = createLogCollector();
 

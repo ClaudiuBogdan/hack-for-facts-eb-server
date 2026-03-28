@@ -116,6 +116,8 @@ const main = async (): Promise<void> => {
         }),
       },
       disableRequestLogging: true,
+      // Required for correct rate limiting, audit logging, and abuse detection.
+      trustProxy: true,
     },
     deps: {
       healthCheckers: [],

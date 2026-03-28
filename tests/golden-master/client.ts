@@ -210,6 +210,13 @@ export async function getClient(): Promise<GoldenMasterClient> {
         clerkAuthorizedParties: undefined,
         enabled: false,
       },
+      rateLimit: {
+        max: 300,
+        window: '1 minute',
+        specialHeader: undefined,
+        specialKey: undefined,
+        specialMax: 6000,
+      },
       shortLinks: {
         dailyLimit: 100,
         cacheTtlSeconds: 86400,

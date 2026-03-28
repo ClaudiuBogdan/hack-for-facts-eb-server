@@ -53,6 +53,13 @@ export const EnvSchema = Type.Object({
   SHORT_LINK_DAILY_LIMIT: Type.Optional(Type.Number({ minimum: 1, default: 100 })),
   SHORT_LINK_CACHE_TTL: Type.Optional(Type.Number({ minimum: 0, default: 86400 })),
 
+  // Rate Limiting
+  RATE_LIMIT_MAX: Type.Optional(Type.Number({ minimum: 1, default: 300 })),
+  RATE_LIMIT_WINDOW: Type.Optional(Type.String({ default: '1 minute' })),
+  SPECIAL_RATE_LIMIT_HEADER: Type.Optional(Type.String()),
+  SPECIAL_RATE_LIMIT_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  SPECIAL_RATE_LIMIT_MAX: Type.Optional(Type.Number({ minimum: 1, default: 6000 })),
+
   // MCP (Model Context Protocol)
   MCP_ENABLED: Type.Optional(Type.Boolean({ default: false })),
   // SECURITY: SEC-004 - Default to true for fail-closed security
@@ -157,6 +164,18 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['SHORT_LINK_CACHE_TTL'] != null && env['SHORT_LINK_CACHE_TTL'] !== ''
         ? Number.parseInt(env['SHORT_LINK_CACHE_TTL'], 10)
         : 86400,
+    // Rate Limiting
+    RATE_LIMIT_MAX:
+      env['RATE_LIMIT_MAX'] != null && env['RATE_LIMIT_MAX'] !== ''
+        ? Number.parseInt(env['RATE_LIMIT_MAX'], 10)
+        : 300,
+    RATE_LIMIT_WINDOW: env['RATE_LIMIT_WINDOW'] ?? '1 minute',
+    SPECIAL_RATE_LIMIT_HEADER: env['SPECIAL_RATE_LIMIT_HEADER'],
+    SPECIAL_RATE_LIMIT_KEY: env['SPECIAL_RATE_LIMIT_KEY'],
+    SPECIAL_RATE_LIMIT_MAX:
+      env['SPECIAL_RATE_LIMIT_MAX'] != null && env['SPECIAL_RATE_LIMIT_MAX'] !== ''
+        ? Number.parseInt(env['SPECIAL_RATE_LIMIT_MAX'], 10)
+        : 6000,
     MCP_ENABLED: env['MCP_ENABLED'] === 'true',
     // SECURITY: SEC-004 - Default to true, only disable if explicitly set to 'false'
     MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] !== 'false',
@@ -221,6 +240,16 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     );
   }
 
+  if (
+    rawEnv.NODE_ENV === 'production' &&
+    rawEnv.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY !== undefined &&
+    rawEnv.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY.length < 32
+  ) {
+    throw new Error(
+      'Invalid environment configuration: /INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Expected string length greater or equal to 32 in production'
+    );
+  }
+
   return rawEnv;
 };
 
@@ -268,6 +297,18 @@ export const createConfig = (env: Env) => ({
       env.CLERK_SECRET_KEY !== undefined ||
       env.CLERK_JWT_KEY !== undefined ||
       env.CLERK_AUTHORIZED_PARTIES !== undefined,
+  },
+  rateLimit: {
+    /** Maximum requests per time window */
+    max: env.RATE_LIMIT_MAX ?? 300,
+    /** Time window duration (e.g., '1 minute') */
+    window: env.RATE_LIMIT_WINDOW ?? '1 minute',
+    /** Header name for identifying service clients with higher limits */
+    specialHeader: env.SPECIAL_RATE_LIMIT_HEADER?.toLowerCase(),
+    /** Shared secret for identifying trusted service clients */
+    specialKey: env.SPECIAL_RATE_LIMIT_KEY,
+    /** Maximum requests per window for service clients */
+    specialMax: env.SPECIAL_RATE_LIMIT_MAX ?? 6000,
   },
   shortLinks: {
     /** Maximum short links per user per 24 hours */
