@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_security:
+        description: 'Run report-only nightly security checks'
+        required: false
+        default: false
+        type: boolean
 
 # Don't cancel in-progress runs for scheduled jobs
 concurrency:
@@ -132,11 +137,97 @@ jobs:
           path: test-output.txt
           retention-days: 7
 
+  security-nightly:
+    name: Nightly Security Checks
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_security == true)
+    outputs:
+      status: ${{ steps.security-status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run report-only security scans
+        id: security-scans
+        run: |
+          mkdir -p security-results "${{ github.workspace }}/.trivycache"
+
+          set +e
+
+          pnpm audit --audit-level high > security-results/pnpm-audit.txt 2>&1
+          audit_exit=$?
+
+          docker run --rm \
+            -v "${{ github.workspace }}:/workdir" \
+            -w /workdir \
+            -v "${{ github.workspace }}/.trivycache:/root/.cache/" \
+            aquasec/trivy:0.69.1 config \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format table \
+            Dockerfile .github/workflows k8s > security-results/trivy-config.txt 2>&1
+          trivy_exit=$?
+
+          set -e
+
+          {
+            echo "audit_exit_code=$audit_exit"
+            echo "trivy_exit_code=$trivy_exit"
+          } | tee security-results/scan-metadata.txt >> "$GITHUB_OUTPUT"
+
+      - name: Summarize security findings
+        if: always()
+        id: security-status
+        run: |
+          status="passed"
+          if [ "${{ steps.security-scans.outputs.audit_exit_code }}" != "0" ] || [ "${{ steps.security-scans.outputs.trivy_exit_code }}" != "0" ]; then
+            status="warnings"
+          fi
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          echo "## Nightly Security Checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.security-scans.outputs.audit_exit_code }}" = "0" ]; then
+            echo "- ✅ pnpm audit: Passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ⚠️ pnpm audit: Warnings" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ "${{ steps.security-scans.outputs.trivy_exit_code }}" = "0" ]; then
+            echo "- ✅ Trivy config scan: Passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ⚠️ Trivy config scan: Warnings" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts: security-nightly-results-${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload security results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-nightly-results-${{ github.run_id }}
+          path: security-results
+          retention-days: 7
+
   # Summary job to report overall status
   summary:
     name: Golden Master Summary
     runs-on: ubuntu-latest
-    needs: [golden-master-dev, golden-master-prod]
+    needs: [golden-master-dev, golden-master-prod, security-nightly]
     if: always()
     steps:
       - name: Check results
@@ -162,5 +253,15 @@ jobs:
             echo "- ⏭️ Prod environment: Skipped" >> $GITHUB_STEP_SUMMARY
           fi
 
+          if [ "${{ needs.security-nightly.result }}" == "skipped" ]; then
+            echo "- ⏭️ Security checks: Skipped" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.security-nightly.outputs.status }}" == "passed" ]; then
+            echo "- ✅ Security checks: Passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.security-nightly.outputs.status }}" == "warnings" ]; then
+            echo "- ⚠️ Security checks: Warnings" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ Security checks: Failed to run" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Note: Golden Master tests are non-blocking checks. Failures here don't block deployments." >> $GITHUB_STEP_SUMMARY
+          echo "Note: Golden Master tests and nightly security scans are report-only checks. Failures here don't block deployments." >> $GITHUB_STEP_SUMMARY
