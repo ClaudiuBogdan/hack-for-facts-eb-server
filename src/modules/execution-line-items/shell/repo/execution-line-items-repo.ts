@@ -657,6 +657,30 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
       if (frequency === Frequency.QUARTER) return 'quarterly_amount';
       return 'ytd_amount';
     }
+
+    // SECURITY: Defense-in-depth allowlist validation at the repo layer.
+    // The use-case layer validates against SORTABLE_FIELDS, but the repo
+    // must independently validate to prevent identifier injection if the
+    // use-case validation is ever bypassed.
+    const ALLOWED_DB_COLUMNS = new Set([
+      'line_item_id',
+      'report_id',
+      'entity_cui',
+      'funding_source_id',
+      'functional_code',
+      'economic_code',
+      'account_category',
+      'ytd_amount',
+      'monthly_amount',
+      'quarterly_amount',
+      'program_code',
+      'year',
+    ]);
+
+    if (!ALLOWED_DB_COLUMNS.has(field)) {
+      return 'ytd_amount';
+    }
+
     return field;
   }
 
