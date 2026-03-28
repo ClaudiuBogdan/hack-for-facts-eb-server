@@ -3,6 +3,9 @@
  * Creates and configures the Fastify instance with all plugins and routes
  */
 
+import { timingSafeEqual } from 'node:crypto';
+
+import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import fastifyLib, {
   type FastifyInstance,
@@ -381,6 +384,31 @@ function getRequestUserId(request: import('fastify').FastifyRequest): string | u
   return getLogBindingUserId(request);
 }
 
+function hasMatchingSpecialRateLimitKey(
+  request: import('fastify').FastifyRequest,
+  headerName: string | undefined,
+  expectedKey: string | undefined
+): boolean {
+  if (headerName === undefined || expectedKey === undefined || expectedKey === '') {
+    return false;
+  }
+
+  const providedKey = request.headers[headerName];
+  if (typeof providedKey !== 'string') {
+    return false;
+  }
+
+  const expectedBuffer = Buffer.from(expectedKey, 'utf-8');
+  const providedBuffer = Buffer.from(providedKey, 'utf-8');
+
+  if (expectedBuffer.length !== providedBuffer.length) {
+    timingSafeEqual(expectedBuffer, expectedBuffer);
+    return false;
+  }
+
+  return timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
 /**
  * Creates and configures the Fastify application
  * This is the composition root where all modules are wired together
@@ -526,6 +554,24 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Register security headers plugin (SEC-003)
   await registerSecurityHeaders(app, config);
+
+  // Register global rate limiting
+  const rateLimitMax = config.rateLimit.max;
+  const rateLimitWindow = config.rateLimit.window;
+  const rateLimitSpecialHeader = config.rateLimit.specialHeader;
+  const rateLimitSpecialKey = config.rateLimit.specialKey;
+  const rateLimitSpecialMax = config.rateLimit.specialMax;
+
+  await app.register(rateLimit, {
+    max: (request) => {
+      // Allow higher limits only for trusted service-to-service calls.
+      if (hasMatchingSpecialRateLimitKey(request, rateLimitSpecialHeader, rateLimitSpecialKey)) {
+        return rateLimitSpecialMax;
+      }
+      return rateLimitMax;
+    },
+    timeWindow: rateLimitWindow,
+  });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Initialize Cache Infrastructure

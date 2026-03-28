@@ -85,6 +85,13 @@ describe('Configuration', () => {
       expect(env.LEARNING_PROGRESS_REVIEW_API_KEY).toBe(apiKey);
     });
 
+    it('accepts optional SPECIAL_RATE_LIMIT_KEY', () => {
+      const apiKey = 'trusted-service-key';
+      const env = parseEnv({ ...requiredEnv, SPECIAL_RATE_LIMIT_KEY: apiKey });
+
+      expect(env.SPECIAL_RATE_LIMIT_KEY).toBe(apiKey);
+    });
+
     it('rejects short LEARNING_PROGRESS_REVIEW_API_KEY values in production', () => {
       expect(() =>
         parseEnv({
@@ -172,6 +179,19 @@ describe('Configuration', () => {
 
       expect(config.learningProgress.reviewApiKey).toBe(apiKey);
       expect(config.learningProgress.reviewApiEnabled).toBe(true);
+    });
+
+    it('normalizes special rate limit header names and exposes the service key', () => {
+      const config = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          SPECIAL_RATE_LIMIT_HEADER: 'X-API-Key',
+          SPECIAL_RATE_LIMIT_KEY: 'trusted-service-key',
+        })
+      );
+
+      expect(config.rateLimit.specialHeader).toBe('x-api-key');
+      expect(config.rateLimit.specialKey).toBe('trusted-service-key');
     });
   });
 });

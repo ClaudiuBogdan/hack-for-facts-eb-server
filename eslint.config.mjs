@@ -295,6 +295,12 @@ export default defineConfig(
     ...tseslintConfigs.disableTypeChecked,
   },
 
+  // F. REPOSITORY UTILITY SCRIPTS (Node-only, outside TS project service)
+  {
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    ...tseslintConfigs.disableTypeChecked,
+  },
+
   // ========================================================================
   // Prettier (Must be last)
   // ========================================================================
