@@ -1,88 +1,69 @@
 # =============================================================================
 # Dockerfile - Transparenta.eu API Server
 # =============================================================================
-# Multi-stage build for minimal production image
+# Multi-stage build for a minimal production image
 #
 # SECURITY FEATURES:
-# - Alpine Linux (minimal attack surface)
-# - Non-root user (nodejs:1001)
-# - No build tools in final image
-# - Production dependencies only
+# - Distroless runtime image (no shell, npm, or pnpm in production)
+# - Non-root runtime user (distroless `nonroot`)
+# - Build tools excluded from the final image
+# - Production dependencies installed in a dedicated stage
 #
 # EFFICIENCY FEATURES:
 # - BuildKit cache mounts for pnpm
-# - User created before install (avoids slow chown)
-# - Optimized layer ordering
+# - Dependency and build stages reuse the same package-manager cache
+# - Runtime image only copies the assets required to boot the API
 # =============================================================================
+
+ARG NODE_BUILD_BASE=node:24-trixie-slim@sha256:c319bb4fac67c01ced508b67193a0397e02d37555d8f9b72958649efd302b7f8
+ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:924918584d0e6793e578fc0e98b8b8026ae4ac2ccf2fea283bc54a7165441ccd
 
 # -----------------------------------------------------------------------------
 # Build Stage
 # -----------------------------------------------------------------------------
-FROM node:24-alpine AS builder
+FROM ${NODE_BUILD_BASE} AS builder
 
 WORKDIR /app
 
-# Install pnpm via corepack
+# Install the pinned pnpm version used by CI and local development
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-# Copy package files first for better layer caching
-COPY package.json pnpm-lock.yaml ./
+# Copy only the files required to resolve and build the application
+COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json ./
 
-# Install all dependencies (including devDependencies for build)
-# SECURITY: --ignore-scripts prevents arbitrary code execution during install
-# EFFICIENCY: --mount=type=cache reuses pnpm store across builds
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+# Install full dependency graph for the TypeScript build without lifecycle hooks
+RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts
 
-# Copy source code (respects .dockerignore)
-COPY . .
+# Copy application source explicitly so .dockerignore is not the primary boundary
+COPY src ./src
 
 # Build TypeScript application
 RUN pnpm build
 
 # -----------------------------------------------------------------------------
-# Production Stage
+# Production Dependencies Stage
 # -----------------------------------------------------------------------------
-FROM node:24-alpine
-
-# SECURITY: Upgrade all Alpine packages to pick up OS-level fixes (e.g. zlib)
-RUN apk upgrade --no-cache
-
-# SECURITY: Remove npm (unused — app uses pnpm) to eliminate bundled vuln surface
-# npm ships minimatch, tar, etc. which accumulate CVEs we don't need
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
-
-# SECURITY: Create non-root user BEFORE installing dependencies
-# This avoids running chown on node_modules (which is slow and unnecessary)
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 -G nodejs
+FROM ${NODE_BUILD_BASE} AS prod-deps
 
 WORKDIR /app
 
-# Enable corepack and install pnpm (requires root for symlinks in /usr/local/bin)
+# Install the same pinned pnpm version for deterministic production deps
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
-# Set ownership of workdir to nodejs user
-RUN chown nodejs:nodejs /app
+# Copy package files only; runtime dependencies do not need the source tree
+COPY package.json pnpm-lock.yaml ./
 
-# Switch to non-root user BEFORE copying files and installing deps
-# All subsequent operations run as nodejs user
-USER nodejs
-
-# Copy package files (owned by nodejs due to USER directive)
-COPY --from=builder --chown=nodejs:nodejs /app/package.json /app/pnpm-lock.yaml ./
-
-# Copy build output
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-
-# Copy datasets (static data files required at runtime)
-COPY --from=builder --chown=nodejs:nodejs /app/datasets ./datasets
-
-# Install production dependencies only
-# SECURITY: --ignore-scripts prevents post-install scripts from running
-# EFFICIENCY: --mount=type=cache reuses pnpm store across builds
-RUN --mount=type=cache,id=pnpm,target=/home/nodejs/.local/share/pnpm/store,uid=1001,gid=1001 \
+# Install production dependencies without executing install scripts
+RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
     pnpm install --prod --frozen-lockfile --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Runtime Stage
+# -----------------------------------------------------------------------------
+FROM ${DISTROLLESS_BASE}
+
+WORKDIR /app
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -93,12 +74,9 @@ EXPOSE 3000
 
 # HEALTH CHECK: Docker-native health check for standalone usage
 # Uses /health/live endpoint (simple liveness check)
-# Kubernetes will use its own probes, but this helps with:
-# - Docker Compose health dependencies
-# - Local development
-# - Container orchestrators that use Docker health checks
+# Distroless images require exec-form health checks because there is no shell.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD node -e "fetch('http://localhost:3000/health/live').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+    CMD ["/nodejs/bin/node", "-e", "fetch('http://localhost:3000/health/live').then((response)=>process.exit(response.ok ? 0 : 1)).catch(()=>process.exit(1))"]
 
 # OCI Image Labels for traceability
 # These are populated by CI/CD pipeline via --build-arg
@@ -114,7 +92,11 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.vendor="Transparenta.eu" \
       org.opencontainers.image.source="https://github.com/ClaudiuBogdan/hack-for-facts-eb-server"
 
-# Run the application
-# Node.js handles SIGTERM/SIGINT properly in src/api.ts
-CMD ["node", "dist/api.js"]
+# Copy the minimal runtime payload. package.json is kept for ESM module mode.
+COPY --from=prod-deps --chown=65532:65532 /app/node_modules ./node_modules
+COPY --from=builder --chown=65532:65532 /app/dist ./dist
+COPY --from=builder --chown=65532:65532 /app/package.json ./package.json
+COPY --chown=65532:65532 datasets ./datasets
 
+# Run the application using the distroless image's Node.js entrypoint
+CMD ["dist/api.js"]
