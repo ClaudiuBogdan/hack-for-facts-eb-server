@@ -92,6 +92,13 @@ describe('Configuration', () => {
       expect(env.SPECIAL_RATE_LIMIT_KEY).toBe(apiKey);
     });
 
+    it('accepts optional CLERK_WEBHOOK_SIGNING_SECRET', () => {
+      const signingSecret = 'whsec_dGVzdC1zZWNyZXQtMzItYnl0ZXMtMTIzNDU2Nzg5MDEy';
+      const env = parseEnv({ ...requiredEnv, CLERK_WEBHOOK_SIGNING_SECRET: signingSecret });
+
+      expect(env.CLERK_WEBHOOK_SIGNING_SECRET).toBe(signingSecret);
+    });
+
     it('rejects short LEARNING_PROGRESS_REVIEW_API_KEY values in production', () => {
       expect(() =>
         parseEnv({
@@ -192,6 +199,19 @@ describe('Configuration', () => {
 
       expect(config.rateLimit.specialHeader).toBe('x-api-key');
       expect(config.rateLimit.specialKey).toBe('trusted-service-key');
+    });
+
+    it('exposes the Clerk webhook signing secret without enabling session auth', () => {
+      const signingSecret = 'whsec_dGVzdC1zZWNyZXQtMzItYnl0ZXMtMTIzNDU2Nzg5MDEy';
+      const config = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          CLERK_WEBHOOK_SIGNING_SECRET: signingSecret,
+        })
+      );
+
+      expect(config.auth.clerkWebhookSigningSecret).toBe(signingSecret);
+      expect(config.auth.enabled).toBe(false);
     });
   });
 });

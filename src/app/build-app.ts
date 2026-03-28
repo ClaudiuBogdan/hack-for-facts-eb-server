@@ -71,6 +71,10 @@ import {
   makeEconomicClassificationRepo,
 } from '../modules/classification/index.js';
 import {
+  makeClerkWebhookRoutes,
+  makeClerkWebhookVerifier,
+} from '../modules/clerk-webhooks/index.js';
+import {
   CommitmentsSchema,
   makeCommitmentsRepo,
   makeCommitmentsResolvers,
@@ -246,6 +250,7 @@ const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready'])
 const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
 const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
+const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
 const WEBHOOK_RESEND_ROUTE_PATH = '/api/v1/webhooks/resend';
 const NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX = '/api/v1/notifications/unsubscribe/';
 const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
@@ -305,6 +310,7 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
   if (
     path === '/mcp' ||
     path === '/openapi.json' ||
+    path === WEBHOOK_CLERK_ROUTE_PATH ||
     path === WEBHOOK_RESEND_ROUTE_PATH ||
     path === ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH ||
     path.startsWith(GPT_ROUTE_PREFIX) ||
@@ -1256,6 +1262,23 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     };
 
     await app.register(makeGptRoutes(gptRoutesOptions));
+  }
+
+  if (config.auth.clerkWebhookSigningSecret !== undefined) {
+    const repoLogger = app.log as unknown as import('pino').Logger;
+    const clerkWebhookVerifier = makeClerkWebhookVerifier({
+      signingSecret: config.auth.clerkWebhookSigningSecret,
+      logger: repoLogger,
+    });
+
+    await app.register(
+      makeClerkWebhookRoutes({
+        webhookVerifier: clerkWebhookVerifier,
+        logger: repoLogger,
+      })
+    );
+
+    app.log.info('Clerk webhook endpoint enabled at /api/v1/webhooks/clerk');
   }
 
   return app;
