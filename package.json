@@ -10,6 +10,7 @@
   },
   "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a",
   "scripts": {
+    "check:staged-secrets": "node scripts/check-staged-secrets.mjs",
     "dev": "tsx watch --clear-screen=false --env-file=.env src/api.ts",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node dist/api.js",
@@ -36,6 +37,8 @@
     "pdf:validate-totals": "python3 scripts/validate_pdf_totals.py",
     "pdf:tables-to-xlsx": "python3 scripts/csvs_to_xlsx.py",
     "ins:audit": "tsx scripts/audit-ins-availability.ts",
+    "jwt-security-test": "tsx security-tests/jwt-security/cli.ts",
+    "jwt-inspect": "tsx security-tests/jwt-security/inspect.ts",
     "email:dev": "email dev --dir src/modules/email-templates/shell/templates",
     "deps:check": "madge --circular --extensions ts src/",
     "deps:summary": "madge --extensions ts --json src/ | node -e \"const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log('Files:',Object.keys(d).length);console.log('Imports:',Object.values(d).flat().length)\"",

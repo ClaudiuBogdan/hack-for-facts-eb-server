@@ -1,3 +1,5 @@
+pnpm check:staged-secrets
+
 # Run lint-staged
 pnpm lint-staged
 
