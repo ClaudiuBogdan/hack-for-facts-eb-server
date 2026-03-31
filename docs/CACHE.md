@@ -18,9 +18,12 @@ A pluggable caching layer with silent degradation - cache failures never cause r
 | `CACHE_DEFAULT_TTL_MS`     | `number`                               | `null`      | Default TTL (no ttl)           |
 | `CACHE_MEMORY_MAX_ENTRIES` | `number`                               | `1000`      | Memory cache limit             |
 | `CACHE_L1_MAX_ENTRIES`     | `number`                               | `500`       | L1 cache limit (multi backend) |
-| `REDIS_URL`                | `string`                               | -           | Redis connection URL           |
+| `REDIS_URL`                | `string`                               | -           | Cache Redis connection URL     |
 
 **Auto-detection:** If `REDIS_URL` is set → Redis, otherwise → Memory.
+
+**BullMQ note:** Queue processing uses dedicated `BULLMQ_REDIS_URL` and `BULLMQ_REDIS_PASSWORD`
+settings. BullMQ Redis does not affect cache backend detection.
 
 ---
 
