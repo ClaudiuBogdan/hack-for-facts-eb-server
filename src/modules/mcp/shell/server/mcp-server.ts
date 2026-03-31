@@ -4,7 +4,9 @@
  * Creates and configures the MCP server with all tools, resources, and prompts.
  */
 
+// eslint-disable-next-line import-x/no-unresolved -- wildcard exports (./*) in SDK package.json not supported by eslint resolver
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+// eslint-disable-next-line import-x/no-unresolved -- wildcard exports (./*) in SDK package.json not supported by eslint resolver
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import {
