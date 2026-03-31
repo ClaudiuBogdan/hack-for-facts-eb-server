@@ -2150,10 +2150,13 @@ export const makeFakeExtendedNotificationsRepo = (
     findEligibleForDelivery: async (
       notificationType: NotificationType,
       periodKey: string,
-      limit = 100
+      limit = 100,
+      ignoreMaterialized = false
     ) => {
       if (simulateDbError) return createDbError();
-      const deliveredNotificationIds = new Set(deliveredNotificationIdsByPeriod[periodKey] ?? []);
+      const deliveredNotificationIds = ignoreMaterialized
+        ? new Set<string>()
+        : new Set(deliveredNotificationIdsByPeriod[periodKey] ?? []);
       const eligible: Notification[] = [];
       for (const n of store.values()) {
         const isGloballyUnsubscribed =

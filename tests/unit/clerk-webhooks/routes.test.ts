@@ -177,6 +177,52 @@ describe('makeClerkWebhookRoutes', () => {
     expect(response.json()).toEqual({ status: 'received' });
   });
 
+  it('invokes the verified-event hook after successful validation', async () => {
+    const onEventVerified = vi.fn(async () => undefined);
+    app = await createTestApp({ onEventVerified });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/clerk',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'msg_1',
+        'svix-timestamp': '123',
+        'svix-signature': 'sig',
+      },
+      payload: createEvent(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(onEventVerified).toHaveBeenCalledWith({
+      event: createEvent(),
+      svixId: 'msg_1',
+    });
+  });
+
+  it('returns 500 when the verified-event hook fails', async () => {
+    app = await createTestApp({
+      onEventVerified: async () => {
+        throw new Error('queue unavailable');
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/clerk',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'msg_1',
+        'svix-timestamp': '123',
+        'svix-signature': 'sig',
+      },
+      payload: createEvent(),
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'Internal server error' });
+  });
+
   it('verifies the raw body and acknowledges a signed request end-to-end', async () => {
     const realApp = fastifyLib({ logger: false });
     await realApp.register(

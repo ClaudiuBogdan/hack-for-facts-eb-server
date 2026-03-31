@@ -1,7 +1,10 @@
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
-import { makeResendWebhookDeliverySideEffect } from '@/modules/notification-delivery/index.js';
+import {
+  buildAnafForexebugDigestScopeKey,
+  makeResendWebhookDeliverySideEffect,
+} from '@/modules/notification-delivery/index.js';
 
 import {
   createTestDeliveryRecord,
@@ -127,6 +130,144 @@ describe('makeResendWebhookDeliverySideEffect', () => {
     }
   });
 
+  it('reconciles transactional welcome emails without a notification_id tag', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'welcome-1',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-1',
+          status: 'sent',
+        }),
+      ],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo: makeFakeNotificationsRepo(),
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.delivered', [{ name: 'delivery_id', value: 'welcome-1' }]),
+      storedEvent: {
+        id: 'stored-welcome-1',
+        svixId: 'svix-welcome-1',
+        eventType: 'email.delivered',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const delivery = await deliveryRepo.findById('welcome-1');
+    expect(delivery.isOk()).toBe(true);
+    if (delivery.isOk()) {
+      expect(delivery.value?.status).toBe('delivered');
+      expect(delivery.value?.referenceId).toBeNull();
+    }
+  });
+
+  it('deactivates bundled source notifications using outbox metadata when notification_id tag is missing', async () => {
+    const notificationsRepo = makeFakeNotificationsRepo({
+      notifications: [
+        createTestNotification({ id: 'notification-1', isActive: true }),
+        createTestNotification({
+          id: 'notification-2',
+          notificationType: 'alert_series_analytics',
+          isActive: true,
+        }),
+      ],
+    });
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'bundle-delivery-1',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: buildAnafForexebugDigestScopeKey('2026-03'),
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          status: 'sent',
+          metadata: {
+            sourceNotificationIds: ['notification-1', 'notification-2'],
+          },
+        }),
+      ],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo,
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: createEvent(
+        'email.suppressed',
+        [{ name: 'delivery_id', value: 'bundle-delivery-1' }],
+        {
+          reason: 'complaint',
+        }
+      ),
+      storedEvent: {
+        id: 'stored-bundle-1',
+        svixId: 'svix-bundle-1',
+        eventType: 'email.suppressed',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const notification1 = await notificationsRepo.findById('notification-1');
+    const notification2 = await notificationsRepo.findById('notification-2');
+
+    expect(notification1.isOk()).toBe(true);
+    expect(notification2.isOk()).toBe(true);
+
+    if (notification1.isOk()) {
+      expect(notification1.value?.isActive).toBe(false);
+    }
+
+    if (notification2.isOk()) {
+      expect(notification2.value?.isActive).toBe(false);
+    }
+  });
+
   it('handles transient and permanent bounces differently', async () => {
     const notificationsRepo = makeFakeNotificationsRepo({
       notifications: [createTestNotification({ id: 'notification-1', isActive: true })],
@@ -135,12 +276,12 @@ describe('makeResendWebhookDeliverySideEffect', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'delivery-transient',
-          notificationId: 'notification-1',
+          referenceId: 'notification-1',
           status: 'sent',
         }),
         createTestDeliveryRecord({
           id: 'delivery-permanent',
-          notificationId: 'notification-1',
+          referenceId: 'notification-1',
           status: 'sent',
         }),
       ],
@@ -258,7 +399,11 @@ describe('makeResendWebhookDeliverySideEffect', () => {
     });
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
-        createTestDeliveryRecord({ id: 'delivery-1', notificationId: 'notification-1' }),
+        createTestDeliveryRecord({
+          id: 'delivery-1',
+          referenceId: 'notification-1',
+          status: 'sent',
+        }),
       ],
     });
     const sideEffect = makeResendWebhookDeliverySideEffect({
@@ -425,7 +570,11 @@ describe('makeResendWebhookDeliverySideEffect', () => {
     });
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
-        createTestDeliveryRecord({ id: 'delivery-1', notificationId: 'notification-1' }),
+        createTestDeliveryRecord({
+          id: 'delivery-1',
+          referenceId: 'notification-1',
+          status: 'sent',
+        }),
       ],
     });
     const sideEffect = makeResendWebhookDeliverySideEffect({
@@ -502,6 +651,218 @@ describe('makeResendWebhookDeliverySideEffect', () => {
     expect(notification.isOk()).toBe(true);
     if (notification.isOk()) {
       expect(notification.value?.isActive).toBe(true);
+    }
+  });
+
+  it('does not let a late transient bounce regress a delivered row', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [createTestDeliveryRecord({ id: 'delivery-ordered', status: 'sent' })],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo: makeFakeNotificationsRepo(),
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.delivered', [{ name: 'delivery_id', value: 'delivery-ordered' }]),
+      storedEvent: {
+        id: 'stored-delivered',
+        svixId: 'svix-delivered',
+        eventType: 'email.delivered',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.bounced', [{ name: 'delivery_id', value: 'delivery-ordered' }], {
+        bounce: { type: 'Transient', subType: 'MailboxFull' },
+      }),
+      storedEvent: {
+        id: 'stored-bounce',
+        svixId: 'svix-bounce',
+        eventType: 'email.bounced',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: 'Transient',
+        bounceSubType: 'MailboxFull',
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const delivery = await deliveryRepo.findById('delivery-ordered');
+    expect(delivery.isOk()).toBe(true);
+    if (delivery.isOk()) {
+      expect(delivery.value?.status).toBe('delivered');
+    }
+  });
+
+  it('lets a complaint override delivered status to suppressed', async () => {
+    const notificationsRepo = makeFakeNotificationsRepo({
+      notifications: [createTestNotification({ id: 'notification-complaint', isActive: true })],
+    });
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'delivery-complaint',
+          referenceId: 'notification-complaint',
+          status: 'sent',
+        }),
+      ],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo,
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.delivered', [{ name: 'delivery_id', value: 'delivery-complaint' }]),
+      storedEvent: {
+        id: 'stored-delivered-complaint',
+        svixId: 'svix-delivered-complaint',
+        eventType: 'email.delivered',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.complained', [
+        { name: 'delivery_id', value: 'delivery-complaint' },
+        { name: 'notification_id', value: 'notification-complaint' },
+      ]),
+      storedEvent: {
+        id: 'stored-complaint',
+        svixId: 'svix-complaint',
+        eventType: 'email.complained',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const delivery = await deliveryRepo.findById('delivery-complaint');
+    expect(delivery.isOk()).toBe(true);
+    if (delivery.isOk()) {
+      expect(delivery.value?.status).toBe('suppressed');
+    }
+  });
+
+  it('ignores delivery_delayed without mutating state', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [createTestDeliveryRecord({ id: 'delivery-delayed', status: 'sent' })],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo: makeFakeNotificationsRepo(),
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.delivery_delayed', [
+        { name: 'delivery_id', value: 'delivery-delayed' },
+      ]),
+      storedEvent: {
+        id: 'stored-delayed',
+        svixId: 'svix-delayed',
+        eventType: 'email.delivery_delayed',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date(),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const delivery = await deliveryRepo.findById('delivery-delayed');
+    expect(delivery.isOk()).toBe(true);
+    if (delivery.isOk()) {
+      expect(delivery.value?.status).toBe('sent');
     }
   });
 });
