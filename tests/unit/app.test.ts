@@ -5,11 +5,12 @@
 import { Writable } from 'node:stream';
 
 import { Webhook } from 'svix';
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildApp, createApp } from '@/app/build-app.js';
 import { deserialize } from '@/infra/cache/serialization.js';
 import { createTestAuthProvider } from '@/modules/auth/index.js';
+import { startNotificationDeliveryRuntime } from '@/modules/notification-delivery/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
 import {
@@ -409,6 +410,822 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('fails closed when notification workers are enabled without CLERK_SECRET_KEY', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'worker',
+              },
+              notifications: {
+                triggerApiKey: 'n'.repeat(32),
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: true,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+              auth: {
+                clerkSecretKey: undefined,
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Notification delivery requires CLERK_SECRET_KEY when notifications run on worker or both process roles.'
+      );
+    });
+
+    it('starts the notification delivery runtime for worker processes', async () => {
+      const stop = vi.fn(async () => undefined);
+      const userEventStop = vi.fn(async () => undefined);
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop,
+      }));
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop: userEventStop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          userEventRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: true,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 20,
+              processRole: 'worker',
+            },
+            notifications: {
+              triggerApiKey: undefined,
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: false,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          redisUrl: 'redis://localhost:6379',
+          bullmqPrefix: 'test:jobs',
+          intervalMinutes: 15,
+          thresholdMinutes: 20,
+        })
+      );
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(userEventStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails app startup cleanly when notification runtime Redis bootstrap fails', async () => {
+      class FailingRedis {
+        on(): this {
+          return this;
+        }
+
+        off(): this {
+          return this;
+        }
+
+        async connect(): Promise<void> {
+          throw new Error('redis bootstrap failed');
+        }
+
+        async ping(): Promise<string> {
+          return 'PONG';
+        }
+
+        async quit(): Promise<void> {
+          return undefined;
+        }
+
+        disconnect(): void {
+          return;
+        }
+      }
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            notificationDeliveryRuntimeFactory: (config) =>
+              startNotificationDeliveryRuntime({
+                ...config,
+                redisFactory: () => new FailingRedis() as never,
+              }),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 20,
+                processRole: 'worker',
+              },
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: false,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow('redis bootstrap failed');
+    });
+
+    it('starts the notification delivery runtime for both-role processes', async () => {
+      const stop = vi.fn(async () => undefined);
+      const userEventStop = vi.fn(async () => undefined);
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop,
+      }));
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop: userEventStop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          userEventRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: true,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'both',
+            },
+            notifications: {
+              triggerApiKey: undefined,
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: false,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(userEventStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start the notification delivery runtime for api-only processes without trigger routes', async () => {
+      const userEventStop = vi.fn(async () => undefined);
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop: userEventStop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          userEventRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: true,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'api',
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(notificationDeliveryRuntimeFactory).not.toHaveBeenCalled();
+
+      const unsubscribeResponse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/notifications/unsubscribe/test-token',
+      });
+
+      expect(unsubscribeResponse.statusCode).toBe(200);
+      expect(unsubscribeResponse.body).toBe('');
+
+      await app.close();
+      expect(userEventStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts the notification delivery runtime for Clerk welcome webhooks on api-only processes', async () => {
+      const stop = vi.fn(async () => undefined);
+      const userEventStop = vi.fn(async () => undefined);
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {
+          enqueue: vi.fn(async () => undefined),
+        } as never,
+        stop,
+      }));
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop: userEventStop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          userEventRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: true,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'api',
+            },
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret,
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(userEventStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts the user event runtime for api-only processes when learning progress publishing is enabled', async () => {
+      const stop = vi.fn(async () => undefined);
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          userEventRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: true,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'api',
+            },
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: false,
+            },
+            notifications: {
+              triggerApiKey: undefined,
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(userEventRuntimeFactory).toHaveBeenCalledTimes(1);
+      expect(userEventRuntimeFactory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          redisUrl: 'redis://localhost:6379',
+          bullmqPrefix: 'test:jobs',
+          processRole: 'api',
+        })
+      );
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('requires userDb when learning progress user-event publishing is enabled', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'api',
+              },
+              auth: {
+                clerkSecretKey: undefined,
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'User event runtime requires userDb when learning progress user event producer or workers are enabled.'
+      );
+    });
+
+    it('requires BULLMQ_REDIS_URL when learning progress user-event publishing is enabled', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: undefined,
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'api',
+              },
+              auth: {
+                clerkSecretKey: undefined,
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'User event runtime requires BULLMQ_REDIS_URL when learning progress user event producer or workers are enabled.'
+      );
+    });
+
+    it('mounts notification admin trigger routes under the admin prefix', async () => {
+      const stop = vi.fn(async () => undefined);
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop,
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: false,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'api',
+            },
+            notifications: {
+              triggerApiKey: 'n'.repeat(32),
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
+
+      const adminResponse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/admin/notifications/trigger',
+        payload: {
+          notificationType: 'newsletter_entity_monthly',
+        },
+      });
+      expect(adminResponse.statusCode).toBe(401);
+      expect(adminResponse.json()).toEqual({ error: 'Invalid API key' });
+
+      const digestResponse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/admin/notifications/trigger-digests/anaf-forexebug',
+        payload: {
+          periodKey: '2026-03',
+        },
+      });
+      expect(digestResponse.statusCode).toBe(401);
+      expect(digestResponse.json()).toEqual({ error: 'Invalid API key' });
+
+      const legacyResponse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/notifications/trigger',
+        payload: {
+          notificationType: 'newsletter_entity_monthly',
+        },
+      });
+      expect(legacyResponse.statusCode).toBe(404);
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not require UNSUBSCRIBE_HMAC_SECRET when notification routes are not mounted', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: undefined,
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).resolves.toBeDefined();
+    });
+
+    it('fails closed when notification routes are enabled without UNSUBSCRIBE_HMAC_SECRET', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: undefined,
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow('Notification routes require UNSUBSCRIBE_HMAC_SECRET');
+    });
+
+    it('fails closed when notification workers are enabled without UNSUBSCRIBE_HMAC_SECRET', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'worker',
+              },
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: undefined,
+                enabled: false,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+              auth: {
+                clerkSecretKey: 'clerk_secret_test',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow('Notification routes require UNSUBSCRIBE_HMAC_SECRET');
+    });
+
+    it('fails closed when the notification delivery runtime is enabled without userDb', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'worker',
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Notification delivery runtime requires userDb when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+      );
+    });
+
+    it('fails closed when the notification delivery runtime is enabled without BULLMQ_REDIS_URL', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                enabled: true,
+                redisUrl: undefined,
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+                processRole: 'worker',
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+      );
+    });
+
+    it('does not require CLERK_SECRET_KEY when notification jobs are disabled', async () => {
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
+          config: makeTestConfig({
+            jobs: {
+              enabled: false,
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+              processRole: 'both',
+            },
+            notifications: {
+              triggerApiKey: 'n'.repeat(32),
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: true,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: false,
+            },
+          }),
+        },
+      });
+
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
+      await app.close();
+    });
+
     it('does not register Clerk webhook route when the signing secret is absent', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
@@ -565,6 +1382,7 @@ describe('App Factory', () => {
         ok: false,
         error: 'UNAUTHORIZED',
         message: 'X-Learning-Progress-Review-Api-Key header required',
+        retryable: false,
       });
 
       await app.close();
