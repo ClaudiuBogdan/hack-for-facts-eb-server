@@ -5,6 +5,8 @@
  * TypeBox schemas for REST validation are in shell/rest/schemas.ts.
  */
 
+import type { DeliveryStatus } from '@/common/types/index.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hasher Interface
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,9 +33,6 @@ export const DEFAULT_DELIVERIES_LIMIT = 50;
 /** Maximum limit for delivery history queries */
 export const MAX_DELIVERIES_LIMIT = 100;
 
-/** Unsubscribe token expiry in days */
-export const UNSUBSCRIBE_TOKEN_EXPIRY_DAYS = 365;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Notification Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +45,8 @@ export type NotificationType =
   | 'newsletter_entity_quarterly'
   | 'newsletter_entity_yearly'
   | 'alert_series_analytics'
-  | 'alert_series_static';
+  | 'alert_series_static'
+  | 'global_unsubscribe';
 
 /**
  * Newsletter notification types (require entity).
@@ -66,6 +66,11 @@ export const ALERT_TYPES: readonly NotificationType[] = [
 ] as const;
 
 /**
+ * Global preference types (one per user, no entity/config required).
+ */
+export const GLOBAL_TYPES: readonly NotificationType[] = ['global_unsubscribe'] as const;
+
+/**
  * Check if notification type is a newsletter type.
  */
 export const isNewsletterType = (type: NotificationType): boolean => {
@@ -77,6 +82,13 @@ export const isNewsletterType = (type: NotificationType): boolean => {
  */
 export const isAlertType = (type: NotificationType): boolean => {
   return ALERT_TYPES.includes(type);
+};
+
+/**
+ * Check if notification type is a global preference type.
+ */
+export const isGlobalType = (type: NotificationType): boolean => {
+  return GLOBAL_TYPES.includes(type);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,9 +132,25 @@ export interface StaticSeriesAlertConfig {
 }
 
 /**
+ * Configuration for global unsubscribe preferences.
+ * Stored as JSONB in the notifications config column.
+ */
+export interface GlobalUnsubscribeConfig {
+  channels: {
+    email: boolean;
+  };
+  reason?: string;
+  updatedAt?: string;
+}
+
+/**
  * Union of all notification config types.
  */
-export type NotificationConfig = AnalyticsSeriesAlertConfig | StaticSeriesAlertConfig | null;
+export type NotificationConfig =
+  | AnalyticsSeriesAlertConfig
+  | StaticSeriesAlertConfig
+  | GlobalUnsubscribeConfig
+  | null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Domain Entities
@@ -143,19 +171,7 @@ export interface Notification {
   updatedAt: Date;
 }
 
-/**
- * Delivery status for outbox pattern.
- */
-export type DeliveryStatus =
-  | 'pending'
-  | 'sending'
-  | 'sent'
-  | 'delivered'
-  | 'failed_transient'
-  | 'failed_permanent'
-  | 'suppressed'
-  | 'skipped_unsubscribed'
-  | 'skipped_no_email';
+export type { DeliveryStatus } from '@/common/types/index.js';
 
 /**
  * Notification delivery record.
@@ -163,11 +179,10 @@ export type DeliveryStatus =
 export interface NotificationDelivery {
   id: string;
   userId: string;
-  notificationId: string;
-  periodKey: string;
+  notificationId: string | null;
+  scopeKey: string;
   deliveryKey: string;
   status: DeliveryStatus;
-  unsubscribeToken: string | null;
   renderedSubject: string | null;
   renderedHtml: string | null;
   renderedText: string | null;
@@ -185,15 +200,11 @@ export interface NotificationDelivery {
 }
 
 /**
- * Unsubscribe token entity.
+ * Delivery history record exposed by the deliveries repository.
+ * The underlying query guarantees sentAt is present.
  */
-export interface UnsubscribeToken {
-  token: string;
-  userId: string;
-  notificationId: string;
-  createdAt: Date;
-  expiresAt: Date;
-  usedAt: Date | null;
+export interface NotificationDeliveryHistory extends Omit<NotificationDelivery, 'sentAt'> {
+  sentAt: Date;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +256,8 @@ export function generatePeriodKey(notificationType: NotificationType, date: Date
       return generatePreviousQuarterKey(date);
     case 'newsletter_entity_yearly':
       return generatePreviousYearKey(date);
+    case 'global_unsubscribe':
+      return 'global';
   }
 }
 
@@ -309,6 +322,13 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     requiresEntity: false,
     requiresConfig: true,
   },
+  global_unsubscribe: {
+    type: 'global_unsubscribe',
+    label: 'Global Email Unsubscribe',
+    description: 'When active, suppresses all email delivery for this user',
+    requiresEntity: false,
+    requiresConfig: false,
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,12 +382,12 @@ export function generateNotificationHash(
 
 /**
  * Generates delivery key for duplicate prevention.
- * Format: "{userId}:{notificationId}:{periodKey}"
+ * Format: "{userId}:{notificationId}:{scopeKey}"
  */
 export function generateDeliveryKey(
   userId: string,
   notificationId: string,
-  periodKey: string
+  scopeKey: string
 ): string {
-  return `${userId}:${notificationId}:${periodKey}`;
+  return `${userId}:${notificationId}:${scopeKey}`;
 }

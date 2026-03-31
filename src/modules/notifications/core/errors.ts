@@ -72,21 +72,11 @@ export interface ConfigRequiredError {
 }
 
 /**
- * Unsubscribe token not found.
- */
-export interface TokenNotFoundError {
-  readonly type: 'TokenNotFoundError';
-  readonly message: string;
-  readonly token: string;
-}
-
-/**
- * Token is expired or already used.
+ * Unsubscribe token is invalid (bad signature or malformed).
  */
 export interface TokenInvalidError {
   readonly type: 'TokenInvalidError';
   readonly message: string;
-  readonly token: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,7 +93,6 @@ export type NotificationError =
   | InvalidConfigError
   | EntityRequiredError
   | ConfigRequiredError
-  | TokenNotFoundError
   | TokenInvalidError;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,21 +169,11 @@ export const createConfigRequiredError = (
 });
 
 /**
- * Creates a TokenNotFoundError.
- */
-export const createTokenNotFoundError = (token: string): TokenNotFoundError => ({
-  type: 'TokenNotFoundError',
-  message: 'Unsubscribe token not found',
-  token,
-});
-
-/**
  * Creates a TokenInvalidError.
  */
-export const createTokenInvalidError = (token: string): TokenInvalidError => ({
+export const createTokenInvalidError = (): TokenInvalidError => ({
   type: 'TokenInvalidError',
-  message: 'Token is expired or has already been used',
-  token,
+  message: 'Invalid unsubscribe token',
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,7 +190,6 @@ export const NOTIFICATION_ERROR_HTTP_STATUS: Record<NotificationError['type'], n
   InvalidConfigError: 400,
   EntityRequiredError: 400,
   ConfigRequiredError: 400,
-  TokenNotFoundError: 404,
   TokenInvalidError: 400,
 };
 

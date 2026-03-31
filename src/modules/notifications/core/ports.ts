@@ -8,14 +8,21 @@ import type { NotificationError } from './errors.js';
 import type {
   Notification,
   NotificationConfig,
-  NotificationDelivery,
+  NotificationDeliveryHistory,
   NotificationType,
-  UnsubscribeToken,
 } from './types.js';
 import type { Result } from 'neverthrow';
 
 // Re-export Hasher for backwards compatibility with existing imports
 export type { Hasher } from './types.js';
+
+/**
+ * Signs and verifies stateless unsubscribe tokens.
+ */
+export interface UnsubscribeTokenSigner {
+  sign(userId: string): string;
+  verify(token: string): { userId: string } | null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Notifications Repository
@@ -103,6 +110,12 @@ export interface NotificationsRepository {
    * Returns the deleted notification or null if not found.
    */
   deleteCascade(id: string): Promise<Result<Notification | null, NotificationError>>;
+
+  /**
+   * Finds or creates the global_unsubscribe row for a user and sets is_active = false.
+   * Idempotent: calling multiple times has the same effect.
+   */
+  deactivateGlobalUnsubscribe(userId: string): Promise<Result<void, NotificationError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,29 +133,5 @@ export interface DeliveriesRepository {
     userId: string,
     limit: number,
     offset: number
-  ): Promise<Result<NotificationDelivery[], NotificationError>>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Unsubscribe Tokens Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Repository interface for unsubscribe tokens.
- */
-export interface UnsubscribeTokensRepository {
-  /**
-   * Finds a token by its value.
-   */
-  findByToken(token: string): Promise<Result<UnsubscribeToken | null, NotificationError>>;
-
-  /**
-   * Checks if a token is valid (exists, not expired, not used).
-   */
-  isTokenValid(token: string): Promise<Result<boolean, NotificationError>>;
-
-  /**
-   * Marks a token as used.
-   */
-  markAsUsed(token: string): Promise<Result<UnsubscribeToken, NotificationError>>;
+  ): Promise<Result<NotificationDeliveryHistory[], NotificationError>>;
 }

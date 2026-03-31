@@ -20,29 +20,37 @@ import { makeNotificationRoutes } from '@/modules/notifications/shell/rest/route
 import {
   makeFakeNotificationsRepo,
   makeFakeDeliveriesRepo,
-  makeFakeUnsubscribeTokensRepo,
+  makeFakeTokenSigner,
   createTestNotification,
   createTestDelivery,
-  createTestUnsubscribeToken,
 } from '../fixtures/fakes.js';
 
+import type { UnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import type {
   NotificationsRepository,
   DeliveriesRepository,
-  UnsubscribeTokensRepository,
 } from '@/modules/notifications/core/ports.js';
 
 /**
  * Creates a test Fastify app with notification routes.
  */
+const defaultTokenSigner = makeFakeTokenSigner();
+
 const createTestApp = async (options: {
   notificationsRepo?: NotificationsRepository;
   deliveriesRepo?: DeliveriesRepository;
-  tokensRepo?: UnsubscribeTokensRepository;
+  tokenSigner?: UnsubscribeTokenSigner;
 }) => {
   const { provider } = createTestAuthProvider();
 
-  const app = fastifyLib({ logger: false });
+  // HMAC-signed unsubscribe tokens are ~100+ chars (base64url of userId + HMAC).
+  // Fastify's default maxParamLength is 100; increase to support real tokens.
+  const app = fastifyLib({
+    logger: false,
+    routerOptions: {
+      maxParamLength: 512,
+    },
+  });
 
   // Add custom error handler to format all errors consistently
   app.setErrorHandler((err, _request, reply) => {
@@ -61,13 +69,13 @@ const createTestApp = async (options: {
   // Register notification routes
   const notificationsRepo = options.notificationsRepo ?? makeFakeNotificationsRepo();
   const deliveriesRepo = options.deliveriesRepo ?? makeFakeDeliveriesRepo();
-  const tokensRepo = options.tokensRepo ?? makeFakeUnsubscribeTokensRepo();
+  const tokenSigner = options.tokenSigner ?? defaultTokenSigner;
 
   await app.register(
     makeNotificationRoutes({
       notificationsRepo,
       deliveriesRepo,
-      tokensRepo,
+      tokenSigner,
       hasher: sha256Hasher,
     })
   );
@@ -503,13 +511,13 @@ describe('Notifications REST API', () => {
         createTestDelivery({
           id: 'd1',
           userId: testAuth.userIds.user1,
-          periodKey: '2024-01',
+          scopeKey: '2024-01',
           toEmail: 'user1@example.com',
         }),
         createTestDelivery({
           id: 'd2',
           userId: testAuth.userIds.user1,
-          periodKey: '2024-02',
+          scopeKey: '2024-02',
         }),
       ];
 
@@ -531,6 +539,42 @@ describe('Notifications REST API', () => {
       expect(body.ok).toBe(true);
       expect(body.data).toHaveLength(2);
       expect(body.data[0]).not.toHaveProperty('toEmail');
+      expect(body.data[0]).toHaveProperty('status');
+    });
+
+    it('returns notificationId null when a delivery has no single source reference', async () => {
+      const deliveries = [
+        createTestDelivery({
+          id: 'd-null',
+          userId: testAuth.userIds.user1,
+          notificationId: null,
+          deliveryKey: `${testAuth.userIds.user1}:no-reference:2024-01`,
+          scopeKey: '2024-01',
+        }),
+      ];
+
+      if (app != null) await app.close();
+      app = await createTestApp({
+        deliveriesRepo: makeFakeDeliveriesRepo({ deliveries }),
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/notifications/deliveries',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data).toEqual([
+        expect.objectContaining({
+          id: 'd-null',
+          notificationId: null,
+        }),
+      ]);
     });
 
     it('supports pagination parameters', async () => {
@@ -591,31 +635,15 @@ describe('Notifications REST API', () => {
   });
 
   describe('POST /api/v1/notifications/unsubscribe/:token (no auth)', () => {
-    // Test UUID for unsubscribe tests
-    const testUuid5 = '55555555-5555-5555-5555-555555555555';
-
-    it('unsubscribes via valid token without authentication', async () => {
-      const notification = createTestNotification({
-        id: testUuid5,
-        userId: testAuth.userIds.user1,
-        isActive: true,
-      });
-
-      const token = createTestUnsubscribeToken({
-        token: 'a'.repeat(64),
-        userId: testAuth.userIds.user1,
-        notificationId: testUuid5,
-      });
+    it('unsubscribes via valid HMAC token without authentication', async () => {
+      const signedToken = defaultTokenSigner.sign(testAuth.userIds.user1);
 
       if (app != null) await app.close();
-      app = await createTestApp({
-        notificationsRepo: makeFakeNotificationsRepo({ notifications: [notification] }),
-        tokensRepo: makeFakeUnsubscribeTokensRepo({ tokens: [token] }),
-      });
+      app = await createTestApp({});
 
       const response = await app.inject({
         method: 'POST',
-        url: `/api/v1/notifications/unsubscribe/${'a'.repeat(64)}`,
+        url: `/api/v1/notifications/unsubscribe/${signedToken}`,
         // Note: No authorization header - this endpoint is public
       });
 
@@ -624,13 +652,13 @@ describe('Notifications REST API', () => {
       expect(response.body).toBe('');
     });
 
-    it('returns 200 with empty body for unknown token (prevents enumeration)', async () => {
+    it('returns 200 with empty body for invalid/tampered token (prevents enumeration)', async () => {
       if (app != null) await app.close();
       app = await createTestApp({});
 
       const response = await app.inject({
         method: 'POST',
-        url: `/api/v1/notifications/unsubscribe/${'b'.repeat(64)}`,
+        url: `/api/v1/notifications/unsubscribe/invalid-token-garbage`,
       });
 
       // RFC 8058: One-click always returns 200 to prevent token enumeration
@@ -638,53 +666,25 @@ describe('Notifications REST API', () => {
       expect(response.body).toBe('');
     });
 
-    it('returns 200 with empty body for expired token (prevents enumeration)', async () => {
-      const pastDate = new Date();
-      pastDate.setFullYear(pastDate.getFullYear() - 2);
-
-      const token = createTestUnsubscribeToken({
-        token: 'c'.repeat(64),
-        userId: testAuth.userIds.user1,
-        notificationId: 'notification-1',
-        expiresAt: pastDate,
-      });
+    it('is idempotent (calling twice returns 200 both times)', async () => {
+      const signedToken = defaultTokenSigner.sign(testAuth.userIds.user1);
 
       if (app != null) await app.close();
-      app = await createTestApp({
-        tokensRepo: makeFakeUnsubscribeTokensRepo({ tokens: [token] }),
-      });
+      app = await createTestApp({});
 
-      const response = await app.inject({
+      const response1 = await app.inject({
         method: 'POST',
-        url: `/api/v1/notifications/unsubscribe/${'c'.repeat(64)}`,
+        url: `/api/v1/notifications/unsubscribe/${signedToken}`,
       });
+      expect(response1.statusCode).toBe(200);
+      expect(response1.body).toBe('');
 
-      // RFC 8058: One-click always returns 200 to prevent token enumeration
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('');
-    });
-
-    it('returns 200 with empty body for already used token (prevents enumeration)', async () => {
-      const token = createTestUnsubscribeToken({
-        token: 'd'.repeat(64),
-        userId: testAuth.userIds.user1,
-        notificationId: 'notification-1',
-        usedAt: new Date(), // Already used
-      });
-
-      if (app != null) await app.close();
-      app = await createTestApp({
-        tokensRepo: makeFakeUnsubscribeTokensRepo({ tokens: [token] }),
-      });
-
-      const response = await app.inject({
+      const response2 = await app.inject({
         method: 'POST',
-        url: `/api/v1/notifications/unsubscribe/${'d'.repeat(64)}`,
+        url: `/api/v1/notifications/unsubscribe/${signedToken}`,
       });
-
-      // RFC 8058: One-click always returns 200 to prevent token enumeration
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('');
+      expect(response2.statusCode).toBe(200);
+      expect(response2.body).toBe('');
     });
   });
 });

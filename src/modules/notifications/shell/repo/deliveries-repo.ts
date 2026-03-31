@@ -6,10 +6,16 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
+import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
+
 import { createDatabaseError, type NotificationError } from '../../core/errors.js';
+import {
+  ALERT_TYPES,
+  NEWSLETTER_TYPES,
+  type NotificationDeliveryHistory,
+} from '../../core/types.js';
 
 import type { DeliveriesRepository } from '../../core/ports.js';
-import type { NotificationDelivery } from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { Logger } from 'pino';
 
@@ -23,11 +29,11 @@ import type { Logger } from 'pino';
 interface QueryRow {
   id: string;
   user_id: string;
-  notification_id: string;
-  period_key: string;
+  notification_type: string;
+  reference_id: string | null;
+  scope_key: string;
   delivery_key: string;
   status: string;
-  unsubscribe_token: string | null;
   rendered_subject: string | null;
   rendered_html: string | null;
   rendered_text: string | null;
@@ -72,22 +78,22 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
     userId: string,
     limit: number,
     offset: number
-  ): Promise<Result<NotificationDelivery[], NotificationError>> {
+  ): Promise<Result<NotificationDeliveryHistory[], NotificationError>> {
     this.log.debug({ userId, limit, offset }, 'Finding deliveries by user ID');
 
     try {
       // Keep the full delivery record in the domain model.
       // The REST serializer decides which fields are safe to expose.
       const rows = await this.db
-        .selectFrom('notificationdeliveries')
+        .selectFrom('notificationoutbox')
         .select([
           'id',
           'user_id',
-          'notification_id',
-          'period_key',
+          'notification_type',
+          'reference_id',
+          'scope_key',
           'delivery_key',
           'status',
-          'unsubscribe_token',
           'rendered_subject',
           'rendered_html',
           'rendered_text',
@@ -104,6 +110,9 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
           'created_at',
         ])
         .where('user_id', '=', userId)
+        .where('notification_type', 'in', [...NEWSLETTER_TYPES, ...ALERT_TYPES])
+        .where('sent_at', 'is not', null)
+        .orderBy('sent_at', 'desc')
         .orderBy('created_at', 'desc')
         .limit(limit)
         .offset(offset)
@@ -124,15 +133,14 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
   /**
    * Maps a database row to NotificationDelivery domain type.
    */
-  private mapRowToDelivery(row: QueryRow): NotificationDelivery {
+  private mapRowToDelivery(row: QueryRow): NotificationDeliveryHistory {
     return {
       id: row.id,
       userId: row.user_id,
-      notificationId: row.notification_id,
-      periodKey: row.period_key,
+      notificationId: row.reference_id ?? null,
+      scopeKey: row.scope_key,
       deliveryKey: row.delivery_key,
-      status: row.status as NotificationDelivery['status'],
-      unsubscribeToken: row.unsubscribe_token,
+      status: row.status as NotificationDeliveryHistory['status'],
       renderedSubject: row.rendered_subject,
       renderedHtml: row.rendered_html,
       renderedText: row.rendered_text,
@@ -143,27 +151,14 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
       resendEmailId: row.resend_email_id,
       lastError: row.last_error,
       attemptCount: row.attempt_count,
-      lastAttemptAt: row.last_attempt_at !== null ? this.toDate(row.last_attempt_at) : null,
-      sentAt: row.sent_at !== null ? this.toDate(row.sent_at) : null,
+      lastAttemptAt:
+        row.last_attempt_at !== null
+          ? parseDbTimestamp(row.last_attempt_at, 'last_attempt_at')
+          : null,
+      sentAt: parseDbTimestamp(row.sent_at, 'sent_at'),
       metadata: row.metadata ?? {},
-      createdAt: this.toDate(row.created_at),
+      createdAt: parseDbTimestamp(row.created_at, 'created_at'),
     };
-  }
-
-  /**
-   * Converts Kysely timestamp to Date.
-   */
-  private toDate(value: unknown): Date {
-    if (value instanceof Date) {
-      return value;
-    }
-    if (typeof value === 'string') {
-      return new Date(value);
-    }
-    if (typeof value === 'object' && value !== null && 'toISOString' in value) {
-      return new Date((value as { toISOString: () => string }).toISOString());
-    }
-    return new Date();
   }
 }
 

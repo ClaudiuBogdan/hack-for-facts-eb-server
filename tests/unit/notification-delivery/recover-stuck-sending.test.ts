@@ -7,6 +7,7 @@
  * - Error handling and result reporting
  */
 
+import { ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
@@ -65,25 +66,25 @@ describe('recoverStuckSending use case', () => {
       }
     });
 
-    it('ignores deliveries in non-sending statuses', async () => {
-      const pending = createTestDeliveryRecord({
-        id: 'delivery-pending',
-        status: 'pending',
-        lastAttemptAt: new Date('2025-01-15T10:00:00Z'), // 2 hours ago
-      });
-      const sent = createTestDeliveryRecord({
-        id: 'delivery-sent',
-        status: 'sent',
-        lastAttemptAt: new Date('2025-01-15T10:00:00Z'),
-      });
+    it('ignores deliveries already in terminal statuses', async () => {
       const delivered = createTestDeliveryRecord({
         id: 'delivery-delivered',
         status: 'delivered',
         lastAttemptAt: new Date('2025-01-15T10:00:00Z'),
       });
+      const suppressed = createTestDeliveryRecord({
+        id: 'delivery-suppressed',
+        status: 'suppressed',
+        lastAttemptAt: new Date('2025-01-15T10:00:00Z'),
+      });
+      const skippedNoEmail = createTestDeliveryRecord({
+        id: 'delivery-skipped-no-email',
+        status: 'skipped_no_email',
+        lastAttemptAt: new Date('2025-01-15T10:00:00Z'),
+      });
 
       const deliveryRepo = makeFakeDeliveryRepo({
-        deliveries: [pending, sent, delivered],
+        deliveries: [delivered, suppressed, skippedNoEmail],
       });
 
       const result = await recoverStuckSending({ deliveryRepo, logger: testLogger }, {});
@@ -199,6 +200,37 @@ describe('recoverStuckSending use case', () => {
         expect(result1.value.foundCount).toBe(1);
       }
     });
+
+    it('does not overwrite deliveries that changed state before recovery', async () => {
+      const deliveryRepo = {
+        findStuckSending: async () =>
+          ok([
+            createTestDeliveryRecord({
+              id: 'delivery-raced',
+              status: 'sending',
+              lastAttemptAt: new Date('2025-01-15T11:00:00Z'),
+            }),
+          ]),
+        findPendingComposeOrphans: async () => ok([]),
+        findReadyToSendOrphans: async () => ok([]),
+        findSentAwaitingWebhook: async () => ok([]),
+        updateStatusIfStillSending: async () => ok(false),
+        updateStatusIfCurrentIn: async () => ok(false),
+      } as never;
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.foundCount).toBe(1);
+        expect(result.value.recoveredCount).toBe(0);
+        expect(result.value.recoveredIds).toEqual([]);
+        expect(result.value.errors).toEqual({});
+      }
+    });
   });
 
   describe('error handling', () => {
@@ -234,6 +266,184 @@ describe('recoverStuckSending use case', () => {
       if (result.isOk()) {
         // No errors expected in this case
         expect(Object.keys(result.value.errors).length).toBe(0);
+      }
+    });
+
+    it('recovers sending rows with null lastAttemptAt', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-null-attempt',
+            status: 'sending',
+            lastAttemptAt: null,
+            createdAt: new Date('2025-01-15T11:00:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.sendRetryIds).toContain('delivery-null-attempt');
+      }
+    });
+
+    it('re-enqueues pending compose orphans without changing their status', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-compose-orphan',
+            status: 'pending',
+            createdAt: new Date('2025-01-15T11:00:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.composeRetryIds).toContain('delivery-compose-orphan');
+      }
+
+      const stored = await deliveryRepo.findById('delivery-compose-orphan');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('pending');
+      }
+    });
+
+    it('resets stale composing rows to pending before re-enqueueing compose', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-compose-stale',
+            status: 'composing',
+            createdAt: new Date('2025-01-15T11:00:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.composeRetryIds).toContain('delivery-compose-stale');
+      }
+
+      const stored = await deliveryRepo.findById('delivery-compose-stale');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('pending');
+        expect(stored.value?.lastError).toContain('Recovered stale composing delivery');
+      }
+    });
+
+    it('does not recover recently claimed composing rows just because the outbox is old', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-compose-active',
+            status: 'pending',
+            createdAt: new Date('2025-01-15T10:00:00Z'),
+            lastAttemptAt: null,
+          }),
+        ],
+      });
+
+      const claimResult = await deliveryRepo.claimForCompose('delivery-compose-active');
+      expect(claimResult.isOk()).toBe(true);
+      if (claimResult.isOk()) {
+        expect(claimResult.value?.status).toBe('composing');
+      }
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.composeRetryIds).not.toContain('delivery-compose-active');
+        expect(result.value.recoveredIds).not.toContain('delivery-compose-active');
+      }
+
+      const stored = await deliveryRepo.findById('delivery-compose-active');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('composing');
+      }
+    });
+
+    it('moves stale sent rows back to failed_transient inside the idempotency window', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-sent-retry',
+            status: 'sent',
+            renderedSubject: 'Subject',
+            renderedHtml: '<p>Hello</p>',
+            renderedText: 'Hello',
+            sentAt: new Date('2025-01-15T11:00:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.sendRetryIds).toContain('delivery-sent-retry');
+      }
+
+      const stored = await deliveryRepo.findById('delivery-sent-retry');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('failed_transient');
+      }
+    });
+
+    it('marks stale sent rows outside the idempotency window as webhook_timeout', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'delivery-webhook-timeout',
+            status: 'sent',
+            renderedSubject: 'Subject',
+            renderedHtml: '<p>Hello</p>',
+            renderedText: 'Hello',
+            sentAt: new Date('2025-01-14T10:00:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending(
+        { deliveryRepo, logger: testLogger },
+        { thresholdMinutes: 15 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.timedOutIds).toContain('delivery-webhook-timeout');
+      }
+
+      const stored = await deliveryRepo.findById('delivery-webhook-timeout');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('webhook_timeout');
       }
     });
   });

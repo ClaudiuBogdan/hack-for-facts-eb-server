@@ -28,8 +28,9 @@ describe('DeliveryRepository (fake)', () => {
 
       const result = await repo.create({
         userId: 'user-1',
-        notificationId: 'notif-1',
-        periodKey: '2025-01',
+        notificationType: 'newsletter_entity_monthly',
+        referenceId: 'notif-1',
+        scopeKey: '2025-01',
         deliveryKey: 'user-1:notif-1:2025-01',
       });
 
@@ -37,8 +38,9 @@ describe('DeliveryRepository (fake)', () => {
       if (result.isOk()) {
         expect(result.value.status).toBe('pending');
         expect(result.value.userId).toBe('user-1');
-        expect(result.value.notificationId).toBe('notif-1');
-        expect(result.value.periodKey).toBe('2025-01');
+        expect(result.value.notificationType).toBe('newsletter_entity_monthly');
+        expect(result.value.referenceId).toBe('notif-1');
+        expect(result.value.scopeKey).toBe('2025-01');
         expect(result.value.deliveryKey).toBe('user-1:notif-1:2025-01');
         expect(result.value.attemptCount).toBe(0);
       }
@@ -52,8 +54,9 @@ describe('DeliveryRepository (fake)', () => {
 
       const result = await repo.create({
         userId: 'user-1',
-        notificationId: 'notif-1',
-        periodKey: '2025-01',
+        notificationType: 'newsletter_entity_monthly',
+        referenceId: 'notif-1',
+        scopeKey: '2025-01',
         deliveryKey: 'user-1:notif-1:2025-01',
       });
 
@@ -68,8 +71,9 @@ describe('DeliveryRepository (fake)', () => {
 
       const result = await repo.create({
         userId: 'user-1',
-        notificationId: 'notif-1',
-        periodKey: '2025-01',
+        notificationType: 'newsletter_entity_monthly',
+        referenceId: 'notif-1',
+        scopeKey: '2025-01',
         deliveryKey: 'user-1:notif-1:2025-01',
         renderedSubject: 'Test Subject',
         renderedHtml: '<p>HTML content</p>',
@@ -150,6 +154,9 @@ describe('DeliveryRepository (fake)', () => {
         id: 'delivery-pending',
         status: 'pending',
         attemptCount: 0,
+        renderedSubject: 'Subject',
+        renderedHtml: '<p>Hello</p>',
+        renderedText: 'Hello',
       });
       const repo = makeFakeDeliveryRepo({ deliveries: [pending] });
 
@@ -169,6 +176,9 @@ describe('DeliveryRepository (fake)', () => {
         id: 'delivery-failed',
         status: 'failed_transient',
         attemptCount: 2,
+        renderedSubject: 'Subject',
+        renderedHtml: '<p>Hello</p>',
+        renderedText: 'Hello',
       });
       const repo = makeFakeDeliveryRepo({ deliveries: [failedTransient] });
 
@@ -338,6 +348,46 @@ describe('DeliveryRepository (fake)', () => {
     });
   });
 
+  describe('claimForCompose', () => {
+    it('claims pending outbox rows that still need rendered content', async () => {
+      const pending = createTestDeliveryRecord({
+        id: 'delivery-compose',
+        status: 'pending',
+        renderedSubject: null,
+        renderedHtml: null,
+        renderedText: null,
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [pending] });
+
+      const result = await repo.claimForCompose('delivery-compose');
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value?.status).toBe('composing');
+        expect(result.value?.lastAttemptAt).not.toBeNull();
+        expect(result.value?.attemptCount).toBe(0);
+      }
+    });
+
+    it('does not claim already composed pending rows', async () => {
+      const pending = createTestDeliveryRecord({
+        id: 'delivery-compose-ready',
+        status: 'pending',
+        renderedSubject: 'Subject',
+        renderedHtml: '<p>Hello</p>',
+        renderedText: 'Hello',
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [pending] });
+
+      const result = await repo.claimForCompose('delivery-compose-ready');
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBeNull();
+      }
+    });
+  });
+
   describe('findStuckSending', () => {
     it('finds deliveries stuck in sending status', async () => {
       const stuckDelivery = createTestDeliveryRecord({
@@ -387,6 +437,23 @@ describe('DeliveryRepository (fake)', () => {
         expect(result.value.length).toBe(0);
       }
     });
+
+    it('includes sending deliveries whose lastAttemptAt is null', async () => {
+      const pending = createTestDeliveryRecord({
+        id: 'delivery-null-attempt',
+        status: 'sending',
+        lastAttemptAt: null,
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [pending] });
+
+      const result = await repo.findStuckSending(15);
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.length).toBe(1);
+        expect(result.value[0]?.id).toBe('delivery-null-attempt');
+      }
+    });
   });
 
   describe('existsByDeliveryKey', () => {
@@ -422,8 +489,9 @@ describe('DeliveryRepository (fake)', () => {
 
       const createResult = await repo.create({
         userId: 'user-1',
-        notificationId: 'notif-1',
-        periodKey: '2025-01',
+        notificationType: 'newsletter_entity_monthly',
+        referenceId: 'notif-1',
+        scopeKey: '2025-01',
         deliveryKey: 'user-1:notif-1:2025-01',
       });
 

@@ -4,38 +4,21 @@
  * Types for the delivery pipeline (outbox pattern).
  */
 
+import type { DeliveryStatus } from '@/common/types/index.js';
 import type { NotificationType } from '@/modules/notifications/core/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Delivery Status
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Delivery status for outbox pattern.
- *
- * Lifecycle: pending → sending → sent → delivered (via webhook)
- *                    ↘ failed_transient (retryable)
- *                    ↘ failed_permanent (no retry)
- *                    ↘ suppressed (from webhook)
- *                    ↘ skipped_unsubscribed
- *                    ↘ skipped_no_email
- */
-export type DeliveryStatus =
-  | 'pending'
-  | 'sending'
-  | 'sent'
-  | 'delivered'
-  | 'failed_transient'
-  | 'failed_permanent'
-  | 'suppressed'
-  | 'skipped_unsubscribed'
-  | 'skipped_no_email';
+export type { DeliveryStatus } from '@/common/types/index.js';
 
 /**
  * Statuses that indicate the delivery is complete.
  */
 export const TERMINAL_STATUSES: readonly DeliveryStatus[] = [
   'delivered',
+  'webhook_timeout',
   'failed_permanent',
   'suppressed',
   'skipped_unsubscribed',
@@ -50,30 +33,85 @@ export const CLAIMABLE_STATUSES: readonly DeliveryStatus[] = [
   'failed_transient',
 ] as const;
 
+export const isReadyToSendDelivery = (
+  delivery: Pick<
+    NotificationOutboxRecord,
+    'status' | 'renderedSubject' | 'renderedHtml' | 'renderedText'
+  >
+): boolean => {
+  return (
+    CLAIMABLE_STATUSES.includes(delivery.status) &&
+    delivery.renderedSubject !== null &&
+    delivery.renderedHtml !== null &&
+    delivery.renderedText !== null
+  );
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Delivery Record
+// Notification Outbox Record
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * A delivery record in the outbox.
+ * All notification types that can be persisted in the notification outbox.
  */
-export interface DeliveryRecord {
+export type BundleOutboxType = 'anaf_forexebug_digest';
+
+export const BUNDLE_OUTBOX_TYPES: readonly BundleOutboxType[] = ['anaf_forexebug_digest'] as const;
+export const ANAF_FOREXEBUG_DIGEST_SCOPE_PREFIX = 'digest:anaf_forexebug:';
+const MONTHLY_PERIOD_KEY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/u;
+
+export const isBundleOutboxType = (value: string): value is BundleOutboxType => {
+  return BUNDLE_OUTBOX_TYPES.includes(value as BundleOutboxType);
+};
+
+export const buildAnafForexebugDigestScopeKey = (periodKey: string): string => {
+  return `${ANAF_FOREXEBUG_DIGEST_SCOPE_PREFIX}${periodKey}`;
+};
+
+/**
+ * During rollout we still accept legacy raw monthly period scopes for existing
+ * digest rows, but new rows should always use the prefixed namespace.
+ */
+export const parseAnafForexebugDigestScopeKey = (scopeKey: string): string | null => {
+  if (scopeKey.startsWith(ANAF_FOREXEBUG_DIGEST_SCOPE_PREFIX)) {
+    const periodKey = scopeKey.slice(ANAF_FOREXEBUG_DIGEST_SCOPE_PREFIX.length);
+    return MONTHLY_PERIOD_KEY_PATTERN.test(periodKey) ? periodKey : null;
+  }
+
+  return MONTHLY_PERIOD_KEY_PATTERN.test(scopeKey) ? scopeKey : null;
+};
+
+export type NotificationOutboxType = NotificationType | 'transactional_welcome' | BundleOutboxType;
+
+export interface AnafForexebugDigestMetadata {
+  digestType: 'anaf_forexebug_digest';
+  sourceNotificationIds: string[];
+  itemCount: number;
+  periodLabel?: string;
+  designDoc?: string;
+}
+export type BundleOutboxMetadata = AnafForexebugDigestMetadata;
+
+/**
+ * A durable outbox record used for compose/send/audit/recovery.
+ */
+export interface NotificationOutboxRecord {
   /** UUID - use for Resend tags and idempotency key */
   id: string;
   /** User ID */
   userId: string;
   /** Snapshot of email used at send time */
   toEmail: string | null;
-  /** FK to Notifications table */
-  notificationId: string;
-  /** Period key (e.g., '2025-01', '2025-Q1') */
-  periodKey: string;
-  /** Composite deduplication key: userId:notificationId:periodKey */
+  /** Notification type for this outbox row */
+  notificationType: NotificationOutboxType;
+  /** Optional reference object ID interpreted by notificationType */
+  referenceId: string | null;
+  /** Scope key used for deduplication and replay boundaries */
+  scopeKey: string;
+  /** Composite deduplication key */
   deliveryKey: string;
   /** Current status */
   status: DeliveryStatus;
-  /** FK to UnsubscribeTokens */
-  unsubscribeToken: string | null;
   /** Rendered email subject */
   renderedSubject: string | null;
   /** Rendered HTML content */
@@ -101,6 +139,8 @@ export interface DeliveryRecord {
   /** When the record was created */
   createdAt: Date;
 }
+
+export type DeliveryRecord = NotificationOutboxRecord;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trigger Types
@@ -154,28 +194,55 @@ export interface CollectJobPayload {
   notificationType: NotificationType;
   /** Period key */
   periodKey: string;
-  /** Notification IDs to process */
+  /** Notification reference IDs to process */
   notificationIds: string[];
 }
 
 /**
- * Payload for the compose job.
+ * Payload for a subscription compose job.
  */
-export interface ComposeJobPayload {
+export interface ComposeSubscriptionJobPayload {
   /** Unique run identifier */
   runId: string;
-  /** Notification ID to compose */
+  /** Compose strategy */
+  kind: 'subscription';
+  /** Notification reference ID to compose */
   notificationId: string;
   /** Period key */
   periodKey: string;
 }
 
 /**
+ * Payload for a direct outbox compose job.
+ */
+export interface ComposeOutboxJobPayload {
+  /** Unique run identifier */
+  runId: string;
+  /** Compose strategy */
+  kind: 'outbox';
+  /** Existing outbox row ID */
+  outboxId: string;
+}
+
+/**
+ * Payload for the compose job.
+ */
+export type ComposeJobPayload = ComposeSubscriptionJobPayload | ComposeOutboxJobPayload;
+
+/**
  * Payload for the send job.
  */
 export interface SendJobPayload {
-  /** Delivery ID to send */
-  deliveryId: string;
+  /** Outbox ID to send */
+  outboxId: string;
+}
+
+/**
+ * Payload for the stuck-sending recovery job.
+ */
+export interface RecoveryJobPayload {
+  /** Threshold in minutes after which a sending delivery is considered stuck */
+  thresholdMinutes: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

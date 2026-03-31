@@ -304,6 +304,32 @@ describe('updateNotification use case', () => {
         expect(result.error.type).toBe('InvalidConfigError');
       }
     });
+
+    it('returns ConfigRequiredError for null analytics config', async () => {
+      const notification = createTestNotification({
+        id: 'notification-1',
+        userId: 'user-1',
+        notificationType: 'alert_series_analytics',
+        config: validAnalyticsConfig,
+      });
+      const repo = makeFakeNotificationsRepo({ notifications: [notification] });
+
+      const result = await updateNotification(
+        { notificationsRepo: repo, hasher },
+        {
+          notificationId: 'notification-1',
+          userId: 'user-1',
+          updates: {
+            config: null,
+          },
+        }
+      );
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.type).toBe('ConfigRequiredError');
+      }
+    });
   });
 
   describe('updating static alert config', () => {
@@ -428,6 +454,32 @@ describe('updateNotification use case', () => {
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
         expect(result.error.type).toBe('InvalidConfigError');
+      }
+    });
+
+    it('returns ConfigRequiredError for null static config', async () => {
+      const notification = createTestNotification({
+        id: 'notification-1',
+        userId: 'user-1',
+        notificationType: 'alert_series_static',
+        config: validStaticConfig,
+      });
+      const repo = makeFakeNotificationsRepo({ notifications: [notification] });
+
+      const result = await updateNotification(
+        { notificationsRepo: repo, hasher },
+        {
+          notificationId: 'notification-1',
+          userId: 'user-1',
+          updates: {
+            config: null,
+          },
+        }
+      );
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.type).toBe('ConfigRequiredError');
       }
     });
   });

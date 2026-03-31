@@ -36,12 +36,12 @@ describe('listDeliveries use case', () => {
         createTestDelivery({
           id: 'delivery-1',
           userId: 'user-1',
-          periodKey: '2024-01',
+          scopeKey: '2024-01',
         }),
         createTestDelivery({
           id: 'delivery-2',
           userId: 'user-1',
-          periodKey: '2024-02',
+          scopeKey: '2024-02',
         }),
         createTestDelivery({
           id: 'delivery-3',
@@ -229,7 +229,7 @@ describe('listDeliveries use case', () => {
         id: 'delivery-1',
         userId: 'user-1',
         notificationId: 'notification-1',
-        periodKey: '2024-01',
+        scopeKey: '2024-01',
         deliveryKey: 'user-1:notification-1:2024-01',
         status: 'sent',
         sentAt: now,
@@ -247,7 +247,7 @@ describe('listDeliveries use case', () => {
         expect(returned?.id).toBe('delivery-1');
         expect(returned?.userId).toBe('user-1');
         expect(returned?.notificationId).toBe('notification-1');
-        expect(returned?.periodKey).toBe('2024-01');
+        expect(returned?.scopeKey).toBe('2024-01');
         expect(returned?.deliveryKey).toBe('user-1:notification-1:2024-01');
         expect(returned?.status).toBe('sent');
         expect(returned?.metadata).toEqual({ subject: 'Test notification' });

@@ -37,30 +37,31 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_active ON Notifications(user_i
 CREATE INDEX IF NOT EXISTS idx_notifications_entity ON Notifications(entity_cui) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_notifications_type_active ON Notifications(notification_type) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_notifications_hash ON Notifications(hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_global_unsubscribe_user
+ON Notifications(user_id, notification_type)
+WHERE notification_type = 'global_unsubscribe';
 
--- NotificationDeliveries: Tracks notification delivery lifecycle (outbox pattern)
+-- NotificationOutbox: Durable sent/queued/audited notification records
 -- Status lifecycle: pending → sending → sent → delivered (via webhook)
---                           ↘ failed_transient (retryable)
---                           ↘ failed_permanent (no retry)
---                           ↘ suppressed (from webhook)
---                           ↘ skipped_unsubscribed
---                           ↘ skipped_no_email
-CREATE TABLE IF NOT EXISTS NotificationDeliveries (
+--                        ↘ failed_transient (retryable)
+--                        ↘ failed_permanent (no retry)
+--                        ↘ suppressed (from webhook)
+--                        ↘ skipped_unsubscribed
+--                        ↘ skipped_no_email
+CREATE TABLE IF NOT EXISTS NotificationOutbox (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT NOT NULL,
-  notification_id UUID NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
+  notification_type VARCHAR(50) NOT NULL,
+  reference_id TEXT NULL,
 
-  -- Period identifier for deduplication
-  period_key TEXT NOT NULL, -- '2025-01', '2025-Q1', '2025'
+  -- Scope identifier for notifications with the same scope
+  scope_key TEXT NOT NULL, -- '2025-01', '2025-Q1', '2025', 'welcome'
 
-  -- Composite deduplication key: user_id:notification_id:period_key
+  -- Composite deduplication key: notification-specific durable unique key
   delivery_key TEXT UNIQUE NOT NULL,
 
   -- Delivery status (outbox pattern)
-  status VARCHAR(20) NOT NULL DEFAULT 'pending',
-
-  -- FK to UnsubscribeTokens (set at compose time)
-  unsubscribe_token TEXT REFERENCES UnsubscribeTokens(token) ON DELETE SET NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
 
   -- Rendered email content (persisted for retry safety)
   rendered_subject TEXT,
@@ -73,8 +74,8 @@ CREATE TABLE IF NOT EXISTS NotificationDeliveries (
   -- Snapshot of email used at send time
   to_email TEXT,
 
-  -- Resend integration
-  resend_email_id TEXT, -- ID returned by Resend API
+  -- Provider integration
+  resend_email_id TEXT, -- ID returned by Resend API or mock sender equivalent
 
   -- Error tracking
   last_error TEXT,
@@ -83,52 +84,52 @@ CREATE TABLE IF NOT EXISTS NotificationDeliveries (
 
   -- Timestamps
   sent_at TIMESTAMPTZ,
-  metadata JSONB DEFAULT '{}'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Status check constraint for valid values
-ALTER TABLE NotificationDeliveries
-DROP CONSTRAINT IF EXISTS deliveries_status_check;
-ALTER TABLE NotificationDeliveries
-ADD CONSTRAINT deliveries_status_check
+ALTER TABLE NotificationOutbox
+DROP CONSTRAINT IF EXISTS notification_outbox_status_check;
+ALTER TABLE NotificationOutbox
+ADD CONSTRAINT notification_outbox_status_check
 CHECK (status IN (
-  'pending', 'sending', 'sent', 'delivered',
+  'pending', 'composing', 'sending', 'sent', 'delivered', 'webhook_timeout',
   'failed_transient', 'failed_permanent',
   'suppressed', 'skipped_unsubscribed', 'skipped_no_email'
 ));
 
--- Unique constraint on delivery_key (critical for idempotency)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_delivery_key_unique ON NotificationDeliveries(delivery_key);
-
-CREATE INDEX IF NOT EXISTS idx_deliveries_user_period ON NotificationDeliveries(user_id, period_key);
-CREATE INDEX IF NOT EXISTS idx_deliveries_created_at ON NotificationDeliveries(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_deliveries_notification ON NotificationDeliveries(notification_id);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_user_scope
+ON NotificationOutbox(user_id, scope_key);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_created_at
+ON NotificationOutbox(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_reference
+ON NotificationOutbox(notification_type, reference_id)
+WHERE reference_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_scope_type_reference
+ON NotificationOutbox(scope_key, notification_type, reference_id)
+WHERE reference_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_user_sent_at_desc
+ON NotificationOutbox(user_id, sent_at DESC, created_at DESC)
+WHERE sent_at IS NOT NULL;
 
 -- Index for querying pending/failed deliveries (for worker processing)
-CREATE INDEX IF NOT EXISTS idx_deliveries_status_pending
-ON NotificationDeliveries(status) WHERE status IN ('pending', 'failed_transient');
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_pending
+ON NotificationOutbox(status) WHERE status IN ('pending', 'failed_transient');
 
 -- Index for finding stuck 'sending' records (for sweeper)
-CREATE INDEX IF NOT EXISTS idx_deliveries_sending_stuck
-ON NotificationDeliveries(last_attempt_at) WHERE status = 'sending';
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_sending_stuck
+ON NotificationOutbox(last_attempt_at) WHERE status = 'sending';
 
--- Index for Resend email ID lookup (webhook processing)
-CREATE INDEX IF NOT EXISTS idx_deliveries_resend_email_id ON NotificationDeliveries(resend_email_id) WHERE resend_email_id IS NOT NULL;
+-- Index for provider email ID lookup (webhook processing)
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_resend_email_id
+ON NotificationOutbox(resend_email_id) WHERE resend_email_id IS NOT NULL;
 
--- UnsubscribeTokens: Manages unsubscribe tokens for email links
-CREATE TABLE IF NOT EXISTS UnsubscribeTokens (
-  token TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  notification_id UUID NOT NULL REFERENCES Notifications(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '1 year'),
-  used_at TIMESTAMPTZ
-);
+COMMENT ON TABLE Notifications IS
+'User-owned notification preferences and subscriptions. Sent or queued notification records live in NotificationOutbox.';
 
-CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_user ON UnsubscribeTokens(user_id) WHERE used_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_expires ON UnsubscribeTokens(expires_at) WHERE used_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_unsubscribe_tokens_notification ON UnsubscribeTokens(notification_id);
+COMMENT ON TABLE NotificationOutbox IS
+'Durable notification outbox used for deduplication, compose/send lifecycle, audit, and recovery.';
 
 -- UserInteractions: generic record storage for learning and challenge state.
 -- Clean cut from the old per-user event array model.

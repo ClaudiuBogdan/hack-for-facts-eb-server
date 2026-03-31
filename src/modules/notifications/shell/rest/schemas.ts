@@ -38,7 +38,7 @@ export const AnalyticsSeriesAlertConfigSchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 200 })),
   description: Type.Optional(Type.String({ maxLength: 1000 })),
   conditions: Type.Array(AlertConditionSchema),
-  filter: Type.Record(Type.String(), Type.Unknown()), // AnalyticsFilter is complex, validated separately
+  filter: Type.Record(Type.String(), Type.Unknown(), { maxProperties: 50 }), // AnalyticsFilter is complex, validated separately
 });
 
 /**
@@ -136,8 +136,8 @@ export type EntityCuiParams = Static<typeof EntityCuiParamsSchema>;
  * Unsubscribe token params schema.
  */
 export const UnsubscribeTokenParamsSchema = Type.Object({
-  // SECURITY: SEC-017 - Restrict token to hex characters to prevent special character injection
-  token: Type.String({ minLength: 64, maxLength: 64, pattern: '^[a-f0-9]{64}$' }),
+  // HMAC-signed tokens are base64url-encoded; accept a wide range of lengths
+  token: Type.String({ minLength: 10, maxLength: 512, pattern: '^[A-Za-z0-9_-]+$' }),
 });
 
 export type UnsubscribeTokenParams = Static<typeof UnsubscribeTokenParamsSchema>;
@@ -179,9 +179,10 @@ export const NotificationDataSchema = Type.Object({
  */
 export const DeliveryDataSchema = Type.Object({
   id: Type.String(),
-  notificationId: Type.String(),
-  periodKey: Type.String(),
+  notificationId: Type.Union([Type.String(), Type.Null()]),
+  scopeKey: Type.String(),
   sentAt: Type.String(),
+  status: Type.String(),
   metadata: Type.Unknown(),
 });
 

@@ -10,6 +10,7 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
+import { createInvalidConfigError, type NotificationError } from '../errors.js';
 import {
   type Notification,
   type NotificationType,
@@ -23,7 +24,6 @@ import {
   validateStaticAlertConfig,
 } from '../validation.js';
 
-import type { NotificationError } from '../errors.js';
 import type { Hasher, NotificationsRepository } from '../ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,6 +72,16 @@ export async function subscribe(
 
   const entityCui = inputEntityCui ?? null;
   const config = inputConfig ?? null;
+
+  if (notificationType === 'global_unsubscribe') {
+    // Change this after we add unsubscribe in the frontend
+    return err(
+      createInvalidConfigError(
+        notificationType,
+        'global_unsubscribe is system-managed and cannot be created via subscribe'
+      )
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Validate based on notification type

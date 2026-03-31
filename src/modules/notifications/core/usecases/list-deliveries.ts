@@ -5,7 +5,7 @@
  */
 
 import {
-  type NotificationDelivery,
+  type NotificationDeliveryHistory,
   DEFAULT_DELIVERIES_LIMIT,
   MAX_DELIVERIES_LIMIT,
 } from '../types.js';
@@ -45,7 +45,7 @@ export interface ListDeliveriesInput {
 export async function listDeliveries(
   deps: ListDeliveriesDeps,
   input: ListDeliveriesInput
-): Promise<Result<NotificationDelivery[], NotificationError>> {
+): Promise<Result<NotificationDeliveryHistory[], NotificationError>> {
   const { deliveriesRepo } = deps;
   const { userId, limit: inputLimit, offset: inputOffset } = input;
 

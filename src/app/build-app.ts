@@ -43,6 +43,7 @@ import {
 } from '../infra/graphql/index.js';
 import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
+import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
 import {
   makeAdvancedMapAnalyticsRepo,
   makeAdvancedMapAnalyticsRoutes,
@@ -175,7 +176,6 @@ import {
   makeNotificationRoutes,
   makeNotificationsRepo,
   makeDeliveriesRepo,
-  makeTokensRepo,
   sha256Hasher,
 } from '../modules/notifications/index.js';
 import {
@@ -895,7 +895,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const repoLogger = app.log as unknown as import('pino').Logger;
     const notificationsRepo = makeNotificationsRepo({ db: userDb, logger: repoLogger });
     const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
-    const tokensRepo = makeTokensRepo({ db: userDb, logger: repoLogger });
+    const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
+
+    if (unsubscribeSecret === undefined || unsubscribeSecret === '') {
+      throw new Error('Notification routes require UNSUBSCRIBE_HMAC_SECRET');
+    }
+
+    const tokenSigner = makeUnsubscribeTokenSigner(unsubscribeSecret);
     const emailEventsRepo =
       config.email.webhookSecret !== undefined
         ? makeResendWebhookEmailEventsRepo({
@@ -921,7 +927,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       makeNotificationRoutes({
         notificationsRepo,
         deliveriesRepo,
-        tokensRepo,
+        tokenSigner,
         hasher: sha256Hasher,
       })
     );
