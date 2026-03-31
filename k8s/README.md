@@ -20,6 +20,7 @@ k8s/
 │   ├── postgres-deployment.yaml
 │   ├── postgres-userdata.yaml
 │   ├── redis.yaml
+│   ├── bullmq-redis.yaml
 │   ├── virtual-service.yaml
 │   └── kustomization.yaml
 └── overlays/            # Environment-specific configurations
@@ -59,8 +60,16 @@ mkdir -p k8s/overlays/<env>/secrets
 kubectl create secret generic hack-for-facts-eb-server-secrets \
   --namespace=hack-for-facts-<env> \
   --from-literal=DATABASE_URL=postgresql://... \
-  --from-literal=REDIS_URL=redis://... \
+  --from-literal=BULLMQ_REDIS_URL=redis://bullmq-redis:6379 \
   --dry-run=client -o yaml > k8s/overlays/<env>/secrets/app-secret.yaml
+
+# Create the dedicated BullMQ Redis auth secret
+kubectl create secret generic bullmq-redis-auth \
+  --namespace=hack-for-facts-<env> \
+  --from-literal=BULLMQ_REDIS_PASSWORD=... \
+  --dry-run=client -o yaml > k8s/overlays/<env>/secrets/bullmq-redis-auth.secret.yaml
+
+# Both the app deployment and the BullMQ Redis pod read this same key.
 ```
 
 2. Seal the secret:
@@ -109,7 +118,8 @@ ArgoCD applications are defined in `argocd/applications/`.
 
 - Namespace: `hack-for-facts-dev`
 - Database: 100Gi storage (CloudNativePG)
-- Redis: In-memory only (no persistence)
+- Cache Redis: In-memory cache with `allkeys-lru`
+- BullMQ Redis: `emptyDir` storage, AOF enabled, `noeviction`
 - Image tag: Updated on each push to `dev` branch
 - Host: `api-dev.transparenta.eu`
 
@@ -117,7 +127,8 @@ ArgoCD applications are defined in `argocd/applications/`.
 
 - Namespace: `hack-for-facts-prod`
 - Database: Larger storage, HA configuration
-- Redis: Persistent storage
+- Cache Redis: In-memory cache with `allkeys-lru`
+- BullMQ Redis: PVC-backed, AOF enabled, `noeviction`
 - Image tag: Updated on each push to `main` branch
 - Host: `api.transparenta.eu`
 

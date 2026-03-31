@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: redis
+  name: bullmq-redis
   namespace: hack-for-facts
   labels:
-    app: redis
+    app: bullmq-redis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: redis
+      app: bullmq-redis
   template:
     metadata:
       labels:
-        app: redis
+        app: bullmq-redis
     spec:
       containers:
-        - name: redis
+        - name: bullmq-redis
           image: bitnami/redis:latest
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -34,12 +34,12 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-auth
-                  key: REDIS_PASSWORD
+                  name: bullmq-redis-auth
+                  key: BULLMQ_REDIS_PASSWORD
             - name: REDIS_AOF_ENABLED
-              value: "no"
+              value: "yes"
             - name: REDIS_EXTRA_FLAGS
-              value: "--maxmemory 512mb --maxmemory-policy allkeys-lru --save ''"
+              value: "--maxmemory 512mb --maxmemory-policy noeviction --save ''"
           ports:
             - name: redis
               containerPort: 6379
@@ -61,27 +61,39 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 20
           volumeMounts:
-            - name: redis-data
+            - name: bullmq-redis-data
               mountPath: /bitnami/redis/data
             - name: redis-tmp
               mountPath: /opt/bitnami/redis/tmp
       volumes:
-        - name: redis-data
-          emptyDir:
-            sizeLimit: 1Gi
+        - name: bullmq-redis-data
+          persistentVolumeClaim:
+            claimName: bullmq-redis-data
         - name: redis-tmp
           emptyDir:
             sizeLimit: 64Mi
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bullmq-redis-data
+  namespace: hack-for-facts
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
 kind: Service
 metadata:
-  name: redis
+  name: bullmq-redis
   namespace: hack-for-facts
 spec:
   type: ClusterIP
   selector:
-    app: redis
+    app: bullmq-redis
   ports:
     - name: redis
       port: 6379

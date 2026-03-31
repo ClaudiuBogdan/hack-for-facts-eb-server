@@ -62,6 +62,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['app']
+            - name: BULLMQ_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bullmq-redis-auth
+                  key: BULLMQ_REDIS_PASSWORD
           resources:
             limits:
               cpu: "3"
@@ -84,4 +89,3 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
-

@@ -10,6 +10,20 @@ spec:
   gateways:
     - istio-system/istio-https-gateway
   http:
+    # Block sensitive internal/admin routes at the ingress gateway.
+    # This preserves direct ClusterIP access from inside the cluster while
+    # preventing public ingress traffic from reaching these handlers.
+    - match:
+        - uri:
+            prefix: /api/v1/admin/
+      directResponse:
+        status: 403
+        body:
+          string: '{"error":"forbidden"}'
+      headers:
+        response:
+          set:
+            content-type: application/json
     # Dedicated route for MCP streaming (SSE/long-lived HTTP)
     # Needs a very long timeout and no retries to keep sessions stable.
     - match:
