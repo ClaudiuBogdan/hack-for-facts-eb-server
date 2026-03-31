@@ -160,7 +160,7 @@ export async function sendPlatformRequest(
     html: rendered.html,
     text: rendered.text,
     idempotencyKey: thread.id,
-    unsubscribeUrl: `${deps.platformBaseUrl}/notifications/preferences`,
+    unsubscribeUrl: `${deps.platformBaseUrl}/settings/notifications`,
     tags: [
       { name: 'thread_key', value: thread.threadKey },
       { name: 'request_type', value: DEFAULT_REQUEST_TYPE },

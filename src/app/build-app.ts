@@ -28,7 +28,6 @@ import {
   wrapExecutionLineItemsRepo,
   wrapInsRepo,
 } from './cache-wrappers.js';
-import { makePublicDebateRequestSyncHook } from './public-debate-request-dispatcher.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
 import { initCache, type CacheClient } from '../infra/cache/index.js';
 import {
@@ -72,6 +71,7 @@ import {
   makeEconomicClassificationRepo,
 } from '../modules/classification/index.js';
 import {
+  type ClerkWebhookEvent,
   makeClerkWebhookRoutes,
   makeClerkWebhookVerifier,
 } from '../modules/clerk-webhooks/index.js';
@@ -90,6 +90,7 @@ import {
   DatasetsSchema,
   makeDatasetsResolvers,
 } from '../modules/datasets/index.js';
+import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
   makeEntityResolvers,
   EntitySchema,
@@ -169,8 +170,19 @@ import {
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
+  enqueueTransactionalWelcomeNotification,
+  getErrorMessage,
+  makeAnafForexebugDigestTriggerRoutes,
+  makeBudgetDataFetcher,
+  makeClerkUserEmailFetcher,
   makeDeliveryRepo,
+  makeExtendedNotificationsRepo,
+  makeResendEmailSender,
   makeResendWebhookDeliverySideEffect,
+  makeTriggerRoutes,
+  startNotificationDeliveryRuntime,
+  type NotificationDeliveryRuntime,
+  type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
 import {
   makeNotificationRoutes,
@@ -187,6 +199,7 @@ import {
 import {
   makeResendWebhookEmailEventsRepo,
   makeResendWebhookRoutes,
+  combineResendWebhookSideEffects,
 } from '../modules/resend-webhooks/index.js';
 import {
   makeShareRoutes,
@@ -206,6 +219,14 @@ import {
   UATAnalyticsSchema,
   makeUATAnalyticsRepo,
 } from '../modules/uat-analytics/index.js';
+import {
+  createLearningProgressUserEventSyncHook,
+  makePublicDebateRequestUserEventHandler,
+  startUserEventRuntime,
+  type UserEventHandler,
+  type UserEventRuntime,
+  type UserEventRuntimeFactory,
+} from '../modules/user-events/index.js';
 
 import type { AppConfig } from '../infra/config/env.js';
 import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
@@ -235,6 +256,10 @@ export interface AppDeps {
    * Resolvers can use `requireAuthOrThrow` or `withAuth` to require authentication.
    */
   authProvider?: AuthProvider;
+  /** Optional notification delivery runtime factory for tests */
+  notificationDeliveryRuntimeFactory?: NotificationDeliveryRuntimeFactory;
+  /** Optional user event runtime factory for tests */
+  userEventRuntimeFactory?: UserEventRuntimeFactory;
 }
 
 /**
@@ -249,6 +274,7 @@ export interface AppOptions {
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
 const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
 const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
+const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
 const WEBHOOK_RESEND_ROUTE_PATH = '/api/v1/webhooks/resend';
@@ -292,6 +318,10 @@ function isInstitutionCorrespondenceAdminRoute(url: string): boolean {
   return getRequestPath(url).startsWith(INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX);
 }
 
+function isNotificationAdminRoute(url: string): boolean {
+  return getRequestPath(url).startsWith(NOTIFICATION_ADMIN_ROUTE_PREFIX);
+}
+
 function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequest): boolean {
   const path = getRequestPath(request.url);
 
@@ -303,7 +333,11 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     return true;
   }
 
-  if (isLearningProgressAdminReviewRoute(path) || isInstitutionCorrespondenceAdminRoute(path)) {
+  if (
+    isLearningProgressAdminReviewRoute(path) ||
+    isInstitutionCorrespondenceAdminRoute(path) ||
+    isNotificationAdminRoute(path)
+  ) {
     return true;
   }
 
@@ -435,6 +469,59 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const insDb = deps.insDb;
   const datasetRepo = deps.datasetRepo;
   const config = deps.config;
+  const shouldRegisterNotificationAdminRoutes =
+    config.notifications.triggerApiKey !== undefined &&
+    config.notifications.triggerApiKey !== '' &&
+    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
+  const shouldPublishLearningProgressUserEvents =
+    config.jobs.enabled &&
+    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
+  const shouldEnqueueClerkWelcomeNotifications =
+    config.auth.clerkWebhookSigningSecret !== undefined &&
+    config.jobs.enabled &&
+    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
+  const shouldStartNotificationWorkers =
+    config.jobs.enabled &&
+    (config.jobs.processRole === 'worker' || config.jobs.processRole === 'both');
+  const shouldStartUserEventWorkers =
+    config.jobs.enabled &&
+    (config.jobs.processRole === 'worker' || config.jobs.processRole === 'both');
+  const shouldInitializeNotificationDeliveryRuntime =
+    shouldRegisterNotificationAdminRoutes ||
+    shouldEnqueueClerkWelcomeNotifications ||
+    shouldStartNotificationWorkers;
+  const shouldInitializeUserEventRuntime =
+    shouldPublishLearningProgressUserEvents || shouldStartUserEventWorkers;
+
+  if (shouldInitializeNotificationDeliveryRuntime && deps.userDb === undefined) {
+    throw new Error(
+      'Notification delivery runtime requires userDb when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+    );
+  }
+
+  if (
+    shouldInitializeNotificationDeliveryRuntime &&
+    (config.jobs.redisUrl === undefined || config.jobs.redisUrl === '')
+  ) {
+    throw new Error(
+      'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+    );
+  }
+
+  if (shouldInitializeUserEventRuntime && deps.userDb === undefined) {
+    throw new Error(
+      'User event runtime requires userDb when learning progress user event producer or workers are enabled.'
+    );
+  }
+
+  if (
+    shouldInitializeUserEventRuntime &&
+    (config.jobs.redisUrl === undefined || config.jobs.redisUrl === '')
+  ) {
+    throw new Error(
+      'User event runtime requires BULLMQ_REDIS_URL when learning progress user event producer or workers are enabled.'
+    );
+  }
 
   // Create Fastify instance
   const app = fastifyLib({
@@ -444,6 +531,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       ...fastifyOptions.routerOptions,
     },
   });
+  const repoLogger = app.log as unknown as import('pino').Logger;
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error({ err: error }, 'Request error');
@@ -497,6 +585,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   const requestStartTimes = new WeakMap<import('fastify').FastifyRequest, bigint>();
+  let notificationDeliveryRuntime: NotificationDeliveryRuntime | undefined;
+  let userEventRuntime: UserEventRuntime | undefined;
+  let onClerkWebhookEventVerified:
+    | ((input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>)
+    | undefined;
 
   // Emit a consistent completion log where userId is included if auth middleware enriched request.log.
   app.addHook('onRequest', (request, _reply, done) => {
@@ -587,8 +680,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Initialize Cache Infrastructure
   // ─────────────────────────────────────────────────────────────────────────────
   const { cache, keyBuilder, rawCache } =
-    deps.cacheClient ??
-    initCache({ config: config.cache, logger: app.log as unknown as import('pino').Logger });
+    deps.cacheClient ?? initCache({ config: config.cache, logger: repoLogger });
 
   app.addHook('onClose', async () => {
     await rawCache.close?.();
@@ -892,16 +984,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
 
     // Create notification repositories
-    const repoLogger = app.log as unknown as import('pino').Logger;
     const notificationsRepo = makeNotificationsRepo({ db: userDb, logger: repoLogger });
+    const extendedNotificationsRepo = makeExtendedNotificationsRepo({
+      db: userDb,
+      logger: repoLogger,
+    });
     const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
-    const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
-
-    if (unsubscribeSecret === undefined || unsubscribeSecret === '') {
-      throw new Error('Notification routes require UNSUBSCRIBE_HMAC_SECRET');
-    }
-
-    const tokenSigner = makeUnsubscribeTokenSigner(unsubscribeSecret);
+    const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
+    const learningProgressRepo = makeLearningProgressRepo({ db: userDb, logger: repoLogger });
     const emailEventsRepo =
       config.email.webhookSecret !== undefined
         ? makeResendWebhookEmailEventsRepo({
@@ -915,12 +1005,22 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         storedEvent: import('../modules/resend-webhooks/index.js').StoredResendEmailEvent;
       }): Promise<void>;
     }[] = [];
+    const userEventHandlers: UserEventHandler[] = [];
     let learningProgressOnSyncEventsApplied:
       | ((input: {
           userId: string;
           events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
         }) => Promise<void>)
       | undefined;
+
+    const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
+
+    if (unsubscribeSecret === undefined || unsubscribeSecret === '') {
+      throw new Error(
+        'Notification routes require UNSUBSCRIBE_HMAC_SECRET (min 32 chars) when userDb is enabled.'
+      );
+    }
+    const tokenSigner = makeUnsubscribeTokenSigner(unsubscribeSecret);
 
     // Register notification routes
     await app.register(
@@ -931,6 +1031,155 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         hasher: sha256Hasher,
       })
     );
+
+    if (shouldStartNotificationWorkers && config.auth.clerkSecretKey === undefined) {
+      throw new Error(
+        'Notification delivery requires CLERK_SECRET_KEY when notifications run on worker or both process roles.'
+      );
+    }
+
+    if (
+      shouldStartNotificationWorkers &&
+      (config.email.apiKey === undefined || config.email.apiKey === '')
+    ) {
+      throw new Error(
+        'Notification delivery requires RESEND_API_KEY when notifications run on worker or both process roles.'
+      );
+    }
+
+    if (shouldStartNotificationWorkers && config.notifications.platformBaseUrl === '') {
+      throw new Error(
+        'Notification delivery requires PLATFORM_BASE_URL when notifications run on worker or both process roles.'
+      );
+    }
+
+    if (shouldInitializeNotificationDeliveryRuntime) {
+      const createNotificationDeliveryRuntime =
+        deps.notificationDeliveryRuntimeFactory ?? startNotificationDeliveryRuntime;
+
+      notificationDeliveryRuntime = await createNotificationDeliveryRuntime({
+        redisUrl: config.jobs.redisUrl ?? '',
+        bullmqPrefix: config.jobs.prefix,
+        logger: repoLogger,
+        processRole: config.jobs.processRole,
+        concurrency: config.jobs.concurrency,
+        intervalMinutes: config.jobs.notificationRecoverySweepIntervalMinutes,
+        thresholdMinutes: config.jobs.notificationStuckSendingThresholdMinutes,
+        ...(config.jobs.redisPassword !== undefined
+          ? { redisPassword: config.jobs.redisPassword }
+          : {}),
+        ...(shouldStartNotificationWorkers
+          ? {
+              workerDeps: {
+                deliveryRepo,
+                notificationsRepo: extendedNotificationsRepo,
+                userEmailFetcher: makeClerkUserEmailFetcher({
+                  secretKey: config.auth.clerkSecretKey ?? '',
+                  logger: repoLogger,
+                }),
+                emailSender: makeResendEmailSender({
+                  sender: makeEmailClient({
+                    apiKey: config.email.apiKey ?? '',
+                    fromAddress: config.email.fromAddress,
+                    logger: repoLogger,
+                  }),
+                }),
+                tokenSigner,
+                dataFetcher: makeBudgetDataFetcher({
+                  entityRepo,
+                  entityProfileRepo,
+                  entityAnalyticsSummaryRepo,
+                  aggregatedLineItemsRepo: rawAggregatedLineItemsRepo,
+                  normalization: normalizationService,
+                  populationRepo: rawPopulationRepo,
+                  datasetRepo,
+                  logger: repoLogger,
+                }),
+                emailRenderer: makeEmailRenderer({ logger: repoLogger }),
+                platformBaseUrl: config.notifications.platformBaseUrl,
+                apiBaseUrl: config.notifications.apiBaseUrl,
+                environment: config.server.isProduction
+                  ? 'production'
+                  : config.server.isDevelopment
+                    ? 'development'
+                    : 'test',
+                maxSendRps: config.email.maxRps,
+              },
+            }
+          : {}),
+      });
+
+      if (
+        shouldRegisterNotificationAdminRoutes &&
+        config.notifications.triggerApiKey !== undefined
+      ) {
+        await app.register(
+          makeTriggerRoutes({
+            collectQueue: notificationDeliveryRuntime.collectQueue,
+            notificationsRepo: extendedNotificationsRepo,
+            triggerApiKey: config.notifications.triggerApiKey,
+            logger: repoLogger,
+          }),
+          { prefix: NOTIFICATION_ADMIN_ROUTE_PREFIX }
+        );
+
+        await app.register(
+          makeAnafForexebugDigestTriggerRoutes({
+            notificationsRepo: extendedNotificationsRepo,
+            deliveryRepo,
+            composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler,
+            triggerApiKey: config.notifications.triggerApiKey,
+            logger: repoLogger,
+          }),
+          { prefix: NOTIFICATION_ADMIN_ROUTE_PREFIX }
+        );
+      }
+
+      if (shouldEnqueueClerkWelcomeNotifications) {
+        const composeJobScheduler = notificationDeliveryRuntime.composeJobScheduler;
+        onClerkWebhookEventVerified = async ({ event, svixId }) => {
+          if (event.type !== 'user.created') {
+            return;
+          }
+
+          const userId = typeof event.data['id'] === 'string' ? event.data['id'].trim() : '';
+          if (userId.length === 0) {
+            repoLogger.warn(
+              { svixId, eventType: event.type },
+              'Skipping Clerk welcome enqueue because user id is missing'
+            );
+            return;
+          }
+
+          const registeredAt = new Date(event.timestamp);
+          if (Number.isNaN(registeredAt.getTime())) {
+            repoLogger.warn(
+              { svixId, eventType: event.type, timestamp: event.timestamp },
+              'Skipping Clerk welcome enqueue because timestamp is invalid'
+            );
+            return;
+          }
+
+          const enqueueResult = await enqueueTransactionalWelcomeNotification(
+            {
+              deliveryRepo,
+              composeJobScheduler,
+            },
+            {
+              runId: `clerk-${svixId}`,
+              source: 'clerk_webhook.user_created',
+              sourceEventId: svixId,
+              userId,
+              registeredAt: registeredAt.toISOString(),
+            }
+          );
+
+          if (enqueueResult.isErr()) {
+            throw new Error(getErrorMessage(enqueueResult.error));
+          }
+        };
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Institution Correspondence Module (Admin REST API + Webhook Side Effects)
@@ -968,15 +1217,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         config.institutionCorrespondence.receiveDomain
       );
 
-      learningProgressOnSyncEventsApplied = makePublicDebateRequestSyncHook({
-        repo: correspondenceRepo,
-        emailSender,
-        templateRenderer: correspondenceTemplateRenderer,
-        auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
-        platformBaseUrl: config.notifications.platformBaseUrl,
-        captureAddress: correspondenceInboxAddress,
-        logger: repoLogger,
-      });
+      userEventHandlers.push(
+        makePublicDebateRequestUserEventHandler({
+          learningProgressRepo,
+          repo: correspondenceRepo,
+          emailSender,
+          templateRenderer: correspondenceTemplateRenderer,
+          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          platformBaseUrl: config.notifications.platformBaseUrl,
+          captureAddress: correspondenceInboxAddress,
+          logger: repoLogger,
+        })
+      );
 
       await app.register(
         makeInstitutionCorrespondenceRoutes({
@@ -1020,6 +1272,29 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       );
     }
 
+    if (shouldInitializeUserEventRuntime) {
+      const createUserEventRuntime = deps.userEventRuntimeFactory ?? startUserEventRuntime;
+
+      userEventRuntime = await createUserEventRuntime({
+        redisUrl: config.jobs.redisUrl ?? '',
+        bullmqPrefix: config.jobs.prefix,
+        logger: repoLogger,
+        processRole: config.jobs.processRole,
+        concurrency: config.jobs.concurrency,
+        handlers: userEventHandlers,
+        ...(config.jobs.redisPassword !== undefined
+          ? { redisPassword: config.jobs.redisPassword }
+          : {}),
+      });
+
+      if (shouldPublishLearningProgressUserEvents) {
+        learningProgressOnSyncEventsApplied = createLearningProgressUserEventSyncHook({
+          publisher: userEventRuntime.publisher,
+          logger: repoLogger,
+        });
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Notification Delivery Module (Background Jobs + Webhooks)
     // ─────────────────────────────────────────────────────────────────────────
@@ -1028,21 +1303,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // - REST endpoints for manual trigger and webhook ingestion
     // - Role-based gating: api (routes only), worker (workers only), both
     //
-    // NOTE: Full integration requires implementing adapters for:
-    // - ExtendedNotificationsRepository (findEligibleForDelivery, deactivate)
-    // - ExtendedTokensRepository (getOrCreateActive)
-    // - DataFetcher (fetchNewsletterData, fetchAlertData)
-    // - UserEmailFetcher (getEmail from Clerk)
-    //
-    // The delivery repos and webhook endpoint are wired here.
-    // Workers require the adapters above to function.
+    // The shared runtime now owns the BullMQ queues, workers, and recovery scheduler.
+    // Admin trigger routes are mounted under /api/v1/admin/notifications and protected
+    // by the existing API key plus Istio's /api/v1/admin/ ingress block.
     if (config.email.webhookSecret !== undefined) {
       const webhookVerifier = makeWebhookVerifier({
         webhookSecret: config.email.webhookSecret,
         logger: repoLogger,
       });
 
-      const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
       resendWebhookSideEffects.push(
         makeResendWebhookDeliverySideEffect({
           deliveryRepo,
@@ -1051,19 +1320,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         })
       );
 
-      const resendWebhookSideEffect =
-        resendWebhookSideEffects.length === 1
-          ? resendWebhookSideEffects[0]
-          : {
-              handle: async (input: {
-                event: import('../modules/resend-webhooks/index.js').ResendEmailWebhookEvent;
-                storedEvent: import('../modules/resend-webhooks/index.js').StoredResendEmailEvent;
-              }) => {
-                for (const sideEffect of resendWebhookSideEffects) {
-                  await sideEffect.handle(input);
-                }
-              },
-            };
+      const resendWebhookSideEffect = combineResendWebhookSideEffects(
+        resendWebhookSideEffects,
+        repoLogger
+      );
 
       await app.register(
         makeResendWebhookRoutes({
@@ -1085,8 +1345,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Learning Progress Module (REST API)
     // ─────────────────────────────────────────────────────────────────────────
-    const learningProgressRepo = makeLearningProgressRepo({ db: userDb, logger: repoLogger });
-
     // Register learning progress routes
     await app.register(
       makeLearningProgressRoutes({
@@ -1278,7 +1536,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   }
 
   if (config.auth.clerkWebhookSigningSecret !== undefined) {
-    const repoLogger = app.log as unknown as import('pino').Logger;
     const clerkWebhookVerifier = makeClerkWebhookVerifier({
       signingSecret: config.auth.clerkWebhookSigningSecret,
       logger: repoLogger,
@@ -1288,10 +1545,25 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       makeClerkWebhookRoutes({
         webhookVerifier: clerkWebhookVerifier,
         logger: repoLogger,
+        ...(onClerkWebhookEventVerified !== undefined
+          ? { onEventVerified: onClerkWebhookEventVerified }
+          : {}),
       })
     );
 
     app.log.info('Clerk webhook endpoint enabled at /api/v1/webhooks/clerk');
+  }
+
+  if (notificationDeliveryRuntime !== undefined) {
+    app.addHook('onClose', async () => {
+      await notificationDeliveryRuntime.stop();
+    });
+  }
+
+  if (userEventRuntime !== undefined) {
+    app.addHook('onClose', async () => {
+      await userEventRuntime.stop();
+    });
   }
 
   return app;
