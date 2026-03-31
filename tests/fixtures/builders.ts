@@ -63,6 +63,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       isDevelopment: true,
       isProduction: false,
       isTest: true,
+      trustProxy: undefined,
     },
     logger: {
       level: 'silent',
@@ -72,11 +73,22 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       budgetUrl: 'postgresql://test:test@localhost:5432/test',
       insUrl: 'postgresql://test:test@localhost:5432/test-ins',
       userUrl: 'postgresql://test:test@localhost:5432/test-user',
+      ssl: false,
+      sslRejectUnauthorized: true,
     },
     redis: {
       url: undefined,
       password: undefined,
       prefix: undefined,
+    },
+    cache: {
+      backend: 'memory',
+      defaultTtlMs: 60 * 24 * 60 * 60 * 1000,
+      memoryMaxEntries: 1000,
+      l1MaxEntries: 500,
+      redisUrl: undefined,
+      redisPassword: undefined,
+      keyPrefix: 'transparenta',
     },
     cors: {
       allowedOrigins: undefined,
@@ -121,13 +133,19 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     },
     jobs: {
       enabled: false,
+      redisUrl: undefined,
+      redisPassword: undefined,
       concurrency: 5,
       prefix: 'test:jobs',
+      notificationRecoverySweepIntervalMinutes: 15,
+      notificationStuckSendingThresholdMinutes: 15,
       processRole: 'both' as const,
     },
     notifications: {
       triggerApiKey: undefined,
       platformBaseUrl: 'https://test.example.com',
+      apiBaseUrl: 'https://api.transparenta.eu',
+      unsubscribeHmacSecret: 'h'.repeat(32),
       enabled: false,
     },
     learningProgress: {
@@ -157,6 +175,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     logger: { ...defaults.logger, ...overrides.logger },
     database: { ...defaults.database, ...overrides.database },
     redis: { ...defaults.redis, ...overrides.redis },
+    cache: { ...defaults.cache, ...overrides.cache },
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
     rateLimit: { ...defaults.rateLimit, ...overrides.rateLimit },

@@ -149,5 +149,10 @@ export const createMemoryCache = <T>(options: MemoryCacheOptions = {}): CachePor
     stats(): Promise<CacheStats> {
       return Promise.resolve({ hits, misses, size: store.size });
     },
+
+    close() {
+      store.clear();
+      return Promise.resolve();
+    },
   };
 };

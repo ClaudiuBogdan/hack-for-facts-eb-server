@@ -279,5 +279,13 @@ export const createRedisCacheFromClient = <T>(
       // Hits/misses are tracked in-memory and are sufficient for monitoring.
       return Promise.resolve({ hits: state.hits, misses: state.misses, size: 0 });
     },
+
+    async close() {
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
+    },
   };
 };

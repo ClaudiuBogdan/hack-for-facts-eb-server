@@ -193,6 +193,96 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('initializes cache from validated config instead of raw env', async () => {
+      const logs = createLogCollector();
+      const originalRedisUrl = process.env['REDIS_URL'];
+      const originalCacheBackend = process.env['CACHE_BACKEND'];
+      process.env['REDIS_URL'] = 'redis://env-should-not-be-used:6379';
+      process.env['CACHE_BACKEND'] = 'redis';
+
+      try {
+        const app = await buildApp({
+          fastifyOptions: { logger: { level: 'info', stream: logs.stream } },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              cache: {
+                backend: 'disabled',
+                defaultTtlMs: 60_000,
+                memoryMaxEntries: 25,
+                l1MaxEntries: 10,
+                redisUrl: undefined,
+                redisPassword: undefined,
+                keyPrefix: 'test-cache',
+              },
+            }),
+          },
+        });
+
+        await app.ready();
+        await flushLogs();
+
+        expect(
+          logs.entries.some((entry) => entry.msg === '[Cache] Using NoOp cache (disabled)')
+        ).toBe(true);
+
+        await app.close();
+      } finally {
+        if (originalRedisUrl === undefined) {
+          delete process.env['REDIS_URL'];
+        } else {
+          process.env['REDIS_URL'] = originalRedisUrl;
+        }
+
+        if (originalCacheBackend === undefined) {
+          delete process.env['CACHE_BACKEND'];
+        } else {
+          process.env['CACHE_BACKEND'] = originalCacheBackend;
+        }
+      }
+    });
+
+    it('sets a default router maxParamLength for unsubscribe tokens', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      expect(app.initialConfig.routerOptions).toBeDefined();
+      expect(app.initialConfig.routerOptions?.maxParamLength).toBe(512);
+
+      await app.close();
+    });
+
+    it('preserves caller-provided router maxParamLength overrides', async () => {
+      const app = await buildApp({
+        fastifyOptions: {
+          logger: false,
+          routerOptions: {
+            maxParamLength: 1024,
+          },
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      expect(app.initialConfig.routerOptions).toBeDefined();
+      expect(app.initialConfig.routerOptions?.maxParamLength).toBe(1024);
+
+      await app.close();
+    });
+
     it('registers health routes', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
@@ -769,6 +859,7 @@ describe('App Factory', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },

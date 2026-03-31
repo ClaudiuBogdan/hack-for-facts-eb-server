@@ -292,7 +292,6 @@ describe('Health Endpoints', () => {
     });
 
     it('runs all health checks in parallel', async () => {
-      const startTime = Date.now();
       const slowChecker1 = makeSlowHealthChecker(50, { name: 'check1' });
       const slowChecker2 = makeSlowHealthChecker(50, { name: 'check2' });
 
@@ -308,6 +307,7 @@ describe('Health Endpoints', () => {
         },
       });
 
+      const startTime = Date.now();
       const response = await app.inject({
         method: 'GET',
         url: '/health/ready',

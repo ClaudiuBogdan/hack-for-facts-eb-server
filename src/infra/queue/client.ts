@@ -55,17 +55,21 @@ export interface QueueClient {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Standard queue names for notification delivery pipeline.
+ * Standard queue names for background job pipelines.
  */
 export const QUEUE_NAMES = {
   /** Collects eligible notifications for a period */
-  COLLECT: 'notification:collect',
+  COLLECT: 'notification-collect',
   /** Composes email content and persists delivery records */
-  COMPOSE: 'notification:compose',
+  COMPOSE: 'notification-compose',
   /** Sends emails via Resend (rate-limited) */
-  SEND: 'notification:send',
+  SEND: 'notification-send',
+  /** Recovers deliveries stuck in sending */
+  RECOVERY: 'notification-recovery',
   /** Dead letter queue for failed jobs */
-  DLQ: 'notification:dlq',
+  DLQ: 'notification-dlq',
+  /** Processes learning-progress user events */
+  USER_EVENTS: 'user-events',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

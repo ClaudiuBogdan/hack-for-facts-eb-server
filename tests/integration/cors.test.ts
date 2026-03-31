@@ -37,6 +37,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -70,6 +71,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -102,6 +104,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -134,6 +137,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -163,6 +167,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -196,6 +201,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://staging.example.com',
@@ -235,6 +241,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app.example.com,https://api.example.com',
@@ -272,6 +279,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app.example.com',
@@ -309,6 +317,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app1.com, https://app2.com, https://app3.com',
@@ -364,6 +373,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: undefined,
@@ -403,6 +413,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: undefined,
@@ -442,6 +453,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app.example.com',
@@ -505,6 +517,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app.example.com',
@@ -540,6 +553,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://app.example.com',
@@ -583,6 +597,7 @@ describe('CORS Plugin', () => {
               isTest: true,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
           }),
         },
@@ -620,6 +635,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://*.example.com',
@@ -665,6 +681,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://*.example.com',
@@ -700,6 +717,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'http://localhost:*',
@@ -740,6 +758,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: 'https://example.com,https://*.example.com,http://localhost:*',
@@ -792,6 +811,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: '',
@@ -829,6 +849,7 @@ describe('CORS Plugin', () => {
               isTest: false,
               port: 3000,
               host: '0.0.0.0',
+              trustProxy: undefined,
             },
             cors: {
               allowedOrigins: '  https://app1.com  ,  https://app2.com  ',

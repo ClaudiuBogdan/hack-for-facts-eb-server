@@ -7,6 +7,8 @@
  *
  * Supports two modes:
  * 1. No-code: Set NODE_OPTIONS="--require @opentelemetry/auto-instrumentations-node/register"
+ *    for generic Node.js instrumentation only. Fastify framework spans still
+ *    require explicit @fastify/otel registration in this module.
  * 2. Code-level: Import this module at the very top of api.ts
  *
  * This file implements code-level instrumentation for more control.
@@ -17,7 +19,8 @@
  * - Log correlation with trace IDs
  */
 
-import { trace, context, SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { FastifyOtelInstrumentation } from '@fastify/otel';
+import { trace, context, SpanKind, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
@@ -36,6 +39,7 @@ import {
   type TelemetryConfig,
 } from './config.js';
 
+import type { FastifyRequest, HTTPMethods } from 'fastify';
 import type { IncomingMessage } from 'node:http';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,6 +92,12 @@ const bootstrapLog = {
 
 /** Standard OpenTelemetry attribute key for deployment environment */
 const ATTR_DEPLOYMENT_ENVIRONMENT = 'deployment.environment';
+
+const isIgnoredTelemetryPath = (url: string): boolean => {
+  return (
+    url.startsWith('/health/live') || url.startsWith('/health/ready') || url.startsWith('/metrics')
+  );
+};
 
 /**
  * Creates the OpenTelemetry Resource with service information.
@@ -212,27 +222,23 @@ const initializeTelemetry = (): void => {
           // Configure HTTP instrumentation - ignore health checks at TCP/HTTP level
           '@opentelemetry/instrumentation-http': {
             ignoreIncomingRequestHook: (request: IncomingMessage) => {
-              const ignoredPaths = ['/health/live', '/health/ready', '/metrics'];
               const url = request.url;
               if (url === undefined) {
                 return false;
               }
-              return ignoredPaths.some((p) => url.startsWith(p));
+              return isIgnoredTelemetryPath(url);
             },
           },
-
-          // Configure Fastify instrumentation - ignore health checks at framework level
-          '@opentelemetry/instrumentation-fastify': {
-            requestHook: (span, info) => {
-              // Add route pattern as attribute for better grouping in traces
-              // The info.request type varies by Fastify version, so we use safe property access
-              const request = info.request as Record<string, unknown> | undefined;
-              const routeOptions = request?.['routeOptions'] as Record<string, unknown> | undefined;
-              const routeUrl = routeOptions?.['url'];
-              if (typeof routeUrl === 'string') {
-                span.setAttribute('http.route', routeUrl);
-              }
-            },
+        }),
+        new FastifyOtelInstrumentation({
+          registerOnInitialization: true,
+          ignorePaths: ({ url }: { url: string; method: HTTPMethods }) =>
+            isIgnoredTelemetryPath(url),
+          requestHook: (span: Span, request: FastifyRequest) => {
+            const route = request.routeOptions.url;
+            if (route !== undefined) {
+              span.updateName(`${request.method} ${route}`);
+            }
           },
         }),
       ],
@@ -283,9 +289,11 @@ const initializeTelemetry = (): void => {
 const registerShutdownHandler = (): void => {
   const shutdown = async (): Promise<void> => {
     if (sdk === undefined) return;
+    const instance = sdk;
+    sdk = undefined;
 
     try {
-      await sdk.shutdown();
+      await instance.shutdown();
       bootstrapLog.info('Telemetry shut down successfully');
     } catch (error) {
       bootstrapLog.error('Error during telemetry shutdown', {
@@ -317,11 +325,17 @@ const SEMCONV_EXCEPTION_TYPE = 'exception.type';
 const SEMCONV_EXCEPTION_MESSAGE = 'exception.message';
 const SEMCONV_EXCEPTION_STACKTRACE = 'exception.stacktrace';
 
+interface FlushableProvider {
+  forceFlush?: () => Promise<void>;
+}
+
+type FlushableNodeSdk = Record<string, FlushableProvider | undefined>;
+
 /**
  * Force flushes all pending telemetry data with a timeout.
  *
- * Uses forceFlush() which is designed for urgent export scenarios,
- * unlike shutdown() which tears down the entire SDK.
+ * Uses provider-level forceFlush() methods when available, unlike shutdown()
+ * which tears down the entire SDK.
  *
  * @param timeoutMs - Maximum time to wait for flush (default: 5000ms)
  * @returns Promise that resolves when flush completes or times out
@@ -332,8 +346,19 @@ const flushTelemetryWithTimeout = async (timeoutMs: number = FLUSH_TIMEOUT_MS): 
   }
 
   try {
+    const flushableSdk = sdk as unknown as FlushableNodeSdk;
+    const flushProviders = ['_tracerProvider', '_loggerProvider', '_meterProvider'] as const;
+    const flushOperations = flushProviders
+      .map((providerKey) => flushableSdk[providerKey])
+      .map((provider) => provider?.forceFlush?.bind(provider))
+      .filter((flush): flush is () => Promise<void> => flush !== undefined);
+
+    if (flushOperations.length === 0) {
+      return;
+    }
+
     await Promise.race([
-      sdk.shutdown(),
+      Promise.all(flushOperations.map((flush) => flush())).then(() => undefined),
       new Promise<void>((_resolve, reject) => {
         setTimeout(() => {
           reject(new Error(`Telemetry flush timed out after ${String(timeoutMs)}ms`));
@@ -540,8 +565,9 @@ export const isTelemetryActive = (): boolean => {
  */
 export const shutdownTelemetry = async (): Promise<void> => {
   if (sdk !== undefined) {
-    await sdk.shutdown();
+    const instance = sdk;
     sdk = undefined;
+    await instance.shutdown();
   }
 };
 

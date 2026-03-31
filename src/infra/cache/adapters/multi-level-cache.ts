@@ -150,5 +150,9 @@ export const createMultiLevelCache = <T>(options: MultiLevelCacheOptions<T>): Ca
       );
       return stats;
     },
+
+    async close() {
+      await Promise.all([l1.close?.(), l2.close?.()]);
+    },
   };
 };

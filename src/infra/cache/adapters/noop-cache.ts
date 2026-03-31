@@ -40,5 +40,9 @@ export const createNoopCache = <T>(): CachePort<T> => {
     stats(): Promise<CacheStats> {
       return Promise.resolve({ hits: 0, misses: 0, size: 0 });
     },
+
+    close() {
+      return Promise.resolve();
+    },
   };
 };
