@@ -72,6 +72,7 @@ describe('makeLearningProgressAdminReviewAuthHook', () => {
       ok: false,
       error: 'UNAUTHORIZED',
       message: 'Learning progress review API key not configured',
+      retryable: false,
     });
     expect(wasCalled()).toBe(false);
     expect(logWarn).toHaveBeenCalled();
@@ -91,6 +92,7 @@ describe('makeLearningProgressAdminReviewAuthHook', () => {
       ok: false,
       error: 'UNAUTHORIZED',
       message: 'X-Learning-Progress-Review-Api-Key header required',
+      retryable: false,
     });
     expect(wasCalled()).toBe(false);
   });
@@ -111,6 +113,7 @@ describe('makeLearningProgressAdminReviewAuthHook', () => {
       ok: false,
       error: 'UNAUTHORIZED',
       message: 'Invalid API key',
+      retryable: false,
     });
     expect(wasCalled()).toBe(false);
   });

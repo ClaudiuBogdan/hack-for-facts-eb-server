@@ -3,13 +3,18 @@ import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { makePublicDebateRequestSyncHook } from '@/app/public-debate-request-dispatcher.js';
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import { PUBLIC_DEBATE_REQUEST_TYPE } from '@/modules/institution-correspondence/index.js';
 import {
   makeLearningProgressRoutes,
   type LearningProgressRepository,
 } from '@/modules/learning-progress/index.js';
+import {
+  createLearningProgressUserEventSyncHook,
+  makePublicDebateRequestUserEventHandler,
+  processUserEventJob,
+  type UserEventJobPayload,
+} from '@/modules/user-events/index.js';
 
 import {
   createTestInteractiveRecord,
@@ -71,6 +76,43 @@ const createTestApp = async (options: {
   const learningProgressRepo = options.learningProgressRepo ?? makeFakeLearningProgressRepo();
   const correspondenceRepo = options.correspondenceRepo ?? makeInMemoryCorrespondenceRepo();
   const sentEmails: Record<string, unknown>[] = [];
+  const queuedJobs: UserEventJobPayload[] = [];
+  const logger = pinoLogger({ level: 'silent' });
+  const publicDebateHandler = makePublicDebateRequestUserEventHandler({
+    learningProgressRepo,
+    repo: correspondenceRepo,
+    emailSender: {
+      getFromAddress() {
+        return 'noreply@transparenta.eu';
+      },
+      async send(params) {
+        sentEmails.push(params as unknown as Record<string, unknown>);
+
+        if (options.sendError === true) {
+          return err({
+            type: 'SERVER' as const,
+            message: 'Provider send failed',
+            retryable: true,
+          });
+        }
+
+        return ok({ emailId: `email-${String(sentEmails.length)}` });
+      },
+    },
+    templateRenderer: {
+      renderPublicDebateRequest(input) {
+        return {
+          subject: `Public debate [teu:${input.threadKey}]`,
+          text: `Text for ${input.institutionEmail}`,
+          html: `<p>${input.institutionEmail}</p>`,
+        };
+      },
+    },
+    auditCcRecipients: ['audit@transparenta.test'],
+    platformBaseUrl: 'https://transparenta.test',
+    captureAddress: 'debate@transparenta.test',
+    logger,
+  });
 
   app.setErrorHandler((err, _request, reply) => {
     const error = err as { statusCode?: number; code?: string; name?: string; message?: string };
@@ -79,6 +121,7 @@ const createTestApp = async (options: {
       ok: false,
       error: error.code ?? error.name ?? 'Error',
       message: error.message ?? 'An error occurred',
+      retryable: false,
     });
   });
 
@@ -87,39 +130,16 @@ const createTestApp = async (options: {
   await app.register(
     makeLearningProgressRoutes({
       learningProgressRepo,
-      onSyncEventsApplied: makePublicDebateRequestSyncHook({
-        repo: correspondenceRepo,
-        emailSender: {
-          getFromAddress() {
-            return 'noreply@transparenta.eu';
+      onSyncEventsApplied: createLearningProgressUserEventSyncHook({
+        publisher: {
+          async publish() {
+            throw new Error('publish() should not be called in this integration test');
           },
-          async send(params) {
-            sentEmails.push(params as unknown as Record<string, unknown>);
-
-            if (options.sendError === true) {
-              return err({
-                type: 'SERVER' as const,
-                message: 'Provider send failed',
-                retryable: true,
-              });
-            }
-
-            return ok({ emailId: `email-${String(sentEmails.length)}` });
+          async publishMany(jobs) {
+            queuedJobs.push(...jobs);
           },
         },
-        templateRenderer: {
-          renderPublicDebateRequest(input) {
-            return {
-              subject: `Public debate [teu:${input.threadKey}]`,
-              text: `Text for ${input.institutionEmail}`,
-              html: `<p>${input.institutionEmail}</p>`,
-            };
-          },
-        },
-        auditCcRecipients: ['audit@transparenta.test'],
-        platformBaseUrl: 'https://transparenta.test',
-        captureAddress: 'debate@transparenta.test',
-        logger: pinoLogger({ level: 'silent' }),
+        logger,
       }),
     })
   );
@@ -132,6 +152,23 @@ const createTestApp = async (options: {
     learningProgressRepo,
     correspondenceRepo,
     sentEmails,
+    queuedJobs,
+    async processQueuedJobs() {
+      while (queuedJobs.length > 0) {
+        const nextJob = queuedJobs.shift();
+        if (nextJob === undefined) {
+          continue;
+        }
+
+        await processUserEventJob(
+          {
+            handlers: [publicDebateHandler],
+            logger,
+          },
+          nextJob
+        );
+      }
+    },
   };
 };
 
@@ -176,12 +213,21 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 1,
+          failedEvents: [],
+        },
+      })
+    );
 
     const records = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
     expect(records._unsafeUnwrap()).toHaveLength(1);
 
+    await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(1);
     const threadResult = await setup.correspondenceRepo.findPlatformSendThreadByEntity({
       entityCui: '12345678',
@@ -220,6 +266,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
   });
@@ -260,6 +307,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(1);
   });
@@ -300,6 +348,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(1);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(2);
   });
@@ -330,6 +379,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    await expect(setup.processQueuedJobs()).rejects.toThrow('Provider send failed');
     expect(setup.sentEmails).toHaveLength(1);
 
     const records = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
@@ -373,18 +423,28 @@ describe('Public debate request dispatch via learning progress sync', () => {
         clientUpdatedAt: invalidRecord.updatedAt,
         events: [
           createTestInteractiveUpdatedEvent({
+            eventId: 'event-invalid-pending-result',
             payload: { record: invalidRecord },
           }),
         ],
       },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      ok: false,
-      error: 'InvalidEventError',
-      message: `Interactive record "${invalidRecord.key}" cannot include result data while phase is "pending".`,
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-invalid-pending-result',
+            errorType: 'InvalidEventError',
+            message: `Interactive record "${invalidRecord.key}" cannot include result data while phase is "pending".`,
+          },
+        ],
+      },
     });
+    expect(setup.queuedJobs).toHaveLength(0);
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
   });
@@ -446,11 +506,73 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(1);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(1);
 
     const records = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
     expect(records._unsafeUnwrap()).toHaveLength(2);
+  });
+
+  it('does not send a stale earlier event when the current record is no longer eligible', async () => {
+    const setup = await createTestApp({});
+    app = setup.app;
+
+    const key = 'campaign:debate-request::entity:12345678';
+    const firstRecord = createDebateRequestRecord({
+      key,
+      submissionPath: 'request_platform',
+      updatedAt: '2026-03-26T10:00:00.000Z',
+    });
+    const newerRecord = createDebateRequestRecord({
+      key,
+      submissionPath: 'send_yourself',
+      updatedAt: '2026-03-26T10:01:00.000Z',
+    });
+
+    const firstResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: firstRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-first',
+            payload: { record: firstRecord },
+          }),
+        ],
+      },
+    });
+
+    const secondResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: newerRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-second',
+            payload: { record: newerRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+
+    await setup.processQueuedJobs();
+
+    expect(setup.sentEmails).toHaveLength(0);
+    expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
   });
 });

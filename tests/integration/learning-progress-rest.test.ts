@@ -1,7 +1,11 @@
 import fastifyLib, { type FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
+import {
+  ANONYMOUS_SESSION,
+  createTestAuthProvider,
+  makeAuthMiddleware,
+} from '@/modules/auth/index.js';
 import { makeLearningProgressRoutes } from '@/modules/learning-progress/shell/rest/routes.js';
 
 import {
@@ -12,7 +16,10 @@ import {
 } from '../fixtures/fakes.js';
 
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
-import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
+import type {
+  LearningProgressEvent,
+  LearningProgressRecordRow,
+} from '@/modules/learning-progress/core/types.js';
 
 function makeRow(
   userId: string,
@@ -62,9 +69,16 @@ function stripSourceUrl(
   return legacyRecord;
 }
 
-const createTestApp = async (options: { learningProgressRepo?: LearningProgressRepository }) => {
+const createTestApp = async (options: {
+  learningProgressRepo?: LearningProgressRepository;
+  onSyncEventsApplied?: (input: {
+    userId: string;
+    events: readonly LearningProgressEvent[];
+  }) => Promise<void>;
+}) => {
   const { provider } = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
+  const authMiddleware = makeAuthMiddleware({ authProvider: provider });
 
   app.setErrorHandler((err, _request, reply) => {
     const error = err as { statusCode?: number; code?: string; name?: string; message?: string };
@@ -73,14 +87,25 @@ const createTestApp = async (options: { learningProgressRepo?: LearningProgressR
       ok: false,
       error: error.code ?? error.name ?? 'Error',
       message: error.message ?? 'An error occurred',
+      retryable: false,
     });
   });
 
-  app.addHook('preHandler', makeAuthMiddleware({ authProvider: provider }));
+  app.addHook('preHandler', async (request, reply) => {
+    await (authMiddleware as (req: typeof request, rep: typeof reply) => Promise<void>)(
+      request,
+      reply
+    );
+
+    request.auth ??= ANONYMOUS_SESSION;
+  });
 
   await app.register(
     makeLearningProgressRoutes({
       learningProgressRepo: options.learningProgressRepo ?? makeFakeLearningProgressRepo(),
+      ...(options.onSyncEventsApplied !== undefined
+        ? { onSyncEventsApplied: options.onSyncEventsApplied }
+        : {}),
     })
   );
 
@@ -231,11 +256,157 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 1,
+          failedEvents: [],
+        },
+      })
+    );
 
     const records = await repo.getRecords(testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
     expect(records._unsafeUnwrap()[0]?.record).toEqual(record);
+  });
+
+  it('returns 200 when user-event queue publishing fails after sync', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    app = await createTestApp({
+      learningProgressRepo: repo,
+      onSyncEventsApplied: async () => {
+        throw new Error('queue unavailable');
+      },
+    });
+
+    const record = createTestInteractiveRecord({
+      key: 'system:learning-onboarding',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: { value: { step: 'done' } },
+      },
+      result: {
+        outcome: null,
+        evaluatedAt: '2024-01-15T12:00:00.000Z',
+      },
+      updatedAt: '2024-01-15T12:00:00.000Z',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2024-01-15T12:00:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-queue-failure',
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        newEventsCount: 1,
+        failedEvents: [],
+      },
+    });
+
+    const records = await repo.getRecords(testAuth.userIds.user1);
+    expect(records.isOk()).toBe(true);
+    expect(records._unsafeUnwrap()).toHaveLength(1);
+  });
+
+  it('hands only applied events to the post-sync hook', async () => {
+    const newerRecord = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      phase: 'resolved',
+      updatedAt: '2024-01-15T10:05:00.000Z',
+      result: {
+        outcome: 'correct',
+        evaluatedAt: '2024-01-15T10:05:00.000Z',
+      },
+    });
+    const staleRecord = createTestInteractiveRecord({
+      key: newerRecord.key,
+      interactionId: newerRecord.interactionId,
+      lessonId: newerRecord.lessonId,
+      phase: 'draft',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+      result: null,
+    });
+    const appliedRecord = createTestInteractiveRecord({
+      key: 'quiz-2::global',
+      interactionId: 'quiz-2',
+      lessonId: 'lesson-2',
+      updatedAt: '2024-01-15T10:06:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, newerRecord, '3')]);
+    let capturedHookInput:
+      | {
+          userId: string;
+          events: readonly LearningProgressEvent[];
+        }
+      | undefined;
+    const onSyncEventsApplied = vi.fn(
+      async (input: { userId: string; events: readonly LearningProgressEvent[] }) => {
+        capturedHookInput = input;
+      }
+    );
+    app = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      onSyncEventsApplied,
+    });
+    const staleEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'stale-event',
+      occurredAt: staleRecord.updatedAt,
+      payload: { record: staleRecord },
+    });
+    const appliedEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'applied-event',
+      occurredAt: appliedRecord.updatedAt,
+      payload: { record: appliedRecord },
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: appliedRecord.updatedAt,
+        events: [staleEvent, appliedEvent],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(onSyncEventsApplied).toHaveBeenCalledTimes(1);
+    expect(capturedHookInput).toBeDefined();
+    if (capturedHookInput !== undefined) {
+      expect(capturedHookInput).toEqual({
+        userId: testAuth.userIds.user1,
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            eventId: 'applied-event',
+          }),
+        ]),
+      });
+      expect(capturedHookInput.events).toHaveLength(1);
+    }
   });
 
   it('rejects client-authored record.review for unreviewed rows', async () => {
@@ -273,11 +444,19 @@ describe('Learning Progress REST API', () => {
       },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      ok: false,
-      error: 'InvalidEventError',
-      message: 'Public progress sync cannot set record.review.',
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-review',
+            errorType: 'InvalidEventError',
+            message: 'Public progress sync cannot set record.review.',
+          },
+        ],
+      },
     });
   });
 
@@ -353,7 +532,15 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(putResponse.statusCode).toBe(200);
-    expect(putResponse.json()).toEqual({ ok: true });
+    expect(putResponse.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 0,
+          failedEvents: [],
+        },
+      })
+    );
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
     expect(storedRecord?.record).toEqual(reviewedRecord);
@@ -391,7 +578,15 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(putResponse.statusCode).toBe(200);
-    expect(putResponse.json()).toEqual({ ok: true });
+    expect(putResponse.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 0,
+          failedEvents: [],
+        },
+      })
+    );
 
     const records = await repo.getRecords(testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
@@ -486,11 +681,19 @@ describe('Learning Progress REST API', () => {
       },
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      ok: false,
-      error: 'InvalidEventError',
-      message: 'Public progress sync cannot set record.review.',
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-modified-review',
+            errorType: 'InvalidEventError',
+            message: 'Public progress sync cannot set record.review.',
+          },
+        ],
+      },
     });
   });
 
@@ -565,7 +768,15 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 1,
+          failedEvents: [],
+        },
+      })
+    );
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
     expect(storedRecord?.record.value).toEqual(updatedRecord.value);
@@ -655,7 +866,15 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 1,
+          failedEvents: [],
+        },
+      })
+    );
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
     expect(storedRecord?.record.value).toEqual(retriedRecord.value);
@@ -702,9 +921,10 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    const body = response.json<{ ok: boolean; error: string }>();
+    const body = response.json<{ ok: boolean; error: string; retryable: boolean }>();
     expect(body.ok).toBe(false);
     expect(body.error).toBe('InvalidEventError');
+    expect(body.retryable).toBe(false);
   });
 
   it('accepts empty events array on PUT', async () => {
@@ -724,7 +944,15 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: {
+          newEventsCount: 0,
+          failedEvents: [],
+        },
+      })
+    );
   });
 
   it('returns a serializable 400 error for invalid PUT payloads', async () => {
@@ -779,9 +1007,11 @@ describe('Learning Progress REST API', () => {
       ok?: false;
       error: string;
       message: string;
+      retryable: boolean;
       details?: unknown;
     }>();
     expect(body.error).toBe('FST_ERR_VALIDATION');
+    expect(body.retryable).toBe(false);
     expect(body.message.length).toBeGreaterThan(0);
   });
 

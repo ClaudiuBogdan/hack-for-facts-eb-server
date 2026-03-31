@@ -16,7 +16,7 @@ import {
 } from './schemas.js';
 import { isAuthenticated } from '../../../auth/core/types.js';
 import { requireAuthHandler } from '../../../auth/shell/middleware/fastify-auth.js';
-import { getHttpStatusForError } from '../../core/errors.js';
+import { getHttpStatusForError, type LearningProgressError } from '../../core/errors.js';
 import { getProgress } from '../../core/usecases/get-progress.js';
 import { syncEvents } from '../../core/usecases/sync-events.js';
 
@@ -51,7 +51,40 @@ function sendUnauthorized(reply: FastifyReply) {
     ok: false,
     error: 'Unauthorized',
     message: 'Authentication required',
+    retryable: false,
   });
+}
+
+function buildErrorResponse(error: LearningProgressError) {
+  if (error.type === 'TooManyEventsError') {
+    return {
+      ok: false as const,
+      error: error.type,
+      message: error.message,
+      retryable: false,
+      details: {
+        limit: error.limit,
+        provided: error.provided,
+      },
+    };
+  }
+
+  if (error.type === 'InvalidEventError') {
+    return {
+      ok: false as const,
+      error: error.type,
+      message: error.message,
+      retryable: false,
+      ...(error.eventId === undefined ? {} : { details: { eventId: error.eventId } }),
+    };
+  }
+
+  return {
+    ok: false as const,
+    error: error.type,
+    message: error.message,
+    retryable: 'retryable' in error ? error.retryable : false,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,11 +129,7 @@ export const makeLearningProgressRoutes = (
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 500).send({
-            ok: false,
-            error: result.error.type,
-            message: result.error.message,
-          });
+          return reply.status(status as 400 | 500).send(buildErrorResponse(result.error));
         }
 
         return reply.status(200).send({
@@ -146,17 +175,13 @@ export const makeLearningProgressRoutes = (
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 500).send({
-            ok: false,
-            error: result.error.type,
-            message: result.error.message,
-          });
+          return reply.status(status as 400 | 500).send(buildErrorResponse(result.error));
         }
 
-        if (onSyncEventsApplied !== undefined) {
+        if (onSyncEventsApplied !== undefined && result.value.appliedEvents.length > 0) {
           void onSyncEventsApplied({
             userId,
-            events: events as LearningProgressEvent[],
+            events: result.value.appliedEvents,
           }).catch((error: unknown) => {
             request.log.error({ error, userId }, 'Learning progress post-sync hook failed');
           });
@@ -164,6 +189,10 @@ export const makeLearningProgressRoutes = (
 
         return reply.status(200).send({
           ok: true,
+          data: {
+            newEventsCount: result.value.newEventsCount,
+            failedEvents: result.value.failedEvents,
+          },
         });
       }
     );

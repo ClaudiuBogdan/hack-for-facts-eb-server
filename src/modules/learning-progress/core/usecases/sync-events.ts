@@ -32,6 +32,12 @@ export interface SyncEventsInput {
 
 export interface SyncEventsOutput {
   newEventsCount: number;
+  failedEvents: readonly {
+    eventId: string;
+    errorType: 'InvalidEventError';
+    message: string;
+  }[];
+  appliedEvents: readonly LearningProgressEvent[];
 }
 
 function compareTimestampInstants(leftTimestamp: string, rightTimestamp: string): number {
@@ -268,11 +274,17 @@ export async function syncEvents(
   }
 
   if (events.length === 0) {
-    return ok({ newEventsCount: 0 });
+    return ok({ newEventsCount: 0, failedEvents: [], appliedEvents: [] });
   }
 
   return repo.withTransaction(async (transactionalRepo) => {
     let appliedCount = 0;
+    const failedEvents: {
+      eventId: string;
+      errorType: 'InvalidEventError';
+      message: string;
+    }[] = [];
+    const appliedEvents: LearningProgressEvent[] = [];
 
     for (const event of events) {
       if (isProgressResetEvent(event)) {
@@ -281,6 +293,7 @@ export async function syncEvents(
           return err(resetResult.error);
         }
         appliedCount += 1;
+        appliedEvents.push(event);
         continue;
       }
 
@@ -299,6 +312,15 @@ export async function syncEvents(
           eventId: event.eventId,
         });
         if (normalizedRecordResult.isErr()) {
+          if (normalizedRecordResult.error.type === 'InvalidEventError') {
+            failedEvents.push({
+              eventId: event.eventId,
+              errorType: normalizedRecordResult.error.type,
+              message: normalizedRecordResult.error.message,
+            });
+            continue;
+          }
+
           return err(normalizedRecordResult.error);
         }
 
@@ -307,6 +329,15 @@ export async function syncEvents(
           event.eventId
         );
         if (validationResult.isErr()) {
+          if (validationResult.error.type === 'InvalidEventError') {
+            failedEvents.push({
+              eventId: event.eventId,
+              errorType: validationResult.error.type,
+              message: validationResult.error.message,
+            });
+            continue;
+          }
+
           return err(validationResult.error);
         }
 
@@ -325,10 +356,15 @@ export async function syncEvents(
 
         if (upsertResult.value.applied) {
           appliedCount += 1;
+          appliedEvents.push(event);
         }
       }
     }
 
-    return ok({ newEventsCount: appliedCount });
+    return ok({
+      newEventsCount: appliedCount,
+      failedEvents,
+      appliedEvents,
+    });
   });
 }

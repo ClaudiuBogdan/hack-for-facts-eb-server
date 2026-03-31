@@ -4,7 +4,7 @@
 
 import { Type, type Static } from '@sinclair/typebox';
 
-import { MAX_EVENTS_PER_REQUEST } from '../../core/types.js';
+import { MAX_EVENTS_PER_REQUEST, SNAPSHOT_VERSION } from '../../core/types.js';
 
 export const InteractionScopeSchema = Type.Union([
   Type.Object({
@@ -207,7 +207,7 @@ export type SyncEventsBody = Static<typeof SyncEventsBodySchema>;
 
 export const LearningProgressSnapshotSchema = Type.Object(
   {
-    version: Type.Number(),
+    version: Type.Literal(SNAPSHOT_VERSION),
     recordsByKey: Type.Record(Type.String(), InteractiveStateRecordSchema),
     lastUpdated: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   },
@@ -232,6 +232,37 @@ export const GetProgressResponseSchema = Type.Object(
 export const SyncEventsResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        newEventsCount: Type.Number(),
+        failedEvents: Type.Array(
+          Type.Object(
+            {
+              eventId: Type.String({ minLength: 1, maxLength: 200 }),
+              errorType: Type.Literal('InvalidEventError'),
+              message: Type.String(),
+            },
+            { additionalProperties: false }
+          )
+        ),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+const TooManyEventsErrorDetailsSchema = Type.Object(
+  {
+    limit: Type.Number(),
+    provided: Type.Number(),
+  },
+  { additionalProperties: false }
+);
+
+const InvalidEventErrorDetailsSchema = Type.Object(
+  {
+    eventId: Type.Optional(Type.String()),
   },
   { additionalProperties: false }
 );
@@ -241,7 +272,10 @@ export const ErrorResponseSchema = Type.Object(
     ok: Type.Optional(Type.Literal(false)),
     error: Type.String(),
     message: Type.String(),
-    details: Type.Optional(Type.Unknown()),
+    retryable: Type.Boolean(),
+    details: Type.Optional(
+      Type.Union([TooManyEventsErrorDetailsSchema, InvalidEventErrorDetailsSchema])
+    ),
   },
   { additionalProperties: false }
 );
