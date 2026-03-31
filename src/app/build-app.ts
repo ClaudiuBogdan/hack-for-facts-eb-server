@@ -30,7 +30,7 @@ import {
 } from './cache-wrappers.js';
 import { makePublicDebateRequestSyncHook } from './public-debate-request-dispatcher.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
-import { initCache, createCacheConfig, type CacheClient } from '../infra/cache/index.js';
+import { initCache, type CacheClient } from '../infra/cache/index.js';
 import {
   makeEmailClient,
   makeReceivedEmailFetcher,
@@ -439,6 +439,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Create Fastify instance
   const app = fastifyLib({
     ...fastifyOptions,
+    routerOptions: {
+      maxParamLength: 512,
+      ...fastifyOptions.routerOptions,
+    },
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -582,10 +586,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // ─────────────────────────────────────────────────────────────────────────────
   // Initialize Cache Infrastructure
   // ─────────────────────────────────────────────────────────────────────────────
-  const cacheConfig = createCacheConfig(process.env);
   const { cache, keyBuilder, rawCache } =
     deps.cacheClient ??
-    initCache({ config: cacheConfig, logger: app.log as unknown as import('pino').Logger });
+    initCache({ config: config.cache, logger: app.log as unknown as import('pino').Logger });
+
+  app.addHook('onClose', async () => {
+    await rawCache.close?.();
+  });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Create Health Checkers

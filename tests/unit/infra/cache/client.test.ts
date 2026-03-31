@@ -30,6 +30,11 @@ describe('Cache Client', () => {
       expect(backend).toBe('redis');
     });
 
+    it('ignores BULLMQ_REDIS_URL for cache backend detection', () => {
+      const backend = detectBackend({ BULLMQ_REDIS_URL: 'redis://bullmq-redis:6379' });
+      expect(backend).toBe('memory');
+    });
+
     it('prefers explicit CACHE_BACKEND over REDIS_URL detection', () => {
       const backend = detectBackend({
         CACHE_BACKEND: 'memory',

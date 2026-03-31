@@ -116,8 +116,8 @@ const main = async (): Promise<void> => {
         }),
       },
       disableRequestLogging: true,
-      // Required for correct rate limiting, audit logging, and abuse detection.
-      trustProxy: true,
+      // Configurable via TRUST_PROXY env var (true, false, hop count, named proxy, or CIDR).
+      trustProxy: config.server.trustProxy ?? true,
     },
     deps: {
       healthCheckers: [],
@@ -137,6 +137,7 @@ const main = async (): Promise<void> => {
 
     try {
       await app.close();
+      await Promise.all([budgetDb.destroy(), insDb.destroy(), userDb.destroy()]);
       logger.info('Server closed gracefully');
       process.exit(0);
     } catch (error) {

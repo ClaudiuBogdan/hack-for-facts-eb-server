@@ -12,6 +12,7 @@
 
 import { createDatasetRepo } from '@/modules/datasets/index.js';
 
+import type { AppConfig } from '@/infra/config/index.js';
 import type { FastifyInstance } from 'fastify';
 
 // =============================================================================
@@ -184,21 +185,33 @@ export async function getClient(): Promise<GoldenMasterClient> {
     process.env['DATABASE_URL'] = dbUrl;
 
     // Create minimal config for testing
-    const config = {
+    const config: AppConfig = {
       server: {
         port: 0,
         host: '127.0.0.1',
         isDevelopment: false,
         isProduction: false,
         isTest: true,
+        trustProxy: undefined,
       },
       logger: { level: 'silent' as const, pretty: false },
       database: {
         budgetUrl: dbUrl,
         insUrl: dbUrl,
         userUrl: dbUrl,
+        ssl: false,
+        sslRejectUnauthorized: true,
       },
       redis: { url: undefined, password: undefined, prefix: undefined },
+      cache: {
+        backend: 'memory',
+        defaultTtlMs: 60 * 24 * 60 * 60 * 1000,
+        memoryMaxEntries: 1000,
+        l1MaxEntries: 500,
+        redisUrl: undefined,
+        redisPassword: undefined,
+        keyPrefix: 'transparenta',
+      },
       cors: {
         allowedOrigins: undefined,
         clientBaseUrl: undefined,
@@ -242,13 +255,19 @@ export async function getClient(): Promise<GoldenMasterClient> {
       },
       jobs: {
         enabled: false,
+        redisUrl: undefined,
+        redisPassword: undefined,
         concurrency: 5,
         prefix: 'test:jobs',
+        notificationRecoverySweepIntervalMinutes: 15,
+        notificationStuckSendingThresholdMinutes: 15,
         processRole: 'both' as const,
       },
       notifications: {
         triggerApiKey: undefined,
         platformBaseUrl: 'https://test.example.com',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        unsubscribeHmacSecret: undefined,
         enabled: false,
       },
       learningProgress: {

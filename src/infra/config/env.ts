@@ -6,6 +6,8 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
+import { createCacheConfig } from '../cache/client.js';
+
 /**
  * Environment variable schema
  */
@@ -35,9 +37,22 @@ export const EnvSchema = Type.Object({
   BUDGET_DATABASE_URL: Type.String(),
   INS_DATABASE_URL: Type.String(),
   USER_DATABASE_URL: Type.String(),
+  DATABASE_SSL: Type.Optional(Type.Boolean({ default: false })),
+  DATABASE_SSL_REJECT_UNAUTHORIZED: Type.Optional(Type.Boolean({ default: true })),
   REDIS_URL: Type.Optional(Type.String()),
   REDIS_PASSWORD: Type.Optional(Type.String()),
   REDIS_PREFIX: Type.Optional(Type.String()),
+  CACHE_BACKEND: Type.Union([
+    Type.Literal('disabled'),
+    Type.Literal('memory'),
+    Type.Literal('redis'),
+    Type.Literal('multi'),
+  ]),
+  CACHE_DEFAULT_TTL_MS: Type.Number({ minimum: 0 }),
+  CACHE_MEMORY_MAX_ENTRIES: Type.Number({ minimum: 1 }),
+  CACHE_L1_MAX_ENTRIES: Type.Number({ minimum: 1 }),
+  BULLMQ_REDIS_URL: Type.Optional(Type.String()),
+  BULLMQ_REDIS_PASSWORD: Type.Optional(Type.String()),
 
   // CORS
   ALLOWED_ORIGINS: Type.Optional(Type.String()),
@@ -58,7 +73,7 @@ export const EnvSchema = Type.Object({
   RATE_LIMIT_MAX: Type.Optional(Type.Number({ minimum: 1, default: 300 })),
   RATE_LIMIT_WINDOW: Type.Optional(Type.String({ default: '1 minute' })),
   SPECIAL_RATE_LIMIT_HEADER: Type.Optional(Type.String()),
-  SPECIAL_RATE_LIMIT_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  SPECIAL_RATE_LIMIT_KEY: Type.Optional(Type.String({ minLength: 32 })),
   SPECIAL_RATE_LIMIT_MAX: Type.Optional(Type.Number({ minimum: 1, default: 6000 })),
 
   // MCP (Model Context Protocol)
@@ -92,6 +107,14 @@ export const EnvSchema = Type.Object({
   JOBS_CONCURRENCY: Type.Optional(Type.Number({ default: 5, minimum: 1, maximum: 50 })),
   /** BullMQ prefix for queue keys (NOT ioredis keyPrefix) */
   BULLMQ_PREFIX: Type.Optional(Type.String({ default: 'transparenta:jobs' })),
+  /** Interval for the stuck-sending recovery sweeper */
+  NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES: Type.Optional(
+    Type.Number({ default: 15, minimum: 1, maximum: 1440 })
+  ),
+  /** Threshold after which a sending delivery is considered stuck */
+  NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES: Type.Optional(
+    Type.Number({ default: 15, minimum: 1, maximum: 1440 })
+  ),
   /** Process role for deployment (api, worker, or both) */
   PROCESS_ROLE: Type.Optional(
     Type.Union([Type.Literal('api'), Type.Literal('worker'), Type.Literal('both')], {
@@ -102,14 +125,18 @@ export const EnvSchema = Type.Object({
   // Notifications
   /** API key for triggering notification jobs */
   NOTIFICATION_TRIGGER_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-  /** Platform base URL for building unsubscribe links */
+  /** Platform base URL for building links to the frontend */
   PLATFORM_BASE_URL: Type.Optional(Type.String()),
+  /** API base URL for building unsubscribe/API links in emails (defaults to api.transparenta.eu) */
+  API_BASE_URL: Type.String(),
+  /** HMAC secret for signing unsubscribe tokens */
+  UNSUBSCRIBE_HMAC_SECRET: Type.Optional(Type.String({ minLength: 32 })),
 
   // Learning Progress Admin Review API
-  LEARNING_PROGRESS_REVIEW_API_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  LEARNING_PROGRESS_REVIEW_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
 
   // Institution Correspondence
-  INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
   INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN: Type.Optional(Type.String({ minLength: 1 })),
   INSTITUTION_CORRESPONDENCE_AUDIT_CC: Type.Optional(Type.String()),
 
@@ -132,14 +159,46 @@ export const EnvSchema = Type.Object({
   OTEL_TRACES_SAMPLER_ARG: Type.Optional(Type.String()),
   /** Resource attributes (format: key=value,key2=value2) */
   OTEL_RESOURCE_ATTRIBUTES: Type.Optional(Type.String()),
+
+  // Proxy
+  /** Trust proxy setting for Fastify (e.g., true, false, 1, 'loopback', CIDR range) */
+  TRUST_PROXY: Type.Optional(
+    Type.Union([Type.Boolean(), Type.Number({ minimum: 0 }), Type.String({ minLength: 1 })])
+  ),
 });
 
 export type Env = Static<typeof EnvSchema>;
+
+const parseTrustProxy = (value: string | undefined): boolean | number | string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  if (trimmedValue.length === 0) {
+    return undefined;
+  }
+
+  if (trimmedValue === 'true') {
+    return true;
+  }
+
+  if (trimmedValue === 'false') {
+    return false;
+  }
+
+  if (/^\d+$/.test(trimmedValue)) {
+    return Number.parseInt(trimmedValue, 10);
+  }
+
+  return trimmedValue;
+};
 
 /**
  * Parse and validate environment variables
  */
 export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
+  const cacheConfig = createCacheConfig(env);
   const rawEnv = {
     NODE_ENV: env['NODE_ENV'] ?? 'development',
     PORT: env['PORT'] != null && env['PORT'] !== '' ? Number.parseInt(env['PORT'], 10) : 3000,
@@ -148,9 +207,17 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     BUDGET_DATABASE_URL: env['BUDGET_DATABASE_URL'],
     INS_DATABASE_URL: env['INS_DATABASE_URL'],
     USER_DATABASE_URL: env['USER_DATABASE_URL'],
+    DATABASE_SSL: env['DATABASE_SSL'] === 'true',
+    DATABASE_SSL_REJECT_UNAUTHORIZED: env['DATABASE_SSL_REJECT_UNAUTHORIZED'] !== 'false',
     REDIS_URL: env['REDIS_URL'],
     REDIS_PASSWORD: env['REDIS_PASSWORD'],
     REDIS_PREFIX: env['REDIS_PREFIX'],
+    CACHE_BACKEND: cacheConfig.backend,
+    CACHE_DEFAULT_TTL_MS: cacheConfig.defaultTtlMs,
+    CACHE_MEMORY_MAX_ENTRIES: cacheConfig.memoryMaxEntries,
+    CACHE_L1_MAX_ENTRIES: cacheConfig.l1MaxEntries,
+    BULLMQ_REDIS_URL: env['BULLMQ_REDIS_URL'],
+    BULLMQ_REDIS_PASSWORD: env['BULLMQ_REDIS_PASSWORD'],
     ALLOWED_ORIGINS: env['ALLOWED_ORIGINS'],
     CLIENT_BASE_URL: env['CLIENT_BASE_URL'],
     PUBLIC_CLIENT_BASE_URL: env['PUBLIC_CLIENT_BASE_URL'],
@@ -204,10 +271,22 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         ? Number.parseInt(env['JOBS_CONCURRENCY'], 10)
         : 5,
     BULLMQ_PREFIX: env['BULLMQ_PREFIX'] ?? 'transparenta:jobs',
+    NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES:
+      env['NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES'] != null &&
+      env['NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES'] !== ''
+        ? Number.parseInt(env['NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES'], 10)
+        : 15,
+    NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES:
+      env['NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES'] != null &&
+      env['NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES'] !== ''
+        ? Number.parseInt(env['NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES'], 10)
+        : 15,
     PROCESS_ROLE: (env['PROCESS_ROLE'] as 'api' | 'worker' | 'both' | undefined) ?? 'both',
     // Notifications
     NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
     PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
+    API_BASE_URL: env['API_BASE_URL'],
+    UNSUBSCRIBE_HMAC_SECRET: env['UNSUBSCRIBE_HMAC_SECRET'],
     // Learning Progress Admin Review API
     LEARNING_PROGRESS_REVIEW_API_KEY: env['LEARNING_PROGRESS_REVIEW_API_KEY'],
     INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: env['INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY'],
@@ -223,6 +302,7 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     OTEL_LOGS_EXPORTER: env['OTEL_LOGS_EXPORTER'],
     OTEL_TRACES_SAMPLER_ARG: env['OTEL_TRACES_SAMPLER_ARG'],
     OTEL_RESOURCE_ATTRIBUTES: env['OTEL_RESOURCE_ATTRIBUTES'],
+    TRUST_PROXY: parseTrustProxy(env['TRUST_PROXY']),
   };
 
   // Validate against schema
@@ -230,26 +310,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     const errors = [...Value.Errors(EnvSchema, rawEnv)];
     const errorMessages = errors.map((e) => `${e.path}: ${e.message}`).join(', ');
     throw new Error(`Invalid environment configuration: ${errorMessages}`);
-  }
-
-  if (
-    rawEnv.NODE_ENV === 'production' &&
-    rawEnv.LEARNING_PROGRESS_REVIEW_API_KEY !== undefined &&
-    rawEnv.LEARNING_PROGRESS_REVIEW_API_KEY.length < 32
-  ) {
-    throw new Error(
-      'Invalid environment configuration: /LEARNING_PROGRESS_REVIEW_API_KEY: Expected string length greater or equal to 32 in production'
-    );
-  }
-
-  if (
-    rawEnv.NODE_ENV === 'production' &&
-    rawEnv.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY !== undefined &&
-    rawEnv.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY.length < 32
-  ) {
-    throw new Error(
-      'Invalid environment configuration: /INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Expected string length greater or equal to 32 in production'
-    );
   }
 
   return rawEnv;
@@ -265,6 +325,7 @@ export const createConfig = (env: Env) => ({
     isDevelopment: env.NODE_ENV === 'development',
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
+    trustProxy: env.TRUST_PROXY,
   },
   logger: {
     level: env.LOG_LEVEL,
@@ -274,11 +335,22 @@ export const createConfig = (env: Env) => ({
     budgetUrl: env.BUDGET_DATABASE_URL,
     insUrl: env.INS_DATABASE_URL,
     userUrl: env.USER_DATABASE_URL,
+    ssl: env.DATABASE_SSL ?? false,
+    sslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED ?? true,
   },
   redis: {
     url: env.REDIS_URL,
     password: env.REDIS_PASSWORD,
     prefix: env.REDIS_PREFIX,
+  },
+  cache: {
+    backend: env.CACHE_BACKEND,
+    defaultTtlMs: env.CACHE_DEFAULT_TTL_MS,
+    memoryMaxEntries: env.CACHE_MEMORY_MAX_ENTRIES,
+    l1MaxEntries: env.CACHE_L1_MAX_ENTRIES,
+    redisUrl: env.REDIS_URL,
+    redisPassword: env.REDIS_PASSWORD,
+    keyPrefix: env.REDIS_PREFIX ?? 'transparenta',
   },
   cors: {
     allowedOrigins: env.ALLOWED_ORIGINS,
@@ -353,18 +425,32 @@ export const createConfig = (env: Env) => ({
   jobs: {
     /** Whether BullMQ job processing is enabled */
     enabled: env.JOBS_ENABLED ?? false,
+    /** Dedicated Redis connection URL for BullMQ */
+    redisUrl: env.BULLMQ_REDIS_URL,
+    /** Dedicated Redis password for BullMQ */
+    redisPassword: env.BULLMQ_REDIS_PASSWORD,
     /** Number of concurrent workers per queue */
     concurrency: env.JOBS_CONCURRENCY ?? 5,
     /** BullMQ prefix for queue keys */
     prefix: env.BULLMQ_PREFIX ?? 'transparenta:jobs',
+    /** Recovery sweep interval in minutes */
+    notificationRecoverySweepIntervalMinutes:
+      env.NOTIFICATION_RECOVERY_SWEEP_INTERVAL_MINUTES ?? 15,
+    /** Stuck-sending threshold in minutes */
+    notificationStuckSendingThresholdMinutes:
+      env.NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES ?? 15,
     /** Process role for deployment */
     processRole: env.PROCESS_ROLE ?? 'both',
   },
   notifications: {
     /** API key for triggering notification jobs */
     triggerApiKey: env.NOTIFICATION_TRIGGER_API_KEY,
-    /** Platform base URL for unsubscribe links */
+    /** Platform base URL for frontend links */
     platformBaseUrl: env.PLATFORM_BASE_URL ?? env.CLIENT_BASE_URL ?? '',
+    /** API base URL for unsubscribe and API links in emails */
+    apiBaseUrl: env.API_BASE_URL,
+    /** HMAC secret for signing unsubscribe tokens */
+    unsubscribeHmacSecret: env.UNSUBSCRIBE_HMAC_SECRET,
     /** Whether notifications are enabled */
     enabled:
       env.RESEND_API_KEY !== undefined &&

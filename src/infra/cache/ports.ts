@@ -97,6 +97,11 @@ export interface CachePort<T = unknown> {
    * Get cache statistics for monitoring.
    */
   stats(): Promise<CacheStats>;
+
+  /**
+   * Releases owned resources, such as backend client connections.
+   */
+  close?(): Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

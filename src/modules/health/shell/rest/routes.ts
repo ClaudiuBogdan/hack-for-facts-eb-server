@@ -42,6 +42,7 @@ export const makeHealthRoutes = (deps: Partial<GetReadinessDeps> = {}): FastifyP
     fastify.get<{ Reply: LivenessResponse }>(
       '/health/live',
       {
+        config: { otel: false },
         logLevel: 'silent',
         schema: {
           response: {
@@ -71,6 +72,7 @@ export const makeHealthRoutes = (deps: Partial<GetReadinessDeps> = {}): FastifyP
     fastify.get<{ Reply: ReadinessResponse }>(
       '/health/ready',
       {
+        config: { otel: false },
         logLevel: 'silent',
         schema: {
           response: {

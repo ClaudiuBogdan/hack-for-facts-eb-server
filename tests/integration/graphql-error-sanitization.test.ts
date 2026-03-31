@@ -31,6 +31,7 @@ describe('GraphQL error sanitization (production)', () => {
             isTest: true,
             port: 3000,
             host: '0.0.0.0',
+            trustProxy: undefined,
           },
         }),
       },

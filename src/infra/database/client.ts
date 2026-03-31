@@ -21,12 +21,19 @@ export interface DatabaseClients {
 /**
  * Create a Kysely instance for a specific database URL
  */
-const createClient = <T>(connectionString: string): Kysely<T> => {
+const createClient = <T>(
+  connectionString: string,
+  ssl: boolean,
+  sslRejectUnauthorized: boolean
+): Kysely<T> => {
   return new Kysely<T>({
     dialect: new PostgresDialect({
       pool: new PG_POOL({
         connectionString,
-        max: 10, // connection pool size
+        max: 10,
+        connectionTimeoutMillis: 30_000,
+        idleTimeoutMillis: 60_000,
+        ...(ssl ? { ssl: { rejectUnauthorized: sslRejectUnauthorized } } : {}),
       }),
     }),
   });
@@ -40,11 +47,11 @@ export const initDatabases = (config: AppConfig): DatabaseClients => {
 
   // Determine connection strings
   // Prioritize specific URLs, fallback to generic DATABASE_URL, or throw if missing
-  const { budgetUrl, insUrl, userUrl } = database;
+  const { budgetUrl, insUrl, userUrl, ssl, sslRejectUnauthorized } = database;
 
-  const budgetDb = createClient<BudgetDatabase>(budgetUrl);
-  const insDb = createClient<InsDatabase>(insUrl);
-  const userDb = createClient<UserDatabase>(userUrl);
+  const budgetDb = createClient<BudgetDatabase>(budgetUrl, ssl, sslRejectUnauthorized);
+  const insDb = createClient<InsDatabase>(insUrl, ssl, sslRejectUnauthorized);
+  const userDb = createClient<UserDatabase>(userUrl, ssl, sslRejectUnauthorized);
 
   return {
     budgetDb,
@@ -56,10 +63,4 @@ export const initDatabases = (config: AppConfig): DatabaseClients => {
 // Re-export types
 export * from './budget/types.js';
 export type { InsDatabase } from './ins/types.js';
-export type {
-  ShortLinks,
-  Notifications,
-  NotificationDeliveries,
-  UnsubscribeTokens,
-  UserDatabase,
-} from './user/types.js';
+export type { ShortLinks, Notifications, NotificationOutbox, UserDatabase } from './user/types.js';
