@@ -105,6 +105,63 @@ export interface AlertTranslations {
   };
   /** Operator labels */
   operators: Record<AlertOperator, string>;
+  /** Condition labels */
+  condition: {
+    threshold: string;
+    actualValue: string;
+  };
+}
+
+/**
+ * Welcome template translations.
+ */
+export interface WelcomeTranslations {
+  subject: string;
+  body: {
+    greeting: string;
+    intro: string;
+    registeredAtLabel: string;
+    benefits: string[];
+    cta: string;
+    closing: string;
+  };
+}
+
+/**
+ * Digest template translations.
+ */
+export interface DigestTranslations {
+  /** Subject line with {period} placeholder */
+  subject: string;
+  /** Email body text */
+  body: {
+    heading: string;
+    intro: string;
+    summaryBadge: string;
+  };
+  /** Section labels and links */
+  sections: {
+    entityReport: string;
+    alert: string;
+    period: string;
+    income: string;
+    expenses: string;
+    balance: string;
+    viewFullReport: string;
+    viewSourceData: string;
+    topCategories: string;
+  };
+  /** Condition labels */
+  condition: {
+    threshold: string;
+    actualValue: string;
+  };
+  /** Alert status labels */
+  alertStatus: {
+    triggered: string;
+    monitoring: string;
+    currentValue: string;
+  };
 }
 
 /**
@@ -114,6 +171,8 @@ export interface Translations {
   common: CommonTranslations;
   newsletter: NewsletterTranslations;
   alert: AlertTranslations;
+  welcome: WelcomeTranslations;
+  digest: DigestTranslations;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,6 +256,55 @@ const ro: Translations = {
       lt: 'mai mic decât',
       lte: 'mai mic sau egal cu',
       eq: 'egal cu',
+    },
+    condition: {
+      threshold: 'Valoare',
+      actualValue: 'Valoare reală',
+    },
+  },
+  welcome: {
+    subject: 'Bun venit pe Transparenta.eu',
+    body: {
+      greeting: 'Bună ziua!',
+      intro:
+        'Contul tău pe Transparenta.eu este activ. Aici poți vedea cum sunt cheltuiți banii publici în România, pe baza datelor oficiale de execuție bugetară.',
+      registeredAtLabel: 'Cont creat la',
+      benefits: [
+        'Urmărește primării și instituții publice',
+        'Setează alerte pe indicatori bugetari',
+        'Primește rapoarte periodice direct pe email',
+      ],
+      cta: 'Explorează platforma',
+      closing: 'Dacă nu ai solicitat crearea acestui cont, poți ignora acest mesaj.',
+    },
+  },
+  digest: {
+    subject: 'Actualizare date ANAF / Forexebug - {period}',
+    body: {
+      heading: 'Actualizare date ANAF / Forexebug',
+      intro:
+        'Date noi de execuție bugetară sunt disponibile pentru {period}, pe baza raportărilor ANAF / Forexebug.',
+      summaryBadge: '{reports} rapoarte \u00b7 {alerts} alerte',
+    },
+    sections: {
+      entityReport: 'Raport entitate',
+      alert: 'Alertă',
+      period: 'Perioada',
+      income: 'Venituri',
+      expenses: 'Cheltuieli',
+      balance: 'Sold',
+      viewFullReport: 'Vezi raportul complet \u2192',
+      viewSourceData: 'Vezi datele sursă \u2192',
+      topCategories: 'Top cheltuieli',
+    },
+    condition: {
+      threshold: 'Valoare',
+      actualValue: 'Valoare reală',
+    },
+    alertStatus: {
+      triggered: 'Condiție îndeplinită',
+      monitoring: 'Monitorizare activă',
+      currentValue: 'Valoare curentă',
     },
   },
 };
@@ -283,6 +391,55 @@ const en: Translations = {
       lte: 'less than or equal to',
       eq: 'equal to',
     },
+    condition: {
+      threshold: 'Value',
+      actualValue: 'Actual value',
+    },
+  },
+  welcome: {
+    subject: 'Welcome to Transparenta.eu',
+    body: {
+      greeting: 'Hello!',
+      intro:
+        'Your account on Transparenta.eu is active. Here you can see how public money is spent in Romania, based on official budget execution data.',
+      registeredAtLabel: 'Account created on',
+      benefits: [
+        'Follow municipalities and public institutions',
+        'Set alerts on budget indicators',
+        'Receive periodic reports directly by email',
+      ],
+      cta: 'Explore the platform',
+      closing: 'If you did not request this account, you can ignore this message.',
+    },
+  },
+  digest: {
+    subject: 'ANAF / Forexebug data update - {period}',
+    body: {
+      heading: 'ANAF / Forexebug data update',
+      intro:
+        'New budget execution data is available for {period}, based on ANAF / Forexebug reports.',
+      summaryBadge: '{reports} reports \u00b7 {alerts} alerts',
+    },
+    sections: {
+      entityReport: 'Entity report',
+      alert: 'Alert',
+      period: 'Period',
+      income: 'Income',
+      expenses: 'Expenses',
+      balance: 'Balance',
+      viewFullReport: 'View full report \u2192',
+      viewSourceData: 'View source data \u2192',
+      topCategories: 'Top expenses',
+    },
+    condition: {
+      threshold: 'Value',
+      actualValue: 'Actual value',
+    },
+    alertStatus: {
+      triggered: 'Condition met',
+      monitoring: 'Active monitoring',
+      currentValue: 'Current value',
+    },
   },
 };
 
@@ -355,9 +512,39 @@ export const getAlertSubject = (lang: SupportedLanguage, title: string): string 
 };
 
 /**
+ * Gets the subject line for a welcome email.
+ */
+export const getWelcomeSubject = (lang: SupportedLanguage): string => {
+  return getTranslations(lang).welcome.subject;
+};
+
+/**
  * Gets the operator label.
  */
 export const getOperatorLabel = (lang: SupportedLanguage, operator: AlertOperator): string => {
   const t = getTranslations(lang);
   return t.alert.operators[operator];
+};
+
+/**
+ * Gets the subject line for a digest email.
+ */
+export const getDigestSubject = (lang: SupportedLanguage, periodLabel: string): string => {
+  const t = getTranslations(lang);
+  return interpolate(t.digest.subject, { period: periodLabel });
+};
+
+/**
+ * Gets the summary badge text for a digest (e.g., "3 rapoarte · 2 alerte").
+ */
+export const getDigestSummaryBadge = (
+  lang: SupportedLanguage,
+  reportCount: number,
+  alertCount: number
+): string => {
+  const t = getTranslations(lang);
+  return interpolate(t.digest.body.summaryBadge, {
+    reports: reportCount,
+    alerts: alertCount,
+  });
 };

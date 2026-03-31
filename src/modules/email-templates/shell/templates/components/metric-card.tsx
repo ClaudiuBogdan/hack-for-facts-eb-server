@@ -9,8 +9,14 @@ import { Section, Text, Row, Column } from '@react-email/components';
 import * as React from 'react';
 
 import { getTranslations } from '../../../core/i18n.js';
+import { formatAbsolutePercentage } from '../formatting.js';
+import {
+  getMetricChangeArrow,
+  getMetricChangeBackgroundColor,
+  getMetricChangeColor,
+} from './metric-change.js';
 
-import type { SupportedLanguage } from '../../../core/types.js';
+import type { DecimalString, SupportedLanguage } from '../../../core/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -26,7 +32,7 @@ export interface MetricCardProps {
   /** Formatted value (e.g., "280,05 mil. RON") */
   value: string;
   /** Change percentage vs previous period */
-  changePercent?: number | undefined;
+  changePercent?: DecimalString | undefined;
   /** Language for translations */
   lang: SupportedLanguage;
 }
@@ -81,51 +87,6 @@ const styles = {
     fontWeight: '600',
   },
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Gets the arrow symbol for change direction.
- */
-const getArrow = (changePercent: number): string => {
-  if (changePercent > 0) return '↑';
-  if (changePercent < 0) return '↓';
-  return '→';
-};
-
-/**
- * Gets the color for change indicator based on metric type and direction.
- */
-const getChangeColor = (type: MetricType, changePercent: number): string => {
-  if (changePercent === 0) return '#8898aa';
-
-  // For expenses, increase is negative (red), decrease is positive (green)
-  if (type === 'expenses') {
-    return changePercent > 0 ? '#f43f5e' : '#10b981';
-  }
-
-  // For income and balance, increase is positive (green), decrease is negative (red)
-  return changePercent > 0 ? '#10b981' : '#f43f5e';
-};
-
-/**
- * Gets the background color for change indicator.
- */
-const getChangeBgColor = (type: MetricType, changePercent: number): string => {
-  if (changePercent === 0) return '#f6f9fc';
-
-  if (type === 'expenses') {
-    return changePercent > 0 ? '#fef2f2' : '#ecfdf5';
-  }
-
-  return changePercent > 0 ? '#ecfdf5' : '#fef2f2';
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const MetricCard = ({
   type,
@@ -184,12 +145,12 @@ export const MetricCard = ({
             <Text
               style={{
                 ...styles.changeContainer,
-                color: getChangeColor(type, changePercent),
-                backgroundColor: getChangeBgColor(type, changePercent),
+                color: getMetricChangeColor(type, changePercent),
+                backgroundColor: getMetricChangeBackgroundColor(type, changePercent),
                 margin: '0',
               }}
             >
-              {getArrow(changePercent)} {Math.abs(changePercent).toFixed(1)}%{' '}
+              {getMetricChangeArrow(changePercent)} {formatAbsolutePercentage(changePercent, lang)}{' '}
               {t.newsletter.change.vsLastPeriod}
             </Text>
           </Column>

@@ -4,14 +4,15 @@
  * Email template for alert notifications when conditions are triggered.
  */
 
-import { Section, Text, Button, Row, Column } from '@react-email/components';
+import { Section, Text, Button } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
+import { ConditionDisplay } from './components/condition-display.js';
 import { EmailLayout } from './email-layout.js';
-import { getTranslations, getOperatorLabel } from '../../core/i18n.js';
+import { getTranslations } from '../../core/i18n.js';
 
-import type { AlertSeriesProps, TriggeredCondition } from '../../core/types.js';
+import type { AlertSeriesProps } from '../../core/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Styles
@@ -57,27 +58,9 @@ const styles = {
     letterSpacing: '1px',
     margin: '0 0 16px',
   },
-  conditionRow: {
-    marginBottom: '12px',
-  },
-  conditionText: {
-    fontSize: '14px',
-    color: '#525f7f',
-    margin: '0',
-    lineHeight: '20px',
-  },
-  conditionValue: {
-    fontWeight: '600',
-    color: '#1a1a2e',
-  },
-  conditionActual: {
-    fontSize: '12px',
-    color: '#8898aa',
-    margin: '4px 0 0',
-  },
   button: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: '4px',
+    backgroundColor: '#4F46E5',
+    borderRadius: '8px',
     color: '#ffffff',
     fontSize: '14px',
     fontWeight: '600',
@@ -95,47 +78,6 @@ const styles = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Formats a number with locale-specific formatting.
- */
-const formatNumber = (value: number, unit: string): string => {
-  const formatted = new Intl.NumberFormat('ro-RO', {
-    maximumFractionDigits: 2,
-  }).format(value);
-  return `${formatted} ${unit}`;
-};
-
-/**
- * Renders a single condition.
- */
-const renderCondition = (
-  condition: TriggeredCondition,
-  lang: AlertSeriesProps['lang'],
-  index: number
-): React.ReactNode => {
-  const operatorLabel = getOperatorLabel(lang, condition.operator);
-
-  return (
-    <Row key={index} style={styles.conditionRow}>
-      <Column>
-        <Text style={styles.conditionText}>
-          Valoare{' '}
-          <span style={styles.conditionValue}>
-            {operatorLabel} {formatNumber(condition.threshold, condition.unit)}
-          </span>
-        </Text>
-        <Text style={styles.conditionActual}>
-          Valoare reală: {formatNumber(condition.actualValue, condition.unit)}
-        </Text>
-      </Column>
-    </Row>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -144,6 +86,7 @@ export const AlertSeriesEmail = ({
   unsubscribeUrl,
   preferencesUrl,
   platformBaseUrl,
+  copyrightYear,
   title,
   description,
   triggeredConditions,
@@ -157,11 +100,34 @@ export const AlertSeriesEmail = ({
     previewText,
     unsubscribeUrl,
     platformBaseUrl,
+    copyrightYear,
     ...(preferencesUrl !== undefined ? { preferencesUrl } : {}),
   };
 
   return (
     <EmailLayout {...layoutProps}>
+      {/* Urgency Badge */}
+      <table cellPadding="0" cellSpacing="0" border={0} style={{ margin: '0 0 16px' }}>
+        <tbody>
+          <tr>
+            <td
+              style={{
+                backgroundColor: '#FEF3C7',
+                color: '#92400E',
+                fontSize: '11px',
+                fontWeight: '700',
+                padding: '5px 14px',
+                borderRadius: '12px',
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.5px',
+              }}
+            >
+              {'\u26A0\uFE0F'} {t.alert.body.conditionsTitle}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
       {/* Greeting */}
       <Text style={styles.greeting}>{t.alert.body.greeting}</Text>
 
@@ -177,9 +143,7 @@ export const AlertSeriesEmail = ({
       {/* Conditions Box */}
       <Section style={styles.conditionsBox}>
         <Text style={styles.conditionsTitle}>{t.alert.body.conditionsTitle}</Text>
-        {triggeredConditions.map((condition, index) =>
-          renderCondition(condition, lang, index)
-        )}
+        <ConditionDisplay conditions={triggeredConditions} lang={lang} />
       </Section>
 
       {/* CTA Button */}
@@ -204,22 +168,23 @@ export const AlertSeriesEmail = ({
 AlertSeriesEmail.PreviewProps = {
   lang: 'ro',
   unsubscribeUrl: 'https://transparenta.eu/api/v1/notifications/unsubscribe/abc123',
-  preferencesUrl: 'https://transparenta.eu/notifications/preferences',
+  preferencesUrl: 'https://transparenta.eu/settings/notifications',
   platformBaseUrl: 'https://transparenta.eu',
+  copyrightYear: 2026,
   templateType: 'alert_series',
   title: 'Alertă: Cheltuieli neobișnuite detectate',
   description: 'Au fost detectate cheltuieli care depășesc pragurile normale pentru această entitate.',
   triggeredConditions: [
     {
       operator: 'gt',
-      threshold: 1000000,
-      actualValue: 1500000,
+      threshold: '1000000',
+      actualValue: '1500000',
       unit: 'RON',
     },
     {
       operator: 'gte',
-      threshold: 50,
-      actualValue: 75,
+      threshold: '50',
+      actualValue: '75',
       unit: '%',
     },
   ],

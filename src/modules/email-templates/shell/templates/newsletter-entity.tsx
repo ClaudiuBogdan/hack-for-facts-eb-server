@@ -14,6 +14,7 @@ import { EntityHeader } from './components/entity-header.js';
 import { FundingBreakdown } from './components/funding-breakdown.js';
 import { MetricCard } from './components/metric-card.js';
 import { EmailLayout } from './email-layout.js';
+import { formatCompactCurrency, formatCurrency } from './formatting.js';
 import { getTranslations, getNewsletterIntro } from '../../core/i18n.js';
 
 import type { NewsletterEntityProps } from '../../core/types.js';
@@ -39,8 +40,8 @@ const styles = {
     margin: '0 0 24px',
   },
   button: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: '4px',
+    backgroundColor: '#4F46E5',
+    borderRadius: '8px',
     color: '#ffffff',
     fontSize: '14px',
     fontWeight: '600',
@@ -51,15 +52,15 @@ const styles = {
   },
   secondaryButton: {
     backgroundColor: '#ffffff',
-    borderRadius: '4px',
-    color: '#1a1a2e',
+    borderRadius: '8px',
+    color: '#4F46E5',
     fontSize: '14px',
     fontWeight: '600',
     textDecoration: 'none',
     textAlign: 'center' as const,
     display: 'inline-block',
     padding: '12px 24px',
-    border: '1px solid #e5e7eb',
+    border: '1px solid #4F46E5',
   },
   ctaSection: {
     textAlign: 'center' as const,
@@ -103,48 +104,12 @@ const styles = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Formats a number as compact currency (e.g., "280,05 mil. RON").
- */
-const formatCompactCurrency = (value: number, currency: string): string => {
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(2).replace('.', ',')} mld. ${currency}`;
-  }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(2).replace('.', ',')} mil. ${currency}`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(2).replace('.', ',')} mii ${currency}`;
-  }
-  return new Intl.NumberFormat('ro-RO', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-};
-
-/**
- * Formats per capita values.
- */
-const formatPerCapita = (value: number, currency: string): string => {
-  return new Intl.NumberFormat('ro-RO', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const NewsletterEntityEmail = ({
   lang,
   unsubscribeUrl,
   preferencesUrl,
   platformBaseUrl,
+  copyrightYear,
   entityName,
   entityCui,
   entityType,
@@ -168,6 +133,7 @@ export const NewsletterEntityEmail = ({
     previewText,
     unsubscribeUrl,
     platformBaseUrl,
+    copyrightYear,
     ...(preferencesUrl !== undefined ? { preferencesUrl } : {}),
   };
 
@@ -200,7 +166,7 @@ export const NewsletterEntityEmail = ({
             <MetricCard
               type="income"
               label={t.newsletter.body.income}
-              value={formatCompactCurrency(summary.totalIncome, summary.currency)}
+              value={formatCompactCurrency(summary.totalIncome, summary.currency, lang)}
               changePercent={previousPeriodComparison?.incomeChangePercent}
               lang={lang}
             />
@@ -211,7 +177,7 @@ export const NewsletterEntityEmail = ({
             <MetricCard
               type="expenses"
               label={t.newsletter.body.expenses}
-              value={formatCompactCurrency(summary.totalExpenses, summary.currency)}
+              value={formatCompactCurrency(summary.totalExpenses, summary.currency, lang)}
               changePercent={previousPeriodComparison?.expensesChangePercent}
               lang={lang}
             />
@@ -222,7 +188,7 @@ export const NewsletterEntityEmail = ({
             <MetricCard
               type="balance"
               label={t.newsletter.body.balance}
-              value={formatCompactCurrency(summary.budgetBalance, summary.currency)}
+              value={formatCompactCurrency(summary.budgetBalance, summary.currency, lang)}
               changePercent={previousPeriodComparison?.balanceChangePercent}
               lang={lang}
             />
@@ -244,20 +210,86 @@ export const NewsletterEntityEmail = ({
       {perCapita !== undefined && (
         <Section style={styles.perCapitaContainer}>
           <Text style={styles.perCapitaTitle}>{t.newsletter.perCapita.title}</Text>
-          <Row>
-            <Column style={{ width: '50%' }}>
-              <Text style={styles.perCapitaLabel}>{t.newsletter.perCapita.income}</Text>
-              <Text style={{ ...styles.perCapitaValue, color: '#10b981' }}>
-                {formatPerCapita(perCapita.income, summary.currency)}
-              </Text>
-            </Column>
-            <Column style={{ width: '50%' }}>
-              <Text style={styles.perCapitaLabel}>{t.newsletter.perCapita.expenses}</Text>
-              <Text style={{ ...styles.perCapitaValue, color: '#f43f5e' }}>
-                {formatPerCapita(perCapita.expenses, summary.currency)}
-              </Text>
-            </Column>
-          </Row>
+          <table width="100%" cellPadding="0" cellSpacing="0" border={0}>
+            <tbody>
+              <tr>
+                {/* Income per capita */}
+                <td style={{ width: '50%', verticalAlign: 'top' }}>
+                  <table cellPadding="0" cellSpacing="0" border={0}>
+                    <tbody>
+                      <tr>
+                        <td style={{ verticalAlign: 'middle', paddingRight: '12px' }}>
+                          <table
+                            width="36"
+                            cellPadding="0"
+                            cellSpacing="0"
+                            border={0}
+                            style={{ borderRadius: '50%', backgroundColor: '#10b98115' }}
+                          >
+                            <tbody>
+                              <tr>
+                                <td
+                                  align="center"
+                                  valign="middle"
+                                  height="36"
+                                  style={{ fontSize: '16px', color: '#10b981' }}
+                                >
+                                  {'\u2197'}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                        <td style={{ verticalAlign: 'middle' }}>
+                          <Text style={styles.perCapitaLabel}>{t.newsletter.perCapita.income}</Text>
+                          <Text style={{ ...styles.perCapitaValue, color: '#10b981' }}>
+                            {formatCurrency(perCapita.income, summary.currency, lang)}
+                          </Text>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+                {/* Expenses per capita */}
+                <td style={{ width: '50%', verticalAlign: 'top' }}>
+                  <table cellPadding="0" cellSpacing="0" border={0}>
+                    <tbody>
+                      <tr>
+                        <td style={{ verticalAlign: 'middle', paddingRight: '12px' }}>
+                          <table
+                            width="36"
+                            cellPadding="0"
+                            cellSpacing="0"
+                            border={0}
+                            style={{ borderRadius: '50%', backgroundColor: '#f43f5e15' }}
+                          >
+                            <tbody>
+                              <tr>
+                                <td
+                                  align="center"
+                                  valign="middle"
+                                  height="36"
+                                  style={{ fontSize: '16px', color: '#f43f5e' }}
+                                >
+                                  {'\u2198'}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </td>
+                        <td style={{ verticalAlign: 'middle' }}>
+                          <Text style={styles.perCapitaLabel}>{t.newsletter.perCapita.expenses}</Text>
+                          <Text style={{ ...styles.perCapitaValue, color: '#f43f5e' }}>
+                            {formatCurrency(perCapita.expenses, summary.currency, lang)}
+                          </Text>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </Section>
       )}
 
@@ -291,8 +323,9 @@ export const NewsletterEntityEmail = ({
 NewsletterEntityEmail.PreviewProps = {
   lang: 'ro',
   unsubscribeUrl: 'https://transparenta.eu/api/v1/notifications/unsubscribe/abc123',
-  preferencesUrl: 'https://transparenta.eu/notifications/preferences',
+  preferencesUrl: 'https://transparenta.eu/settings/notifications',
   platformBaseUrl: 'https://transparenta.eu',
+  copyrightYear: 2025,
   templateType: 'newsletter_entity',
 
   // Entity Info
@@ -308,39 +341,39 @@ NewsletterEntityEmail.PreviewProps = {
 
   // Financial Summary
   summary: {
-    totalIncome: 280050000,
-    totalExpenses: 182370000,
-    budgetBalance: 97680000,
+    totalIncome: '280050000',
+    totalExpenses: '182370000',
+    budgetBalance: '97680000',
     currency: 'RON',
   },
 
   // Period Comparison
   previousPeriodComparison: {
-    incomeChangePercent: 12.3,
-    expensesChangePercent: 8.7,
-    balanceChangePercent: 23.1,
+    incomeChangePercent: '12.3',
+    expensesChangePercent: '8.7',
+    balanceChangePercent: '23.1',
   },
 
   // Top Spending Categories
   topExpenseCategories: [
-    { name: 'Învățământ', amount: 45200000, percentage: 24.8 },
-    { name: 'Sănătate', amount: 32100000, percentage: 17.6 },
-    { name: 'Administrație publică', amount: 25800000, percentage: 14.1 },
-    { name: 'Cultură și recreere', amount: 18300000, percentage: 10.0 },
-    { name: 'Transport public', amount: 15200000, percentage: 8.3 },
+    { name: 'Învățământ', amount: '45200000', percentage: '24.8' },
+    { name: 'Sănătate', amount: '32100000', percentage: '17.6' },
+    { name: 'Administrație publică', amount: '25800000', percentage: '14.1' },
+    { name: 'Cultură și recreere', amount: '18300000', percentage: '10.0' },
+    { name: 'Transport public', amount: '15200000', percentage: '8.3' },
   ],
 
   // Funding Sources
   fundingSources: [
-    { name: 'Buget local', percentage: 65 },
-    { name: 'Buget de stat', percentage: 25 },
-    { name: 'Fonduri UE', percentage: 10 },
+    { name: 'Buget local', percentage: '65' },
+    { name: 'Buget de stat', percentage: '25' },
+    { name: 'Fonduri UE', percentage: '10' },
   ],
 
   // Per Capita
   perCapita: {
-    income: 1902,
-    expenses: 1238,
+    income: '1902',
+    expenses: '1238',
   },
 
   // Links

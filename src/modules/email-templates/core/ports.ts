@@ -10,6 +10,7 @@ import type {
   TemplateMetadata,
   EmailTemplateType,
 } from './types.js';
+import type { TSchema } from '@sinclair/typebox';
 import type { Result } from 'neverthrow';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,4 +53,41 @@ export interface EmailRenderer {
    * Gets metadata for a specific template.
    */
   getTemplate(type: EmailTemplateType): TemplateMetadata | undefined;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Template Registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A registered template definition.
+ * TPayload is the TypeBox schema type for template-specific props.
+ */
+export interface TemplateRegistration<
+  TType extends EmailTemplateType = EmailTemplateType,
+  TPayload extends TSchema = TSchema,
+> {
+  /** Unique template identifier (e.g., 'welcome', 'alert_series') */
+  id: TType;
+  /** Human-readable template name */
+  name: string;
+  /** Template version */
+  version: string;
+  /** Description of the template */
+  description: string;
+  /** TypeBox schema for template-specific payload validation */
+  payloadSchema: TPayload;
+}
+
+/**
+ * Registry of available email templates.
+ * Single source of truth for template availability and metadata.
+ */
+export interface TemplateRegistry {
+  /** Get a registration by template ID */
+  get(id: string): TemplateRegistration | undefined;
+  /** Get all registrations */
+  getAll(): TemplateRegistration[];
+  /** Check if a template ID is registered */
+  has(id: string): boolean;
 }

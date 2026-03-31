@@ -18,3 +18,9 @@ export type { FundingBreakdownProps } from './funding-breakdown.js';
 
 export { EntityHeader } from './entity-header.js';
 export type { EntityHeaderProps } from './entity-header.js';
+
+export { CompactMetricRow } from './compact-metric-row.js';
+export type { CompactMetricRowProps, CompactMetric } from './compact-metric-row.js';
+
+export { ConditionDisplay } from './condition-display.js';
+export type { ConditionDisplayProps } from './condition-display.js';

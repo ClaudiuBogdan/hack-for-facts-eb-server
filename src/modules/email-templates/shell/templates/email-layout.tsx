@@ -13,6 +13,7 @@ import {
   Hr,
   Text,
   Link,
+  Img,
   Preview,
 } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
@@ -28,7 +29,7 @@ import type { SupportedLanguage } from '../../core/types.js';
 
 const styles = {
   body: {
-    backgroundColor: '#f6f9fc',
+    backgroundColor: '#f0f2f8',
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Ubuntu, sans-serif',
     margin: '0',
@@ -36,41 +37,64 @@ const styles = {
   },
   container: {
     backgroundColor: '#ffffff',
-    borderRadius: '8px',
+    borderRadius: '12px',
     margin: '40px auto',
-    padding: '20px 0',
+    padding: '0',
     maxWidth: '600px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
   },
-  header: {
-    padding: '20px 32px',
+  headerBand: {
+    background: 'linear-gradient(135deg, #2563EB 0%, #7C3AED 50%, #D946EF 100%)',
+    backgroundColor: '#5B4FE5',
+    borderRadius: '12px 12px 0 0',
+    padding: '20px 28px',
+  },
+  headerTable: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+  },
+  headerLogoCell: {
+    width: '40px',
+    verticalAlign: 'middle' as const,
+    paddingRight: '14px',
+  },
+  headerLogo: {
+    width: '32px',
+    height: '30px',
+    display: 'block',
+  },
+  headerTitleCell: {
+    verticalAlign: 'middle' as const,
     textAlign: 'center' as const,
   },
-  logo: {
-    fontSize: '24px',
-    fontWeight: '700',
-    color: '#1a1a2e',
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '800',
+    color: '#ffffff',
     textDecoration: 'none',
+    letterSpacing: '-0.3px',
+    lineHeight: '28px',
   },
   content: {
-    padding: '0 32px',
+    padding: '32px 32px 24px',
   },
   footer: {
-    padding: '20px 32px',
+    padding: '20px 32px 28px',
     textAlign: 'center' as const,
   },
   footerText: {
-    color: '#8898aa',
+    color: '#9CA3AF',
     fontSize: '12px',
-    lineHeight: '16px',
-    margin: '0',
+    lineHeight: '18px',
+    margin: '0 0 4px',
   },
   footerLink: {
-    color: '#8898aa',
+    color: '#6D28D9',
     textDecoration: 'underline',
   },
   hr: {
-    borderColor: '#e6ebf1',
-    margin: '20px 0',
+    borderColor: '#E5E7EB',
+    margin: '0 32px',
   },
 };
 
@@ -89,6 +113,8 @@ export interface EmailLayoutProps {
   preferencesUrl?: string;
   /** Platform base URL */
   platformBaseUrl: string;
+  /** Explicit year used in footer copyright copy */
+  copyrightYear: number;
   /** Main content */
   children: React.ReactNode;
 }
@@ -103,30 +129,63 @@ export const EmailLayout: React.FC<EmailLayoutProps> = ({
   unsubscribeUrl,
   preferencesUrl,
   platformBaseUrl,
+  copyrightYear,
   children,
 }) => {
   const t = getTranslations(lang);
-  const currentYear = new Date().getFullYear();
 
   return (
     <Html lang={lang}>
-      <Head />
+      <Head>
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media only screen and (max-width: 480px) {
+                .email-container { border-radius: 0 !important; margin: 0 auto !important; box-shadow: none !important; }
+                .email-header { border-radius: 0 !important; }
+                .email-content { padding: 20px 16px 16px !important; }
+                .email-footer { padding: 16px 16px 20px !important; }
+                .email-hr { margin: 0 16px !important; }
+                .digest-card { border-radius: 6px !important; margin-left: 0 !important; margin-right: 0 !important; padding: 12px !important; }
+              }
+            `,
+          }}
+        />
+      </Head>
       <Preview>{previewText}</Preview>
       <Body style={styles.body}>
-        <Container style={styles.container}>
+        <Container style={styles.container} className="email-container">
           {/* Header */}
-          <Section style={styles.header}>
-            <Link href={platformBaseUrl} style={styles.logo}>
-              Transparenta.eu
-            </Link>
+          <Section style={styles.headerBand} className="email-header">
+            <table style={styles.headerTable}>
+              <tr>
+                <td style={styles.headerLogoCell}>
+                  <Link href={platformBaseUrl}>
+                    <Img
+                      src="https://transparenta.eu/logo.png"
+                      width="32"
+                      height="30"
+                      alt=""
+                      style={styles.headerLogo}
+                    />
+                  </Link>
+                </td>
+                <td style={styles.headerTitleCell}>
+                  <Link href={platformBaseUrl} style={styles.headerTitle}>
+                    Transparenta.eu
+                  </Link>
+                </td>
+                <td style={{ width: '40px' }} />
+              </tr>
+            </table>
           </Section>
 
           {/* Content */}
-          <Section style={styles.content}>{children}</Section>
+          <Section style={styles.content} className="email-content">{children}</Section>
 
           {/* Footer */}
-          <Hr style={styles.hr} />
-          <Section style={styles.footer}>
+          <Hr style={styles.hr} className="email-hr" />
+          <Section style={styles.footer} className="email-footer">
             <Text style={styles.footerText}>
               <Link href={unsubscribeUrl} style={styles.footerLink}>
                 {t.common.footer.unsubscribe}
@@ -141,7 +200,7 @@ export const EmailLayout: React.FC<EmailLayoutProps> = ({
               )}
             </Text>
             <Text style={styles.footerText}>
-              {interpolate(t.common.footer.copyright, { year: currentYear })}
+              {interpolate(t.common.footer.copyright, { year: copyrightYear })}
             </Text>
           </Section>
         </Container>

@@ -18,6 +18,21 @@ export type SupportedLanguage = 'ro' | 'en';
  */
 export const DEFAULT_LANGUAGE: SupportedLanguage = 'ro';
 
+/**
+ * Canonical decimal string representation used for financial values in templates.
+ */
+export type DecimalString = string;
+
+/**
+ * Open map of template ids to full template props.
+ *
+ * Registration modules augment this interface so the type system derives
+ * template ids and template prop unions from the same source as the runtime
+ * registry.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Open interface for module augmentation by registration files
+export interface EmailTemplateMap {}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Base Template Props
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,6 +49,8 @@ export interface BaseTemplateProps {
   preferencesUrl?: string;
   /** Platform base URL */
   platformBaseUrl: string;
+  /** Explicit year used in footer copy for deterministic rendering */
+  copyrightYear: number;
   /** Whether this is a preview render */
   isPreview?: boolean;
 }
@@ -52,11 +69,11 @@ export type NewsletterPeriodType = 'monthly' | 'quarterly' | 'yearly';
  */
 export interface BudgetSummary {
   /** Total income for the period */
-  totalIncome: number;
+  totalIncome: DecimalString;
   /** Total expenses for the period */
-  totalExpenses: number;
+  totalExpenses: DecimalString;
   /** Budget balance (income - expenses) */
-  budgetBalance: number;
+  budgetBalance: DecimalString;
   /** Currency code (e.g., 'RON') */
   currency: string;
 }
@@ -66,11 +83,11 @@ export interface BudgetSummary {
  */
 export interface PeriodComparison {
   /** Income change percentage vs previous period */
-  incomeChangePercent: number;
+  incomeChangePercent: DecimalString;
   /** Expenses change percentage vs previous period */
-  expensesChangePercent: number;
+  expensesChangePercent: DecimalString;
   /** Balance change percentage vs previous period */
-  balanceChangePercent: number;
+  balanceChangePercent: DecimalString;
 }
 
 /**
@@ -80,9 +97,9 @@ export interface TopExpenseCategory {
   /** Category name (e.g., "Învățământ") */
   name: string;
   /** Amount spent in this category */
-  amount: number;
+  amount: DecimalString;
   /** Percentage of total expenses */
-  percentage: number;
+  percentage: DecimalString;
 }
 
 /**
@@ -92,7 +109,7 @@ export interface FundingSourceBreakdown {
   /** Funding source name (e.g., "Buget local") */
   name: string;
   /** Percentage of total funding */
-  percentage: number;
+  percentage: DecimalString;
 }
 
 /**
@@ -100,9 +117,9 @@ export interface FundingSourceBreakdown {
  */
 export interface PerCapitaMetrics {
   /** Income per capita */
-  income: number;
+  income: DecimalString;
   /** Expenses per capita */
-  expenses: number;
+  expenses: DecimalString;
 }
 
 /**
@@ -166,9 +183,9 @@ export interface TriggeredCondition {
   /** Comparison operator */
   operator: AlertOperator;
   /** Threshold value */
-  threshold: number;
+  threshold: DecimalString;
   /** Actual value that triggered the alert */
-  actualValue: number;
+  actualValue: DecimalString;
   /** Unit of measurement */
   unit: string;
 }
@@ -188,6 +205,64 @@ export interface AlertSeriesProps extends BaseTemplateProps {
   dataSourceUrl?: string;
 }
 
+/**
+ * Props for welcome email templates.
+ */
+export interface WelcomeEmailProps extends BaseTemplateProps {
+  templateType: 'welcome';
+  registeredAt: string;
+  ctaUrl?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bundle Template Props
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AnafForexebugDigestNewsletterSection {
+  kind: 'newsletter_entity';
+  notificationId: string;
+  notificationType: string;
+  entityName: string;
+  entityCui: string;
+  entityType?: string;
+  countyName?: string;
+  population?: number;
+  periodLabel: string;
+  summary: BudgetSummary;
+  previousPeriodComparison?: PeriodComparison;
+  topExpenseCategories?: TopExpenseCategory[];
+  fundingSources?: FundingSourceBreakdown[];
+  perCapita?: PerCapitaMetrics;
+  detailsUrl?: string;
+  mapUrl?: string;
+}
+
+export interface AnafForexebugDigestAlertSection {
+  kind: 'alert_series';
+  notificationId: string;
+  notificationType: string;
+  title: string;
+  description?: string;
+  /** Current monitored value for the period */
+  actualValue: DecimalString;
+  /** Unit for the monitored value */
+  unit: string;
+  /** Triggered conditions (empty when monitoring only, no conditions met) */
+  triggeredConditions: TriggeredCondition[];
+  dataSourceUrl?: string;
+}
+
+export type AnafForexebugDigestSection =
+  | AnafForexebugDigestNewsletterSection
+  | AnafForexebugDigestAlertSection;
+
+export interface AnafForexebugDigestProps extends BaseTemplateProps {
+  templateType: 'anaf_forexebug_digest';
+  periodKey: string;
+  periodLabel: string;
+  sections: AnafForexebugDigestSection[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Union Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,12 +270,12 @@ export interface AlertSeriesProps extends BaseTemplateProps {
 /**
  * All possible email template props.
  */
-export type EmailTemplateProps = NewsletterEntityProps | AlertSeriesProps;
+export type EmailTemplateProps = EmailTemplateMap[EmailTemplateType];
 
 /**
  * Template type identifiers.
  */
-export type EmailTemplateType = EmailTemplateProps['templateType'];
+export type EmailTemplateType = keyof EmailTemplateMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rendered Email
@@ -236,7 +311,11 @@ export interface TemplateMetadata {
   version: string;
   /** Description of the template */
   description: string;
-  /** Example props for preview */
+  /**
+   * Example props for rendering a preview of this template.
+   * Retrieve via `renderer.getTemplate(type)`, then pass to `renderer.render()`
+   * to produce a full HTML preview without needing real data.
+   */
   exampleProps: EmailTemplateProps;
 }
 
