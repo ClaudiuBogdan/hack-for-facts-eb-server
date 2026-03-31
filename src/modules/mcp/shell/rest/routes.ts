@@ -7,7 +7,9 @@
 
 import { randomBytes, timingSafeEqual } from 'crypto';
 
+// eslint-disable-next-line import-x/no-unresolved -- wildcard exports (./*) in SDK package.json not supported by eslint resolver
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+// eslint-disable-next-line import-x/no-unresolved -- wildcard exports (./*) in SDK package.json not supported by eslint resolver
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import type { McpSessionStore, McpRateLimiter } from '../../core/ports.js';
