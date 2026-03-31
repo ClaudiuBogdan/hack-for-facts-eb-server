@@ -5,7 +5,18 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
+import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
+import {
+  ALERT_TYPES,
+  NEWSLETTER_TYPES,
+  generateNotificationHash,
+  type Notification,
+  type NotificationDelivery,
+  type NotificationDeliveryHistory,
+  type NotificationType,
+} from '@/modules/notifications/core/types.js';
+import { sha256Hasher } from '@/modules/notifications/shell/crypto/hasher.js';
 
 import type { CachePort, CacheError, CacheSetOptions, CacheStats } from '@/infra/cache/index.js';
 import type { BudgetDbClient, InsDbClient } from '@/infra/database/client.js';
@@ -56,23 +67,19 @@ import type { DeliveryError } from '@/modules/notification-delivery/core/errors.
 import type {
   DeliveryRepository,
   CreateDeliveryInput,
+  UpdateRenderedContentInput,
   UpdateDeliveryStatusInput,
+  ExtendedNotificationsRepository,
 } from '@/modules/notification-delivery/core/ports.js';
 import type { DeliveryRecord, DeliveryStatus } from '@/modules/notification-delivery/core/types.js';
 import type { NotificationError } from '@/modules/notifications/core/errors.js';
 import type {
   NotificationsRepository,
   DeliveriesRepository,
-  UnsubscribeTokensRepository,
+  UnsubscribeTokenSigner,
   CreateNotificationInput,
   UpdateNotificationRepoInput,
 } from '@/modules/notifications/core/ports.js';
-import type {
-  Notification,
-  NotificationDelivery,
-  UnsubscribeToken,
-  NotificationType,
-} from '@/modules/notifications/core/types.js';
 import type { ShareError } from '@/modules/share/core/errors.js';
 import type { ShortLinkRepository, ShortLinkCache, Hasher } from '@/modules/share/core/ports.js';
 import type { ShortLink, CreateShortLinkInput, UrlMetadata } from '@/modules/share/core/types.js';
@@ -892,6 +899,40 @@ export const makeFakeNotificationsRepo = (
       store.delete(id);
       return ok(notification);
     },
+
+    deactivateGlobalUnsubscribe: async (
+      userId: string
+    ): Promise<Result<void, NotificationError>> => {
+      if (simulateDbError) return createDbError();
+      let found = false;
+      for (const n of store.values()) {
+        if (
+          n.userId === userId &&
+          n.notificationType === ('global_unsubscribe' as NotificationType)
+        ) {
+          store.set(n.id, { ...n, isActive: false, updatedAt: new Date() });
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        const id = crypto.randomUUID();
+        const now = new Date();
+        const config = { channels: { email: false } };
+        store.set(id, {
+          id,
+          userId,
+          entityCui: null,
+          notificationType: 'global_unsubscribe' as NotificationType,
+          isActive: false,
+          config,
+          hash: generateNotificationHash(sha256Hasher, userId, 'global_unsubscribe', null, config),
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return ok(undefined);
+    },
   };
 };
 
@@ -910,92 +951,42 @@ export const makeFakeDeliveriesRepo = (
 ): DeliveriesRepository => {
   const deliveries = [...(options.deliveries ?? [])];
   const simulateDbError = options.simulateDbError ?? false;
+  const hasSentAt = (
+    delivery: NotificationDelivery
+  ): delivery is NotificationDeliveryHistory & { notificationType?: NotificationType } => {
+    return delivery.sentAt !== null;
+  };
 
   return {
     findByUserId: async (
       userId: string,
       limit: number,
       offset: number
-    ): Promise<Result<NotificationDelivery[], NotificationError>> => {
+    ): Promise<Result<NotificationDeliveryHistory[], NotificationError>> => {
       if (simulateDbError) {
         return err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
       }
 
       const userDeliveries = deliveries
-        .filter((d) => d.userId === userId)
+        .filter((d): d is NotificationDeliveryHistory & { notificationType?: NotificationType } => {
+          const notificationType = (
+            d as NotificationDelivery & { notificationType?: NotificationType }
+          ).notificationType;
+
+          return (
+            d.userId === userId &&
+            hasSentAt(d) &&
+            notificationType !== undefined &&
+            [...NEWSLETTER_TYPES, ...ALERT_TYPES].includes(notificationType)
+          );
+        })
         .sort((a, b) => {
-          // Sort by sentAt descending, with nulls at the end
-          const aTime = a.sentAt?.getTime() ?? 0;
-          const bTime = b.sentAt?.getTime() ?? 0;
+          const aTime = a.sentAt.getTime();
+          const bTime = b.sentAt.getTime();
           return bTime - aTime;
         });
 
-      return ok(userDeliveries.slice(offset, offset + limit));
-    },
-  };
-};
-
-interface FakeUnsubscribeTokensRepoOptions {
-  /** Initial tokens to seed the store with */
-  tokens?: UnsubscribeToken[];
-  /** Enable database error simulation */
-  simulateDbError?: boolean;
-}
-
-/**
- * Creates a fake unsubscribe tokens repository for testing.
- */
-export const makeFakeUnsubscribeTokensRepo = (
-  options: FakeUnsubscribeTokensRepoOptions = {}
-): UnsubscribeTokensRepository => {
-  const store = new Map<string, UnsubscribeToken>();
-  const simulateDbError = options.simulateDbError ?? false;
-
-  // Seed initial tokens
-  if (options.tokens !== undefined) {
-    for (const t of options.tokens) {
-      store.set(t.token, { ...t });
-    }
-  }
-
-  const createDbError = (): Result<never, NotificationError> =>
-    err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
-
-  return {
-    findByToken: async (
-      token: string
-    ): Promise<Result<UnsubscribeToken | null, NotificationError>> => {
-      if (simulateDbError) return createDbError();
-      const tokenRecord = store.get(token);
-      return ok(tokenRecord ?? null);
-    },
-
-    isTokenValid: async (token: string): Promise<Result<boolean, NotificationError>> => {
-      if (simulateDbError) return createDbError();
-      const tokenRecord = store.get(token);
-      if (tokenRecord === undefined) return ok(false);
-      const now = new Date();
-      if (tokenRecord.expiresAt < now) return ok(false);
-      if (tokenRecord.usedAt !== null) return ok(false);
-      return ok(true);
-    },
-
-    markAsUsed: async (token: string): Promise<Result<UnsubscribeToken, NotificationError>> => {
-      if (simulateDbError) return createDbError();
-      const tokenRecord = store.get(token);
-      if (tokenRecord === undefined) {
-        return err({
-          type: 'TokenNotFoundError',
-          message: 'Unsubscribe token not found',
-          token,
-        });
-      }
-      const updated: UnsubscribeToken = {
-        ...tokenRecord,
-        usedAt: new Date(),
-      };
-      store.set(token, updated);
-      return ok(updated);
+      return ok(userDeliveries.slice(offset, offset + limit) as NotificationDeliveryHistory[]);
     },
   };
 };
@@ -1031,18 +1022,27 @@ let deliveryIdCounter = 0;
  * Creates a test delivery with sensible defaults.
  */
 export const createTestDelivery = (
-  overrides: Partial<NotificationDelivery> = {}
+  overrides: Partial<NotificationDelivery> & { notificationType?: NotificationType } = {}
 ): NotificationDelivery => {
   deliveryIdCounter++;
   const now = new Date();
+  const userId = overrides.userId ?? 'user-1';
+  const notificationId =
+    'notificationId' in overrides ? (overrides.notificationId ?? null) : 'notification-1';
+  const scopeKey = overrides.scopeKey ?? '2024-01';
+  const deliveryKey =
+    overrides.deliveryKey ??
+    (notificationId === null
+      ? `${userId}:no-reference:${scopeKey}`
+      : `${userId}:${notificationId}:${scopeKey}`);
+
   return {
     id: overrides.id ?? `delivery-${String(deliveryIdCounter)}`,
-    userId: overrides.userId ?? 'user-1',
-    notificationId: overrides.notificationId ?? 'notification-1',
-    periodKey: overrides.periodKey ?? '2024-01',
-    deliveryKey: overrides.deliveryKey ?? `user-1:notification-1:2024-01`,
+    userId,
+    notificationId,
+    scopeKey,
+    deliveryKey,
     status: overrides.status ?? 'sent',
-    unsubscribeToken: overrides.unsubscribeToken ?? null,
     renderedSubject: overrides.renderedSubject ?? null,
     renderedHtml: overrides.renderedHtml ?? null,
     renderedText: overrides.renderedText ?? null,
@@ -1057,27 +1057,8 @@ export const createTestDelivery = (
     sentAt: overrides.sentAt ?? now,
     metadata: overrides.metadata ?? {},
     createdAt: overrides.createdAt ?? now,
-  };
-};
-
-/**
- * Creates a test unsubscribe token with sensible defaults.
- */
-export const createTestUnsubscribeToken = (
-  overrides: Partial<UnsubscribeToken> = {}
-): UnsubscribeToken => {
-  const now = new Date();
-  const oneYearFromNow = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
-  return {
-    token:
-      overrides.token ??
-      crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', ''),
-    userId: overrides.userId ?? 'user-1',
-    notificationId: overrides.notificationId ?? 'notification-1',
-    createdAt: overrides.createdAt ?? now,
-    expiresAt: overrides.expiresAt ?? oneYearFromNow,
-    usedAt: overrides.usedAt ?? null,
-  };
+    notificationType: overrides.notificationType ?? 'newsletter_entity_monthly',
+  } as NotificationDelivery;
 };
 
 // =============================================================================
@@ -1433,6 +1414,16 @@ export const makeFakeLearningProgressRepo = (
               return leftRecord.recordKey.localeCompare(rightRecord.recordKey);
             })
         );
+      },
+
+      getRecord: async (
+        userId: string,
+        recordKey: string
+      ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const userStore = currentStore.get(userId);
+        return ok(userStore?.get(recordKey) ?? null);
       },
 
       getRecordForUpdate: async (
@@ -1829,12 +1820,12 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       const delivery: DeliveryRecord = {
         id,
         userId: input.userId,
-        toEmail: null,
-        notificationId: input.notificationId,
-        periodKey: input.periodKey,
+        toEmail: input.toEmail ?? null,
+        notificationType: input.notificationType,
+        referenceId: input.referenceId,
+        scopeKey: input.scopeKey,
         deliveryKey: input.deliveryKey,
         status: 'pending',
-        unsubscribeToken: input.unsubscribeToken ?? null,
         renderedSubject: input.renderedSubject ?? null,
         renderedHtml: input.renderedHtml ?? null,
         renderedText: input.renderedText ?? null,
@@ -1852,6 +1843,60 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       store.set(id, delivery);
       keyIndex.set(input.deliveryKey, id);
       return ok(delivery);
+    },
+
+    updateRenderedContent: async (
+      outboxId: string,
+      input: UpdateRenderedContentInput
+    ): Promise<Result<void, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(outboxId);
+      if (delivery === undefined) {
+        return ok(undefined);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        renderedSubject: input.renderedSubject,
+        renderedHtml: input.renderedHtml,
+        renderedText: input.renderedText,
+        contentHash: input.contentHash,
+        templateName: input.templateName,
+        templateVersion: input.templateVersion,
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      };
+      store.set(outboxId, updated);
+      return ok(undefined);
+    },
+
+    claimForCompose: async (
+      deliveryId: string
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined) return ok(null);
+
+      if (delivery.status !== 'pending') {
+        return ok(null);
+      }
+
+      if (
+        delivery.renderedSubject !== null &&
+        delivery.renderedHtml !== null &&
+        delivery.renderedText !== null
+      ) {
+        return ok(null);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status: 'composing',
+        lastAttemptAt: new Date(),
+      };
+      store.set(deliveryId, updated);
+      return ok(updated);
     },
 
     findById: async (deliveryId: string): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
@@ -1880,6 +1925,14 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
 
       // Only claim if in claimable status
       if (delivery.status !== 'pending' && delivery.status !== 'failed_transient') {
+        return ok(null);
+      }
+
+      if (
+        delivery.renderedSubject === null ||
+        delivery.renderedHtml === null ||
+        delivery.renderedText === null
+      ) {
         return ok(null);
       }
 
@@ -1914,6 +1967,31 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       };
       store.set(deliveryId, updated);
       return ok(undefined);
+    },
+
+    updateStatusIfCurrentIn: async (
+      deliveryId: string,
+      allowedStatuses: readonly DeliveryStatus[],
+      nextStatus: DeliveryStatus,
+      input?: Partial<UpdateDeliveryStatusInput>
+    ): Promise<Result<boolean, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined || !allowedStatuses.includes(delivery.status)) {
+        return ok(false);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status: nextStatus,
+        ...(input?.toEmail !== undefined ? { toEmail: input.toEmail } : {}),
+        ...(input?.resendEmailId !== undefined ? { resendEmailId: input.resendEmailId } : {}),
+        ...(input?.lastError !== undefined ? { lastError: input.lastError } : {}),
+        ...(input?.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
+      };
+      store.set(deliveryId, updated);
+      return ok(true);
     },
 
     updateStatusIfStillSending: async (
@@ -1951,8 +2029,7 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       for (const delivery of store.values()) {
         if (
           delivery.status === 'sending' &&
-          delivery.lastAttemptAt !== null &&
-          delivery.lastAttemptAt < threshold
+          (delivery.lastAttemptAt === null || delivery.lastAttemptAt < threshold)
         ) {
           stuck.push(delivery);
         }
@@ -1961,11 +2038,208 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       return ok(stuck);
     },
 
+    findPendingComposeOrphans: async (
+      olderThanMinutes: number
+    ): Promise<Result<DeliveryRecord[], DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+      return ok(
+        [...store.values()].filter((delivery) => {
+          const lastActivity = delivery.lastAttemptAt ?? delivery.createdAt;
+
+          return (
+            (delivery.status === 'pending' || delivery.status === 'composing') &&
+            (delivery.renderedSubject === null ||
+              delivery.renderedHtml === null ||
+              delivery.renderedText === null) &&
+            lastActivity < threshold
+          );
+        })
+      );
+    },
+
+    findReadyToSendOrphans: async (
+      olderThanMinutes: number
+    ): Promise<Result<DeliveryRecord[], DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+      return ok(
+        [...store.values()].filter((delivery) => {
+          const lastActivity = delivery.lastAttemptAt ?? delivery.createdAt;
+
+          return (
+            (delivery.status === 'pending' || delivery.status === 'failed_transient') &&
+            delivery.renderedSubject !== null &&
+            delivery.renderedHtml !== null &&
+            delivery.renderedText !== null &&
+            lastActivity < threshold
+          );
+        })
+      );
+    },
+
+    findSentAwaitingWebhook: async (
+      olderThanMinutes: number
+    ): Promise<Result<DeliveryRecord[], DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+      return ok(
+        [...store.values()].filter(
+          (delivery) =>
+            delivery.status === 'sent' && delivery.sentAt !== null && delivery.sentAt < threshold
+        )
+      );
+    },
+
     existsByDeliveryKey: async (deliveryKey: string): Promise<Result<boolean, DeliveryError>> => {
       if (simulateDbError) return createDbError();
       return ok(keyIndex.has(deliveryKey));
     },
   };
+};
+
+// =============================================================================
+// Extended Notifications Repository Fake (Delivery Pipeline)
+// =============================================================================
+
+interface FakeExtendedNotificationsRepoOptions {
+  /** Initial notifications to seed the store with */
+  notifications?: Notification[];
+  /** Notifications already materialized for a given period */
+  deliveredNotificationIdsByPeriod?: Record<string, string[]>;
+  /** Simulate a globally unsubscribed user (by userId) */
+  globallyUnsubscribedUsers?: Set<string>;
+  /** Enable database error simulation */
+  simulateDbError?: boolean;
+}
+
+/**
+ * Creates a fake ExtendedNotificationsRepository for testing delivery pipeline.
+ */
+export const makeFakeExtendedNotificationsRepo = (
+  options: FakeExtendedNotificationsRepoOptions = {}
+): ExtendedNotificationsRepository => {
+  const store = new Map<string, Notification>();
+  const simulateDbError = options.simulateDbError ?? false;
+  const deliveredNotificationIdsByPeriod = options.deliveredNotificationIdsByPeriod ?? {};
+  const globallyUnsubscribedUsers = options.globallyUnsubscribedUsers ?? new Set<string>();
+
+  if (options.notifications !== undefined) {
+    for (const n of options.notifications) {
+      store.set(n.id, { ...n });
+    }
+  }
+
+  const createDbError = (): Result<never, DeliveryError> =>
+    err({
+      type: 'DatabaseError',
+      message: 'Simulated database error',
+      retryable: true,
+    } as DeliveryError);
+
+  return {
+    findById: async (notificationId: string) => {
+      if (simulateDbError) return createDbError();
+      const n = store.get(notificationId);
+      return ok(n ?? null);
+    },
+
+    findEligibleForDelivery: async (
+      notificationType: NotificationType,
+      periodKey: string,
+      limit = 100
+    ) => {
+      if (simulateDbError) return createDbError();
+      const deliveredNotificationIds = new Set(deliveredNotificationIdsByPeriod[periodKey] ?? []);
+      const eligible: Notification[] = [];
+      for (const n of store.values()) {
+        const isGloballyUnsubscribed =
+          globallyUnsubscribedUsers.has(n.userId) ||
+          [...store.values()].some((candidate) => {
+            if (
+              candidate.userId !== n.userId ||
+              candidate.notificationType !== 'global_unsubscribe'
+            ) {
+              return false;
+            }
+
+            if (!candidate.isActive) {
+              return true;
+            }
+
+            const config = candidate.config as Record<string, unknown> | null;
+            if (config !== null && typeof config === 'object') {
+              const channels = config['channels'] as Record<string, unknown> | undefined;
+              return channels?.['email'] === false;
+            }
+
+            return false;
+          });
+
+        if (
+          n.notificationType === notificationType &&
+          n.isActive &&
+          !isGloballyUnsubscribed &&
+          !deliveredNotificationIds.has(n.id)
+        ) {
+          eligible.push(n);
+          if (eligible.length >= limit) break;
+        }
+      }
+      return ok(eligible);
+    },
+
+    deactivate: async (notificationId: string) => {
+      if (simulateDbError) return createDbError();
+      const n = store.get(notificationId);
+      if (n !== undefined) {
+        store.set(notificationId, { ...n, isActive: false, updatedAt: new Date() });
+      }
+      return ok(undefined);
+    },
+
+    isUserGloballyUnsubscribed: async (userId: string) => {
+      if (simulateDbError) return createDbError();
+
+      // Check override set first
+      if (globallyUnsubscribedUsers.has(userId)) {
+        return ok(true);
+      }
+
+      // Check store
+      for (const n of store.values()) {
+        if (n.userId === userId && n.notificationType === 'global_unsubscribe') {
+          if (!n.isActive) return ok(true);
+          const config = n.config as Record<string, unknown> | null;
+          if (config !== null && typeof config === 'object') {
+            const channels = config['channels'] as Record<string, unknown> | undefined;
+            if (channels?.['email'] === false) {
+              return ok(true);
+            }
+          }
+        }
+      }
+
+      return ok(false);
+    },
+  };
+};
+
+// =============================================================================
+// Fake Token Signer (HMAC-based)
+// =============================================================================
+
+/**
+ * Creates a real UnsubscribeTokenSigner backed by the HMAC implementation.
+ * Uses a deterministic test secret by default.
+ */
+export const makeFakeTokenSigner = (
+  secret = 'test-secret-for-unit-tests-min-32chars!'
+): UnsubscribeTokenSigner => {
+  return makeUnsubscribeTokenSigner(secret);
 };
 
 // =============================================================================
@@ -1984,19 +2258,23 @@ export const createTestDeliveryRecord = (
   const now = new Date();
   const id = overrides.id ?? `delivery-record-${String(deliveryRecordIdCounter)}`;
   const userId = overrides.userId ?? 'user-1';
-  const notificationId = overrides.notificationId ?? 'notification-1';
-  const periodKey = overrides.periodKey ?? '2025-01';
-  const deliveryKey = overrides.deliveryKey ?? `${userId}:${notificationId}:${periodKey}`;
+  const notificationType = overrides.notificationType ?? 'newsletter_entity_monthly';
+  const referenceId =
+    'referenceId' in overrides ? (overrides.referenceId ?? null) : 'notification-1';
+  const scopeKey = overrides.scopeKey ?? '2025-01';
+  const deliveryKeyReference =
+    referenceId ?? (notificationType === 'transactional_welcome' ? 'welcome' : 'notification-1');
+  const deliveryKey = overrides.deliveryKey ?? `${userId}:${deliveryKeyReference}:${scopeKey}`;
 
   return {
     id,
     userId,
     toEmail: overrides.toEmail ?? null,
-    notificationId,
-    periodKey,
+    notificationType,
+    referenceId,
+    scopeKey,
     deliveryKey,
     status: overrides.status ?? 'pending',
-    unsubscribeToken: overrides.unsubscribeToken ?? null,
     renderedSubject: overrides.renderedSubject ?? null,
     renderedHtml: overrides.renderedHtml ?? null,
     renderedText: overrides.renderedText ?? null,

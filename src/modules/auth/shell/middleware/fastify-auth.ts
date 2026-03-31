@@ -85,6 +85,7 @@ export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHook
         ok: false,
         error: error.type,
         message: error.message,
+        retryable: false,
       });
       return;
     }
@@ -131,6 +132,7 @@ const requireAuthHandlerImpl = async (
       ok: false,
       error: result.error.type,
       message: result.error.message,
+      retryable: false,
     });
   }
 };

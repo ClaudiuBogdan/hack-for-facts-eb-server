@@ -90,6 +90,7 @@ describe('Learning Progress Admin Review REST API', () => {
       ok: false,
       error: 'UNAUTHORIZED',
       message: 'X-Learning-Progress-Review-Api-Key header required',
+      retryable: false,
     });
   });
 
@@ -109,6 +110,7 @@ describe('Learning Progress Admin Review REST API', () => {
       ok: false,
       error: 'UNAUTHORIZED',
       message: 'Invalid API key',
+      retryable: false,
     });
   });
 
@@ -467,6 +469,7 @@ describe('Learning Progress Admin Review REST API', () => {
       ok: false,
       error: 'ConflictError',
       message: `Interaction record "${resolvedRecord.key}" is no longer reviewable because it is not pending.`,
+      retryable: false,
     });
 
     const user1Row = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];

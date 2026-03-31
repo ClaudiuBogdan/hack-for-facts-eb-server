@@ -73,6 +73,7 @@ export const makeLearningProgressAdminReviewRoutes = (
             ok: false,
             error: result.error.type,
             message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
           });
         }
 
@@ -117,6 +118,7 @@ export const makeLearningProgressAdminReviewRoutes = (
             ok: false,
             error: result.error.type,
             message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
           });
         }
 

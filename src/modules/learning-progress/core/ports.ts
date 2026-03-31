@@ -19,6 +19,11 @@ export interface LearningProgressRepository {
     options?: GetRecordsOptions
   ): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>>;
 
+  getRecord(
+    userId: string,
+    recordKey: string
+  ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>>;
+
   getRecordForUpdate(
     userId: string,
     recordKey: string

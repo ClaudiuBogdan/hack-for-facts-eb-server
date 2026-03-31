@@ -185,15 +185,31 @@ Retry rule:
 - `submittedAt` and `updatedAt` advance for the new attempt
 - a new user `submitted` audit event is appended
 
-### 4. Sync batches are atomic
+### 4. Sync requests support partial success for invalid events
 
-A sync request is processed inside one repository transaction.
+A sync request is processed inside one repository transaction for database correctness, but validation failures no longer abort the whole request.
 
 Rules:
 
-- a batch such as `progress.reset` followed by `interactive.updated` either fully commits or fully rolls back
-- sync use cases call repository work through `withTransaction()`
-- the transaction boundary is the unit of correctness for a sync request
+- invalid public events are reported per event in the success payload:
+
+```ts
+{
+  ok: true,
+  data: {
+    newEventsCount: number,
+    failedEvents: Array<{
+      eventId: string,
+      errorType: 'InvalidEventError',
+      message: string,
+    }>,
+  },
+}
+```
+
+- valid events in the same request are still applied in order even when earlier or later events fail validation
+- repository or transaction failures still abort the request and return a retryable request-level error
+- `progress.reset` followed by valid `interactive.updated` events still commits atomically with respect to database failures
 
 ### 5. Writes are serialized per existing row and safe under first-write races
 

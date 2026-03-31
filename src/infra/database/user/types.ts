@@ -1,5 +1,7 @@
 import { Generated, ColumnType, JSONColumnType } from 'kysely';
 
+import type { DeliveryStatus } from '@/common/types/index.js';
+
 // Helper for timestamps which can be strings or Dates depending on driver config
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
@@ -28,27 +30,17 @@ export interface Notifications {
   updated_at: Generated<Timestamp>;
 }
 
-// Delivery status for outbox pattern
-export type DeliveryStatus =
-  | 'pending'
-  | 'sending'
-  | 'sent'
-  | 'delivered'
-  | 'failed_transient'
-  | 'failed_permanent'
-  | 'suppressed'
-  | 'skipped_unsubscribed'
-  | 'skipped_no_email';
+export type { DeliveryStatus } from '@/common/types/index.js';
 
-// Notification Deliveries Table (outbox pattern)
-export interface NotificationDeliveries {
+// Notification Outbox Table (durable compose/send/audit records)
+export interface NotificationOutbox {
   id: Generated<string>; // UUID
   user_id: string;
-  notification_id: string; // UUID
-  period_key: string;
+  notification_type: string;
+  reference_id: string | null;
+  scope_key: string;
   delivery_key: string;
   status: Generated<DeliveryStatus>;
-  unsubscribe_token: string | null; // FK to UnsubscribeTokens
   rendered_subject: string | null;
   rendered_html: string | null;
   rendered_text: string | null;
@@ -61,18 +53,8 @@ export interface NotificationDeliveries {
   attempt_count: Generated<number>;
   last_attempt_at: Timestamp | null;
   sent_at: Timestamp | null;
-  metadata: JSONColumnType<Record<string, unknown>> | null;
+  metadata: JSONColumnType<Record<string, unknown>>;
   created_at: Generated<Timestamp>;
-}
-
-// Unsubscribe Tokens Table
-export interface UnsubscribeTokens {
-  token: string;
-  user_id: string;
-  notification_id: string; // UUID
-  created_at: Generated<Timestamp>;
-  expires_at: Generated<Timestamp>;
-  used_at: Timestamp | null;
 }
 
 // User Interactions Table
@@ -98,7 +80,7 @@ export interface LearningProgressRecordValueRow {
     | { type: 'resolved' }
     | { type: 'score-threshold'; minScore: number }
     | { type: 'component-flag'; flag: string };
-  phase: 'idle' | 'draft' | 'pending' | 'resolved' | 'failed' | 'error';
+  phase: 'idle' | 'draft' | 'pending' | 'resolved' | 'failed';
   value:
     | { kind: 'choice'; choice: { selectedId: string | null } }
     | { kind: 'text'; text: { value: string } }
@@ -150,7 +132,7 @@ export type LearningProgressAuditEventRow =
       type: 'evaluated';
       at: string;
       actor: 'system';
-      phase: 'resolved' | 'failed' | 'error';
+      phase: 'resolved' | 'failed';
       result: {
         outcome: 'correct' | 'incorrect' | null;
         score?: number | null;
@@ -271,8 +253,7 @@ export interface AdvancedMapAnalyticsSnapshots {
 export interface UserDatabase {
   shortlinks: ShortLinks;
   notifications: Notifications;
-  notificationdeliveries: NotificationDeliveries;
-  unsubscribetokens: UnsubscribeTokens;
+  notificationoutbox: NotificationOutbox;
   userinteractions: UserInteractionsTable;
   institutionemailthreads: InstitutionEmailThreads;
   resend_wh_emails: ResendWhEmails;

@@ -14,7 +14,6 @@ import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
   GetRecordsOptions,
   InteractiveStateRecord,
-  InteractionPhase,
   ListReviewRowsInput,
   ListReviewRowsOutput,
   LearningProgressRecordRow,
@@ -50,34 +49,14 @@ const LEARNING_PROGRESS_ROW_COLUMNS = [
 
 type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
 
-function normalizeRecordPhase(phase: LearningProgressRecordValueRow['phase']) {
-  return (phase === 'error' ? 'failed' : phase) as InteractionPhase;
-}
-
-function normalizeAuditPhase(
-  phase: Extract<LearningProgressAuditEventRow, { type: 'evaluated' }>['phase']
-): Extract<StoredInteractiveAuditEvent, { type: 'evaluated' }>['phase'] {
-  return phase === 'error' ? 'failed' : phase;
-}
-
 function normalizeRecordValueRow(record: LearningProgressRecordValueRow): InteractiveStateRecord {
-  return {
-    ...record,
-    phase: normalizeRecordPhase(record.phase),
-  };
+  return record;
 }
 
 function normalizeAuditEventRow(
   auditEvent: LearningProgressAuditEventRow
 ): StoredInteractiveAuditEvent {
-  if (auditEvent.type !== 'evaluated') {
-    return auditEvent;
-  }
-
-  return {
-    ...auditEvent,
-    phase: normalizeAuditPhase(auditEvent.phase),
-  } as StoredInteractiveAuditEvent;
+  return auditEvent as StoredInteractiveAuditEvent;
 }
 
 function sortAuditEvents(
@@ -166,9 +145,10 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
   }
 
-  async getRecordForUpdate(
+  private async getRecordInternal(
     userId: string,
-    recordKey: string
+    recordKey: string,
+    forUpdate: boolean
   ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> {
     try {
       let query = this.db
@@ -177,7 +157,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         .where('user_id', '=', userId)
         .where('record_key', '=', recordKey);
 
-      if (this.transactionScoped) {
+      if (forUpdate && this.transactionScoped) {
         query = query.forUpdate();
       }
 
@@ -187,6 +167,20 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       this.log.error({ err: error, userId, recordKey }, 'Failed to load learning progress record');
       return err(createDatabaseError('Failed to load learning progress record', error));
     }
+  }
+
+  async getRecord(
+    userId: string,
+    recordKey: string
+  ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> {
+    return this.getRecordInternal(userId, recordKey, false);
+  }
+
+  async getRecordForUpdate(
+    userId: string,
+    recordKey: string
+  ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> {
+    return this.getRecordInternal(userId, recordKey, true);
   }
 
   async listReviewRows(

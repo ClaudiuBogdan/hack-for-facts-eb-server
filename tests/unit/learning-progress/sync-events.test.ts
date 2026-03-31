@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MAX_EVENTS_PER_REQUEST,
+  type LearningProgressEvent,
   type LearningProgressRecordRow,
 } from '@/modules/learning-progress/core/types.js';
 import {
@@ -27,6 +28,27 @@ function makeRow(userId: string, record: LearningProgressRecordRow['record'], up
     createdAt: record.updatedAt,
     updatedAt: record.updatedAt,
   } satisfies LearningProgressRecordRow;
+}
+
+function expectSyncEventsSuccess(
+  result: {
+    newEventsCount: number;
+    failedEvents: readonly { eventId: string; errorType: 'InvalidEventError'; message: string }[];
+    appliedEvents: readonly LearningProgressEvent[];
+  },
+  expected: {
+    newEventsCount: number;
+    failedEvents?: readonly { eventId: string; errorType: 'InvalidEventError'; message: string }[];
+    appliedEvents?: readonly LearningProgressEvent[];
+  }
+) {
+  expect(result).toEqual(
+    expect.objectContaining({
+      newEventsCount: expected.newEventsCount,
+      ...(expected.failedEvents !== undefined ? { failedEvents: expected.failedEvents } : {}),
+      ...(expected.appliedEvents !== undefined ? { appliedEvents: expected.appliedEvents } : {}),
+    })
+  );
 }
 
 describe('normalizePublicInteractiveRecord', () => {
@@ -203,7 +225,11 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 0 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [],
+      appliedEvents: [],
+    });
   });
 
   it('stores a new interactive record update', async () => {
@@ -236,7 +262,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
@@ -245,7 +273,7 @@ describe('syncEvents', () => {
     expect(storedRecords._unsafeUnwrap()[0]?.auditEvents[0]?.sourceClientEventId).toBe('event-1');
   });
 
-  it('rejects public sync attempts to author record.review', async () => {
+  it('quarantines public sync attempts to author record.review without failing the request', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
       key: 'campaign:primarie-website-url::entity:4305857',
@@ -275,13 +303,18 @@ describe('syncEvents', () => {
       }
     );
 
-    expect(result.isErr()).toBe(true);
-    expect(result._unsafeUnwrapErr()).toEqual(
-      expect.objectContaining({
-        type: 'InvalidEventError',
-        eventId: 'event-review',
-      })
-    );
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-review',
+          errorType: 'InvalidEventError',
+          message: 'Public progress sync cannot set record.review.',
+        },
+      ],
+      appliedEvents: [],
+    });
   });
 
   it('preserves stored review metadata on newer public updates after review', async () => {
@@ -350,7 +383,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+    });
 
     const storedRecord = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
     expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
@@ -435,7 +470,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+    });
 
     const storedRecord = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
     expect(storedRecord?.record.value).toEqual(retriedRecord.value);
@@ -474,17 +511,21 @@ describe('syncEvents', () => {
       }
     );
 
-    expect(result.isErr()).toBe(true);
-    expect(result._unsafeUnwrapErr()).toEqual(
-      expect.objectContaining({
-        type: 'InvalidEventError',
-        eventId: 'event-invalid-pending-result',
-        message: `Interactive record "${record.key}" cannot include result data while phase is "pending".`,
-      })
-    );
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-invalid-pending-result',
+          errorType: 'InvalidEventError',
+          message: `Interactive record "${record.key}" cannot include result data while phase is "pending".`,
+        },
+      ],
+      appliedEvents: [],
+    });
   });
 
-  it('rejects pending public records that omit submittedAt', async () => {
+  it('quarantines pending public records that omit submittedAt', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
       key: 'campaign:primarie-website-url::entity:4305857',
@@ -510,17 +551,21 @@ describe('syncEvents', () => {
       }
     );
 
-    expect(result.isErr()).toBe(true);
-    expect(result._unsafeUnwrapErr()).toEqual(
-      expect.objectContaining({
-        type: 'InvalidEventError',
-        eventId: 'event-invalid-pending-submitted-at',
-        message: `Interactive record "${record.key}" must include submittedAt while phase is "pending".`,
-      })
-    );
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-invalid-pending-submitted-at',
+          errorType: 'InvalidEventError',
+          message: `Interactive record "${record.key}" must include submittedAt while phase is "pending".`,
+        },
+      ],
+      appliedEvents: [],
+    });
   });
 
-  it('rejects draft public records that include result data', async () => {
+  it('quarantines draft public records that include result data', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
       key: 'quiz-1::global',
@@ -549,14 +594,18 @@ describe('syncEvents', () => {
       }
     );
 
-    expect(result.isErr()).toBe(true);
-    expect(result._unsafeUnwrapErr()).toEqual(
-      expect.objectContaining({
-        type: 'InvalidEventError',
-        eventId: 'event-invalid-draft-result',
-        message: `Interactive record "${record.key}" cannot include result data while phase is "draft".`,
-      })
-    );
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-invalid-draft-result',
+          errorType: 'InvalidEventError',
+          message: `Interactive record "${record.key}" cannot include result data while phase is "draft".`,
+        },
+      ],
+      appliedEvents: [],
+    });
   });
 
   it('deduplicates interactive updates by client event id when audit events are present', async () => {
@@ -610,7 +659,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 0 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+    });
   });
 
   it('ignores older record snapshots that arrive after newer state', async () => {
@@ -655,7 +706,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 0 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
@@ -679,7 +732,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
@@ -726,6 +781,143 @@ describe('syncEvents', () => {
     expect(storedRecords._unsafeUnwrap()[0]?.record).toEqual(record);
   });
 
+  it('applies valid events around invalid ones and reports failed event ids', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const validBefore = createTestInteractiveRecord({
+      key: 'quiz-before::global',
+      interactionId: 'quiz-before',
+      lessonId: 'lesson-before',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const invalid = createTestInteractiveRecord({
+      key: 'quiz-invalid::global',
+      interactionId: 'quiz-invalid',
+      lessonId: 'lesson-invalid',
+      phase: 'pending',
+      result: {
+        outcome: null,
+        evaluatedAt: '2024-01-15T10:01:00.000Z',
+      },
+      submittedAt: '2024-01-15T10:01:00.000Z',
+      updatedAt: '2024-01-15T10:01:00.000Z',
+    });
+    const validAfter = createTestInteractiveRecord({
+      key: 'quiz-after::global',
+      interactionId: 'quiz-after',
+      lessonId: 'lesson-after',
+      updatedAt: '2024-01-15T10:02:00.000Z',
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2024-01-15T10:02:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-valid-before',
+            payload: { record: validBefore },
+          }),
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-invalid',
+            payload: { record: invalid },
+          }),
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-valid-after',
+            payload: { record: validAfter },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 2,
+      failedEvents: [
+        {
+          eventId: 'event-invalid',
+          errorType: 'InvalidEventError',
+          message: `Interactive record "${invalid.key}" cannot include result data while phase is "pending".`,
+        },
+      ],
+      appliedEvents: [
+        createTestInteractiveUpdatedEvent({
+          eventId: 'event-valid-before',
+          payload: { record: validBefore },
+        }),
+        createTestInteractiveUpdatedEvent({
+          eventId: 'event-valid-after',
+          payload: { record: validAfter },
+        }),
+      ],
+    });
+
+    const storedRecords = await repo.getRecords('user-1');
+    expect(storedRecords.isOk()).toBe(true);
+    expect(
+      storedRecords
+        ._unsafeUnwrap()
+        .map((row) => row.recordKey)
+        .sort()
+    ).toEqual([validAfter.key, validBefore.key]);
+  });
+
+  it('retries safely after a later database failure rolls back the transaction', async () => {
+    const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords,
+      failOnUpsertAttempt: 1,
+    });
+
+    const resetEvent = createTestProgressResetEvent({ eventId: 'reset-1' });
+    const nextEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'event-2',
+      payload: {
+        record: createTestInteractiveRecord({
+          key: 'quiz-2::global',
+          interactionId: 'quiz-2',
+          lessonId: 'lesson-2',
+        }),
+      },
+    });
+
+    const firstResult = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2024-01-15T10:02:00.000Z',
+        events: [resetEvent, nextEvent],
+      }
+    );
+
+    expect(firstResult.isErr()).toBe(true);
+    expect(firstResult._unsafeUnwrapErr().type).toBe('DatabaseError');
+
+    const secondResult = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2024-01-15T10:02:00.000Z',
+        events: [resetEvent, nextEvent],
+      }
+    );
+
+    expect(secondResult.isOk()).toBe(true);
+    expectSyncEventsSuccess(secondResult._unsafeUnwrap(), {
+      newEventsCount: 2,
+      failedEvents: [],
+      appliedEvents: [resetEvent, nextEvent],
+    });
+
+    const storedRecords = await repo.getRecords('user-1');
+    expect(storedRecords.isOk()).toBe(true);
+    expect(storedRecords._unsafeUnwrap()).toHaveLength(1);
+    expect(storedRecords._unsafeUnwrap()[0]?.recordKey).toBe('quiz-2::global');
+  });
+
   it('processes reset followed by interactive.updated atomically', async () => {
     const oldRecord = createTestInteractiveRecord({
       key: 'quiz-old::global',
@@ -758,7 +950,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 2 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 2,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
@@ -814,7 +1008,9 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 1 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
@@ -852,13 +1048,101 @@ describe('syncEvents', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 2 });
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 2,
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
     const rows = storedRecords._unsafeUnwrap();
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.recordKey).sort()).toEqual([recordA.key, recordB.key]);
+  });
+
+  it('returns appliedEvents for events that were actually applied', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const resetEvent = createTestProgressResetEvent({
+      eventId: 'reset-1',
+      occurredAt: '2024-01-15T10:00:00.000Z',
+    });
+    const appliedRecord = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:01:00.000Z',
+    });
+    const appliedEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'event-1',
+      occurredAt: appliedRecord.updatedAt,
+      payload: { record: appliedRecord },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: appliedRecord.updatedAt,
+        events: [resetEvent, appliedEvent],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 2,
+      appliedEvents: [resetEvent, appliedEvent],
+    });
+  });
+
+  it('excludes duplicate or stale events from appliedEvents', async () => {
+    const newerRecord = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      phase: 'resolved',
+      updatedAt: '2024-01-15T10:05:00.000Z',
+      result: {
+        outcome: 'correct',
+        evaluatedAt: '2024-01-15T10:05:00.000Z',
+      },
+    });
+    const staleRecord = createTestInteractiveRecord({
+      key: newerRecord.key,
+      interactionId: newerRecord.interactionId,
+      lessonId: newerRecord.lessonId,
+      phase: 'draft',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+      result: null,
+    });
+    const appliedRecord = createTestInteractiveRecord({
+      key: 'quiz-2::global',
+      interactionId: 'quiz-2',
+      lessonId: 'lesson-2',
+      updatedAt: '2024-01-15T10:06:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', newerRecord, '3')]);
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const staleEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'stale-event',
+      occurredAt: staleRecord.updatedAt,
+      payload: { record: staleRecord },
+    });
+    const appliedEvent = createTestInteractiveUpdatedEvent({
+      eventId: 'applied-event',
+      occurredAt: appliedRecord.updatedAt,
+      payload: { record: appliedRecord },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: appliedRecord.updatedAt,
+        events: [staleEvent, appliedEvent],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 1,
+      appliedEvents: [appliedEvent],
+    });
   });
 
   it('rejects requests larger than the configured batch size', async () => {

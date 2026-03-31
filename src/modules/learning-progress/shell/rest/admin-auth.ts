@@ -36,6 +36,7 @@ export function makeLearningProgressAdminReviewAuthHook(
         ok: false,
         error: 'UNAUTHORIZED',
         message: 'Learning progress review API key not configured',
+        retryable: false,
       });
       return;
     }
@@ -46,6 +47,7 @@ export function makeLearningProgressAdminReviewAuthHook(
         ok: false,
         error: 'UNAUTHORIZED',
         message: 'X-Learning-Progress-Review-Api-Key header required',
+        retryable: false,
       });
       return;
     }
@@ -55,6 +57,7 @@ export function makeLearningProgressAdminReviewAuthHook(
         ok: false,
         error: 'UNAUTHORIZED',
         message: 'Invalid API key',
+        retryable: false,
       });
       return;
     }

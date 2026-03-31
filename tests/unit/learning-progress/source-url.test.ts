@@ -215,7 +215,11 @@ describe('syncEvents sourceUrl handling', () => {
     );
 
     expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({ newEventsCount: 0 });
+    expect(result._unsafeUnwrap()).toEqual({
+      newEventsCount: 0,
+      failedEvents: [],
+      appliedEvents: [],
+    });
 
     const storedRecords = await repo.getRecords('user-1');
     expect(storedRecords.isOk()).toBe(true);
