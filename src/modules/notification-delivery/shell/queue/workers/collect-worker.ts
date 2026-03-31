@@ -4,7 +4,13 @@
  * Processes collect jobs and enqueues compose jobs for each notification.
  */
 
-import { Worker, type Queue } from 'bullmq';
+import { Value } from '@sinclair/typebox/value';
+import { Worker, UnrecoverableError, type Queue } from 'bullmq';
+
+import { QUEUE_NAMES } from '@/infra/queue/client.js';
+
+import { CollectJobPayloadSchema } from '../../../core/schemas.js';
+import { buildSubscriptionComposeJob } from '../compose-job-options.js';
 
 import type { CollectJobPayload, ComposeJobPayload } from '../../../core/types.js';
 import type { Redis } from 'ioredis';
@@ -40,8 +46,12 @@ export const createCollectWorker = (deps: CollectWorkerDeps): Worker<CollectJobP
   const log = logger.child({ worker: 'collect' });
 
   return new Worker<CollectJobPayload>(
-    'notification:collect',
+    QUEUE_NAMES.COLLECT,
     async (job) => {
+      if (!Value.Check(CollectJobPayloadSchema, job.data)) {
+        throw new UnrecoverableError('Invalid collect job payload');
+      }
+
       const { runId, notificationType, periodKey, notificationIds } = job.data;
 
       log.info(
@@ -50,18 +60,14 @@ export const createCollectWorker = (deps: CollectWorkerDeps): Worker<CollectJobP
       );
 
       // Enqueue compose job for each notification
-      const composeJobs = notificationIds.map((notificationId) => ({
-        name: 'compose',
-        data: {
+      const composeJobs = notificationIds.map((notificationId) =>
+        buildSubscriptionComposeJob({
           runId,
+          kind: 'subscription',
           notificationId,
           periodKey,
-        } satisfies ComposeJobPayload,
-        opts: {
-          // Dedupe by notificationId + periodKey to prevent double-compose
-          jobId: `compose:${notificationId}:${periodKey}`,
-        },
-      }));
+        })
+      );
 
       if (composeJobs.length > 0) {
         await composeQueue.addBulk(composeJobs);

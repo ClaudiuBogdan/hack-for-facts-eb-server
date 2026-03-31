@@ -15,6 +15,7 @@ interface RequestWithRawBody extends FastifyRequest {
 export interface ClerkWebhookRoutesDeps {
   webhookVerifier: ClerkWebhookVerifier;
   logger: Logger;
+  onEventVerified?: (input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>;
 }
 
 const WebhookSuccessResponseSchema = Type.Object({
@@ -33,7 +34,7 @@ const getEventDataId = (event: ClerkWebhookEvent): string | undefined => {
 };
 
 export const makeClerkWebhookRoutes = (deps: ClerkWebhookRoutesDeps): FastifyPluginAsync => {
-  const { webhookVerifier, logger } = deps;
+  const { webhookVerifier, logger, onEventVerified } = deps;
   const log = logger.child({ routes: 'clerk-webhooks' });
 
   return async (fastify) => {
@@ -110,6 +111,15 @@ export const makeClerkWebhookRoutes = (deps: ClerkWebhookRoutesDeps): FastifyPlu
           },
           'Clerk webhook received'
         );
+
+        if (onEventVerified !== undefined) {
+          try {
+            await onEventVerified({ event, svixId });
+          } catch (error) {
+            log.error({ error, svixId, eventType: event.type }, 'Clerk webhook side effect failed');
+            return reply.status(500).send({ error: 'Internal server error' });
+          }
+        }
 
         return reply.status(200).send({ status: 'received' });
       }

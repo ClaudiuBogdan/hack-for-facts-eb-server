@@ -55,6 +55,38 @@ const deactivateNotification = async (
   }
 };
 
+const getSourceNotificationIds = async (
+  deliveryRepo: DeliveryRepository,
+  deliveryId: string,
+  fallbackNotificationId: string | undefined,
+  log: Logger
+): Promise<string[]> => {
+  if (fallbackNotificationId !== undefined) {
+    return [fallbackNotificationId];
+  }
+
+  const outboxResult = await deliveryRepo.findById(deliveryId);
+  if (outboxResult.isErr()) {
+    log.error(
+      { error: outboxResult.error, deliveryId },
+      'Failed to load outbox row for bundle webhook handling'
+    );
+    return [];
+  }
+
+  if (outboxResult.value === null) {
+    log.debug({ deliveryId }, 'Outbox row missing during bundle webhook handling');
+    return [];
+  }
+
+  const sourceNotificationIds = outboxResult.value.metadata['sourceNotificationIds'];
+  if (!Array.isArray(sourceNotificationIds)) {
+    return [];
+  }
+
+  return sourceNotificationIds.filter((value): value is string => typeof value === 'string');
+};
+
 export const makeResendWebhookDeliverySideEffect = (
   deps: ResendWebhookDeliverySideEffectDeps
 ): ResendWebhookSideEffect => {
@@ -91,7 +123,11 @@ export const makeResendWebhookDeliverySideEffect = (
         }
 
         case 'email.delivered': {
-          const result = await deliveryRepo.updateStatus(deliveryId, { status: 'delivered' });
+          const result = await deliveryRepo.updateStatusIfCurrentIn(
+            deliveryId,
+            ['sending', 'sent', 'webhook_timeout'],
+            'delivered'
+          );
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to mark delivery delivered');
           }
@@ -101,55 +137,96 @@ export const makeResendWebhookDeliverySideEffect = (
         case 'email.bounced': {
           const isPermanentBounce = input.event.data.bounce?.type === 'Permanent';
           const status = isPermanentBounce ? 'suppressed' : 'failed_transient';
-          const result = await deliveryRepo.updateStatus(deliveryId, {
+          const result = await deliveryRepo.updateStatusIfCurrentIn(
+            deliveryId,
+            isPermanentBounce
+              ? ['sending', 'sent', 'delivered', 'webhook_timeout']
+              : ['sending', 'sent'],
             status,
-            lastError: `bounced: ${input.event.data.bounce?.subType ?? 'unknown'}`,
-          });
+            {
+              lastError: `bounced: ${input.event.data.bounce?.subType ?? 'unknown'}`,
+            }
+          );
 
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to update bounced delivery');
           }
 
           if (isPermanentBounce) {
-            if (notificationId === undefined) {
-              log.debug({ deliveryId }, 'Permanent bounce missing notification_id tag');
-              return;
-            }
+            const notificationIds = await getSourceNotificationIds(
+              deliveryRepo,
+              deliveryId,
+              notificationId,
+              log
+            );
 
-            await deactivateNotification(notificationsRepo, notificationId, log);
+            for (const id of notificationIds) {
+              await deactivateNotification(notificationsRepo, id, log);
+            }
           }
           return;
         }
 
         case 'email.complained':
         case 'email.suppressed': {
-          const result = await deliveryRepo.updateStatus(deliveryId, {
-            status: 'suppressed',
-            lastError: `${input.event.type}: ${input.event.data.reason ?? 'unknown'}`,
-          });
+          const result = await deliveryRepo.updateStatusIfCurrentIn(
+            deliveryId,
+            ['sending', 'sent', 'delivered', 'webhook_timeout'],
+            'suppressed',
+            {
+              lastError: `${input.event.type}: ${input.event.data.reason ?? 'unknown'}`,
+            }
+          );
 
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to suppress delivery');
           }
 
-          if (notificationId === undefined) {
-            log.debug({ deliveryId }, 'Suppression event missing notification_id tag');
-            return;
-          }
+          const notificationIds = await getSourceNotificationIds(
+            deliveryRepo,
+            deliveryId,
+            notificationId,
+            log
+          );
 
-          await deactivateNotification(notificationsRepo, notificationId, log);
+          for (const id of notificationIds) {
+            await deactivateNotification(notificationsRepo, id, log);
+          }
           return;
         }
 
         case 'email.failed': {
-          const result = await deliveryRepo.updateStatus(deliveryId, {
-            status: 'failed_permanent',
-            lastError: input.event.data.error ?? input.event.data.reason ?? 'email.failed',
-          });
+          const result = await deliveryRepo.updateStatusIfCurrentIn(
+            deliveryId,
+            ['sending', 'sent'],
+            'failed_permanent',
+            {
+              lastError: input.event.data.error ?? input.event.data.reason ?? 'email.failed',
+            }
+          );
 
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to mark delivery failed');
           }
+          return;
+        }
+
+        case 'email.delivery_delayed': {
+          let currentStatus: string | undefined;
+          const deliveryResult = await deliveryRepo.findById(deliveryId);
+          if (deliveryResult.isOk() && deliveryResult.value !== null) {
+            currentStatus = deliveryResult.value.status;
+          }
+
+          log.warn(
+            {
+              deliveryId,
+              emailId: input.event.data.email_id,
+              eventType: input.event.type,
+              currentStatus,
+            },
+            'Delivery delayed webhook received'
+          );
           return;
         }
 

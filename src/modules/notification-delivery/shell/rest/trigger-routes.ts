@@ -4,16 +4,17 @@
  * Manual trigger endpoint for notification collection.
  */
 
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Type, type Static } from '@sinclair/typebox';
 
+import { createTriggerApiKeyPreHandler } from './trigger-auth.js';
 import { generatePeriodKey, type NotificationType } from '../../../notifications/core/types.js';
 
 import type { ExtendedNotificationsRepository } from '../../core/ports.js';
 import type { CollectJobPayload, TriggerResponse } from '../../core/types.js';
 import type { Queue } from 'bullmq';
-import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Logger } from 'pino';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,23 +46,6 @@ const TriggerResponseSchema = Type.Object({
   collectJobEnqueued: Type.Boolean(),
 });
 
-function isValidTriggerApiKey(
-  apiKey: string | string[] | undefined,
-  expectedApiKeyBuffer: Buffer
-): boolean {
-  if (typeof apiKey !== 'string') {
-    return false;
-  }
-
-  const providedApiKeyBuffer = Buffer.from(apiKey, 'utf-8');
-  if (providedApiKeyBuffer.length !== expectedApiKeyBuffer.length) {
-    timingSafeEqual(expectedApiKeyBuffer, expectedApiKeyBuffer);
-    return false;
-  }
-
-  return timingSafeEqual(providedApiKeyBuffer, expectedApiKeyBuffer);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,24 +74,7 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
 
   // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync pattern requires async
   return async (fastify) => {
-    // API key authentication hook (using callback style for ESLint compatibility)
-    const authenticateApiKey = (
-      request: FastifyRequest,
-      reply: FastifyReply,
-      done: (err?: Error) => void
-    ): void => {
-      const apiKey = request.headers['x-notification-api-key'];
-
-      // SECURITY: SEC-010 - Use constant-time comparison to prevent timing attacks
-      const isValid = isValidTriggerApiKey(apiKey, triggerApiKeyBuffer);
-
-      if (!isValid) {
-        log.warn({ hasKey: Boolean(apiKey) }, 'Invalid or missing API key');
-        reply.status(401).send({ error: 'Invalid API key' });
-        return;
-      }
-      done();
-    };
+    const authenticateApiKey = createTriggerApiKeyPreHandler(triggerApiKeyBuffer, log);
 
     // POST /api/v1/notifications/trigger
     fastify.post<{ Body: TriggerRequest }>(
@@ -141,7 +108,8 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
         const eligibleResult = await notificationsRepo.findEligibleForDelivery(
           notificationType as NotificationType,
           periodKey,
-          limit
+          limit,
+          force
         );
 
         if (eligibleResult.isErr()) {
@@ -199,7 +167,11 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
             periodKey,
             notificationIds: eligible.map((n) => n.id),
           },
-          { jobId }
+          {
+            jobId,
+            removeOnComplete: true,
+            removeOnFail: true,
+          }
         );
 
         // Note: BullMQ returns existing job for duplicate jobId, so we always report true

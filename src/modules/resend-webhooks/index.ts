@@ -30,6 +30,7 @@ export {
   extractThreadKey,
   mapResendEmailWebhookEventToInsert,
 } from './core/mappers.js';
+export { combineResendWebhookSideEffects } from './shell/combine-side-effects.js';
 
 export {
   makeResendWebhookEmailEventsRepo,
