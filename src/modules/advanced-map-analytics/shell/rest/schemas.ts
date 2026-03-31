@@ -59,7 +59,7 @@ export const MapPatchSchema = Type.Object(
 
 export const SaveSnapshotBodySchema = Type.Object(
   {
-    state: Type.Record(Type.String(), Type.Unknown()),
+    state: Type.Record(Type.String(), Type.Unknown(), { maxProperties: 200 }),
     title: Type.Optional(Type.String({ maxLength: 200 })),
     description: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     mapPatch: Type.Optional(MapPatchSchema),
@@ -71,7 +71,7 @@ export const SnapshotDocumentSchema = Type.Object(
   {
     title: Type.String(),
     description: Type.Union([Type.String(), Type.Null()]),
-    state: Type.Record(Type.String(), Type.Unknown()),
+    state: Type.Record(Type.String(), Type.Unknown(), { maxProperties: 200 }),
     savedAt: Type.String({ format: 'date-time' }),
   },
   { additionalProperties: false }
