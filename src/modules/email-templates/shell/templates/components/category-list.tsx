@@ -10,6 +10,7 @@ import * as React from 'react';
 
 import { ProgressBar } from './progress-bar.js';
 import { getTranslations } from '../../../core/i18n.js';
+import { formatCompactCurrency, formatPercentage } from '../formatting.js';
 
 import type { TopExpenseCategory, SupportedLanguage } from '../../../core/types.js';
 
@@ -81,31 +82,6 @@ const styles = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Formats a number as a compact currency value.
- */
-const formatCompactCurrency = (value: number, currency: string): string => {
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(2)} mld. ${currency}`;
-  }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(2)} mil. ${currency}`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(2)} mii ${currency}`;
-  }
-  return new Intl.NumberFormat('ro-RO', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const CategoryList = ({
   categories,
   currency,
@@ -126,21 +102,27 @@ export const CategoryList = ({
             </Text>
 
             {/* Progress Bar */}
-            <div style={{ margin: '8px 0' }}>
-              <ProgressBar
-                percentage={category.percentage}
-                color={categoryColors[index % categoryColors.length] ?? '#6366f1'}
-              />
-            </div>
+            <table width="100%" cellPadding="0" cellSpacing="0" border={0}>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '8px 0' }}>
+                    <ProgressBar
+                      percentage={category.percentage}
+                      color={categoryColors[index % categoryColors.length] ?? '#6366f1'}
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
             {/* Amount and Percentage */}
             <Text style={styles.categoryDetails}>
               <span style={styles.amountText}>
-                {formatCompactCurrency(category.amount, currency)}
+                {formatCompactCurrency(category.amount, currency, lang)}
               </span>
               {' · '}
               <span style={styles.percentText}>
-                {category.percentage.toFixed(1)}% {t.newsletter.categories.ofTotal}
+                {formatPercentage(category.percentage, lang)} {t.newsletter.categories.ofTotal}
               </span>
             </Text>
           </Column>

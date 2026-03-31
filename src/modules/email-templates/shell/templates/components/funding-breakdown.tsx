@@ -4,11 +4,12 @@
  * Displays funding sources as a horizontal stacked bar with legend.
  */
 
-import { Section, Text, Row, Column } from '@react-email/components';
+import { Section, Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
 import { getTranslations } from '../../../core/i18n.js';
+import { clampPercentage, formatPercentage } from '../formatting.js';
 
 import type { FundingSourceBreakdown, SupportedLanguage } from '../../../core/types.js';
 
@@ -51,25 +52,6 @@ const styles = {
     letterSpacing: '0.5px',
     margin: '0 0 20px',
   },
-  barContainer: {
-    display: 'flex',
-    borderRadius: '6px',
-    overflow: 'hidden',
-    height: '24px',
-    marginBottom: '16px',
-  },
-  legendItem: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    marginRight: '16px',
-    marginBottom: '8px',
-  },
-  legendDot: {
-    width: '12px',
-    height: '12px',
-    borderRadius: '50%',
-    marginRight: '8px',
-  },
   legendText: {
     fontSize: '13px',
     color: '#525f7f',
@@ -107,54 +89,55 @@ export const FundingBreakdown = ({
           marginBottom: '16px',
         }}
       >
-        <tr>
-              {sources.map((source, index) => (
-                <td
-                  key={index}
-                  width={`${String(source.percentage)}%`}
-                  height="24"
-                  style={{
-                    backgroundColor: fundingColors[index % fundingColors.length],
-                  }}
-            />
-          ))}
-        </tr>
+        <tbody>
+          <tr>
+            {sources.map((source, index) => (
+              <td
+                key={index}
+                width={`${String(clampPercentage(source.percentage))}%`}
+                height="24"
+                style={{
+                  backgroundColor: fundingColors[index % fundingColors.length],
+                }}
+              />
+            ))}
+          </tr>
+        </tbody>
       </table>
 
       {/* Legend */}
-      <Row>
-        <Column>
-          {sources.map((source, index) => (
-            <div
-              key={index}
-              style={{
-                display: 'inline-block',
-                marginRight: '20px',
-                marginBottom: '8px',
-              }}
-            >
-              <table cellPadding="0" cellSpacing="0" border={0}>
-                <tr>
-                  <td
-                    width="12"
-                    height="12"
-                    style={{
-                      backgroundColor: fundingColors[index % fundingColors.length],
-                      borderRadius: '50%',
-                    }}
-                  />
-                  <td style={{ paddingLeft: '8px' }}>
-                    <Text style={styles.legendText}>
-                      {source.name}{' '}
-                      <span style={styles.percentText}>{source.percentage.toFixed(0)}%</span>
-                    </Text>
-                  </td>
-                </tr>
-              </table>
-            </div>
-          ))}
-        </Column>
-      </Row>
+      <table width="100%" cellPadding="0" cellSpacing="0" border={0}>
+        <tbody>
+          <tr>
+            {sources.map((source, index) => (
+              <td key={index} style={{ paddingRight: '20px', paddingBottom: '8px' }}>
+                <table cellPadding="0" cellSpacing="0" border={0}>
+                  <tbody>
+                    <tr>
+                      <td
+                        width="12"
+                        height="12"
+                        style={{
+                          backgroundColor: fundingColors[index % fundingColors.length],
+                          borderRadius: '50%',
+                        }}
+                      />
+                      <td style={{ paddingLeft: '8px' }}>
+                        <Text style={styles.legendText}>
+                          {source.name}{' '}
+                          <span style={styles.percentText}>
+                            {formatPercentage(source.percentage, lang, 0)}
+                          </span>
+                        </Text>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
     </Section>
   );
 };

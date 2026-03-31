@@ -8,8 +8,13 @@
 export type {
   SupportedLanguage,
   BaseTemplateProps,
+  DecimalString,
+  EmailTemplateMap,
   NewsletterEntityProps,
   AlertSeriesProps,
+  WelcomeEmailProps,
+  AnafForexebugDigestSection,
+  AnafForexebugDigestProps,
   EmailTemplateProps,
   EmailTemplateType,
   RenderedEmail,
@@ -22,8 +27,24 @@ export type {
 
 export { DEFAULT_LANGUAGE, TEMPLATE_VERSION } from './core/types.js';
 
+// Core schemas
+export {
+  BaseTemplatePropsSchema,
+  SupportedLanguageSchema,
+  DecimalStringSchema,
+  WelcomePayloadSchema,
+  AnafForexebugDigestPayloadSchema,
+} from './core/schemas.js';
+export type { WelcomePayload, AnafForexebugDigestPayload } from './core/schemas.js';
+
 // Core ports
-export type { EmailRenderer, TemplateError, TemplateErrorType } from './core/ports.js';
+export type {
+  EmailRenderer,
+  TemplateError,
+  TemplateErrorType,
+  TemplateRegistration,
+  TemplateRegistry,
+} from './core/ports.js';
 
 // i18n
 export {
@@ -32,9 +53,14 @@ export {
   getNewsletterSubject,
   getNewsletterIntro,
   getAlertSubject,
+  getWelcomeSubject,
   getOperatorLabel,
 } from './core/i18n.js';
 
 // Shell - Renderer
 export { makeEmailRenderer } from './shell/renderer/index.js';
 export type { EmailRendererConfig } from './shell/renderer/index.js';
+
+// Shell - Registry
+export { makeTemplateRegistry } from './shell/registry/index.js';
+export type { ShellTemplateRegistry } from './shell/registry/index.js';

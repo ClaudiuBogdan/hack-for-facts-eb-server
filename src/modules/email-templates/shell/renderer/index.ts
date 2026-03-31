@@ -2,25 +2,22 @@
  * Email Template Renderer
  *
  * React Email adapter for rendering templates to HTML and text.
+ * Uses the template registry as the single source of truth.
  */
 
 import { render } from '@react-email/render';
+import { Type } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import { ok, err, type Result } from 'neverthrow';
-// eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
-import * as React from 'react';
 
-import { getNewsletterSubject, getAlertSubject } from '../../core/i18n.js';
+import { BaseTemplatePropsSchema } from '../../core/schemas.js';
 import {
-  TEMPLATE_VERSION,
   type EmailTemplateProps,
+  type EmailTemplateType,
   type RenderedEmail,
   type TemplateMetadata,
-  type EmailTemplateType,
-  type NewsletterEntityProps,
-  type AlertSeriesProps,
 } from '../../core/types.js';
-import { AlertSeriesEmail } from '../templates/alert-series.js';
-import { NewsletterEntityEmail } from '../templates/newsletter-entity.js';
+import { makeTemplateRegistry } from '../registry/index.js';
 
 import type { EmailRenderer, TemplateError } from '../../core/ports.js';
 import type { Logger } from 'pino';
@@ -38,90 +35,6 @@ export interface EmailRendererConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Template Metadata
-// ─────────────────────────────────────────────────────────────────────────────
-
-const TEMPLATES: TemplateMetadata[] = [
-  {
-    name: 'newsletter_entity',
-    version: TEMPLATE_VERSION,
-    description: 'Entity budget newsletter for monthly, quarterly, or yearly reports',
-    exampleProps: {
-      templateType: 'newsletter_entity',
-      lang: 'ro',
-      unsubscribeUrl: 'https://transparenta.eu/unsubscribe/token123',
-      platformBaseUrl: 'https://transparenta.eu',
-      entityName: 'Primăria București',
-      entityCui: '4267117',
-      periodType: 'monthly',
-      periodLabel: 'Ianuarie 2025',
-      summary: {
-        totalIncome: 1500000000,
-        totalExpenses: 1200000000,
-        budgetBalance: 300000000,
-        currency: 'RON',
-      },
-      detailsUrl: 'https://transparenta.eu/entities/4267117',
-    } as NewsletterEntityProps,
-  },
-  {
-    name: 'alert_series',
-    version: TEMPLATE_VERSION,
-    description: 'Alert notification when conditions are triggered',
-    exampleProps: {
-      templateType: 'alert_series',
-      lang: 'ro',
-      unsubscribeUrl: 'https://transparenta.eu/unsubscribe/token123',
-      platformBaseUrl: 'https://transparenta.eu',
-      title: 'Cheltuieli depășite',
-      description: 'Cheltuielile lunare au depășit pragul configurat.',
-      triggeredConditions: [
-        {
-          operator: 'gt',
-          threshold: 1000000,
-          actualValue: 1250000,
-          unit: 'RON',
-        },
-      ],
-      dataSourceUrl: 'https://transparenta.eu/data/123',
-    } as AlertSeriesProps,
-  },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Gets the subject line for a template.
- */
-function getSubject(props: EmailTemplateProps): string {
-  switch (props.templateType) {
-    case 'newsletter_entity':
-      return getNewsletterSubject(
-        props.lang,
-        props.periodType,
-        props.entityName,
-        props.periodLabel
-      );
-    case 'alert_series':
-      return getAlertSubject(props.lang, props.title);
-  }
-}
-
-/**
- * Creates the React element for a template.
- */
-function createTemplateElement(props: EmailTemplateProps): React.ReactElement {
-  switch (props.templateType) {
-    case 'newsletter_entity':
-      return React.createElement(NewsletterEntityEmail, props);
-    case 'alert_series':
-      return React.createElement(AlertSeriesEmail, props);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -131,14 +44,42 @@ function createTemplateElement(props: EmailTemplateProps): React.ReactElement {
 export const makeEmailRenderer = (config: EmailRendererConfig): EmailRenderer => {
   const { logger } = config;
   const log = logger.child({ component: 'EmailRenderer' });
+  const registry = makeTemplateRegistry();
 
   return {
     async render(props: EmailTemplateProps): Promise<Result<RenderedEmail, TemplateError>> {
       log.debug({ templateType: props.templateType }, 'Rendering email template');
 
+      const { templateType } = props;
+      const registration = registry.getShell(templateType);
+      if (registration === undefined) {
+        return err({
+          type: 'TEMPLATE_NOT_FOUND',
+          message: `Template '${templateType}' is not registered`,
+          templateType,
+        });
+      }
+
+      // Validate payload against composed schema (base + template-specific)
+      const fullSchema = Type.Intersect([
+        BaseTemplatePropsSchema,
+        registration.payloadSchema,
+        Type.Object({ templateType: Type.Literal(templateType) }),
+      ]);
+      if (!Value.Check(fullSchema, props)) {
+        const errors = [...Value.Errors(fullSchema, props)]
+          .map((e) => `${e.path}: ${e.message}`)
+          .join(', ');
+        return err({
+          type: 'VALIDATION_ERROR',
+          message: `Payload validation failed: ${errors}`,
+          templateType,
+        });
+      }
+
       try {
-        const element = createTemplateElement(props);
-        const subject = getSubject(props);
+        const element = registration.createElement(props);
+        const subject = registration.getSubject(props);
 
         // Render HTML
         const html = await render(element, { pretty: true });
@@ -156,7 +97,7 @@ export const makeEmailRenderer = (config: EmailRendererConfig): EmailRenderer =>
           html,
           text,
           templateName: props.templateType,
-          templateVersion: TEMPLATE_VERSION,
+          templateVersion: registration.version,
         });
       } catch (error) {
         log.error({ error, templateType: props.templateType }, 'Failed to render email template');
@@ -170,11 +111,23 @@ export const makeEmailRenderer = (config: EmailRendererConfig): EmailRenderer =>
     },
 
     getTemplates(): TemplateMetadata[] {
-      return TEMPLATES;
+      return registry.getAllShell().map((r) => ({
+        name: r.name,
+        version: r.version,
+        description: r.description,
+        exampleProps: r.exampleProps,
+      }));
     },
 
     getTemplate(type: EmailTemplateType): TemplateMetadata | undefined {
-      return TEMPLATES.find((t) => t.name === type);
+      const r = registry.getShell(type);
+      if (r === undefined) return undefined;
+      return {
+        name: r.name,
+        version: r.version,
+        description: r.description,
+        exampleProps: r.exampleProps,
+      };
     },
   };
 };
