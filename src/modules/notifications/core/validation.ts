@@ -19,6 +19,7 @@ import type {
   NotificationConfig,
   AnalyticsSeriesAlertConfig,
   StaticSeriesAlertConfig,
+  GlobalUnsubscribeConfig,
 } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,6 +62,24 @@ export function isStaticAlertConfig(config: NotificationConfig): config is Stati
 
   const candidate = config as unknown as { datasetId?: unknown; conditions?: unknown };
   return typeof candidate.datasetId === 'string' && Array.isArray(candidate.conditions);
+}
+
+/**
+ * Type guard for GlobalUnsubscribeConfig.
+ */
+export function isGlobalUnsubscribeConfig(
+  config: NotificationConfig
+): config is GlobalUnsubscribeConfig {
+  if (config === null || typeof config !== 'object') {
+    return false;
+  }
+
+  const candidate = config as unknown as { channels?: unknown };
+  return (
+    typeof candidate.channels === 'object' &&
+    candidate.channels !== null &&
+    typeof (candidate.channels as Record<string, unknown>)['email'] === 'boolean'
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,6 +244,11 @@ export function validateConfigForNotificationType(
   notificationType: NotificationType,
   config: NotificationConfig
 ): Result<void, NotificationError> {
+  // Global preference types — config is optional
+  if (notificationType === 'global_unsubscribe') {
+    return ok(undefined);
+  }
+
   // Newsletter types don't use config
   if (
     notificationType === 'newsletter_entity_monthly' ||
@@ -236,37 +260,41 @@ export function validateConfigForNotificationType(
 
   // Analytics alert
   if (notificationType === 'alert_series_analytics') {
-    if (config !== null && !isAnalyticsAlertConfig(config)) {
+    if (config === null) {
+      return err(createConfigRequiredError(notificationType));
+    }
+
+    if (!isAnalyticsAlertConfig(config)) {
       return err(
         createInvalidConfigError(notificationType, 'Analytics alert config must have a filter')
       );
     }
 
-    if (config !== null) {
-      const conditionsResult = validateConditions(config.conditions, notificationType);
-      if (conditionsResult.isErr()) {
-        return err(conditionsResult.error);
-      }
+    const conditionsResult = validateConditions(config.conditions, notificationType);
+    if (conditionsResult.isErr()) {
+      return err(conditionsResult.error);
     }
   }
 
   // Static alert
   if (notificationType === 'alert_series_static') {
-    if (config !== null && !isStaticAlertConfig(config)) {
+    if (config === null) {
+      return err(createConfigRequiredError(notificationType));
+    }
+
+    if (!isStaticAlertConfig(config)) {
       return err(
         createInvalidConfigError(notificationType, 'Static alert config must have a datasetId')
       );
     }
 
-    if (config !== null && config.datasetId.trim() === '') {
+    if (config.datasetId.trim() === '') {
       return err(createInvalidConfigError(notificationType, 'datasetId cannot be empty'));
     }
 
-    if (config !== null) {
-      const conditionsResult = validateConditions(config.conditions, notificationType);
-      if (conditionsResult.isErr()) {
-        return err(conditionsResult.error);
-      }
+    const conditionsResult = validateConditions(config.conditions, notificationType);
+    if (conditionsResult.isErr()) {
+      return err(conditionsResult.error);
     }
   }
 

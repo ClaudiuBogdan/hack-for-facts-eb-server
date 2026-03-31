@@ -9,14 +9,22 @@ import { randomUUID } from 'crypto';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
+
 import { createDatabaseError, type NotificationError } from '../../core/errors.js';
+import {
+  generateNotificationHash,
+  type Notification,
+  type NotificationType,
+  type NotificationConfig,
+} from '../../core/types.js';
+import { sha256Hasher } from '../crypto/hasher.js';
 
 import type {
   NotificationsRepository,
   CreateNotificationInput,
   UpdateNotificationRepoInput,
 } from '../../core/ports.js';
-import type { Notification, NotificationType, NotificationConfig } from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { Logger } from 'pino';
 
@@ -388,8 +396,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
       // SECURITY: SEC-019 - Atomic cascade deletion to prevent data inconsistency
       await this.db.transaction().execute(async (trx) => {
-        await trx.deleteFrom('unsubscribetokens').where('notification_id', '=', id).execute();
-        await trx.deleteFrom('notificationdeliveries').where('notification_id', '=', id).execute();
+        await trx.deleteFrom('notificationoutbox').where('reference_id', '=', id).execute();
         await trx.deleteFrom('notifications').where('id', '=', id).execute();
       });
 
@@ -398,6 +405,59 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     } catch (error) {
       this.log.error({ err: error, notificationId: id }, 'Failed to delete notification');
       return err(createDatabaseError('Failed to delete notification', error));
+    }
+  }
+
+  async deactivateGlobalUnsubscribe(userId: string): Promise<Result<void, NotificationError>> {
+    this.log.debug({ userId }, 'Deactivating global unsubscribe');
+
+    try {
+      const config = { channels: { email: false } } as const;
+      const hash = generateNotificationHash(
+        sha256Hasher,
+        userId,
+        'global_unsubscribe',
+        null,
+        config
+      );
+
+      await sql`
+        INSERT INTO notifications (
+          id,
+          user_id,
+          entity_cui,
+          notification_type,
+          is_active,
+          config,
+          hash,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${randomUUID()},
+          ${userId},
+          NULL,
+          'global_unsubscribe',
+          FALSE,
+          ${JSON.stringify(config)}::jsonb,
+          ${hash},
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (user_id, notification_type)
+        WHERE notification_type = 'global_unsubscribe'
+        DO UPDATE
+        SET is_active = FALSE,
+            config = EXCLUDED.config,
+            hash = EXCLUDED.hash,
+            updated_at = NOW()
+      `.execute(this.db);
+
+      this.log.info({ userId }, 'Global unsubscribe deactivated');
+      return ok(undefined);
+    } catch (error) {
+      this.log.error({ err: error, userId }, 'Failed to deactivate global unsubscribe');
+      return err(createDatabaseError('Failed to deactivate global unsubscribe', error));
     }
   }
 
@@ -417,25 +477,9 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       isActive: row.is_active,
       config: row.config as NotificationConfig,
       hash: row.hash,
-      createdAt: this.toDate(row.created_at),
-      updatedAt: this.toDate(row.updated_at),
+      createdAt: parseDbTimestamp(row.created_at, 'created_at'),
+      updatedAt: parseDbTimestamp(row.updated_at, 'updated_at'),
     };
-  }
-
-  /**
-   * Converts Kysely timestamp to Date.
-   */
-  private toDate(value: unknown): Date {
-    if (value instanceof Date) {
-      return value;
-    }
-    if (typeof value === 'string') {
-      return new Date(value);
-    }
-    if (typeof value === 'object' && value !== null && 'toISOString' in value) {
-      return new Date((value as { toISOString: () => string }).toISOString());
-    }
-    return new Date();
   }
 }
 

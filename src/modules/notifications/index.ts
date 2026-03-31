@@ -18,7 +18,7 @@ export type {
   NotificationConfig,
   Notification,
   NotificationDelivery,
-  UnsubscribeToken,
+  NotificationDeliveryHistory,
   NotificationTypeConfig,
 } from './core/types.js';
 
@@ -26,7 +26,6 @@ export {
   // Constants
   DEFAULT_DELIVERIES_LIMIT,
   MAX_DELIVERIES_LIMIT,
-  UNSUBSCRIBE_TOKEN_EXPIRY_DAYS,
   NEWSLETTER_TYPES,
   ALERT_TYPES,
   NOTIFICATION_TYPE_CONFIGS,
@@ -51,7 +50,6 @@ export type {
   InvalidConfigError,
   EntityRequiredError,
   ConfigRequiredError,
-  TokenNotFoundError,
   TokenInvalidError,
 } from './core/errors.js';
 
@@ -63,7 +61,6 @@ export {
   createInvalidConfigError,
   createEntityRequiredError,
   createConfigRequiredError,
-  createTokenNotFoundError,
   createTokenInvalidError,
   // HTTP status mapping
   NOTIFICATION_ERROR_HTTP_STATUS,
@@ -78,7 +75,7 @@ export type {
   Hasher,
   NotificationsRepository,
   DeliveriesRepository,
-  UnsubscribeTokensRepository,
+  UnsubscribeTokenSigner,
   CreateNotificationInput,
   UpdateNotificationRepoInput,
 } from './core/ports.js';
@@ -145,7 +142,6 @@ export {
   type NotificationsRepoOptions,
 } from './shell/repo/notifications-repo.js';
 export { makeDeliveriesRepo, type DeliveriesRepoOptions } from './shell/repo/deliveries-repo.js';
-export { makeTokensRepo, type TokensRepoOptions } from './shell/repo/tokens-repo.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shell - Crypto

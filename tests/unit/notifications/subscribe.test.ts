@@ -246,6 +246,25 @@ describe('subscribe use case', () => {
     });
   });
 
+  it('rejects global_unsubscribe because it is system-managed', async () => {
+    const repo = makeFakeNotificationsRepo();
+
+    const result = await subscribe(
+      { notificationsRepo: repo, hasher },
+      {
+        userId: 'user-1',
+        notificationType: 'global_unsubscribe',
+        config: null,
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('InvalidConfigError');
+      expect(result.error.message).toContain('system-managed');
+    }
+  });
+
   describe('analytics alert subscriptions', () => {
     const validAnalyticsConfig: AnalyticsSeriesAlertConfig = {
       title: 'Budget Monitor',

@@ -5,29 +5,52 @@
  */
 
 import type { DeliveryError } from './errors.js';
-import type { DeliveryRecord, DeliveryStatus, ResendWebhookEvent } from './types.js';
+import type {
+  NotificationOutboxRecord,
+  NotificationOutboxType,
+  DeliveryStatus,
+  ResendWebhookEvent,
+  ComposeJobPayload,
+} from './types.js';
 import type { Notification, NotificationType } from '@/modules/notifications/core/types.js';
+import type { Decimal } from 'decimal.js';
 import type { Result } from 'neverthrow';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Delivery Repository
+// Notification Outbox Repository
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Input for creating a delivery record.
+ * Input for creating a notification outbox row.
  */
-export interface CreateDeliveryInput {
+export interface CreateNotificationOutboxInput {
   userId: string;
-  notificationId: string;
-  periodKey: string;
+  notificationType: NotificationOutboxType;
+  referenceId: string | null;
+  scopeKey: string;
   deliveryKey: string;
-  unsubscribeToken?: string;
+  toEmail?: string | null;
   renderedSubject?: string;
   renderedHtml?: string;
   renderedText?: string;
   contentHash?: string;
   templateName?: string;
   templateVersion?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type CreateDeliveryInput = CreateNotificationOutboxInput;
+
+/**
+ * Input for updating rendered notification content on an existing outbox row.
+ */
+export interface UpdateRenderedContentInput {
+  renderedSubject: string;
+  renderedHtml: string;
+  renderedText: string;
+  contentHash: string;
+  templateName: string;
+  templateVersion: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -43,48 +66,84 @@ export interface UpdateDeliveryStatusInput {
 }
 
 /**
- * Repository for delivery records.
+ * Repository for notification outbox records.
  */
-export interface DeliveryRepository {
+export interface NotificationOutboxRepository {
   /**
-   * Creates a delivery record with unique constraint protection.
+   * Creates an outbox record with unique constraint protection.
    * Returns DuplicateDelivery error if delivery_key already exists.
    */
-  create(input: CreateDeliveryInput): Promise<Result<DeliveryRecord, DeliveryError>>;
+  create(
+    input: CreateNotificationOutboxInput
+  ): Promise<Result<NotificationOutboxRecord, DeliveryError>>;
 
   /**
-   * Finds a delivery by ID.
+   * Finds an outbox record by ID.
    */
-  findById(deliveryId: string): Promise<Result<DeliveryRecord | null, DeliveryError>>;
+  findById(outboxId: string): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
-   * Finds a delivery by delivery key.
+   * Finds an outbox record by delivery key.
    */
-  findByDeliveryKey(deliveryKey: string): Promise<Result<DeliveryRecord | null, DeliveryError>>;
+  findByDeliveryKey(
+    deliveryKey: string
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
+
+  /**
+   * Updates rendered content on an existing outbox row.
+   */
+  updateRenderedContent(
+    outboxId: string,
+    input: UpdateRenderedContentInput
+  ): Promise<Result<void, DeliveryError>>;
+
+  /**
+   * Atomic claim for compose.
+   * Only succeeds if the row is pending and missing rendered content.
+   *
+   * Returns null if already claimed, already composed, or otherwise not claimable.
+   */
+  claimForCompose(
+    outboxId: string
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
    * Atomic claim for sending.
-   * Only succeeds if status is 'pending' or 'failed_transient'.
+   * Only succeeds if status is 'pending' or 'failed_transient' and rendered
+   * content is already present.
    * Increments attempt_count in SQL.
    *
    * Returns null if already claimed/processed (no error).
    */
-  claimForSending(deliveryId: string): Promise<Result<DeliveryRecord | null, DeliveryError>>;
+  claimForSending(
+    outboxId: string
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
    * Updates delivery status with optional metadata.
    */
   updateStatus(
-    deliveryId: string,
+    outboxId: string,
     input: UpdateDeliveryStatusInput
   ): Promise<Result<void, DeliveryError>>;
+
+  /**
+   * Updates delivery status only if the current status is in the allowed set.
+   * Returns true when the row was updated, false when state changed concurrently.
+   */
+  updateStatusIfCurrentIn(
+    outboxId: string,
+    allowedStatuses: readonly DeliveryStatus[],
+    nextStatus: DeliveryStatus,
+    input?: Partial<UpdateDeliveryStatusInput>
+  ): Promise<Result<boolean, DeliveryError>>;
 
   /**
    * Updates status only if current status is 'sending'.
    * Used for reconciliation after crashes.
    */
   updateStatusIfStillSending(
-    deliveryId: string,
+    outboxId: string,
     status: DeliveryStatus,
     input?: Partial<UpdateDeliveryStatusInput>
   ): Promise<Result<boolean, DeliveryError>>;
@@ -92,12 +151,48 @@ export interface DeliveryRepository {
   /**
    * Finds deliveries stuck in 'sending' state.
    */
-  findStuckSending(olderThanMinutes: number): Promise<Result<DeliveryRecord[], DeliveryError>>;
+  findStuckSending(
+    olderThanMinutes: number
+  ): Promise<Result<NotificationOutboxRecord[], DeliveryError>>;
+
+  /**
+   * Finds pending outbox rows that still need compose work.
+   */
+  findPendingComposeOrphans(
+    olderThanMinutes: number
+  ): Promise<Result<NotificationOutboxRecord[], DeliveryError>>;
+
+  /**
+   * Finds composed rows that are ready to send but appear orphaned.
+   */
+  findReadyToSendOrphans(
+    olderThanMinutes: number
+  ): Promise<Result<NotificationOutboxRecord[], DeliveryError>>;
+
+  /**
+   * Finds sent rows still awaiting a webhook callback.
+   */
+  findSentAwaitingWebhook(
+    olderThanMinutes: number
+  ): Promise<Result<NotificationOutboxRecord[], DeliveryError>>;
 
   /**
    * Checks if a delivery exists by key.
    */
   existsByDeliveryKey(deliveryKey: string): Promise<Result<boolean, DeliveryError>>;
+}
+
+export type DeliveryRepository = NotificationOutboxRepository;
+
+/**
+ * Minimal logger port for core use cases.
+ */
+export interface LoggerPort {
+  child(bindings: Record<string, unknown>): LoggerPort;
+  debug(bindings: Record<string, unknown> | string, message?: string): void;
+  info(bindings: Record<string, unknown> | string, message?: string): void;
+  warn(bindings: Record<string, unknown> | string, message?: string): void;
+  error(bindings: Record<string, unknown> | string, message?: string): void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,33 +210,35 @@ export interface ExtendedNotificationsRepository {
 
   /**
    * Finds notifications eligible for delivery.
-   * Returns active notifications that haven't been delivered for this period.
+   * Returns active notifications that are still deliverable for this period.
+   * Globally unsubscribed users are excluded before queueing.
    */
   findEligibleForDelivery(
     notificationType: NotificationType,
     periodKey: string,
-    limit?: number
+    limit?: number,
+    ignoreMaterialized?: boolean
   ): Promise<Result<Notification[], DeliveryError>>;
 
   /**
    * Deactivates a notification.
    */
   deactivate(notificationId: string): Promise<Result<void, DeliveryError>>;
+
+  /**
+   * Checks if a user is globally unsubscribed from email delivery.
+   * Returns true if the global_unsubscribe row exists AND either:
+   * - isActive is false (master kill switch), OR
+   * - config.channels.email is false (email channel disabled)
+   */
+  isUserGloballyUnsubscribed(userId: string): Promise<Result<boolean, DeliveryError>>;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Unsubscribe Tokens Repository Extensions
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
- * Extended tokens repository for delivery pipeline.
+ * Adapter for enqueueing compose jobs.
  */
-export interface ExtendedTokensRepository {
-  /**
-   * Gets or creates an active unsubscribe token for a notification.
-   * If an active token exists, returns it. Otherwise, creates a new one.
-   */
-  getOrCreateActive(userId: string, notificationId: string): Promise<Result<string, DeliveryError>>;
+export interface ComposeJobScheduler {
+  enqueue(job: ComposeJobPayload): Promise<Result<void, DeliveryError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,6 +254,12 @@ export interface UserEmailFetcher {
    * Returns null if user not found or has no email.
    */
   getEmail(userId: string): Promise<Result<string | null, DeliveryError>>;
+
+  /**
+   * Gets email addresses for multiple users.
+   * Returns one map entry per requested user ID.
+   */
+  getEmailsByUserIds(userIds: string[]): Promise<Result<Map<string, string | null>, DeliveryError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,6 +272,12 @@ export interface UserEmailFetcher {
 export interface SendEmailParams {
   /** Recipient email address */
   to: string;
+  /** User ID associated with the outbox row */
+  userId?: string;
+  /** Notification type associated with the outbox row */
+  notificationType?: string;
+  /** Optional reference ID associated with the outbox row */
+  referenceId?: string | null;
   /** Email subject */
   subject: string;
   /** HTML content */
@@ -181,6 +290,12 @@ export interface SendEmailParams {
   unsubscribeUrl: string;
   /** Tags for tracking */
   tags: { name: string; value: string }[];
+  /** Template name used for rendering */
+  templateName?: string | null;
+  /** Template version used for rendering */
+  templateVersion?: string | null;
+  /** Additional metadata for mock/debug senders */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -245,8 +360,8 @@ export interface WebhookVerifier {
  */
 export interface NewsletterTopCategory {
   name: string;
-  amount: number;
-  percentage: number;
+  amount: Decimal;
+  percentage: Decimal;
 }
 
 /**
@@ -254,24 +369,24 @@ export interface NewsletterTopCategory {
  */
 export interface NewsletterFundingSource {
   name: string;
-  percentage: number;
+  percentage: Decimal;
 }
 
 /**
  * Period-over-period comparison data.
  */
 export interface NewsletterPeriodComparison {
-  incomeChangePercent: number;
-  expensesChangePercent: number;
-  balanceChangePercent: number;
+  incomeChangePercent: Decimal;
+  expensesChangePercent: Decimal;
+  balanceChangePercent: Decimal;
 }
 
 /**
  * Per capita metrics.
  */
 export interface NewsletterPerCapita {
-  income: number;
-  expenses: number;
+  income: Decimal;
+  expenses: Decimal;
 }
 
 /**
@@ -289,9 +404,9 @@ export interface NewsletterData {
   population?: number | undefined;
 
   // Financial summary
-  totalIncome: number;
-  totalExpenses: number;
-  budgetBalance: number;
+  totalIncome: Decimal;
+  totalExpenses: Decimal;
+  budgetBalance: Decimal;
   currency: string;
 
   // Period comparison (optional)
@@ -308,14 +423,22 @@ export interface NewsletterData {
 
 /**
  * Alert data for rendering.
+ *
+ * Always returned when data exists for the period, even if no conditions
+ * are triggered. `triggeredConditions` is empty when monitoring only.
  */
 export interface AlertData {
   title: string;
   description?: string;
+  /** Current monitored value for the period */
+  actualValue: Decimal;
+  /** Unit for the monitored value */
+  unit: string;
+  /** Conditions that were triggered (empty when monitoring only) */
   triggeredConditions: {
     operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
-    threshold: number;
-    actualValue: number;
+    threshold: Decimal;
+    actualValue: Decimal;
     unit: string;
   }[];
 }

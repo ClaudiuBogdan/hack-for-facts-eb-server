@@ -42,7 +42,7 @@ import type {
   Hasher,
   NotificationsRepository,
   DeliveriesRepository,
-  UnsubscribeTokensRepository,
+  UnsubscribeTokenSigner,
 } from '../../core/ports.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 
@@ -56,7 +56,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 export interface MakeNotificationRoutesDeps {
   notificationsRepo: NotificationsRepository;
   deliveriesRepo: DeliveriesRepository;
-  tokensRepo: UnsubscribeTokensRepository;
+  tokenSigner: UnsubscribeTokenSigner;
   hasher: Hasher;
 }
 
@@ -116,7 +116,7 @@ function parseOptionalInt(value: string | undefined): number | undefined {
  * Creates notification REST routes.
  */
 export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): FastifyPluginAsync => {
-  const { notificationsRepo, deliveriesRepo, tokensRepo, hasher } = deps;
+  const { notificationsRepo, deliveriesRepo, tokenSigner, hasher } = deps;
 
   return async (fastify) => {
     // ─────────────────────────────────────────────────────────────────────────
@@ -268,26 +268,25 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
     );
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PATCH /api/v1/notifications/:id - Update subscription
+    // PATCH/PUT /api/v1/notifications/:id - Update subscription
     // ─────────────────────────────────────────────────────────────────────────
-    fastify.patch<{ Params: NotificationIdParams; Body: UpdateNotificationBody }>(
-      '/api/v1/notifications/:id',
-      {
-        preHandler: requireAuthHandler,
-        schema: {
-          params: NotificationIdParamsSchema,
-          body: UpdateNotificationBodySchema,
-          response: {
-            200: NotificationResponseSchema,
-            400: ErrorResponseSchema,
-            401: ErrorResponseSchema,
-            403: ErrorResponseSchema,
-            404: ErrorResponseSchema,
-            500: ErrorResponseSchema,
-          },
+    fastify.route<{ Params: NotificationIdParams; Body: UpdateNotificationBody }>({
+      method: ['PATCH', 'PUT'],
+      url: '/api/v1/notifications/:id',
+      preHandler: requireAuthHandler,
+      schema: {
+        params: NotificationIdParamsSchema,
+        body: UpdateNotificationBodySchema,
+        response: {
+          200: NotificationResponseSchema,
+          400: ErrorResponseSchema,
+          401: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          500: ErrorResponseSchema,
         },
       },
-      async (request, reply) => {
+      handler: async (request, reply) => {
         if (!isAuthenticated(request.auth)) {
           return sendUnauthorized(reply);
         }
@@ -295,9 +294,8 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
         const { id } = request.params;
         const userId = request.auth.userId as string;
         const { isActive, config } = request.body;
-
-        // Build updates object conditionally
         const updates: { isActive?: boolean; config?: NotificationConfig } = {};
+
         if (isActive !== undefined) {
           updates.isActive = isActive;
         }
@@ -331,72 +329,8 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
           ok: true,
           data: formatNotification(result.value),
         });
-      }
-    );
-
-    // Also register PUT as alias for PATCH (backwards compatibility)
-    fastify.put<{ Params: NotificationIdParams; Body: UpdateNotificationBody }>(
-      '/api/v1/notifications/:id',
-      {
-        preHandler: requireAuthHandler,
-        schema: {
-          params: NotificationIdParamsSchema,
-          body: UpdateNotificationBodySchema,
-          response: {
-            200: NotificationResponseSchema,
-            400: ErrorResponseSchema,
-            401: ErrorResponseSchema,
-            403: ErrorResponseSchema,
-            404: ErrorResponseSchema,
-            500: ErrorResponseSchema,
-          },
-        },
       },
-      async (request, reply) => {
-        if (!isAuthenticated(request.auth)) {
-          return sendUnauthorized(reply);
-        }
-
-        const { id } = request.params;
-        const userId = request.auth.userId as string;
-        const { isActive, config } = request.body;
-
-        const updates: { isActive?: boolean; config?: NotificationConfig } = {};
-        if (isActive !== undefined) {
-          updates.isActive = isActive;
-        }
-        if (config !== undefined) {
-          updates.config = config;
-        }
-
-        const result = await updateNotification(
-          { notificationsRepo, hasher },
-          { notificationId: id, userId, updates }
-        );
-
-        if (result.isErr()) {
-          const status = getHttpStatusForError(result.error);
-          if (status === 400 || status === 403 || status === 404 || status === 500) {
-            return reply.status(status).send({
-              ok: false,
-              error: result.error.type,
-              message: result.error.message,
-            });
-          }
-
-          return reply.status(500).send({
-            ok: false,
-            error: result.error.type,
-            message: result.error.message,
-          });
-        }
-
-        return reply.status(200).send({
-          ok: true,
-          data: formatNotification(result.value),
-        });
-      }
-    );
+    });
 
     // ─────────────────────────────────────────────────────────────────────────
     // DELETE /api/v1/notifications/:id - Delete subscription
@@ -497,8 +431,8 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
           data: result.value.map((d) => ({
             id: d.id,
             notificationId: d.notificationId,
-            periodKey: d.periodKey,
-            sentAt: d.sentAt?.toISOString() ?? null,
+            scopeKey: d.scopeKey,
+            sentAt: d.sentAt.toISOString(),
             status: d.status,
             metadata: d.metadata,
           })),
@@ -510,9 +444,12 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
     // GET/POST /api/v1/notifications/unsubscribe/:token - Token-based unsubscribe
     // (NO AUTH REQUIRED - token authenticates the request)
     //
-    // Supports two modes for CAN-SPAM compliance:
-    // - GET: Returns HTML success page (for human users clicking links in email body)
-    // - POST: Returns empty 200 response (for one-click unsubscribe from email clients)
+    // Content negotiation:
+    // - GET with Accept: text/html → HTML success page (browser click from email)
+    // - GET with Accept: application/json → JSON response
+    // - POST → JSON response (Gmail one-click unsubscribe per RFC 8058)
+    //
+    // Errors always return success to prevent token enumeration.
     // ─────────────────────────────────────────────────────────────────────────
     fastify.route<{ Params: UnsubscribeTokenParams }>({
       method: ['GET', 'POST'],
@@ -522,15 +459,13 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
       },
       handler: async (request, reply) => {
         const { token } = request.params;
-        const isOneClick = request.method === 'POST';
+        const isOneClickPost = request.method === 'POST';
+        const acceptsJson =
+          isOneClickPost || request.headers.accept?.includes('application/json') === true;
 
-        const result = await unsubscribeViaToken(
-          { notificationsRepo, tokensRepo },
-          { token, now: new Date() }
-        );
+        const result = await unsubscribeViaToken({ notificationsRepo, tokenSigner }, { token });
 
-        // For errors, we still show success page to prevent token enumeration
-        // (user already clicked unsubscribe, we shouldn't leak validity info)
+        // For errors, still show success to prevent token enumeration
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
           request.log.warn(
@@ -538,34 +473,25 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
             'Unsubscribe failed, but showing success response for security'
           );
 
-          // For one-click (POST), return empty 200 per spec
-          if (isOneClick) {
+          if (isOneClickPost) {
             return reply.status(200).send();
           }
 
-          // For GET, show success page anyway (prevents enumeration)
+          if (acceptsJson) {
+            return reply.status(200).send({ ok: true, unsubscribed: true });
+          }
+
           return reply.type('text/html').send(renderUnsubscribeSuccessPage());
         }
 
-        // Log warning if token marking failed (notification was still deactivated)
-        if (result.value.tokenMarkingFailed) {
-          const redactedToken = token.substring(0, 8) + '...';
-          request.log.warn(
-            {
-              token: redactedToken,
-              notificationId: result.value.notification.id,
-              error: result.value.tokenMarkingError,
-            },
-            'Failed to mark unsubscribe token as used - token may be reusable'
-          );
-        }
-
-        // For one-click (POST), return EMPTY body with 200 per RFC 8058
-        if (isOneClick) {
+        if (isOneClickPost) {
           return reply.status(200).send();
         }
 
-        // For GET, return HTML success page
+        if (acceptsJson) {
+          return reply.status(200).send({ ok: true, unsubscribed: true });
+        }
+
         return reply.type('text/html').send(renderUnsubscribeSuccessPage());
       },
     });
@@ -626,7 +552,7 @@ function renderUnsubscribeSuccessPage(): string {
     <div class="icon">✓</div>
     <h1>Dezabonare reușită</h1>
     <p>Ați fost dezabonat de la această notificare. Nu veți mai primi emailuri pentru această abonare.</p>
-    <p>Dacă v-ați răzgândit, puteți gestiona notificările din <a href="https://transparenta.eu/notifications/preferences">setări</a>.</p>
+    <p>Dacă v-ați răzgândit, puteți gestiona notificările din <a href="https://transparenta.eu/settings/notifications">setări</a>.</p>
   </div>
 </body>
 </html>`;

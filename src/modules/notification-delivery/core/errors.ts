@@ -18,6 +18,14 @@ export interface DatabaseError {
 }
 
 /**
+ * Validation error.
+ */
+export interface ValidationError {
+  type: 'ValidationError';
+  message: string;
+}
+
+/**
  * Duplicate delivery key error.
  */
 export interface DuplicateDeliveryError {
@@ -50,6 +58,16 @@ export interface UserEmailNotFoundError {
 }
 
 /**
+ * User email lookup provider error.
+ */
+export interface UserEmailLookupError {
+  type: 'UserEmailLookupError';
+  provider: 'clerk';
+  message: string;
+  retryable: boolean;
+}
+
+/**
  * Delivery already claimed error.
  */
 export interface DeliveryAlreadyClaimedError {
@@ -76,6 +94,15 @@ export interface EmailSendError {
 }
 
 /**
+ * Queue enqueue/dequeue error.
+ */
+export interface QueueError {
+  type: 'QueueError';
+  message: string;
+  retryable: boolean;
+}
+
+/**
  * Webhook verification error.
  */
 export interface WebhookVerificationError {
@@ -96,15 +123,44 @@ export interface DuplicateWebhookEventError {
  */
 export type DeliveryError =
   | DatabaseError
+  | ValidationError
   | DuplicateDeliveryError
   | DeliveryNotFoundError
   | NotificationNotFoundError
   | UserEmailNotFoundError
+  | UserEmailLookupError
   | DeliveryAlreadyClaimedError
   | RenderError
   | EmailSendError
+  | QueueError
   | WebhookVerificationError
   | DuplicateWebhookEventError;
+
+const DELIVERY_ERROR_TYPES = new Set<DeliveryError['type']>([
+  'DatabaseError',
+  'ValidationError',
+  'DuplicateDelivery',
+  'DeliveryNotFound',
+  'NotificationNotFound',
+  'UserEmailNotFound',
+  'UserEmailLookupError',
+  'DeliveryAlreadyClaimed',
+  'RenderError',
+  'EmailSendError',
+  'QueueError',
+  'WebhookVerificationError',
+  'DuplicateWebhookEvent',
+]);
+
+export const isDeliveryError = (error: unknown): error is DeliveryError => {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'type' in error &&
+    typeof (error as { type?: unknown }).type === 'string' &&
+    DELIVERY_ERROR_TYPES.has((error as { type: DeliveryError['type'] }).type)
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors
@@ -117,6 +173,14 @@ export const createDatabaseError = (message: string, retryable = true): Database
   type: 'DatabaseError',
   message,
   retryable,
+});
+
+/**
+ * Creates a validation error.
+ */
+export const createValidationError = (message: string): ValidationError => ({
+  type: 'ValidationError',
+  message,
 });
 
 /**
@@ -154,6 +218,20 @@ export const createUserEmailNotFoundError = (userId: string): UserEmailNotFoundE
 });
 
 /**
+ * Creates a user email lookup provider error.
+ */
+export const createUserEmailLookupError = (
+  message: string,
+  retryable: boolean,
+  provider: 'clerk' = 'clerk'
+): UserEmailLookupError => ({
+  type: 'UserEmailLookupError',
+  provider,
+  message,
+  retryable,
+});
+
+/**
  * Creates a delivery already claimed error.
  */
 export const createDeliveryAlreadyClaimedError = (
@@ -177,6 +255,15 @@ export const createRenderError = (message: string, templateType: string): Render
  */
 export const createEmailSendError = (message: string, retryable: boolean): EmailSendError => ({
   type: 'EmailSendError',
+  message,
+  retryable,
+});
+
+/**
+ * Creates a queue error.
+ */
+export const createQueueError = (message: string, retryable: boolean): QueueError => ({
+  type: 'QueueError',
   message,
   retryable,
 });
@@ -208,7 +295,11 @@ export const isRetryableError = (error: DeliveryError): boolean => {
   switch (error.type) {
     case 'DatabaseError':
     case 'EmailSendError':
+    case 'QueueError':
+    case 'UserEmailLookupError':
       return error.retryable;
+    case 'ValidationError':
+      return false;
     default:
       return false;
   }
@@ -221,6 +312,8 @@ export const getErrorMessage = (error: DeliveryError): string => {
   switch (error.type) {
     case 'DatabaseError':
       return error.message;
+    case 'ValidationError':
+      return error.message;
     case 'DuplicateDelivery':
       return `Duplicate delivery: ${error.deliveryKey}`;
     case 'DeliveryNotFound':
@@ -229,11 +322,14 @@ export const getErrorMessage = (error: DeliveryError): string => {
       return `Notification not found: ${error.notificationId}`;
     case 'UserEmailNotFound':
       return `User email not found: ${error.userId}`;
+    case 'UserEmailLookupError':
+      return error.message;
     case 'DeliveryAlreadyClaimed':
       return `Delivery already claimed: ${error.deliveryId}`;
     case 'RenderError':
       return `Render error (${error.templateType}): ${error.message}`;
     case 'EmailSendError':
+    case 'QueueError':
       return error.message;
     case 'WebhookVerificationError':
       return error.message;

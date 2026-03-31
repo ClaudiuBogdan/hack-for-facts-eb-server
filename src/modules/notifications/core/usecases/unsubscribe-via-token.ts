@@ -1,21 +1,15 @@
 /**
  * Unsubscribe Via Token Use Case
  *
- * Deactivates a notification subscription using a one-time token.
- * This endpoint is unauthenticated - tokens are included in email links.
+ * Verifies an HMAC-signed token, extracts the user ID, and sets
+ * is_active = false on the user's global_unsubscribe notification row.
  */
 
 import { err, ok, type Result } from 'neverthrow';
 
-import {
-  createTokenNotFoundError,
-  createTokenInvalidError,
-  createNotificationNotFoundError,
-  type NotificationError,
-} from '../errors.js';
+import { createTokenInvalidError, type NotificationError } from '../errors.js';
 
-import type { NotificationsRepository, UnsubscribeTokensRepository } from '../ports.js';
-import type { Notification } from '../types.js';
+import type { NotificationsRepository, UnsubscribeTokenSigner } from '../ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Dependencies
@@ -23,38 +17,19 @@ import type { Notification } from '../types.js';
 
 export interface UnsubscribeViaTokenDeps {
   notificationsRepo: NotificationsRepository;
-  tokensRepo: UnsubscribeTokensRepository;
+  tokenSigner: UnsubscribeTokenSigner;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Input
+// Input / Output
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface UnsubscribeViaTokenInput {
   token: string;
-  now: Date;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Output
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Result of unsubscribe operation.
- * Includes the deactivated notification and any warnings.
- */
 export interface UnsubscribeViaTokenResult {
-  notification: Notification;
-  /**
-   * If true, the token could not be marked as used.
-   * The notification was still deactivated, but the token might be reusable.
-   * The shell layer should log this warning.
-   */
-  tokenMarkingFailed: boolean;
-  /**
-   * Error details if tokenMarkingFailed is true.
-   */
-  tokenMarkingError?: NotificationError;
+  userId: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,72 +37,30 @@ export interface UnsubscribeViaTokenResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Unsubscribes from a notification using a one-time token.
+ * Unsubscribes a user from all email notifications using an HMAC-signed token.
  *
- * - Validates the token exists
- * - Checks the token is not expired or already used
- * - Deactivates the associated notification
- * - Marks the token as used
- * - Returns the deactivated notification and any warnings
+ * 1. Verifies the HMAC signature and extracts the user ID
+ * 2. Finds or creates the global_unsubscribe notification row
+ * 3. Sets is_active = false on that row
  */
 export async function unsubscribeViaToken(
   deps: UnsubscribeViaTokenDeps,
   input: UnsubscribeViaTokenInput
 ): Promise<Result<UnsubscribeViaTokenResult, NotificationError>> {
-  const { notificationsRepo, tokensRepo } = deps;
-  const { token, now } = input;
+  const { notificationsRepo, tokenSigner } = deps;
+  const { token } = input;
 
-  // Find the token
-  const findTokenResult = await tokensRepo.findByToken(token);
-  if (findTokenResult.isErr()) {
-    return err(findTokenResult.error);
+  const verified = tokenSigner.verify(token);
+  if (verified === null) {
+    return err(createTokenInvalidError());
   }
 
-  const tokenRecord = findTokenResult.value;
-  if (tokenRecord === null) {
-    return err(createTokenNotFoundError(token));
+  const { userId } = verified;
+
+  const deactivateResult = await notificationsRepo.deactivateGlobalUnsubscribe(userId);
+  if (deactivateResult.isErr()) {
+    return err(deactivateResult.error);
   }
 
-  // Check if token is valid (not expired, not used)
-  if (tokenRecord.expiresAt < now) {
-    return err(createTokenInvalidError(token));
-  }
-
-  if (tokenRecord.usedAt !== null) {
-    return err(createTokenInvalidError(token));
-  }
-
-  // Find the notification
-  const findNotificationResult = await notificationsRepo.findById(tokenRecord.notificationId);
-  if (findNotificationResult.isErr()) {
-    return err(findNotificationResult.error);
-  }
-
-  const notification = findNotificationResult.value;
-  if (notification === null) {
-    return err(createNotificationNotFoundError(tokenRecord.notificationId));
-  }
-
-  // Deactivate the notification
-  const updateResult = await notificationsRepo.update(notification.id, { isActive: false });
-  if (updateResult.isErr()) {
-    return err(updateResult.error);
-  }
-
-  // Mark token as used (best-effort - don't fail if this fails)
-  const markUsedResult = await tokensRepo.markAsUsed(token);
-
-  // Return result with warning if token marking failed
-  if (markUsedResult.isErr()) {
-    return ok({
-      notification: updateResult.value,
-      tokenMarkingFailed: true,
-      tokenMarkingError: markUsedResult.error,
-    });
-  }
-
-  return ok({
-    notification: updateResult.value,
-    tokenMarkingFailed: false,
-  });
+  return ok({ userId });
 }

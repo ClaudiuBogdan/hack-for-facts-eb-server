@@ -6,6 +6,7 @@ export * from './result.js';
 export * from './errors.js';
 export * from './analytics.js';
 export * from './commitments.js';
+export * from './delivery-status.js';
 export {
   DB_TO_GQL_REPORT_TYPE,
   GQL_TO_DB_REPORT_TYPE,

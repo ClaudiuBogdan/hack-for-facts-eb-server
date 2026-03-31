@@ -1,11 +1,13 @@
 /**
- * Delivery Repository Implementation
+ * Notification Outbox Repository Implementation
  *
  * Kysely-based implementation with atomic claim pattern.
  */
 
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
+
+import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import {
   type DeliveryError,
@@ -16,9 +18,10 @@ import {
 import type {
   DeliveryRepository,
   CreateDeliveryInput,
+  UpdateRenderedContentInput,
   UpdateDeliveryStatusInput,
 } from '../../core/ports.js';
-import type { DeliveryRecord, DeliveryStatus } from '../../core/types.js';
+import type { NotificationOutboxRecord, DeliveryStatus } from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { Logger } from 'pino';
 
@@ -39,29 +42,17 @@ export interface DeliveryRepoConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Converts Kysely timestamp to Date.
+ * Maps a database row to NotificationOutboxRecord.
  */
-const toDate = (value: unknown): Date => {
-  if (value instanceof Date) return value;
-  if (typeof value === 'string') return new Date(value);
-  if (typeof value === 'object' && value !== null && 'toISOString' in value) {
-    return new Date((value as { toISOString: () => string }).toISOString());
-  }
-  return new Date();
-};
-
-/**
- * Maps a database row to DeliveryRecord.
- */
-const mapRow = (row: Record<string, unknown>): DeliveryRecord => ({
+const mapRow = (row: Record<string, unknown>): NotificationOutboxRecord => ({
   id: row['id'] as string,
   userId: row['user_id'] as string,
   toEmail: (row['to_email'] as string | null) ?? null,
-  notificationId: row['notification_id'] as string,
-  periodKey: row['period_key'] as string,
+  notificationType: row['notification_type'] as NotificationOutboxRecord['notificationType'],
+  referenceId: (row['reference_id'] as string | null) ?? null,
+  scopeKey: row['scope_key'] as string,
   deliveryKey: row['delivery_key'] as string,
   status: row['status'] as DeliveryStatus,
-  unsubscribeToken: (row['unsubscribe_token'] as string | null) ?? null,
   renderedSubject: (row['rendered_subject'] as string | null) ?? null,
   renderedHtml: (row['rendered_html'] as string | null) ?? null,
   renderedText: (row['rendered_text'] as string | null) ?? null,
@@ -71,10 +62,13 @@ const mapRow = (row: Record<string, unknown>): DeliveryRecord => ({
   resendEmailId: (row['resend_email_id'] as string | null) ?? null,
   lastError: (row['last_error'] as string | null) ?? null,
   attemptCount: row['attempt_count'] as number,
-  lastAttemptAt: row['last_attempt_at'] !== null ? toDate(row['last_attempt_at']) : null,
-  sentAt: row['sent_at'] !== null ? toDate(row['sent_at']) : null,
+  lastAttemptAt:
+    row['last_attempt_at'] !== null
+      ? parseDbTimestamp(row['last_attempt_at'], 'last_attempt_at')
+      : null,
+  sentAt: row['sent_at'] !== null ? parseDbTimestamp(row['sent_at'], 'sent_at') : null,
   metadata: (row['metadata'] as Record<string, unknown> | null) ?? {},
-  createdAt: toDate(row['created_at']),
+  createdAt: parseDbTimestamp(row['created_at'], 'created_at'),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,26 +76,29 @@ const mapRow = (row: Record<string, unknown>): DeliveryRecord => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Creates a Kysely-based delivery repository.
+ * Creates a Kysely-based notification outbox repository.
  */
 export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository => {
   const { db, logger } = config;
   const log = logger.child({ repo: 'DeliveryRepo' });
 
   return {
-    async create(input: CreateDeliveryInput): Promise<Result<DeliveryRecord, DeliveryError>> {
-      log.debug({ deliveryKey: input.deliveryKey }, 'Creating delivery record');
+    async create(
+      input: CreateDeliveryInput
+    ): Promise<Result<NotificationOutboxRecord, DeliveryError>> {
+      log.debug({ deliveryKey: input.deliveryKey }, 'Creating notification outbox record');
 
       try {
         const result = await db
-          .insertInto('notificationdeliveries')
+          .insertInto('notificationoutbox')
           .values({
             user_id: input.userId,
-            notification_id: input.notificationId,
-            period_key: input.periodKey,
+            notification_type: input.notificationType,
+            reference_id: input.referenceId,
+            scope_key: input.scopeKey,
             delivery_key: input.deliveryKey,
             status: 'pending',
-            unsubscribe_token: input.unsubscribeToken ?? null,
+            to_email: input.toEmail ?? null,
             rendered_subject: input.renderedSubject ?? null,
             rendered_html: input.renderedHtml ?? null,
             rendered_text: input.renderedText ?? null,
@@ -117,7 +114,10 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
           return err(createDatabaseError('Insert returned no result'));
         }
 
-        log.info({ deliveryId: result.id, deliveryKey: input.deliveryKey }, 'Delivery created');
+        log.info(
+          { outboxId: result.id, deliveryKey: input.deliveryKey },
+          'Notification outbox row created'
+        );
         return ok(mapRow(result as unknown as Record<string, unknown>));
       } catch (error) {
         // Check for unique constraint violation
@@ -131,34 +131,36 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
           return err(createDuplicateDeliveryError(input.deliveryKey));
         }
 
-        log.error({ error, deliveryKey: input.deliveryKey }, 'Failed to create delivery');
+        log.error({ error, deliveryKey: input.deliveryKey }, 'Failed to create outbox row');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },
 
-    async findById(deliveryId: string): Promise<Result<DeliveryRecord | null, DeliveryError>> {
+    async findById(
+      outboxId: string
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationdeliveries')
+          .selectFrom('notificationoutbox')
           .selectAll()
-          .where('id', '=', deliveryId)
+          .where('id', '=', outboxId)
           .executeTakeFirst();
 
         return ok(
           result !== undefined ? mapRow(result as unknown as Record<string, unknown>) : null
         );
       } catch (error) {
-        log.error({ error, deliveryId }, 'Failed to find delivery by ID');
+        log.error({ error, outboxId }, 'Failed to find outbox row by ID');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },
 
     async findByDeliveryKey(
       deliveryKey: string
-    ): Promise<Result<DeliveryRecord | null, DeliveryError>> {
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationdeliveries')
+          .selectFrom('notificationoutbox')
           .selectAll()
           .where('delivery_key', '=', deliveryKey)
           .executeTakeFirst();
@@ -172,47 +174,145 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       }
     },
 
-    async claimForSending(
-      deliveryId: string
-    ): Promise<Result<DeliveryRecord | null, DeliveryError>> {
-      log.debug({ deliveryId }, 'Claiming delivery for sending');
+    async updateRenderedContent(
+      outboxId: string,
+      input: UpdateRenderedContentInput
+    ): Promise<Result<void, DeliveryError>> {
+      log.debug({ outboxId }, 'Updating rendered content on outbox row');
 
       try {
-        // ATOMIC CLAIM: Only succeeds if status is claimable
-        // Increments attempt_count in SQL to prevent race conditions
+        await db
+          .updateTable('notificationoutbox')
+          .set({
+            rendered_subject: input.renderedSubject,
+            rendered_html: input.renderedHtml,
+            rendered_text: input.renderedText,
+            content_hash: input.contentHash,
+            template_name: input.templateName,
+            template_version: input.templateVersion,
+            ...(input.metadata !== undefined ? { metadata: JSON.stringify(input.metadata) } : {}),
+          })
+          .where('id', '=', outboxId)
+          .execute();
+
+        return ok(undefined);
+      } catch (error) {
+        log.error({ error, outboxId }, 'Failed to update rendered content');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async claimForCompose(
+      outboxId: string
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug({ outboxId }, 'Claiming outbox row for compose');
+
+      try {
         const result = await sql<Record<string, unknown>>`
-          UPDATE notificationdeliveries
-          SET status = 'sending',
-              attempt_count = attempt_count + 1,
+          UPDATE notificationoutbox
+          SET status = 'composing',
               last_attempt_at = NOW()
-          WHERE id = ${deliveryId}
-            AND status IN ('pending', 'failed_transient')
+          WHERE id = ${outboxId}
+            AND status = 'pending'
+            AND (
+              rendered_subject IS NULL
+              OR rendered_html IS NULL
+              OR rendered_text IS NULL
+            )
           RETURNING *
         `.execute(db);
 
         const row = result.rows[0];
         if (row === undefined) {
-          log.debug({ deliveryId }, 'Delivery not claimable (already claimed or processed)');
+          log.debug({ outboxId }, 'Outbox row not claimable for compose');
           return ok(null);
         }
 
-        log.info({ deliveryId }, 'Delivery claimed for sending');
+        log.info({ outboxId }, 'Outbox row claimed for compose');
         return ok(mapRow(row));
       } catch (error) {
-        log.error({ error, deliveryId }, 'Failed to claim delivery');
+        log.error({ error, outboxId }, 'Failed to claim outbox row for compose');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async claimForSending(
+      outboxId: string
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug({ outboxId }, 'Claiming outbox row for sending');
+
+      try {
+        // ATOMIC CLAIM: Only succeeds if status is claimable
+        // Increments attempt_count in SQL to prevent race conditions
+        const result = await sql<Record<string, unknown>>`
+          UPDATE notificationoutbox
+          SET status = 'sending',
+              attempt_count = attempt_count + 1,
+              last_attempt_at = NOW()
+          WHERE id = ${outboxId}
+            AND status IN ('pending', 'failed_transient')
+            AND rendered_subject IS NOT NULL
+            AND rendered_html IS NOT NULL
+            AND rendered_text IS NOT NULL
+          RETURNING *
+        `.execute(db);
+
+        const row = result.rows[0];
+        if (row === undefined) {
+          log.debug({ outboxId }, 'Outbox row not claimable (already claimed or processed)');
+          return ok(null);
+        }
+
+        log.info({ outboxId }, 'Outbox row claimed for sending');
+        return ok(mapRow(row));
+      } catch (error) {
+        log.error({ error, outboxId }, 'Failed to claim outbox row');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async updateStatusIfCurrentIn(
+      outboxId: string,
+      allowedStatuses: readonly DeliveryStatus[],
+      nextStatus: DeliveryStatus,
+      input?: Partial<UpdateDeliveryStatusInput>
+    ): Promise<Result<boolean, DeliveryError>> {
+      log.debug({ outboxId, allowedStatuses, nextStatus }, 'Updating status conditionally');
+
+      if (allowedStatuses.length === 0) {
+        return ok(false);
+      }
+
+      try {
+        const result = await db
+          .updateTable('notificationoutbox')
+          .set({
+            status: nextStatus,
+            ...(input?.toEmail !== undefined ? { to_email: input.toEmail } : {}),
+            ...(input?.resendEmailId !== undefined ? { resend_email_id: input.resendEmailId } : {}),
+            ...(input?.lastError !== undefined ? { last_error: input.lastError } : {}),
+            ...(input?.sentAt !== undefined ? { sent_at: input.sentAt } : {}),
+          })
+          .where('id', '=', outboxId)
+          .where('status', 'in', [...allowedStatuses])
+          .executeTakeFirst();
+
+        return ok(result.numUpdatedRows > 0n);
+      } catch (error) {
+        log.error({ error, outboxId }, 'Failed to update outbox status conditionally');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },
 
     async updateStatus(
-      deliveryId: string,
+      outboxId: string,
       input: UpdateDeliveryStatusInput
     ): Promise<Result<void, DeliveryError>> {
-      log.debug({ deliveryId, status: input.status }, 'Updating delivery status');
+      log.debug({ outboxId, status: input.status }, 'Updating outbox status');
 
       try {
         await db
-          .updateTable('notificationdeliveries')
+          .updateTable('notificationoutbox')
           .set({
             status: input.status,
             ...(input.toEmail !== undefined ? { to_email: input.toEmail } : {}),
@@ -220,50 +320,28 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
             ...(input.lastError !== undefined ? { last_error: input.lastError } : {}),
             ...(input.sentAt !== undefined ? { sent_at: input.sentAt } : {}),
           })
-          .where('id', '=', deliveryId)
+          .where('id', '=', outboxId)
           .execute();
 
-        log.debug({ deliveryId, status: input.status }, 'Delivery status updated');
+        log.debug({ outboxId, status: input.status }, 'Outbox status updated');
         return ok(undefined);
       } catch (error) {
-        log.error({ error, deliveryId }, 'Failed to update delivery status');
+        log.error({ error, outboxId }, 'Failed to update outbox status');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },
 
     async updateStatusIfStillSending(
-      deliveryId: string,
+      outboxId: string,
       status: DeliveryStatus,
       input?: Partial<UpdateDeliveryStatusInput>
     ): Promise<Result<boolean, DeliveryError>> {
-      log.debug({ deliveryId, status }, 'Updating status if still sending');
-
-      try {
-        const result = await db
-          .updateTable('notificationdeliveries')
-          .set({
-            status,
-            ...(input?.toEmail !== undefined ? { to_email: input.toEmail } : {}),
-            ...(input?.resendEmailId !== undefined ? { resend_email_id: input.resendEmailId } : {}),
-            ...(input?.lastError !== undefined ? { last_error: input.lastError } : {}),
-            ...(input?.sentAt !== undefined ? { sent_at: input.sentAt } : {}),
-          })
-          .where('id', '=', deliveryId)
-          .where('status', '=', 'sending')
-          .executeTakeFirst();
-
-        const updated = result.numUpdatedRows > 0n;
-        log.debug({ deliveryId, updated }, 'Update if still sending complete');
-        return ok(updated);
-      } catch (error) {
-        log.error({ error, deliveryId }, 'Failed to update status if still sending');
-        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
-      }
+      return this.updateStatusIfCurrentIn(outboxId, ['sending'], status, input);
     },
 
     async findStuckSending(
       olderThanMinutes: number
-    ): Promise<Result<DeliveryRecord[], DeliveryError>> {
+    ): Promise<Result<NotificationOutboxRecord[], DeliveryError>> {
       log.debug({ olderThanMinutes }, 'Finding stuck sending deliveries');
 
       try {
@@ -271,11 +349,13 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
         const result = await db
-          .selectFrom('notificationdeliveries')
+          .selectFrom('notificationoutbox')
           .selectAll()
           .where('status', '=', 'sending')
-          .where(sql<boolean>`last_attempt_at < ${threshold}::timestamptz`)
-          .orderBy('last_attempt_at', 'asc')
+          .where(
+            sql<boolean>`last_attempt_at IS NULL OR last_attempt_at < ${threshold}::timestamptz`
+          )
+          .orderBy(sql`COALESCE(last_attempt_at, created_at)`, 'asc')
           .execute();
 
         log.info({ count: result.length }, 'Found stuck sending deliveries');
@@ -286,10 +366,94 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       }
     },
 
+    async findPendingComposeOrphans(
+      olderThanMinutes: number
+    ): Promise<Result<NotificationOutboxRecord[], DeliveryError>> {
+      log.debug({ olderThanMinutes }, 'Finding pending compose orphans');
+
+      try {
+        const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
+
+        const result = await db
+          .selectFrom('notificationoutbox')
+          .selectAll()
+          .where('status', 'in', ['pending', 'composing'])
+          .where(
+            sql<boolean>`(
+              rendered_subject IS NULL
+              OR rendered_html IS NULL
+              OR rendered_text IS NULL
+            )`
+          )
+          .where(sql<boolean>`COALESCE(last_attempt_at, created_at) < ${threshold}::timestamptz`)
+          .orderBy(sql`COALESCE(last_attempt_at, created_at)`, 'asc')
+          .execute();
+
+        return ok(result.map((row) => mapRow(row as unknown as Record<string, unknown>)));
+      } catch (error) {
+        log.error({ error }, 'Failed to find pending compose orphans');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async findReadyToSendOrphans(
+      olderThanMinutes: number
+    ): Promise<Result<NotificationOutboxRecord[], DeliveryError>> {
+      log.debug({ olderThanMinutes }, 'Finding ready-to-send orphans');
+
+      try {
+        const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
+
+        const result = await db
+          .selectFrom('notificationoutbox')
+          .selectAll()
+          .where('status', 'in', ['pending', 'failed_transient'])
+          .where(
+            sql<boolean>`(
+              rendered_subject IS NOT NULL
+              AND rendered_html IS NOT NULL
+              AND rendered_text IS NOT NULL
+            )`
+          )
+          .where(sql<boolean>`COALESCE(last_attempt_at, created_at) < ${threshold}::timestamptz`)
+          .orderBy(sql`COALESCE(last_attempt_at, created_at)`, 'asc')
+          .execute();
+
+        return ok(result.map((row) => mapRow(row as unknown as Record<string, unknown>)));
+      } catch (error) {
+        log.error({ error }, 'Failed to find ready-to-send orphans');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async findSentAwaitingWebhook(
+      olderThanMinutes: number
+    ): Promise<Result<NotificationOutboxRecord[], DeliveryError>> {
+      log.debug({ olderThanMinutes }, 'Finding sent deliveries awaiting webhook');
+
+      try {
+        const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
+
+        const result = await db
+          .selectFrom('notificationoutbox')
+          .selectAll()
+          .where('status', '=', 'sent')
+          .where('sent_at', 'is not', null)
+          .where(sql<boolean>`sent_at < ${threshold}::timestamptz`)
+          .orderBy('sent_at', 'asc')
+          .execute();
+
+        return ok(result.map((row) => mapRow(row as unknown as Record<string, unknown>)));
+      } catch (error) {
+        log.error({ error }, 'Failed to find sent deliveries awaiting webhook');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
     async existsByDeliveryKey(deliveryKey: string): Promise<Result<boolean, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationdeliveries')
+          .selectFrom('notificationoutbox')
           .select('id')
           .where('delivery_key', '=', deliveryKey)
           .executeTakeFirst();
