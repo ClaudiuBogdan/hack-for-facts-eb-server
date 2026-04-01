@@ -39,6 +39,10 @@ export const buildNotificationSettingsUrl = (platformBaseUrl: string): string =>
   return `${platformBaseUrl}/settings/notifications`;
 };
 
+export const buildCampaignPreferencesUrl = (clientBaseUrl: string): string => {
+  return `${clientBaseUrl}/provocare/notificari`;
+};
+
 export const toDecimalString = (value: Decimal): string => value.toString();
 
 export const getPeriodYear = (periodKey: string): number => {

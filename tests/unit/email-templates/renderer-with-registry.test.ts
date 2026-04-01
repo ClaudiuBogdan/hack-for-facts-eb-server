@@ -10,6 +10,7 @@ import type {
   NewsletterEntityProps,
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
+  PublicDebateEntityUpdateProps,
 } from '@/modules/email-templates/core/types.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
@@ -64,7 +65,7 @@ describe('EmailRenderer (registry-backed)', () => {
       templateType: 'public_debate_campaign_welcome',
       lang: 'ro',
       unsubscribeUrl: 'https://transparenta.eu/unsub/token',
-      preferencesUrl: 'https://transparenta.eu/settings/notifications',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
       platformBaseUrl: 'https://transparenta.eu',
       copyrightYear: 2026,
       campaignKey: 'public_debate',
@@ -77,8 +78,12 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(result.isOk()).toBe(true);
 
     const rendered = result._unsafeUnwrap();
-    expect(rendered.subject).toBe('Ai intrat în campania de dezbatere publică');
-    expect(rendered.html).toContain('Bun venit în campanie!');
+    expect(rendered.subject).toBe(
+      'Bun venit în provocarea civică „Cu ochii pe bugetele locale 2026” - Funky Citizens x Transparenta.eu'
+    );
+    expect(rendered.html).toContain('Salutare,');
+    expect(rendered.html).toContain('Vezi localitatea în platformă');
+    expect(rendered.html).toContain('această pagină');
     expect(rendered.html).toContain('Primăria Municipiului Exemplu');
     expect(rendered.templateName).toBe('public_debate_campaign_welcome');
   });
@@ -88,23 +93,102 @@ describe('EmailRenderer (registry-backed)', () => {
       templateType: 'public_debate_entity_subscription',
       lang: 'ro',
       unsubscribeUrl: 'https://transparenta.eu/unsub/token',
-      preferencesUrl: 'https://transparenta.eu/settings/notifications',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
       platformBaseUrl: 'https://transparenta.eu',
       copyrightYear: 2026,
       campaignKey: 'public_debate',
       entityCui: '87654321',
-      entityName: 'Consiliul Județean Exemplu',
+      entityName: 'Municipiul Exemplu',
       acceptedTermsAt: '2026-04-02T11:00:00.000Z',
+      selectedEntities: ['Municipiul Exemplu', 'Municipiul Test'],
     };
 
     const result = await renderer.render(props);
     expect(result.isOk()).toBe(true);
 
     const rendered = result._unsafeUnwrap();
-    expect(rendered.subject).toBe('Abonare nouă la o instituție din campanie');
-    expect(rendered.html).toContain('Abonare confirmată');
-    expect(rendered.html).toContain('Consiliul Județean Exemplu');
+    expect(rendered.subject).toBe(
+      'Ai ales o nouă localitate în provocarea civică „Cu ochii pe bugetele locale 2026” - Funky Citizens x Transparenta.eu'
+    );
+    expect(rendered.html).toContain('Salutare,');
+    expect(rendered.html).toContain('Localitățile selectate de tine:');
+    expect(rendered.html).toContain('Municipiul Exemplu');
+    expect(rendered.html).toContain('Municipiul Test');
     expect(rendered.templateName).toBe('public_debate_entity_subscription');
+  });
+
+  it('renders public_debate_entity_update template successfully', async () => {
+    const props: PublicDebateEntityUpdateProps = {
+      templateType: 'public_debate_entity_update',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      eventType: 'reply_received',
+      campaignKey: 'public_debate',
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      threadId: 'thread-1',
+      threadKey: 'thread-key-1',
+      phase: 'reply_received_unreviewed',
+      institutionEmail: 'contact@primarie.ro',
+      subjectLine: 'Solicitare organizare dezbatere publica - buget local 2026',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+      replyTextPreview: 'Va comunicam ca solicitarea a fost primita.',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'A sosit un răspuns: Municipiul Exemplu - „Cu ochii pe bugetele locale 2026”'
+    );
+    expect(rendered.html).toContain('Salutare,');
+    expect(rendered.text).toContain('Primăria din Municipiul Exemplu a trimis un răspuns.');
+    expect(rendered.html).toContain('A sosit un răspuns');
+    expect(rendered.text).toContain(
+      'Pentru participarea la dezbatere, îți recomandăm să parcurgi atât proiectul de buget, cât și execuția anilor precedenți.'
+    );
+    expect(rendered.text).toContain('Mulțumim că ești parte din această provocare civică!');
+    expect(rendered.templateName).toBe('public_debate_entity_update');
+  });
+
+  it('renders public_debate_entity_update failed-send copy accurately', async () => {
+    const props: PublicDebateEntityUpdateProps = {
+      templateType: 'public_debate_entity_update',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      eventType: 'thread_failed',
+      campaignKey: 'public_debate',
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      threadId: 'thread-1',
+      threadKey: 'thread-key-1',
+      phase: 'thread_failed',
+      institutionEmail: 'contact@primarie.ro',
+      subjectLine: 'Solicitare organizare dezbatere publica - buget local 2026',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'Trimiterea a eșuat: Municipiul Exemplu - „Cu ochii pe bugetele locale 2026”'
+    );
+    expect(rendered.text).toContain(
+      'A apărut o problemă la trimiterea cererii pentru organizarea unei dezbateri publice în Municipiul Exemplu.'
+    );
+    expect(rendered.text).not.toContain(
+      'Cererea ta pentru organizarea unei dezbateri publice în Municipiul Exemplu a fost trimisă către Primărie.'
+    );
+    expect(rendered.html).toContain('Trimiterea a eșuat');
   });
 
   it('renders anaf_forexebug_digest template successfully', async () => {

@@ -1,20 +1,20 @@
-import { Hr, Section, Text, Button } from '@react-email/components';
+import { Button, Link, Section, Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
 import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
-import { getTranslations } from '../../core/i18n.js';
+import { getTranslations, interpolate } from '../../core/i18n.js';
 
 import type { PublicDebateEntitySubscriptionProps } from '../../core/types.js';
 
 const styles = {
-  heading: {
-    fontSize: '22px',
-    lineHeight: '32px',
+  greeting: {
+    fontSize: '16px',
+    lineHeight: '26px',
     fontWeight: '700',
     color: '#111827',
-    margin: '0 0 8px',
+    margin: '0 0 16px',
   },
   body: {
     fontSize: '15px',
@@ -36,22 +36,22 @@ const styles = {
     color: '#6B7280',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
-    margin: '0 0 4px',
+    margin: '0 0 8px',
   },
   value: {
-    fontSize: '14px',
-    lineHeight: '22px',
-    color: '#111827',
-    margin: '0 0 12px',
-  },
-  checklistHeading: {
-    fontSize: '14px',
-    lineHeight: '22px',
+    fontSize: '20px',
+    lineHeight: '30px',
     fontWeight: '700',
     color: '#111827',
-    margin: '0 0 12px',
+    margin: '0 0 24px',
   },
-  checklistItem: {
+  localityItem: {
+    fontSize: '14px',
+    lineHeight: '24px',
+    color: '#374151',
+    margin: '0 0 8px',
+  },
+  benefitItem: {
     fontSize: '14px',
     lineHeight: '24px',
     color: '#374151',
@@ -72,40 +72,32 @@ const styles = {
     display: 'inline-block',
     padding: '14px 32px',
   },
-  divider: {
-    borderColor: '#E5E7EB',
-    margin: '24px 0 16px',
+  link: {
+    color: '#3565c4',
+    textDecoration: 'underline',
   },
-  closing: {
-    fontSize: '13px',
-    lineHeight: '22px',
-    color: '#6B7280',
+  signature: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    fontWeight: '700',
+    color: '#111827',
     margin: '0',
   },
-};
-
-const formatTimestamp = (
-  lang: PublicDebateEntitySubscriptionProps['lang'],
-  value: string
-): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
+  closing: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    color: '#6B7280',
+    margin: '0 0 16px',
+  },
 };
 
 export const PublicDebateEntitySubscriptionEmail = (
   props: PublicDebateEntitySubscriptionProps
 ): React.ReactElement => {
   const t = getTranslations(props.lang).publicDebateEntitySubscription;
-  const acceptedTermsAt = formatTimestamp(props.lang, props.acceptedTermsAt);
   const actionUrl = props.ctaUrl ?? `${props.platformBaseUrl}/entities/${props.entityCui}`;
+  const selectedEntities = props.selectedEntities ?? [];
+  const updatesIntro = interpolate(t.body.updatesIntro, { entity: props.entityName });
 
   return (
     <EmailLayout
@@ -117,25 +109,48 @@ export const PublicDebateEntitySubscriptionEmail = (
       header={<CampaignHeader />}
       {...(props.preferencesUrl !== undefined ? { preferencesUrl: props.preferencesUrl } : {})}
     >
-      <Text style={styles.heading}>{t.body.greeting}</Text>
+      <Text style={styles.greeting}>{t.body.greeting}</Text>
       <Text style={styles.body}>{t.body.intro}</Text>
+      <Text style={styles.body}>{updatesIntro}</Text>
 
       <Section style={styles.panel}>
-        <Text style={styles.label}>{t.body.entityLabel}</Text>
-        <Text style={styles.value}>
-          {props.entityName} ({props.entityCui})
-        </Text>
+        <Text style={styles.label}>{t.body.newLocalityLabel}</Text>
+        <Text style={styles.value}>{props.entityName}</Text>
 
-        <Text style={styles.label}>{t.body.acceptedTermsAtLabel}</Text>
-        <Text style={styles.value}>{acceptedTermsAt}</Text>
-
-        <Text style={styles.checklistHeading}>{t.body.whatHappensNextTitle}</Text>
-        {t.body.whatHappensNext.map((item, index) => (
-          <Text key={index} style={styles.checklistItem}>
-            {'\u2022'} {item}
-          </Text>
-        ))}
+        {selectedEntities.length > 0 && (
+          <>
+            <Text style={styles.label}>{t.body.selectedLocalitiesLabel}</Text>
+            {selectedEntities.map((entityName, index) => (
+              <Text key={index} style={styles.localityItem}>
+                {'\u2022'} {entityName}
+              </Text>
+            ))}
+          </>
+        )}
       </Section>
+
+      <Text style={styles.body}>
+        {t.body.continuationIntro}
+      </Text>
+      {t.body.benefits.map((benefit, index) => (
+        <Text key={index} style={styles.benefitItem}>
+          {'\u2022'} {benefit}
+        </Text>
+      ))}
+      <Text style={styles.benefitItem}>
+        {'\u2022'}{' '}
+        {props.preferencesUrl !== undefined ? (
+          <>
+            {t.body.preferencesBulletPrefix}
+            <Link href={props.preferencesUrl} style={styles.link}>
+              {t.body.preferencesBulletLinkLabel}
+            </Link>
+            {t.body.preferencesBulletSuffix}
+          </>
+        ) : (
+          t.body.preferencesBulletFallback
+        )}
+      </Text>
 
       <Section style={styles.ctaSection}>
         <Button href={actionUrl} style={styles.button}>
@@ -143,8 +158,8 @@ export const PublicDebateEntitySubscriptionEmail = (
         </Button>
       </Section>
 
-      <Hr style={styles.divider} />
       <Text style={styles.closing}>{t.body.closing}</Text>
+      <Text style={styles.signature}>{t.body.signature}</Text>
     </EmailLayout>
   );
 };

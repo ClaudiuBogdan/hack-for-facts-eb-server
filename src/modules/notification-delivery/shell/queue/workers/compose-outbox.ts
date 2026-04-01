@@ -4,6 +4,7 @@ import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 
 import {
+  buildCampaignPreferencesUrl,
   buildNotificationSettingsUrl,
   type BundleComposeError,
   formatTemplateError,
@@ -181,7 +182,7 @@ const buildPublicDebateCampaignWelcomeTemplateProps = (
   const copyrightYear = Number.isNaN(acceptedTermsAtDate.getTime())
     ? outbox.createdAt.getUTCFullYear()
     : acceptedTermsAtDate.getUTCFullYear();
-  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
 
   return ok({
     templateType: 'public_debate_campaign_welcome',
@@ -213,6 +214,12 @@ const buildPublicDebateEntitySubscriptionTemplateProps = (
     typeof outbox.metadata['acceptedTermsAt'] === 'string'
       ? outbox.metadata['acceptedTermsAt']
       : null;
+  const selectedEntitiesValue = outbox.metadata['selectedEntities'];
+  const selectedEntities = Array.isArray(selectedEntitiesValue)
+    ? selectedEntitiesValue
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+        .map((value) => value.trim())
+    : undefined;
 
   if (campaignKey === null) {
     return err('Invalid public debate entity subscription metadata: campaignKey is required');
@@ -231,7 +238,7 @@ const buildPublicDebateEntitySubscriptionTemplateProps = (
   const copyrightYear = Number.isNaN(acceptedTermsAtDate.getTime())
     ? outbox.createdAt.getUTCFullYear()
     : acceptedTermsAtDate.getUTCFullYear();
-  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
 
   return ok({
     templateType: 'public_debate_entity_subscription',
@@ -244,6 +251,7 @@ const buildPublicDebateEntitySubscriptionTemplateProps = (
     entityCui,
     entityName,
     acceptedTermsAt,
+    ...(selectedEntities !== undefined && selectedEntities.length > 0 ? { selectedEntities } : {}),
     ctaUrl: `${platformBaseUrl}/entities/${entityCui}`,
   });
 };
@@ -259,6 +267,8 @@ const buildPublicDebateEntityUpdateTemplateProps = (
     typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
   const entityCui =
     typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
+  const entityName =
+    typeof outbox.metadata['entityName'] === 'string' ? outbox.metadata['entityName'] : null;
   const threadId =
     typeof outbox.metadata['threadId'] === 'string' ? outbox.metadata['threadId'] : null;
   const threadKey =
@@ -305,7 +315,7 @@ const buildPublicDebateEntityUpdateTemplateProps = (
   const replyTextPreview = outbox.metadata['replyTextPreview'];
   const resolutionCode = outbox.metadata['resolutionCode'];
   const reviewNotes = outbox.metadata['reviewNotes'];
-  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
 
   return ok({
     templateType: 'public_debate_entity_update',
@@ -317,6 +327,7 @@ const buildPublicDebateEntityUpdateTemplateProps = (
     eventType,
     campaignKey,
     entityCui,
+    ...(entityName !== null && entityName.trim() !== '' ? { entityName } : {}),
     threadId,
     threadKey,
     phase,
