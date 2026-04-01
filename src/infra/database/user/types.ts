@@ -248,12 +248,12 @@ export interface AdvancedMapAnalyticsSnapshots {
 
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
-// PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE Notifications
-// creates a table named "notifications". Kysely quotes identifiers, so we must match.
+// PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
+// creates a table named "notificationsoutbox". Kysely quotes identifiers, so we must match.
 export interface UserDatabase {
   shortlinks: ShortLinks;
   notifications: Notifications;
-  notificationoutbox: NotificationOutbox;
+  notificationsoutbox: NotificationOutbox;
   userinteractions: UserInteractionsTable;
   institutionemailthreads: InstitutionEmailThreads;
   resend_wh_emails: ResendWhEmails;

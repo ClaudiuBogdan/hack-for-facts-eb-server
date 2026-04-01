@@ -40,15 +40,18 @@ CREATE INDEX IF NOT EXISTS idx_notifications_hash ON Notifications(hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_global_unsubscribe_user
 ON Notifications(user_id, notification_type)
 WHERE notification_type = 'global_unsubscribe';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_public_debate_global_user
+ON Notifications(user_id, notification_type)
+WHERE notification_type = 'campaign_public_debate_global';
 
--- NotificationOutbox: Durable sent/queued/audited notification records
+-- NotificationsOutbox: Durable sent/queued/audited notification records
 -- Status lifecycle: pending → sending → sent → delivered (via webhook)
 --                        ↘ failed_transient (retryable)
 --                        ↘ failed_permanent (no retry)
 --                        ↘ suppressed (from webhook)
 --                        ↘ skipped_unsubscribed
 --                        ↘ skipped_no_email
-CREATE TABLE IF NOT EXISTS NotificationOutbox (
+CREATE TABLE IF NOT EXISTS NotificationsOutbox (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT NOT NULL,
   notification_type VARCHAR(50) NOT NULL,
@@ -89,9 +92,9 @@ CREATE TABLE IF NOT EXISTS NotificationOutbox (
 );
 
 -- Status check constraint for valid values
-ALTER TABLE NotificationOutbox
+ALTER TABLE NotificationsOutbox
 DROP CONSTRAINT IF EXISTS notification_outbox_status_check;
-ALTER TABLE NotificationOutbox
+ALTER TABLE NotificationsOutbox
 ADD CONSTRAINT notification_outbox_status_check
 CHECK (status IN (
   'pending', 'composing', 'sending', 'sent', 'delivered', 'webhook_timeout',
@@ -100,35 +103,35 @@ CHECK (status IN (
 ));
 
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_user_scope
-ON NotificationOutbox(user_id, scope_key);
+ON NotificationsOutbox(user_id, scope_key);
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_created_at
-ON NotificationOutbox(created_at DESC);
+ON NotificationsOutbox(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_reference
-ON NotificationOutbox(notification_type, reference_id)
+ON NotificationsOutbox(notification_type, reference_id)
 WHERE reference_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_scope_type_reference
-ON NotificationOutbox(scope_key, notification_type, reference_id)
+ON NotificationsOutbox(scope_key, notification_type, reference_id)
 WHERE reference_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_user_sent_at_desc
-ON NotificationOutbox(user_id, sent_at DESC, created_at DESC)
+ON NotificationsOutbox(user_id, sent_at DESC, created_at DESC)
 WHERE sent_at IS NOT NULL;
 
 -- Index for querying pending/failed deliveries (for worker processing)
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_pending
-ON NotificationOutbox(status) WHERE status IN ('pending', 'failed_transient');
+ON NotificationsOutbox(status) WHERE status IN ('pending', 'failed_transient');
 
 -- Index for finding stuck 'sending' records (for sweeper)
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_sending_stuck
-ON NotificationOutbox(last_attempt_at) WHERE status = 'sending';
+ON NotificationsOutbox(last_attempt_at) WHERE status = 'sending';
 
 -- Index for provider email ID lookup (webhook processing)
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_resend_email_id
-ON NotificationOutbox(resend_email_id) WHERE resend_email_id IS NOT NULL;
+ON NotificationsOutbox(resend_email_id) WHERE resend_email_id IS NOT NULL;
 
 COMMENT ON TABLE Notifications IS
-'User-owned notification preferences and subscriptions. Sent or queued notification records live in NotificationOutbox.';
+'User-owned notification preferences and subscriptions. Sent or queued notification records live in NotificationsOutbox.';
 
-COMMENT ON TABLE NotificationOutbox IS
+COMMENT ON TABLE NotificationsOutbox IS
 'Durable notification outbox used for deduplication, compose/send lifecycle, audit, and recovery.';
 
 -- UserInteractions: generic record storage for learning and challenge state.
@@ -192,6 +195,22 @@ CREATE TABLE IF NOT EXISTS InstitutionEmailThreads (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_institution_email_threads_thread_key_unique
 ON InstitutionEmailThreads(thread_key);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_institution_email_threads_platform_send_active_unique
+ON InstitutionEmailThreads(entity_cui, campaign_key)
+WHERE record->>'submissionPath' = 'platform_send'
+  AND phase <> 'failed'
+  AND campaign_key IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_institution_email_threads_self_send_interaction_unique
+ON InstitutionEmailThreads(
+  entity_cui,
+  campaign_key,
+  (record->'metadata'->>'interactionKey')
+)
+WHERE record->>'submissionPath' = 'self_send_cc'
+  AND campaign_key IS NOT NULL
+  AND record->'metadata'->>'interactionKey' IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_institution_email_threads_entity_campaign_recent
 ON InstitutionEmailThreads(entity_cui, campaign_key, created_at DESC);
