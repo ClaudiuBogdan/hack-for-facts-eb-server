@@ -19,12 +19,17 @@ import { getThread } from '../../core/usecases/get-thread.js';
 import { listPendingReplies } from '../../core/usecases/list-pending-replies.js';
 import { reviewReply } from '../../core/usecases/review-reply.js';
 
-import type { InstitutionCorrespondenceRepository } from '../../core/ports.js';
+import type {
+  InstitutionCorrespondenceRepository,
+  PublicDebateEntityUpdatePublishStatus,
+  PublicDebateEntityUpdatePublisher,
+} from '../../core/ports.js';
 import type { FastifyPluginAsync } from 'fastify';
 
 export interface InstitutionCorrespondenceAdminRoutesDeps {
   repo: InstitutionCorrespondenceRepository;
   apiKey: string;
+  updatePublisher?: PublicDebateEntityUpdatePublisher;
 }
 
 export const makeInstitutionCorrespondenceAdminRoutes = (
@@ -116,11 +121,29 @@ export const makeInstitutionCorrespondenceAdminRoutes = (
           });
         }
 
+        let notificationStatus: PublicDebateEntityUpdatePublishStatus = 'none';
+        if (deps.updatePublisher !== undefined) {
+          const publishResult = await deps.updatePublisher.publish({
+            eventType: 'reply_reviewed',
+            thread: result.value.thread,
+            occurredAt: new Date(
+              result.value.thread.record.latestReview?.reviewedAt ??
+                result.value.thread.updatedAt.toISOString()
+            ),
+            reply: result.value.reply,
+            basedOnEntryId: request.body.basedOnEntryId,
+            resolutionCode: request.body.resolutionCode,
+            reviewNotes: request.body.reviewNotes ?? null,
+          });
+          notificationStatus = publishResult.isErr() ? 'failed' : publishResult.value.status;
+        }
+
         return reply.status(200).send({
           ok: true,
           data: {
             thread: formatThread(result.value.thread),
             reply: formatCorrespondenceEntry(result.value.reply),
+            notificationStatus,
           },
         });
       }

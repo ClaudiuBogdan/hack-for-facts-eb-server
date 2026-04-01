@@ -162,14 +162,39 @@ export const makeInstitutionCorrespondenceRepo = (
       }
     },
 
+    async findSelfSendThreadByInteractionKey(interactionKey) {
+      try {
+        const result = await db
+          .selectFrom('institutionemailthreads')
+          .selectAll()
+          .where(sql<boolean>`record->>'submissionPath' = ${'self_send_cc'}`)
+          .where(sql<boolean>`record->'metadata'->>'interactionKey' = ${interactionKey}`)
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst();
+
+        return ok(result !== undefined ? mapThreadRow(result as Record<string, unknown>) : null);
+      } catch (error) {
+        log.error(
+          { error, interactionKey },
+          'Failed to load self-send correspondence thread by interaction key'
+        );
+        return err(
+          createDatabaseError(
+            'Failed to load self-send correspondence thread by interaction key',
+            error
+          )
+        );
+      }
+    },
+
     async findPlatformSendThreadByEntity(input) {
       try {
         const result = await db
           .selectFrom('institutionemailthreads')
           .selectAll()
           .where('entity_cui', '=', input.entityCui)
+          .where('campaign_key', '=', input.campaign)
           .where('phase', '!=', 'failed')
-          .where(sql<boolean>`record->>'campaign' = ${input.campaign}`)
           .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
           .orderBy('created_at', 'desc')
           .executeTakeFirst();

@@ -4,6 +4,7 @@ import type {
   CorrespondenceThreadRecord,
   ListPendingRepliesInput,
   PendingReplyPage,
+  ResolutionCode,
   ThreadPhase,
   ThreadRecord,
 } from './types.js';
@@ -58,6 +59,9 @@ export interface InstitutionCorrespondenceRepository {
   findThreadByKey(
     threadKey: string
   ): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
+  findSelfSendThreadByInteractionKey(
+    interactionKey: string
+  ): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
   findPlatformSendThreadByEntity(input: {
     entityCui: string;
     campaign: string;
@@ -104,14 +108,60 @@ export interface PublicDebateSelfSendContext {
   institutionEmail: string;
   requesterOrganizationName: string | null;
   ngoSenderEmail: string | null;
-  threadKey: string;
+  preparedSubject: string;
   submittedAt: string | null;
 }
 
+export interface PublicDebateSelfSendContextMatch {
+  context: PublicDebateSelfSendContext;
+  interactionKey: string;
+  matchCount: number;
+}
+
 export interface PublicDebateSelfSendContextLookup {
-  findByThreadKey(
-    threadKey: string
-  ): Promise<Result<PublicDebateSelfSendContext | null, InstitutionCorrespondenceError>>;
+  findByInteractionKey(
+    interactionKey: string
+  ): Promise<Result<PublicDebateSelfSendContextMatch | null, InstitutionCorrespondenceError>>;
+}
+
+export interface PublicDebateEntitySubscriptionService {
+  ensureSubscribed(
+    userId: string,
+    entityCui: string
+  ): Promise<Result<void, InstitutionCorrespondenceError>>;
+}
+
+export interface PublicDebateEntityUpdateNotification {
+  eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
+  thread: ThreadRecord;
+  occurredAt: Date;
+  reply?: CorrespondenceEntry;
+  basedOnEntryId?: string;
+  resolutionCode?: ResolutionCode;
+  reviewNotes?: string | null;
+}
+
+export type PublicDebateEntityUpdatePublishStatus = 'queued' | 'partial' | 'none' | 'failed';
+
+export interface PublicDebateEntityUpdatePublishResult {
+  status: PublicDebateEntityUpdatePublishStatus;
+  notificationIds: string[];
+  createdOutboxIds: string[];
+  reusedOutboxIds: string[];
+  queuedOutboxIds: string[];
+  enqueueFailedOutboxIds: string[];
+}
+
+export interface PublicDebateEntityUpdatePublisher {
+  publish(
+    input: PublicDebateEntityUpdateNotification
+  ): Promise<Result<PublicDebateEntityUpdatePublishResult, InstitutionCorrespondenceError>>;
+}
+
+export interface PublicDebateSelfSendApprovalService {
+  approvePendingRecord(
+    input: Pick<PublicDebateSelfSendContext, 'userId' | 'recordKey'>
+  ): Promise<Result<void, InstitutionCorrespondenceError>>;
 }
 
 export interface CorrespondenceTemplateRenderer {

@@ -11,8 +11,6 @@ export type {
   CorrespondenceThreadRecord,
   ThreadRecord,
   ReceivedEmailSnapshot,
-  PrepareSelfSendInput,
-  PrepareSelfSendOutput,
   SendPlatformRequestInput,
   SendPlatformRequestOutput,
   PendingReplyItem,
@@ -57,20 +55,30 @@ export type {
   UpdateThreadInput,
   AppendCorrespondenceEntryInput,
   LockedThreadMutation,
+  PublicDebateEntitySubscriptionService,
+  PublicDebateEntityUpdatePublishStatus,
+  PublicDebateEntityUpdatePublishResult,
+  PublicDebateEntityUpdateNotification,
+  PublicDebateEntityUpdatePublisher,
   InstitutionOfficialEmailLookup,
   MessageReferenceThreadLookup,
   PublicDebateSelfSendContext,
+  PublicDebateSelfSendContextMatch,
   PublicDebateSelfSendContextLookup,
+  PublicDebateSelfSendApprovalService,
   CorrespondenceTemplateRenderer,
   CorrespondenceEmailSender,
   CorrespondenceReceivedEmailFetcher,
 } from './core/ports.js';
 
-export { prepareSelfSend, type PrepareSelfSendDeps } from './core/usecases/prepare-self-send.js';
 export {
   sendPlatformRequest,
   type SendPlatformRequestDeps,
 } from './core/usecases/send-platform-request.js';
+export {
+  requestPublicDebatePlatformSend,
+  type RequestPublicDebatePlatformSendDeps,
+} from './core/usecases/request-public-debate-platform-send.js';
 export {
   listPendingReplies,
   type ListPendingRepliesDeps,
@@ -85,6 +93,8 @@ export {
   SUBJECT_THREAD_KEY_PREFIX,
   normalizeOptionalString,
   normalizeEmailAddress,
+  normalizeEmailSubject,
+  buildSelfSendInteractionKey,
   parseOptionalDate,
   computeContestationDeadline,
   buildSharedCorrespondenceInboxAddress,
@@ -109,11 +119,6 @@ export {
   makeInstitutionCorrespondenceAdminRoutes,
   type InstitutionCorrespondenceAdminRoutesDeps,
 } from './shell/rest/admin-routes.js';
-
-export {
-  makeInstitutionCorrespondenceRoutes,
-  type InstitutionCorrespondenceRoutesDeps,
-} from './shell/rest/routes.js';
 
 export {
   makeInstitutionCorrespondenceAdminAuthHook,
