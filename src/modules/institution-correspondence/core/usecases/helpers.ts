@@ -2,6 +2,7 @@ import { FUNKY_CITIZENS_NGO_IDENTITY, PUBLIC_DEBATE_REQUEST_TYPE } from '../type
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const SUBJECT_THREAD_KEY_PREFIX = '[teu:';
+const THREAD_KEY_SUBJECT_REGEX = new RegExp(`\\${SUBJECT_THREAD_KEY_PREFIX}([^\\]]+)\\]`, 'i');
 
 export const normalizeOptionalString = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
@@ -9,6 +10,12 @@ export const normalizeOptionalString = (value: string | null | undefined): strin
 };
 
 export const normalizeEmailAddress = (value: string): string => value.trim().toLowerCase();
+
+export const normalizeEmailSubject = (value: string): string =>
+  value.trim().replaceAll(/\s+/g, ' ').toLowerCase();
+
+export const buildSelfSendInteractionKey = (associationEmail: string, subject: string): string =>
+  `${normalizeEmailAddress(associationEmail)}\n${normalizeEmailSubject(subject)}`;
 
 export const getBudgetYear = (publicationDate: Date | null): number => {
   return publicationDate?.getUTCFullYear() ?? new Date().getUTCFullYear();
@@ -39,7 +46,7 @@ export const embedThreadKeyInSubject = (subject: string, threadKey: string): str
 };
 
 export const extractThreadKeyFromSubject = (subject: string): string | null => {
-  const match = new RegExp(`\\${SUBJECT_THREAD_KEY_PREFIX}([^\\]]+)\\]`, 'i').exec(subject);
+  const match = THREAD_KEY_SUBJECT_REGEX.exec(subject);
   return match?.[1]?.trim() ?? null;
 };
 

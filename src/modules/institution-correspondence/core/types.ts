@@ -1,6 +1,8 @@
 import { Type, type Static } from '@sinclair/typebox';
 
-export const PUBLIC_DEBATE_REQUEST_TYPE = 'public_debate' as const;
+import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
+
+export const PUBLIC_DEBATE_REQUEST_TYPE = PUBLIC_DEBATE_CAMPAIGN_KEY;
 export const FUNKY_CITIZENS_NGO_IDENTITY = 'funky_citizens' as const;
 
 export type InstitutionRequestType = typeof PUBLIC_DEBATE_REQUEST_TYPE;
@@ -150,25 +152,6 @@ export interface ReceivedEmailSnapshot {
   createdAt: Date;
 }
 
-export interface PrepareSelfSendInput {
-  ownerUserId: string;
-  entityCui: string;
-  institutionEmail: string;
-  requesterOrganizationName?: string | null;
-  budgetPublicationDate?: string | null;
-  consentCapturedAt?: string | null;
-}
-
-export interface PrepareSelfSendOutput {
-  created: boolean;
-  existingThread: ThreadRecord | null;
-  threadKey: string;
-  captureAddress: string | null;
-  subject: string | null;
-  body: string | null;
-  cc: string[];
-}
-
 export interface SendPlatformRequestInput {
   ownerUserId: string;
   entityCui: string;
@@ -218,8 +201,11 @@ export interface UnmatchedInboundMetadata {
   matchReason: string;
   rawMessage?: Record<string, unknown>;
   extractedThreadKey?: string | null;
+  interactionKey?: string | null;
   candidateEntityCuis?: string[];
-  matchedBy?: 'headers' | 'subject' | 'subject_official_email';
+  duplicateInteractionCount?: number;
+  duplicateResolution?: 'first_wins';
+  matchedBy?: 'headers' | 'subject' | 'interaction_key';
 }
 
 export const RESOLUTION_TO_PHASE: Record<ResolutionCode, ThreadPhase> = {

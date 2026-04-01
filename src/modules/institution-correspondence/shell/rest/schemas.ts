@@ -3,22 +3,6 @@ import { Type, type Static } from '@sinclair/typebox';
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 
-export const PlatformSendBodySchema = Type.Object(
-  {
-    entityCui: Type.String({ minLength: 1 }),
-    institutionEmail: Type.String({ format: 'email' }),
-    requesterOrganizationName: Type.Optional(NullableStringSchema),
-    budgetPublicationDate: Type.Optional(NullableStringSchema),
-    consentCapturedAt: Type.Optional(NullableStringSchema),
-  },
-  { additionalProperties: false }
-);
-
-export type PlatformSendBody = Static<typeof PlatformSendBodySchema>;
-
-export const PrepareSelfSendBodySchema = PlatformSendBodySchema;
-export type PrepareSelfSendBody = Static<typeof PrepareSelfSendBodySchema>;
-
 export const ThreadIdParamsSchema = Type.Object(
   {
     threadId: Type.String({ format: 'uuid' }),
@@ -141,39 +125,6 @@ export const ThreadDataSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const ThreadResponseSchema = Type.Object(
-  {
-    ok: Type.Literal(true),
-    data: Type.Object(
-      {
-        created: Type.Boolean(),
-        thread: ThreadDataSchema,
-      },
-      { additionalProperties: false }
-    ),
-  },
-  { additionalProperties: false }
-);
-
-export const PrepareSelfSendResponseSchema = Type.Object(
-  {
-    ok: Type.Literal(true),
-    data: Type.Object(
-      {
-        created: Type.Boolean(),
-        existingThread: Type.Union([ThreadDataSchema, Type.Null()]),
-        threadKey: Type.String(),
-        captureAddress: Type.Union([Type.String(), Type.Null()]),
-        subject: Type.Union([Type.String(), Type.Null()]),
-        body: Type.Union([Type.String(), Type.Null()]),
-        cc: Type.Array(Type.String()),
-      },
-      { additionalProperties: false }
-    ),
-  },
-  { additionalProperties: false }
-);
-
 export const PendingReplyItemSchema = Type.Object(
   {
     thread: ThreadDataSchema,
@@ -210,6 +161,12 @@ export const ReviewedReplyResponseSchema = Type.Object(
       {
         thread: ThreadDataSchema,
         reply: CorrespondenceEntrySchema,
+        notificationStatus: Type.Union([
+          Type.Literal('queued'),
+          Type.Literal('partial'),
+          Type.Literal('none'),
+          Type.Literal('failed'),
+        ]),
       },
       { additionalProperties: false }
     ),

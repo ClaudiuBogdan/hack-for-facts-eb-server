@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
+
 import {
   createEmailSendError,
   createValidationError,
@@ -22,6 +24,7 @@ import type {
   CorrespondenceEmailSender,
   CorrespondenceTemplateRenderer,
   InstitutionCorrespondenceRepository,
+  PublicDebateEntityUpdatePublisher,
 } from '../ports.js';
 import type {
   CorrespondenceEntry,
@@ -37,6 +40,7 @@ export interface SendPlatformRequestDeps {
   auditCcRecipients: string[];
   platformBaseUrl: string;
   captureAddress: string;
+  updatePublisher?: PublicDebateEntityUpdatePublisher;
 }
 
 const buildThreadKey = (): string => randomUUID();
@@ -53,7 +57,7 @@ const createThreadRecord = (input: {
 }): CorrespondenceThreadRecord => ({
   version: 1,
   campaign: DEFAULT_REQUEST_TYPE,
-  campaignKey: null,
+  campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
   ownerUserId: input.ownerUserId,
   subject: input.subject,
   submissionPath: 'platform_send',
@@ -81,7 +85,7 @@ const createOutboundEntry = (input: {
   sentAt: Date;
 }): CorrespondenceEntry => ({
   id: randomUUID(),
-  campaignKey: null,
+  campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
   direction: 'outbound',
   source: 'platform_send',
   resendEmailId: input.resendEmailId,
@@ -98,6 +102,24 @@ const createOutboundEntry = (input: {
   occurredAt: input.sentAt.toISOString(),
   metadata: input.threadKey !== null ? { threadKey: input.threadKey } : {},
 });
+
+const publishUpdateBestEffort = async (
+  publisher: PublicDebateEntityUpdatePublisher | undefined,
+  input: Parameters<PublicDebateEntityUpdatePublisher['publish']>[0]
+): Promise<void> => {
+  if (publisher === undefined) {
+    return;
+  }
+
+  try {
+    const publishResult = await publisher.publish(input);
+    if (publishResult.isErr()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+};
 
 export async function sendPlatformRequest(
   deps: SendPlatformRequestDeps,
@@ -133,7 +155,7 @@ export async function sendPlatformRequest(
 
   const createThreadResult = await deps.repo.createThread({
     entityCui,
-    campaignKey: null,
+    campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
     threadKey,
     phase: 'sending',
     record: createThreadRecord({
@@ -168,9 +190,16 @@ export async function sendPlatformRequest(
   });
 
   if (sendResult.isErr()) {
-    await deps.repo.updateThread(thread.id, {
+    const failedThreadResult = await deps.repo.updateThread(thread.id, {
       phase: 'failed',
     });
+    if (failedThreadResult.isOk()) {
+      await publishUpdateBestEffort(deps.updatePublisher, {
+        eventType: 'thread_failed',
+        thread: failedThreadResult.value,
+        occurredAt: new Date(),
+      });
+    }
     return err(createEmailSendError(sendResult.error.message, sendResult.error.retryable));
   }
 
@@ -195,6 +224,12 @@ export async function sendPlatformRequest(
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
+
+  await publishUpdateBestEffort(deps.updatePublisher, {
+    eventType: 'thread_started',
+    thread: appendResult.value,
+    occurredAt: sentAt,
+  });
 
   return ok({
     created: true,

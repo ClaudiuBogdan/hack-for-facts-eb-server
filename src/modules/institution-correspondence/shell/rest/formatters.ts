@@ -1,7 +1,6 @@
-import type { CorrespondenceEntry, PendingReplyItem, ThreadRecord } from '../../core/types.js';
+import { toIsoString } from '../../core/usecases/helpers.js';
 
-export const toIsoString = (value: Date | null): string | null =>
-  value !== null ? value.toISOString() : null;
+import type { CorrespondenceEntry, PendingReplyItem, ThreadRecord } from '../../core/types.js';
 
 export const formatCorrespondenceEntry = (entry: CorrespondenceEntry) => ({
   id: entry.id,

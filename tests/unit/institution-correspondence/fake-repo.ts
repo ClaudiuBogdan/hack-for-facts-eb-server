@@ -1,6 +1,7 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import {
+  createConflictError,
   createNotFoundError,
   type CorrespondenceEntry,
   type CorrespondenceThreadRecord,
@@ -103,6 +104,51 @@ export const makeInMemoryCorrespondenceRepo = (
 
   return {
     async createThread(input: CreateThreadInput) {
+      const interactionKey =
+        input.record.submissionPath === 'self_send_cc' &&
+        typeof input.record.metadata['interactionKey'] === 'string'
+          ? input.record.metadata['interactionKey']
+          : null;
+
+      const conflictingThread = threads.find((thread) => {
+        if (thread.threadKey === input.threadKey) {
+          return true;
+        }
+
+        const normalizedCampaignKey =
+          input.campaignKey ?? input.record.campaignKey ?? input.record.campaign;
+        const threadCampaignKey =
+          thread.campaignKey ?? thread.record.campaignKey ?? thread.record.campaign;
+
+        if (
+          input.record.submissionPath === 'platform_send' &&
+          input.phase !== 'failed' &&
+          thread.record.submissionPath === 'platform_send' &&
+          thread.phase !== 'failed'
+        ) {
+          return (
+            thread.entityCui === input.entityCui && threadCampaignKey === normalizedCampaignKey
+          );
+        }
+
+        if (
+          input.record.submissionPath === 'self_send_cc' &&
+          interactionKey !== null &&
+          thread.record.submissionPath === 'self_send_cc' &&
+          thread.record.metadata['interactionKey'] === interactionKey
+        ) {
+          return (
+            thread.entityCui === input.entityCui && threadCampaignKey === normalizedCampaignKey
+          );
+        }
+
+        return false;
+      });
+
+      if (conflictingThread !== undefined) {
+        return err(createConflictError('A correspondence thread already exists for this key.'));
+      }
+
       const thread = syncThreadRecord(
         createThreadRecord({
           entityCui: input.entityCui,
@@ -128,6 +174,18 @@ export const makeInMemoryCorrespondenceRepo = (
       return ok(threads.find((thread) => thread.threadKey === threadKey) ?? null);
     },
 
+    async findSelfSendThreadByInteractionKey(interactionKey) {
+      return ok(
+        [...threads]
+          .reverse()
+          .find(
+            (thread) =>
+              thread.record.submissionPath === 'self_send_cc' &&
+              thread.record.metadata['interactionKey'] === interactionKey
+          ) ?? null
+      );
+    },
+
     async findPlatformSendThreadByEntity(input) {
       return ok(
         [...threads]
@@ -135,6 +193,7 @@ export const makeInMemoryCorrespondenceRepo = (
           .find(
             (thread) =>
               thread.entityCui === input.entityCui &&
+              thread.phase !== 'failed' &&
               thread.record.campaign === input.campaign &&
               thread.record.submissionPath === 'platform_send'
           ) ?? null
@@ -182,10 +241,10 @@ export const makeInMemoryCorrespondenceRepo = (
       const next = syncThreadRecord({
         ...current,
         phase: input.phase ?? current.phase,
-        lastEmailAt: input.lastEmailAt ?? current.lastEmailAt,
-        lastReplyAt: input.lastReplyAt ?? current.lastReplyAt,
-        nextActionAt: input.nextActionAt ?? current.nextActionAt,
-        closedAt: input.closedAt ?? current.closedAt,
+        ...(input.lastEmailAt !== undefined ? { lastEmailAt: input.lastEmailAt } : {}),
+        ...(input.lastReplyAt !== undefined ? { lastReplyAt: input.lastReplyAt } : {}),
+        ...(input.nextActionAt !== undefined ? { nextActionAt: input.nextActionAt } : {}),
+        ...(input.closedAt !== undefined ? { closedAt: input.closedAt } : {}),
         record: {
           ...current.record,
           correspondence: [...current.record.correspondence, input.entry],

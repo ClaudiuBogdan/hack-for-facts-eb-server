@@ -128,14 +128,97 @@ describe('sendPlatformRequest', () => {
     expect(failedThread?.phase).toBe('failed');
     expect(failedThread?.record.correspondence).toHaveLength(0);
 
-    // findPlatformSendThreadByEntity should still see failed platform sends for dedupe
+    // Failed platform sends should not block a later retry lookup
     const lookupResult = await repo.findPlatformSendThreadByEntity({
       entityCui: '12345678',
       campaign: PUBLIC_DEBATE_REQUEST_TYPE,
     });
     expect(lookupResult.isOk()).toBe(true);
     if (lookupResult.isOk()) {
-      expect(lookupResult.value?.phase).toBe('failed');
+      expect(lookupResult.value).toBeNull();
+    }
+  });
+
+  it('keeps the success path ok when thread_started publishing returns Err', async () => {
+    const repo = makeInMemoryCorrespondenceRepo();
+
+    const result = await sendPlatformRequest(
+      {
+        repo,
+        emailSender: {
+          getFromAddress() {
+            return 'noreply@transparenta.eu';
+          },
+          async send() {
+            return ok({ emailId: 'email-1' });
+          },
+        },
+        templateRenderer: makePublicDebateTemplateRenderer(),
+        auditCcRecipients: [],
+        platformBaseUrl: 'https://transparenta.test',
+        captureAddress: 'debate@transparenta.test',
+        updatePublisher: {
+          async publish() {
+            return err({
+              type: 'CorrespondenceDatabaseError',
+              message: 'publisher failed',
+              retryable: true,
+            });
+          },
+        },
+      },
+      {
+        ownerUserId: 'user-1',
+        entityCui: '12345678',
+        institutionEmail: 'contact@primarie.ro',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.thread.phase).toBe('awaiting_reply');
+    }
+  });
+
+  it('keeps the original send error when thread_failed publishing throws', async () => {
+    const repo = makeInMemoryCorrespondenceRepo();
+
+    const result = await sendPlatformRequest(
+      {
+        repo,
+        emailSender: {
+          getFromAddress() {
+            return 'noreply@transparenta.eu';
+          },
+          async send() {
+            return err({
+              type: 'SERVER' as const,
+              message: 'Provider failed',
+              retryable: true,
+            });
+          },
+        },
+        templateRenderer: makePublicDebateTemplateRenderer(),
+        auditCcRecipients: [],
+        platformBaseUrl: 'https://transparenta.test',
+        captureAddress: 'debate@transparenta.test',
+        updatePublisher: {
+          async publish() {
+            throw new Error('publisher throw');
+          },
+        },
+      },
+      {
+        ownerUserId: 'user-1',
+        entityCui: '12345678',
+        institutionEmail: 'contact@primarie.ro',
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('CorrespondenceEmailSendError');
+      expect(result.error.message).toBe('Provider failed');
     }
   });
 });
