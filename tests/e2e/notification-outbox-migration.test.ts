@@ -114,6 +114,14 @@ const NAMESPACE_ANAF_FOREXEBUG_DIGEST_SCOPE_MIGRATION = fs.readFileSync(
   'utf-8'
 );
 
+const RENAME_NOTIFICATION_OUTBOX_MIGRATION = fs.readFileSync(
+  path.join(
+    process.cwd(),
+    'src/infra/database/user/migrations/202604011200_rename_notification_outbox_to_notifications_outbox.sql'
+  ),
+  'utf-8'
+);
+
 const UNSUBSCRIBE_TOKEN_LEGACY_SCHEMA = `
 CREATE TABLE Notifications (
   id UUID PRIMARY KEY,
@@ -216,12 +224,12 @@ async function assertMigratedOutbox(
     `
       SELECT
         to_regclass('public.notificationdeliveries') AS notifications,
-        to_regclass('public.notificationoutbox') AS outbox
+        to_regclass('public.notificationsoutbox') AS outbox
     `
   );
 
   expect(tables.rows[0]?.notifications).toBeNull();
-  expect(tables.rows[0]?.outbox).toBe('notificationoutbox');
+  expect(tables.rows[0]?.outbox).toBe('notificationsoutbox');
 
   const rows = await client.query<OutboxRow>(
     `
@@ -233,7 +241,7 @@ async function assertMigratedOutbox(
         metadata->>'legacyEmailBatchId' AS legacy_email_batch_id,
         metadata->>'source' AS metadata_source,
         last_attempt_at = sent_at AS last_attempt_matches_sent
-      FROM NotificationOutbox
+      FROM NotificationsOutbox
     `
   );
 
@@ -253,7 +261,7 @@ async function assertMigratedOutbox(
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name = 'notificationoutbox'
+        AND table_name = 'notificationsoutbox'
         AND column_name IN (
           'notification_id',
           'email_batch_id',
@@ -286,7 +294,7 @@ async function assertMigratedOutbox(
       SELECT column_name, data_type, character_maximum_length, is_nullable
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name = 'notificationoutbox'
+        AND table_name = 'notificationsoutbox'
         AND column_name IN ('notification_type', 'status', 'metadata')
       ORDER BY column_name
     `
@@ -317,7 +325,7 @@ async function assertMigratedOutbox(
     `
       SELECT indexname
       FROM pg_indexes
-      WHERE tablename = 'notificationoutbox'
+      WHERE tablename = 'notificationsoutbox'
         AND indexname IN (
           'idx_notification_outbox_delivery_key_unique',
           'idx_notification_outbox_user_scope',
@@ -349,14 +357,14 @@ async function assertMigratedOutbox(
     `
       SELECT conname
       FROM pg_constraint
-      WHERE conrelid = 'notificationoutbox'::regclass
+      WHERE conrelid = 'notificationsoutbox'::regclass
         AND contype = 'u'
       ORDER BY conname
     `
   );
 
   expect(constraints.rows.map((row) => row.conname)).toContain(
-    'notificationoutbox_delivery_key_key'
+    'notificationsoutbox_delivery_key_key'
   );
 
   const unsubscribeColumns = await client.query<{ column_name: string }>(
@@ -364,7 +372,7 @@ async function assertMigratedOutbox(
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name = 'notificationoutbox'
+        AND table_name = 'notificationsoutbox'
         AND column_name = 'unsubscribe_token'
     `
   );
@@ -490,6 +498,8 @@ describe('NotificationOutbox migration', () => {
         await client.query(NOTIFICATION_OUTBOX_MIGRATION);
         await client.query(HARDEN_NOTIFICATION_OUTBOX_MIGRATION);
         await client.query(NAMESPACE_ANAF_FOREXEBUG_DIGEST_SCOPE_MIGRATION);
+        await client.query(RENAME_NOTIFICATION_OUTBOX_MIGRATION);
+        await client.query(RENAME_NOTIFICATION_OUTBOX_MIGRATION);
 
         await assertMigratedOutbox(
           client,
@@ -560,6 +570,7 @@ describe('NotificationOutbox migration', () => {
         await client.query(NOTIFICATION_OUTBOX_MIGRATION);
         await client.query(HARDEN_NOTIFICATION_OUTBOX_MIGRATION);
         await client.query(NAMESPACE_ANAF_FOREXEBUG_DIGEST_SCOPE_MIGRATION);
+        await client.query(RENAME_NOTIFICATION_OUTBOX_MIGRATION);
 
         await assertMigratedOutbox(
           client,

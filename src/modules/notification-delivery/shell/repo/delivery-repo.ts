@@ -90,7 +90,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
 
       try {
         const result = await db
-          .insertInto('notificationoutbox')
+          .insertInto('notificationsoutbox')
           .values({
             user_id: input.userId,
             notification_type: input.notificationType,
@@ -141,7 +141,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
     ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('id', '=', outboxId)
           .executeTakeFirst();
@@ -160,7 +160,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
     ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('delivery_key', '=', deliveryKey)
           .executeTakeFirst();
@@ -182,7 +182,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
 
       try {
         await db
-          .updateTable('notificationoutbox')
+          .updateTable('notificationsoutbox')
           .set({
             rendered_subject: input.renderedSubject,
             rendered_html: input.renderedHtml,
@@ -209,7 +209,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
 
       try {
         const result = await sql<Record<string, unknown>>`
-          UPDATE notificationoutbox
+          UPDATE notificationsoutbox
           SET status = 'composing',
               last_attempt_at = NOW()
           WHERE id = ${outboxId}
@@ -245,7 +245,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         // ATOMIC CLAIM: Only succeeds if status is claimable
         // Increments attempt_count in SQL to prevent race conditions
         const result = await sql<Record<string, unknown>>`
-          UPDATE notificationoutbox
+          UPDATE notificationsoutbox
           SET status = 'sending',
               attempt_count = attempt_count + 1,
               last_attempt_at = NOW()
@@ -285,7 +285,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
 
       try {
         const result = await db
-          .updateTable('notificationoutbox')
+          .updateTable('notificationsoutbox')
           .set({
             status: nextStatus,
             ...(input?.toEmail !== undefined ? { to_email: input.toEmail } : {}),
@@ -312,7 +312,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
 
       try {
         await db
-          .updateTable('notificationoutbox')
+          .updateTable('notificationsoutbox')
           .set({
             status: input.status,
             ...(input.toEmail !== undefined ? { to_email: input.toEmail } : {}),
@@ -349,7 +349,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('status', '=', 'sending')
           .where(
@@ -375,7 +375,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('status', 'in', ['pending', 'composing'])
           .where(
@@ -405,7 +405,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('status', 'in', ['pending', 'failed_transient'])
           .where(
@@ -435,7 +435,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .selectAll()
           .where('status', '=', 'sent')
           .where('sent_at', 'is not', null)
@@ -453,7 +453,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
     async existsByDeliveryKey(deliveryKey: string): Promise<Result<boolean, DeliveryError>> {
       try {
         const result = await db
-          .selectFrom('notificationoutbox')
+          .selectFrom('notificationsoutbox')
           .select('id')
           .where('delivery_key', '=', deliveryKey)
           .executeTakeFirst();
