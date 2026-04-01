@@ -1,10 +1,21 @@
 import fastifyLib, { type FastifyInstance } from 'fastify';
+import { err, ok } from 'neverthrow';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { makeLearningProgressAdminReviewRoutes } from '@/modules/learning-progress/index.js';
+import {
+  makeLearningProgressAdminReviewRoutes,
+  type ReviewDecision,
+} from '@/modules/learning-progress/index.js';
+import { prepareApprovedPublicDebateReviewSideEffects } from '@/modules/user-events/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
+import {
+  createThreadAggregateRecord,
+  createThreadRecord,
+  makeInMemoryCorrespondenceRepo,
+} from '../unit/institution-correspondence/fake-repo.js';
 
+import type { EntityProfileRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
@@ -25,6 +36,9 @@ function makeRow(userId: string, record: LearningProgressRecordRow['record'], up
 const createTestApp = async (options: {
   learningProgressRepo?: LearningProgressRepository;
   apiKey?: string;
+  prepareApproveReviews?: (input: {
+    items: readonly ReviewDecision[];
+  }) => ReturnType<typeof prepareApprovedPublicDebateReviewSideEffects>;
 }) => {
   const app = fastifyLib({ logger: false });
 
@@ -43,6 +57,9 @@ const createTestApp = async (options: {
       makeLearningProgressAdminReviewRoutes({
         learningProgressRepo: options.learningProgressRepo ?? makeFakeLearningProgressRepo(),
         apiKey: options.apiKey,
+        ...(options.prepareApproveReviews !== undefined
+          ? { prepareApproveReviews: options.prepareApproveReviews }
+          : {}),
       })
     );
   }
@@ -50,6 +67,125 @@ const createTestApp = async (options: {
   await app.ready();
   return app;
 };
+
+function createDebateRequestRecord(input: {
+  entityCui?: string;
+  institutionEmail?: string;
+  updatedAt?: string;
+}) {
+  const entityCui = input.entityCui ?? '12345678';
+  const updatedAt = input.updatedAt ?? '2026-03-31T10:00:00.000Z';
+
+  return createTestInteractiveRecord({
+    key: `campaign:debate-request::entity:${entityCui}`,
+    interactionId: 'campaign:debate-request',
+    lessonId: 'civic-monitor-and-request',
+    kind: 'custom',
+    completionRule: { type: 'resolved' },
+    scope: { type: 'entity', entityCui },
+    phase: 'pending',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          primariaEmail: input.institutionEmail ?? 'contact@primarie.ro',
+          isNgo: true,
+          organizationName: 'Asociatia Test',
+          ngoSenderEmail: null,
+          preparedSubject: null,
+          threadKey: null,
+          submissionPath: 'request_platform',
+          submittedAt: updatedAt,
+        },
+      },
+    },
+    result: null,
+    updatedAt,
+    submittedAt: updatedAt,
+  });
+}
+
+function makeTestEntityProfileRepo(
+  officialEmail: string | null = 'contact@primarie.ro'
+): EntityProfileRepository {
+  return {
+    async getByEntityCui() {
+      return ok({
+        institution_type: null,
+        website_url: null,
+        official_email: officialEmail,
+        phone_primary: null,
+        address_raw: null,
+        address_locality: null,
+        county_code: null,
+        county_name: null,
+        leader_name: null,
+        leader_title: null,
+        leader_party: null,
+        scraped_at: '2026-03-31T10:00:00.000Z',
+        extraction_confidence: null,
+      });
+    },
+    async getByEntityCuis() {
+      return ok(new Map());
+    },
+  };
+}
+
+function createPublicDebateApprovalHook(input: {
+  learningProgressRepo: LearningProgressRepository;
+  correspondenceRepo?: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
+  officialEmail?: string | null;
+  sentEmails?: unknown[];
+  sendError?: boolean;
+}) {
+  const correspondenceRepo = input.correspondenceRepo ?? makeInMemoryCorrespondenceRepo();
+
+  return {
+    correspondenceRepo,
+    prepareApproveReviews: async (reviewInput: { items: readonly ReviewDecision[] }) => {
+      return prepareApprovedPublicDebateReviewSideEffects(
+        {
+          learningProgressRepo: input.learningProgressRepo,
+          entityProfileRepo: makeTestEntityProfileRepo(
+            input.officialEmail === undefined ? 'contact@primarie.ro' : input.officialEmail
+          ),
+          repo: correspondenceRepo,
+          emailSender: {
+            getFromAddress() {
+              return 'noreply@transparenta.eu';
+            },
+            async send(params) {
+              input.sentEmails?.push(params);
+              if (input.sendError === true) {
+                return err({
+                  type: 'SERVER' as const,
+                  message: 'Provider send failed',
+                  retryable: true,
+                });
+              }
+
+              return ok({ emailId: `email-${String(input.sentEmails?.length ?? 1)}` });
+            },
+          },
+          templateRenderer: {
+            renderPublicDebateRequest(renderInput) {
+              return {
+                subject: `Public debate [teu:${renderInput.threadKey}]`,
+                text: `Text for ${renderInput.institutionEmail}`,
+                html: `<p>${renderInput.institutionEmail}</p>`,
+              };
+            },
+          },
+          auditCcRecipients: ['audit@transparenta.test'],
+          platformBaseUrl: 'https://transparenta.test',
+          captureAddress: 'debate@transparenta.test',
+        },
+        reviewInput
+      );
+    },
+  };
+}
 
 describe('Learning Progress Admin Review REST API', () => {
   let app: FastifyInstance;
@@ -372,6 +508,211 @@ describe('Learning Progress Admin Review REST API', () => {
     expect(storedRow?.record.updatedAt).toBe(body.data.items[0]?.record.updatedAt);
   });
 
+  it('dispatches a held public-debate request after approving the review', async () => {
+    const record = createDebateRequestRecord({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      sentEmails,
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(1);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('resolved');
+    expect(storedRow?.record.review?.status).toBe('approved');
+  });
+
+  it('approves when a public-debate platform thread already exists', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'not-an-email',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          entityCui: '12345678',
+          record: createThreadAggregateRecord({
+            campaignKey: 'public_debate',
+            submissionPath: 'platform_send',
+          }),
+        }),
+      ],
+    });
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      correspondenceRepo,
+      sentEmails: [],
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(1);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('resolved');
+    expect(storedRow?.record.review?.status).toBe('approved');
+  });
+
+  it('returns 400 and leaves the record pending when the stored institution email is invalid', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'not-an-email',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      sentEmails: [],
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'CorrespondenceValidationError',
+      message: 'The submitted city hall email is not a valid email address.',
+      retryable: false,
+    });
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('pending');
+    expect(storedRow?.record.review).toBeUndefined();
+    expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+  });
+
+  it('returns 409 and leaves the record pending when the stored institution email is mismatched', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'submitted@primarie.ro',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      officialEmail: 'official@primarie.ro',
+      sentEmails: [],
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'CorrespondenceConflictError',
+      message: 'The submitted city hall email does not match the current official email on record.',
+      retryable: false,
+    });
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('pending');
+    expect(storedRow?.record.review).toBeUndefined();
+    expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+  });
+
   it('accepts equivalent expectedUpdatedAt timestamps serialized with different offsets', async () => {
     const record = createTestInteractiveRecord({
       key: 'review-target::global',
@@ -411,6 +752,125 @@ describe('Learning Progress Admin Review REST API', () => {
     expect(response.statusCode).toBe(200);
     const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
     expect(storedRow?.record.review?.status).toBe('approved');
+  });
+
+  it('does not dispatch any correspondence when a later review item fails preflight validation', async () => {
+    const validRecord = createDebateRequestRecord({
+      entityCui: '12345678',
+      updatedAt: '2026-03-31T10:00:00.000Z',
+    });
+    const resolvedRecord = createTestInteractiveRecord({
+      key: 'resolved-review::global',
+      phase: 'resolved',
+      interactionId: 'review-target',
+      updatedAt: '2026-03-31T10:05:00.000Z',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-31T10:05:00.000Z',
+      },
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', validRecord, '1')]);
+    initialRecords.set('user-2', [makeRow('user-2', resolvedRecord, '2')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      sentEmails,
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: validRecord.key,
+            expectedUpdatedAt: validRecord.updatedAt,
+            status: 'approved',
+          },
+          {
+            userId: 'user-2',
+            recordKey: resolvedRecord.key,
+            expectedUpdatedAt: resolvedRecord.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(sentEmails).toHaveLength(0);
+    expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+
+    const validRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    const resolvedRow = (await repo.getRecords('user-2'))._unsafeUnwrap()[0];
+    expect(validRow?.record.phase).toBe('pending');
+    expect(validRow?.record.review).toBeUndefined();
+    expect(resolvedRow?.record.phase).toBe('resolved');
+    expect(resolvedRow?.record.review?.status).toBe('approved');
+  });
+
+  it('keeps the review approved when post-commit public-debate dispatch fails', async () => {
+    const record = createDebateRequestRecord({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      sentEmails,
+      sendError: true,
+    });
+    app = await createTestApp({
+      apiKey: TEST_API_KEY,
+      learningProgressRepo: repo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/learning-progress/reviews',
+      headers: {
+        'content-type': 'application/json',
+        'x-learning-progress-review-api-key': TEST_API_KEY,
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('resolved');
+    expect(storedRow?.record.review?.status).toBe('approved');
+
+    const failedThread = approvalHook.correspondenceRepo
+      .snapshotThreads()
+      .find((thread) => thread.phase === 'failed');
+    expect(failedThread).toBeDefined();
   });
 
   it('applies bulk reviews atomically across multiple users', async () => {

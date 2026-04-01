@@ -101,8 +101,6 @@ export const EnvSchema = Type.Object({
   RESEND_MAX_RPS: Type.Optional(Type.Number({ default: 2, minimum: 1, maximum: 10 })),
 
   // Jobs (BullMQ)
-  /** Whether BullMQ job processing is enabled */
-  JOBS_ENABLED: Type.Optional(Type.Boolean({ default: false })),
   /** Number of concurrent workers per queue */
   JOBS_CONCURRENCY: Type.Optional(Type.Number({ default: 5, minimum: 1, maximum: 50 })),
   /** BullMQ prefix for queue keys (NOT ioredis keyPrefix) */
@@ -114,12 +112,6 @@ export const EnvSchema = Type.Object({
   /** Threshold after which a sending delivery is considered stuck */
   NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES: Type.Optional(
     Type.Number({ default: 15, minimum: 1, maximum: 1440 })
-  ),
-  /** Process role for deployment (api, worker, or both) */
-  PROCESS_ROLE: Type.Optional(
-    Type.Union([Type.Literal('api'), Type.Literal('worker'), Type.Literal('both')], {
-      default: 'both',
-    })
   ),
 
   // Notifications
@@ -265,7 +257,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         ? Number.parseInt(env['RESEND_MAX_RPS'], 10)
         : 2,
     // Jobs (BullMQ)
-    JOBS_ENABLED: env['JOBS_ENABLED'] === 'true',
     JOBS_CONCURRENCY:
       env['JOBS_CONCURRENCY'] != null && env['JOBS_CONCURRENCY'] !== ''
         ? Number.parseInt(env['JOBS_CONCURRENCY'], 10)
@@ -281,7 +272,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES'] !== ''
         ? Number.parseInt(env['NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES'], 10)
         : 15,
-    PROCESS_ROLE: (env['PROCESS_ROLE'] as 'api' | 'worker' | 'both' | undefined) ?? 'both',
     // Notifications
     NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
     PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
@@ -423,8 +413,6 @@ export const createConfig = (env: Env) => ({
     enabled: env.RESEND_API_KEY !== undefined,
   },
   jobs: {
-    /** Whether BullMQ job processing is enabled */
-    enabled: env.JOBS_ENABLED ?? false,
     /** Dedicated Redis connection URL for BullMQ */
     redisUrl: env.BULLMQ_REDIS_URL,
     /** Dedicated Redis password for BullMQ */
@@ -439,8 +427,6 @@ export const createConfig = (env: Env) => ({
     /** Stuck-sending threshold in minutes */
     notificationStuckSendingThresholdMinutes:
       env.NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES ?? 15,
-    /** Process role for deployment */
-    processRole: env.PROCESS_ROLE ?? 'both',
   },
   notifications: {
     /** API key for triggering notification jobs */
@@ -452,10 +438,7 @@ export const createConfig = (env: Env) => ({
     /** HMAC secret for signing unsubscribe tokens */
     unsubscribeHmacSecret: env.UNSUBSCRIBE_HMAC_SECRET,
     /** Whether notifications are enabled */
-    enabled:
-      env.RESEND_API_KEY !== undefined &&
-      env.JOBS_ENABLED === true &&
-      env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
+    enabled: env.RESEND_API_KEY !== undefined && env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
   },
   learningProgress: {
     /** API key for the admin review endpoints */

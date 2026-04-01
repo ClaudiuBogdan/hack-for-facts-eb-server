@@ -48,7 +48,6 @@ export interface NotificationDeliveryRuntimeConfig {
   redisPassword?: string;
   bullmqPrefix: string;
   logger: Logger;
-  processRole: 'api' | 'worker' | 'both';
   concurrency?: number;
   intervalMinutes: number;
   thresholdMinutes: number;
@@ -74,7 +73,6 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     redisPassword,
     bullmqPrefix,
     logger,
-    processRole,
     concurrency = 5,
     intervalMinutes,
     thresholdMinutes,
@@ -82,7 +80,6 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     redisFactory,
   } = config;
   const log = logger.child({ runtime: 'notification-delivery' });
-  const workerRoleEnabled = processRole === 'worker' || processRole === 'both';
   const redis = await connectQueueRedis({
     redisUrl,
     logger: log,
@@ -117,13 +114,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
   };
 
   try {
-    if (workerRoleEnabled) {
-      if (workerDeps === undefined) {
-        throw new Error(
-          'Notification delivery runtime requires workerDeps when PROCESS_ROLE is worker or both.'
-        );
-      }
-
+    if (workerDeps !== undefined) {
       await registerRecoveryJobScheduler({
         recoveryQueue,
         intervalMinutes,

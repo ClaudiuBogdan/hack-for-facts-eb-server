@@ -254,14 +254,12 @@ export async function getClient(): Promise<GoldenMasterClient> {
         enabled: false,
       },
       jobs: {
-        enabled: false,
         redisUrl: undefined,
         redisPassword: undefined,
         concurrency: 5,
         prefix: 'test:jobs',
         notificationRecoverySweepIntervalMinutes: 15,
         notificationStuckSendingThresholdMinutes: 15,
-        processRole: 'both' as const,
       },
       notifications: {
         triggerApiKey: undefined,

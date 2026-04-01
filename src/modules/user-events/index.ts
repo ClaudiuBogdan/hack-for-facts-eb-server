@@ -13,7 +13,11 @@ export type {
 
 export { UserEventJobPayloadSchema } from './core/schemas.js';
 
-export type { UserEventPublisher, UserEventHandler } from './core/ports.js';
+export type {
+  UserEventPublisher,
+  UserEventHandler,
+  LearningProgressAppliedEventHandler,
+} from './core/ports.js';
 
 export {
   buildLearningProgressUserEventJob,
@@ -54,6 +58,33 @@ export {
 } from './shell/queue/learning-progress-sync-hook.js';
 
 export {
+  processLearningProgressAppliedEvents,
+  type ProcessLearningProgressAppliedEventsDeps,
+  type ProcessLearningProgressAppliedEventsInput,
+} from './shell/sync/applied-events.js';
+
+export {
   makePublicDebateRequestUserEventHandler,
   type PublicDebateRequestUserEventHandlerDeps,
 } from './shell/handlers/public-debate-request-handler.js';
+export {
+  buildPublicDebateRequestEmailMismatchError,
+  executePreparedPublicDebateRequestDispatch,
+  prepareApprovedPublicDebateReviewSideEffects,
+  preparePublicDebateRequestDispatch,
+  type PreparedPublicDebateRequestDispatch,
+  type PreparedPublicDebateReviewSideEffectPlan,
+  type PublicDebateRequestDispatchDeps,
+  type PublicDebateRequestDispatchPreparation,
+  type PublicDebateRequestReviewSideEffectDeps,
+} from './shell/handlers/public-debate-request-dispatch.js';
+
+export {
+  makeEntityTermsAcceptedUserEventHandler,
+  type EntityTermsAcceptedUserEventHandlerDeps,
+} from './shell/handlers/entity-terms-accepted-handler.js';
+
+export {
+  makeEntityTermsAcceptedSyncHandler,
+  type EntityTermsAcceptedSyncHandlerDeps,
+} from './shell/handlers/entity-terms-accepted-sync-handler.js';

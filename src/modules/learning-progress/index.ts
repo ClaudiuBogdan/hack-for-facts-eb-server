@@ -117,6 +117,7 @@ export {
 
 export {
   makeLearningProgressAdminReviewRoutes,
+  type ApprovedReviewSideEffectPlan,
   type MakeLearningProgressAdminReviewRoutesDeps,
 } from './shell/rest/admin-routes.js';
 

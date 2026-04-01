@@ -27,14 +27,24 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../unit/institution-correspondence/fake-repo.js';
 
+import type { EntityProfileRepository } from '@/modules/entity/index.js';
+
 function createDebateRequestRecord(input: {
   entityCui?: string;
+  institutionEmail?: string;
   submissionPath: 'send_yourself' | 'request_platform';
+  preparedSubject?: string | null;
   updatedAt?: string;
   submittedAt?: string | null;
   key?: string;
 }) {
   const entityCui = input.entityCui ?? '12345678';
+  const institutionEmail = input.institutionEmail ?? 'contact@primarie.ro';
+  const preparedSubject =
+    input.preparedSubject ??
+    (input.submissionPath === 'send_yourself'
+      ? 'Cerere organizare dezbatere publica - Oras Test - buget local 2026'
+      : null);
   const updatedAt = input.updatedAt ?? '2026-03-26T10:00:00.000Z';
   const submittedAt = input.submittedAt ?? updatedAt;
 
@@ -50,10 +60,11 @@ function createDebateRequestRecord(input: {
       kind: 'json',
       json: {
         value: {
-          primariaEmail: 'contact@primarie.ro',
+          primariaEmail: institutionEmail,
           isNgo: true,
           organizationName: 'Asociatia Test',
-          ngoSenderEmail: null,
+          ngoSenderEmail: input.submissionPath === 'send_yourself' ? 'ngo@example.com' : null,
+          preparedSubject,
           threadKey: null,
           submissionPath: input.submissionPath,
           submittedAt,
@@ -66,9 +77,37 @@ function createDebateRequestRecord(input: {
   });
 }
 
+function makeTestEntityProfileRepo(
+  officialEmail: string | null = 'contact@primarie.ro'
+): EntityProfileRepository {
+  return {
+    async getByEntityCui() {
+      return ok({
+        institution_type: null,
+        website_url: null,
+        official_email: officialEmail,
+        phone_primary: null,
+        address_raw: null,
+        address_locality: null,
+        county_code: null,
+        county_name: null,
+        leader_name: null,
+        leader_title: null,
+        leader_party: null,
+        scraped_at: '2026-03-26T10:00:00.000Z',
+        extraction_confidence: null,
+      });
+    },
+    async getByEntityCuis() {
+      return ok(new Map());
+    },
+  };
+}
+
 const createTestApp = async (options: {
   learningProgressRepo?: LearningProgressRepository;
   correspondenceRepo?: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
+  officialEmail?: string | null;
   sendError?: boolean;
 }) => {
   const testAuth = createTestAuthProvider();
@@ -80,6 +119,9 @@ const createTestApp = async (options: {
   const logger = pinoLogger({ level: 'silent' });
   const publicDebateHandler = makePublicDebateRequestUserEventHandler({
     learningProgressRepo,
+    entityProfileRepo: makeTestEntityProfileRepo(
+      options.officialEmail === undefined ? 'contact@primarie.ro' : options.officialEmail
+    ),
     repo: correspondenceRepo,
     emailSender: {
       getFromAddress() {
@@ -238,6 +280,11 @@ describe('Public debate request dispatch via learning progress sync', () => {
       expect(threadResult.value?.phase).toBe('awaiting_reply');
       expect(threadResult.value?.record.correspondence).toHaveLength(1);
     }
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('resolved');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review?.status).toBe('approved');
   });
 
   it('stores the interaction and does not dispatch for send_yourself submissions', async () => {
@@ -269,6 +316,11 @@ describe('Public debate request dispatch via learning progress sync', () => {
     await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('pending');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review).toBeUndefined();
   });
 
   it('stores the interaction and silently skips duplicate platform-send requests', async () => {
@@ -310,6 +362,11 @@ describe('Public debate request dispatch via learning progress sync', () => {
     await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(1);
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('resolved');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review?.status).toBe('approved');
   });
 
   it('does not let an existing self-send thread block a platform send', async () => {
@@ -351,9 +408,14 @@ describe('Public debate request dispatch via learning progress sync', () => {
     await setup.processQueuedJobs();
     expect(setup.sentEmails).toHaveLength(1);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(2);
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('resolved');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review?.status).toBe('approved');
   });
 
-  it('returns 200, preserves the interaction, and marks the thread failed when send fails', async () => {
+  it('returns 200, preserves the interaction as pending, and leaves the failed thread available for retry when send fails', async () => {
     const setup = await createTestApp({ sendError: true });
     app = setup.app;
 
@@ -385,6 +447,8 @@ describe('Public debate request dispatch via learning progress sync', () => {
     const records = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
     expect(records._unsafeUnwrap()).toHaveLength(1);
+    expect(records._unsafeUnwrap()[0]?.record.phase).toBe('pending');
+    expect(records._unsafeUnwrap()[0]?.record.review).toBeUndefined();
 
     const threadResult = await setup.correspondenceRepo.findPlatformSendThreadByEntity({
       entityCui: '12345678',
@@ -392,9 +456,14 @@ describe('Public debate request dispatch via learning progress sync', () => {
     });
     expect(threadResult.isOk()).toBe(true);
     if (threadResult.isOk()) {
-      expect(threadResult.value?.phase).toBe('failed');
-      expect(threadResult.value?.record.correspondence).toHaveLength(0);
+      expect(threadResult.value).toBeNull();
     }
+
+    const failedThread = setup.correspondenceRepo
+      .snapshotThreads()
+      .find((thread) => thread.entityCui === '12345678' && thread.phase === 'failed');
+    expect(failedThread).toBeDefined();
+    expect(failedThread?.record.correspondence).toHaveLength(0);
   });
 
   it('returns the existing validation error and triggers no correspondence side effect for invalid batches', async () => {
@@ -447,6 +516,82 @@ describe('Public debate request dispatch via learning progress sync', () => {
     expect(setup.queuedJobs).toHaveLength(0);
     expect(setup.sentEmails).toHaveLength(0);
     expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+  });
+
+  it('rejects invalid institution emails without dispatching the platform send', async () => {
+    const setup = await createTestApp({});
+    app = setup.app;
+
+    const record = createDebateRequestRecord({
+      institutionEmail: 'not-an-email',
+      submissionPath: 'request_platform',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
+    expect(setup.sentEmails).toHaveLength(0);
+    expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('failed');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review?.status).toBe('rejected');
+  });
+
+  it('keeps valid mismatched institution emails pending for manual review', async () => {
+    const setup = await createTestApp({
+      officialEmail: 'official@primarie.ro',
+    });
+    app = setup.app;
+
+    const record = createDebateRequestRecord({
+      institutionEmail: 'submitted@primarie.ro',
+      submissionPath: 'request_platform',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    await setup.processQueuedJobs();
+    expect(setup.sentEmails).toHaveLength(0);
+    expect(setup.correspondenceRepo.snapshotThreads()).toHaveLength(0);
+
+    const storedRows = await setup.learningProgressRepo.getRecords(setup.testAuth.userIds.user1);
+    expect(storedRows.isOk()).toBe(true);
+    expect(storedRows._unsafeUnwrap()[0]?.record.phase).toBe('pending');
+    expect(storedRows._unsafeUnwrap()[0]?.record.review).toBeUndefined();
   });
 
   it('dispatches only once for the latest matching debate-request event in a mixed batch', async () => {
