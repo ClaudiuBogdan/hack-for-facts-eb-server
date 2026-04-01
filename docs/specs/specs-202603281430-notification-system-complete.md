@@ -233,15 +233,15 @@ All scheduled work uses BullMQ's built-in repeat mechanism. No external cron or 
 | `recovery:stuck-sending`    | `*/15 * * * *` (every 15 min) | UTC                | Recover stuck deliveries         |
 | `reconciliation:welcome`    | `0 3 * * *` (03:00 daily)     | UTC                | Reconcile missing welcome emails |
 
-**Initialization**: Repeatable jobs are registered during worker startup (gated by `PROCESS_ROLE: worker | both`). Each job is idempotent - BullMQ deduplicates based on repeat key.
+**Initialization**: Repeatable jobs are registered during application startup whenever BullMQ is configured. Each job is idempotent - BullMQ deduplicates based on repeat key.
 
-### 7. Worker Initialization and Process Role Gating
+### 7. Worker Initialization
 
-Wire workers into `build-app.ts` using the existing `PROCESS_ROLE` config:
+Wire workers into `build-app.ts` whenever BullMQ is configured:
 
 ```typescript
 // In build-app.ts
-if (config.processRole === 'worker' || config.processRole === 'both') {
+if (config.jobs.redisUrl) {
   const workerManager = createWorkerManager(logger);
 
   // Delivery pipeline workers
@@ -372,7 +372,7 @@ Extend the existing preference model for challenge notifications:
 - Daily digest adds a staging table (`PendingDigestItems`) and a new compose path
 - .ics generation adds a dependency (`ical-generator`) and complexity (RFC 5545 compliance, timezone handling, SEQUENCE tracking)
 - Digest has inherent latency - user actions at 11 PM won't be communicated until 9 AM next day (acceptable trade-off per decision)
-- Repeatable jobs require `PROCESS_ROLE` gating to prevent duplicate schedulers across API instances
+- Repeatable jobs run in every BullMQ-enabled process, so deployments must avoid duplicate schedulers at the infrastructure level
 - Reconciliation job depends on Clerk API availability (rate limits, downtime)
 
 ## Implementation Order

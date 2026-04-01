@@ -65,6 +65,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+tmp-*.ts
 *.tmp
 *.bak
 *.swp
@@ -127,5 +128,6 @@ old_code_repositories/
 __pycache__/
 scripts/input/
 scripts/output/
+scripts/k8s-port-forward.sh
 
 .claude/
