@@ -201,6 +201,12 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
           entityCui: null,
         }),
         createTestNotification({
+          id: 'notification-entity-1',
+          userId: 'user-1',
+          notificationType: 'campaign_public_debate_entity_updates',
+          entityCui: '12345678',
+        }),
+        createTestNotification({
           id: 'notification-entity-2',
           userId: 'user-1',
           notificationType: 'campaign_public_debate_entity_updates',
@@ -233,7 +239,10 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       notificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(jobs),
-      entityRepo: makeEntityRepo({ '87654321': 'A Doua Entitate' }),
+      entityRepo: makeEntityRepo({
+        '12345678': 'Prima Entitate',
+        '87654321': 'A Doua Entitate',
+      }),
       logger: pinoLogger({ level: 'silent' }),
     });
 
@@ -256,6 +265,10 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         'campaign_public_debate_entity_subscription'
       );
       expect(entitySubscription.value?.metadata['entityName']).toBe('A Doua Entitate');
+      expect(entitySubscription.value?.metadata['selectedEntities']).toEqual([
+        'A Doua Entitate',
+        'Prima Entitate',
+      ]);
     }
     expect(jobs).toHaveLength(1);
   });

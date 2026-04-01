@@ -17,7 +17,7 @@ export const registration = defineTemplate({
   id: 'public_debate_entity_subscription',
   name: 'public_debate_entity_subscription',
   version: TEMPLATE_VERSION,
-  description: 'Confirmation email for additional public debate entity subscriptions',
+  description: 'Confirmation email for additional localities selected in the civic challenge',
   payloadSchema: PublicDebateEntitySubscriptionPayloadSchema,
 
   createElement(props: PublicDebateEntitySubscriptionProps) {
@@ -32,13 +32,14 @@ export const registration = defineTemplate({
     templateType: 'public_debate_entity_subscription',
     lang: 'ro',
     unsubscribeUrl: 'https://transparenta.eu/api/v1/notifications/unsubscribe/example-token',
-    preferencesUrl: 'https://transparenta.eu/settings/notifications',
+    preferencesUrl: 'https://transparenta.eu/provocare/notificari',
     platformBaseUrl: 'https://transparenta.eu',
     copyrightYear: 2026,
     campaignKey: 'public_debate',
     entityCui: '87654321',
-    entityName: 'Consiliul Județean Exemplu',
+    entityName: 'Municipiul Exemplu',
     acceptedTermsAt: '2026-04-02T11:00:00.000Z',
+    selectedEntities: ['Municipiul Exemplu', 'Municipiul Test'],
     ctaUrl: 'https://transparenta.eu/entities/87654321',
   } as PublicDebateEntitySubscriptionProps,
 });

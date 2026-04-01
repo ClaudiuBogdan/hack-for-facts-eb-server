@@ -77,6 +77,7 @@ export const PublicDebateEntitySubscriptionPayloadSchema = Type.Object({
   entityCui: Type.String({ minLength: 1 }),
   entityName: Type.String({ minLength: 1 }),
   acceptedTermsAt: Type.String({ minLength: 1 }),
+  selectedEntities: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
   ctaUrl: Type.Optional(Type.String()),
 });
 
@@ -97,6 +98,7 @@ export const PublicDebateEntityUpdatePayloadSchema = Type.Object({
   ]),
   campaignKey: Type.String({ minLength: 1 }),
   entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.Optional(Type.String({ minLength: 1 })),
   threadId: Type.String({ minLength: 1 }),
   threadKey: Type.String({ minLength: 1 }),
   phase: Type.String({ minLength: 1 }),

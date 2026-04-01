@@ -1,4 +1,4 @@
-import { Hr, Section, Text } from '@react-email/components';
+import { Section, Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
@@ -9,8 +9,8 @@ import type { PublicDebateEntityUpdateProps, SupportedLanguage } from '../../cor
 
 interface Copy {
   preview: string;
-  heading: string;
-  lead: string;
+  updateHeading: string;
+  updateLead: string;
   subjectLabel: string;
   institutionLabel: string;
   entityLabel: string;
@@ -18,140 +18,144 @@ interface Copy {
   resolutionLabel: string;
   notesLabel: string;
   replyPreviewLabel: string;
-  closing: string;
 }
 
 const COPY_BY_LANG: Record<SupportedLanguage, Record<PublicDebateEntityUpdateProps['eventType'], Copy>> =
   {
     ro: {
       thread_started: {
-        preview: 'Cererea de dezbatere publica a fost trimisa.',
-        heading: 'Cererea a fost trimisa',
-        lead:
-          'Cererea de dezbatere publica pentru aceasta entitate a fost trimisa si vom urmari raspunsurile primite pe firul de corespondenta.',
+        preview: 'Noutăți despre dezbaterea bugetului local.',
+        updateHeading: 'Cererea a fost trimisă',
+        updateLead:
+          'Cererea pentru organizarea dezbaterii publice a fost trimisă către Primărie.',
         subjectLabel: 'Subiect',
-        institutionLabel: 'Email institutie',
-        entityLabel: 'Entitate',
+        institutionLabel: 'Email Primărie',
+        entityLabel: 'Localitate',
         occurredAtLabel: 'Moment',
-        resolutionLabel: 'Rezolutie',
+        resolutionLabel: 'Rezoluție',
         notesLabel: 'Note',
-        replyPreviewLabel: 'Extras raspuns',
-        closing: 'Vei primi un nou mesaj cand apare o actualizare relevanta pe acest fir.',
+        replyPreviewLabel: 'Extras răspuns',
       },
       thread_failed: {
-        preview: 'Nu am putut trimite cererea de dezbatere publica.',
-        heading: 'Trimiterea a esuat',
-        lead:
-          'Am inregistrat o eroare la trimiterea cererii de dezbatere publica. Firul ramane in sistem pentru urmarire si reluare.',
+        preview: 'Noutăți despre dezbaterea bugetului local.',
+        updateHeading: 'Trimiterea a eșuat',
+        updateLead:
+          'A apărut o problemă la trimiterea cererii către Primărie. Vom păstra firul pentru următoarele actualizări.',
         subjectLabel: 'Subiect',
-        institutionLabel: 'Email institutie',
-        entityLabel: 'Entitate',
+        institutionLabel: 'Email Primărie',
+        entityLabel: 'Localitate',
         occurredAtLabel: 'Moment',
-        resolutionLabel: 'Rezolutie',
+        resolutionLabel: 'Rezoluție',
         notesLabel: 'Note',
-        replyPreviewLabel: 'Extras raspuns',
-        closing: 'Daca reluam cu succes trimiterea, vei primi o actualizare noua.',
+        replyPreviewLabel: 'Extras răspuns',
       },
       reply_received: {
-        preview: 'Institutia a raspuns la cererea de dezbatere publica.',
-        heading: 'A sosit un raspuns',
-        lead:
-          'Am primit un raspuns din partea institutiei si l-am marcat pentru revizuire administrativa.',
+        preview: 'Noutăți despre dezbaterea bugetului local.',
+        updateHeading: 'A sosit un răspuns',
+        updateLead:
+          'Primăria a trimis un răspuns, iar acesta este disponibil mai jos.',
         subjectLabel: 'Subiect',
-        institutionLabel: 'Email institutie',
-        entityLabel: 'Entitate',
+        institutionLabel: 'Email Primărie',
+        entityLabel: 'Localitate',
         occurredAtLabel: 'Moment',
-        resolutionLabel: 'Rezolutie',
+        resolutionLabel: 'Rezoluție',
         notesLabel: 'Note',
-        replyPreviewLabel: 'Extras raspuns',
-        closing: 'Dupa revizuire, vei primi o noua actualizare cu concluzia traseului.',
+        replyPreviewLabel: 'Extras răspuns',
       },
       reply_reviewed: {
-        preview: 'A fost actualizata starea raspunsului institutiei.',
-        heading: 'Raspunsul a fost revizuit',
-        lead:
-          'Un administrator a revizuit raspunsul institutiei si a actualizat starea firului de corespondenta.',
+        preview: 'Noutăți despre dezbaterea bugetului local.',
+        updateHeading: 'Răspunsul a fost revizuit',
+        updateLead:
+          'Răspunsul Primăriei a fost revizuit și starea firului a fost actualizată.',
         subjectLabel: 'Subiect',
-        institutionLabel: 'Email institutie',
-        entityLabel: 'Entitate',
+        institutionLabel: 'Email Primărie',
+        entityLabel: 'Localitate',
         occurredAtLabel: 'Moment',
-        resolutionLabel: 'Rezolutie',
+        resolutionLabel: 'Rezoluție',
         notesLabel: 'Note',
-        replyPreviewLabel: 'Extras raspuns',
-        closing: 'Poti folosi pagina de notificari pentru a dezactiva aceste actualizari in orice moment.',
+        replyPreviewLabel: 'Extras răspuns',
       },
     },
     en: {
       thread_started: {
-        preview: 'The public debate request has been sent.',
-        heading: 'Request sent',
-        lead:
-          'The public debate request for this entity has been sent and we will track any follow-up messages on the correspondence thread.',
+        preview: 'Updates about the local budget debate.',
+        updateHeading: 'Request sent',
+        updateLead:
+          'The public debate request was sent to the city hall.',
         subjectLabel: 'Subject',
-        institutionLabel: 'Institution email',
-        entityLabel: 'Entity',
+        institutionLabel: 'City hall email',
+        entityLabel: 'Locality',
         occurredAtLabel: 'Time',
         resolutionLabel: 'Resolution',
         notesLabel: 'Notes',
         replyPreviewLabel: 'Reply excerpt',
-        closing: 'You will receive another email when there is a relevant update on this thread.',
       },
       thread_failed: {
-        preview: 'We could not send the public debate request.',
-        heading: 'Send failed',
-        lead:
-          'We recorded an error while sending the public debate request. The thread remains in the system for follow-up and retry.',
+        preview: 'Updates about the local budget debate.',
+        updateHeading: 'Send failed',
+        updateLead:
+          'There was a problem sending the request to the city hall. We will keep the thread for the next updates.',
         subjectLabel: 'Subject',
-        institutionLabel: 'Institution email',
-        entityLabel: 'Entity',
+        institutionLabel: 'City hall email',
+        entityLabel: 'Locality',
         occurredAtLabel: 'Time',
         resolutionLabel: 'Resolution',
         notesLabel: 'Notes',
         replyPreviewLabel: 'Reply excerpt',
-        closing: 'If we retry successfully, you will receive another update.',
       },
       reply_received: {
-        preview: 'The institution replied to the public debate request.',
-        heading: 'Reply received',
-        lead:
-          'We received a reply from the institution and marked it for administrative review.',
+        preview: 'Updates about the local budget debate.',
+        updateHeading: 'Reply received',
+        updateLead:
+          'The city hall sent a reply, and you can see it below.',
         subjectLabel: 'Subject',
-        institutionLabel: 'Institution email',
-        entityLabel: 'Entity',
+        institutionLabel: 'City hall email',
+        entityLabel: 'Locality',
         occurredAtLabel: 'Time',
         resolutionLabel: 'Resolution',
         notesLabel: 'Notes',
         replyPreviewLabel: 'Reply excerpt',
-        closing: 'After review, you will receive another update with the outcome.',
       },
       reply_reviewed: {
-        preview: 'The institution reply status has been updated.',
-        heading: 'Reply reviewed',
-        lead:
-          'An administrator reviewed the institution reply and updated the correspondence thread status.',
+        preview: 'Updates about the local budget debate.',
+        updateHeading: 'Reply reviewed',
+        updateLead:
+          'The city hall reply was reviewed and the thread status was updated.',
         subjectLabel: 'Subject',
-        institutionLabel: 'Institution email',
-        entityLabel: 'Entity',
+        institutionLabel: 'City hall email',
+        entityLabel: 'Locality',
         occurredAtLabel: 'Time',
         resolutionLabel: 'Resolution',
         notesLabel: 'Notes',
         replyPreviewLabel: 'Reply excerpt',
-        closing: 'You can disable these updates at any time from the notification settings page.',
       },
     },
   };
 
 const styles = {
-  heading: {
-    fontSize: '22px',
-    lineHeight: '32px',
+  greeting: {
+    fontSize: '16px',
+    lineHeight: '26px',
+    fontWeight: '700',
+    color: '#111827',
+    margin: '0 0 16px',
+  },
+  intro: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    color: '#4B5563',
+    margin: '0 0 16px',
+  },
+  panelHeading: {
+    fontSize: '18px',
+    lineHeight: '28px',
     fontWeight: '700',
     color: '#111827',
     margin: '0 0 8px',
   },
-  body: {
-    fontSize: '15px',
-    lineHeight: '26px',
+  panelLead: {
+    fontSize: '14px',
+    lineHeight: '24px',
     color: '#4B5563',
     margin: '0 0 16px',
   },
@@ -186,14 +190,17 @@ const styles = {
     lineHeight: '24px',
     whiteSpace: 'pre-wrap' as const,
   },
-  divider: {
-    borderColor: '#E5E7EB',
-    margin: '24px 0 16px',
+  thanks: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    color: '#4B5563',
+    margin: '0 0 16px',
   },
-  closing: {
-    fontSize: '13px',
-    lineHeight: '22px',
-    color: '#6B7280',
+  signature: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    fontWeight: '700',
+    color: '#111827',
     margin: '0',
   },
 };
@@ -215,16 +222,20 @@ export const getPublicDebateEntityUpdateSubject = ({
   lang,
   eventType,
   entityCui,
-}: Pick<PublicDebateEntityUpdateProps, 'lang' | 'eventType' | 'entityCui'>): string => {
+  entityName,
+}: Pick<
+  PublicDebateEntityUpdateProps,
+  'lang' | 'eventType' | 'entityCui' | 'entityName'
+>): string => {
   const prefixByLang: Record<
     SupportedLanguage,
     Record<PublicDebateEntityUpdateProps['eventType'], string>
   > = {
     ro: {
-      thread_started: 'Cererea a fost trimisa',
-      thread_failed: 'Trimiterea a esuat',
-      reply_received: 'A sosit un raspuns',
-      reply_reviewed: 'Raspunsul a fost revizuit',
+      thread_started: 'Cererea a fost trimisă',
+      thread_failed: 'Trimiterea a eșuat',
+      reply_received: 'A sosit un răspuns',
+      reply_reviewed: 'Răspunsul a fost revizuit',
     },
     en: {
       thread_started: 'Request sent',
@@ -233,8 +244,13 @@ export const getPublicDebateEntityUpdateSubject = ({
       reply_reviewed: 'Reply reviewed',
     },
   };
+  const locality = entityName !== undefined && entityName.trim() !== '' ? entityName : entityCui;
 
-  return `${prefixByLang[lang][eventType]}: ${entityCui}`;
+  return `${prefixByLang[lang][eventType]}: ${locality} - ${
+    lang === 'ro'
+      ? '„Cu ochii pe bugetele locale 2026”'
+      : '"Cu ochii pe bugetele locale 2026"'
+  }`;
 };
 
 export const PublicDebateEntityUpdateEmail = (
@@ -242,6 +258,36 @@ export const PublicDebateEntityUpdateEmail = (
 ): React.ReactElement => {
   const copy = COPY_BY_LANG[props.lang][props.eventType];
   const formattedOccurredAt = formatTimestamp(props.lang, props.occurredAt);
+  const entityName = props.entityName ?? props.entityCui;
+  const introByLang: Record<
+    SupportedLanguage,
+    Record<PublicDebateEntityUpdateProps['eventType'], string>
+  > = {
+    ro: {
+      thread_started: `Cererea ta pentru organizarea unei dezbateri publice în ${entityName} a fost trimisă către Primărie. Mai jos poți vedea toate actualizările.`,
+      thread_failed: `A apărut o problemă la trimiterea cererii pentru organizarea unei dezbateri publice în ${entityName}. Mai jos poți vedea detaliile și următoarele actualizări.`,
+      reply_received: `Primăria din ${entityName} a trimis un răspuns. Mai jos poți vedea toate actualizările.`,
+      reply_reviewed: `Răspunsul primit de la Primăria din ${entityName} a fost revizuit. Mai jos poți vedea toate actualizările.`,
+    },
+    en: {
+      thread_started: `Your request to organize a public debate in ${entityName} was sent to the city hall. You can see all updates below.`,
+      thread_failed: `There was a problem sending your request to organize a public debate in ${entityName}. You can see the details and the next updates below.`,
+      reply_received: `The city hall in ${entityName} sent a reply. You can see all updates below.`,
+      reply_reviewed: `The reply received from the city hall in ${entityName} was reviewed. You can see all updates below.`,
+    },
+  };
+  const recommendationByLang: Record<SupportedLanguage, string> = {
+    ro: 'Pentru participarea la dezbatere, îți recomandăm să parcurgi atât proiectul de buget, cât și execuția anilor precedenți.',
+    en: 'To prepare for the debate, we recommend reviewing both the draft budget and the execution data from previous years.',
+  };
+  const thanksByLang: Record<SupportedLanguage, string> = {
+    ro: 'Mulțumim că ești parte din această provocare civică!',
+    en: 'Thank you for being part of this civic challenge!',
+  };
+  const signatureByLang: Record<SupportedLanguage, string> = {
+    ro: 'Echipa Funky x transparenta.eu',
+    en: 'The Funky x transparenta.eu team',
+  };
 
   return (
     <EmailLayout
@@ -253,12 +299,15 @@ export const PublicDebateEntityUpdateEmail = (
       header={<CampaignHeader />}
       {...(props.preferencesUrl !== undefined ? { preferencesUrl: props.preferencesUrl } : {})}
     >
-      <Text style={styles.heading}>{copy.heading}</Text>
-      <Text style={styles.body}>{copy.lead}</Text>
+      <Text style={styles.greeting}>{props.lang === 'ro' ? 'Salutare,' : 'Hello,'}</Text>
+      <Text style={styles.intro}>{introByLang[props.lang][props.eventType]}</Text>
 
       <Section style={styles.panel}>
+        <Text style={styles.panelHeading}>{copy.updateHeading}</Text>
+        <Text style={styles.panelLead}>{copy.updateLead}</Text>
+
         <Text style={styles.label}>{copy.entityLabel}</Text>
-        <Text style={styles.value}>{props.entityCui}</Text>
+        <Text style={styles.value}>{entityName}</Text>
 
         <Text style={styles.label}>{copy.institutionLabel}</Text>
         <Text style={styles.value}>{props.institutionEmail}</Text>
@@ -293,11 +342,11 @@ export const PublicDebateEntityUpdateEmail = (
           )}
       </Section>
 
-      <Hr style={styles.divider} />
-      <Text style={styles.closing}>{copy.closing}</Text>
+      <Text style={styles.intro}>{recommendationByLang[props.lang]}</Text>
+      <Text style={styles.thanks}>{thanksByLang[props.lang]}</Text>
+      <Text style={styles.signature}>{signatureByLang[props.lang]}</Text>
     </EmailLayout>
   );
 };
 
 export default PublicDebateEntityUpdateEmail;
-

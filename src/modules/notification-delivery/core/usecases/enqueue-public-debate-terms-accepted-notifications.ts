@@ -17,6 +17,7 @@ export interface PublicDebateTermsAcceptedEvent {
   entityCui: string;
   entityName: string;
   acceptedTermsAt: string;
+  selectedEntities?: string[];
   globalPreferenceId: string;
   globalPreferenceActive: boolean;
   entitySubscriptionId: string;
@@ -102,6 +103,7 @@ const buildMetadata = (input: PublicDebateTermsAcceptedEvent): Record<string, un
   acceptedTermsAt: input.acceptedTermsAt,
   source: input.source,
   sourceEventId: input.sourceEventId,
+  ...(input.selectedEntities !== undefined ? { selectedEntities: input.selectedEntities } : {}),
 });
 
 const validateInput = (
@@ -141,6 +143,14 @@ const validateInput = (
 
   if (!isNonEmptyString(input.acceptedTermsAt) || Number.isNaN(Date.parse(input.acceptedTermsAt))) {
     return err(createValidationError('acceptedTermsAt must be a valid ISO timestamp'));
+  }
+
+  if (
+    input.selectedEntities !== undefined &&
+    (!Array.isArray(input.selectedEntities) ||
+      input.selectedEntities.some((entityName) => !isNonEmptyString(entityName)))
+  ) {
+    return err(createValidationError('selectedEntities must contain only non-empty strings'));
   }
 
   return ok(input);

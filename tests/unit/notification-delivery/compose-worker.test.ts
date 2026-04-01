@@ -58,10 +58,20 @@ const makeDataFetcher = (
 const makeEmailRenderer = (
   options: {
     renderError?: TemplateError;
-    onRender?: (props: { templateType: string; preferencesUrl?: string }) => void;
+    onRender?: (props: {
+      templateType: string;
+      preferencesUrl?: string;
+      selectedEntities?: string[];
+      entityName?: string;
+    }) => void;
   } = {}
 ) => ({
-  async render(props: { templateType: string; preferencesUrl?: string }) {
+  async render(props: {
+    templateType: string;
+    preferencesUrl?: string;
+    selectedEntities?: string[];
+    entityName?: string;
+  }) {
     options.onRender?.(props);
 
     if (options.renderError !== undefined) {
@@ -223,11 +233,12 @@ describe('compose worker helpers', () => {
       expect(outbox.value?.templateName).toBe('public_debate_campaign_welcome');
       expect(outbox.value?.renderedHtml).toContain('public_debate_campaign_welcome');
     }
-    expect(renderedPreferencesUrl).toBe('https://transparenta.eu/settings/notifications');
+    expect(renderedPreferencesUrl).toBe('https://transparenta.eu/provocare/notificari');
   });
 
   it('composes public debate entity subscription emails from existing outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedSelectedEntities: string[] | undefined;
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
         createTestDeliveryRecord({
@@ -239,8 +250,9 @@ describe('compose worker helpers', () => {
           metadata: {
             campaignKey: 'public_debate',
             entityCui: '87654321',
-            entityName: 'Consiliul Judetean Test',
+            entityName: 'Municipiul Test',
             acceptedTermsAt: '2026-04-02T11:00:00.000Z',
+            selectedEntities: ['Municipiul Test', 'Municipiul Exemplu'],
           },
         }),
       ],
@@ -253,7 +265,11 @@ describe('compose worker helpers', () => {
         notificationsRepo: makeFakeExtendedNotificationsRepo(),
         tokenSigner: makeFakeTokenSigner(),
         dataFetcher: makeDataFetcher(),
-        emailRenderer: makeEmailRenderer(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedSelectedEntities = props.selectedEntities;
+          },
+        }),
         platformBaseUrl: 'https://transparenta.eu',
         apiBaseUrl: 'https://api.transparenta.eu',
         log: testLogger,
@@ -277,11 +293,13 @@ describe('compose worker helpers', () => {
       expect(outbox.value?.templateName).toBe('public_debate_entity_subscription');
       expect(outbox.value?.renderedHtml).toContain('public_debate_entity_subscription');
     }
+    expect(renderedSelectedEntities).toEqual(['Municipiul Test', 'Municipiul Exemplu']);
   });
 
   it('composes public debate entity update emails from outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedTemplateType: string | undefined;
+    let renderedEntityName: string | undefined;
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
         createTestDeliveryRecord({
@@ -294,6 +312,7 @@ describe('compose worker helpers', () => {
             campaignKey: 'public_debate',
             eventType: 'reply_received',
             entityCui: '12345678',
+            entityName: 'Municipiul Test',
             threadId: 'thread-1',
             threadKey: 'thread-key-1',
             phase: 'reply_received_unreviewed',
@@ -316,6 +335,7 @@ describe('compose worker helpers', () => {
         emailRenderer: makeEmailRenderer({
           onRender(props) {
             renderedTemplateType = props.templateType;
+            renderedEntityName = props.entityName;
           },
         }),
         platformBaseUrl: 'https://transparenta.eu',
@@ -331,6 +351,7 @@ describe('compose worker helpers', () => {
 
     expect(result.status).toBe('composed');
     expect(renderedTemplateType).toBe('public_debate_entity_update');
+    expect(renderedEntityName).toBe('Municipiul Test');
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-public-debate-1' });
 

@@ -135,11 +135,15 @@ export interface PublicDebateCampaignWelcomeTranslations {
   body: {
     greeting: string;
     intro: string;
-    entityLabel: string;
-    acceptedTermsAtLabel: string;
-    benefits: string[];
+    modulesIntro: string;
+    localityLabel: string;
     cta: string;
+    preferencesPrefix: string;
+    preferencesLinkLabel: string;
+    preferencesSuffix: string;
+    preferencesFallback: string;
     closing: string;
+    signature: string;
   };
 }
 
@@ -151,12 +155,18 @@ export interface PublicDebateEntitySubscriptionTranslations {
   body: {
     greeting: string;
     intro: string;
-    entityLabel: string;
-    acceptedTermsAtLabel: string;
-    whatHappensNextTitle: string;
-    whatHappensNext: string[];
+    updatesIntro: string;
+    newLocalityLabel: string;
+    selectedLocalitiesLabel: string;
+    continuationIntro: string;
+    benefits: string[];
+    preferencesBulletPrefix: string;
+    preferencesBulletLinkLabel: string;
+    preferencesBulletSuffix: string;
+    preferencesBulletFallback: string;
     cta: string;
     closing: string;
+    signature: string;
   };
 }
 
@@ -314,39 +324,49 @@ const ro: Translations = {
     },
   },
   publicDebateCampaignWelcome: {
-    subject: 'Ai intrat în campania de dezbatere publică',
+    subject:
+      'Bun venit în provocarea civică „Cu ochii pe bugetele locale 2026” - Funky Citizens x Transparenta.eu',
     body: {
-      greeting: 'Bun venit în campanie!',
+      greeting: 'Salutare,',
       intro:
-        'Ai acceptat termenii campaniei de dezbatere publică și urmărirea pentru prima entitate este activă.',
-      entityLabel: 'Prima entitate urmărită',
-      acceptedTermsAtLabel: 'Înscriere confirmată la',
-      benefits: [
-        'Primești email când există actualizări despre cererea de dezbatere publică',
-        'Poți urmări mai multe instituții în aceeași campanie',
-        'Poți opri notificările din preferințe în orice moment',
-      ],
-      cta: 'Vezi entitatea pe platformă',
-      closing: 'Îți vom trimite următoarele mesaje doar pentru actualizările din această campanie.',
+        'Îți mulțumim că te-ai înscris în provocarea civică „Cu ochii pe bugetele locale 2026”, o campanie realizată de Funky Citizens & Transparenta.eu',
+      modulesIntro:
+        'Participarea ta reprezintă un pas important spre a înțelege mai bine cum sunt planificați și cheltuiți banii publici în localitatea ta, dar și cum poți interveni informat(ă) în dezbaterea bugetului local. În perioada următoare, te invităm să parcurgi cele trei module din platformă, care te vor ghida pas cu pas în înțelegerea bugetelor publice.',
+      localityLabel: 'Localitatea selectată de tine este:',
+      cta: 'Vezi localitatea în platformă',
+      preferencesPrefix:
+        'Dacă dorești să parcurgi modulele pentru mai multe localități, poți schimba preferința din ',
+      preferencesLinkLabel: 'această pagină',
+      preferencesSuffix: '.',
+      preferencesFallback:
+        'Dacă dorești să parcurgi modulele pentru mai multe localități, poți schimba preferința din pagina de preferințe.',
+      closing: 'Îți mulțumim că alegi să fii cu ochii pe bugetul local. Mult succes!',
+      signature: 'Echipa Funky & Transparenta.eu',
     },
   },
   publicDebateEntitySubscription: {
-    subject: 'Abonare nouă la o instituție din campanie',
+    subject:
+      'Ai ales o nouă localitate în provocarea civică „Cu ochii pe bugetele locale 2026” - Funky Citizens x Transparenta.eu',
     body: {
-      greeting: 'Abonare confirmată',
-      intro:
-        'Ai acceptat termenii pentru încă o entitate și vom trimite actualizări despre evoluția cererii de dezbatere publică pentru aceasta.',
-      entityLabel: 'Entitate urmărită',
-      acceptedTermsAtLabel: 'Abonare confirmată la',
-      whatHappensNextTitle: 'Ce urmează',
-      whatHappensNext: [
-        'Primești email când cererea este trimisă sau dacă apar probleme la trimitere',
-        'Primești email când instituția răspunde',
-        'Primești email când răspunsul este revizuit și starea firului se schimbă',
+      greeting: 'Salutare,',
+      intro: 'Am înregistrat modificarea făcută de tine în platformă.',
+      updatesIntro:
+        'De acum înainte, vei primi informații și actualizări legate de {entity}, în cadrul provocării civice „Cu ochii pe bugetele locale 2026”.',
+      newLocalityLabel: 'Noua localitate selectată de tine este:',
+      selectedLocalitiesLabel: 'Localitățile selectate de tine:',
+      continuationIntro:
+        'Te invităm să continui provocarea civică, dacă nu ai parcurs toate modulele. În continuare:',
+      benefits: [
+        'Primești email când există actualizări despre cererea de dezbatere publică;',
+        'Poți urmări mai multe localități în aceeași campanie;',
       ],
-      cta: 'Vezi entitatea pe platformă',
-      closing:
-        'Dacă nu mai vrei aceste actualizări, poți dezactiva notificările pentru entitate din preferințe.',
+      preferencesBulletPrefix: 'Poți opri notificările din ',
+      preferencesBulletLinkLabel: 'preferințe',
+      preferencesBulletSuffix: ' în orice moment.',
+      preferencesBulletFallback: 'Poți opri notificările din preferințe în orice moment.',
+      cta: 'Vezi localitatea în platformă',
+      closing: 'Pe curând,',
+      signature: 'Echipa Funky x Transparenta.eu',
     },
   },
   digest: {
@@ -484,39 +504,49 @@ const en: Translations = {
     },
   },
   publicDebateCampaignWelcome: {
-    subject: 'You joined the public debate campaign',
+    subject:
+      'Welcome to the civic challenge "Cu ochii pe bugetele locale 2026" - Funky Citizens x Transparenta.eu',
     body: {
-      greeting: 'Welcome to the campaign!',
+      greeting: 'Hello,',
       intro:
-        'You accepted the campaign terms and your first public debate campaign follow is now active.',
-      entityLabel: 'First followed entity',
-      acceptedTermsAtLabel: 'Enrollment confirmed at',
-      benefits: [
-        'You receive email updates when the public debate request changes state',
-        'You can follow multiple institutions in the same campaign',
-        'You can pause campaign notifications from preferences at any time',
-      ],
-      cta: 'View entity on the platform',
-      closing: 'We will only send follow-up messages for updates that belong to this campaign.',
+        'Thank you for joining the civic challenge "Cu ochii pe bugetele locale 2026", a campaign by Funky Citizens & Transparenta.eu.',
+      modulesIntro:
+        'Your participation is an important step toward better understanding how public money is planned and spent in your locality, and how you can take part in the local budget debate in an informed way. In the coming period, we invite you to go through the three modules on the platform, which will guide you step by step through public budget understanding.',
+      localityLabel: 'Your selected locality is:',
+      cta: 'View locality on the platform',
+      preferencesPrefix:
+        'If you want to go through the modules for more localities, you can change your preference on ',
+      preferencesLinkLabel: 'this page',
+      preferencesSuffix: '.',
+      preferencesFallback:
+        'If you want to go through the modules for more localities, you can change your preference from the preferences page.',
+      closing: 'Thank you for choosing to keep an eye on the local budget. Good luck!',
+      signature: 'The Funky & Transparenta.eu team',
     },
   },
   publicDebateEntitySubscription: {
-    subject: 'New institution follow confirmed',
+    subject:
+      'You selected a new locality in the civic challenge "Cu ochii pe bugetele locale 2026" - Funky Citizens x Transparenta.eu',
     body: {
-      greeting: 'Subscription confirmed',
-      intro:
-        'You accepted the terms for another entity and we will send updates about that public debate request as well.',
-      entityLabel: 'Followed entity',
-      acceptedTermsAtLabel: 'Subscription confirmed at',
-      whatHappensNextTitle: 'What happens next',
-      whatHappensNext: [
-        'You receive email when the request is sent or if sending fails',
-        'You receive email when the institution replies',
-        'You receive email when the reply is reviewed and the thread status changes',
+      greeting: 'Hello,',
+      intro: 'We recorded the change you made on the platform.',
+      updatesIntro:
+        'From now on, you will receive information and updates related to {entity} as part of the civic challenge "Cu ochii pe bugetele locale 2026".',
+      newLocalityLabel: 'Your newly selected locality is:',
+      selectedLocalitiesLabel: 'Your selected localities:',
+      continuationIntro:
+        'We invite you to continue the civic challenge if you have not completed all the modules yet. Next:',
+      benefits: [
+        'You receive email when there are updates about the public debate request;',
+        'You can follow multiple localities in the same campaign;',
       ],
-      cta: 'View entity on the platform',
-      closing:
-        'If you no longer want these updates, you can disable notifications for this entity from preferences.',
+      preferencesBulletPrefix: 'You can stop notifications from ',
+      preferencesBulletLinkLabel: 'preferences',
+      preferencesBulletSuffix: ' at any time.',
+      preferencesBulletFallback: 'You can stop notifications from preferences at any time.',
+      cta: 'View locality on the platform',
+      closing: 'See you soon,',
+      signature: 'The Funky x Transparenta.eu team',
     },
   },
   digest: {

@@ -235,6 +235,7 @@ export interface PublicDebateEntitySubscriptionProps extends BaseTemplateProps {
   entityCui: string;
   entityName: string;
   acceptedTermsAt: string;
+  selectedEntities?: string[];
   ctaUrl?: string;
 }
 
@@ -246,6 +247,7 @@ export interface PublicDebateEntityUpdateProps extends BaseTemplateProps {
   eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
   campaignKey: string;
   entityCui: string;
+  entityName?: string;
   threadId: string;
   threadKey: string;
   phase: string;

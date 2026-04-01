@@ -20,6 +20,7 @@ export interface PublicDebateEntityUpdateNotificationInput {
   runId: string;
   eventType: PublicDebateEntityUpdateEventType;
   entityCui: string;
+  entityName?: string;
   threadId: string;
   threadKey: string;
   phase: string;
@@ -66,6 +67,7 @@ const buildMetadata = (
   campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
   eventType: input.eventType,
   entityCui: input.entityCui,
+  ...(input.entityName !== undefined ? { entityName: input.entityName } : {}),
   threadId: input.threadId,
   threadKey: input.threadKey,
   phase: input.phase,

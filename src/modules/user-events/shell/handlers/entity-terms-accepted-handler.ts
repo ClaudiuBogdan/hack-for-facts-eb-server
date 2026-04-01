@@ -27,6 +27,63 @@ const PUBLIC_DEBATE_GLOBAL_TYPE = 'campaign_public_debate_global';
 const PUBLIC_DEBATE_ENTITY_UPDATES_TYPE = 'campaign_public_debate_entity_updates';
 const PUBLIC_DEBATE_CAMPAIGN_SOURCE = 'learning_progress.entity_terms_accepted';
 
+const loadSelectedEntityNames = async (
+  deps: Pick<EntityTermsAcceptedUserEventHandlerDeps, 'notificationsRepo' | 'entityRepo'>,
+  input: {
+    userId: string;
+    currentEntityCui: string;
+    currentEntityName: string;
+  },
+  log: Logger
+): Promise<string[] | undefined> => {
+  const notificationsResult = await deps.notificationsRepo.findByUserId(input.userId, true);
+  if (notificationsResult.isErr()) {
+    log.warn(
+      { error: notificationsResult.error, userId: input.userId },
+      'Failed to load active public debate subscriptions for email enrichment'
+    );
+    return undefined;
+  }
+
+  const additionalEntityCuis = notificationsResult.value.flatMap((notification) => {
+    if (
+      notification.notificationType !== PUBLIC_DEBATE_ENTITY_UPDATES_TYPE ||
+      typeof notification.entityCui !== 'string' ||
+      notification.entityCui === input.currentEntityCui
+    ) {
+      return [];
+    }
+
+    return [notification.entityCui];
+  });
+
+  const entityNames: string[] = [input.currentEntityName];
+  const seenEntityCuis = new Set<string>([input.currentEntityCui]);
+
+  for (const entityCui of additionalEntityCuis) {
+    if (seenEntityCuis.has(entityCui)) {
+      continue;
+    }
+
+    seenEntityCuis.add(entityCui);
+
+    const entityResult = await deps.entityRepo.getById(entityCui);
+    if (entityResult.isErr()) {
+      log.warn(
+        { error: entityResult.error, entityCui, userId: input.userId },
+        'Failed to load entity name for public debate subscription email enrichment'
+      );
+      entityNames.push(entityCui);
+      continue;
+    }
+
+    const entityName = entityResult.value?.name.trim();
+    entityNames.push(entityName !== undefined && entityName !== '' ? entityName : entityCui);
+  }
+
+  return entityNames;
+};
+
 export interface EntityTermsAcceptedUserEventHandlerDeps {
   learningProgressRepo: LearningProgressRepository;
   notificationsRepo: NotificationsRepository;
@@ -155,6 +212,19 @@ export const makeEntityTermsAcceptedUserEventHandler = (
         entityName = entityResult.value.name;
       }
 
+      const selectedEntities = await loadSelectedEntityNames(
+        {
+          notificationsRepo: deps.notificationsRepo,
+          entityRepo: deps.entityRepo,
+        },
+        {
+          userId: event.userId,
+          currentEntityCui: entityCui,
+          currentEntityName: entityName,
+        },
+        log
+      );
+
       const enqueueResult = await enqueuePublicDebateTermsAcceptedNotifications(
         {
           deliveryRepo: deps.deliveryRepo,
@@ -169,6 +239,7 @@ export const makeEntityTermsAcceptedUserEventHandler = (
           entityCui,
           entityName,
           acceptedTermsAt,
+          ...(selectedEntities !== undefined ? { selectedEntities } : {}),
           globalPreferenceId: globalPreference.id,
           globalPreferenceActive: globalPreference.isActive,
           entitySubscriptionId: entitySubscription.id,

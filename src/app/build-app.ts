@@ -1368,6 +1368,25 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           runIdParts.push(input.basedOnEntryId);
         }
 
+        let entityName = input.thread.entityCui;
+        const entityResult = await entityRepo.getById(input.thread.entityCui);
+        if (entityResult.isErr()) {
+          repoLogger.warn(
+            {
+              error: entityResult.error,
+              entityCui: input.thread.entityCui,
+              eventType: input.eventType,
+              threadId: input.thread.id,
+            },
+            'Failed to load entity name for public debate update notification'
+          );
+        } else if (
+          entityResult.value?.name !== undefined &&
+          entityResult.value.name.trim() !== ''
+        ) {
+          entityName = entityResult.value.name;
+        }
+
         const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
           {
             notificationsRepo: extendedNotificationsRepo,
@@ -1380,6 +1399,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             runId: `public-debate-${runIdParts.join('-')}`,
             eventType: input.eventType,
             entityCui: input.thread.entityCui,
+            entityName,
             threadId: input.thread.id,
             threadKey: input.thread.threadKey,
             phase: input.thread.phase,

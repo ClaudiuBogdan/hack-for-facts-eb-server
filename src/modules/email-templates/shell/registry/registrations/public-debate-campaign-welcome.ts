@@ -17,7 +17,7 @@ export const registration = defineTemplate({
   id: 'public_debate_campaign_welcome',
   name: 'public_debate_campaign_welcome',
   version: TEMPLATE_VERSION,
-  description: 'Campaign welcome email for the first accepted public debate entity',
+  description: 'Welcome email for the local budget civic challenge campaign',
   payloadSchema: PublicDebateCampaignWelcomePayloadSchema,
 
   createElement(props: PublicDebateCampaignWelcomeProps) {
@@ -32,12 +32,12 @@ export const registration = defineTemplate({
     templateType: 'public_debate_campaign_welcome',
     lang: 'ro',
     unsubscribeUrl: 'https://transparenta.eu/api/v1/notifications/unsubscribe/example-token',
-    preferencesUrl: 'https://transparenta.eu/settings/notifications',
+    preferencesUrl: 'https://transparenta.eu/provocare/notificari',
     platformBaseUrl: 'https://transparenta.eu',
     copyrightYear: 2026,
     campaignKey: 'public_debate',
     entityCui: '12345678',
-    entityName: 'Primăria Municipiului Exemplu',
+    entityName: 'Municipiul Exemplu',
     acceptedTermsAt: '2026-04-01T10:00:00.000Z',
     ctaUrl: 'https://transparenta.eu/entities/12345678',
   } as PublicDebateCampaignWelcomeProps,

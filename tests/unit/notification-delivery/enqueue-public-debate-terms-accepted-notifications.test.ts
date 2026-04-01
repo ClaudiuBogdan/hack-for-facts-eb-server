@@ -115,6 +115,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       makeInput({
         entityCui: '87654321',
         entityName: 'A Doua Entitate',
+        selectedEntities: ['A Doua Entitate', 'Prima Entitate'],
         entitySubscriptionId: 'notification-entity-2',
       })
     );
@@ -125,6 +126,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
         sourceEventId: 'event-2',
         entityCui: '87654321',
         entityName: 'A Doua Entitate',
+        selectedEntities: ['A Doua Entitate', 'Prima Entitate'],
         entitySubscriptionId: 'notification-entity-2',
       })
     );
@@ -147,6 +149,10 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       expect(entitySubscription.value?.notificationType).toBe(
         'campaign_public_debate_entity_subscription'
       );
+      expect(entitySubscription.value?.metadata['selectedEntities']).toEqual([
+        'A Doua Entitate',
+        'Prima Entitate',
+      ]);
     }
     expect(queuedJobs).toHaveLength(2);
   });

@@ -1,4 +1,4 @@
-import { Hr, Section, Text, Button } from '@react-email/components';
+import { Button, Link, Section, Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
@@ -9,12 +9,12 @@ import { getTranslations } from '../../core/i18n.js';
 import type { PublicDebateCampaignWelcomeProps } from '../../core/types.js';
 
 const styles = {
-  heading: {
-    fontSize: '22px',
-    lineHeight: '32px',
+  greeting: {
+    fontSize: '16px',
+    lineHeight: '26px',
     fontWeight: '700',
     color: '#111827',
-    margin: '0 0 8px',
+    margin: '0 0 16px',
   },
   body: {
     fontSize: '15px',
@@ -23,9 +23,9 @@ const styles = {
     margin: '0 0 16px',
   },
   panel: {
-    border: '1px solid #FEE2E2',
+    border: '1px solid #E5E7EB',
     borderRadius: '10px',
-    backgroundColor: '#FEF2F2',
+    backgroundColor: '#F9FAFB',
     padding: '16px 18px',
     margin: '24px 0',
   },
@@ -33,27 +33,17 @@ const styles = {
     fontSize: '12px',
     lineHeight: '18px',
     fontWeight: '700',
-    color: '#ef2d00',
+    color: '#6B7280',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
-    margin: '0 0 4px',
+    margin: '0 0 8px',
   },
   value: {
-    fontSize: '14px',
-    lineHeight: '22px',
+    fontSize: '20px',
+    lineHeight: '30px',
+    fontWeight: '700',
     color: '#111827',
-    margin: '0 0 12px',
-  },
-  listPanel: {
-    borderLeft: '3px solid #ef2d00',
-    paddingLeft: '14px',
-    margin: '0 0 20px',
-  },
-  benefit: {
-    fontSize: '14px',
-    lineHeight: '24px',
-    color: '#374151',
-    margin: '0 0 8px',
+    margin: '0',
   },
   ctaSection: {
     margin: '28px 0 24px',
@@ -70,37 +60,31 @@ const styles = {
     display: 'inline-block',
     padding: '14px 32px',
   },
-  divider: {
-    borderColor: '#E5E7EB',
-    margin: '24px 0 16px',
+  link: {
+    color: '#3565c4',
+    textDecoration: 'underline',
   },
-  closing: {
-    fontSize: '13px',
-    lineHeight: '22px',
-    color: '#6B7280',
+  signature: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    fontWeight: '700',
+    color: '#111827',
     margin: '0',
   },
-};
-
-const formatTimestamp = (lang: PublicDebateCampaignWelcomeProps['lang'], value: string): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
+  closing: {
+    fontSize: '15px',
+    lineHeight: '26px',
+    color: '#6B7280',
+    margin: '0 0 16px',
+  },
 };
 
 export const PublicDebateCampaignWelcomeEmail = (
   props: PublicDebateCampaignWelcomeProps
 ): React.ReactElement => {
   const t = getTranslations(props.lang).publicDebateCampaignWelcome;
-  const acceptedTermsAt = formatTimestamp(props.lang, props.acceptedTermsAt);
   const actionUrl = props.ctaUrl ?? `${props.platformBaseUrl}/entities/${props.entityCui}`;
+  const localityChangeUrl = `${props.platformBaseUrl}/primarie`;
 
   return (
     <EmailLayout
@@ -112,25 +96,13 @@ export const PublicDebateCampaignWelcomeEmail = (
       header={<CampaignHeader />}
       {...(props.preferencesUrl !== undefined ? { preferencesUrl: props.preferencesUrl } : {})}
     >
-      <Text style={styles.heading}>{t.body.greeting}</Text>
+      <Text style={styles.greeting}>{t.body.greeting}</Text>
       <Text style={styles.body}>{t.body.intro}</Text>
+      <Text style={styles.body}>{t.body.modulesIntro}</Text>
 
       <Section style={styles.panel}>
-        <Text style={styles.label}>{t.body.entityLabel}</Text>
-        <Text style={styles.value}>
-          {props.entityName} ({props.entityCui})
-        </Text>
-
-        <Text style={styles.label}>{t.body.acceptedTermsAtLabel}</Text>
-        <Text style={styles.value}>{acceptedTermsAt}</Text>
-      </Section>
-
-      <Section style={styles.listPanel}>
-        {t.body.benefits.map((benefit, index) => (
-          <Text key={index} style={styles.benefit}>
-            {'\u2022'} {benefit}
-          </Text>
-        ))}
+        <Text style={styles.label}>{t.body.localityLabel}</Text>
+        <Text style={styles.value}>{props.entityName}</Text>
       </Section>
 
       <Section style={styles.ctaSection}>
@@ -139,8 +111,15 @@ export const PublicDebateCampaignWelcomeEmail = (
         </Button>
       </Section>
 
-      <Hr style={styles.divider} />
+      <Text style={styles.body}>
+        {t.body.preferencesPrefix}
+        <Link href={localityChangeUrl} style={styles.link}>
+          {t.body.preferencesLinkLabel}
+        </Link>
+        {t.body.preferencesSuffix}
+      </Text>
       <Text style={styles.closing}>{t.body.closing}</Text>
+      <Text style={styles.signature}>{t.body.signature}</Text>
     </EmailLayout>
   );
 };
