@@ -81,7 +81,12 @@ export const parseAnafForexebugDigestScopeKey = (scopeKey: string): string | nul
   return MONTHLY_PERIOD_KEY_PATTERN.test(scopeKey) ? scopeKey : null;
 };
 
-export type NotificationOutboxType = NotificationType | 'transactional_welcome' | BundleOutboxType;
+export type NotificationOutboxType =
+  | NotificationType
+  | 'transactional_welcome'
+  | 'campaign_public_debate_welcome'
+  | 'campaign_public_debate_entity_subscription'
+  | BundleOutboxType;
 
 export interface AnafForexebugDigestMetadata {
   digestType: 'anaf_forexebug_digest';

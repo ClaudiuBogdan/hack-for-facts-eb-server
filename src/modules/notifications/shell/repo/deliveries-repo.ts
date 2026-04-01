@@ -10,8 +10,7 @@ import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import { createDatabaseError, type NotificationError } from '../../core/errors.js';
 import {
-  ALERT_TYPES,
-  NEWSLETTER_TYPES,
+  USER_VISIBLE_NOTIFICATION_TYPES,
   type NotificationDeliveryHistory,
 } from '../../core/types.js';
 
@@ -85,7 +84,7 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
       // Keep the full delivery record in the domain model.
       // The REST serializer decides which fields are safe to expose.
       const rows = await this.db
-        .selectFrom('notificationoutbox')
+        .selectFrom('notificationsoutbox')
         .select([
           'id',
           'user_id',
@@ -110,7 +109,7 @@ class KyselyDeliveriesRepo implements DeliveriesRepository {
           'created_at',
         ])
         .where('user_id', '=', userId)
-        .where('notification_type', 'in', [...NEWSLETTER_TYPES, ...ALERT_TYPES])
+        .where('notification_type', 'in', [...USER_VISIBLE_NOTIFICATION_TYPES])
         .where('sent_at', 'is not', null)
         .orderBy('sent_at', 'desc')
         .orderBy('created_at', 'desc')

@@ -27,7 +27,11 @@ import {
 import { isAuthenticated } from '../../../auth/core/types.js';
 import { requireAuthHandler } from '../../../auth/shell/middleware/fastify-auth.js';
 import { getHttpStatusForError } from '../../core/errors.js';
-import { type NotificationConfig, DEFAULT_DELIVERIES_LIMIT } from '../../core/types.js';
+import {
+  type NotificationConfig,
+  DEFAULT_DELIVERIES_LIMIT,
+  NOTIFICATION_TYPE_CONFIGS,
+} from '../../core/types.js';
 import { deleteNotification } from '../../core/usecases/delete-notification.js';
 import { listDeliveries } from '../../core/usecases/list-deliveries.js';
 import {
@@ -77,11 +81,19 @@ function formatNotification(notification: {
   createdAt: Date;
   updatedAt: Date;
 }) {
+  const typeConfig =
+    notification.notificationType in NOTIFICATION_TYPE_CONFIGS
+      ? NOTIFICATION_TYPE_CONFIGS[
+          notification.notificationType as keyof typeof NOTIFICATION_TYPE_CONFIGS
+        ]
+      : null;
+
   return {
     id: notification.id,
     userId: notification.userId,
     entityCui: notification.entityCui,
     notificationType: notification.notificationType,
+    campaignKey: typeConfig?.campaignKey ?? null,
     isActive: notification.isActive,
     config: notification.config,
     createdAt: notification.createdAt.toISOString(),

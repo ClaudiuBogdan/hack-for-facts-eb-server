@@ -30,6 +30,9 @@ import type {
   AnafForexebugDigestProps,
   AnafForexebugDigestSection,
   EmailTemplateProps,
+  PublicDebateCampaignWelcomeProps,
+  PublicDebateEntitySubscriptionProps,
+  PublicDebateEntityUpdateProps,
   WelcomeEmailProps,
 } from '../../../../email-templates/core/types.js';
 import type { Notification } from '../../../../notifications/core/types.js';
@@ -144,6 +147,250 @@ const buildWelcomeTemplateProps = (
     copyrightYear: new Date(registeredAt).getUTCFullYear(),
     registeredAt,
     ctaUrl: platformBaseUrl,
+  };
+};
+
+const buildPublicDebateCampaignWelcomeTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<PublicDebateCampaignWelcomeProps, string> => {
+  const campaignKey =
+    typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
+  const entityCui =
+    typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
+  const entityName =
+    typeof outbox.metadata['entityName'] === 'string' ? outbox.metadata['entityName'] : null;
+  const acceptedTermsAt =
+    typeof outbox.metadata['acceptedTermsAt'] === 'string'
+      ? outbox.metadata['acceptedTermsAt']
+      : null;
+
+  if (campaignKey === null)
+    return err('Invalid public debate welcome metadata: campaignKey is required');
+  if (entityCui === null)
+    return err('Invalid public debate welcome metadata: entityCui is required');
+  if (entityName === null || entityName.trim() === '') {
+    return err('Invalid public debate welcome metadata: entityName is required');
+  }
+  if (acceptedTermsAt === null) {
+    return err('Invalid public debate welcome metadata: acceptedTermsAt is required');
+  }
+
+  const acceptedTermsAtDate = new Date(acceptedTermsAt);
+  const copyrightYear = Number.isNaN(acceptedTermsAtDate.getTime())
+    ? outbox.createdAt.getUTCFullYear()
+    : acceptedTermsAtDate.getUTCFullYear();
+  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+
+  return ok({
+    templateType: 'public_debate_campaign_welcome',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl,
+    platformBaseUrl,
+    copyrightYear,
+    campaignKey,
+    entityCui,
+    entityName,
+    acceptedTermsAt,
+    ctaUrl: `${platformBaseUrl}/entities/${entityCui}`,
+  });
+};
+
+const buildPublicDebateEntitySubscriptionTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<PublicDebateEntitySubscriptionProps, string> => {
+  const campaignKey =
+    typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
+  const entityCui =
+    typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
+  const entityName =
+    typeof outbox.metadata['entityName'] === 'string' ? outbox.metadata['entityName'] : null;
+  const acceptedTermsAt =
+    typeof outbox.metadata['acceptedTermsAt'] === 'string'
+      ? outbox.metadata['acceptedTermsAt']
+      : null;
+
+  if (campaignKey === null) {
+    return err('Invalid public debate entity subscription metadata: campaignKey is required');
+  }
+  if (entityCui === null) {
+    return err('Invalid public debate entity subscription metadata: entityCui is required');
+  }
+  if (entityName === null || entityName.trim() === '') {
+    return err('Invalid public debate entity subscription metadata: entityName is required');
+  }
+  if (acceptedTermsAt === null) {
+    return err('Invalid public debate entity subscription metadata: acceptedTermsAt is required');
+  }
+
+  const acceptedTermsAtDate = new Date(acceptedTermsAt);
+  const copyrightYear = Number.isNaN(acceptedTermsAtDate.getTime())
+    ? outbox.createdAt.getUTCFullYear()
+    : acceptedTermsAtDate.getUTCFullYear();
+  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+
+  return ok({
+    templateType: 'public_debate_entity_subscription',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl,
+    platformBaseUrl,
+    copyrightYear,
+    campaignKey,
+    entityCui,
+    entityName,
+    acceptedTermsAt,
+    ctaUrl: `${platformBaseUrl}/entities/${entityCui}`,
+  });
+};
+
+const buildPublicDebateEntityUpdateTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<PublicDebateEntityUpdateProps, string> => {
+  const eventType =
+    typeof outbox.metadata['eventType'] === 'string' ? outbox.metadata['eventType'] : null;
+  const campaignKey =
+    typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
+  const entityCui =
+    typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
+  const threadId =
+    typeof outbox.metadata['threadId'] === 'string' ? outbox.metadata['threadId'] : null;
+  const threadKey =
+    typeof outbox.metadata['threadKey'] === 'string' ? outbox.metadata['threadKey'] : null;
+  const phase = typeof outbox.metadata['phase'] === 'string' ? outbox.metadata['phase'] : null;
+  const institutionEmail =
+    typeof outbox.metadata['institutionEmail'] === 'string'
+      ? outbox.metadata['institutionEmail']
+      : null;
+  const subjectLine =
+    typeof outbox.metadata['subject'] === 'string' ? outbox.metadata['subject'] : null;
+  const occurredAt =
+    typeof outbox.metadata['occurredAt'] === 'string' ? outbox.metadata['occurredAt'] : null;
+
+  if (
+    eventType !== 'thread_started' &&
+    eventType !== 'thread_failed' &&
+    eventType !== 'reply_received' &&
+    eventType !== 'reply_reviewed'
+  ) {
+    return err('Invalid public debate update metadata: eventType is missing or invalid');
+  }
+
+  if (campaignKey === null)
+    return err('Invalid public debate update metadata: campaignKey is required');
+  if (entityCui === null)
+    return err('Invalid public debate update metadata: entityCui is required');
+  if (threadId === null) return err('Invalid public debate update metadata: threadId is required');
+  if (threadKey === null)
+    return err('Invalid public debate update metadata: threadKey is required');
+  if (phase === null) return err('Invalid public debate update metadata: phase is required');
+  if (institutionEmail === null) {
+    return err('Invalid public debate update metadata: institutionEmail is required');
+  }
+  if (subjectLine === null)
+    return err('Invalid public debate update metadata: subject is required');
+  if (occurredAt === null)
+    return err('Invalid public debate update metadata: occurredAt is required');
+
+  const occurredAtDate = new Date(occurredAt);
+  const copyrightYear = Number.isNaN(occurredAtDate.getTime())
+    ? new Date().getUTCFullYear()
+    : occurredAtDate.getUTCFullYear();
+  const replyTextPreview = outbox.metadata['replyTextPreview'];
+  const resolutionCode = outbox.metadata['resolutionCode'];
+  const reviewNotes = outbox.metadata['reviewNotes'];
+  const preferencesUrl = buildNotificationSettingsUrl(platformBaseUrl);
+
+  return ok({
+    templateType: 'public_debate_entity_update',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl,
+    platformBaseUrl,
+    copyrightYear,
+    eventType,
+    campaignKey,
+    entityCui,
+    threadId,
+    threadKey,
+    phase,
+    institutionEmail,
+    subjectLine,
+    occurredAt,
+    ...(typeof replyTextPreview === 'string' || replyTextPreview === null
+      ? { replyTextPreview }
+      : {}),
+    ...(typeof resolutionCode === 'string' || resolutionCode === null ? { resolutionCode } : {}),
+    ...(typeof reviewNotes === 'string' || reviewNotes === null ? { reviewNotes } : {}),
+  });
+};
+
+const persistRenderedOutboxAndEnqueueSend = async (input: {
+  deliveryRepo: DeliveryRepository;
+  sendQueue: Queue<SendJobPayload>;
+  outbox: NotificationOutboxRecord;
+  runId: string;
+  rendered: {
+    subject: string;
+    html: string;
+    text: string;
+    templateName: string;
+    templateVersion: string;
+  };
+  log: Logger;
+  updateFailureLogMessage: string;
+  successLogMessage: string;
+}): Promise<{
+  runId: string;
+  outboxId: string;
+  status: 'composed';
+}> => {
+  const contentHash = hashContent(input.rendered.html, input.rendered.text);
+  const updateResult = await input.deliveryRepo.updateRenderedContent(input.outbox.id, {
+    renderedSubject: input.rendered.subject,
+    renderedHtml: input.rendered.html,
+    renderedText: input.rendered.text,
+    contentHash,
+    templateName: input.rendered.templateName,
+    templateVersion: input.rendered.templateVersion,
+  });
+
+  if (updateResult.isErr()) {
+    await releaseComposeClaim(
+      input.deliveryRepo,
+      input.outbox.id,
+      getErrorMessage(updateResult.error),
+      input.log
+    );
+    input.log.error(
+      { error: updateResult.error, outboxId: input.outbox.id },
+      input.updateFailureLogMessage
+    );
+    throw new Error(getErrorMessage(updateResult.error));
+  }
+
+  await releaseComposeClaim(input.deliveryRepo, input.outbox.id, undefined, input.log);
+  await enqueueSendJob(input.sendQueue, input.outbox.id);
+
+  input.log.info(
+    {
+      runId: input.runId,
+      outboxId: input.outbox.id,
+      notificationType: input.outbox.notificationType,
+    },
+    input.successLogMessage
+  );
+
+  return {
+    runId: input.runId,
+    outboxId: input.outbox.id,
+    status: 'composed',
   };
 };
 
@@ -407,6 +654,9 @@ export const composeExistingOutbox = async (
 
   if (
     outbox.notificationType !== 'transactional_welcome' &&
+    outbox.notificationType !== 'campaign_public_debate_welcome' &&
+    outbox.notificationType !== 'campaign_public_debate_entity_subscription' &&
+    outbox.notificationType !== 'campaign_public_debate_entity_updates' &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
     return failOutboxPermanently(
@@ -448,33 +698,142 @@ export const composeExistingOutbox = async (
       );
     }
 
-    const rendered = renderResult.value;
-    const contentHash = hashContent(rendered.html, rendered.text);
-    const updateResult = await deliveryRepo.updateRenderedContent(outbox.id, {
-      renderedSubject: rendered.subject,
-      renderedHtml: rendered.html,
-      renderedText: rendered.text,
-      contentHash,
-      templateName: rendered.templateName,
-      templateVersion: rendered.templateVersion,
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update welcome outbox row',
+      successLogMessage: 'Welcome notification composed and send job enqueued',
     });
+  }
 
-    if (updateResult.isErr()) {
-      await releaseComposeClaim(deliveryRepo, outbox.id, getErrorMessage(updateResult.error), log);
-      log.error({ error: updateResult.error, outboxId }, 'Failed to update welcome outbox row');
-      throw new Error(getErrorMessage(updateResult.error));
+  if (outbox.notificationType === 'campaign_public_debate_welcome') {
+    const templatePropsResult = buildPublicDebateCampaignWelcomeTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Public debate campaign welcome compose failed permanently'
+      );
     }
 
-    await releaseComposeClaim(deliveryRepo, outbox.id, undefined, log);
-    await enqueueSendJob(sendQueue, outbox.id);
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Public debate campaign welcome render failed permanently'
+      );
+    }
 
-    log.info({ runId, outboxId }, 'Welcome notification composed and send job enqueued');
-
-    return {
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
       runId,
-      outboxId,
-      status: 'composed',
-    };
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate campaign welcome outbox row',
+      successLogMessage: 'Public debate campaign welcome composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === 'campaign_public_debate_entity_subscription') {
+    const templatePropsResult = buildPublicDebateEntitySubscriptionTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Public debate entity subscription compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Public debate entity subscription render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate entity subscription outbox row',
+      successLogMessage: 'Public debate entity subscription composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === 'campaign_public_debate_entity_updates') {
+    const templatePropsResult = buildPublicDebateEntityUpdateTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Public debate update compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Public debate update render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate outbox row',
+      successLogMessage: 'Public debate notification composed and send job enqueued',
+    });
   }
 
   const templatePropsResult = await buildBundleTemplateProps(
@@ -518,34 +877,14 @@ export const composeExistingOutbox = async (
     );
   }
 
-  const rendered = renderResult.value;
-  const contentHash = hashContent(rendered.html, rendered.text);
-  const updateResult = await deliveryRepo.updateRenderedContent(outbox.id, {
-    renderedSubject: rendered.subject,
-    renderedHtml: rendered.html,
-    renderedText: rendered.text,
-    contentHash,
-    templateName: rendered.templateName,
-    templateVersion: rendered.templateVersion,
-  });
-
-  if (updateResult.isErr()) {
-    await releaseComposeClaim(deliveryRepo, outbox.id, getErrorMessage(updateResult.error), log);
-    log.error({ error: updateResult.error, outboxId }, 'Failed to update bundle outbox row');
-    throw new Error(getErrorMessage(updateResult.error));
-  }
-
-  await releaseComposeClaim(deliveryRepo, outbox.id, undefined, log);
-  await enqueueSendJob(sendQueue, outbox.id);
-
-  log.info(
-    { runId, outboxId, notificationType: outbox.notificationType },
-    'Outbox notification composed and send job enqueued'
-  );
-
-  return {
+  return persistRenderedOutboxAndEnqueueSend({
+    deliveryRepo,
+    sendQueue,
+    outbox,
     runId,
-    outboxId,
-    status: 'composed',
-  };
+    rendered: renderResult.value,
+    log,
+    updateFailureLogMessage: 'Failed to update bundle outbox row',
+    successLogMessage: 'Outbox notification composed and send job enqueued',
+  });
 };

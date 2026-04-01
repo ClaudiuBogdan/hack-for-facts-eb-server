@@ -8,8 +8,7 @@ import { ok, err, type Result } from 'neverthrow';
 import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
 import {
-  ALERT_TYPES,
-  NEWSLETTER_TYPES,
+  USER_VISIBLE_NOTIFICATION_TYPES,
   generateNotificationHash,
   type Notification,
   type NotificationDelivery,
@@ -977,7 +976,7 @@ export const makeFakeDeliveriesRepo = (
             d.userId === userId &&
             hasSentAt(d) &&
             notificationType !== undefined &&
-            [...NEWSLETTER_TYPES, ...ALERT_TYPES].includes(notificationType)
+            [...USER_VISIBLE_NOTIFICATION_TYPES].includes(notificationType)
           );
         })
         .sort((a, b) => {
@@ -2193,6 +2192,49 @@ export const makeFakeExtendedNotificationsRepo = (
         }
       }
       return ok(eligible);
+    },
+
+    findActiveByTypeAndEntity: async (notificationType: NotificationType, entityCui: string) => {
+      if (simulateDbError) return createDbError();
+
+      return ok(
+        [...store.values()].filter(
+          (notification) =>
+            notification.notificationType === notificationType &&
+            notification.entityCui === entityCui &&
+            notification.isActive &&
+            !globallyUnsubscribedUsers.has(notification.userId) &&
+            !(
+              notificationType === 'campaign_public_debate_entity_updates' &&
+              [...store.values()].some(
+                (candidate) =>
+                  candidate.userId === notification.userId &&
+                  candidate.notificationType === 'campaign_public_debate_global' &&
+                  !candidate.isActive
+              )
+            ) &&
+            ![...store.values()].some((candidate) => {
+              if (
+                candidate.userId !== notification.userId ||
+                candidate.notificationType !== 'global_unsubscribe'
+              ) {
+                return false;
+              }
+
+              if (!candidate.isActive) {
+                return true;
+              }
+
+              const config = candidate.config as Record<string, unknown> | null;
+              if (config !== null && typeof config === 'object') {
+                const channels = config['channels'] as Record<string, unknown> | undefined;
+                return channels?.['email'] === false;
+              }
+
+              return false;
+            })
+        )
+      );
     },
 
     deactivate: async (notificationId: string) => {

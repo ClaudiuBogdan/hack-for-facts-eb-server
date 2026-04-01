@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'crypto';
 
-import { sql } from 'kysely';
+import { sql, type Transaction } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
@@ -26,6 +26,7 @@ import type {
   UpdateNotificationRepoInput,
 } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
+import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,9 +52,11 @@ interface QueryRow {
  * Options for creating the notifications repository.
  */
 export interface NotificationsRepoOptions {
-  db: UserDbClient;
+  db: UserDbConnection;
   logger: Logger;
 }
+
+type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository Implementation
@@ -63,7 +66,7 @@ export interface NotificationsRepoOptions {
  * Kysely-based Notifications Repository.
  */
 class KyselyNotificationsRepo implements NotificationsRepository {
-  private readonly db: UserDbClient;
+  private readonly db: UserDbConnection;
   private readonly log: Logger;
 
   constructor(options: NotificationsRepoOptions) {
@@ -396,7 +399,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
       // SECURITY: SEC-019 - Atomic cascade deletion to prevent data inconsistency
       await this.db.transaction().execute(async (trx) => {
-        await trx.deleteFrom('notificationoutbox').where('reference_id', '=', id).execute();
+        await trx.deleteFrom('notificationsoutbox').where('reference_id', '=', id).execute();
         await trx.deleteFrom('notifications').where('id', '=', id).execute();
       });
 

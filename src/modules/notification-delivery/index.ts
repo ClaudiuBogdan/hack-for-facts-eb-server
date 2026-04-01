@@ -163,6 +163,19 @@ export {
   type EnqueueTransactionalWelcomeNotificationResult,
   type UserRegisteredEvent,
 } from './core/usecases/enqueue-transactional-welcome-notification.js';
+export {
+  enqueuePublicDebateEntityUpdateNotifications,
+  type EnqueuePublicDebateEntityUpdateNotificationsDeps,
+  type EnqueuePublicDebateEntityUpdateNotificationsResult,
+  type PublicDebateEntityUpdateNotificationInput,
+  type PublicDebateEntityUpdateEventType,
+} from './core/usecases/enqueue-public-debate-entity-update-notifications.js';
+export {
+  enqueuePublicDebateTermsAcceptedNotifications,
+  type EnqueuePublicDebateTermsAcceptedNotificationsDeps,
+  type EnqueuePublicDebateTermsAcceptedNotificationsResult,
+  type PublicDebateTermsAcceptedEvent,
+} from './core/usecases/enqueue-public-debate-terms-accepted-notifications.js';
 export { materializeAnafForexebugDigests } from './core/usecases/materialize-anaf-forexebug-digests.js';
 export type {
   MaterializeAnafForexebugDigestsDeps,
