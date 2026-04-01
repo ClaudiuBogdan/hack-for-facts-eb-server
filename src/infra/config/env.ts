@@ -117,8 +117,6 @@ export const EnvSchema = Type.Object({
   // Notifications
   /** API key for triggering notification jobs */
   NOTIFICATION_TRIGGER_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-  /** Platform base URL for building links to the frontend */
-  PLATFORM_BASE_URL: Type.Optional(Type.String()),
   /** API base URL for building unsubscribe/API links in emails (defaults to api.transparenta.eu) */
   API_BASE_URL: Type.String(),
   /** HMAC secret for signing unsubscribe tokens */
@@ -274,7 +272,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         : 15,
     // Notifications
     NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
-    PLATFORM_BASE_URL: env['PLATFORM_BASE_URL'],
     API_BASE_URL: env['API_BASE_URL'],
     UNSUBSCRIBE_HMAC_SECRET: env['UNSUBSCRIBE_HMAC_SECRET'],
     // Learning Progress Admin Review API
@@ -431,8 +428,8 @@ export const createConfig = (env: Env) => ({
   notifications: {
     /** API key for triggering notification jobs */
     triggerApiKey: env.NOTIFICATION_TRIGGER_API_KEY,
-    /** Platform base URL for frontend links */
-    platformBaseUrl: env.PLATFORM_BASE_URL ?? env.CLIENT_BASE_URL ?? '',
+    /** Public client base URL for frontend links */
+    platformBaseUrl: env.PUBLIC_CLIENT_BASE_URL ?? env.CLIENT_BASE_URL ?? '',
     /** API base URL for unsubscribe and API links in emails */
     apiBaseUrl: env.API_BASE_URL,
     /** HMAC secret for signing unsubscribe tokens */

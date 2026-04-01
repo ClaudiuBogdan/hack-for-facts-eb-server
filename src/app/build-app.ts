@@ -1077,7 +1077,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     if (shouldStartNotificationWorkers && config.notifications.platformBaseUrl === '') {
       throw new Error(
-        'Notification delivery requires PLATFORM_BASE_URL when BullMQ workers are enabled.'
+        'Notification delivery requires PUBLIC_CLIENT_BASE_URL when BullMQ workers are enabled.'
       );
     }
 
