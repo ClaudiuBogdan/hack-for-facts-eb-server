@@ -1,7 +1,6 @@
-import { UnrecoverableError } from 'bullmq';
 import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { makePublicDebateRequestUserEventHandler } from '@/modules/user-events/index.js';
 
@@ -12,7 +11,16 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../institution-correspondence/fake-repo.js';
 
-import type { LearningProgressRecordRow } from '@/modules/learning-progress/index.js';
+import type { EntityProfileRepository } from '@/modules/entity/index.js';
+import type {
+  CorrespondenceEmailSender,
+  InstitutionCorrespondenceRepository,
+  PublicDebateEntitySubscriptionService,
+} from '@/modules/institution-correspondence/index.js';
+import type {
+  LearningProgressRecordRow,
+  LearningProgressRepository,
+} from '@/modules/learning-progress/index.js';
 
 function makeLearningRow(
   userId: string,
@@ -31,11 +39,19 @@ function makeLearningRow(
 
 function createDebateRequestRecord(input: {
   entityCui?: string;
+  institutionEmail?: string;
   submissionPath: 'send_yourself' | 'request_platform';
+  preparedSubject?: string | null;
   updatedAt?: string;
   key?: string;
 }) {
   const entityCui = input.entityCui ?? '12345678';
+  const institutionEmail = input.institutionEmail ?? 'contact@primarie.ro';
+  const preparedSubject =
+    input.preparedSubject ??
+    (input.submissionPath === 'send_yourself'
+      ? 'Cerere organizare dezbatere publica - Oras Test - buget local 2026'
+      : null);
   const updatedAt = input.updatedAt ?? '2026-03-31T10:00:00.000Z';
 
   return createTestInteractiveRecord({
@@ -50,10 +66,11 @@ function createDebateRequestRecord(input: {
       kind: 'json',
       json: {
         value: {
-          primariaEmail: 'contact@primarie.ro',
+          primariaEmail: institutionEmail,
           isNgo: true,
           organizationName: 'Asociatia Test',
-          ngoSenderEmail: null,
+          ngoSenderEmail: input.submissionPath === 'send_yourself' ? 'ngo@example.com' : null,
+          preparedSubject,
           threadKey: null,
           submissionPath: input.submissionPath,
           submittedAt: updatedAt,
@@ -66,33 +83,80 @@ function createDebateRequestRecord(input: {
   });
 }
 
+function makeTestEntityProfileRepo(
+  officialEmail: string | null = 'contact@primarie.ro'
+): EntityProfileRepository {
+  return {
+    async getByEntityCui() {
+      return ok({
+        institution_type: null,
+        website_url: null,
+        official_email: officialEmail,
+        phone_primary: null,
+        address_raw: null,
+        address_locality: null,
+        county_code: null,
+        county_name: null,
+        leader_name: null,
+        leader_title: null,
+        leader_party: null,
+        scraped_at: '2026-03-31T10:00:00.000Z',
+        extraction_confidence: null,
+      });
+    },
+    async getByEntityCuis() {
+      return ok(new Map());
+    },
+  };
+}
+
+function createHandler(input: {
+  learningProgressRepo?: LearningProgressRepository;
+  entityProfileRepo?: EntityProfileRepository;
+  correspondenceRepo?: InstitutionCorrespondenceRepository;
+  subscriptionService?: PublicDebateEntitySubscriptionService;
+  send?: CorrespondenceEmailSender['send'];
+}) {
+  const send =
+    input.send ??
+    (async () => {
+      return ok({ emailId: 'email-1' });
+    });
+
+  return makePublicDebateRequestUserEventHandler({
+    learningProgressRepo: input.learningProgressRepo ?? makeFakeLearningProgressRepo(),
+    entityProfileRepo: input.entityProfileRepo ?? makeTestEntityProfileRepo(),
+    repo: input.correspondenceRepo ?? makeInMemoryCorrespondenceRepo(),
+    emailSender: {
+      getFromAddress() {
+        return 'noreply@transparenta.eu';
+      },
+      async send(params) {
+        return send(params);
+      },
+    },
+    templateRenderer: {
+      renderPublicDebateRequest(input) {
+        return {
+          subject: `Public debate [teu:${input.threadKey}]`,
+          text: `Text for ${input.institutionEmail}`,
+          html: `<p>${input.institutionEmail}</p>`,
+        };
+      },
+    },
+    auditCcRecipients: ['audit@transparenta.test'],
+    platformBaseUrl: 'https://transparenta.test',
+    captureAddress: 'debate@transparenta.test',
+    ...(input.subscriptionService !== undefined
+      ? { subscriptionService: input.subscriptionService }
+      : {}),
+    logger: pinoLogger({ level: 'silent' }),
+  });
+}
+
 describe('makePublicDebateRequestUserEventHandler', () => {
   it('matches only interactive.updated user events', () => {
-    const handler = makePublicDebateRequestUserEventHandler({
-      learningProgressRepo: makeFakeLearningProgressRepo(),
-      repo: makeInMemoryCorrespondenceRepo(),
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
-    });
+    const handler = createHandler({});
 
     expect(
       handler.matches({
@@ -115,8 +179,8 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     ).toBe(false);
   });
 
-  it('sends only for eligible current records', async () => {
-    const sentEmails: Record<string, unknown>[] = [];
+  it('sends and approves the record when the submitted email matches the official entity profile email', async () => {
+    const sentEmails: unknown[] = [];
     const record = createDebateRequestRecord({
       submissionPath: 'request_platform',
     });
@@ -124,31 +188,14 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
     });
     const correspondenceRepo = makeInMemoryCorrespondenceRepo();
-    const handler = makePublicDebateRequestUserEventHandler({
+    const handler = createHandler({
       learningProgressRepo,
-      repo: correspondenceRepo,
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send(params) {
-          sentEmails.push(params as unknown as Record<string, unknown>);
-          return ok({ emailId: 'email-1' });
-        },
+      correspondenceRepo,
+      entityProfileRepo: makeTestEntityProfileRepo('contact@primarie.ro'),
+      send: async (params) => {
+        sentEmails.push(params);
+        return ok({ emailId: 'email-1' });
       },
-      templateRenderer: {
-        renderPublicDebateRequest(input) {
-          return {
-            subject: `Public debate [teu:${input.threadKey}]`,
-            text: `Text for ${input.institutionEmail}`,
-            html: `<p>${input.institutionEmail}</p>`,
-          };
-        },
-      },
-      auditCcRecipients: ['audit@transparenta.test'],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
     });
 
     await handler.handle({
@@ -162,34 +209,17 @@ describe('makePublicDebateRequestUserEventHandler', () => {
 
     expect(sentEmails).toHaveLength(1);
     expect(correspondenceRepo.snapshotThreads()).toHaveLength(1);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('resolved');
+    expect(storedRecord?.record.review?.status).toBe('approved');
   });
 
   it('skips safely when the record is missing', async () => {
     const correspondenceRepo = makeInMemoryCorrespondenceRepo();
-    const handler = makePublicDebateRequestUserEventHandler({
-      learningProgressRepo: makeFakeLearningProgressRepo(),
-      repo: correspondenceRepo,
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
+    const handler = createHandler({
+      correspondenceRepo,
     });
 
     await handler.handle({
@@ -205,32 +235,10 @@ describe('makePublicDebateRequestUserEventHandler', () => {
   });
 
   it('throws when loading the learning progress record fails', async () => {
-    const handler = makePublicDebateRequestUserEventHandler({
+    const handler = createHandler({
       learningProgressRepo: makeFakeLearningProgressRepo({
         simulateDbError: true,
       }),
-      repo: makeInMemoryCorrespondenceRepo(),
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
     });
 
     await expect(
@@ -245,7 +253,7 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     ).rejects.toThrow('Simulated database error');
   });
 
-  it('skips records whose current state is not request_platform', async () => {
+  it('does not send platform email for send_yourself submissions', async () => {
     const record = createDebateRequestRecord({
       submissionPath: 'send_yourself',
     });
@@ -253,30 +261,11 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
     });
     const correspondenceRepo = makeInMemoryCorrespondenceRepo();
-    const handler = makePublicDebateRequestUserEventHandler({
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const handler = createHandler({
       learningProgressRepo,
-      repo: correspondenceRepo,
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
+      correspondenceRepo,
+      send,
     });
 
     await handler.handle({
@@ -288,10 +277,46 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       recordKey: record.key,
     });
 
+    expect(send).not.toHaveBeenCalled();
     expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
   });
 
-  it('skips when a platform-send thread already exists', async () => {
+  it('subscribes the user for send_yourself submissions without sending a platform email', async () => {
+    const record = createDebateRequestRecord({
+      submissionPath: 'send_yourself',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const ensureSubscribed = vi.fn(async () => ok(undefined));
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const handler = createHandler({
+      learningProgressRepo,
+      subscriptionService: {
+        ensureSubscribed,
+      },
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(ensureSubscribed).toHaveBeenCalledWith('user-1', '12345678');
+    expect(send).not.toHaveBeenCalled();
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('pending');
+    expect(storedRecord?.record.review).toBeUndefined();
+  });
+
+  it('approves the record without sending when a platform-send thread already exists', async () => {
     const record = createDebateRequestRecord({
       submissionPath: 'request_platform',
     });
@@ -308,30 +333,11 @@ describe('makePublicDebateRequestUserEventHandler', () => {
         }),
       ],
     });
-    const handler = makePublicDebateRequestUserEventHandler({
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const handler = createHandler({
       learningProgressRepo,
-      repo: correspondenceRepo,
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
+      correspondenceRepo,
+      send,
     });
 
     await handler.handle({
@@ -343,7 +349,13 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       recordKey: record.key,
     });
 
+    expect(send).not.toHaveBeenCalled();
     expect(correspondenceRepo.snapshotThreads()).toHaveLength(1);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('resolved');
+    expect(storedRecord?.record.review?.status).toBe('approved');
   });
 
   it('throws when the downstream send fails with a retryable error so the queue can retry', async () => {
@@ -354,34 +366,16 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
     });
     const correspondenceRepo = makeInMemoryCorrespondenceRepo();
-    const handler = makePublicDebateRequestUserEventHandler({
+    const handler = createHandler({
       learningProgressRepo,
-      repo: correspondenceRepo,
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return err({
-            type: 'SERVER' as const,
-            message: 'Provider send failed',
-            retryable: true,
-          });
-        },
+      correspondenceRepo,
+      send: async () => {
+        return err({
+          type: 'SERVER' as const,
+          message: 'Provider send failed',
+          retryable: true,
+        });
       },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
     });
 
     await expect(
@@ -394,67 +388,117 @@ describe('makePublicDebateRequestUserEventHandler', () => {
         recordKey: record.key,
       })
     ).rejects.toThrow('Provider send failed');
+
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('pending');
+    expect(storedRecord?.record.review).toBeUndefined();
   });
 
-  it('throws UnrecoverableError for non-retryable correspondence failures', async () => {
-    const baseRecord = createDebateRequestRecord({
+  it('rejects invalid institution emails without sending', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'not-an-email',
       submissionPath: 'request_platform',
     });
-    const record = {
-      ...baseRecord,
-      value: {
-        kind: 'json' as const,
-        json: {
-          value: {
-            primariaEmail: 'not-an-email',
-            isNgo: true,
-            organizationName: 'Asociatia Test',
-            ngoSenderEmail: null,
-            threadKey: null,
-            submissionPath: 'request_platform',
-            submittedAt: baseRecord.updatedAt,
-          },
-        },
-      },
-    };
     const learningProgressRepo = makeFakeLearningProgressRepo({
       initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
     });
-    const handler = makePublicDebateRequestUserEventHandler({
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
       learningProgressRepo,
-      repo: makeInMemoryCorrespondenceRepo(),
-      emailSender: {
-        getFromAddress() {
-          return 'noreply@transparenta.eu';
-        },
-        async send() {
-          return ok({ emailId: 'email-1' });
-        },
-      },
-      templateRenderer: {
-        renderPublicDebateRequest() {
-          return {
-            subject: 'subject',
-            text: 'text',
-            html: '<p>html</p>',
-          };
-        },
-      },
-      auditCcRecipients: [],
-      platformBaseUrl: 'https://transparenta.test',
-      captureAddress: 'debate@transparenta.test',
-      logger: pinoLogger({ level: 'silent' }),
+      correspondenceRepo,
+      send,
     });
 
-    await expect(
-      handler.handle({
-        source: 'learning_progress',
-        userId: 'user-1',
-        eventId: 'event-1',
-        eventType: 'interactive.updated',
-        occurredAt: '2026-03-31T10:00:00.000Z',
-        recordKey: record.key,
-      })
-    ).rejects.toBeInstanceOf(UnrecoverableError);
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('failed');
+    expect(storedRecord?.record.review?.status).toBe('rejected');
+    expect(storedRecord?.record.review?.feedbackText).toBe(
+      'The submitted city hall email is not a valid email address.'
+    );
+  });
+
+  it('keeps the record pending when the submitted email mismatches the official profile email', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+      submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
+      learningProgressRepo,
+      entityProfileRepo: makeTestEntityProfileRepo('contact@primarie.ro'),
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('pending');
+    expect(storedRecord?.record.review).toBeUndefined();
+  });
+
+  it('keeps the record pending when the entity profile has no official email', async () => {
+    const record = createDebateRequestRecord({
+      submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
+      learningProgressRepo,
+      entityProfileRepo: makeTestEntityProfileRepo(null),
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('pending');
+    expect(storedRecord?.record.review).toBeUndefined();
   });
 });

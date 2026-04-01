@@ -1,4 +1,5 @@
 import type { UserEventJobPayload } from './types.js';
+import type { LearningProgressEvent } from '@/modules/learning-progress/index.js';
 
 export interface UserEventPublisher {
   publish(job: UserEventJobPayload): Promise<void>;
@@ -13,4 +14,10 @@ export interface UserEventHandler {
   name: string;
   matches(event: UserEventJobPayload): boolean;
   handle(event: UserEventJobPayload): Promise<void>;
+}
+
+export interface LearningProgressAppliedEventHandler {
+  name: string;
+  matches(event: LearningProgressEvent): boolean;
+  handle(input: { userId: string; event: LearningProgressEvent }): Promise<void>;
 }

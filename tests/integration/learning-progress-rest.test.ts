@@ -1,4 +1,6 @@
 import fastifyLib, { type FastifyInstance } from 'fastify';
+import { err, ok } from 'neverthrow';
+import pinoLogger from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -6,20 +8,36 @@ import {
   createTestAuthProvider,
   makeAuthMiddleware,
 } from '@/modules/auth/index.js';
+import { createDatabaseError } from '@/modules/learning-progress/core/errors.js';
+import { syncEvents } from '@/modules/learning-progress/index.js';
 import { makeLearningProgressRoutes } from '@/modules/learning-progress/shell/rest/routes.js';
+import { sha256Hasher } from '@/modules/notifications/index.js';
+import {
+  buildLearningProgressUserEventJobs,
+  makeEntityTermsAcceptedSyncHandler,
+  makeEntityTermsAcceptedUserEventHandler,
+  processLearningProgressAppliedEvents,
+} from '@/modules/user-events/index.js';
 
 import {
   createTestInteractiveRecord,
   createTestInteractiveUpdatedEvent,
   createTestProgressResetEvent,
+  makeFakeDeliveryRepo,
   makeFakeLearningProgressRepo,
+  makeFakeNotificationsRepo,
 } from '../fixtures/fakes.js';
 
+import type { EntityRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
   LearningProgressEvent,
   LearningProgressRecordRow,
 } from '@/modules/learning-progress/core/types.js';
+import type {
+  ComposeJobPayload,
+  ComposeJobScheduler,
+} from '@/modules/notification-delivery/index.js';
 
 function makeRow(
   userId: string,
@@ -61,6 +79,36 @@ function createStoredSourceUrlRecord(): LearningProgressRecordRow['record'] {
   };
 }
 
+function createAcceptedEntityTermsRecord(input?: {
+  entityCui?: string;
+  updatedAt?: string;
+}): LearningProgressRecordRow['record'] {
+  const entityCui = input?.entityCui ?? '12345678';
+  const updatedAt = input?.updatedAt ?? '2026-04-01T10:00:00.000Z';
+
+  return createTestInteractiveRecord({
+    key: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
+    interactionId: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
+    lessonId: 'system:campaign:buget:state',
+    kind: 'custom',
+    completionRule: { type: 'resolved' },
+    scope: { type: 'global' },
+    phase: 'resolved',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          entityCui,
+          acceptedTermsAt: updatedAt,
+        },
+      },
+    },
+    result: null,
+    updatedAt,
+    submittedAt: null,
+  });
+}
+
 function stripSourceUrl(
   record: LearningProgressRecordRow['record']
 ): LearningProgressRecordRow['record'] {
@@ -69,8 +117,90 @@ function stripSourceUrl(
   return legacyRecord;
 }
 
+const makeComposeJobScheduler = (jobs: ComposeJobPayload[]): ComposeJobScheduler => ({
+  async enqueue(job) {
+    jobs.push(job);
+    return ok(undefined);
+  },
+});
+
+const makeEntityRepo = (entities: Record<string, string>): EntityRepository => ({
+  async getById(cui) {
+    const name = entities[cui];
+    if (name === undefined) {
+      return ok(null);
+    }
+
+    return ok({
+      cui,
+      name,
+      entity_type: null,
+      default_report_type: 'Executie bugetara detaliata',
+      uat_id: null,
+      is_uat: false,
+      address: null,
+      last_updated: new Date(),
+      main_creditor_1_cui: null,
+      main_creditor_2_cui: null,
+    });
+  },
+  async getByIds(cuis) {
+    return ok(
+      new Map(
+        cuis
+          .filter((cui) => entities[cui] !== undefined)
+          .map((cui) => [
+            cui,
+            {
+              cui,
+              name: entities[cui] ?? cui,
+              entity_type: null,
+              default_report_type: 'Executie bugetara detaliata',
+              uat_id: null,
+              is_uat: false,
+              address: null,
+              last_updated: new Date(),
+              main_creditor_1_cui: null,
+              main_creditor_2_cui: null,
+            },
+          ])
+      )
+    );
+  },
+  async getAll() {
+    throw new Error('not implemented');
+  },
+  async getChildren() {
+    throw new Error('not implemented');
+  },
+  async getParents() {
+    throw new Error('not implemented');
+  },
+  async getCountyEntity() {
+    throw new Error('not implemented');
+  },
+});
+
 const createTestApp = async (options: {
   learningProgressRepo?: LearningProgressRepository;
+  syncEventsWithSideEffects?: (input: {
+    userId: string;
+    clientUpdatedAt: string;
+    events: readonly LearningProgressEvent[];
+  }) => Promise<
+    import('neverthrow').Result<
+      {
+        newEventsCount: number;
+        failedEvents: readonly {
+          eventId: string;
+          errorType: 'InvalidEventError';
+          message: string;
+        }[];
+        appliedEvents: readonly LearningProgressEvent[];
+      },
+      import('@/modules/learning-progress/core/errors.js').LearningProgressError
+    >
+  >;
   onSyncEventsApplied?: (input: {
     userId: string;
     events: readonly LearningProgressEvent[];
@@ -103,6 +233,9 @@ const createTestApp = async (options: {
   await app.register(
     makeLearningProgressRoutes({
       learningProgressRepo: options.learningProgressRepo ?? makeFakeLearningProgressRepo(),
+      ...(options.syncEventsWithSideEffects !== undefined
+        ? { syncEventsWithSideEffects: options.syncEventsWithSideEffects }
+        : {}),
       ...(options.onSyncEventsApplied !== undefined
         ? { onSyncEventsApplied: options.onSyncEventsApplied }
         : {}),
@@ -271,6 +404,154 @@ describe('Learning Progress REST API', () => {
     expect(records._unsafeUnwrap()[0]?.record).toEqual(record);
   });
 
+  it('creates campaign notifications synchronously and materializes welcome then entity subscription emails post-sync', async () => {
+    const userId = testAuth.userIds.user1;
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const notificationsRepo = makeFakeNotificationsRepo();
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const queuedJobs: ComposeJobPayload[] = [];
+
+    const queuedHandler = makeEntityTermsAcceptedUserEventHandler({
+      learningProgressRepo,
+      notificationsRepo,
+      deliveryRepo,
+      composeJobScheduler: makeComposeJobScheduler(queuedJobs),
+      entityRepo: makeEntityRepo({
+        '12345678': 'Primaria Test',
+        '87654321': 'Consiliul Judetean Test',
+      }),
+      logger: pinoLogger({ level: 'silent' }),
+    });
+
+    app = await createTestApp({
+      learningProgressRepo,
+      syncEventsWithSideEffects: async (input) => {
+        const syncResult = await syncEvents({ repo: learningProgressRepo }, input);
+        if (syncResult.isErr()) {
+          return syncResult;
+        }
+
+        await processLearningProgressAppliedEvents(
+          {
+            handlers: [
+              makeEntityTermsAcceptedSyncHandler({
+                notificationsRepo,
+                hasher: sha256Hasher,
+                logger: pinoLogger({ level: 'silent' }),
+              }),
+            ],
+            logger: pinoLogger({ level: 'silent' }),
+          },
+          {
+            userId: input.userId,
+            events: syncResult.value.appliedEvents,
+          }
+        );
+
+        return syncResult;
+      },
+      onSyncEventsApplied: async ({ userId, events }) => {
+        const jobs = buildLearningProgressUserEventJobs(userId, events);
+        for (const job of jobs) {
+          if (queuedHandler.matches(job)) {
+            await queuedHandler.handle(job);
+          }
+        }
+      },
+    });
+
+    const firstResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+      payload: {
+        clientUpdatedAt: '2026-04-01T10:00:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            occurredAt: '2026-04-01T10:00:00.000Z',
+            payload: {
+              record: createAcceptedEntityTermsRecord({
+                entityCui: '12345678',
+                updatedAt: '2026-04-01T10:00:00.000Z',
+              }),
+            },
+          }),
+        ],
+      },
+    });
+
+    expect(firstResponse.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const welcome = await deliveryRepo.findByDeliveryKey(
+        `campaign_public_debate_welcome:${userId}`
+      );
+      expect(welcome.isOk()).toBe(true);
+      if (welcome.isOk()) {
+        expect(welcome.value).not.toBeNull();
+        expect(welcome.value?.notificationType).toBe('campaign_public_debate_welcome');
+      }
+    });
+
+    const globalPreference = await notificationsRepo.findByUserTypeAndEntity(
+      userId,
+      'campaign_public_debate_global',
+      null
+    );
+    const firstEntitySubscription = await notificationsRepo.findByUserTypeAndEntity(
+      userId,
+      'campaign_public_debate_entity_updates',
+      '12345678'
+    );
+    expect(globalPreference.isOk()).toBe(true);
+    expect(firstEntitySubscription.isOk()).toBe(true);
+    if (globalPreference.isOk() && firstEntitySubscription.isOk()) {
+      expect(globalPreference.value).not.toBeNull();
+      expect(firstEntitySubscription.value).not.toBeNull();
+    }
+
+    const secondResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+      payload: {
+        clientUpdatedAt: '2026-04-02T11:00:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            occurredAt: '2026-04-02T11:00:00.000Z',
+            payload: {
+              record: createAcceptedEntityTermsRecord({
+                entityCui: '87654321',
+                updatedAt: '2026-04-02T11:00:00.000Z',
+              }),
+            },
+          }),
+        ],
+      },
+    });
+
+    expect(secondResponse.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const entitySubscription = await deliveryRepo.findByDeliveryKey(
+        `campaign_public_debate_entity_subscription:${userId}:87654321`
+      );
+      expect(entitySubscription.isOk()).toBe(true);
+      if (entitySubscription.isOk()) {
+        expect(entitySubscription.value).not.toBeNull();
+        expect(entitySubscription.value?.notificationType).toBe(
+          'campaign_public_debate_entity_subscription'
+        );
+      }
+    });
+
+    expect(queuedJobs).toHaveLength(2);
+  });
+
   it('returns 200 when user-event queue publishing fails after sync', async () => {
     const repo = makeFakeLearningProgressRepo();
     app = await createTestApp({
@@ -326,6 +607,55 @@ describe('Learning Progress REST API', () => {
     const records = await repo.getRecords(testAuth.userIds.user1);
     expect(records.isOk()).toBe(true);
     expect(records._unsafeUnwrap()).toHaveLength(1);
+  });
+
+  it('returns 500 when synchronous post-sync side effects fail', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    app = await createTestApp({
+      learningProgressRepo: repo,
+      syncEventsWithSideEffects: async () => {
+        return err(createDatabaseError('sync side effect failed'));
+      },
+    });
+
+    const record = createTestInteractiveRecord({
+      key: 'system:campaign:buget:accepted-terms:entity:12345678',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: { value: { entityCui: '12345678', acceptedTermsAt: '2026-03-31T10:00:00.000Z' } },
+      },
+      result: null,
+      updatedAt: '2026-03-31T10:00:00.000Z',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-sync-side-effect-failure',
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'sync side effect failed',
+      retryable: true,
+    });
   });
 
   it('hands only applied events to the post-sync hook', async () => {

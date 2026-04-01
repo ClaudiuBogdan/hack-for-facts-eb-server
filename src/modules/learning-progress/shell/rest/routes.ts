@@ -18,11 +18,16 @@ import { isAuthenticated } from '../../../auth/core/types.js';
 import { requireAuthHandler } from '../../../auth/shell/middleware/fastify-auth.js';
 import { getHttpStatusForError, type LearningProgressError } from '../../core/errors.js';
 import { getProgress } from '../../core/usecases/get-progress.js';
-import { syncEvents } from '../../core/usecases/sync-events.js';
+import {
+  syncEvents,
+  type SyncEventsInput,
+  type SyncEventsOutput,
+} from '../../core/usecases/sync-events.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type { LearningProgressEvent } from '../../core/types.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import type { Result } from 'neverthrow';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -33,6 +38,9 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
  */
 export interface MakeLearningProgressRoutesDeps {
   learningProgressRepo: LearningProgressRepository;
+  syncEventsWithSideEffects?: (
+    input: SyncEventsInput
+  ) => Promise<Result<SyncEventsOutput, LearningProgressError>>;
   onSyncEventsApplied?: (input: {
     userId: string;
     events: readonly LearningProgressEvent[];
@@ -97,7 +105,7 @@ function buildErrorResponse(error: LearningProgressError) {
 export const makeLearningProgressRoutes = (
   deps: MakeLearningProgressRoutesDeps
 ): FastifyPluginAsync => {
-  const { learningProgressRepo, onSyncEventsApplied } = deps;
+  const { learningProgressRepo, syncEventsWithSideEffects, onSyncEventsApplied } = deps;
 
   return async (fastify) => {
     // ─────────────────────────────────────────────────────────────────────────
@@ -164,14 +172,15 @@ export const makeLearningProgressRoutes = (
         const userId = request.auth.userId as string;
         const { clientUpdatedAt, events } = request.body;
 
-        const result = await syncEvents(
-          { repo: learningProgressRepo },
-          {
-            userId,
-            clientUpdatedAt,
-            events: events as LearningProgressEvent[],
-          }
-        );
+        const syncInput: SyncEventsInput = {
+          userId,
+          clientUpdatedAt,
+          events: events as LearningProgressEvent[],
+        };
+        const result =
+          syncEventsWithSideEffects !== undefined
+            ? await syncEventsWithSideEffects(syncInput)
+            : await syncEvents({ repo: learningProgressRepo }, syncInput);
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);

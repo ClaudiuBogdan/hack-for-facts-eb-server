@@ -15,7 +15,6 @@ export interface UserEventRuntimeConfig {
   redisPassword?: string;
   bullmqPrefix: string;
   logger: Logger;
-  processRole: 'api' | 'worker' | 'both';
   concurrency?: number;
   handlers?: readonly UserEventHandler[];
   redisFactory?: QueueRedisFactory;
@@ -34,13 +33,11 @@ export const startUserEventRuntime: UserEventRuntimeFactory = async (config) => 
     redisPassword,
     bullmqPrefix,
     logger,
-    processRole,
     concurrency = 5,
     handlers = [],
     redisFactory,
   } = config;
   const log = logger.child({ runtime: 'user-events' });
-  const workerRoleEnabled = processRole === 'worker' || processRole === 'both';
   const redis = await connectQueueRedis({
     redisUrl,
     logger: log,
@@ -75,7 +72,7 @@ export const startUserEventRuntime: UserEventRuntimeFactory = async (config) => 
   };
 
   try {
-    if (workerRoleEnabled) {
+    if (handlers.length > 0) {
       worker = createUserEventWorker({
         redis,
         logger,

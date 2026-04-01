@@ -7,6 +7,27 @@ import { Writable } from 'node:stream';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
+const { startUserEventRuntimeMock } = vi.hoisted(() => ({
+  startUserEventRuntimeMock: vi.fn(async () => ({
+    publisher: {
+      publish: vi.fn(async () => undefined),
+      publishMany: vi.fn(async () => undefined),
+    },
+    stop: vi.fn(async () => undefined),
+  })),
+}));
+
+vi.mock('@/modules/user-events/index.js', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/user-events/index.js')>(
+    '@/modules/user-events/index.js'
+  );
+
+  return {
+    ...actual,
+    startUserEventRuntime: startUserEventRuntimeMock,
+  };
+});
+
 import { buildApp, createApp } from '@/app/build-app.js';
 import { deserialize } from '@/infra/cache/serialization.js';
 import { createTestAuthProvider } from '@/modules/auth/index.js';
@@ -410,7 +431,7 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('fails closed when notification workers are enabled without CLERK_SECRET_KEY', async () => {
+    it('fails closed when BullMQ workers are enabled without CLERK_SECRET_KEY', async () => {
       await expect(
         buildApp({
           fastifyOptions: { logger: false },
@@ -421,14 +442,12 @@ describe('App Factory', () => {
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
-                enabled: true,
                 redisUrl: 'redis://localhost:6379',
                 redisPassword: undefined,
                 concurrency: 5,
                 prefix: 'test:jobs',
                 notificationRecoverySweepIntervalMinutes: 15,
                 notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'worker',
               },
               notifications: {
                 triggerApiKey: 'n'.repeat(32),
@@ -456,11 +475,11 @@ describe('App Factory', () => {
           },
         })
       ).rejects.toThrow(
-        'Notification delivery requires CLERK_SECRET_KEY when notifications run on worker or both process roles.'
+        'Notification delivery requires CLERK_SECRET_KEY when BullMQ workers are enabled.'
       );
     });
 
-    it('starts the notification delivery runtime for worker processes', async () => {
+    it('starts the notification delivery runtime when BullMQ is configured', async () => {
       const stop = vi.fn(async () => undefined);
       const userEventStop = vi.fn(async () => undefined);
       const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
@@ -487,14 +506,12 @@ describe('App Factory', () => {
           userEventRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: true,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 20,
-              processRole: 'worker',
             },
             notifications: {
               triggerApiKey: undefined,
@@ -581,14 +598,12 @@ describe('App Factory', () => {
               }),
             config: makeTestConfig({
               jobs: {
-                enabled: true,
                 redisUrl: 'redis://localhost:6379',
                 redisPassword: undefined,
                 concurrency: 5,
                 prefix: 'test:jobs',
                 notificationRecoverySweepIntervalMinutes: 15,
                 notificationStuckSendingThresholdMinutes: 20,
-                processRole: 'worker',
               },
               notifications: {
                 triggerApiKey: undefined,
@@ -618,7 +633,7 @@ describe('App Factory', () => {
       ).rejects.toThrow('redis bootstrap failed');
     });
 
-    it('starts the notification delivery runtime for both-role processes', async () => {
+    it('starts the notification delivery runtime when trigger routes are also configured', async () => {
       const stop = vi.fn(async () => undefined);
       const userEventStop = vi.fn(async () => undefined);
       const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
@@ -645,21 +660,19 @@ describe('App Factory', () => {
           userEventRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: true,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'both',
             },
             notifications: {
-              triggerApiKey: undefined,
+              triggerApiKey: 'n'.repeat(32),
               platformBaseUrl: 'https://test.example.com',
               apiBaseUrl: 'https://api.transparenta.eu',
               unsubscribeHmacSecret: 'h'.repeat(32),
-              enabled: false,
+              enabled: true,
             },
             email: {
               apiKey: 're_test_key',
@@ -689,7 +702,7 @@ describe('App Factory', () => {
       expect(userEventStop).toHaveBeenCalledTimes(1);
     });
 
-    it('does not start the notification delivery runtime for api-only processes without trigger routes', async () => {
+    it('starts the notification delivery runtime whenever BullMQ is configured', async () => {
       const userEventStop = vi.fn(async () => undefined);
       const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
         collectQueue: {} as never,
@@ -715,14 +728,27 @@ describe('App Factory', () => {
           userEventRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: true,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'api',
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
             },
           }),
         },
@@ -730,7 +756,7 @@ describe('App Factory', () => {
 
       await app.ready();
 
-      expect(notificationDeliveryRuntimeFactory).not.toHaveBeenCalled();
+      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
 
       const unsubscribeResponse = await app.inject({
         method: 'POST',
@@ -744,7 +770,7 @@ describe('App Factory', () => {
       expect(userEventStop).toHaveBeenCalledTimes(1);
     });
 
-    it('starts the notification delivery runtime for Clerk welcome webhooks on api-only processes', async () => {
+    it('starts the notification delivery runtime for Clerk welcome webhooks', async () => {
       const stop = vi.fn(async () => undefined);
       const userEventStop = vi.fn(async () => undefined);
       const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
@@ -773,21 +799,27 @@ describe('App Factory', () => {
           userEventRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: true,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'api',
             },
             auth: {
-              clerkSecretKey: undefined,
+              clerkSecretKey: 'sk_test_clerk',
               clerkJwtKey: undefined,
               clerkAuthorizedParties: undefined,
               clerkWebhookSigningSecret,
-              enabled: false,
+              enabled: true,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
             },
           }),
         },
@@ -802,14 +834,20 @@ describe('App Factory', () => {
       expect(userEventStop).toHaveBeenCalledTimes(1);
     });
 
-    it('starts the user event runtime for api-only processes when learning progress publishing is enabled', async () => {
+    it('starts the user event runtime when BullMQ is configured', async () => {
       const stop = vi.fn(async () => undefined);
+      const notificationStop = vi.fn(async () => undefined);
       const userEventRuntimeFactory = vi.fn(async () => ({
         publisher: {
           publish: vi.fn(async () => undefined),
           publishMany: vi.fn(async () => undefined),
         },
         stop,
+      }));
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: notificationStop,
       }));
 
       const app = await buildApp({
@@ -819,17 +857,120 @@ describe('App Factory', () => {
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
           userEventRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: true,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'api',
+            },
+            notifications: {
+              triggerApiKey: undefined,
+              platformBaseUrl: 'https://test.example.com',
+              apiBaseUrl: 'https://api.transparenta.eu',
+              unsubscribeHmacSecret: 'h'.repeat(32),
+              enabled: false,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.ready();
+
+      expect(userEventRuntimeFactory).toHaveBeenCalledTimes(1);
+      expect(userEventRuntimeFactory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          redisUrl: 'redis://localhost:6379',
+          bullmqPrefix: 'test:jobs',
+          handlers: expect.arrayContaining([
+            expect.objectContaining({
+              name: 'entity-terms-accepted',
+            }),
+          ]),
+        })
+      );
+
+      await app.close();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(notificationStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails when BullMQ background processing is enabled without userDb', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+              },
+              auth: {
+                clerkSecretKey: undefined,
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+              notifications: {
+                triggerApiKey: undefined,
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Notification delivery runtime requires userDb when notification admin routes or workers are enabled.'
+      );
+    });
+
+    it('does not start the user event runtime when BULLMQ_REDIS_URL is unavailable', async () => {
+      startUserEventRuntimeMock.mockClear();
+
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            jobs: {
+              redisUrl: undefined,
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
             },
             auth: {
               clerkSecretKey: undefined,
@@ -849,102 +990,9 @@ describe('App Factory', () => {
         },
       });
 
-      await app.ready();
-
-      expect(userEventRuntimeFactory).toHaveBeenCalledTimes(1);
-      expect(userEventRuntimeFactory).toHaveBeenCalledWith(
-        expect.objectContaining({
-          redisUrl: 'redis://localhost:6379',
-          bullmqPrefix: 'test:jobs',
-          processRole: 'api',
-        })
-      );
+      expect(startUserEventRuntimeMock).not.toHaveBeenCalled();
 
       await app.close();
-      expect(stop).toHaveBeenCalledTimes(1);
-    });
-
-    it('requires userDb when learning progress user-event publishing is enabled', async () => {
-      await expect(
-        buildApp({
-          fastifyOptions: { logger: false },
-          deps: {
-            budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
-            datasetRepo: makeFakeDatasetRepo(),
-            config: makeTestConfig({
-              jobs: {
-                enabled: true,
-                redisUrl: 'redis://localhost:6379',
-                redisPassword: undefined,
-                concurrency: 5,
-                prefix: 'test:jobs',
-                notificationRecoverySweepIntervalMinutes: 15,
-                notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'api',
-              },
-              auth: {
-                clerkSecretKey: undefined,
-                clerkJwtKey: undefined,
-                clerkAuthorizedParties: undefined,
-                clerkWebhookSigningSecret: undefined,
-                enabled: false,
-              },
-              notifications: {
-                triggerApiKey: undefined,
-                platformBaseUrl: 'https://test.example.com',
-                apiBaseUrl: 'https://api.transparenta.eu',
-                unsubscribeHmacSecret: 'h'.repeat(32),
-                enabled: false,
-              },
-            }),
-          },
-        })
-      ).rejects.toThrow(
-        'User event runtime requires userDb when learning progress user event producer or workers are enabled.'
-      );
-    });
-
-    it('requires BULLMQ_REDIS_URL when learning progress user-event publishing is enabled', async () => {
-      await expect(
-        buildApp({
-          fastifyOptions: { logger: false },
-          deps: {
-            budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
-            userDb: makeFakeKyselyDb(),
-            datasetRepo: makeFakeDatasetRepo(),
-            config: makeTestConfig({
-              jobs: {
-                enabled: true,
-                redisUrl: undefined,
-                redisPassword: undefined,
-                concurrency: 5,
-                prefix: 'test:jobs',
-                notificationRecoverySweepIntervalMinutes: 15,
-                notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'api',
-              },
-              auth: {
-                clerkSecretKey: undefined,
-                clerkJwtKey: undefined,
-                clerkAuthorizedParties: undefined,
-                clerkWebhookSigningSecret: undefined,
-                enabled: false,
-              },
-              notifications: {
-                triggerApiKey: undefined,
-                platformBaseUrl: 'https://test.example.com',
-                apiBaseUrl: 'https://api.transparenta.eu',
-                unsubscribeHmacSecret: 'h'.repeat(32),
-                enabled: false,
-              },
-            }),
-          },
-        })
-      ).rejects.toThrow(
-        'User event runtime requires BULLMQ_REDIS_URL when learning progress user event producer or workers are enabled.'
-      );
     });
 
     it('mounts notification admin trigger routes under the admin prefix', async () => {
@@ -965,14 +1013,12 @@ describe('App Factory', () => {
           notificationDeliveryRuntimeFactory,
           config: makeTestConfig({
             jobs: {
-              enabled: false,
               redisUrl: 'redis://localhost:6379',
               redisPassword: undefined,
               concurrency: 5,
               prefix: 'test:jobs',
               notificationRecoverySweepIntervalMinutes: 15,
               notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'api',
             },
             notifications: {
               triggerApiKey: 'n'.repeat(32),
@@ -980,6 +1026,21 @@ describe('App Factory', () => {
               apiBaseUrl: 'https://api.transparenta.eu',
               unsubscribeHmacSecret: 'h'.repeat(32),
               enabled: false,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
             },
           }),
         },
@@ -1078,14 +1139,12 @@ describe('App Factory', () => {
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
-                enabled: true,
                 redisUrl: 'redis://localhost:6379',
                 redisPassword: undefined,
                 concurrency: 5,
                 prefix: 'test:jobs',
                 notificationRecoverySweepIntervalMinutes: 15,
                 notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'worker',
               },
               notifications: {
                 triggerApiKey: undefined,
@@ -1125,24 +1184,22 @@ describe('App Factory', () => {
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
-                enabled: true,
                 redisUrl: 'redis://localhost:6379',
                 redisPassword: undefined,
                 concurrency: 5,
                 prefix: 'test:jobs',
                 notificationRecoverySweepIntervalMinutes: 15,
                 notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'worker',
               },
             }),
           },
         })
       ).rejects.toThrow(
-        'Notification delivery runtime requires userDb when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+        'Notification delivery runtime requires userDb when notification admin routes or workers are enabled.'
       );
     });
 
-    it('fails closed when the notification delivery runtime is enabled without BULLMQ_REDIS_URL', async () => {
+    it('fails closed when notification admin routes are enabled without BULLMQ_REDIS_URL', async () => {
       await expect(
         buildApp({
           fastifyOptions: { logger: false },
@@ -1153,77 +1210,26 @@ describe('App Factory', () => {
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
-                enabled: true,
                 redisUrl: undefined,
                 redisPassword: undefined,
                 concurrency: 5,
                 prefix: 'test:jobs',
                 notificationRecoverySweepIntervalMinutes: 15,
                 notificationStuckSendingThresholdMinutes: 15,
-                processRole: 'worker',
+              },
+              notifications: {
+                triggerApiKey: 'n'.repeat(32),
+                platformBaseUrl: 'https://test.example.com',
+                apiBaseUrl: 'https://api.transparenta.eu',
+                unsubscribeHmacSecret: 'h'.repeat(32),
+                enabled: true,
               },
             }),
           },
         })
       ).rejects.toThrow(
-        'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+        'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes or workers are enabled.'
       );
-    });
-
-    it('does not require CLERK_SECRET_KEY when notification jobs are disabled', async () => {
-      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
-        collectQueue: {} as never,
-        composeJobScheduler: {} as never,
-        stop: vi.fn(async () => undefined),
-      }));
-
-      const app = await buildApp({
-        fastifyOptions: { logger: false },
-        deps: {
-          budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
-          userDb: makeFakeKyselyDb(),
-          datasetRepo: makeFakeDatasetRepo(),
-          notificationDeliveryRuntimeFactory,
-          config: makeTestConfig({
-            jobs: {
-              enabled: false,
-              redisUrl: 'redis://localhost:6379',
-              redisPassword: undefined,
-              concurrency: 5,
-              prefix: 'test:jobs',
-              notificationRecoverySweepIntervalMinutes: 15,
-              notificationStuckSendingThresholdMinutes: 15,
-              processRole: 'both',
-            },
-            notifications: {
-              triggerApiKey: 'n'.repeat(32),
-              platformBaseUrl: 'https://test.example.com',
-              apiBaseUrl: 'https://api.transparenta.eu',
-              unsubscribeHmacSecret: 'h'.repeat(32),
-              enabled: true,
-            },
-            email: {
-              apiKey: 're_test_key',
-              webhookSecret: undefined,
-              fromAddress: 'noreply@test.example.com',
-              previewEnabled: false,
-              maxRps: 2,
-              enabled: true,
-            },
-            auth: {
-              clerkSecretKey: undefined,
-              clerkJwtKey: undefined,
-              clerkAuthorizedParties: undefined,
-              clerkWebhookSigningSecret: undefined,
-              enabled: false,
-            },
-          }),
-        },
-      });
-
-      expect(notificationDeliveryRuntimeFactory).toHaveBeenCalledTimes(1);
-      await app.close();
     });
 
     it('does not register Clerk webhook route when the signing secret is absent', async () => {
@@ -1291,8 +1297,13 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('registers public institution correspondence routes when email is enabled', async () => {
+    it('does not register public institution correspondence send routes when email is enabled', async () => {
       const testAuth = createTestAuthProvider();
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
       const app = await buildApp({
         fastifyOptions: { logger: false },
         deps: {
@@ -1301,6 +1312,7 @@ describe('App Factory', () => {
           userDb: makeFakeKyselyDb(),
           authProvider: testAuth.provider,
           datasetRepo: makeFakeDatasetRepo(),
+          notificationDeliveryRuntimeFactory,
           config: makeTestConfig({
             email: {
               apiKey: 're_test_key',
@@ -1310,6 +1322,21 @@ describe('App Factory', () => {
               maxRps: 2,
               enabled: true,
             },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+            jobs: {
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+            },
           }),
         },
       });
@@ -1317,11 +1344,37 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('institution-correspondence/');
-      expect(routes).toContain('public-debate/');
-      expect(routes).toContain('self-send/prepare (POST)');
+      expect(routes).not.toContain('public-debate/');
+      expect(routes).not.toContain('platform-send (POST)');
+      expect(routes).not.toContain('self-send/prepare (POST)');
 
       await app.close();
+    });
+
+    it('fails closed when public debate correspondence is enabled without BULLMQ_REDIS_URL', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Public debate correspondence requires BULLMQ_REDIS_URL so learning progress requests can dispatch institution email.'
+      );
     });
 
     it('does not register learning progress admin review routes when the API key is unset', async () => {

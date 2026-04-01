@@ -68,8 +68,7 @@ USER_DATABASE_URL=postgresql://user:pass@localhost:5432/user_db
 REDIS_URL=redis://localhost:6379
 CACHE_BACKEND=memory  # memory | redis | multi | disabled
 
-# BullMQ / jobs (required when JOBS_ENABLED=true)
-JOBS_ENABLED=false
+# BullMQ / jobs
 BULLMQ_REDIS_URL=redis://localhost:6380
 BULLMQ_REDIS_PASSWORD=
 BULLMQ_PREFIX=transparenta:jobs

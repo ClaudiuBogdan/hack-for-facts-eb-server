@@ -12,6 +12,7 @@ import fastifyLib, {
   type FastifyServerOptions,
   type FastifyError,
 } from 'fastify';
+import { err, ok, type Result } from 'neverthrow';
 
 import {
   wrapCountyAnalyticsRepo,
@@ -134,18 +135,32 @@ import {
 } from '../modules/health/index.js';
 import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
 import {
+  createDatabaseError as createCorrespondenceDatabaseError,
   makeInstitutionCorrespondenceAdminRoutes,
-  makeInstitutionCorrespondenceRoutes,
   makeInstitutionCorrespondenceRepo,
   makeInstitutionCorrespondenceResendSideEffect,
   makeOfficialEmailLookup,
   makePublicDebateTemplateRenderer,
+  type CorrespondenceEntry,
+  type InstitutionCorrespondenceError,
+  type PublicDebateEntityUpdateNotification,
+  type PublicDebateEntityUpdatePublishResult,
+  type PublicDebateEntityUpdatePublisher,
+  type PublicDebateEntitySubscriptionService,
+  type PublicDebateSelfSendApprovalService,
   buildSharedCorrespondenceInboxAddress,
 } from '../modules/institution-correspondence/index.js';
 import {
+  createDatabaseError as createLearningProgressDatabaseError,
   makeLearningProgressAdminReviewRoutes,
   makeLearningProgressRoutes,
   makeLearningProgressRepo,
+  syncEvents,
+  updateInteractionReview,
+  type ApprovedReviewSideEffectPlan,
+  type LearningProgressError,
+  type ReviewDecision,
+  type SyncEventsInput,
 } from '../modules/learning-progress/index.js';
 import {
   createMcpServer,
@@ -170,6 +185,7 @@ import {
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
+  enqueuePublicDebateEntityUpdateNotifications,
   enqueueTransactionalWelcomeNotification,
   getErrorMessage,
   makeAnafForexebugDigestTriggerRoutes,
@@ -185,6 +201,7 @@ import {
   type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
 import {
+  ensurePublicDebateAutoSubscriptions,
   makeNotificationRoutes,
   makeNotificationsRepo,
   makeDeliveriesRepo,
@@ -221,8 +238,13 @@ import {
 } from '../modules/uat-analytics/index.js';
 import {
   createLearningProgressUserEventSyncHook,
+  makeEntityTermsAcceptedUserEventHandler,
+  makeEntityTermsAcceptedSyncHandler,
   makePublicDebateRequestUserEventHandler,
+  prepareApprovedPublicDebateReviewSideEffects,
+  processLearningProgressAppliedEvents,
   startUserEventRuntime,
+  type LearningProgressAppliedEventHandler,
   type UserEventHandler,
   type UserEventRuntime,
   type UserEventRuntimeFactory,
@@ -449,6 +471,15 @@ function hasMatchingSpecialRateLimitKey(
   return timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
+class LearningProgressSyncRollbackError extends Error {
+  readonly failure: LearningProgressError;
+
+  constructor(failure: LearningProgressError) {
+    super('Learning progress sync transaction rolled back');
+    this.failure = failure;
+  }
+}
+
 /**
  * Creates and configures the Fastify application
  * This is the composition root where all modules are wired together
@@ -469,33 +500,29 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const insDb = deps.insDb;
   const datasetRepo = deps.datasetRepo;
   const config = deps.config;
+  const hasBullmqRedisConfig = config.jobs.redisUrl !== undefined && config.jobs.redisUrl !== '';
   const shouldRegisterNotificationAdminRoutes =
-    config.notifications.triggerApiKey !== undefined &&
-    config.notifications.triggerApiKey !== '' &&
-    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
-  const shouldPublishLearningProgressUserEvents =
-    config.jobs.enabled &&
-    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
+    config.notifications.triggerApiKey !== undefined && config.notifications.triggerApiKey !== '';
+  const shouldPublishLearningProgressUserEvents = hasBullmqRedisConfig;
   const shouldEnqueueClerkWelcomeNotifications =
-    config.auth.clerkWebhookSigningSecret !== undefined &&
-    config.jobs.enabled &&
-    (config.jobs.processRole === 'api' || config.jobs.processRole === 'both');
-  const shouldStartNotificationWorkers =
-    config.jobs.enabled &&
-    (config.jobs.processRole === 'worker' || config.jobs.processRole === 'both');
-  const shouldStartUserEventWorkers =
-    config.jobs.enabled &&
-    (config.jobs.processRole === 'worker' || config.jobs.processRole === 'both');
+    hasBullmqRedisConfig && config.auth.clerkWebhookSigningSecret !== undefined;
+  const shouldStartNotificationWorkers = hasBullmqRedisConfig;
   const shouldInitializeNotificationDeliveryRuntime =
     shouldRegisterNotificationAdminRoutes ||
     shouldEnqueueClerkWelcomeNotifications ||
     shouldStartNotificationWorkers;
-  const shouldInitializeUserEventRuntime =
-    shouldPublishLearningProgressUserEvents || shouldStartUserEventWorkers;
+  const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
+  const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
+
+  if (shouldEnablePublicDebateCorrespondence && !hasBullmqRedisConfig) {
+    throw new Error(
+      'Public debate correspondence requires BULLMQ_REDIS_URL so learning progress requests can dispatch institution email.'
+    );
+  }
 
   if (shouldInitializeNotificationDeliveryRuntime && deps.userDb === undefined) {
     throw new Error(
-      'Notification delivery runtime requires userDb when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+      'Notification delivery runtime requires userDb when notification admin routes or workers are enabled.'
     );
   }
 
@@ -504,22 +531,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     (config.jobs.redisUrl === undefined || config.jobs.redisUrl === '')
   ) {
     throw new Error(
-      'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes, Clerk welcome webhooks, or workers are enabled.'
+      'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes or workers are enabled.'
     );
   }
 
   if (shouldInitializeUserEventRuntime && deps.userDb === undefined) {
     throw new Error(
-      'User event runtime requires userDb when learning progress user event producer or workers are enabled.'
-    );
-  }
-
-  if (
-    shouldInitializeUserEventRuntime &&
-    (config.jobs.redisUrl === undefined || config.jobs.redisUrl === '')
-  ) {
-    throw new Error(
-      'User event runtime requires BULLMQ_REDIS_URL when learning progress user event producer or workers are enabled.'
+      'User event runtime requires userDb when BullMQ background processing is enabled.'
     );
   }
 
@@ -1012,6 +1030,16 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
         }) => Promise<void>)
       | undefined;
+    let prepareApproveLearningProgressReviews:
+      | ((input: {
+          items: readonly ReviewDecision[];
+        }) => Promise<
+          Result<
+            ApprovedReviewSideEffectPlan | null,
+            LearningProgressError | InstitutionCorrespondenceError
+          >
+        >)
+      | undefined;
 
     const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
 
@@ -1034,7 +1062,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     if (shouldStartNotificationWorkers && config.auth.clerkSecretKey === undefined) {
       throw new Error(
-        'Notification delivery requires CLERK_SECRET_KEY when notifications run on worker or both process roles.'
+        'Notification delivery requires CLERK_SECRET_KEY when BullMQ workers are enabled.'
       );
     }
 
@@ -1043,13 +1071,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       (config.email.apiKey === undefined || config.email.apiKey === '')
     ) {
       throw new Error(
-        'Notification delivery requires RESEND_API_KEY when notifications run on worker or both process roles.'
+        'Notification delivery requires RESEND_API_KEY when BullMQ workers are enabled.'
       );
     }
 
     if (shouldStartNotificationWorkers && config.notifications.platformBaseUrl === '') {
       throw new Error(
-        'Notification delivery requires PLATFORM_BASE_URL when notifications run on worker or both process roles.'
+        'Notification delivery requires PLATFORM_BASE_URL when BullMQ workers are enabled.'
       );
     }
 
@@ -1061,7 +1089,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         redisUrl: config.jobs.redisUrl ?? '',
         bullmqPrefix: config.jobs.prefix,
         logger: repoLogger,
-        processRole: config.jobs.processRole,
         concurrency: config.jobs.concurrency,
         intervalMinutes: config.jobs.notificationRecoverySweepIntervalMinutes,
         thresholdMinutes: config.jobs.notificationStuckSendingThresholdMinutes,
@@ -1181,6 +1208,242 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }
     }
 
+    const buildReplyTextPreview = (entry: CorrespondenceEntry | undefined): string | null => {
+      const textBody = entry?.textBody?.trim();
+      if (textBody === undefined || textBody === '') {
+        return null;
+      }
+
+      return textBody.length > 400 ? `${textBody.slice(0, 397)}...` : textBody;
+    };
+
+    const publicDebateSubscriptionService: PublicDebateEntitySubscriptionService = {
+      async ensureSubscribed(userId, entityCui) {
+        const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+          {
+            notificationsRepo,
+            hasher: sha256Hasher,
+          },
+          {
+            userId,
+            entityCui,
+          }
+        );
+
+        if (subscriptionResult.isErr()) {
+          return err(
+            createCorrespondenceDatabaseError(
+              'Failed to ensure public debate notification subscriptions',
+              subscriptionResult.error
+            )
+          );
+        }
+
+        return ok(undefined);
+      },
+    };
+
+    if (notificationDeliveryRuntime?.composeJobScheduler !== undefined) {
+      userEventHandlers.push(
+        makeEntityTermsAcceptedUserEventHandler({
+          learningProgressRepo,
+          notificationsRepo,
+          deliveryRepo,
+          composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler,
+          entityRepo,
+          logger: repoLogger,
+        })
+      );
+    }
+
+    const createLearningProgressSyncHandlers = (
+      db: Parameters<typeof makeNotificationsRepo>[0]['db']
+    ): readonly LearningProgressAppliedEventHandler[] => [
+      makeEntityTermsAcceptedSyncHandler({
+        notificationsRepo: makeNotificationsRepo({ db, logger: repoLogger }),
+        hasher: sha256Hasher,
+        logger: repoLogger,
+      }),
+    ];
+
+    const learningProgressSyncEventsWithSideEffects = async (input: SyncEventsInput) => {
+      try {
+        const value = await userDb.transaction().execute(async (transaction) => {
+          const transactionalLearningProgressRepo = makeLearningProgressRepo({
+            db: transaction,
+            logger: repoLogger,
+            transactionScoped: true,
+          });
+
+          const syncResult = await syncEvents({ repo: transactionalLearningProgressRepo }, input);
+
+          if (syncResult.isErr()) {
+            throw new LearningProgressSyncRollbackError(syncResult.error);
+          }
+
+          if (syncResult.value.appliedEvents.length > 0) {
+            await processLearningProgressAppliedEvents(
+              {
+                handlers: createLearningProgressSyncHandlers(transaction),
+                logger: repoLogger,
+              },
+              {
+                userId: input.userId,
+                events: syncResult.value.appliedEvents,
+              }
+            );
+          }
+
+          return syncResult.value;
+        });
+
+        return ok(value);
+      } catch (error) {
+        if (error instanceof LearningProgressSyncRollbackError) {
+          return err(error.failure);
+        }
+
+        return err(
+          createLearningProgressDatabaseError(
+            'Failed to execute learning progress sync with synchronous side effects',
+            error
+          )
+        );
+      }
+    };
+
+    const publicDebateSelfSendApprovalService: PublicDebateSelfSendApprovalService = {
+      async approvePendingRecord({ userId, recordKey }) {
+        const recordResult = await learningProgressRepo.getRecord(userId, recordKey);
+        if (recordResult.isErr()) {
+          return err(
+            createCorrespondenceDatabaseError(
+              'Failed to load learning progress record for self-send approval',
+              recordResult.error
+            )
+          );
+        }
+
+        const recordRow = recordResult.value;
+        if (recordRow?.record.phase !== 'pending') {
+          return ok(undefined);
+        }
+
+        const reviewResult = await updateInteractionReview(
+          { repo: learningProgressRepo },
+          {
+            userId,
+            recordKey,
+            expectedUpdatedAt: recordRow.updatedAt,
+            status: 'approved',
+          }
+        );
+
+        if (reviewResult.isErr()) {
+          if (
+            reviewResult.error.type === 'ConflictError' &&
+            reviewResult.error.message.includes('is no longer reviewable because it is not pending')
+          ) {
+            return ok(undefined);
+          }
+
+          return err(
+            createCorrespondenceDatabaseError(
+              'Failed to approve self-send learning progress record',
+              reviewResult.error
+            )
+          );
+        }
+
+        return ok(undefined);
+      },
+    };
+
+    const publicDebateUpdatePublisher: PublicDebateEntityUpdatePublisher = {
+      async publish(input: PublicDebateEntityUpdateNotification) {
+        const runIdParts = [input.eventType, input.thread.id];
+        if (input.reply !== undefined) {
+          runIdParts.push(input.reply.id);
+        } else if (input.basedOnEntryId !== undefined) {
+          runIdParts.push(input.basedOnEntryId);
+        }
+
+        const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
+          {
+            notificationsRepo: extendedNotificationsRepo,
+            deliveryRepo,
+            ...(notificationDeliveryRuntime?.composeJobScheduler !== undefined
+              ? { composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler }
+              : {}),
+          },
+          {
+            runId: `public-debate-${runIdParts.join('-')}`,
+            eventType: input.eventType,
+            entityCui: input.thread.entityCui,
+            threadId: input.thread.id,
+            threadKey: input.thread.threadKey,
+            phase: input.thread.phase,
+            institutionEmail: input.thread.record.institutionEmail,
+            subject: input.thread.record.subject,
+            occurredAt: input.occurredAt.toISOString(),
+            ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
+            ...(input.reply !== undefined
+              ? { replyTextPreview: buildReplyTextPreview(input.reply) }
+              : {}),
+            ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
+            ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
+            ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
+          }
+        );
+
+        if (enqueueResult.isErr()) {
+          repoLogger.error(
+            {
+              error: enqueueResult.error,
+              entityCui: input.thread.entityCui,
+              eventType: input.eventType,
+              threadId: input.thread.id,
+            },
+            'Failed to enqueue public debate entity update notifications'
+          );
+          return err(
+            createCorrespondenceDatabaseError(
+              'Failed to enqueue public debate entity update notifications',
+              enqueueResult.error
+            )
+          );
+        }
+
+        if (enqueueResult.value.enqueueFailedOutboxIds.length > 0) {
+          repoLogger.warn(
+            {
+              entityCui: input.thread.entityCui,
+              eventType: input.eventType,
+              outboxIds: enqueueResult.value.enqueueFailedOutboxIds,
+              threadId: input.thread.id,
+            },
+            'Public debate update outbox rows were created but compose jobs were not enqueued'
+          );
+        }
+
+        const publishResult: PublicDebateEntityUpdatePublishResult = {
+          status:
+            enqueueResult.value.notificationIds.length === 0
+              ? 'none'
+              : enqueueResult.value.enqueueFailedOutboxIds.length > 0
+                ? 'partial'
+                : 'queued',
+          notificationIds: enqueueResult.value.notificationIds,
+          createdOutboxIds: enqueueResult.value.createdOutboxIds,
+          reusedOutboxIds: enqueueResult.value.reusedOutboxIds,
+          queuedOutboxIds: enqueueResult.value.queuedOutboxIds,
+          enqueueFailedOutboxIds: enqueueResult.value.enqueueFailedOutboxIds,
+        };
+
+        return ok(publishResult);
+      },
+    };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Institution Correspondence Module (Admin REST API + Webhook Side Effects)
     // ─────────────────────────────────────────────────────────────────────────
@@ -1220,26 +1483,36 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       userEventHandlers.push(
         makePublicDebateRequestUserEventHandler({
           learningProgressRepo,
+          entityProfileRepo,
           repo: correspondenceRepo,
           emailSender,
           templateRenderer: correspondenceTemplateRenderer,
           auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
           platformBaseUrl: config.notifications.platformBaseUrl,
           captureAddress: correspondenceInboxAddress,
+          subscriptionService: publicDebateSubscriptionService,
+          updatePublisher: publicDebateUpdatePublisher,
           logger: repoLogger,
         })
       );
 
-      await app.register(
-        makeInstitutionCorrespondenceRoutes({
-          repo: correspondenceRepo,
-          emailSender,
-          templateRenderer: correspondenceTemplateRenderer,
-          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
-          platformBaseUrl: config.notifications.platformBaseUrl,
-          captureAddress: correspondenceInboxAddress,
-        })
-      );
+      prepareApproveLearningProgressReviews = async (input) => {
+        return prepareApprovedPublicDebateReviewSideEffects(
+          {
+            learningProgressRepo,
+            entityProfileRepo,
+            repo: correspondenceRepo,
+            emailSender,
+            templateRenderer: correspondenceTemplateRenderer,
+            auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+            platformBaseUrl: config.notifications.platformBaseUrl,
+            captureAddress: correspondenceInboxAddress,
+            subscriptionService: publicDebateSubscriptionService,
+            updatePublisher: publicDebateUpdatePublisher,
+          },
+          input
+        );
+      };
 
       if (
         config.institutionCorrespondence.adminRoutesEnabled &&
@@ -1249,6 +1522,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           makeInstitutionCorrespondenceAdminRoutes({
             repo: correspondenceRepo,
             apiKey: config.institutionCorrespondence.adminApiKey,
+            updatePublisher: publicDebateUpdatePublisher,
           })
         );
       }
@@ -1258,6 +1532,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           repo: correspondenceRepo,
           officialEmailLookup,
           selfSendContextLookup,
+          selfSendApprovalService: publicDebateSelfSendApprovalService,
           emailEventsRepo:
             emailEventsRepo ??
             makeResendWebhookEmailEventsRepo({
@@ -1267,6 +1542,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           receivedEmailFetcher,
           captureAddress: correspondenceInboxAddress,
           auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          updatePublisher: publicDebateUpdatePublisher,
           logger: repoLogger,
         })
       );
@@ -1279,7 +1555,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         redisUrl: config.jobs.redisUrl ?? '',
         bullmqPrefix: config.jobs.prefix,
         logger: repoLogger,
-        processRole: config.jobs.processRole,
         concurrency: config.jobs.concurrency,
         handlers: userEventHandlers,
         ...(config.jobs.redisPassword !== undefined
@@ -1287,12 +1562,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           : {}),
       });
 
-      if (shouldPublishLearningProgressUserEvents) {
-        learningProgressOnSyncEventsApplied = createLearningProgressUserEventSyncHook({
-          publisher: userEventRuntime.publisher,
-          logger: repoLogger,
-        });
-      }
+      learningProgressOnSyncEventsApplied = createLearningProgressUserEventSyncHook({
+        publisher: userEventRuntime.publisher,
+        logger: repoLogger,
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1301,7 +1574,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // This module handles the delivery pipeline for email notifications:
     // - BullMQ workers for collect/compose/send
     // - REST endpoints for manual trigger and webhook ingestion
-    // - Role-based gating: api (routes only), worker (workers only), both
+    // - Shared startup: any process with BullMQ configured runs producers and workers
     //
     // The shared runtime now owns the BullMQ queues, workers, and recovery scheduler.
     // Admin trigger routes are mounted under /api/v1/admin/notifications and protected
@@ -1349,6 +1622,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     await app.register(
       makeLearningProgressRoutes({
         learningProgressRepo,
+        syncEventsWithSideEffects: learningProgressSyncEventsWithSideEffects,
         ...(learningProgressOnSyncEventsApplied !== undefined
           ? { onSyncEventsApplied: learningProgressOnSyncEventsApplied }
           : {}),
@@ -1363,6 +1637,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         makeLearningProgressAdminReviewRoutes({
           learningProgressRepo,
           apiKey: config.learningProgress.reviewApiKey,
+          ...(prepareApproveLearningProgressReviews !== undefined
+            ? { prepareApproveReviews: prepareApproveLearningProgressReviews }
+            : {}),
         })
       );
     }
