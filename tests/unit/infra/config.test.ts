@@ -364,5 +364,17 @@ describe('Configuration', () => {
       expect(config.jobs.notificationRecoverySweepIntervalMinutes).toBe(30);
       expect(config.jobs.notificationStuckSendingThresholdMinutes).toBe(45);
     });
+
+    it('uses PUBLIC_CLIENT_BASE_URL for notification links', () => {
+      const config = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          PUBLIC_CLIENT_BASE_URL: 'https://public.transparenta.eu',
+          CLIENT_BASE_URL: 'https://app.transparenta.eu',
+        })
+      );
+
+      expect(config.notifications.platformBaseUrl).toBe('https://public.transparenta.eu');
+    });
   });
 });
