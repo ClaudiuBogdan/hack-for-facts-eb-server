@@ -117,6 +117,12 @@ importers:
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+      react:
+        specifier: ^19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.4(react@19.2.4)
       resend:
         specifier: ^6.10.0
         version: 6.10.0(@react-email/render@2.0.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
@@ -217,12 +223,6 @@ importers:
       prettier:
         specifier: ^3.8.1
         version: 3.8.1
-      react:
-        specifier: ^19.2.4
-        version: 19.2.4
-      react-dom:
-        specifier: ^19.2.4
-        version: 19.2.4(react@19.2.4)
       react-email:
         specifier: ^5.2.10
         version: 5.2.10
