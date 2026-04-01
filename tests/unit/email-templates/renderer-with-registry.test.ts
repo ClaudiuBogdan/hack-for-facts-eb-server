@@ -8,6 +8,8 @@ import type {
   AlertSeriesProps,
   AnafForexebugDigestProps,
   NewsletterEntityProps,
+  PublicDebateCampaignWelcomeProps,
+  PublicDebateEntitySubscriptionProps,
 } from '@/modules/email-templates/core/types.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
@@ -55,6 +57,54 @@ describe('EmailRenderer (registry-backed)', () => {
 
     const rendered = result._unsafeUnwrap();
     expect(rendered.templateName).toBe('alert_series');
+  });
+
+  it('renders public_debate_campaign_welcome template successfully', async () => {
+    const props: PublicDebateCampaignWelcomeProps = {
+      templateType: 'public_debate_campaign_welcome',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/settings/notifications',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      campaignKey: 'public_debate',
+      entityCui: '12345678',
+      entityName: 'Primăria Municipiului Exemplu',
+      acceptedTermsAt: '2026-04-01T10:00:00.000Z',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Ai intrat în campania de dezbatere publică');
+    expect(rendered.html).toContain('Bun venit în campanie!');
+    expect(rendered.html).toContain('Primăria Municipiului Exemplu');
+    expect(rendered.templateName).toBe('public_debate_campaign_welcome');
+  });
+
+  it('renders public_debate_entity_subscription template successfully', async () => {
+    const props: PublicDebateEntitySubscriptionProps = {
+      templateType: 'public_debate_entity_subscription',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/settings/notifications',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      campaignKey: 'public_debate',
+      entityCui: '87654321',
+      entityName: 'Consiliul Județean Exemplu',
+      acceptedTermsAt: '2026-04-02T11:00:00.000Z',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Abonare nouă la o instituție din campanie');
+    expect(rendered.html).toContain('Abonare confirmată');
+    expect(rendered.html).toContain('Consiliul Județean Exemplu');
+    expect(rendered.templateName).toBe('public_debate_entity_subscription');
   });
 
   it('renders anaf_forexebug_digest template successfully', async () => {
@@ -291,12 +341,15 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(4);
+    expect(templates).toHaveLength(7);
     const names = templates.map((t) => t.name);
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');
     expect(names).toContain('anaf_forexebug_digest');
+    expect(names).toContain('public_debate_campaign_welcome');
+    expect(names).toContain('public_debate_entity_subscription');
+    expect(names).toContain('public_debate_entity_update');
   });
 
   it('getTemplate() returns metadata for a specific template', () => {

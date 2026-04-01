@@ -214,6 +214,49 @@ export interface WelcomeEmailProps extends BaseTemplateProps {
   ctaUrl?: string;
 }
 
+/**
+ * Props for the first public debate campaign registration email.
+ */
+export interface PublicDebateCampaignWelcomeProps extends BaseTemplateProps {
+  templateType: 'public_debate_campaign_welcome';
+  campaignKey: string;
+  entityCui: string;
+  entityName: string;
+  acceptedTermsAt: string;
+  ctaUrl?: string;
+}
+
+/**
+ * Props for public debate entity subscription confirmation emails.
+ */
+export interface PublicDebateEntitySubscriptionProps extends BaseTemplateProps {
+  templateType: 'public_debate_entity_subscription';
+  campaignKey: string;
+  entityCui: string;
+  entityName: string;
+  acceptedTermsAt: string;
+  ctaUrl?: string;
+}
+
+/**
+ * Props for public debate entity update notifications.
+ */
+export interface PublicDebateEntityUpdateProps extends BaseTemplateProps {
+  templateType: 'public_debate_entity_update';
+  eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
+  campaignKey: string;
+  entityCui: string;
+  threadId: string;
+  threadKey: string;
+  phase: string;
+  institutionEmail: string;
+  subjectLine: string;
+  occurredAt: string;
+  replyTextPreview?: string | null;
+  resolutionCode?: string | null;
+  reviewNotes?: string | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle Template Props
 // ─────────────────────────────────────────────────────────────────────────────

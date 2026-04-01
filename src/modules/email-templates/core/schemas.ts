@@ -53,6 +53,64 @@ export const WelcomePayloadSchema = Type.Object({
 export type WelcomePayload = Static<typeof WelcomePayloadSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Public Debate Campaign Welcome Template
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PublicDebateCampaignWelcomePayloadSchema = Type.Object({
+  campaignKey: Type.String({ minLength: 1 }),
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  acceptedTermsAt: Type.String({ minLength: 1 }),
+  ctaUrl: Type.Optional(Type.String()),
+});
+
+export type PublicDebateCampaignWelcomePayload = Static<
+  typeof PublicDebateCampaignWelcomePayloadSchema
+>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public Debate Entity Subscription Template
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PublicDebateEntitySubscriptionPayloadSchema = Type.Object({
+  campaignKey: Type.String({ minLength: 1 }),
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  acceptedTermsAt: Type.String({ minLength: 1 }),
+  ctaUrl: Type.Optional(Type.String()),
+});
+
+export type PublicDebateEntitySubscriptionPayload = Static<
+  typeof PublicDebateEntitySubscriptionPayloadSchema
+>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public Debate Entity Update Template
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PublicDebateEntityUpdatePayloadSchema = Type.Object({
+  eventType: Type.Union([
+    Type.Literal('thread_started'),
+    Type.Literal('thread_failed'),
+    Type.Literal('reply_received'),
+    Type.Literal('reply_reviewed'),
+  ]),
+  campaignKey: Type.String({ minLength: 1 }),
+  entityCui: Type.String({ minLength: 1 }),
+  threadId: Type.String({ minLength: 1 }),
+  threadKey: Type.String({ minLength: 1 }),
+  phase: Type.String({ minLength: 1 }),
+  institutionEmail: Type.String({ minLength: 1 }),
+  subjectLine: Type.String({ minLength: 1 }),
+  occurredAt: Type.String({ minLength: 1 }),
+  replyTextPreview: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  resolutionCode: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  reviewNotes: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+});
+
+export type PublicDebateEntityUpdatePayload = Static<typeof PublicDebateEntityUpdatePayloadSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Alert Series Template
 // ─────────────────────────────────────────────────────────────────────────────
 

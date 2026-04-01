@@ -13,6 +13,7 @@ export type {
   NewsletterEntityProps,
   AlertSeriesProps,
   WelcomeEmailProps,
+  PublicDebateEntityUpdateProps,
   AnafForexebugDigestSection,
   AnafForexebugDigestProps,
   EmailTemplateProps,
@@ -33,9 +34,14 @@ export {
   SupportedLanguageSchema,
   DecimalStringSchema,
   WelcomePayloadSchema,
+  PublicDebateEntityUpdatePayloadSchema,
   AnafForexebugDigestPayloadSchema,
 } from './core/schemas.js';
-export type { WelcomePayload, AnafForexebugDigestPayload } from './core/schemas.js';
+export type {
+  WelcomePayload,
+  PublicDebateEntityUpdatePayload,
+  AnafForexebugDigestPayload,
+} from './core/schemas.js';
 
 // Core ports
 export type {

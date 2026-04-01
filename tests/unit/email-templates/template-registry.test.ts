@@ -37,9 +37,17 @@ describe('Template Registry', () => {
 
   it('discovers all registration files', () => {
     const all = registry.getAll();
-    expect(all).toHaveLength(4);
+    expect(all).toHaveLength(7);
     const ids = all.map((r) => r.id);
-    expect(ids).toEqual(['alert_series', 'anaf_forexebug_digest', 'newsletter_entity', 'welcome']);
+    expect(ids).toEqual([
+      'alert_series',
+      'anaf_forexebug_digest',
+      'newsletter_entity',
+      'public_debate_campaign_welcome',
+      'public_debate_entity_subscription',
+      'public_debate_entity_update',
+      'welcome',
+    ]);
   });
 
   it('returns welcome registration by id', () => {
@@ -59,6 +67,9 @@ describe('Template Registry', () => {
     expect(registry.has('alert_series')).toBe(true);
     expect(registry.has('newsletter_entity')).toBe(true);
     expect(registry.has('anaf_forexebug_digest')).toBe(true);
+    expect(registry.has('public_debate_campaign_welcome')).toBe(true);
+    expect(registry.has('public_debate_entity_subscription')).toBe(true);
+    expect(registry.has('public_debate_entity_update')).toBe(true);
     expect(registry.has('nonexistent')).toBe(false);
   });
 
