@@ -63,8 +63,15 @@ export const NewsletterBodySchema = Type.Object({
     Type.Literal('newsletter_entity_monthly'),
     Type.Literal('newsletter_entity_quarterly'),
     Type.Literal('newsletter_entity_yearly'),
+    Type.Literal('campaign_public_debate_entity_updates'),
   ]),
   entityCui: Type.String({ minLength: 1 }),
+  config: Type.Optional(Type.Null()),
+});
+
+export const CampaignPreferenceBodySchema = Type.Object({
+  notificationType: Type.Literal('campaign_public_debate_global'),
+  entityCui: Type.Optional(Type.Union([Type.Null(), Type.String({ minLength: 1 })])),
   config: Type.Optional(Type.Null()),
 });
 
@@ -91,6 +98,7 @@ export const StaticAlertBodySchema = Type.Object({
  * This is the main schema for POST /api/v1/notifications
  */
 export const SubscribeBodySchema = Type.Union([
+  CampaignPreferenceBodySchema,
   NewsletterBodySchema,
   AnalyticsAlertBodySchema,
   StaticAlertBodySchema,
@@ -168,6 +176,7 @@ export const NotificationDataSchema = Type.Object({
   userId: Type.String(),
   entityCui: Type.Union([Type.String(), Type.Null()]),
   notificationType: Type.String(),
+  campaignKey: Type.Union([Type.String(), Type.Null()]),
   isActive: Type.Boolean(),
   config: Type.Unknown(),
   createdAt: Type.String(),

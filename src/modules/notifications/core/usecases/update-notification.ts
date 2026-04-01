@@ -15,7 +15,8 @@ import {
 import {
   type Notification,
   type NotificationConfig,
-  isNewsletterType,
+  isEntityConfiglessType,
+  isUserConfiglessType,
   generateNotificationHash,
 } from '../types.js';
 import { validateConfigForNotificationType } from '../validation.js';
@@ -89,8 +90,11 @@ export async function updateNotification(
   let resolvedConfig = notification.config;
 
   if (updates.config !== undefined) {
-    // For newsletter types, config should be null
-    if (isNewsletterType(notification.notificationType)) {
+    // Entity-scoped configless types keep config null
+    if (
+      isEntityConfiglessType(notification.notificationType) ||
+      isUserConfiglessType(notification.notificationType)
+    ) {
       payload.config = null;
       resolvedConfig = null;
     } else {

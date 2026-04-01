@@ -5,6 +5,8 @@
  * TypeBox schemas for REST validation are in shell/rest/schemas.ts.
  */
 
+import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
+
 import type { DeliveryStatus } from '@/common/types/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,9 +43,11 @@ export const MAX_DELIVERIES_LIMIT = 100;
  * All supported notification types.
  */
 export type NotificationType =
+  | 'campaign_public_debate_global'
   | 'newsletter_entity_monthly'
   | 'newsletter_entity_quarterly'
   | 'newsletter_entity_yearly'
+  | 'campaign_public_debate_entity_updates'
   | 'alert_series_analytics'
   | 'alert_series_static'
   | 'global_unsubscribe';
@@ -58,11 +62,34 @@ export const NEWSLETTER_TYPES: readonly NotificationType[] = [
 ] as const;
 
 /**
+ * Entity-scoped configless notification types.
+ */
+export const ENTITY_CONFIGLESS_TYPES: readonly NotificationType[] = [
+  ...NEWSLETTER_TYPES,
+  'campaign_public_debate_entity_updates',
+] as const;
+
+/**
+ * User-scoped configless notification preference types.
+ */
+export const USER_CONFIGLESS_TYPES: readonly NotificationType[] = [
+  'campaign_public_debate_global',
+] as const;
+
+/**
  * Alert notification types (require config).
  */
 export const ALERT_TYPES: readonly NotificationType[] = [
   'alert_series_analytics',
   'alert_series_static',
+] as const;
+
+/**
+ * User-visible subscription types shown in preferences and delivery history.
+ */
+export const USER_VISIBLE_NOTIFICATION_TYPES: readonly NotificationType[] = [
+  ...ENTITY_CONFIGLESS_TYPES,
+  ...ALERT_TYPES,
 ] as const;
 
 /**
@@ -75,6 +102,20 @@ export const GLOBAL_TYPES: readonly NotificationType[] = ['global_unsubscribe'] 
  */
 export const isNewsletterType = (type: NotificationType): boolean => {
   return NEWSLETTER_TYPES.includes(type);
+};
+
+/**
+ * Check if notification type is an entity-scoped configless subscription.
+ */
+export const isEntityConfiglessType = (type: NotificationType): boolean => {
+  return ENTITY_CONFIGLESS_TYPES.includes(type);
+};
+
+/**
+ * Check if notification type is a user-scoped configless preference.
+ */
+export const isUserConfiglessType = (type: NotificationType): boolean => {
+  return USER_CONFIGLESS_TYPES.includes(type);
 };
 
 /**
@@ -248,7 +289,9 @@ function generatePreviousYearKey(date: Date): string {
  */
 export function generatePeriodKey(notificationType: NotificationType, date: Date): string {
   switch (notificationType) {
+    case 'campaign_public_debate_global':
     case 'newsletter_entity_monthly':
+    case 'campaign_public_debate_entity_updates':
     case 'alert_series_analytics':
     case 'alert_series_static':
       return generatePreviousMonthKey(date);
@@ -280,6 +323,8 @@ export interface NotificationTypeConfig {
   requiresEntity: boolean;
   /** Whether this notification type requires a config */
   requiresConfig: boolean;
+  /** Optional campaign namespace for preference grouping */
+  campaignKey?: string;
 }
 
 /**
@@ -287,6 +332,14 @@ export interface NotificationTypeConfig {
  * Used for validation, UI display, and documentation.
  */
 export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTypeConfig> = {
+  campaign_public_debate_global: {
+    type: 'campaign_public_debate_global',
+    label: 'Public Debate Campaign',
+    description: 'Master preference for public debate campaign notifications',
+    requiresEntity: false,
+    requiresConfig: false,
+    campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
+  },
   newsletter_entity_monthly: {
     type: 'newsletter_entity_monthly',
     label: 'Monthly Entity Newsletter',
@@ -307,6 +360,14 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     description: 'Receive yearly summary of entity budget execution',
     requiresEntity: true,
     requiresConfig: false,
+  },
+  campaign_public_debate_entity_updates: {
+    type: 'campaign_public_debate_entity_updates',
+    label: 'Public Debate Updates',
+    description: 'Receive updates about public debate correspondence for this entity',
+    requiresEntity: true,
+    requiresConfig: false,
+    campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
   },
   alert_series_analytics: {
     type: 'alert_series_analytics',

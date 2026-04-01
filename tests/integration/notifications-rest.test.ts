@@ -181,6 +181,52 @@ describe('Notifications REST API', () => {
 
       expect(response.statusCode).toBe(400);
     });
+
+    it('creates public debate entity update subscription', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/notifications',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          notificationType: 'campaign_public_debate_entity_updates',
+          entityCui: '1234567',
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data.notificationType).toBe('campaign_public_debate_entity_updates');
+      expect(body.data.entityCui).toBe('1234567');
+      expect(body.data.isActive).toBe(true);
+      expect(body.data.campaignKey).toBe('public_debate');
+    });
+
+    it('creates public debate campaign preference without an entity', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/notifications',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          notificationType: 'campaign_public_debate_global',
+          entityCui: null,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data.notificationType).toBe('campaign_public_debate_global');
+      expect(body.data.entityCui).toBeNull();
+      expect(body.data.isActive).toBe(true);
+      expect(body.data.campaignKey).toBe('public_debate');
+    });
   });
 
   describe('POST /api/v1/notifications (static alert)', () => {
@@ -289,6 +335,36 @@ describe('Notifications REST API', () => {
       expect(body.ok).toBe(true);
       expect(body.data).toHaveLength(1);
       expect(body.data[0].id).toBe('n1');
+    });
+
+    it('derives campaignKey for public debate notification subscriptions', async () => {
+      const notifications = [
+        createTestNotification({
+          id: 'n-public-debate',
+          userId: testAuth.userIds.user1,
+          notificationType: 'campaign_public_debate_entity_updates',
+          entityCui: '1234567',
+        }),
+      ];
+
+      if (app != null) await app.close();
+      app = await createTestApp({
+        notificationsRepo: makeFakeNotificationsRepo({ notifications }),
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/notifications',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data[0]?.notificationType).toBe('campaign_public_debate_entity_updates');
+      expect(body.data[0]?.campaignKey).toBe('public_debate');
     });
   });
 

@@ -69,6 +69,8 @@ const mapRow = (row: QueryRow): Notification => ({
 });
 
 const GLOBAL_UNSUB_TYPE = 'global_unsubscribe';
+const PUBLIC_DEBATE_GLOBAL_TYPE = 'campaign_public_debate_global';
+const PUBLIC_DEBATE_ENTITY_TYPE = 'campaign_public_debate_entity_updates';
 
 const isEmailGloballyUnsubscribed = (
   row: Pick<GlobalUnsubscribeRow, 'is_active' | 'config'>
@@ -110,6 +112,52 @@ export const makeExtendedNotificationsRepo = (
   const { db, logger } = options;
   const log = logger.child({ repo: 'ExtendedNotificationsRepo' });
 
+  const loadGloballyUnsubscribedUsers = async (userIds: readonly string[]) => {
+    const candidateUserIds = [...new Set(userIds)];
+    if (candidateUserIds.length === 0) {
+      return ok(new Set<string>());
+    }
+
+    const globalUnsubscribeRows = await db
+      .selectFrom('notifications')
+      .select(['user_id', 'is_active', 'config'])
+      .where('notification_type', '=', GLOBAL_UNSUB_TYPE)
+      .where('user_id', 'in', candidateUserIds)
+      .execute();
+
+    return ok(
+      new Set(
+        globalUnsubscribeRows
+          .filter((row) => isEmailGloballyUnsubscribed(row as unknown as GlobalUnsubscribeRow))
+          .map((row) => row.user_id)
+      )
+    );
+  };
+
+  const loadCampaignDisabledUsers = async (
+    notificationType: NotificationType,
+    userIds: readonly string[]
+  ) => {
+    if (notificationType !== PUBLIC_DEBATE_ENTITY_TYPE) {
+      return ok(new Set<string>());
+    }
+
+    const candidateUserIds = [...new Set(userIds)];
+    if (candidateUserIds.length === 0) {
+      return ok(new Set<string>());
+    }
+
+    const disabledRows = await db
+      .selectFrom('notifications')
+      .select(['user_id'])
+      .where('notification_type', '=', PUBLIC_DEBATE_GLOBAL_TYPE)
+      .where('user_id', 'in', candidateUserIds)
+      .where('is_active', '=', false)
+      .execute();
+
+    return ok(new Set(disabledRows.map((row) => row.user_id)));
+  };
+
   return {
     async findById(notificationId: string): Promise<Result<Notification | null, DeliveryError>> {
       try {
@@ -143,24 +191,20 @@ export const makeExtendedNotificationsRepo = (
           .orderBy('id', 'asc')
           .execute();
 
-        const globalUnsubscribeRows = await db
-          .selectFrom('notifications')
-          .select(['user_id', 'is_active', 'config'])
-          .where('notification_type', '=', GLOBAL_UNSUB_TYPE)
-          .execute();
-
-        const globallyUnsubscribedUsers = new Set(
-          globalUnsubscribeRows
-            .filter((row) => isEmailGloballyUnsubscribed(row as unknown as GlobalUnsubscribeRow))
-            .map((row) => row.user_id)
+        const globallyUnsubscribedUsersResult = await loadGloballyUnsubscribedUsers(
+          notificationRows.map((row) => row.user_id)
         );
+        if (globallyUnsubscribedUsersResult.isErr()) {
+          return err(globallyUnsubscribedUsersResult.error);
+        }
+        const globallyUnsubscribedUsers = globallyUnsubscribedUsersResult.value;
 
         const materializedNotificationIds = ignoreMaterialized
           ? new Set<string>()
           : new Set(
               (
                 await db
-                  .selectFrom('notificationoutbox')
+                  .selectFrom('notificationsoutbox')
                   .select(['reference_id'])
                   .where('scope_key', '=', periodKey)
                   .where('notification_type', '=', notificationType)
@@ -187,6 +231,55 @@ export const makeExtendedNotificationsRepo = (
           'Failed to find eligible notifications'
         );
         return err(createDatabaseError('Failed to find eligible notifications'));
+      }
+    },
+
+    async findActiveByTypeAndEntity(
+      notificationType: NotificationType,
+      entityCui: string
+    ): Promise<Result<Notification[], DeliveryError>> {
+      try {
+        const notificationRows = await db
+          .selectFrom('notifications')
+          .select([...ALL_COLUMNS])
+          .where('notification_type', '=', notificationType)
+          .where('entity_cui', '=', entityCui)
+          .where('is_active', '=', true)
+          .orderBy('created_at', 'asc')
+          .orderBy('id', 'asc')
+          .execute();
+
+        const globallyUnsubscribedUsersResult = await loadGloballyUnsubscribedUsers(
+          notificationRows.map((row) => row.user_id)
+        );
+        if (globallyUnsubscribedUsersResult.isErr()) {
+          return err(globallyUnsubscribedUsersResult.error);
+        }
+        const globallyUnsubscribedUsers = globallyUnsubscribedUsersResult.value;
+        const campaignDisabledUsersResult = await loadCampaignDisabledUsers(
+          notificationType,
+          notificationRows.map((row) => row.user_id)
+        );
+        if (campaignDisabledUsersResult.isErr()) {
+          return err(campaignDisabledUsersResult.error);
+        }
+        const campaignDisabledUsers = campaignDisabledUsersResult.value;
+
+        return ok(
+          notificationRows
+            .map((row) => mapRow(row as unknown as QueryRow))
+            .filter(
+              (notification) =>
+                !globallyUnsubscribedUsers.has(notification.userId) &&
+                !campaignDisabledUsers.has(notification.userId)
+            )
+        );
+      } catch (error) {
+        log.error(
+          { err: error, notificationType, entityCui },
+          'Failed to find active notifications by type and entity'
+        );
+        return err(createDatabaseError('Failed to find active notifications by type and entity'));
       }
     },
 

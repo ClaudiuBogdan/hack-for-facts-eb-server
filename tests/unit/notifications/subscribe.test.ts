@@ -246,6 +246,100 @@ describe('subscribe use case', () => {
     });
   });
 
+  describe('public debate entity update subscriptions', () => {
+    it('creates a new public debate entity update subscription', async () => {
+      const repo = makeFakeNotificationsRepo();
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'campaign_public_debate_entity_updates',
+          entityCui: '1234567',
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.notificationType).toBe('campaign_public_debate_entity_updates');
+        expect(result.value.entityCui).toBe('1234567');
+        expect(result.value.config).toBeNull();
+      }
+    });
+
+    it('reactivates an existing inactive public debate entity update subscription', async () => {
+      const existing = createTestNotification({
+        userId: 'user-1',
+        notificationType: 'campaign_public_debate_entity_updates',
+        entityCui: '1234567',
+        isActive: false,
+      });
+      const repo = makeFakeNotificationsRepo({ notifications: [existing] });
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'campaign_public_debate_entity_updates',
+          entityCui: '1234567',
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.id).toBe(existing.id);
+        expect(result.value.isActive).toBe(true);
+      }
+    });
+  });
+
+  describe('public debate campaign preference subscriptions', () => {
+    it('creates a new public debate campaign preference without an entity', async () => {
+      const repo = makeFakeNotificationsRepo();
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'campaign_public_debate_global',
+          entityCui: null,
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.notificationType).toBe('campaign_public_debate_global');
+        expect(result.value.entityCui).toBeNull();
+        expect(result.value.isActive).toBe(true);
+      }
+    });
+
+    it('reactivates an existing inactive public debate campaign preference', async () => {
+      const existing = createTestNotification({
+        userId: 'user-1',
+        notificationType: 'campaign_public_debate_global',
+        entityCui: null,
+        isActive: false,
+      });
+      const repo = makeFakeNotificationsRepo({ notifications: [existing] });
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'campaign_public_debate_global',
+          entityCui: null,
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.id).toBe(existing.id);
+        expect(result.value.isActive).toBe(true);
+      }
+    });
+  });
+
   it('rejects global_unsubscribe because it is system-managed', async () => {
     const repo = makeFakeNotificationsRepo();
 

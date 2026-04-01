@@ -27,10 +27,15 @@ export {
   DEFAULT_DELIVERIES_LIMIT,
   MAX_DELIVERIES_LIMIT,
   NEWSLETTER_TYPES,
+  ENTITY_CONFIGLESS_TYPES,
+  USER_CONFIGLESS_TYPES,
   ALERT_TYPES,
+  USER_VISIBLE_NOTIFICATION_TYPES,
   NOTIFICATION_TYPE_CONFIGS,
   // Type guards
   isNewsletterType,
+  isEntityConfiglessType,
+  isUserConfiglessType,
   isAlertType,
   // Pure functions
   generateNotificationHash,
@@ -99,6 +104,16 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { subscribe, type SubscribeDeps, type SubscribeInput } from './core/usecases/subscribe.js';
+export {
+  subscribeToPublicDebateEntityUpdates,
+  type SubscribeToPublicDebateEntityUpdatesInput,
+} from './core/usecases/subscribe-to-public-debate-entity-updates.js';
+export {
+  ensurePublicDebateAutoSubscriptions,
+  type EnsurePublicDebateAutoSubscriptionsDeps,
+  type EnsurePublicDebateAutoSubscriptionsInput,
+  type EnsurePublicDebateAutoSubscriptionsOutput,
+} from './core/usecases/ensure-public-debate-auto-subscriptions.js';
 
 export {
   updateNotification,

@@ -45,7 +45,7 @@ function makeUserDb(
   return {
     db: {
       selectFrom: (table: string) => {
-        const rows = (table === 'notificationoutbox'
+        const rows = (table === 'notificationsoutbox'
           ? outboxRows
           : notifications) as unknown as Record<string, unknown>[];
         const state = {
@@ -68,6 +68,10 @@ function makeUserDb(
             state.whereClauses.every((clause) => {
               if (clause.operator === '=') {
                 return row[clause.column] === clause.value;
+              }
+
+              if (clause.operator === 'in') {
+                return Array.isArray(clause.value) && clause.value.includes(row[clause.column]);
               }
 
               return true;
@@ -444,6 +448,104 @@ describe('makeExtendedNotificationsRepo', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.map((notification) => notification.id)).toEqual(['n-2', 'n-3']);
+    }
+  });
+
+  it('excludes globally unsubscribed users from findActiveByTypeAndEntity', async () => {
+    const { db } = makeUserDb([
+      {
+        id: 'n-public-1',
+        user_id: 'user-1',
+        entity_cui: '12345678',
+        notification_type: 'campaign_public_debate_entity_updates',
+        is_active: true,
+        config: null,
+        hash: 'hash-public-1',
+        created_at: '2026-03-01T10:00:00.000Z',
+        updated_at: '2026-03-01T10:00:00.000Z',
+      },
+      {
+        id: 'n-public-2',
+        user_id: 'user-2',
+        entity_cui: '12345678',
+        notification_type: 'campaign_public_debate_entity_updates',
+        is_active: true,
+        config: null,
+        hash: 'hash-public-2',
+        created_at: '2026-03-02T10:00:00.000Z',
+        updated_at: '2026-03-02T10:00:00.000Z',
+      },
+      {
+        id: 'global-user-1',
+        user_id: 'user-1',
+        entity_cui: null,
+        notification_type: 'global_unsubscribe',
+        is_active: true,
+        config: { channels: { email: false } },
+        hash: 'hash-global-user-1',
+        created_at: '2026-03-01T09:00:00.000Z',
+        updated_at: '2026-03-01T09:00:00.000Z',
+      },
+    ]);
+
+    const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
+    const result = await repo.findActiveByTypeAndEntity(
+      'campaign_public_debate_entity_updates',
+      '12345678'
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.map((notification) => notification.id)).toEqual(['n-public-2']);
+    }
+  });
+
+  it('excludes users with a disabled public debate campaign preference from findActiveByTypeAndEntity', async () => {
+    const { db } = makeUserDb([
+      {
+        id: 'n-public-1',
+        user_id: 'user-1',
+        entity_cui: '12345678',
+        notification_type: 'campaign_public_debate_entity_updates',
+        is_active: true,
+        config: null,
+        hash: 'hash-public-1',
+        created_at: '2026-03-01T10:00:00.000Z',
+        updated_at: '2026-03-01T10:00:00.000Z',
+      },
+      {
+        id: 'n-public-2',
+        user_id: 'user-2',
+        entity_cui: '12345678',
+        notification_type: 'campaign_public_debate_entity_updates',
+        is_active: true,
+        config: null,
+        hash: 'hash-public-2',
+        created_at: '2026-03-02T10:00:00.000Z',
+        updated_at: '2026-03-02T10:00:00.000Z',
+      },
+      {
+        id: 'campaign-global-user-1',
+        user_id: 'user-1',
+        entity_cui: null,
+        notification_type: 'campaign_public_debate_global',
+        is_active: false,
+        config: null,
+        hash: 'hash-campaign-global-user-1',
+        created_at: '2026-03-01T09:00:00.000Z',
+        updated_at: '2026-03-01T09:00:00.000Z',
+      },
+    ]);
+
+    const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
+    const result = await repo.findActiveByTypeAndEntity(
+      'campaign_public_debate_entity_updates',
+      '12345678'
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.map((notification) => notification.id)).toEqual(['n-public-2']);
     }
   });
 });

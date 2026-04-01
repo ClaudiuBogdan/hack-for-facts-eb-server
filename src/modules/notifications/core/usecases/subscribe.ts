@@ -15,7 +15,8 @@ import {
   type Notification,
   type NotificationType,
   type NotificationConfig,
-  isNewsletterType,
+  isEntityConfiglessType,
+  isUserConfiglessType,
   generateNotificationHash,
 } from '../types.js';
 import {
@@ -87,14 +88,14 @@ export async function subscribe(
   // Validate based on notification type
   // ─────────────────────────────────────────────────────────────────────────────
 
-  if (isNewsletterType(notificationType)) {
-    // Newsletters require an entity
+  if (isEntityConfiglessType(notificationType)) {
+    // Entity-scoped configless notifications require an entity
     const validationResult = validateNewsletterEntity(notificationType, entityCui);
     if (validationResult.isErr()) {
       return err(validationResult.error);
     }
 
-    // Newsletter subscription: lookup by (user, type, entity)
+    // Entity-scoped configless subscription: lookup by (user, type, entity)
     const existingResult = await notificationsRepo.findByUserTypeAndEntity(
       userId,
       notificationType,
@@ -137,12 +138,59 @@ export async function subscribe(
       return err(updateResult.error);
     }
 
-    // Create new newsletter subscription
+    // Create new entity-scoped configless subscription
     const hash = generateNotificationHash(hasher, userId, notificationType, entityCui, null);
     return notificationsRepo.create({
       userId,
       notificationType,
       entityCui,
+      config: null,
+      hash,
+    });
+  }
+
+  if (isUserConfiglessType(notificationType)) {
+    const existingResult = await notificationsRepo.findByUserTypeAndEntity(
+      userId,
+      notificationType,
+      null
+    );
+
+    if (existingResult.isErr()) {
+      return err(existingResult.error);
+    }
+
+    const existing = existingResult.value;
+
+    if (existing !== null) {
+      if (existing.isActive) {
+        return ok(existing);
+      }
+
+      const updateResult = await notificationsRepo.update(existing.id, { isActive: true });
+      if (updateResult.isOk()) {
+        return updateResult;
+      }
+
+      if (updateResult.error.type === 'NotificationNotFoundError') {
+        const hash = generateNotificationHash(hasher, userId, notificationType, null, null);
+        return notificationsRepo.create({
+          userId,
+          notificationType,
+          entityCui: null,
+          config: null,
+          hash,
+        });
+      }
+
+      return err(updateResult.error);
+    }
+
+    const hash = generateNotificationHash(hasher, userId, notificationType, null, null);
+    return notificationsRepo.create({
+      userId,
+      notificationType,
+      entityCui: null,
       config: null,
       hash,
     });
