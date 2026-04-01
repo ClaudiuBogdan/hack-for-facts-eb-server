@@ -115,6 +115,8 @@ export interface EmailLayoutProps {
   platformBaseUrl: string;
   /** Explicit year used in footer copyright copy */
   copyrightYear: number;
+  /** Optional custom header replacing the default gradient banner */
+  header?: React.ReactNode;
   /** Main content */
   children: React.ReactNode;
 }
@@ -130,6 +132,7 @@ export const EmailLayout: React.FC<EmailLayoutProps> = ({
   preferencesUrl,
   platformBaseUrl,
   copyrightYear,
+  header,
   children,
 }) => {
   const t = getTranslations(lang);
@@ -156,29 +159,33 @@ export const EmailLayout: React.FC<EmailLayoutProps> = ({
       <Body style={styles.body}>
         <Container style={styles.container} className="email-container">
           {/* Header */}
-          <Section style={styles.headerBand} className="email-header">
-            <table style={styles.headerTable}>
-              <tr>
-                <td style={styles.headerLogoCell}>
-                  <Link href={platformBaseUrl}>
-                    <Img
-                      src="https://transparenta.eu/logo.png"
-                      width="32"
-                      height="30"
-                      alt=""
-                      style={styles.headerLogo}
-                    />
-                  </Link>
-                </td>
-                <td style={styles.headerTitleCell}>
-                  <Link href={platformBaseUrl} style={styles.headerTitle}>
-                    Transparenta.eu
-                  </Link>
-                </td>
-                <td style={{ width: '40px' }} />
-              </tr>
-            </table>
-          </Section>
+          {header !== undefined ? (
+            header
+          ) : (
+            <Section style={styles.headerBand} className="email-header">
+              <table style={styles.headerTable}>
+                <tr>
+                  <td style={styles.headerLogoCell}>
+                    <Link href={platformBaseUrl}>
+                      <Img
+                        src="https://transparenta.eu/logo.png"
+                        width="32"
+                        height="30"
+                        alt=""
+                        style={styles.headerLogo}
+                      />
+                    </Link>
+                  </td>
+                  <td style={styles.headerTitleCell}>
+                    <Link href={platformBaseUrl} style={styles.headerTitle}>
+                      Transparenta.eu
+                    </Link>
+                  </td>
+                  <td style={{ width: '40px' }} />
+                </tr>
+              </table>
+            </Section>
+          )}
 
           {/* Content */}
           <Section style={styles.content} className="email-content">{children}</Section>

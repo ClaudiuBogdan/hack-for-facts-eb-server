@@ -128,6 +128,39 @@ export interface WelcomeTranslations {
 }
 
 /**
+ * Public debate campaign welcome translations.
+ */
+export interface PublicDebateCampaignWelcomeTranslations {
+  subject: string;
+  body: {
+    greeting: string;
+    intro: string;
+    entityLabel: string;
+    acceptedTermsAtLabel: string;
+    benefits: string[];
+    cta: string;
+    closing: string;
+  };
+}
+
+/**
+ * Public debate entity subscription translations.
+ */
+export interface PublicDebateEntitySubscriptionTranslations {
+  subject: string;
+  body: {
+    greeting: string;
+    intro: string;
+    entityLabel: string;
+    acceptedTermsAtLabel: string;
+    whatHappensNextTitle: string;
+    whatHappensNext: string[];
+    cta: string;
+    closing: string;
+  };
+}
+
+/**
  * Digest template translations.
  */
 export interface DigestTranslations {
@@ -172,6 +205,8 @@ export interface Translations {
   newsletter: NewsletterTranslations;
   alert: AlertTranslations;
   welcome: WelcomeTranslations;
+  publicDebateCampaignWelcome: PublicDebateCampaignWelcomeTranslations;
+  publicDebateEntitySubscription: PublicDebateEntitySubscriptionTranslations;
   digest: DigestTranslations;
 }
 
@@ -276,6 +311,42 @@ const ro: Translations = {
       ],
       cta: 'Explorează platforma',
       closing: 'Dacă nu ai solicitat crearea acestui cont, poți ignora acest mesaj.',
+    },
+  },
+  publicDebateCampaignWelcome: {
+    subject: 'Ai intrat în campania de dezbatere publică',
+    body: {
+      greeting: 'Bun venit în campanie!',
+      intro:
+        'Ai acceptat termenii campaniei de dezbatere publică și urmărirea pentru prima entitate este activă.',
+      entityLabel: 'Prima entitate urmărită',
+      acceptedTermsAtLabel: 'Înscriere confirmată la',
+      benefits: [
+        'Primești email când există actualizări despre cererea de dezbatere publică',
+        'Poți urmări mai multe instituții în aceeași campanie',
+        'Poți opri notificările din preferințe în orice moment',
+      ],
+      cta: 'Vezi entitatea pe platformă',
+      closing: 'Îți vom trimite următoarele mesaje doar pentru actualizările din această campanie.',
+    },
+  },
+  publicDebateEntitySubscription: {
+    subject: 'Abonare nouă la o instituție din campanie',
+    body: {
+      greeting: 'Abonare confirmată',
+      intro:
+        'Ai acceptat termenii pentru încă o entitate și vom trimite actualizări despre evoluția cererii de dezbatere publică pentru aceasta.',
+      entityLabel: 'Entitate urmărită',
+      acceptedTermsAtLabel: 'Abonare confirmată la',
+      whatHappensNextTitle: 'Ce urmează',
+      whatHappensNext: [
+        'Primești email când cererea este trimisă sau dacă apar probleme la trimitere',
+        'Primești email când instituția răspunde',
+        'Primești email când răspunsul este revizuit și starea firului se schimbă',
+      ],
+      cta: 'Vezi entitatea pe platformă',
+      closing:
+        'Dacă nu mai vrei aceste actualizări, poți dezactiva notificările pentru entitate din preferințe.',
     },
   },
   digest: {
@@ -412,6 +483,42 @@ const en: Translations = {
       closing: 'If you did not request this account, you can ignore this message.',
     },
   },
+  publicDebateCampaignWelcome: {
+    subject: 'You joined the public debate campaign',
+    body: {
+      greeting: 'Welcome to the campaign!',
+      intro:
+        'You accepted the campaign terms and your first public debate campaign follow is now active.',
+      entityLabel: 'First followed entity',
+      acceptedTermsAtLabel: 'Enrollment confirmed at',
+      benefits: [
+        'You receive email updates when the public debate request changes state',
+        'You can follow multiple institutions in the same campaign',
+        'You can pause campaign notifications from preferences at any time',
+      ],
+      cta: 'View entity on the platform',
+      closing: 'We will only send follow-up messages for updates that belong to this campaign.',
+    },
+  },
+  publicDebateEntitySubscription: {
+    subject: 'New institution follow confirmed',
+    body: {
+      greeting: 'Subscription confirmed',
+      intro:
+        'You accepted the terms for another entity and we will send updates about that public debate request as well.',
+      entityLabel: 'Followed entity',
+      acceptedTermsAtLabel: 'Subscription confirmed at',
+      whatHappensNextTitle: 'What happens next',
+      whatHappensNext: [
+        'You receive email when the request is sent or if sending fails',
+        'You receive email when the institution replies',
+        'You receive email when the reply is reviewed and the thread status changes',
+      ],
+      cta: 'View entity on the platform',
+      closing:
+        'If you no longer want these updates, you can disable notifications for this entity from preferences.',
+    },
+  },
   digest: {
     subject: 'ANAF / Forexebug data update - {period}',
     body: {
@@ -516,6 +623,20 @@ export const getAlertSubject = (lang: SupportedLanguage, title: string): string 
  */
 export const getWelcomeSubject = (lang: SupportedLanguage): string => {
   return getTranslations(lang).welcome.subject;
+};
+
+/**
+ * Gets the subject line for the first public debate campaign welcome email.
+ */
+export const getPublicDebateCampaignWelcomeSubject = (lang: SupportedLanguage): string => {
+  return getTranslations(lang).publicDebateCampaignWelcome.subject;
+};
+
+/**
+ * Gets the subject line for a public debate entity subscription email.
+ */
+export const getPublicDebateEntitySubscriptionSubject = (lang: SupportedLanguage): string => {
+  return getTranslations(lang).publicDebateEntitySubscription.subject;
 };
 
 /**

@@ -7,6 +7,9 @@
 import { registration as alertSeriesRegistration } from './registrations/alert-series.js';
 import { registration as anafForexebugDigestRegistration } from './registrations/anaf-forexebug-digest.js';
 import { registration as newsletterEntityRegistration } from './registrations/newsletter-entity.js';
+import { registration as publicDebateCampaignWelcomeRegistration } from './registrations/public-debate-campaign-welcome.js';
+import { registration as publicDebateEntitySubscriptionRegistration } from './registrations/public-debate-entity-subscription.js';
+import { registration as publicDebateEntityUpdateRegistration } from './registrations/public-debate-entity-update.js';
 import { registration as welcomeRegistration } from './registrations/welcome.js';
 
 import type { AnyShellTemplateRegistration } from './types.js';
@@ -93,6 +96,18 @@ const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
   {
     label: 'newsletter-entity',
     registration: newsletterEntityRegistration,
+  },
+  {
+    label: 'public-debate-campaign-welcome',
+    registration: publicDebateCampaignWelcomeRegistration,
+  },
+  {
+    label: 'public-debate-entity-subscription',
+    registration: publicDebateEntitySubscriptionRegistration,
+  },
+  {
+    label: 'public-debate-entity-update',
+    registration: publicDebateEntityUpdateRegistration,
   },
   {
     label: 'welcome',

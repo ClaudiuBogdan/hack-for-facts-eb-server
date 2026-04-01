@@ -24,3 +24,5 @@ export type { CompactMetricRowProps, CompactMetric } from './compact-metric-row.
 
 export { ConditionDisplay } from './condition-display.js';
 export type { ConditionDisplayProps } from './condition-display.js';
+
+export { CampaignHeader } from './campaign-header.js';
