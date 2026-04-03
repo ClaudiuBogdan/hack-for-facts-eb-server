@@ -1,4 +1,4 @@
-import { embedThreadKeyInSubject } from '../../core/usecases/helpers.js';
+import { buildPublicDebateRequestSubject } from '../../core/usecases/helpers.js';
 
 import type { CorrespondenceTemplateRenderer } from '../../core/ports.js';
 
@@ -52,7 +52,7 @@ export const makePublicDebateTemplateRenderer = (): CorrespondenceTemplateRender
         .join('');
 
       return {
-        subject: embedThreadKeyInSubject('Cerere dezbatere buget local', input.threadKey),
+        subject: buildPublicDebateRequestSubject(input.entityName),
         text,
         html,
       };

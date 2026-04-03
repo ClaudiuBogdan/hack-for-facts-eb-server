@@ -27,7 +27,7 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../unit/institution-correspondence/fake-repo.js';
 
-import type { EntityProfileRepository } from '@/modules/entity/index.js';
+import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
 
 function createDebateRequestRecord(input: {
   entityCui?: string;
@@ -104,6 +104,47 @@ function makeTestEntityProfileRepo(
   };
 }
 
+function makeTestEntityRepo(entityName = 'Oras Test'): EntityRepository {
+  return {
+    async getById(cui) {
+      return ok({
+        cui,
+        name: entityName,
+        entity_type: null,
+        default_report_type: 'Executie bugetara detaliata',
+        uat_id: null,
+        is_uat: true,
+        address: null,
+        last_updated: null,
+        main_creditor_1_cui: null,
+        main_creditor_2_cui: null,
+      });
+    },
+    async getByIds() {
+      return ok(new Map());
+    },
+    async getAll() {
+      return ok({
+        nodes: [],
+        pageInfo: {
+          totalCount: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    },
+    async getChildren() {
+      return ok([]);
+    },
+    async getParents() {
+      return ok([]);
+    },
+    async getCountyEntity() {
+      return ok(null);
+    },
+  };
+}
+
 const createTestApp = async (options: {
   learningProgressRepo?: LearningProgressRepository;
   correspondenceRepo?: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
@@ -119,6 +160,7 @@ const createTestApp = async (options: {
   const logger = pinoLogger({ level: 'silent' });
   const publicDebateHandler = makePublicDebateRequestUserEventHandler({
     learningProgressRepo,
+    entityRepo: makeTestEntityRepo(),
     entityProfileRepo: makeTestEntityProfileRepo(
       options.officialEmail === undefined ? 'contact@primarie.ro' : options.officialEmail
     ),

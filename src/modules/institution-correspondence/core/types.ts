@@ -156,6 +156,7 @@ export interface SendPlatformRequestInput {
   ownerUserId: string;
   entityCui: string;
   institutionEmail: string;
+  entityName?: string | null;
   requesterOrganizationName?: string | null;
   budgetPublicationDate?: string | null;
   consentCapturedAt?: string | null;

@@ -170,6 +170,7 @@ export interface CorrespondenceTemplateRenderer {
     requesterOrganizationName: string | null;
     ngoIdentity: string;
     budgetYear: number;
+    entityName?: string | null;
     threadKey: string;
   }): {
     subject: string;

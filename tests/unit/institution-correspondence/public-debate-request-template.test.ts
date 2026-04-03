@@ -7,6 +7,7 @@ describe('makePublicDebateTemplateRenderer', () => {
     const renderer = makePublicDebateTemplateRenderer();
 
     const rendered = renderer.renderPublicDebateRequest({
+      entityName: 'COMUNA ION ROATA',
       institutionEmail: 'contact@primarie.ro',
       requesterOrganizationName: 'Asociatia Test',
       ngoIdentity: 'funky_citizens',
@@ -14,7 +15,7 @@ describe('makePublicDebateTemplateRenderer', () => {
       threadKey: 'thread-key-1',
     });
 
-    expect(rendered.subject).toBe('Cerere dezbatere buget local [teu:thread-key-1]');
+    expect(rendered.subject).toBe('Cerere dezbatere buget local - COMUNA ION ROATA');
     expect(rendered.text).toContain('Subscrisa, Funky Citizens');
     expect(rendered.text).toContain('CERERE DE ORGANIZARE A UNEI DEZBATERI');
     expect(rendered.text).toContain('cu privire la proiectul de buget local pentru anul 2026');

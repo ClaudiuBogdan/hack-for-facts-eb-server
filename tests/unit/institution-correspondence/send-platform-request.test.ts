@@ -35,6 +35,7 @@ describe('sendPlatformRequest', () => {
       {
         ownerUserId: 'user-1',
         entityCui: '12345678',
+        entityName: 'COMUNA ION ROATA',
         institutionEmail: 'contact@primarie.ro',
         requesterOrganizationName: null,
       }
@@ -46,7 +47,9 @@ describe('sendPlatformRequest', () => {
       expect(result.value.thread.phase).toBe('awaiting_reply');
       expect(result.value.thread.record.captureAddress).toBe('debate@transparenta.test');
       expect(result.value.thread.record.correspondence).toHaveLength(1);
-      expect(result.value.thread.record.subject).toContain('[teu:');
+      expect(result.value.thread.record.subject).toBe(
+        'Cerere dezbatere buget local - COMUNA ION ROATA'
+      );
       expect(result.value.thread.record.correspondence[0]?.direction).toBe('outbound');
       expect(result.value.thread.record.correspondence[0]?.resendEmailId).toBe('email-1');
       expect(result.value.thread.record.correspondence[0]?.fromAddress).toBe(

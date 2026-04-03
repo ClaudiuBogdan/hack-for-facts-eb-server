@@ -128,6 +128,7 @@ export async function sendPlatformRequest(
 ): Promise<Result<SendPlatformRequestOutput, InstitutionCorrespondenceError>> {
   const entityCui = input.entityCui.trim();
   const institutionEmail = input.institutionEmail.trim();
+  const entityName = normalizeOptionalString(input.entityName);
   const requesterOrganizationName = normalizeOptionalString(input.requesterOrganizationName);
   const publicationDate = parseOptionalDate(input.budgetPublicationDate);
   const consentCapturedAt = parseOptionalDate(input.consentCapturedAt);
@@ -148,6 +149,7 @@ export async function sendPlatformRequest(
   const contestationDeadlineAt = computeContestationDeadline(publicationDate);
   const rendered = deps.templateRenderer.renderPublicDebateRequest({
     institutionEmail,
+    ...(entityName !== null ? { entityName } : {}),
     requesterOrganizationName,
     ngoIdentity: DEFAULT_NGO_IDENTITY,
     budgetYear: getBudgetYear(publicationDate),

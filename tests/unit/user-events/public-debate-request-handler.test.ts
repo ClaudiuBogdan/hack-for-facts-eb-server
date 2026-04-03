@@ -2,6 +2,11 @@ import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  createDatabaseError,
+  type EntityProfileRepository,
+  type EntityRepository,
+} from '@/modules/entity/index.js';
 import { makePublicDebateRequestUserEventHandler } from '@/modules/user-events/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../../fixtures/fakes.js';
@@ -11,7 +16,6 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../institution-correspondence/fake-repo.js';
 
-import type { EntityProfileRepository } from '@/modules/entity/index.js';
 import type {
   CorrespondenceEmailSender,
   InstitutionCorrespondenceRepository,
@@ -117,8 +121,80 @@ function makeTestEntityProfileRepo(
   };
 }
 
+function makeTestEntityRepo(entityName = 'Oras Test'): EntityRepository {
+  return {
+    async getById(cui) {
+      return ok({
+        cui,
+        name: entityName,
+        entity_type: null,
+        default_report_type: 'Executie bugetara detaliata',
+        uat_id: null,
+        is_uat: true,
+        address: null,
+        last_updated: null,
+        main_creditor_1_cui: null,
+        main_creditor_2_cui: null,
+      });
+    },
+    async getByIds() {
+      return ok(new Map());
+    },
+    async getAll() {
+      return ok({
+        nodes: [],
+        pageInfo: {
+          totalCount: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    },
+    async getChildren() {
+      return ok([]);
+    },
+    async getParents() {
+      return ok([]);
+    },
+    async getCountyEntity() {
+      return ok(null);
+    },
+  };
+}
+
+function makeFailingEntityRepo(): EntityRepository {
+  return {
+    async getById() {
+      return err(createDatabaseError('Entity lookup failed'));
+    },
+    async getByIds() {
+      return ok(new Map());
+    },
+    async getAll() {
+      return ok({
+        nodes: [],
+        pageInfo: {
+          totalCount: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    },
+    async getChildren() {
+      return ok([]);
+    },
+    async getParents() {
+      return ok([]);
+    },
+    async getCountyEntity() {
+      return ok(null);
+    },
+  };
+}
+
 function createHandler(input: {
   learningProgressRepo?: LearningProgressRepository;
+  entityRepo?: EntityRepository;
   entityProfileRepo?: EntityProfileRepository;
   correspondenceRepo?: InstitutionCorrespondenceRepository;
   subscriptionService?: PublicDebateEntitySubscriptionService;
@@ -132,6 +208,7 @@ function createHandler(input: {
 
   return makePublicDebateRequestUserEventHandler({
     learningProgressRepo: input.learningProgressRepo ?? makeFakeLearningProgressRepo(),
+    entityRepo: input.entityRepo ?? makeTestEntityRepo(),
     entityProfileRepo: input.entityProfileRepo ?? makeTestEntityProfileRepo(),
     repo: input.correspondenceRepo ?? makeInMemoryCorrespondenceRepo(),
     emailSender: {
@@ -411,6 +488,49 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     expect(storedRecord?.record.review?.status).toBe('approved');
   });
 
+  it('reuses an existing thread even when entity lookup is unavailable', async () => {
+    const record = createDebateRequestRecord({
+      submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          entityCui: '12345678',
+          record: createThreadAggregateRecord({
+            submissionPath: 'platform_send',
+          }),
+        }),
+      ],
+    });
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const handler = createHandler({
+      learningProgressRepo,
+      entityRepo: makeFailingEntityRepo(),
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(1);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('resolved');
+    expect(storedRecord?.record.review?.status).toBe('approved');
+  });
+
   it('throws when the downstream send fails with a retryable error so the queue can retry', async () => {
     const record = createDebateRequestRecord({
       submissionPath: 'request_platform',
@@ -486,6 +606,41 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     );
   });
 
+  it('rejects invalid institution emails without requiring entity lookup', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'not-an-email',
+      submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
+      learningProgressRepo,
+      entityRepo: makeFailingEntityRepo(),
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('failed');
+    expect(storedRecord?.record.review?.status).toBe('rejected');
+  });
+
   it('keeps the record pending when the submitted email mismatches the official profile email', async () => {
     const record = createDebateRequestRecord({
       institutionEmail: 'different@primarie.ro',
@@ -498,6 +653,42 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     const correspondenceRepo = makeInMemoryCorrespondenceRepo();
     const handler = createHandler({
       learningProgressRepo,
+      entityProfileRepo: makeTestEntityProfileRepo('contact@primarie.ro'),
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('pending');
+    expect(storedRecord?.record.review).toBeUndefined();
+  });
+
+  it('keeps the record pending on official-email mismatch without requiring entity lookup', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+      submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
+      learningProgressRepo,
+      entityRepo: makeFailingEntityRepo(),
       entityProfileRepo: makeTestEntityProfileRepo('contact@primarie.ro'),
       correspondenceRepo,
       send,

@@ -29,10 +29,11 @@ import {
 
 import type { UserEventHandler } from '../../core/ports.js';
 import type { UserEventJobPayload } from '../../core/types.js';
-import type { EntityProfileRepository } from '@/modules/entity/index.js';
+import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
 import type { Logger } from 'pino';
 export interface PublicDebateRequestUserEventHandlerDeps {
   learningProgressRepo: LearningProgressRepository;
+  entityRepo: EntityRepository;
   entityProfileRepo: EntityProfileRepository;
   repo: InstitutionCorrespondenceRepository;
   emailSender: CorrespondenceEmailSender;
