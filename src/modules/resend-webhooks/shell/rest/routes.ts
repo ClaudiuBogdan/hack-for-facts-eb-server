@@ -1,4 +1,12 @@
+import { Value } from '@sinclair/typebox/value';
 import { fromThrowable } from 'neverthrow';
+
+import {
+  ResendEmailEventTypeSchema,
+  type ResendEmailWebhookEvent,
+  type StoredResendEmailEvent,
+} from '../../core/types.js';
+import { parseResendEmailWebhookEvent } from '../../core/usecases/parse-resend-email-webhook-event.js';
 
 import type {
   ResendWebhookEmailEventsRepository,
@@ -6,13 +14,24 @@ import type {
   SvixHeaders,
   WebhookVerifier,
 } from '../../core/ports.js';
-import type { ResendEmailWebhookEvent, StoredResendEmailEvent } from '../../core/types.js';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { Logger } from 'pino';
 
 interface RequestWithRawBody extends FastifyRequest {
   rawBody?: string;
 }
+
+const getPayloadType = (payload: unknown): string | null => {
+  if (payload === null || typeof payload !== 'object') {
+    return null;
+  }
+
+  const candidateType = (payload as Record<string, unknown>)['type'];
+  return typeof candidateType === 'string' ? candidateType : null;
+};
+
+const isSupportedPayloadType = (payloadType: string | null): boolean =>
+  payloadType !== null && Value.Check(ResendEmailEventTypeSchema, payloadType);
 
 export interface ResendWebhookRoutesDeps {
   webhookVerifier: WebhookVerifier;
@@ -94,7 +113,34 @@ export const makeResendWebhookRoutes = (deps: ResendWebhookRoutesDeps): FastifyP
           return reply.status(401).send({ error: 'Invalid signature' });
         }
 
-        const event = verifyResult.value as ResendEmailWebhookEvent;
+        const parsedEvent = parseResendEmailWebhookEvent(verifyResult.value as unknown);
+        if (parsedEvent.isErr()) {
+          const eventType = getPayloadType(verifyResult.value as unknown);
+
+          if (!isSupportedPayloadType(eventType)) {
+            log.info(
+              {
+                svixId,
+                eventType,
+                error: parsedEvent.error,
+              },
+              'Ignoring unsupported resend webhook payload'
+            );
+            return reply.status(200).send({ status: 'ignored' });
+          }
+
+          log.error(
+            {
+              svixId,
+              eventType,
+              error: parsedEvent.error,
+            },
+            'Failed to parse supported resend webhook payload'
+          );
+          return reply.status(500).send({ error: 'Internal server error' });
+        }
+
+        const event: ResendEmailWebhookEvent = parsedEvent.value;
         const insertResult = await emailEventsRepo.insert({ svixId, event });
 
         if (insertResult.isErr()) {
