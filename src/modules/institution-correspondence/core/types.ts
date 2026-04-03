@@ -32,6 +32,10 @@ export type MessageSource = 'platform_send' | 'self_send_cc' | 'institution_repl
 
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
+const IsoDateTimeStringSchema = Type.String({
+  minLength: 1,
+  pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})$',
+});
 
 export const CorrespondenceAttachmentMetadataSchema = Type.Object(
   {
@@ -69,7 +73,7 @@ export const CorrespondenceEntrySchema = Type.Object(
     htmlBody: NullableStringSchema,
     headers: UnknownRecordSchema,
     attachments: Type.Array(CorrespondenceAttachmentMetadataSchema),
-    occurredAt: Type.String({ format: 'date-time' }),
+    occurredAt: IsoDateTimeStringSchema,
     metadata: UnknownRecordSchema,
   },
   { additionalProperties: false }
@@ -90,7 +94,7 @@ export const ThreadReviewSchema = Type.Object(
       Type.Literal('other'),
     ]),
     notes: NullableStringSchema,
-    reviewedAt: Type.String({ format: 'date-time' }),
+    reviewedAt: IsoDateTimeStringSchema,
   },
   { additionalProperties: false }
 );
