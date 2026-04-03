@@ -44,6 +44,7 @@ function createDebateRequestRecord(input: {
   preparedSubject?: string | null;
   updatedAt?: string;
   key?: string;
+  extraPayloadFields?: Record<string, unknown>;
 }) {
   const entityCui = input.entityCui ?? '12345678';
   const institutionEmail = input.institutionEmail ?? 'contact@primarie.ro';
@@ -69,11 +70,17 @@ function createDebateRequestRecord(input: {
           primariaEmail: institutionEmail,
           isNgo: true,
           organizationName: 'Asociatia Test',
+          organizationLegalAddress: null,
+          organizationRegistrationNumber: null,
+          organizationFiscalCode: null,
+          legalRepresentativeName: null,
+          legalRepresentativeRole: null,
           ngoSenderEmail: input.submissionPath === 'send_yourself' ? 'ngo@example.com' : null,
           preparedSubject,
           threadKey: null,
           submissionPath: input.submissionPath,
           submittedAt: updatedAt,
+          ...(input.extraPayloadFields ?? {}),
         },
       },
     },
@@ -183,6 +190,52 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     const sentEmails: unknown[] = [];
     const record = createDebateRequestRecord({
       submissionPath: 'request_platform',
+    });
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const handler = createHandler({
+      learningProgressRepo,
+      correspondenceRepo,
+      entityProfileRepo: makeTestEntityProfileRepo('contact@primarie.ro'),
+      send: async (params) => {
+        sentEmails.push(params);
+        return ok({ emailId: 'email-1' });
+      },
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(sentEmails).toHaveLength(1);
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(1);
+    const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('resolved');
+    expect(storedRecord?.record.review?.status).toBe('approved');
+  });
+
+  it('accepts the richer client payload shape and still sends the request', async () => {
+    const sentEmails: unknown[] = [];
+    const record = createDebateRequestRecord({
+      submissionPath: 'request_platform',
+      extraPayloadFields: {
+        isNgo: false,
+        organizationName: null,
+        organizationLegalAddress: null,
+        organizationRegistrationNumber: null,
+        organizationFiscalCode: null,
+        legalRepresentativeName: null,
+        legalRepresentativeRole: null,
+      },
     });
     const learningProgressRepo = makeFakeLearningProgressRepo({
       initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
