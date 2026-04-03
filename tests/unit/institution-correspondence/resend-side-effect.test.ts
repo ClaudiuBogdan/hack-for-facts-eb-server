@@ -6,6 +6,7 @@ import {
   buildSelfSendInteractionKey,
   createConflictError,
   makeInstitutionCorrespondenceResendSideEffect,
+  readPlatformSendSuccessMetadata,
   type PublicDebateSelfSendContext,
   type PublicDebateSelfSendContextMatch,
 } from '@/modules/institution-correspondence/index.js';
@@ -14,6 +15,7 @@ import {
   createCorrespondenceEntry,
   createThreadAggregateRecord,
   createThreadRecord,
+  createSendingPlatformSendThread,
   makeInMemoryCorrespondenceRepo,
 } from './fake-repo.js';
 
@@ -79,6 +81,127 @@ const createStoredEvent = (
 });
 
 describe('makeInstitutionCorrespondenceResendSideEffect', () => {
+  it('reconciles email.sent into awaiting_reply for platform-send threads and publishes thread_started once', async () => {
+    const emailCreatedAt = new Date('2026-04-03T16:43:05.312Z');
+    const eventCreatedAt = new Date('2026-04-03T16:49:05.312Z');
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createSendingPlatformSendThread({
+          id: 'thread-platform-1',
+          threadKey: 'thread-key-platform-1',
+          record: createThreadAggregateRecord({
+            submissionPath: 'platform_send',
+            correspondence: [],
+            metadata: {},
+          }),
+        }),
+      ],
+    });
+    const publish = vi.fn(async () =>
+      ok({
+        status: 'queued' as const,
+        notificationIds: ['notif-1'],
+        createdOutboxIds: ['outbox-1'],
+        reusedOutboxIds: [],
+        queuedOutboxIds: ['outbox-1'],
+        enqueueFailedOutboxIds: [],
+      })
+    );
+
+    const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
+      repo,
+      officialEmailLookup: {
+        async findEntitiesByOfficialEmails() {
+          return ok([]);
+        },
+      },
+      selfSendContextLookup: {
+        async findByInteractionKey() {
+          return ok(null);
+        },
+      },
+      emailEventsRepo: {
+        async insert() {
+          throw new Error('not used');
+        },
+        async findBySvixId() {
+          throw new Error('not used');
+        },
+        async findThreadKeyByMessageReferences() {
+          return ok(null);
+        },
+        async updateStoredEvent() {
+          throw new Error('not used');
+        },
+      },
+      receivedEmailFetcher: {
+        async getReceivedEmail() {
+          throw new Error('not used');
+        },
+      },
+      captureAddress,
+      auditCcRecipients: [],
+      updatePublisher: {
+        publish,
+      },
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: {
+        type: 'email.sent',
+        created_at: eventCreatedAt.toISOString(),
+        data: {
+          email_id: 'email-platform-1',
+          from: 'funky@dev.transparenta.eu',
+          to: ['contact@primarie.ro'],
+          subject: 'Cerere dezbatere buget local - Comuna Test',
+          created_at: emailCreatedAt.toISOString(),
+          message_id: '<message-platform-1>',
+        },
+      },
+      storedEvent: createStoredEvent({
+        id: 'stored-platform-1',
+        eventType: 'email.sent',
+        emailId: 'email-platform-1',
+        fromAddress: 'funky@dev.transparenta.eu',
+        toAddresses: ['contact@primarie.ro'],
+        subject: 'Cerere dezbatere buget local - Comuna Test',
+        threadKey: 'thread-key-platform-1',
+        eventCreatedAt,
+        emailCreatedAt,
+      }),
+    });
+
+    const thread = await repo.findThreadById('thread-platform-1');
+    expect(thread.isOk()).toBe(true);
+    if (thread.isOk()) {
+      expect(thread.value?.phase).toBe('awaiting_reply');
+      expect(thread.value?.record.correspondence).toHaveLength(1);
+      expect(thread.value?.record.correspondence[0]?.resendEmailId).toBe('email-platform-1');
+      expect(thread.value?.record.correspondence[0]?.messageId).toBe('<message-platform-1>');
+      expect(thread.value?.record.correspondence[0]?.occurredAt).toBe('2026-04-03T16:43:05.312Z');
+      expect(thread.value?.lastEmailAt?.toISOString()).toBe('2026-04-03T16:43:05.312Z');
+      expect(readPlatformSendSuccessMetadata(thread.value!.record).providerSendEmailId).toBe(
+        'email-platform-1'
+      );
+      expect(readPlatformSendSuccessMetadata(thread.value!.record).providerSendObservedAt).toBe(
+        '2026-04-03T16:43:05.312Z'
+      );
+      expect(readPlatformSendSuccessMetadata(thread.value!.record).threadStartedPublishedAt).toBe(
+        '2026-04-03T16:43:05.312Z'
+      );
+    }
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'thread_started',
+        occurredAt: emailCreatedAt,
+      })
+    );
+  });
+
   it('creates a self-send thread from the interaction key and official email lookup', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
     const approvePendingRecord = vi.fn(async () => ok(undefined));

@@ -16,6 +16,7 @@ import {
   type PendingReplyPage,
   type ThreadRecord,
 } from '../../core/types.js';
+import { THREAD_STARTED_PUBLISHED_AT_METADATA_KEY } from '../../core/usecases/platform-send-success-confirmation.js';
 
 import type {
   AppendCorrespondenceEntryInput,
@@ -204,6 +205,41 @@ export const makeInstitutionCorrespondenceRepo = (
         log.error({ error, input }, 'Failed to load platform-send correspondence thread by entity');
         return err(
           createDatabaseError('Failed to load platform-send correspondence thread by entity', error)
+        );
+      }
+    },
+
+    async listPlatformSendThreadsPendingSuccessConfirmation(olderThanMinutes) {
+      try {
+        const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+        const rows = await db
+          .selectFrom('institutionemailthreads')
+          .selectAll()
+          .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
+          .where(
+            sql<boolean>`(
+              phase = ${'sending'}
+              OR (
+                phase = ${'awaiting_reply'}
+                AND record->'metadata'->>${THREAD_STARTED_PUBLISHED_AT_METADATA_KEY} IS NULL
+              )
+            )`
+          )
+          .where(sql<boolean>`updated_at <= ${threshold}`)
+          .orderBy('updated_at', 'asc')
+          .execute();
+
+        return ok(rows.map((row) => mapThreadRow(row as Record<string, unknown>)));
+      } catch (error) {
+        log.error(
+          { error, olderThanMinutes },
+          'Failed to load platform-send correspondence threads pending success confirmation'
+        );
+        return err(
+          createDatabaseError(
+            'Failed to load platform-send correspondence threads pending success confirmation',
+            error
+          )
         );
       }
     },

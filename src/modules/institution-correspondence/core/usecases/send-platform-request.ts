@@ -20,6 +20,8 @@ import {
   parseOptionalDate,
   toIsoString,
 } from './helpers.js';
+import { publishPublicDebateUpdateBestEffort } from './publish-public-debate-update-best-effort.js';
+import { reconcilePlatformSendSuccess } from './reconcile-platform-send-success.js';
 
 import type {
   CorrespondenceEmailSender,
@@ -28,7 +30,6 @@ import type {
   PublicDebateEntityUpdatePublisher,
 } from '../ports.js';
 import type {
-  CorrespondenceEntry,
   CorrespondenceThreadRecord,
   SendPlatformRequestInput,
   SendPlatformRequestOutput,
@@ -73,54 +74,6 @@ const createThreadRecord = (input: {
   latestReview: null,
   metadata: {},
 });
-
-const createOutboundEntry = (input: {
-  threadKey: string | null;
-  resendEmailId: string;
-  fromAddress: string;
-  institutionEmail: string;
-  auditCcRecipients: string[];
-  subject: string;
-  html: string;
-  text: string;
-  sentAt: Date;
-}): CorrespondenceEntry => ({
-  id: randomUUID(),
-  campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
-  direction: 'outbound',
-  source: 'platform_send',
-  resendEmailId: input.resendEmailId,
-  messageId: null,
-  fromAddress: input.fromAddress,
-  toAddresses: [input.institutionEmail],
-  ccAddresses: input.auditCcRecipients,
-  bccAddresses: [],
-  subject: input.subject,
-  textBody: input.text,
-  htmlBody: input.html,
-  headers: {},
-  attachments: [],
-  occurredAt: input.sentAt.toISOString(),
-  metadata: input.threadKey !== null ? { threadKey: input.threadKey } : {},
-});
-
-const publishUpdateBestEffort = async (
-  publisher: PublicDebateEntityUpdatePublisher | undefined,
-  input: Parameters<PublicDebateEntityUpdatePublisher['publish']>[0]
-): Promise<void> => {
-  if (publisher === undefined) {
-    return;
-  }
-
-  try {
-    const publishResult = await publisher.publish(input);
-    if (publishResult.isErr()) {
-      return;
-    }
-  } catch {
-    return;
-  }
-};
 
 export async function sendPlatformRequest(
   deps: SendPlatformRequestDeps,
@@ -197,10 +150,11 @@ export async function sendPlatformRequest(
       phase: 'failed',
     });
     if (failedThreadResult.isOk()) {
-      await publishUpdateBestEffort(deps.updatePublisher, {
+      await publishPublicDebateUpdateBestEffort(deps.updatePublisher, {
         eventType: 'thread_failed',
         thread: failedThreadResult.value,
         occurredAt: new Date(),
+        failureMessage: sendResult.error.message,
       });
     }
     return err(createEmailSendError(sendResult.error.message, sendResult.error.retryable));
@@ -208,34 +162,37 @@ export async function sendPlatformRequest(
 
   const sentAt = new Date();
   const fromAddress = deps.emailSender.getFromAddress();
-  const appendResult = await deps.repo.appendCorrespondenceEntry({
-    threadId: thread.id,
-    phase: 'awaiting_reply',
-    lastEmailAt: sentAt,
-    entry: createOutboundEntry({
+  const reconcileResult = await reconcilePlatformSendSuccess(
+    {
+      repo: deps.repo,
+      ...(deps.updatePublisher !== undefined ? { updatePublisher: deps.updatePublisher } : {}),
+    },
+    {
       threadKey,
       resendEmailId: sendResult.value.emailId,
+      observedAt: sentAt,
       fromAddress,
-      institutionEmail,
-      auditCcRecipients: deps.auditCcRecipients,
+      toAddresses: [institutionEmail],
+      ccAddresses: deps.auditCcRecipients,
+      bccAddresses: [],
       subject: rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
-      sentAt,
-    }),
-  });
-  if (appendResult.isErr()) {
-    return err(appendResult.error);
+      textBody: rendered.text,
+      htmlBody: rendered.html,
+      headers: {},
+      attachments: [],
+    }
+  );
+  if (reconcileResult.isErr()) {
+    return err(reconcileResult.error);
   }
 
-  await publishUpdateBestEffort(deps.updatePublisher, {
-    eventType: 'thread_started',
-    thread: appendResult.value,
-    occurredAt: sentAt,
-  });
+  const reconciledThread = reconcileResult.value.thread;
+  if (reconciledThread === null) {
+    return err(createValidationError('thread reconciliation returned no thread.'));
+  }
 
   return ok({
     created: true,
-    thread: appendResult.value,
+    thread: reconciledThread,
   });
 }

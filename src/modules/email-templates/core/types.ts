@@ -259,6 +259,21 @@ export interface PublicDebateEntityUpdateProps extends BaseTemplateProps {
   reviewNotes?: string | null;
 }
 
+/**
+ * Props for admin-only public debate failure alerts.
+ */
+export interface PublicDebateAdminFailureProps extends BaseTemplateProps {
+  templateType: 'public_debate_admin_failure';
+  entityCui: string;
+  entityName?: string;
+  threadId: string;
+  phase: string;
+  institutionEmail: string;
+  subjectLine: string;
+  occurredAt: string;
+  failureMessage: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle Template Props
 // ─────────────────────────────────────────────────────────────────────────────

@@ -66,6 +66,9 @@ export interface InstitutionCorrespondenceRepository {
     entityCui: string;
     campaign: string;
   }): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
+  listPlatformSendThreadsPendingSuccessConfirmation(
+    olderThanMinutes: number
+  ): Promise<Result<ThreadRecord[], InstitutionCorrespondenceError>>;
   updateThread(
     threadId: string,
     input: UpdateThreadInput
@@ -135,6 +138,7 @@ export interface PublicDebateEntityUpdateNotification {
   eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
   thread: ThreadRecord;
   occurredAt: Date;
+  failureMessage?: string | null;
   reply?: CorrespondenceEntry;
   basedOnEntryId?: string;
   resolutionCode?: ResolutionCode;

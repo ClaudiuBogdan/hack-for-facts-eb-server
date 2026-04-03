@@ -164,6 +164,12 @@ export {
   type UserRegisteredEvent,
 } from './core/usecases/enqueue-transactional-welcome-notification.js';
 export {
+  enqueuePublicDebateAdminFailureNotifications,
+  type EnqueuePublicDebateAdminFailureNotificationsDeps,
+  type EnqueuePublicDebateAdminFailureNotificationsResult,
+  type PublicDebateAdminFailureNotificationInput,
+} from './core/usecases/enqueue-public-debate-admin-failure-notifications.js';
+export {
   enqueuePublicDebateEntityUpdateNotifications,
   type EnqueuePublicDebateEntityUpdateNotificationsDeps,
   type EnqueuePublicDebateEntityUpdateNotificationsResult,

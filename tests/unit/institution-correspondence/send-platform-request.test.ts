@@ -1,5 +1,5 @@
 import { err, ok } from 'neverthrow';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   PUBLIC_DEBATE_REQUEST_TYPE,
@@ -98,6 +98,16 @@ describe('sendPlatformRequest', () => {
 
   it('marks the thread failed when provider send fails', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
+    const publish = vi.fn(async () =>
+      ok({
+        status: 'queued' as const,
+        notificationIds: [],
+        createdOutboxIds: ['outbox-1'],
+        reusedOutboxIds: [],
+        queuedOutboxIds: ['outbox-1'],
+        enqueueFailedOutboxIds: [],
+      })
+    );
 
     const result = await sendPlatformRequest(
       {
@@ -118,6 +128,9 @@ describe('sendPlatformRequest', () => {
         auditCcRecipients: [],
         platformBaseUrl: 'https://transparenta.test',
         captureAddress: 'debate@transparenta.test',
+        updatePublisher: {
+          publish,
+        },
       },
       {
         ownerUserId: 'user-1',
@@ -145,6 +158,12 @@ describe('sendPlatformRequest', () => {
     if (lookupResult.isOk()) {
       expect(lookupResult.value).toBeNull();
     }
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'thread_failed',
+        failureMessage: 'Provider failed',
+      })
+    );
   });
 
   it('keeps the success path ok when thread_started publishing returns Err', async () => {
