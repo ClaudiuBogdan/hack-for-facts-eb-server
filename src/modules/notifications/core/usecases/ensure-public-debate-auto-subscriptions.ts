@@ -20,8 +20,8 @@ export interface EnsurePublicDebateAutoSubscriptionsOutput {
   entitySubscription: Notification;
 }
 
-const GLOBAL_NOTIFICATION_TYPE = 'campaign_public_debate_global';
-const ENTITY_NOTIFICATION_TYPE = 'campaign_public_debate_entity_updates';
+const GLOBAL_NOTIFICATION_TYPE = 'funky:notification:global';
+const ENTITY_NOTIFICATION_TYPE = 'funky:notification:entity_updates';
 
 const createPublicDebateNotification = async (
   deps: EnsurePublicDebateAutoSubscriptionsDeps,

@@ -43,9 +43,9 @@ function createAcceptedEntityTermsRecord(input?: { entityCui?: string; updatedAt
   const updatedAt = input?.updatedAt ?? '2026-03-31T10:00:00.000Z';
 
   return createTestInteractiveRecord({
-    key: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
-    interactionId: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
-    lessonId: 'system:campaign:buget:state',
+    key: `funky:progress:terms_accepted::entity:${entityCui}`,
+    interactionId: `funky:progress:terms_accepted::entity:${entityCui}`,
+    lessonId: 'funky:progress:state',
     kind: 'custom',
     completionRule: { type: 'resolved' },
     scope: { type: 'global' },
@@ -140,13 +140,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         createTestNotification({
           id: 'notification-global-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         }),
         createTestNotification({
           id: 'notification-entity-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -172,15 +172,15 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       recordKey: record.key,
     });
 
-    const welcome = await deliveryRepo.findByDeliveryKey('campaign_public_debate_welcome:user-1');
+    const welcome = await deliveryRepo.findByDeliveryKey('funky:outbox:welcome:user-1');
     const entitySubscription = await deliveryRepo.findByDeliveryKey(
-      'campaign_public_debate_entity_subscription:user-1:12345678'
+      'funky:outbox:entity_subscription:user-1:12345678'
     );
 
     expect(welcome.isOk()).toBe(true);
     expect(entitySubscription.isOk()).toBe(true);
     if (welcome.isOk() && entitySubscription.isOk()) {
-      expect(welcome.value?.notificationType).toBe('campaign_public_debate_welcome');
+      expect(welcome.value?.notificationType).toBe('funky:outbox:welcome');
       expect(welcome.value?.metadata['entityName']).toBe('Primaria Test');
       expect(entitySubscription.value).toBeNull();
     }
@@ -197,19 +197,19 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         createTestNotification({
           id: 'notification-global-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         }),
         createTestNotification({
           id: 'notification-entity-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
         createTestNotification({
           id: 'notification-entity-2',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '87654321',
         }),
       ],
@@ -218,13 +218,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-welcome-1',
-          notificationType: 'campaign_public_debate_welcome',
+          notificationType: 'funky:outbox:welcome',
           referenceId: 'notification-global-1',
-          scopeKey: 'public_debate:welcome',
-          deliveryKey: 'campaign_public_debate_welcome:user-1',
+          scopeKey: 'funky:delivery:welcome',
+          deliveryKey: 'funky:outbox:welcome:user-1',
           status: 'delivered',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             entityCui: '12345678',
             entityName: 'Prima Entitate',
             acceptedTermsAt: '2026-03-31T10:00:00.000Z',
@@ -256,14 +256,12 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
     });
 
     const entitySubscription = await deliveryRepo.findByDeliveryKey(
-      'campaign_public_debate_entity_subscription:user-1:87654321'
+      'funky:outbox:entity_subscription:user-1:87654321'
     );
 
     expect(entitySubscription.isOk()).toBe(true);
     if (entitySubscription.isOk()) {
-      expect(entitySubscription.value?.notificationType).toBe(
-        'campaign_public_debate_entity_subscription'
-      );
+      expect(entitySubscription.value?.notificationType).toBe('funky:outbox:entity_subscription');
       expect(entitySubscription.value?.metadata['entityName']).toBe('A Doua Entitate');
       expect(entitySubscription.value?.metadata['selectedEntities']).toEqual([
         'A Doua Entitate',
@@ -283,13 +281,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         createTestNotification({
           id: 'notification-global-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         }),
         createTestNotification({
           id: 'notification-entity-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -298,13 +296,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-welcome-1',
-          notificationType: 'campaign_public_debate_welcome',
+          notificationType: 'funky:outbox:welcome',
           referenceId: 'notification-global-1',
-          scopeKey: 'public_debate:welcome',
-          deliveryKey: 'campaign_public_debate_welcome:user-1',
+          scopeKey: 'funky:delivery:welcome',
+          deliveryKey: 'funky:outbox:welcome:user-1',
           status: 'delivered',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             entityCui: '12345678',
             entityName: 'Primaria Test',
             acceptedTermsAt: '2026-03-31T10:00:00.000Z',
@@ -333,7 +331,7 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
     });
 
     const entitySubscription = await deliveryRepo.findByDeliveryKey(
-      'campaign_public_debate_entity_subscription:user-1:12345678'
+      'funky:outbox:entity_subscription:user-1:12345678'
     );
 
     expect(entitySubscription.isOk()).toBe(true);
@@ -353,14 +351,14 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         createTestNotification({
           id: 'notification-global-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
           isActive: false,
         }),
         createTestNotification({
           id: 'notification-entity-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -386,7 +384,7 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       recordKey: record.key,
     });
 
-    const welcome = await deliveryRepo.findByDeliveryKey('campaign_public_debate_welcome:user-1');
+    const welcome = await deliveryRepo.findByDeliveryKey('funky:outbox:welcome:user-1');
     expect(welcome.isOk()).toBe(true);
     if (welcome.isOk()) {
       expect(welcome.value).toBeNull();

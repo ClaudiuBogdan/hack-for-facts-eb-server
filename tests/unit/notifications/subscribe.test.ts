@@ -254,14 +254,14 @@ describe('subscribe use case', () => {
         { notificationsRepo: repo, hasher },
         {
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '1234567',
         }
       );
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
-        expect(result.value.notificationType).toBe('campaign_public_debate_entity_updates');
+        expect(result.value.notificationType).toBe('funky:notification:entity_updates');
         expect(result.value.entityCui).toBe('1234567');
         expect(result.value.config).toBeNull();
       }
@@ -270,7 +270,7 @@ describe('subscribe use case', () => {
     it('reactivates an existing inactive public debate entity update subscription', async () => {
       const existing = createTestNotification({
         userId: 'user-1',
-        notificationType: 'campaign_public_debate_entity_updates',
+        notificationType: 'funky:notification:entity_updates',
         entityCui: '1234567',
         isActive: false,
       });
@@ -280,7 +280,7 @@ describe('subscribe use case', () => {
         { notificationsRepo: repo, hasher },
         {
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '1234567',
         }
       );
@@ -301,14 +301,14 @@ describe('subscribe use case', () => {
         { notificationsRepo: repo, hasher },
         {
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         }
       );
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
-        expect(result.value.notificationType).toBe('campaign_public_debate_global');
+        expect(result.value.notificationType).toBe('funky:notification:global');
         expect(result.value.entityCui).toBeNull();
         expect(result.value.isActive).toBe(true);
       }
@@ -317,7 +317,7 @@ describe('subscribe use case', () => {
     it('reactivates an existing inactive public debate campaign preference', async () => {
       const existing = createTestNotification({
         userId: 'user-1',
-        notificationType: 'campaign_public_debate_global',
+        notificationType: 'funky:notification:global',
         entityCui: null,
         isActive: false,
       });
@@ -327,7 +327,7 @@ describe('subscribe use case', () => {
         { notificationsRepo: repo, hasher },
         {
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         }
       );

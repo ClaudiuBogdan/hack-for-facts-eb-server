@@ -37,7 +37,7 @@ describe('Institution Correspondence Admin REST API', () => {
           entityCui: '12345678',
           phase: 'reply_received_unreviewed',
           record: createThreadAggregateRecord({
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             submissionPath: 'platform_send',
             correspondence: [
               createCorrespondenceEntry({
@@ -116,7 +116,7 @@ describe('Institution Correspondence Admin REST API', () => {
           entityCui: '12345678',
           phase: 'reply_received_unreviewed',
           record: createThreadAggregateRecord({
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             submissionPath: 'platform_send',
             correspondence: [
               createCorrespondenceEntry({

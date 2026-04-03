@@ -69,8 +69,8 @@ const mapRow = (row: QueryRow): Notification => ({
 });
 
 const GLOBAL_UNSUB_TYPE = 'global_unsubscribe';
-const PUBLIC_DEBATE_GLOBAL_TYPE = 'campaign_public_debate_global';
-const PUBLIC_DEBATE_ENTITY_TYPE = 'campaign_public_debate_entity_updates';
+const PUBLIC_DEBATE_GLOBAL_TYPE = 'funky:notification:global';
+const PUBLIC_DEBATE_ENTITY_TYPE = 'funky:notification:entity_updates';
 
 const isEmailGloballyUnsubscribed = (
   row: Pick<GlobalUnsubscribeRow, 'is_active' | 'config'>

@@ -61,7 +61,7 @@ describe('Notification Type Guards', () => {
     });
 
     it('returns false for public debate updates', () => {
-      expect(isNewsletterType('campaign_public_debate_entity_updates')).toBe(false);
+      expect(isNewsletterType('funky:notification:entity_updates')).toBe(false);
     });
 
     it('covers all newsletter types', () => {
@@ -73,7 +73,7 @@ describe('Notification Type Guards', () => {
 
   describe('isEntityConfiglessType', () => {
     it('returns true for public debate updates', () => {
-      expect(isEntityConfiglessType('campaign_public_debate_entity_updates')).toBe(true);
+      expect(isEntityConfiglessType('funky:notification:entity_updates')).toBe(true);
     });
 
     it('covers all entity-scoped configless types', () => {
@@ -85,7 +85,7 @@ describe('Notification Type Guards', () => {
 
   describe('isUserConfiglessType', () => {
     it('returns true for the public debate campaign preference', () => {
-      expect(isUserConfiglessType('campaign_public_debate_global')).toBe(true);
+      expect(isUserConfiglessType('funky:notification:global')).toBe(true);
     });
 
     it('covers all user-scoped configless types', () => {
@@ -138,31 +138,29 @@ describe('Notification Type Guards', () => {
 
     it('covers all notification types', () => {
       const allTypes: NotificationType[] = [
-        'campaign_public_debate_global',
+        'funky:notification:global',
         ...NEWSLETTER_TYPES,
-        'campaign_public_debate_entity_updates',
+        'funky:notification:entity_updates',
         ...ALERT_TYPES,
       ];
       expect(allTypes).toHaveLength(7);
-      expect(allTypes).toContain('campaign_public_debate_global');
+      expect(allTypes).toContain('funky:notification:global');
       expect(allTypes).toContain('newsletter_entity_monthly');
       expect(allTypes).toContain('newsletter_entity_quarterly');
       expect(allTypes).toContain('newsletter_entity_yearly');
-      expect(allTypes).toContain('campaign_public_debate_entity_updates');
+      expect(allTypes).toContain('funky:notification:entity_updates');
       expect(allTypes).toContain('alert_series_analytics');
       expect(allTypes).toContain('alert_series_static');
     });
 
     it('tags public debate updates with the public_debate campaign key', () => {
-      expect(NOTIFICATION_TYPE_CONFIGS.campaign_public_debate_entity_updates?.campaignKey).toBe(
-        'public_debate'
+      expect(NOTIFICATION_TYPE_CONFIGS['funky:notification:entity_updates']?.campaignKey).toBe(
+        'funky'
       );
     });
 
     it('tags the public debate campaign preference with the public_debate campaign key', () => {
-      expect(NOTIFICATION_TYPE_CONFIGS.campaign_public_debate_global?.campaignKey).toBe(
-        'public_debate'
-      );
+      expect(NOTIFICATION_TYPE_CONFIGS['funky:notification:global']?.campaignKey).toBe('funky');
     });
   });
 });
@@ -433,7 +431,7 @@ describe('generatePeriodKey', () => {
 
     it('generates monthly keys for public debate updates', () => {
       const date = new Date(Date.UTC(2024, 6, 15)); // July 15, 2024
-      const key = generatePeriodKey('campaign_public_debate_entity_updates', date);
+      const key = generatePeriodKey('funky:notification:entity_updates', date);
       expect(key).toBe('2024-06'); // Previous month
     });
   });

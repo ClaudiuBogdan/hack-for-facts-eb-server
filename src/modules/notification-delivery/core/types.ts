@@ -84,8 +84,9 @@ export const parseAnafForexebugDigestScopeKey = (scopeKey: string): string | nul
 export type NotificationOutboxType =
   | NotificationType
   | 'transactional_welcome'
-  | 'campaign_public_debate_welcome'
-  | 'campaign_public_debate_entity_subscription'
+  | 'funky:outbox:welcome'
+  | 'funky:outbox:entity_subscription'
+  | 'funky:outbox:entity_update'
   | BundleOutboxType;
 
 export interface AnafForexebugDigestMetadata {

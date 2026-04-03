@@ -9,7 +9,7 @@ import type { LearningProgressRecordRow } from '@/modules/learning-progress/core
 describe('updateInteractionReview', () => {
   it('approves a pending record, updates sync timestamps, and appends an audit event', async () => {
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       phase: 'pending',
       scope: { type: 'entity', entityCui: '4305857' },
@@ -90,7 +90,7 @@ describe('updateInteractionReview', () => {
 
   it('rejects a pending record, requires feedback, and transitions it to error', async () => {
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       phase: 'pending',
       scope: { type: 'entity', entityCui: '4305857' },
@@ -146,7 +146,7 @@ describe('updateInteractionReview', () => {
 
   it('rejects missing feedback for rejected reviews', async () => {
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       phase: 'pending',
       updatedAt: '2026-03-23T19:35:00.000Z',
     });
@@ -186,7 +186,7 @@ describe('updateInteractionReview', () => {
 
   it('rejects stale expectedUpdatedAt values with a conflict', async () => {
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       phase: 'pending',
       updatedAt: '2026-03-23T19:35:00.000Z',
     });
@@ -229,7 +229,7 @@ describe('updateInteractionReview', () => {
 
     try {
       const record = createTestInteractiveRecord({
-        key: 'campaign:primarie-website-url::entity:4305857',
+        key: 'funky:interaction:city_hall_website::entity:4305857',
         phase: 'pending',
         updatedAt: '2026-03-23T20:00:00+02:00',
       });
@@ -272,7 +272,7 @@ describe('updateInteractionReview', () => {
 
     try {
       const record = createTestInteractiveRecord({
-        key: 'campaign:primarie-website-url::entity:4305857',
+        key: 'funky:interaction:city_hall_website::entity:4305857',
         phase: 'pending',
         updatedAt: '2026-03-23T18:30:00-02:00',
       });
@@ -316,7 +316,7 @@ describe('updateInteractionReview', () => {
 
   it('rejects reviews for non-pending rows', async () => {
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       phase: 'resolved',
       updatedAt: '2026-03-23T19:35:00.000Z',
       review: {

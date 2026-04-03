@@ -22,9 +22,9 @@ describe('makeEntityTermsAcceptedSyncHandler', () => {
     const event = createTestInteractiveUpdatedEvent({
       payload: {
         record: {
-          key: 'system:campaign:buget:accepted-terms:entity:12345678',
-          interactionId: 'system:campaign:buget:accepted-terms:entity:12345678',
-          lessonId: 'system:campaign:buget:state',
+          key: 'funky:progress:terms_accepted::entity:12345678',
+          interactionId: 'funky:progress:terms_accepted::entity:12345678',
+          lessonId: 'funky:progress:state',
           kind: 'custom',
           scope: { type: 'global' },
           completionRule: { type: 'resolved' },
@@ -55,7 +55,7 @@ describe('makeEntityTermsAcceptedSyncHandler', () => {
     if (userNotificationsResult.isOk()) {
       expect(
         userNotificationsResult.value.map((notification) => notification.notificationType).sort()
-      ).toEqual(['campaign_public_debate_entity_updates', 'campaign_public_debate_global'].sort());
+      ).toEqual(['funky:notification:entity_updates', 'funky:notification:global'].sort());
     }
   });
 
@@ -65,7 +65,7 @@ describe('makeEntityTermsAcceptedSyncHandler', () => {
         createTestNotification({
           id: 'notif-global',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
           isActive: false,
         }),
@@ -80,9 +80,9 @@ describe('makeEntityTermsAcceptedSyncHandler', () => {
     const event = createTestInteractiveUpdatedEvent({
       payload: {
         record: {
-          key: 'system:campaign:buget:accepted-terms:entity:12345678',
-          interactionId: 'system:campaign:buget:accepted-terms:entity:12345678',
-          lessonId: 'system:campaign:buget:state',
+          key: 'funky:progress:terms_accepted::entity:12345678',
+          interactionId: 'funky:progress:terms_accepted::entity:12345678',
+          lessonId: 'funky:progress:state',
           kind: 'custom',
           scope: { type: 'global' },
           completionRule: { type: 'resolved' },
@@ -110,12 +110,12 @@ describe('makeEntityTermsAcceptedSyncHandler', () => {
 
     const globalResult = await notificationsRepo.findByUserTypeAndEntity(
       'user-1',
-      'campaign_public_debate_global',
+      'funky:notification:global',
       null
     );
     const entityResult = await notificationsRepo.findByUserTypeAndEntity(
       'user-1',
-      'campaign_public_debate_entity_updates',
+      'funky:notification:entity_updates',
       '12345678'
     );
 

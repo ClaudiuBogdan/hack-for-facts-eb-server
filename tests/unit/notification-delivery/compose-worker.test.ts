@@ -183,12 +183,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-welcome-1',
-          notificationType: 'campaign_public_debate_welcome',
+          notificationType: 'funky:outbox:welcome',
           referenceId: 'notification-global-1',
-          scopeKey: 'public_debate:welcome',
-          deliveryKey: 'campaign_public_debate_welcome:user-1',
+          scopeKey: 'funky:delivery:welcome',
+          deliveryKey: 'funky:outbox:welcome:user-1',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             entityCui: '12345678',
             entityName: 'Primaria Test',
             acceptedTermsAt: '2026-04-01T10:00:00.000Z',
@@ -243,12 +243,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-entity-subscription-1',
-          notificationType: 'campaign_public_debate_entity_subscription',
+          notificationType: 'funky:outbox:entity_subscription',
           referenceId: 'notification-entity-1',
-          scopeKey: 'public_debate:entity:87654321:subscription',
-          deliveryKey: 'campaign_public_debate_entity_subscription:user-1:87654321',
+          scopeKey: 'funky:delivery:entity_subscription_87654321',
+          deliveryKey: 'funky:outbox:entity_subscription:user-1:87654321',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             entityCui: '87654321',
             entityName: 'Municipiul Test',
             acceptedTermsAt: '2026-04-02T11:00:00.000Z',
@@ -304,12 +304,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:outbox:entity_update',
           referenceId: 'notif-1',
-          scopeKey: 'public_debate:thread:thread-1:reply:reply-1',
-          deliveryKey: 'user-1:notif-1:public_debate:thread:thread-1:reply:reply-1',
+          scopeKey: 'funky:delivery:reply_thread-1_reply-1',
+          deliveryKey: 'user-1:notif-1:funky:delivery:reply_thread-1_reply-1',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             eventType: 'reply_received',
             entityCui: '12345678',
             entityName: 'Municipiul Test',
@@ -369,12 +369,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-invalid',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:outbox:entity_update',
           referenceId: 'notif-invalid',
-          scopeKey: 'public_debate:thread:thread-1:reply:reply-1',
-          deliveryKey: 'user-1:notif-invalid:public_debate:thread:thread-1:reply:reply-1',
+          scopeKey: 'funky:delivery:reply_thread-1_reply-1',
+          deliveryKey: 'user-1:notif-invalid:funky:delivery:reply_thread-1_reply-1',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             eventType: 'reply_received',
             entityCui: '12345678',
             threadId: 'thread-1',
@@ -421,12 +421,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-render-error',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:outbox:entity_update',
           referenceId: 'notif-render-error',
-          scopeKey: 'public_debate:thread:thread-1:reply:reply-1',
-          deliveryKey: 'user-1:notif-render-error:public_debate:thread:thread-1:reply:reply-1',
+          scopeKey: 'funky:delivery:reply_thread-1_reply-1',
+          deliveryKey: 'user-1:notif-render-error:funky:delivery:reply_thread-1_reply-1',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             eventType: 'reply_received',
             entityCui: '12345678',
             threadId: 'thread-1',
@@ -597,12 +597,12 @@ describe('compose worker helpers', () => {
       deliveries: [
         createTestDeliveryRecord({
           id: 'outbox-public-debate-entity-subscription-invalid',
-          notificationType: 'campaign_public_debate_entity_subscription',
+          notificationType: 'funky:outbox:entity_subscription',
           referenceId: 'notification-entity-1',
-          scopeKey: 'public_debate:entity:87654321:subscription',
-          deliveryKey: 'campaign_public_debate_entity_subscription:user-1:87654321',
+          scopeKey: 'funky:delivery:entity_subscription_87654321',
+          deliveryKey: 'funky:outbox:entity_subscription:user-1:87654321',
           metadata: {
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             entityCui: '87654321',
             acceptedTermsAt: '2026-04-02T11:00:00.000Z',
           },

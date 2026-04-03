@@ -25,10 +25,10 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.globalPreference.notificationType).toBe('campaign_public_debate_global');
+      expect(result.value.globalPreference.notificationType).toBe('funky:notification:global');
       expect(result.value.globalPreference.isActive).toBe(true);
       expect(result.value.entitySubscription.notificationType).toBe(
-        'campaign_public_debate_entity_updates'
+        'funky:notification:entity_updates'
       );
       expect(result.value.entitySubscription.isActive).toBe(true);
     }
@@ -38,14 +38,14 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     const globalPreference = createTestNotification({
       id: 'notif-global',
       userId: 'user-1',
-      notificationType: 'campaign_public_debate_global',
+      notificationType: 'funky:notification:global',
       entityCui: null,
       isActive: false,
     });
     const entitySubscription = createTestNotification({
       id: 'notif-entity',
       userId: 'user-1',
-      notificationType: 'campaign_public_debate_entity_updates',
+      notificationType: 'funky:notification:entity_updates',
       entityCui: '12345678',
       isActive: true,
     });
@@ -79,7 +79,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     let lostRace = false;
 
     notificationsRepo.create = async (input) => {
-      if (!lostRace && input.notificationType === 'campaign_public_debate_global') {
+      if (!lostRace && input.notificationType === 'funky:notification:global') {
         lostRace = true;
         const inserted = await originalCreate(input);
         if (inserted.isErr()) {
@@ -109,7 +109,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.globalPreference.notificationType).toBe('campaign_public_debate_global');
+      expect(result.value.globalPreference.notificationType).toBe('funky:notification:global');
       expect(result.value.globalPreference.isActive).toBe(true);
     }
   });
@@ -118,7 +118,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     const globalPreference = createTestNotification({
       id: 'notif-global',
       userId: 'user-1',
-      notificationType: 'campaign_public_debate_global',
+      notificationType: 'funky:notification:global',
       entityCui: null,
       isActive: true,
     });
@@ -129,7 +129,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     let lostRace = false;
 
     notificationsRepo.create = async (input) => {
-      if (!lostRace && input.notificationType === 'campaign_public_debate_entity_updates') {
+      if (!lostRace && input.notificationType === 'funky:notification:entity_updates') {
         lostRace = true;
         const inserted = await originalCreate(input);
         if (inserted.isErr()) {
@@ -161,7 +161,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     if (result.isOk()) {
       expect(result.value.globalPreference.id).toBe('notif-global');
       expect(result.value.entitySubscription.notificationType).toBe(
-        'campaign_public_debate_entity_updates'
+        'funky:notification:entity_updates'
       );
       expect(result.value.entitySubscription.entityCui).toBe('12345678');
       expect(result.value.entitySubscription.isActive).toBe(true);
@@ -172,7 +172,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     const globalPreference = createTestNotification({
       id: 'notif-global',
       userId: 'user-1',
-      notificationType: 'campaign_public_debate_global',
+      notificationType: 'funky:notification:global',
       entityCui: null,
       isActive: false,
     });
@@ -185,7 +185,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     let updateCount = 0;
 
     notificationsRepo.create = async (input) => {
-      if (!lostRace && input.notificationType === 'campaign_public_debate_entity_updates') {
+      if (!lostRace && input.notificationType === 'funky:notification:entity_updates') {
         lostRace = true;
         const inserted = await originalCreate(input);
         if (inserted.isErr()) {
@@ -236,7 +236,7 @@ describe('ensurePublicDebateAutoSubscriptions', () => {
     const originalCreate = notificationsRepo.create.bind(notificationsRepo);
 
     notificationsRepo.create = async (input) => {
-      if (input.notificationType === 'campaign_public_debate_global') {
+      if (input.notificationType === 'funky:notification:global') {
         return err(failure);
       }
 

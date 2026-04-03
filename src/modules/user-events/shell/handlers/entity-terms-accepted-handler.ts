@@ -22,10 +22,10 @@ import type { LearningProgressRepository } from '@/modules/learning-progress/ind
 import type { NotificationsRepository } from '@/modules/notifications/index.js';
 import type { Logger } from 'pino';
 
-const ENTITY_TERMS_KEY_PREFIX = 'system:campaign:buget:accepted-terms:entity:';
-const PUBLIC_DEBATE_GLOBAL_TYPE = 'campaign_public_debate_global';
-const PUBLIC_DEBATE_ENTITY_UPDATES_TYPE = 'campaign_public_debate_entity_updates';
-const PUBLIC_DEBATE_CAMPAIGN_SOURCE = 'learning_progress.entity_terms_accepted';
+const ENTITY_TERMS_KEY_PREFIX = 'funky:progress:terms_accepted::entity:';
+const PUBLIC_DEBATE_GLOBAL_TYPE = 'funky:notification:global';
+const PUBLIC_DEBATE_ENTITY_UPDATES_TYPE = 'funky:notification:entity_updates';
+const PUBLIC_DEBATE_CAMPAIGN_SOURCE = 'funky:source:terms_accepted';
 
 const loadSelectedEntityNames = async (
   deps: Pick<EntityTermsAcceptedUserEventHandlerDeps, 'notificationsRepo' | 'entityRepo'>,
@@ -235,7 +235,7 @@ export const makeEntityTermsAcceptedUserEventHandler = (
           source: PUBLIC_DEBATE_CAMPAIGN_SOURCE,
           sourceEventId: event.eventId,
           userId: event.userId,
-          campaignKey: 'public_debate',
+          campaignKey: 'funky',
           entityCui,
           entityName,
           acceptedTermsAt,

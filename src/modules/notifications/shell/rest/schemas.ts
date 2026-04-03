@@ -63,14 +63,14 @@ export const NewsletterBodySchema = Type.Object({
     Type.Literal('newsletter_entity_monthly'),
     Type.Literal('newsletter_entity_quarterly'),
     Type.Literal('newsletter_entity_yearly'),
-    Type.Literal('campaign_public_debate_entity_updates'),
+    Type.Literal('funky:notification:entity_updates'),
   ]),
   entityCui: Type.String({ minLength: 1 }),
   config: Type.Optional(Type.Null()),
 });
 
 export const CampaignPreferenceBodySchema = Type.Object({
-  notificationType: Type.Literal('campaign_public_debate_global'),
+  notificationType: Type.Literal('funky:notification:global'),
   entityCui: Type.Optional(Type.Union([Type.Null(), Type.String({ minLength: 1 })])),
   config: Type.Optional(Type.Null()),
 });

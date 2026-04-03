@@ -52,7 +52,7 @@ describe('createLearningProgressUserEventSyncHook', () => {
       logger: logger as never,
     });
     const interactiveRecord = createTestInteractiveRecord({
-      key: 'campaign:debate-request::entity:12345678',
+      key: 'funky:interaction:public_debate_request::entity:12345678',
       updatedAt: '2026-03-31T09:00:00.000Z',
     });
 
@@ -81,7 +81,7 @@ describe('createLearningProgressUserEventSyncHook', () => {
         eventId: 'event-interactive',
         eventType: 'interactive.updated',
         occurredAt: '2026-03-31T09:00:00.000Z',
-        recordKey: 'campaign:debate-request::entity:12345678',
+        recordKey: 'funky:interaction:public_debate_request::entity:12345678',
       },
       {
         source: 'learning_progress',

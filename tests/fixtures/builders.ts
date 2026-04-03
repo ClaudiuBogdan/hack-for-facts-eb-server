@@ -127,6 +127,9 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       apiKey: undefined,
       webhookSecret: undefined,
       fromAddress: 'noreply@test.example.com',
+      funkyFromAddress: 'campaign@test.example.com',
+      funkyFromAddressCcRecipients: ['review@test.example.com'],
+      funkyReplyToAddress: 'debate@transparenta.test',
       previewEnabled: false,
       maxRps: 2,
       enabled: false,
@@ -152,8 +155,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     },
     institutionCorrespondence: {
       adminApiKey: undefined,
-      receiveDomain: 'transparenta.test',
-      auditCcRecipients: [],
       adminRoutesEnabled: false,
     },
     telemetry: {

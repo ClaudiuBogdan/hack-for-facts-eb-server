@@ -487,7 +487,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
           campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
           // Subject fallback remains available only when the captured self-send email
           // already carries a stable token; otherwise replies must correlate by headers.
-          threadKey: extractedThreadKey ?? randomUUID(),
+          threadKey: extractedThreadKey ?? `funky:thread:${randomUUID()}`,
           phase: 'awaiting_reply',
           lastEmailAt: receivedEmail.createdAt,
           record: createSelfSendThreadRecord({

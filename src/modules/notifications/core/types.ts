@@ -43,11 +43,11 @@ export const MAX_DELIVERIES_LIMIT = 100;
  * All supported notification types.
  */
 export type NotificationType =
-  | 'campaign_public_debate_global'
+  | 'funky:notification:global'
   | 'newsletter_entity_monthly'
   | 'newsletter_entity_quarterly'
   | 'newsletter_entity_yearly'
-  | 'campaign_public_debate_entity_updates'
+  | 'funky:notification:entity_updates'
   | 'alert_series_analytics'
   | 'alert_series_static'
   | 'global_unsubscribe';
@@ -66,14 +66,14 @@ export const NEWSLETTER_TYPES: readonly NotificationType[] = [
  */
 export const ENTITY_CONFIGLESS_TYPES: readonly NotificationType[] = [
   ...NEWSLETTER_TYPES,
-  'campaign_public_debate_entity_updates',
+  'funky:notification:entity_updates',
 ] as const;
 
 /**
  * User-scoped configless notification preference types.
  */
 export const USER_CONFIGLESS_TYPES: readonly NotificationType[] = [
-  'campaign_public_debate_global',
+  'funky:notification:global',
 ] as const;
 
 /**
@@ -289,9 +289,9 @@ function generatePreviousYearKey(date: Date): string {
  */
 export function generatePeriodKey(notificationType: NotificationType, date: Date): string {
   switch (notificationType) {
-    case 'campaign_public_debate_global':
+    case 'funky:notification:global':
     case 'newsletter_entity_monthly':
-    case 'campaign_public_debate_entity_updates':
+    case 'funky:notification:entity_updates':
     case 'alert_series_analytics':
     case 'alert_series_static':
       return generatePreviousMonthKey(date);
@@ -332,8 +332,8 @@ export interface NotificationTypeConfig {
  * Used for validation, UI display, and documentation.
  */
 export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTypeConfig> = {
-  campaign_public_debate_global: {
-    type: 'campaign_public_debate_global',
+  'funky:notification:global': {
+    type: 'funky:notification:global',
     label: 'Public Debate Campaign',
     description: 'Master preference for public debate campaign notifications',
     requiresEntity: false,
@@ -361,8 +361,8 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
     requiresEntity: true,
     requiresConfig: false,
   },
-  campaign_public_debate_entity_updates: {
-    type: 'campaign_public_debate_entity_updates',
+  'funky:notification:entity_updates': {
+    type: 'funky:notification:entity_updates',
     label: 'Public Debate Updates',
     description: 'Receive updates about public debate correspondence for this entity',
     requiresEntity: true,

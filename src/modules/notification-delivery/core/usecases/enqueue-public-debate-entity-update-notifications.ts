@@ -51,13 +51,13 @@ export interface EnqueuePublicDebateEntityUpdateNotificationsResult {
 const buildScopeKey = (input: PublicDebateEntityUpdateNotificationInput): string => {
   switch (input.eventType) {
     case 'thread_started':
-      return `${PUBLIC_DEBATE_CAMPAIGN_KEY}:thread:${input.threadId}:started`;
+      return `funky:delivery:thread_started_${input.threadId}`;
     case 'thread_failed':
-      return `${PUBLIC_DEBATE_CAMPAIGN_KEY}:thread:${input.threadId}:failed`;
+      return `funky:delivery:thread_failed_${input.threadId}`;
     case 'reply_received':
-      return `${PUBLIC_DEBATE_CAMPAIGN_KEY}:thread:${input.threadId}:reply:${input.replyEntryId ?? 'unknown'}`;
+      return `funky:delivery:reply_${input.threadId}_${input.replyEntryId ?? 'unknown'}`;
     case 'reply_reviewed':
-      return `${PUBLIC_DEBATE_CAMPAIGN_KEY}:thread:${input.threadId}:review:${input.basedOnEntryId ?? 'unknown'}`;
+      return `funky:delivery:review_${input.threadId}_${input.basedOnEntryId ?? 'unknown'}`;
   }
 };
 
@@ -105,7 +105,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
 ): Promise<Result<EnqueuePublicDebateEntityUpdateNotificationsResult, DeliveryError>> => {
   const scopeKey = buildScopeKey(input);
   const notificationsResult = await deps.notificationsRepo.findActiveByTypeAndEntity(
-    'campaign_public_debate_entity_updates',
+    'funky:notification:entity_updates',
     input.entityCui
   );
 
@@ -122,7 +122,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
     const deliveryKey = generateDeliveryKey(notification.userId, notification.id, scopeKey);
     const createResult = await deps.deliveryRepo.create({
       userId: notification.userId,
-      notificationType: 'campaign_public_debate_entity_updates',
+      notificationType: 'funky:outbox:entity_update',
       referenceId: notification.id,
       scopeKey,
       deliveryKey,

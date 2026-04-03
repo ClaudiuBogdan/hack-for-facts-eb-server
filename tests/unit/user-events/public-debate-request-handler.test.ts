@@ -55,8 +55,8 @@ function createDebateRequestRecord(input: {
   const updatedAt = input.updatedAt ?? '2026-03-31T10:00:00.000Z';
 
   return createTestInteractiveRecord({
-    key: input.key ?? `campaign:debate-request::entity:${entityCui}`,
-    interactionId: 'campaign:debate-request',
+    key: input.key ?? `funky:interaction:public_debate_request::entity:${entityCui}`,
+    interactionId: 'funky:interaction:public_debate_request',
     lessonId: 'civic-monitor-and-request',
     kind: 'custom',
     completionRule: { type: 'resolved' },
@@ -165,7 +165,7 @@ describe('makePublicDebateRequestUserEventHandler', () => {
         eventId: 'event-1',
         eventType: 'interactive.updated',
         occurredAt: '2026-03-31T10:00:00.000Z',
-        recordKey: 'campaign:debate-request::entity:12345678',
+        recordKey: 'funky:interaction:public_debate_request::entity:12345678',
       })
     ).toBe(true);
     expect(
@@ -228,7 +228,7 @@ describe('makePublicDebateRequestUserEventHandler', () => {
       eventId: 'event-1',
       eventType: 'interactive.updated',
       occurredAt: '2026-03-31T10:00:00.000Z',
-      recordKey: 'campaign:debate-request::entity:12345678',
+      recordKey: 'funky:interaction:public_debate_request::entity:12345678',
     });
 
     expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
@@ -248,7 +248,7 @@ describe('makePublicDebateRequestUserEventHandler', () => {
         eventId: 'event-1',
         eventType: 'interactive.updated',
         occurredAt: '2026-03-31T10:00:00.000Z',
-        recordKey: 'campaign:debate-request::entity:12345678',
+        recordKey: 'funky:interaction:public_debate_request::entity:12345678',
       })
     ).rejects.toThrow('Simulated database error');
   });

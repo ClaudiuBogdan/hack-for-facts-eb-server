@@ -43,7 +43,7 @@ export interface SendPlatformRequestDeps {
   updatePublisher?: PublicDebateEntityUpdatePublisher;
 }
 
-const buildThreadKey = (): string => randomUUID();
+const buildThreadKey = (): string => `funky:thread:${randomUUID()}`;
 
 const createThreadRecord = (input: {
   ownerUserId: string | null;

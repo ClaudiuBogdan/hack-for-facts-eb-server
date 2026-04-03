@@ -53,7 +53,7 @@ describe('requestPublicDebatePlatformSend', () => {
       entityCui: '12345678',
       phase: 'awaiting_reply',
       record: createThreadAggregateRecord({
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         submissionPath: 'platform_send',
       }),
     });
@@ -143,7 +143,7 @@ describe('requestPublicDebatePlatformSend', () => {
       entityCui: '12345678',
       phase: 'awaiting_reply',
       record: createThreadAggregateRecord({
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         submissionPath: 'platform_send',
       }),
     });

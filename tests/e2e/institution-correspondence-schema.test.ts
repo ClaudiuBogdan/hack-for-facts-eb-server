@@ -28,7 +28,7 @@ describe('Institution correspondence schema', () => {
         closed_at: null,
         record: JSON.stringify({
           version: 1,
-          campaign: 'public_debate',
+          campaign: 'funky',
           campaignKey: 'public-debate-2026',
           ownerUserId: 'user-1',
           subject: 'Solicitare [teu:thread-key-1]',
@@ -101,7 +101,7 @@ describe('Institution correspondence schema', () => {
         phase: 'awaiting_reply',
         record: JSON.stringify({
           version: 1,
-          campaign: 'public_debate',
+          campaign: 'funky',
           campaignKey: 'public-debate-2026',
           ownerUserId: null,
           subject: 'Solicitare [teu:thread-key-a]',
@@ -130,7 +130,7 @@ describe('Institution correspondence schema', () => {
           phase: 'sending',
           record: JSON.stringify({
             version: 1,
-            campaign: 'public_debate',
+            campaign: 'funky',
             campaignKey: 'public-debate-2026',
             ownerUserId: null,
             subject: 'Solicitare [teu:thread-key-b]',
@@ -160,7 +160,7 @@ describe('Institution correspondence schema', () => {
           phase: 'sending',
           record: JSON.stringify({
             version: 1,
-            campaign: 'public_debate',
+            campaign: 'funky',
             campaignKey: 'public-debate-2026',
             ownerUserId: null,
             subject: 'Solicitare [teu:thread-key-a]',
@@ -277,7 +277,7 @@ describe('Institution correspondence schema', () => {
       phase: 'sending',
       record: {
         version: 1,
-        campaign: 'public_debate',
+        campaign: 'funky',
         campaignKey: 'campaign-proof',
         ownerUserId: 'user-proof',
         subject: 'Proof [teu:proof-thread-key]',
@@ -360,7 +360,7 @@ describe('Institution correspondence schema', () => {
       phase: 'awaiting_reply',
       record: {
         version: 1,
-        campaign: 'public_debate',
+        campaign: 'funky',
         campaignKey: null,
         ownerUserId: 'user-self',
         subject: 'Self send [teu:self-send-thread]',
@@ -385,7 +385,7 @@ describe('Institution correspondence schema', () => {
       phase: 'awaiting_reply',
       record: {
         version: 1,
-        campaign: 'public_debate',
+        campaign: 'funky',
         campaignKey: null,
         ownerUserId: 'user-other',
         subject: 'Other entity [teu:other-entity-thread]',
@@ -411,7 +411,7 @@ describe('Institution correspondence schema', () => {
       phase: 'failed',
       record: {
         version: 1,
-        campaign: 'public_debate',
+        campaign: 'funky',
         campaignKey: null,
         ownerUserId: 'user-platform',
         subject: 'Platform send [teu:platform-thread-failed]',
@@ -432,7 +432,7 @@ describe('Institution correspondence schema', () => {
     // Should return null — only a failed thread exists for this entity
     const noActiveResult = await correspondenceRepo.findPlatformSendThreadByEntity({
       entityCui: '42424242',
-      campaign: 'public_debate',
+      campaign: 'funky',
     });
 
     expect(noActiveResult.isOk()).toBe(true);
@@ -448,7 +448,7 @@ describe('Institution correspondence schema', () => {
       phase: 'awaiting_reply',
       record: {
         version: 1,
-        campaign: 'public_debate',
+        campaign: 'funky',
         campaignKey: null,
         ownerUserId: 'user-platform',
         subject: 'Platform send [teu:platform-thread-active]',
@@ -468,7 +468,7 @@ describe('Institution correspondence schema', () => {
 
     const threadResult = await correspondenceRepo.findPlatformSendThreadByEntity({
       entityCui: '42424242',
-      campaign: 'public_debate',
+      campaign: 'funky',
     });
 
     expect(threadResult.isOk()).toBe(true);

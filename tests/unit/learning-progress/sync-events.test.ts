@@ -54,7 +54,7 @@ function expectSyncEventsSuccess(
 describe('normalizePublicInteractiveRecord', () => {
   it('accepts echoed stored review data on exact round-trips', () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -78,7 +78,7 @@ describe('normalizePublicInteractiveRecord', () => {
 
   it('preserves stored review metadata on ordinary public updates', () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -132,7 +132,7 @@ describe('normalizePublicInteractiveRecord', () => {
 
   it('clears stored review metadata on newer retries back to pending', () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -169,7 +169,7 @@ describe('normalizePublicInteractiveRecord', () => {
 
   it('rejects attempts to modify stored review metadata', () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -276,7 +276,7 @@ describe('syncEvents', () => {
   it('quarantines public sync attempts to author record.review without failing the request', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -319,8 +319,8 @@ describe('syncEvents', () => {
 
   it('preserves stored review metadata on newer public updates after review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },
@@ -405,8 +405,8 @@ describe('syncEvents', () => {
 
   it('clears stored review metadata on newer public retries back to pending', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },
@@ -483,7 +483,7 @@ describe('syncEvents', () => {
   it('rejects pending public records that include result data', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'pending',
@@ -528,7 +528,7 @@ describe('syncEvents', () => {
   it('quarantines pending public records that omit submittedAt', async () => {
     const repo = makeFakeLearningProgressRepo();
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'pending',

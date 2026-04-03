@@ -50,19 +50,10 @@ interface CandidateMatch {
   submittedAt: string | null;
 }
 
-const parseInteractionKey = (
-  interactionKey: string
-): { associationEmail: string; preparedSubject: string } | null => {
-  const separatorIndex = interactionKey.indexOf('\n');
-  if (separatorIndex <= 0 || separatorIndex === interactionKey.length - 1) {
-    return null;
-  }
+const HASHED_SELF_SEND_INTERACTION_KEY_PREFIX = 'funky:correlation:self_send:' as const;
 
-  return {
-    associationEmail: interactionKey.slice(0, separatorIndex),
-    preparedSubject: interactionKey.slice(separatorIndex + 1),
-  };
-};
+const parseInteractionKey = (interactionKey: string): string | null =>
+  interactionKey.startsWith(HASHED_SELF_SEND_INTERACTION_KEY_PREFIX) ? interactionKey : null;
 
 const toIsoString = (value: unknown): string => {
   if (value instanceof Date) {
@@ -85,12 +76,12 @@ const compareTimestampInstants = (leftTimestamp: string, rightTimestamp: string)
   const rightMilliseconds = Date.parse(rightTimestamp);
 
   if (!Number.isNaN(leftMilliseconds) && !Number.isNaN(rightMilliseconds)) {
-    if (leftMilliseconds < rightMilliseconds) return -1;
-    if (leftMilliseconds > rightMilliseconds) return 1;
+    if (leftMilliseconds > rightMilliseconds) return -1;
+    if (leftMilliseconds < rightMilliseconds) return 1;
     return 0;
   }
 
-  return leftTimestamp.localeCompare(rightTimestamp);
+  return rightTimestamp.localeCompare(leftTimestamp);
 };
 
 const compareCandidates = (left: CandidateMatch, right: CandidateMatch): number => {
@@ -178,18 +169,12 @@ export function makePublicDebateSelfSendContextLookup(
           .where(
             sql<boolean>`record->'value'->'json'->'value'->>'submissionPath' = ${'send_yourself'}`
           )
-          .where(
-            sql<boolean>`lower(trim(record->'value'->'json'->'value'->>'ngoSenderEmail')) = ${parsedInteractionKey.associationEmail}`
-          )
-          .where(
-            sql<boolean>`lower(regexp_replace(trim(record->'value'->'json'->'value'->>'preparedSubject'), '[[:space:]]+', ' ', 'g')) = ${parsedInteractionKey.preparedSubject}`
-          )
           .execute();
 
         const matches = rows
           .map((row) => mapRow(row as unknown as QueryRow))
           .filter((row): row is CandidateMatch => row !== null)
-          .filter((row) => row.interactionKey === interactionKey)
+          .filter((row) => row.interactionKey === parsedInteractionKey)
           .sort(compareCandidates);
 
         if (matches.length === 0) {
@@ -198,7 +183,7 @@ export function makePublicDebateSelfSendContextLookup(
 
         if (matches.length > 1) {
           log.warn(
-            { interactionKey, matchCount: matches.length },
+            { interactionKey: parsedInteractionKey, matchCount: matches.length },
             'Multiple self-send interaction records matched the same interaction key'
           );
         }
@@ -210,7 +195,7 @@ export function makePublicDebateSelfSendContextLookup(
 
         return ok({
           context: chosen.context,
-          interactionKey,
+          interactionKey: parsedInteractionKey,
           matchCount: matches.length,
         } satisfies PublicDebateSelfSendContextMatch);
       } catch (error) {

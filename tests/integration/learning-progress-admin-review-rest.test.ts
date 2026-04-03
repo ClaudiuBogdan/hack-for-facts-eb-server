@@ -77,8 +77,8 @@ function createDebateRequestRecord(input: {
   const updatedAt = input.updatedAt ?? '2026-03-31T10:00:00.000Z';
 
   return createTestInteractiveRecord({
-    key: `campaign:debate-request::entity:${entityCui}`,
-    interactionId: 'campaign:debate-request',
+    key: `funky:interaction:public_debate_request::entity:${entityCui}`,
+    interactionId: 'funky:interaction:public_debate_request',
     lessonId: 'civic-monitor-and-request',
     kind: 'custom',
     completionRule: { type: 'resolved' },
@@ -566,7 +566,7 @@ describe('Learning Progress Admin Review REST API', () => {
         createThreadRecord({
           entityCui: '12345678',
           record: createThreadAggregateRecord({
-            campaignKey: 'public_debate',
+            campaignKey: 'funky',
             submissionPath: 'platform_send',
           }),
         }),

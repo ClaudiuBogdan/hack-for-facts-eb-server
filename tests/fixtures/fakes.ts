@@ -2205,11 +2205,11 @@ export const makeFakeExtendedNotificationsRepo = (
             notification.isActive &&
             !globallyUnsubscribedUsers.has(notification.userId) &&
             !(
-              notificationType === 'campaign_public_debate_entity_updates' &&
+              notificationType === 'funky:notification:entity_updates' &&
               [...store.values()].some(
                 (candidate) =>
                   candidate.userId === notification.userId &&
-                  candidate.notificationType === 'campaign_public_debate_global' &&
+                  candidate.notificationType === 'funky:notification:global' &&
                   !candidate.isActive
               )
             ) &&

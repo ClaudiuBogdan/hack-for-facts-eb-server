@@ -49,8 +49,8 @@ function createDebateRequestRecord(input: {
   const submittedAt = input.submittedAt ?? updatedAt;
 
   return createTestInteractiveRecord({
-    key: input.key ?? `campaign:debate-request::entity:${entityCui}`,
-    interactionId: 'campaign:debate-request',
+    key: input.key ?? `funky:interaction:public_debate_request::entity:${entityCui}`,
+    interactionId: 'funky:interaction:public_debate_request',
     lessonId: 'civic-monitor-and-request',
     kind: 'custom',
     completionRule: { type: 'resolved' },
@@ -598,7 +598,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     const setup = await createTestApp({});
     app = setup.app;
 
-    const key = 'campaign:debate-request::entity:12345678';
+    const key = 'funky:interaction:public_debate_request::entity:12345678';
     const firstRecord = createDebateRequestRecord({
       key,
       submissionPath: 'send_yourself',
@@ -664,7 +664,7 @@ describe('Public debate request dispatch via learning progress sync', () => {
     const setup = await createTestApp({});
     app = setup.app;
 
-    const key = 'campaign:debate-request::entity:12345678';
+    const key = 'funky:interaction:public_debate_request::entity:12345678';
     const firstRecord = createDebateRequestRecord({
       key,
       submissionPath: 'request_platform',
