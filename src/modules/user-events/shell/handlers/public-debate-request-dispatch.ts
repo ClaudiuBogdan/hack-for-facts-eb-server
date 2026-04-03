@@ -32,9 +32,10 @@ import {
   type ReviewDecision,
 } from '@/modules/learning-progress/index.js';
 
-import type { EntityProfileRepository } from '@/modules/entity/index.js';
+import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
 
 export interface PublicDebateRequestDispatchDeps {
+  entityRepo: EntityRepository;
   entityProfileRepo: EntityProfileRepository;
   repo: InstitutionCorrespondenceRepository;
   emailSender: CorrespondenceEmailSender;
@@ -128,6 +129,23 @@ async function loadOfficialEmailMatch(
   });
 }
 
+async function loadEntityName(
+  deps: Pick<PublicDebateRequestDispatchDeps, 'entityRepo'>,
+  entityCui: string
+): Promise<Result<string | null, InstitutionCorrespondenceError>> {
+  const entityResult = await deps.entityRepo.getById(entityCui);
+  if (entityResult.isErr()) {
+    return err(
+      createCorrespondenceDatabaseError(
+        'Failed to load entity while preparing public debate request',
+        entityResult.error
+      )
+    );
+  }
+
+  return ok(entityResult.value?.name ?? null);
+}
+
 export const buildPublicDebateRequestEmailMismatchError = (): InstitutionCorrespondenceError => {
   return createCorrespondenceConflictError(EMAIL_MISMATCH_MESSAGE);
 };
@@ -152,7 +170,7 @@ export async function preparePublicDebateRequestDispatch(
 
   const entityCui = record.scope.entityCui;
   const institutionEmail = payload.primariaEmail.trim();
-  const sendInput: SendPlatformRequestInput = {
+  const baseSendInput: SendPlatformRequestInput = {
     ownerUserId: recordRow.userId,
     entityCui,
     institutionEmail,
@@ -173,7 +191,7 @@ export async function preparePublicDebateRequestDispatch(
   if (existingThreadResult.value !== null) {
     return ok({
       kind: 'execute',
-      sendInput,
+      sendInput: baseSendInput,
       existingThread: existingThreadResult.value,
     });
   }
@@ -203,9 +221,17 @@ export async function preparePublicDebateRequestDispatch(
     });
   }
 
+  const entityNameResult = await loadEntityName(deps, entityCui);
+  if (entityNameResult.isErr()) {
+    return err(entityNameResult.error);
+  }
+
   return ok({
     kind: 'execute',
-    sendInput,
+    sendInput: {
+      ...baseSendInput,
+      entityName: entityNameResult.value,
+    },
   });
 }
 

@@ -17,6 +17,13 @@ export const normalizeEmailAddress = (value: string): string => value.trim().toL
 export const normalizeEmailSubject = (value: string): string =>
   value.trim().replaceAll(/\s+/g, ' ').toLowerCase();
 
+export const buildPublicDebateRequestSubject = (entityName: string | null | undefined): string => {
+  const normalizedEntityName = normalizeOptionalString(entityName);
+  return normalizedEntityName === null
+    ? 'Cerere dezbatere buget local'
+    : `Cerere dezbatere buget local - ${normalizedEntityName}`;
+};
+
 export const buildSelfSendInteractionKey = (associationEmail: string, subject: string): string => {
   const normalizedPayload = `${normalizeEmailAddress(associationEmail)}\n${normalizeEmailSubject(subject)}`;
   const digest = createHash('sha256').update(normalizedPayload).digest('hex');

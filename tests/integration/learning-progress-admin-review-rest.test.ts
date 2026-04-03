@@ -15,7 +15,7 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../unit/institution-correspondence/fake-repo.js';
 
-import type { EntityProfileRepository } from '@/modules/entity/index.js';
+import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
@@ -132,6 +132,47 @@ function makeTestEntityProfileRepo(
   };
 }
 
+function makeTestEntityRepo(entityName = 'Oras Test'): EntityRepository {
+  return {
+    async getById(cui) {
+      return ok({
+        cui,
+        name: entityName,
+        entity_type: null,
+        default_report_type: 'Executie bugetara detaliata',
+        uat_id: null,
+        is_uat: true,
+        address: null,
+        last_updated: null,
+        main_creditor_1_cui: null,
+        main_creditor_2_cui: null,
+      });
+    },
+    async getByIds() {
+      return ok(new Map());
+    },
+    async getAll() {
+      return ok({
+        nodes: [],
+        pageInfo: {
+          totalCount: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    },
+    async getChildren() {
+      return ok([]);
+    },
+    async getParents() {
+      return ok([]);
+    },
+    async getCountyEntity() {
+      return ok(null);
+    },
+  };
+}
+
 function createPublicDebateApprovalHook(input: {
   learningProgressRepo: LearningProgressRepository;
   correspondenceRepo?: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
@@ -147,6 +188,7 @@ function createPublicDebateApprovalHook(input: {
       return prepareApprovedPublicDebateReviewSideEffects(
         {
           learningProgressRepo: input.learningProgressRepo,
+          entityRepo: makeTestEntityRepo(),
           entityProfileRepo: makeTestEntityProfileRepo(
             input.officialEmail === undefined ? 'contact@primarie.ro' : input.officialEmail
           ),

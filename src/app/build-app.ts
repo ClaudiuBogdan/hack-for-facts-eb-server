@@ -1544,6 +1544,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       userEventHandlers.push(
         makePublicDebateRequestUserEventHandler({
           learningProgressRepo,
+          entityRepo,
           entityProfileRepo,
           repo: correspondenceRepo,
           emailSender,
@@ -1561,6 +1562,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         return prepareApprovedPublicDebateReviewSideEffects(
           {
             learningProgressRepo,
+            entityRepo,
             entityProfileRepo,
             repo: correspondenceRepo,
             emailSender,
