@@ -5,7 +5,7 @@ BEGIN
   SELECT user_id, record_key
   INTO legacy_record
   FROM UserInteractions
-  WHERE record->>'interactionId' = 'campaign:debate-request'
+  WHERE record->>'interactionId' = 'funky:interaction:public_debate_request'
     AND COALESCE(record->'value'->'json'->'value'->>'submissionPath', '') = 'send_yourself'
     AND (
       NULLIF(BTRIM(COALESCE(record->'value'->'json'->'value'->>'ngoSenderEmail', '')), '') IS NULL

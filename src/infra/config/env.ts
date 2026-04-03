@@ -93,8 +93,14 @@ export const EnvSchema = Type.Object({
   RESEND_API_KEY: Type.Optional(Type.String({ minLength: 20 })),
   /** Resend webhook secret for verifying webhook signatures */
   RESEND_WEBHOOK_SECRET: Type.Optional(Type.String({ minLength: 32 })),
-  /** Email from address for outbound emails */
-  EMAIL_FROM_ADDRESS: Type.Optional(Type.String({ default: 'noreply@transparenta.eu' })),
+  /** Email from address for outbound emails. Required when Resend sending is enabled. */
+  EMAIL_FROM_ADDRESS: Type.Optional(Type.String({ minLength: 1 })),
+  /** Campaign email from address used for Funky Citizens campaign emails. */
+  FUNKY_EMAIL_FROM_ADDRESS: Type.Optional(Type.String({ minLength: 1 })),
+  /** Optional CC recipients for campaign institution emails. */
+  FUNKY_EMAIL_FROM_ADDRESS_CC: Type.Optional(Type.String()),
+  /** Reply-To address used to capture campaign email replies automatically. */
+  FUNKY_EMAIL_REPLY_TO_ADDRESS: Type.Optional(Type.String({ minLength: 1 })),
   /** Whether email preview API is enabled (dev only) */
   EMAIL_PREVIEW_ENABLED: Type.Optional(Type.Boolean({ default: false })),
   /** Resend rate limit (requests per second) */
@@ -117,7 +123,7 @@ export const EnvSchema = Type.Object({
   // Notifications
   /** API key for triggering notification jobs */
   NOTIFICATION_TRIGGER_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-  /** API base URL for building unsubscribe/API links in emails (defaults to api.transparenta.eu) */
+  /** API base URL for building unsubscribe/API links in emails */
   API_BASE_URL: Type.String(),
   /** HMAC secret for signing unsubscribe tokens */
   UNSUBSCRIBE_HMAC_SECRET: Type.Optional(Type.String({ minLength: 32 })),
@@ -127,8 +133,6 @@ export const EnvSchema = Type.Object({
 
   // Institution Correspondence
   INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-  INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN: Type.Optional(Type.String({ minLength: 1 })),
-  INSTITUTION_CORRESPONDENCE_AUDIT_CC: Type.Optional(Type.String()),
 
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
@@ -248,7 +252,10 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     // Email (Resend)
     RESEND_API_KEY: env['RESEND_API_KEY'],
     RESEND_WEBHOOK_SECRET: env['RESEND_WEBHOOK_SECRET'],
-    EMAIL_FROM_ADDRESS: env['EMAIL_FROM_ADDRESS'] ?? 'noreply@transparenta.eu',
+    EMAIL_FROM_ADDRESS: env['EMAIL_FROM_ADDRESS'],
+    FUNKY_EMAIL_FROM_ADDRESS: env['FUNKY_EMAIL_FROM_ADDRESS'],
+    FUNKY_EMAIL_FROM_ADDRESS_CC: env['FUNKY_EMAIL_FROM_ADDRESS_CC'],
+    FUNKY_EMAIL_REPLY_TO_ADDRESS: env['FUNKY_EMAIL_REPLY_TO_ADDRESS'],
     EMAIL_PREVIEW_ENABLED: env['EMAIL_PREVIEW_ENABLED'] === 'true',
     RESEND_MAX_RPS:
       env['RESEND_MAX_RPS'] != null && env['RESEND_MAX_RPS'] !== ''
@@ -277,8 +284,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     // Learning Progress Admin Review API
     LEARNING_PROGRESS_REVIEW_API_KEY: env['LEARNING_PROGRESS_REVIEW_API_KEY'],
     INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: env['INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY'],
-    INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN: env['INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN'],
-    INSTITUTION_CORRESPONDENCE_AUDIT_CC: env['INSTITUTION_CORRESPONDENCE_AUDIT_CC'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -297,6 +302,16 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     const errors = [...Value.Errors(EnvSchema, rawEnv)];
     const errorMessages = errors.map((e) => `${e.path}: ${e.message}`).join(', ');
     throw new Error(`Invalid environment configuration: ${errorMessages}`);
+  }
+
+  const emailFromAddress = rawEnv.EMAIL_FROM_ADDRESS?.trim();
+  if (
+    rawEnv.RESEND_API_KEY !== undefined &&
+    (emailFromAddress === undefined || emailFromAddress === '')
+  ) {
+    throw new Error(
+      'Invalid environment configuration: EMAIL_FROM_ADDRESS is required when RESEND_API_KEY is set.'
+    );
   }
 
   return rawEnv;
@@ -401,7 +416,16 @@ export const createConfig = (env: Env) => ({
     /** Resend webhook secret for verifying signatures */
     webhookSecret: env.RESEND_WEBHOOK_SECRET,
     /** From address for outbound emails */
-    fromAddress: env.EMAIL_FROM_ADDRESS ?? 'noreply@transparenta.eu',
+    fromAddress: env.EMAIL_FROM_ADDRESS?.trim(),
+    /** From address for campaign emails */
+    funkyFromAddress: env.FUNKY_EMAIL_FROM_ADDRESS?.trim(),
+    /** Optional CC recipients for campaign institution emails */
+    funkyFromAddressCcRecipients:
+      env.FUNKY_EMAIL_FROM_ADDRESS_CC?.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean) ?? [],
+    /** Reply-To address for campaign institution emails */
+    funkyReplyToAddress: env.FUNKY_EMAIL_REPLY_TO_ADDRESS?.trim(),
     /** Whether preview API is enabled */
     previewEnabled: env.EMAIL_PREVIEW_ENABLED ?? false,
     /** Rate limit (requests per second) */
@@ -446,16 +470,6 @@ export const createConfig = (env: Env) => ({
   institutionCorrespondence: {
     /** API key for institution correspondence admin routes */
     adminApiKey: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY,
-    /** Receiving domain used for correspondence capture aliases */
-    receiveDomain:
-      env.INSTITUTION_CORRESPONDENCE_RECEIVE_DOMAIN ??
-      (env.EMAIL_FROM_ADDRESS ?? 'noreply@transparenta.eu').split('@')[1] ??
-      '',
-    /** Additional audit CC recipients */
-    auditCcRecipients:
-      env.INSTITUTION_CORRESPONDENCE_AUDIT_CC?.split(',')
-        .map((value) => value.trim())
-        .filter(Boolean) ?? [],
     /** Whether admin review routes are enabled */
     adminRoutesEnabled: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY !== undefined,
   },

@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import { FUNKY_CITIZENS_NGO_IDENTITY, PUBLIC_DEBATE_REQUEST_TYPE } from '../types.js';
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -14,8 +16,11 @@ export const normalizeEmailAddress = (value: string): string => value.trim().toL
 export const normalizeEmailSubject = (value: string): string =>
   value.trim().replaceAll(/\s+/g, ' ').toLowerCase();
 
-export const buildSelfSendInteractionKey = (associationEmail: string, subject: string): string =>
-  `${normalizeEmailAddress(associationEmail)}\n${normalizeEmailSubject(subject)}`;
+export const buildSelfSendInteractionKey = (associationEmail: string, subject: string): string => {
+  const normalizedPayload = `${normalizeEmailAddress(associationEmail)}\n${normalizeEmailSubject(subject)}`;
+  const digest = createHash('sha256').update(normalizedPayload).digest('hex');
+  return `funky:correlation:self_send:${digest}`;
+};
 
 export const getBudgetYear = (publicationDate: Date | null): number => {
   return publicationDate?.getUTCFullYear() ?? new Date().getUTCFullYear();

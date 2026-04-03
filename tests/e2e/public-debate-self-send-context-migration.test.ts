@@ -76,21 +76,21 @@ describe('Public debate self-send context rollout guard migration', () => {
             VALUES
               (
                 'user-1',
-                'campaign:debate-request::entity:12345678',
+                'funky:interaction:public_debate_request::entity:12345678',
                 $1::jsonb,
                 '[]'::jsonb
               ),
               (
                 'user-2',
-                'campaign:debate-request::entity:87654321',
+                'funky:interaction:public_debate_request::entity:87654321',
                 $2::jsonb,
                 '[]'::jsonb
               )
           `,
           [
             JSON.stringify({
-              key: 'campaign:debate-request::entity:12345678',
-              interactionId: 'campaign:debate-request',
+              key: 'funky:interaction:public_debate_request::entity:12345678',
+              interactionId: 'funky:interaction:public_debate_request',
               phase: 'pending',
               value: {
                 kind: 'json',
@@ -105,8 +105,8 @@ describe('Public debate self-send context rollout guard migration', () => {
               },
             }),
             JSON.stringify({
-              key: 'campaign:debate-request::entity:87654321',
-              interactionId: 'campaign:debate-request',
+              key: 'funky:interaction:public_debate_request::entity:87654321',
+              interactionId: 'funky:interaction:public_debate_request',
               phase: 'pending',
               value: {
                 kind: 'json',
@@ -133,8 +133,8 @@ describe('Public debate self-send context rollout guard migration', () => {
         );
 
         expect(rows.rows.map((row) => row.record_key)).toEqual([
-          'campaign:debate-request::entity:12345678',
-          'campaign:debate-request::entity:87654321',
+          'funky:interaction:public_debate_request::entity:12345678',
+          'funky:interaction:public_debate_request::entity:87654321',
         ]);
       });
     } finally {
@@ -157,15 +157,15 @@ describe('Public debate self-send context rollout guard migration', () => {
             INSERT INTO UserInteractions (user_id, record_key, record, audit_events)
             VALUES (
               'user-1',
-              'campaign:debate-request::entity:12345678',
+              'funky:interaction:public_debate_request::entity:12345678',
               $1::jsonb,
               '[]'::jsonb
             )
           `,
           [
             JSON.stringify({
-              key: 'campaign:debate-request::entity:12345678',
-              interactionId: 'campaign:debate-request',
+              key: 'funky:interaction:public_debate_request::entity:12345678',
+              interactionId: 'funky:interaction:public_debate_request',
               phase: 'pending',
               value: {
                 kind: 'json',
@@ -194,7 +194,7 @@ describe('Public debate self-send context rollout guard migration', () => {
           'Public debate self-send rollout blocked: found send_yourself interactions missing ngoSenderEmail or preparedSubject.'
         );
         expect(migrationError?.detail).toContain(
-          'record_key=campaign:debate-request::entity:12345678'
+          'record_key=funky:interaction:public_debate_request::entity:12345678'
         );
       });
     } finally {

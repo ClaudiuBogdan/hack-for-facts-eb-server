@@ -249,6 +249,9 @@ export async function getClient(): Promise<GoldenMasterClient> {
         apiKey: undefined,
         webhookSecret: undefined,
         fromAddress: 'noreply@test.example.com',
+        funkyFromAddress: 'campaign@test.example.com',
+        funkyFromAddressCcRecipients: [],
+        funkyReplyToAddress: 'debate@transparenta.test',
         previewEnabled: false,
         maxRps: 2,
         enabled: false,
@@ -274,8 +277,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
       },
       institutionCorrespondence: {
         adminApiKey: undefined,
-        receiveDomain: 'transparenta.test',
-        auditCcRecipients: [],
         adminRoutesEnabled: false,
       },
       telemetry: {

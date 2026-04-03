@@ -87,9 +87,9 @@ function createAcceptedEntityTermsRecord(input?: {
   const updatedAt = input?.updatedAt ?? '2026-04-01T10:00:00.000Z';
 
   return createTestInteractiveRecord({
-    key: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
-    interactionId: `system:campaign:buget:accepted-terms:entity:${entityCui}`,
-    lessonId: 'system:campaign:buget:state',
+    key: `funky:progress:terms_accepted::entity:${entityCui}`,
+    interactionId: `funky:progress:terms_accepted::entity:${entityCui}`,
+    lessonId: 'funky:progress:state',
     kind: 'custom',
     completionRule: { type: 'resolved' },
     scope: { type: 'global' },
@@ -485,24 +485,22 @@ describe('Learning Progress REST API', () => {
     expect(firstResponse.statusCode).toBe(200);
 
     await vi.waitFor(async () => {
-      const welcome = await deliveryRepo.findByDeliveryKey(
-        `campaign_public_debate_welcome:${userId}`
-      );
+      const welcome = await deliveryRepo.findByDeliveryKey(`funky:outbox:welcome:${userId}`);
       expect(welcome.isOk()).toBe(true);
       if (welcome.isOk()) {
         expect(welcome.value).not.toBeNull();
-        expect(welcome.value?.notificationType).toBe('campaign_public_debate_welcome');
+        expect(welcome.value?.notificationType).toBe('funky:outbox:welcome');
       }
     });
 
     const globalPreference = await notificationsRepo.findByUserTypeAndEntity(
       userId,
-      'campaign_public_debate_global',
+      'funky:notification:global',
       null
     );
     const firstEntitySubscription = await notificationsRepo.findByUserTypeAndEntity(
       userId,
-      'campaign_public_debate_entity_updates',
+      'funky:notification:entity_updates',
       '12345678'
     );
     expect(globalPreference.isOk()).toBe(true);
@@ -538,14 +536,12 @@ describe('Learning Progress REST API', () => {
 
     await vi.waitFor(async () => {
       const entitySubscription = await deliveryRepo.findByDeliveryKey(
-        `campaign_public_debate_entity_subscription:${userId}:87654321`
+        `funky:outbox:entity_subscription:${userId}:87654321`
       );
       expect(entitySubscription.isOk()).toBe(true);
       if (entitySubscription.isOk()) {
         expect(entitySubscription.value).not.toBeNull();
-        expect(entitySubscription.value?.notificationType).toBe(
-          'campaign_public_debate_entity_subscription'
-        );
+        expect(entitySubscription.value?.notificationType).toBe('funky:outbox:entity_subscription');
       }
     });
 
@@ -619,7 +615,7 @@ describe('Learning Progress REST API', () => {
     });
 
     const record = createTestInteractiveRecord({
-      key: 'system:campaign:buget:accepted-terms:entity:12345678',
+      key: 'funky:progress:terms_accepted::entity:12345678',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -744,7 +740,7 @@ describe('Learning Progress REST API', () => {
     app = await createTestApp({ learningProgressRepo: repo });
 
     const record = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
       completionRule: { type: 'resolved' },
       phase: 'resolved',
@@ -792,8 +788,8 @@ describe('Learning Progress REST API', () => {
 
   it('accepts exact round-trips of reviewed records returned by GET', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },
@@ -954,8 +950,8 @@ describe('Learning Progress REST API', () => {
 
   it('rejects attempts to modify stored record.review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },
@@ -1029,8 +1025,8 @@ describe('Learning Progress REST API', () => {
 
   it('preserves stored review metadata on ordinary public updates after review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },
@@ -1126,8 +1122,8 @@ describe('Learning Progress REST API', () => {
 
   it('clears stored review metadata on newer public retries back to pending', async () => {
     const reviewedRecord = createTestInteractiveRecord({
-      key: 'campaign:primarie-website-url::entity:4305857',
-      interactionId: 'campaign:primarie-website-url',
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
       lessonId: 'civic-monitor-and-request',
       kind: 'custom',
       completionRule: { type: 'resolved' },

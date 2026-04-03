@@ -665,9 +665,9 @@ export const composeExistingOutbox = async (
 
   if (
     outbox.notificationType !== 'transactional_welcome' &&
-    outbox.notificationType !== 'campaign_public_debate_welcome' &&
-    outbox.notificationType !== 'campaign_public_debate_entity_subscription' &&
-    outbox.notificationType !== 'campaign_public_debate_entity_updates' &&
+    outbox.notificationType !== 'funky:outbox:welcome' &&
+    outbox.notificationType !== 'funky:outbox:entity_subscription' &&
+    outbox.notificationType !== 'funky:outbox:entity_update' &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
     return failOutboxPermanently(
@@ -721,7 +721,7 @@ export const composeExistingOutbox = async (
     });
   }
 
-  if (outbox.notificationType === 'campaign_public_debate_welcome') {
+  if (outbox.notificationType === 'funky:outbox:welcome') {
     const templatePropsResult = buildPublicDebateCampaignWelcomeTemplateProps(
       outbox,
       platformBaseUrl,
@@ -763,7 +763,7 @@ export const composeExistingOutbox = async (
     });
   }
 
-  if (outbox.notificationType === 'campaign_public_debate_entity_subscription') {
+  if (outbox.notificationType === 'funky:outbox:entity_subscription') {
     const templatePropsResult = buildPublicDebateEntitySubscriptionTemplateProps(
       outbox,
       platformBaseUrl,
@@ -805,7 +805,7 @@ export const composeExistingOutbox = async (
     });
   }
 
-  if (outbox.notificationType === 'campaign_public_debate_entity_updates') {
+  if (outbox.notificationType === 'funky:outbox:entity_update') {
     const templatePropsResult = buildPublicDebateEntityUpdateTemplateProps(
       outbox,
       platformBaseUrl,

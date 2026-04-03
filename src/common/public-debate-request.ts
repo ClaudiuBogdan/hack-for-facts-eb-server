@@ -1,7 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
-export const DEBATE_REQUEST_INTERACTION_ID = 'campaign:debate-request' as const;
+export const DEBATE_REQUEST_INTERACTION_ID = 'funky:interaction:public_debate_request' as const;
 
 export const DebateRequestPayloadSchema = Type.Object(
   {

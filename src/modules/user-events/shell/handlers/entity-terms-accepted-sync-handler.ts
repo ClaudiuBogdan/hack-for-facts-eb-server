@@ -11,7 +11,7 @@ import {
 import type { LearningProgressAppliedEventHandler } from '../../core/ports.js';
 import type { Logger } from 'pino';
 
-const ENTITY_TERMS_KEY_PREFIX = 'system:campaign:buget:accepted-terms:entity:';
+const ENTITY_TERMS_KEY_PREFIX = 'funky:progress:terms_accepted::entity:';
 
 export interface EntityTermsAcceptedSyncHandlerDeps {
   notificationsRepo: NotificationsRepository;

@@ -23,10 +23,10 @@ const makeInput = (
   overrides: Partial<Parameters<typeof enqueuePublicDebateTermsAcceptedNotifications>[1]> = {}
 ) => ({
   runId: 'run-1',
-  source: 'learning_progress.entity_terms_accepted',
+  source: 'funky:source:terms_accepted',
   sourceEventId: 'event-1',
   userId: 'user-1',
-  campaignKey: 'public_debate' as const,
+  campaignKey: 'funky' as const,
   entityCui: '12345678',
   entityName: 'Primaria Test',
   acceptedTermsAt: '2026-04-01T10:00:00.000Z',
@@ -64,15 +64,15 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       expect(second.value.outbox?.id).toBe(first.value.outbox?.id);
     }
 
-    const welcome = await deliveryRepo.findByDeliveryKey('campaign_public_debate_welcome:user-1');
+    const welcome = await deliveryRepo.findByDeliveryKey('funky:outbox:welcome:user-1');
     const entitySubscription = await deliveryRepo.findByDeliveryKey(
-      'campaign_public_debate_entity_subscription:user-1:12345678'
+      'funky:outbox:entity_subscription:user-1:12345678'
     );
 
     expect(welcome.isOk()).toBe(true);
     expect(entitySubscription.isOk()).toBe(true);
     if (welcome.isOk() && entitySubscription.isOk()) {
-      expect(welcome.value?.notificationType).toBe('campaign_public_debate_welcome');
+      expect(welcome.value?.notificationType).toBe('funky:outbox:welcome');
       expect(entitySubscription.value).toBeNull();
     }
 
@@ -94,13 +94,13 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
   it('creates and deduplicates entity subscription confirmations per user and entity', async () => {
     const existingWelcome = createTestDeliveryRecord({
       id: 'outbox-welcome-1',
-      notificationType: 'campaign_public_debate_welcome',
+      notificationType: 'funky:outbox:welcome',
       referenceId: 'notification-global-1',
-      scopeKey: 'public_debate:welcome',
-      deliveryKey: 'campaign_public_debate_welcome:user-1',
+      scopeKey: 'funky:delivery:welcome',
+      deliveryKey: 'funky:outbox:welcome:user-1',
       status: 'delivered',
       metadata: {
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         entityCui: '11111111',
         entityName: 'Prima Entitate',
         acceptedTermsAt: '2026-04-01T10:00:00.000Z',
@@ -142,13 +142,11 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
     }
 
     const entitySubscription = await deliveryRepo.findByDeliveryKey(
-      'campaign_public_debate_entity_subscription:user-1:87654321'
+      'funky:outbox:entity_subscription:user-1:87654321'
     );
     expect(entitySubscription.isOk()).toBe(true);
     if (entitySubscription.isOk()) {
-      expect(entitySubscription.value?.notificationType).toBe(
-        'campaign_public_debate_entity_subscription'
-      );
+      expect(entitySubscription.value?.notificationType).toBe('funky:outbox:entity_subscription');
       expect(entitySubscription.value?.metadata['selectedEntities']).toEqual([
         'A Doua Entitate',
         'Prima Entitate',
@@ -160,10 +158,10 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
   it('re-enqueues an existing pending welcome outbox row instead of creating a duplicate', async () => {
     const existingWelcome = createTestDeliveryRecord({
       id: 'outbox-welcome-pending',
-      notificationType: 'campaign_public_debate_welcome',
+      notificationType: 'funky:outbox:welcome',
       referenceId: 'notification-global-1',
-      scopeKey: 'public_debate:welcome',
-      deliveryKey: 'campaign_public_debate_welcome:user-1',
+      scopeKey: 'funky:delivery:welcome',
+      deliveryKey: 'funky:outbox:welcome:user-1',
       status: 'pending',
       renderedSubject: 'Already rendered',
       renderedHtml: '<p>existing</p>',
@@ -171,7 +169,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       templateName: 'public_debate_campaign_welcome',
       templateVersion: '1.0.0',
       metadata: {
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         entityCui: '12345678',
         entityName: 'Primaria Test',
         acceptedTermsAt: '2026-04-01T10:00:00.000Z',
@@ -207,13 +205,13 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
   it('handles duplicate entity subscription creation races by loading the existing row', async () => {
     const existingWelcome = createTestDeliveryRecord({
       id: 'outbox-welcome-1',
-      notificationType: 'campaign_public_debate_welcome',
+      notificationType: 'funky:outbox:welcome',
       referenceId: 'notification-global-1',
-      scopeKey: 'public_debate:welcome',
-      deliveryKey: 'campaign_public_debate_welcome:user-1',
+      scopeKey: 'funky:delivery:welcome',
+      deliveryKey: 'funky:outbox:welcome:user-1',
       status: 'delivered',
       metadata: {
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         entityCui: '11111111',
         entityName: 'Prima Entitate',
         acceptedTermsAt: '2026-04-01T10:00:00.000Z',
@@ -221,10 +219,10 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
     });
     const existingEntitySubscription = createTestDeliveryRecord({
       id: 'outbox-entity-pending',
-      notificationType: 'campaign_public_debate_entity_subscription',
+      notificationType: 'funky:outbox:entity_subscription',
       referenceId: 'notification-entity-2',
-      scopeKey: 'public_debate:entity:87654321:subscription',
-      deliveryKey: 'campaign_public_debate_entity_subscription:user-1:87654321',
+      scopeKey: 'funky:delivery:entity_subscription_87654321',
+      deliveryKey: 'funky:outbox:entity_subscription:user-1:87654321',
       status: 'pending',
       renderedSubject: 'Existing',
       renderedHtml: '<p>existing</p>',
@@ -232,7 +230,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       templateName: 'public_debate_entity_subscription',
       templateVersion: '1.0.0',
       metadata: {
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         entityCui: '87654321',
         entityName: 'A Doua Entitate',
         acceptedTermsAt: '2026-04-02T11:00:00.000Z',
@@ -242,7 +240,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       deliveries: [existingWelcome, existingEntitySubscription],
     });
     let firstLookup = true;
-    const deliveryKey = 'campaign_public_debate_entity_subscription:user-1:87654321';
+    const deliveryKey = 'funky:outbox:entity_subscription:user-1:87654321';
     const deliveryRepo: DeliveryRepository = {
       ...baseRepo,
       async findByDeliveryKey(candidateKey) {

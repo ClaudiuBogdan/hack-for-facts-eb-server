@@ -191,7 +191,7 @@ describe('Notifications REST API', () => {
           'content-type': 'application/json',
         },
         payload: {
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '1234567',
         },
       });
@@ -199,10 +199,10 @@ describe('Notifications REST API', () => {
       expect(response.statusCode).toBe(201);
       const body = response.json();
       expect(body.ok).toBe(true);
-      expect(body.data.notificationType).toBe('campaign_public_debate_entity_updates');
+      expect(body.data.notificationType).toBe('funky:notification:entity_updates');
       expect(body.data.entityCui).toBe('1234567');
       expect(body.data.isActive).toBe(true);
-      expect(body.data.campaignKey).toBe('public_debate');
+      expect(body.data.campaignKey).toBe('funky');
     });
 
     it('creates public debate campaign preference without an entity', async () => {
@@ -214,7 +214,7 @@ describe('Notifications REST API', () => {
           'content-type': 'application/json',
         },
         payload: {
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
         },
       });
@@ -222,10 +222,10 @@ describe('Notifications REST API', () => {
       expect(response.statusCode).toBe(201);
       const body = response.json();
       expect(body.ok).toBe(true);
-      expect(body.data.notificationType).toBe('campaign_public_debate_global');
+      expect(body.data.notificationType).toBe('funky:notification:global');
       expect(body.data.entityCui).toBeNull();
       expect(body.data.isActive).toBe(true);
-      expect(body.data.campaignKey).toBe('public_debate');
+      expect(body.data.campaignKey).toBe('funky');
     });
   });
 
@@ -342,7 +342,7 @@ describe('Notifications REST API', () => {
         createTestNotification({
           id: 'n-public-debate',
           userId: testAuth.userIds.user1,
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '1234567',
         }),
       ];
@@ -363,8 +363,8 @@ describe('Notifications REST API', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.ok).toBe(true);
-      expect(body.data[0]?.notificationType).toBe('campaign_public_debate_entity_updates');
-      expect(body.data[0]?.campaignKey).toBe('public_debate');
+      expect(body.data[0]?.notificationType).toBe('funky:notification:entity_updates');
+      expect(body.data[0]?.campaignKey).toBe('funky');
     });
   });
 

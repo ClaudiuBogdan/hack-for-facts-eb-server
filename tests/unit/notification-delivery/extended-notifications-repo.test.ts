@@ -457,7 +457,7 @@ describe('makeExtendedNotificationsRepo', () => {
         id: 'n-public-1',
         user_id: 'user-1',
         entity_cui: '12345678',
-        notification_type: 'campaign_public_debate_entity_updates',
+        notification_type: 'funky:notification:entity_updates',
         is_active: true,
         config: null,
         hash: 'hash-public-1',
@@ -468,7 +468,7 @@ describe('makeExtendedNotificationsRepo', () => {
         id: 'n-public-2',
         user_id: 'user-2',
         entity_cui: '12345678',
-        notification_type: 'campaign_public_debate_entity_updates',
+        notification_type: 'funky:notification:entity_updates',
         is_active: true,
         config: null,
         hash: 'hash-public-2',
@@ -490,7 +490,7 @@ describe('makeExtendedNotificationsRepo', () => {
 
     const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
     const result = await repo.findActiveByTypeAndEntity(
-      'campaign_public_debate_entity_updates',
+      'funky:notification:entity_updates',
       '12345678'
     );
 
@@ -506,7 +506,7 @@ describe('makeExtendedNotificationsRepo', () => {
         id: 'n-public-1',
         user_id: 'user-1',
         entity_cui: '12345678',
-        notification_type: 'campaign_public_debate_entity_updates',
+        notification_type: 'funky:notification:entity_updates',
         is_active: true,
         config: null,
         hash: 'hash-public-1',
@@ -517,7 +517,7 @@ describe('makeExtendedNotificationsRepo', () => {
         id: 'n-public-2',
         user_id: 'user-2',
         entity_cui: '12345678',
-        notification_type: 'campaign_public_debate_entity_updates',
+        notification_type: 'funky:notification:entity_updates',
         is_active: true,
         config: null,
         hash: 'hash-public-2',
@@ -528,7 +528,7 @@ describe('makeExtendedNotificationsRepo', () => {
         id: 'campaign-global-user-1',
         user_id: 'user-1',
         entity_cui: null,
-        notification_type: 'campaign_public_debate_global',
+        notification_type: 'funky:notification:global',
         is_active: false,
         config: null,
         hash: 'hash-campaign-global-user-1',
@@ -539,7 +539,7 @@ describe('makeExtendedNotificationsRepo', () => {
 
     const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
     const result = await repo.findActiveByTypeAndEntity(
-      'campaign_public_debate_entity_updates',
+      'funky:notification:entity_updates',
       '12345678'
     );
 

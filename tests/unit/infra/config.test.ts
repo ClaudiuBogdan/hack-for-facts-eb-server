@@ -156,6 +156,30 @@ describe('Configuration', () => {
       expect(env.CLERK_WEBHOOK_SIGNING_SECRET).toBe(signingSecret);
     });
 
+    it('requires EMAIL_FROM_ADDRESS when RESEND_API_KEY is set', () => {
+      expect(() =>
+        parseEnv({
+          ...requiredEnv,
+          RESEND_API_KEY: 'r'.repeat(20),
+        })
+      ).toThrow(
+        'Invalid environment configuration: EMAIL_FROM_ADDRESS is required when RESEND_API_KEY is set.'
+      );
+    });
+
+    it('accepts optional FUNKY campaign email settings', () => {
+      const env = parseEnv({
+        ...requiredEnv,
+        FUNKY_EMAIL_FROM_ADDRESS: 'funky@example.com',
+        FUNKY_EMAIL_FROM_ADDRESS_CC: 'one@example.com, two@example.com ',
+        FUNKY_EMAIL_REPLY_TO_ADDRESS: 'reply@example.com',
+      });
+
+      expect(env.FUNKY_EMAIL_FROM_ADDRESS).toBe('funky@example.com');
+      expect(env.FUNKY_EMAIL_FROM_ADDRESS_CC).toBe('one@example.com, two@example.com ');
+      expect(env.FUNKY_EMAIL_REPLY_TO_ADDRESS).toBe('reply@example.com');
+    });
+
     it('parses TRUST_PROXY numeric hop counts as numbers', () => {
       const env = parseEnv({ ...requiredEnv, TRUST_PROXY: '1' });
 
@@ -326,6 +350,16 @@ describe('Configuration', () => {
       expect(config.learningProgress.reviewApiEnabled).toBe(true);
     });
 
+    it('enables institution correspondence admin config when the API key is set', () => {
+      const apiKey = 'i'.repeat(32);
+      const config = createConfig(
+        parseEnv({ ...requiredEnv, INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: apiKey })
+      );
+
+      expect(config.institutionCorrespondence.adminApiKey).toBe(apiKey);
+      expect(config.institutionCorrespondence.adminRoutesEnabled).toBe(true);
+    });
+
     it('normalizes special rate limit header names and exposes the service key', () => {
       const config = createConfig(
         parseEnv({
@@ -375,6 +409,30 @@ describe('Configuration', () => {
       );
 
       expect(config.notifications.platformBaseUrl).toBe('https://public.transparenta.eu');
+    });
+
+    it('does not default EMAIL_FROM_ADDRESS when email is disabled', () => {
+      const config = createConfig(parseEnv({ ...requiredEnv }));
+
+      expect(config.email.fromAddress).toBeUndefined();
+    });
+
+    it('parses campaign email sender settings without defaults', () => {
+      const config = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          FUNKY_EMAIL_FROM_ADDRESS: 'funky@example.com',
+          FUNKY_EMAIL_FROM_ADDRESS_CC: 'one@example.com, two@example.com ',
+          FUNKY_EMAIL_REPLY_TO_ADDRESS: 'reply@example.com',
+        })
+      );
+
+      expect(config.email.funkyFromAddress).toBe('funky@example.com');
+      expect(config.email.funkyFromAddressCcRecipients).toEqual([
+        'one@example.com',
+        'two@example.com',
+      ]);
+      expect(config.email.funkyReplyToAddress).toBe('reply@example.com');
     });
   });
 });

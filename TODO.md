@@ -2,14 +2,9 @@
 
 - Database migration in prod. Backup data first.
 - Add test email in dev and prod for entity flow: <test+entity:cui@transparenta.eu>
-- Rename notification table to notificationspreferences?
-- Rename notificationoutbox table to notificationsoutbox?
 - Review gdpr strategy (session: gdpr-review)
 - Review clerk cache email!
 - Rate limit review: should use redis?
-- Can we adapt the notification outbox for multichannel?
-- Remove the mock script from scripts folder. Add them to a tmp folder.
-- Design the new templates for the different usecases. I'd keep institution email clean but use good design for the others.
 - We need to centralize the static ids for user interactions.
 - Wee need to process clerk webhooks, specially user created/deleted.
 

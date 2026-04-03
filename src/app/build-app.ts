@@ -148,7 +148,6 @@ import {
   type PublicDebateEntityUpdatePublisher,
   type PublicDebateEntitySubscriptionService,
   type PublicDebateSelfSendApprovalService,
-  buildSharedCorrespondenceInboxAddress,
 } from '../modules/institution-correspondence/index.js';
 import {
   createDatabaseError as createLearningProgressDatabaseError,
@@ -513,6 +512,32 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     shouldStartNotificationWorkers;
   const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
   const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
+  const emailFromAddress = config.email.fromAddress?.trim();
+  const funkyEmailFromAddress = config.email.funkyFromAddress?.trim();
+  const campaignAuditCcRecipients = config.email.funkyFromAddressCcRecipients;
+  const campaignReplyToAddress = config.email.funkyReplyToAddress?.trim();
+
+  if (config.email.enabled && (emailFromAddress === undefined || emailFromAddress === '')) {
+    throw new Error('Email is enabled but EMAIL_FROM_ADDRESS is missing.');
+  }
+
+  if (
+    shouldEnablePublicDebateCorrespondence &&
+    (funkyEmailFromAddress === undefined || funkyEmailFromAddress === '')
+  ) {
+    throw new Error(
+      'Public debate campaign email requires FUNKY_EMAIL_FROM_ADDRESS when email is enabled.'
+    );
+  }
+
+  if (
+    shouldEnablePublicDebateCorrespondence &&
+    (campaignReplyToAddress === undefined || campaignReplyToAddress === '')
+  ) {
+    throw new Error(
+      'Public debate correspondence requires FUNKY_EMAIL_REPLY_TO_ADDRESS when email is enabled.'
+    );
+  }
 
   if (shouldEnablePublicDebateCorrespondence && !hasBullmqRedisConfig) {
     throw new Error(
@@ -1075,6 +1100,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       );
     }
 
+    if (
+      shouldStartNotificationWorkers &&
+      (emailFromAddress === undefined || emailFromAddress === '')
+    ) {
+      throw new Error(
+        'Notification delivery requires EMAIL_FROM_ADDRESS when BullMQ workers are enabled.'
+      );
+    }
+
     if (shouldStartNotificationWorkers && config.notifications.platformBaseUrl === '') {
       throw new Error(
         'Notification delivery requires PUBLIC_CLIENT_BASE_URL when BullMQ workers are enabled.'
@@ -1107,9 +1141,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
                 emailSender: makeResendEmailSender({
                   sender: makeEmailClient({
                     apiKey: config.email.apiKey ?? '',
-                    fromAddress: config.email.fromAddress,
+                    fromAddress: emailFromAddress ?? '',
                     logger: repoLogger,
                   }),
+                  ...(funkyEmailFromAddress !== undefined && funkyEmailFromAddress !== ''
+                    ? {
+                        campaignSender: makeEmailClient({
+                          apiKey: config.email.apiKey ?? '',
+                          fromAddress: funkyEmailFromAddress,
+                          logger: repoLogger,
+                        }),
+                      }
+                    : {}),
                 }),
                 tokenSigner,
                 dataFetcher: makeBudgetDataFetcher({
@@ -1469,7 +1512,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // ─────────────────────────────────────────────────────────────────────────
     if (config.email.enabled) {
       const emailApiKey = config.email.apiKey;
-      if (emailApiKey === undefined) {
+      if (emailApiKey === undefined || emailApiKey === '') {
         throw new Error('Email is enabled but RESEND_API_KEY is missing.');
       }
 
@@ -1479,7 +1522,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       });
       const emailSender = makeEmailClient({
         apiKey: emailApiKey,
-        fromAddress: config.email.fromAddress,
+        fromAddress: funkyEmailFromAddress ?? '',
         logger: repoLogger,
       });
       const correspondenceTemplateRenderer = makePublicDebateTemplateRenderer();
@@ -1493,12 +1536,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       });
       const receivedEmailFetcher = makeReceivedEmailFetcher({
         apiKey: emailApiKey,
-        fromAddress: config.email.fromAddress,
+        fromAddress: funkyEmailFromAddress ?? '',
         logger: repoLogger,
       });
-      const correspondenceInboxAddress = buildSharedCorrespondenceInboxAddress(
-        config.institutionCorrespondence.receiveDomain
-      );
+      const correspondenceInboxAddress = campaignReplyToAddress ?? '';
 
       userEventHandlers.push(
         makePublicDebateRequestUserEventHandler({
@@ -1507,7 +1548,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           repo: correspondenceRepo,
           emailSender,
           templateRenderer: correspondenceTemplateRenderer,
-          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          auditCcRecipients: campaignAuditCcRecipients,
           platformBaseUrl: config.notifications.platformBaseUrl,
           captureAddress: correspondenceInboxAddress,
           subscriptionService: publicDebateSubscriptionService,
@@ -1524,7 +1565,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             repo: correspondenceRepo,
             emailSender,
             templateRenderer: correspondenceTemplateRenderer,
-            auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+            auditCcRecipients: campaignAuditCcRecipients,
             platformBaseUrl: config.notifications.platformBaseUrl,
             captureAddress: correspondenceInboxAddress,
             subscriptionService: publicDebateSubscriptionService,
@@ -1561,7 +1602,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             }),
           receivedEmailFetcher,
           captureAddress: correspondenceInboxAddress,
-          auditCcRecipients: config.institutionCorrespondence.auditCcRecipients,
+          auditCcRecipients: campaignAuditCcRecipients,
           updatePublisher: publicDebateUpdatePublisher,
           logger: repoLogger,
         })

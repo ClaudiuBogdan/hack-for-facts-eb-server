@@ -386,6 +386,9 @@ describe('App Factory', () => {
               apiKey: undefined,
               webhookSecret: 'w'.repeat(32),
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: false,
@@ -460,6 +463,9 @@ describe('App Factory', () => {
                 apiKey: 're_test_key',
                 webhookSecret: undefined,
                 fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
                 previewEnabled: false,
                 maxRps: 2,
                 enabled: true,
@@ -476,6 +482,115 @@ describe('App Factory', () => {
         })
       ).rejects.toThrow(
         'Notification delivery requires CLERK_SECRET_KEY when BullMQ workers are enabled.'
+      );
+    });
+
+    it('fails closed when email is enabled without EMAIL_FROM_ADDRESS', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: undefined,
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow('Email is enabled but EMAIL_FROM_ADDRESS is missing.');
+    });
+
+    it('fails closed when campaign email is enabled without FUNKY_EMAIL_FROM_ADDRESS', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: undefined,
+                funkyFromAddressCcRecipients: [],
+                funkyReplyToAddress: 'debate@transparenta.test',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Public debate campaign email requires FUNKY_EMAIL_FROM_ADDRESS when email is enabled.'
+      );
+    });
+
+    it('fails closed when public debate correspondence is enabled without FUNKY_EMAIL_REPLY_TO_ADDRESS', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              jobs: {
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: undefined,
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Public debate correspondence requires FUNKY_EMAIL_REPLY_TO_ADDRESS when email is enabled.'
       );
     });
 
@@ -524,6 +639,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -616,6 +734,9 @@ describe('App Factory', () => {
                 apiKey: 're_test_key',
                 webhookSecret: undefined,
                 fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
                 previewEnabled: false,
                 maxRps: 2,
                 enabled: true,
@@ -678,6 +799,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -739,6 +863,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -817,6 +944,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -879,6 +1009,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -1031,6 +1164,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -1157,6 +1293,9 @@ describe('App Factory', () => {
                 apiKey: 're_test_key',
                 webhookSecret: undefined,
                 fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
                 previewEnabled: false,
                 maxRps: 2,
                 enabled: true,
@@ -1318,6 +1457,9 @@ describe('App Factory', () => {
               apiKey: 're_test_key',
               webhookSecret: undefined,
               fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
               previewEnabled: false,
               maxRps: 2,
               enabled: true,
@@ -1365,6 +1507,9 @@ describe('App Factory', () => {
                 apiKey: 're_test_key',
                 webhookSecret: undefined,
                 fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
                 previewEnabled: false,
                 maxRps: 2,
                 enabled: true,

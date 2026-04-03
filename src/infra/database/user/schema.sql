@@ -11,8 +11,6 @@ CREATE TABLE IF NOT EXISTS ShortLinks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_shortlinks_user_ids ON ShortLinks USING GIN(user_ids);
-CREATE INDEX IF NOT EXISTS idx_shortlinks_code ON ShortLinks(code);
-CREATE INDEX IF NOT EXISTS idx_shortlinks_original_url ON ShortLinks(original_url);
 CREATE INDEX IF NOT EXISTS idx_shortlinks_created_at ON ShortLinks(created_at);
 
 -- Notifications: User notification preferences
@@ -36,13 +34,12 @@ CREATE TABLE IF NOT EXISTS Notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_user_active ON Notifications(user_id) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_notifications_entity ON Notifications(entity_cui) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_notifications_type_active ON Notifications(notification_type) WHERE is_active = TRUE;
-CREATE INDEX IF NOT EXISTS idx_notifications_hash ON Notifications(hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_global_unsubscribe_user
 ON Notifications(user_id, notification_type)
 WHERE notification_type = 'global_unsubscribe';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_public_debate_global_user
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_funky_global_user
 ON Notifications(user_id, notification_type)
-WHERE notification_type = 'campaign_public_debate_global';
+WHERE notification_type = 'funky:notification:global';
 
 -- NotificationsOutbox: Durable sent/queued/audited notification records
 -- Status lifecycle: pending → sending → sent → delivered (via webhook)
@@ -58,7 +55,7 @@ CREATE TABLE IF NOT EXISTS NotificationsOutbox (
   reference_id TEXT NULL,
 
   -- Scope identifier for notifications with the same scope
-  scope_key TEXT NOT NULL, -- '2025-01', '2025-Q1', '2025', 'welcome'
+  scope_key TEXT NOT NULL, -- e.g. '2025-01', '2025-Q1', 'funky:delivery:welcome'
 
   -- Composite deduplication key: notification-specific durable unique key
   delivery_key TEXT UNIQUE NOT NULL,

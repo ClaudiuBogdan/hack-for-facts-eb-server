@@ -44,7 +44,7 @@ export const createThreadAggregateRecord = (
   overrides: Partial<CorrespondenceThreadRecord> = {}
 ): CorrespondenceThreadRecord => ({
   version: 1,
-  campaign: overrides.campaign ?? 'public_debate',
+  campaign: overrides.campaign ?? 'funky',
   campaignKey: overrides.campaignKey ?? null,
   ownerUserId: overrides.ownerUserId ?? 'user-1',
   subject: overrides.subject ?? 'Subject [teu:thread-key-1]',

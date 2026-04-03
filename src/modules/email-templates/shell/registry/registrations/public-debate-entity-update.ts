@@ -38,7 +38,7 @@ export const registration = defineTemplate({
     platformBaseUrl: 'https://transparenta.eu',
     copyrightYear: 2026,
     eventType: 'reply_received',
-    campaignKey: 'public_debate',
+    campaignKey: 'funky',
     entityCui: '12345678',
     entityName: 'Municipiul Exemplu',
     threadId: 'thread-1',

@@ -28,7 +28,7 @@ const createSelfSendContext = (
   overrides: Partial<PublicDebateSelfSendContext> = {}
 ): PublicDebateSelfSendContext => ({
   userId: overrides.userId ?? 'user-1',
-  recordKey: overrides.recordKey ?? 'campaign:debate-request::entity:12345678',
+  recordKey: overrides.recordKey ?? 'funky:interaction:public_debate_request::entity:12345678',
   entityCui: overrides.entityCui ?? '12345678',
   institutionEmail: overrides.institutionEmail ?? 'contact@primarie.ro',
   requesterOrganizationName: overrides.requesterOrganizationName ?? 'Asociatia Test',
@@ -170,7 +170,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
       expect(createdThread.value?.threadKey).not.toContain('[teu:');
       expect(createdThread.value?.record.metadata).toEqual({
         interactionKey,
-        sourceInteractionRecordKey: 'campaign:debate-request::entity:12345678',
+        sourceInteractionRecordKey: 'funky:interaction:public_debate_request::entity:12345678',
         preparedSubject: subject,
         expectedNgoSenderEmail: 'ngo@example.com',
         capturedFromAddress: 'ngo@example.com',
@@ -191,7 +191,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     });
     expect(approvePendingRecord).toHaveBeenCalledWith({
       userId: 'user-1',
-      recordKey: 'campaign:debate-request::entity:12345678',
+      recordKey: 'funky:interaction:public_debate_request::entity:12345678',
     });
   });
 
@@ -378,7 +378,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     if (createdThread.isOk()) {
       expect(createdThread.value?.record.metadata).toEqual({
         interactionKey,
-        sourceInteractionRecordKey: 'campaign:debate-request::entity:12345678',
+        sourceInteractionRecordKey: 'funky:interaction:public_debate_request::entity:12345678',
         preparedSubject: subject,
         expectedNgoSenderEmail: 'ngo@example.com',
         capturedFromAddress: 'ngo@example.com',
@@ -422,7 +422,8 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
             ],
             metadata: {
               interactionKey,
-              sourceInteractionRecordKey: 'campaign:debate-request::entity:12345678',
+              sourceInteractionRecordKey:
+                'funky:interaction:public_debate_request::entity:12345678',
             },
           }),
         }),
@@ -524,7 +525,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     });
     expect(approvePendingRecord).toHaveBeenCalledWith({
       userId: 'user-1',
-      recordKey: 'campaign:debate-request::entity:12345678',
+      recordKey: 'funky:interaction:public_debate_request::entity:12345678',
     });
   });
 
@@ -550,7 +551,8 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
             ],
             metadata: {
               interactionKey,
-              sourceInteractionRecordKey: 'campaign:debate-request::entity:87654321',
+              sourceInteractionRecordKey:
+                'funky:interaction:public_debate_request::entity:87654321',
             },
           }),
         }),
@@ -661,7 +663,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     });
     expect(approvePendingRecord).toHaveBeenCalledWith({
       userId: 'user-1',
-      recordKey: 'campaign:debate-request::entity:12345678',
+      recordKey: 'funky:interaction:public_debate_request::entity:12345678',
     });
   });
 
@@ -671,11 +673,11 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
       threadKey: 'thread-key-concurrent',
       phase: 'awaiting_reply',
       record: createThreadAggregateRecord({
-        campaignKey: 'public_debate',
+        campaignKey: 'funky',
         submissionPath: 'self_send_cc',
         metadata: {
           interactionKey,
-          sourceInteractionRecordKey: 'campaign:debate-request::entity:12345678',
+          sourceInteractionRecordKey: 'funky:interaction:public_debate_request::entity:12345678',
         },
       }),
     });
@@ -788,7 +790,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     });
     expect(approvePendingRecord).toHaveBeenCalledWith({
       userId: 'user-1',
-      recordKey: 'campaign:debate-request::entity:12345678',
+      recordKey: 'funky:interaction:public_debate_request::entity:12345678',
     });
   });
 

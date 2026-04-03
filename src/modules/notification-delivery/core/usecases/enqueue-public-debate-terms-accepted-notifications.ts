@@ -41,13 +41,13 @@ export interface EnqueuePublicDebateTermsAcceptedNotificationsResult {
   requeued: boolean;
 }
 
-const PUBLIC_DEBATE_WELCOME_TYPE = 'campaign_public_debate_welcome';
-const PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE = 'campaign_public_debate_entity_subscription';
+const PUBLIC_DEBATE_WELCOME_TYPE = 'funky:outbox:welcome';
+const PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE = 'funky:outbox:entity_subscription';
 
-const buildWelcomeScopeKey = (): string => `${PUBLIC_DEBATE_CAMPAIGN_KEY}:welcome`;
+const buildWelcomeScopeKey = (): string => 'funky:delivery:welcome';
 
 const buildEntitySubscriptionScopeKey = (entityCui: string): string =>
-  `${PUBLIC_DEBATE_CAMPAIGN_KEY}:entity:${entityCui}:subscription`;
+  `funky:delivery:entity_subscription_${entityCui}`;
 
 const buildWelcomeDeliveryKey = (userId: string): string =>
   `${PUBLIC_DEBATE_WELCOME_TYPE}:${userId}`;

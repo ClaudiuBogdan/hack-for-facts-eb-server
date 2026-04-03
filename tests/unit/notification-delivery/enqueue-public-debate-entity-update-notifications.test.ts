@@ -17,13 +17,13 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         createTestNotification({
           id: 'notif-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
         createTestNotification({
           id: 'notif-2',
           userId: 'user-2',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -61,18 +61,18 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
     }
 
     const outbox1 = await deliveryRepo.findByDeliveryKey(
-      'user-1:notif-1:public_debate:thread:thread-1:started'
+      'user-1:notif-1:funky:delivery:thread_started_thread-1'
     );
     const outbox2 = await deliveryRepo.findByDeliveryKey(
-      'user-2:notif-2:public_debate:thread:thread-1:started'
+      'user-2:notif-2:funky:delivery:thread_started_thread-1'
     );
     expect(outbox1.isOk()).toBe(true);
     expect(outbox2.isOk()).toBe(true);
     if (outbox1.isOk()) {
-      expect(outbox1.value?.notificationType).toBe('campaign_public_debate_entity_updates');
+      expect(outbox1.value?.notificationType).toBe('funky:outbox:entity_update');
       expect(outbox1.value?.metadata).toEqual(
         expect.objectContaining({
-          campaignKey: 'public_debate',
+          campaignKey: 'funky',
           eventType: 'thread_started',
           entityCui: '12345678',
           threadId: 'thread-1',
@@ -90,7 +90,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         createTestNotification({
           id: 'notif-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -146,7 +146,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         createTestNotification({
           id: 'notif-1',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
       ],
@@ -190,13 +190,13 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         createTestNotification({
           id: 'notif-entity',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_entity_updates',
+          notificationType: 'funky:notification:entity_updates',
           entityCui: '12345678',
         }),
         createTestNotification({
           id: 'notif-global',
           userId: 'user-1',
-          notificationType: 'campaign_public_debate_global',
+          notificationType: 'funky:notification:global',
           entityCui: null,
           isActive: false,
         }),

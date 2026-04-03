@@ -251,11 +251,11 @@ export function validateConfigForNotificationType(
 
   // Newsletter types don't use config
   if (
-    notificationType === 'campaign_public_debate_global' ||
+    notificationType === 'funky:notification:global' ||
     notificationType === 'newsletter_entity_monthly' ||
     notificationType === 'newsletter_entity_quarterly' ||
     notificationType === 'newsletter_entity_yearly' ||
-    notificationType === 'campaign_public_debate_entity_updates'
+    notificationType === 'funky:notification:entity_updates'
   ) {
     return ok(undefined);
   }
