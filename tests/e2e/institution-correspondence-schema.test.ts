@@ -478,4 +478,83 @@ describe('Institution correspondence schema', () => {
       expect(threadResult.value?.entityCui).toBe('42424242');
     }
   });
+
+  it('appends an outbound correspondence entry with an ISO occurredAt timestamp', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const logger = pinoLogger({ level: 'silent' });
+    const correspondenceRepo = makeInstitutionCorrespondenceRepo({
+      db: userDb,
+      logger,
+    });
+
+    const createThreadResult = await correspondenceRepo.createThread({
+      entityCui: '56565656',
+      campaignKey: 'funky',
+      threadKey: 'append-proof-thread',
+      phase: 'sending',
+      record: {
+        version: 1,
+        campaign: 'funky',
+        campaignKey: 'funky',
+        ownerUserId: 'user-proof',
+        subject: 'Cerere dezbatere buget local - Comuna Test',
+        submissionPath: 'platform_send',
+        institutionEmail: 'contact@test.ro',
+        ngoIdentity: 'funky_citizens',
+        requesterOrganizationName: null,
+        budgetPublicationDate: null,
+        consentCapturedAt: '2026-04-03T16:43:04.930Z',
+        contestationDeadlineAt: null,
+        captureAddress: 'debate@transparenta.test',
+        correspondence: [],
+        latestReview: null,
+        metadata: {},
+      },
+    });
+
+    expect(createThreadResult.isOk()).toBe(true);
+    if (createThreadResult.isErr()) {
+      return;
+    }
+
+    const appendResult = await correspondenceRepo.appendCorrespondenceEntry({
+      threadId: createThreadResult.value.id,
+      phase: 'awaiting_reply',
+      lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+      entry: {
+        id: 'entry-proof-1',
+        campaignKey: 'funky',
+        direction: 'outbound',
+        source: 'platform_send',
+        resendEmailId: 'email-proof-1',
+        messageId: null,
+        fromAddress: 'funky@dev.transparenta.eu',
+        toAddresses: ['contact@test.ro'],
+        ccAddresses: ['weare@funky.ong', 'contact@transparenta.eu'],
+        bccAddresses: [],
+        subject: 'Cerere dezbatere buget local - Comuna Test',
+        textBody: 'Domnule Primar,',
+        htmlBody: '<p>Domnule Primar,</p>',
+        headers: {},
+        attachments: [],
+        occurredAt: '2026-04-03T16:43:04.930Z',
+        metadata: {
+          threadKey: 'append-proof-thread',
+        },
+      },
+    });
+
+    expect(appendResult.isOk()).toBe(true);
+    if (appendResult.isOk()) {
+      expect(appendResult.value.phase).toBe('awaiting_reply');
+      expect(appendResult.value.record.correspondence).toHaveLength(1);
+      expect(appendResult.value.record.correspondence[0]?.occurredAt).toBe(
+        '2026-04-03T16:43:04.930Z'
+      );
+    }
+  });
 });
