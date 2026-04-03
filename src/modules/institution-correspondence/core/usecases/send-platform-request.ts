@@ -13,6 +13,7 @@ import {
   DEFAULT_NGO_IDENTITY,
   DEFAULT_REQUEST_TYPE,
   EMAIL_REGEX,
+  encodeThreadKeyForTag,
   computeContestationDeadline,
   getBudgetYear,
   normalizeOptionalString,
@@ -184,7 +185,7 @@ export async function sendPlatformRequest(
     idempotencyKey: thread.id,
     unsubscribeUrl: `${deps.platformBaseUrl}/settings/notifications`,
     tags: [
-      { name: 'thread_key', value: thread.threadKey },
+      { name: 'thread_key', value: encodeThreadKeyForTag(thread.threadKey) },
       { name: 'request_type', value: DEFAULT_REQUEST_TYPE },
     ],
   });

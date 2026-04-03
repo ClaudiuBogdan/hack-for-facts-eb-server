@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { encodeThreadKeyForTag } from '@/modules/institution-correspondence/index.js';
 import {
   extractTagValue,
   extractThreadKey,
@@ -114,6 +115,22 @@ describe('resend webhook mappers', () => {
 
     expect(insert.thread_key).toBe('thread-1');
     expect(insert.tags).toBe(JSON.stringify(tags));
+  });
+
+  it('decodes encoded thread_key tag values back to the original thread key', () => {
+    const tags = [
+      { name: 'thread_key', value: encodeThreadKeyForTag('funky:thread:thread-1') },
+      { name: 'delivery_id', value: 'delivery-1' },
+    ];
+
+    expect(extractThreadKey(tags)).toBe('funky:thread:thread-1');
+
+    const insert = mapResendEmailWebhookEventToInsert(
+      'svix-encoded',
+      createEvent('email.sent', { data: { tags } })
+    );
+
+    expect(insert.thread_key).toBe('funky:thread:thread-1');
   });
 
   it('extracts tags from object form', () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PUBLIC_DEBATE_REQUEST_TYPE,
+  encodeThreadKeyForTag,
   sendPlatformRequest,
   makePublicDebateTemplateRenderer,
 } from '@/modules/institution-correspondence/index.js';
@@ -53,6 +54,10 @@ describe('sendPlatformRequest', () => {
       );
       expect(sentEmails[0]?.['cc']).toEqual(['audit@transparenta.test']);
       expect(sentEmails[0]?.['replyTo']).toEqual(['debate@transparenta.test']);
+      expect(sentEmails[0]?.['tags']).toEqual([
+        { name: 'thread_key', value: encodeThreadKeyForTag(result.value.thread.threadKey) },
+        { name: 'request_type', value: 'funky' },
+      ]);
     }
   });
 

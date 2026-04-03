@@ -1,3 +1,5 @@
+import { decodeThreadKeyFromTag } from '@/common/resend-tag-encoding.js';
+
 import type {
   ResendEmailWebhookEvent,
   ResendWebhookEmailEventInsert,
@@ -48,8 +50,14 @@ export const extractTagValue = (
   return tags[tagName];
 };
 
-export const extractThreadKey = (tags: ResendWebhookTags | null | undefined): string | null =>
-  extractTagValue(tags, 'thread_key') ?? null;
+export const extractThreadKey = (tags: ResendWebhookTags | null | undefined): string | null => {
+  const tagValue = extractTagValue(tags, 'thread_key');
+  if (tagValue === undefined) {
+    return null;
+  }
+
+  return decodeThreadKeyFromTag(tagValue);
+};
 
 export const mapResendEmailWebhookEventToInsert = (
   svixId: string,

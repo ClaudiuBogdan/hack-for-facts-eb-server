@@ -98,6 +98,8 @@ export {
   parseOptionalDate,
   computeContestationDeadline,
   buildSharedCorrespondenceInboxAddress,
+  encodeThreadKeyForTag,
+  decodeThreadKeyFromTag,
   embedThreadKeyInSubject,
   extractThreadKeyFromSubject,
   extractMessageReferences,
