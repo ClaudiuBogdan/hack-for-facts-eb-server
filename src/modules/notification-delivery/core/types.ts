@@ -87,6 +87,7 @@ export type NotificationOutboxType =
   | 'funky:outbox:welcome'
   | 'funky:outbox:entity_subscription'
   | 'funky:outbox:entity_update'
+  | 'funky:outbox:admin_failure'
   | BundleOutboxType;
 
 export interface AnafForexebugDigestMetadata {

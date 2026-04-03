@@ -1,5 +1,7 @@
 # TODOs
 
+- Don't send failed institution send email to user. Send to admin only.
+- Send confirmation email when email is sent to institution.
 - Database migration in prod. Backup data first.
 - Add test email in dev and prod for entity flow: <test+entity:cui@transparenta.eu>
 - Review gdpr strategy (session: gdpr-review)

@@ -7,12 +7,15 @@ import { Writable } from 'node:stream';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
-const { startUserEventRuntimeMock } = vi.hoisted(() => ({
+const { startUserEventRuntimeMock, startCorrespondenceRecoveryRuntimeMock } = vi.hoisted(() => ({
   startUserEventRuntimeMock: vi.fn(async () => ({
     publisher: {
       publish: vi.fn(async () => undefined),
       publishMany: vi.fn(async () => undefined),
     },
+    stop: vi.fn(async () => undefined),
+  })),
+  startCorrespondenceRecoveryRuntimeMock: vi.fn(async () => ({
     stop: vi.fn(async () => undefined),
   })),
 }));
@@ -25,6 +28,17 @@ vi.mock('@/modules/user-events/index.js', async () => {
   return {
     ...actual,
     startUserEventRuntime: startUserEventRuntimeMock,
+  };
+});
+
+vi.mock('@/modules/institution-correspondence/index.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/modules/institution-correspondence/index.js')
+  >('@/modules/institution-correspondence/index.js');
+
+  return {
+    ...actual,
+    startCorrespondenceRecoveryRuntime: startCorrespondenceRecoveryRuntimeMock,
   };
 });
 

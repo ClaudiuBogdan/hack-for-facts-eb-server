@@ -140,8 +140,12 @@ import {
   makeInstitutionCorrespondenceRepo,
   makeInstitutionCorrespondenceResendSideEffect,
   makeOfficialEmailLookup,
+  makePlatformSendSuccessEvidenceLookup,
   makePublicDebateTemplateRenderer,
+  startCorrespondenceRecoveryRuntime,
   type CorrespondenceEntry,
+  type CorrespondenceRecoveryRuntime,
+  type CorrespondenceRecoveryRuntimeFactory,
   type InstitutionCorrespondenceError,
   type PublicDebateEntityUpdateNotification,
   type PublicDebateEntityUpdatePublishResult,
@@ -184,6 +188,7 @@ import {
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
+  enqueuePublicDebateAdminFailureNotifications,
   enqueuePublicDebateEntityUpdateNotifications,
   enqueueTransactionalWelcomeNotification,
   getErrorMessage,
@@ -281,6 +286,8 @@ export interface AppDeps {
   notificationDeliveryRuntimeFactory?: NotificationDeliveryRuntimeFactory;
   /** Optional user event runtime factory for tests */
   userEventRuntimeFactory?: UserEventRuntimeFactory;
+  /** Optional correspondence recovery runtime factory for tests */
+  correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
 }
 
 /**
@@ -629,6 +636,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   const requestStartTimes = new WeakMap<import('fastify').FastifyRequest, bigint>();
   let notificationDeliveryRuntime: NotificationDeliveryRuntime | undefined;
+  let correspondenceRecoveryRuntime: CorrespondenceRecoveryRuntime | undefined;
   let userEventRuntime: UserEventRuntime | undefined;
   let onClerkWebhookEventVerified:
     | ((input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>)
@@ -1430,6 +1438,94 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           entityName = entityResult.value.name;
         }
 
+        if (input.eventType === 'thread_failed') {
+          if (campaignAuditCcRecipients.length === 0) {
+            repoLogger.info(
+              {
+                entityCui: input.thread.entityCui,
+                eventType: input.eventType,
+                threadId: input.thread.id,
+              },
+              'Skipping public debate admin failure alert because no audit recipients are configured'
+            );
+
+            return ok({
+              status: 'none',
+              notificationIds: [],
+              createdOutboxIds: [],
+              reusedOutboxIds: [],
+              queuedOutboxIds: [],
+              enqueueFailedOutboxIds: [],
+            });
+          }
+
+          const adminFailureResult = await enqueuePublicDebateAdminFailureNotifications(
+            {
+              deliveryRepo,
+              ...(notificationDeliveryRuntime?.composeJobScheduler !== undefined
+                ? { composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler }
+                : {}),
+            },
+            {
+              runId: `public-debate-admin-${runIdParts.join('-')}`,
+              recipientEmails: campaignAuditCcRecipients,
+              entityCui: input.thread.entityCui,
+              entityName,
+              threadId: input.thread.id,
+              threadKey: input.thread.threadKey,
+              phase: input.thread.phase,
+              institutionEmail: input.thread.record.institutionEmail,
+              subject: input.thread.record.subject,
+              occurredAt: input.occurredAt.toISOString(),
+              failureMessage: input.failureMessage ?? 'Unknown send failure',
+            }
+          );
+
+          if (adminFailureResult.isErr()) {
+            repoLogger.error(
+              {
+                error: adminFailureResult.error,
+                entityCui: input.thread.entityCui,
+                eventType: input.eventType,
+                threadId: input.thread.id,
+              },
+              'Failed to enqueue public debate admin failure notifications'
+            );
+            return err(
+              createCorrespondenceDatabaseError(
+                'Failed to enqueue public debate admin failure notifications',
+                adminFailureResult.error
+              )
+            );
+          }
+
+          if (adminFailureResult.value.enqueueFailedOutboxIds.length > 0) {
+            repoLogger.warn(
+              {
+                entityCui: input.thread.entityCui,
+                eventType: input.eventType,
+                outboxIds: adminFailureResult.value.enqueueFailedOutboxIds,
+                threadId: input.thread.id,
+              },
+              'Public debate admin failure outbox rows were created but compose jobs were not enqueued'
+            );
+          }
+
+          return ok({
+            status:
+              adminFailureResult.value.recipientEmails.length === 0
+                ? 'none'
+                : adminFailureResult.value.enqueueFailedOutboxIds.length > 0
+                  ? 'partial'
+                  : 'queued',
+            notificationIds: [],
+            createdOutboxIds: adminFailureResult.value.createdOutboxIds,
+            reusedOutboxIds: adminFailureResult.value.reusedOutboxIds,
+            queuedOutboxIds: adminFailureResult.value.queuedOutboxIds,
+            enqueueFailedOutboxIds: adminFailureResult.value.enqueueFailedOutboxIds,
+          });
+        }
+
         const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
           {
             notificationsRepo: extendedNotificationsRepo,
@@ -1534,6 +1630,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         db: userDb,
         logger: repoLogger,
       });
+      const platformSendSuccessEvidenceLookup = makePlatformSendSuccessEvidenceLookup({
+        db: userDb,
+        logger: repoLogger,
+      });
       const receivedEmailFetcher = makeReceivedEmailFetcher({
         apiKey: emailApiKey,
         fromAddress: funkyEmailFromAddress ?? '',
@@ -1609,6 +1709,25 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           logger: repoLogger,
         })
       );
+
+      if (hasBullmqRedisConfig) {
+        const createCorrespondenceRecoveryRuntime =
+          deps.correspondenceRecoveryRuntimeFactory ?? startCorrespondenceRecoveryRuntime;
+
+        correspondenceRecoveryRuntime = await createCorrespondenceRecoveryRuntime({
+          redisUrl: config.jobs.redisUrl ?? '',
+          bullmqPrefix: config.jobs.prefix,
+          repo: correspondenceRepo,
+          evidenceLookup: platformSendSuccessEvidenceLookup,
+          updatePublisher: publicDebateUpdatePublisher,
+          logger: repoLogger,
+          intervalMinutes: config.jobs.notificationRecoverySweepIntervalMinutes,
+          thresholdMinutes: config.jobs.notificationStuckSendingThresholdMinutes,
+          ...(config.jobs.redisPassword !== undefined
+            ? { redisPassword: config.jobs.redisPassword }
+            : {}),
+        });
+      }
     }
 
     if (shouldInitializeUserEventRuntime) {
@@ -1897,6 +2016,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   if (notificationDeliveryRuntime !== undefined) {
     app.addHook('onClose', async () => {
       await notificationDeliveryRuntime.stop();
+    });
+  }
+
+  if (correspondenceRecoveryRuntime !== undefined) {
+    app.addHook('onClose', async () => {
+      await correspondenceRecoveryRuntime.stop();
     });
   }
 

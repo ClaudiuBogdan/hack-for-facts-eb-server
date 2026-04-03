@@ -3,12 +3,15 @@ import { ok, err, type Result } from 'neverthrow';
 import {
   createConflictError,
   createNotFoundError,
+  hasPlatformSendSuccessConfirmation,
+  withPlatformSendSuccessMetadata,
   type CorrespondenceEntry,
   type CorrespondenceThreadRecord,
   type CreateThreadInput,
   type InstitutionCorrespondenceRepository,
   type LockedThreadMutation,
   type PendingReplyPage,
+  type ReconcilePlatformSendSuccessInput,
   type ThreadRecord,
   type UpdateThreadInput,
 } from '@/modules/institution-correspondence/index.js';
@@ -17,6 +20,14 @@ const now = (): Date => new Date('2026-03-25T12:00:00.000Z');
 
 let nextThreadId = 1;
 let nextEntryId = 1;
+
+const normalizeStringHeaders = (headers: Record<string, unknown>): Record<string, string> => {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
+};
 
 export const createCorrespondenceEntry = (
   overrides: Partial<CorrespondenceEntry> = {}
@@ -81,6 +92,108 @@ export const createThreadRecord = (overrides: Partial<ThreadRecord> = {}): Threa
     createdAt: overrides.createdAt ?? now(),
     updatedAt: overrides.updatedAt ?? now(),
   };
+};
+
+export const createPlatformSendSuccessInput = (
+  overrides: Partial<ReconcilePlatformSendSuccessInput> = {}
+): ReconcilePlatformSendSuccessInput => ({
+  threadKey: overrides.threadKey ?? 'thread-key-1',
+  resendEmailId: overrides.resendEmailId ?? 'email-1',
+  messageId: overrides.messageId ?? '<message-1>',
+  observedAt: overrides.observedAt ?? new Date('2026-04-03T16:43:04.930Z'),
+  fromAddress: overrides.fromAddress ?? 'funky@dev.transparenta.eu',
+  toAddresses: overrides.toAddresses ?? ['contact@primarie.ro'],
+  ccAddresses: overrides.ccAddresses ?? ['audit@transparenta.test'],
+  bccAddresses: overrides.bccAddresses ?? [],
+  subject: overrides.subject ?? 'Cerere dezbatere buget local - Comuna Test',
+  textBody: overrides.textBody ?? 'Domnule Primar,',
+  htmlBody: overrides.htmlBody ?? '<p>Domnule Primar,</p>',
+  headers: overrides.headers ?? {},
+  attachments: overrides.attachments ?? [],
+});
+
+export const createPlatformSendOutboundEntry = (
+  overrides: Partial<CorrespondenceEntry> = {}
+): CorrespondenceEntry => {
+  const input = createPlatformSendSuccessInput({
+    ...(typeof overrides.resendEmailId === 'string'
+      ? { resendEmailId: overrides.resendEmailId }
+      : {}),
+    ...(overrides.messageId !== undefined ? { messageId: overrides.messageId } : {}),
+    ...(overrides.fromAddress !== undefined ? { fromAddress: overrides.fromAddress } : {}),
+    ...(overrides.toAddresses !== undefined ? { toAddresses: overrides.toAddresses } : {}),
+    ...(overrides.ccAddresses !== undefined ? { ccAddresses: overrides.ccAddresses } : {}),
+    ...(overrides.bccAddresses !== undefined ? { bccAddresses: overrides.bccAddresses } : {}),
+    ...(overrides.subject !== undefined ? { subject: overrides.subject } : {}),
+    ...(overrides.textBody !== undefined ? { textBody: overrides.textBody } : {}),
+    ...(overrides.htmlBody !== undefined ? { htmlBody: overrides.htmlBody } : {}),
+    ...(overrides.headers !== undefined
+      ? { headers: normalizeStringHeaders(overrides.headers) }
+      : {}),
+    ...(overrides.attachments !== undefined ? { attachments: overrides.attachments } : {}),
+    ...(overrides.occurredAt !== undefined ? { observedAt: new Date(overrides.occurredAt) } : {}),
+  });
+
+  return createCorrespondenceEntry({
+    direction: 'outbound',
+    source: 'platform_send',
+    resendEmailId: input.resendEmailId,
+    messageId: input.messageId ?? null,
+    fromAddress: input.fromAddress,
+    toAddresses: input.toAddresses,
+    ccAddresses: input.ccAddresses ?? [],
+    bccAddresses: input.bccAddresses ?? [],
+    subject: input.subject,
+    textBody: input.textBody ?? null,
+    htmlBody: input.htmlBody ?? null,
+    headers: input.headers ?? {},
+    attachments: input.attachments ?? [],
+    occurredAt: input.observedAt.toISOString(),
+    ...(overrides.id !== undefined ? { id: overrides.id } : {}),
+    ...(overrides.metadata !== undefined
+      ? { metadata: overrides.metadata }
+      : { metadata: { threadKey: input.threadKey } }),
+  });
+};
+
+export const createSendingPlatformSendThread = (
+  overrides: Partial<ThreadRecord> = {}
+): ThreadRecord => {
+  return createThreadRecord({
+    phase: 'sending',
+    record: createThreadAggregateRecord({
+      submissionPath: 'platform_send',
+      correspondence: [],
+      metadata: {},
+    }),
+    ...overrides,
+  });
+};
+
+export const createAwaitingReplyPlatformSendThreadPendingConfirmation = (
+  inputOverrides: {
+    successInput?: Partial<ReconcilePlatformSendSuccessInput>;
+    thread?: Partial<ThreadRecord>;
+  } = {}
+): ThreadRecord => {
+  const successInput = createPlatformSendSuccessInput(inputOverrides.successInput);
+  const baseRecord = createThreadAggregateRecord({
+    submissionPath: 'platform_send',
+    subject: successInput.subject,
+    correspondence: [createPlatformSendOutboundEntry(successInput)],
+    metadata: {},
+  });
+
+  return createThreadRecord({
+    threadKey: successInput.threadKey,
+    phase: 'awaiting_reply',
+    lastEmailAt: successInput.observedAt,
+    record: {
+      ...baseRecord,
+      metadata: withPlatformSendSuccessMetadata(baseRecord, successInput),
+    },
+    ...inputOverrides.thread,
+  });
 };
 
 const syncThreadRecord = (thread: ThreadRecord): ThreadRecord => ({
@@ -197,6 +310,18 @@ export const makeInMemoryCorrespondenceRepo = (
               thread.record.campaign === input.campaign &&
               thread.record.submissionPath === 'platform_send'
           ) ?? null
+      );
+    },
+
+    async listPlatformSendThreadsPendingSuccessConfirmation() {
+      return ok(
+        threads.filter(
+          (thread) =>
+            thread.record.submissionPath === 'platform_send' &&
+            (thread.phase === 'sending' ||
+              (thread.phase === 'awaiting_reply' &&
+                !hasPlatformSendSuccessConfirmation(thread.record)))
+        )
       );
     },
 

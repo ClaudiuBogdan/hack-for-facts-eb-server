@@ -113,6 +113,23 @@ export const PublicDebateEntityUpdatePayloadSchema = Type.Object({
 export type PublicDebateEntityUpdatePayload = Static<typeof PublicDebateEntityUpdatePayloadSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Public Debate Admin Failure Template
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const PublicDebateAdminFailurePayloadSchema = Type.Object({
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.Optional(Type.String({ minLength: 1 })),
+  threadId: Type.String({ minLength: 1 }),
+  phase: Type.String({ minLength: 1 }),
+  institutionEmail: Type.String({ minLength: 1 }),
+  subjectLine: Type.String({ minLength: 1 }),
+  occurredAt: Type.String({ minLength: 1 }),
+  failureMessage: Type.String({ minLength: 1 }),
+});
+
+export type PublicDebateAdminFailurePayload = Static<typeof PublicDebateAdminFailurePayloadSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Alert Series Template
 // ─────────────────────────────────────────────────────────────────────────────
 

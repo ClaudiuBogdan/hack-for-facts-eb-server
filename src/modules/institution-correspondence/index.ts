@@ -80,6 +80,19 @@ export {
   type RequestPublicDebatePlatformSendDeps,
 } from './core/usecases/request-public-debate-platform-send.js';
 export {
+  reconcilePlatformSendSuccess,
+  type ReconcilePlatformSendSuccessDeps,
+  type ReconcilePlatformSendSuccessInput,
+  type ReconcilePlatformSendSuccessResult,
+} from './core/usecases/reconcile-platform-send-success.js';
+export {
+  recoverPlatformSendSuccessConfirmation,
+  type PlatformSendSuccessEvidenceLookup,
+  type RecoverPlatformSendSuccessConfirmationDeps,
+  type RecoverPlatformSendSuccessConfirmationInput,
+  type RecoverPlatformSendSuccessConfirmationResult,
+} from './core/usecases/recover-platform-send-success-confirmation.js';
+export {
   listPendingReplies,
   type ListPendingRepliesDeps,
 } from './core/usecases/list-pending-replies.js';
@@ -105,6 +118,15 @@ export {
   extractThreadKeyFromSubject,
   extractMessageReferences,
 } from './core/usecases/helpers.js';
+export {
+  buildReconcilePlatformSendSuccessInputFromThread,
+  hasPlatformSendSuccessConfirmation,
+  markPlatformSendSuccessConfirmed,
+  readPlatformSendSuccessMetadata,
+  withPlatformSendSuccessMetadata,
+  type PlatformSendSuccessConfirmationState,
+  type PlatformSendSuccessMetadata,
+} from './core/usecases/platform-send-success-confirmation.js';
 
 export {
   makeInstitutionCorrespondenceRepo,
@@ -115,6 +137,10 @@ export {
   makeOfficialEmailLookup,
   type OfficialEmailLookupConfig,
 } from './shell/repo/official-email-lookup.js';
+export {
+  makePlatformSendSuccessEvidenceLookup,
+  type PlatformSendSuccessEvidenceLookupConfig,
+} from './shell/repo/platform-send-success-evidence-lookup.js';
 
 export { makePublicDebateTemplateRenderer } from './shell/templates/public-debate-request.js';
 
@@ -133,3 +159,9 @@ export {
   makeInstitutionCorrespondenceResendSideEffect,
   type InstitutionCorrespondenceResendSideEffectDeps,
 } from './shell/webhook/resend-side-effect.js';
+export {
+  startCorrespondenceRecoveryRuntime,
+  type CorrespondenceRecoveryRuntime,
+  type CorrespondenceRecoveryRuntimeConfig,
+  type CorrespondenceRecoveryRuntimeFactory,
+} from './shell/queue/recovery-runtime.js';

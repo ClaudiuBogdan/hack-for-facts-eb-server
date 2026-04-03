@@ -363,6 +363,71 @@ describe('compose worker helpers', () => {
     }
   });
 
+  it('composes admin-only public debate failure emails from outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-public-debate-admin-failure-1',
+          userId: 'admin:alert@example.com',
+          toEmail: 'alert@example.com',
+          notificationType: 'funky:outbox:admin_failure',
+          referenceId: null,
+          scopeKey: 'funky:delivery:admin_failure_thread-1',
+          deliveryKey: 'admin:alert@example.com:admin_failure:thread-1',
+          metadata: {
+            campaignKey: 'funky',
+            entityCui: '12345678',
+            entityName: 'Municipiul Test',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            phase: 'failed',
+            institutionEmail: 'contact@primarie.ro',
+            subject: 'Cerere dezbatere buget local - Municipiul Test',
+            occurredAt: '2026-03-31T10:00:00.000Z',
+            failureMessage: 'Provider returned 422 validation_error',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-public-debate-admin-failure-1',
+        kind: 'outbox',
+        outboxId: 'outbox-public-debate-admin-failure-1',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_admin_failure');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-public-debate-admin-failure-1' });
+
+    const outbox = await deliveryRepo.findById('outbox-public-debate-admin-failure-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('public_debate_admin_failure');
+      expect(outbox.value?.renderedHtml).toContain('public_debate_admin_failure');
+    }
+  });
+
   it('marks public debate update outbox rows failed_permanent when required metadata is missing', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     const deliveryRepo = makeFakeDeliveryRepo({

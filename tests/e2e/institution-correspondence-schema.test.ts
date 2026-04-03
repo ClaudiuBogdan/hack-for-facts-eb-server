@@ -1,7 +1,10 @@
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
-import { makeInstitutionCorrespondenceRepo } from '@/modules/institution-correspondence/index.js';
+import {
+  makeInstitutionCorrespondenceRepo,
+  makePlatformSendSuccessEvidenceLookup,
+} from '@/modules/institution-correspondence/index.js';
 import { makeResendWebhookEmailEventsRepo } from '@/modules/resend-webhooks/index.js';
 
 import { dockerAvailable } from './setup.js';
@@ -252,6 +255,56 @@ describe('Institution correspondence schema', () => {
     expect(linkedEvents).toHaveLength(2);
     expect(linkedEvents[0]?.thread_key).toBe('query-thread');
     expect(linkedEvents[1]?.thread_key).toBeNull();
+  });
+
+  it('uses email_created_at as the canonical send timestamp when recovering delivered evidence', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const logger = pinoLogger({ level: 'silent' });
+    const evidenceLookup = makePlatformSendSuccessEvidenceLookup({
+      db: userDb,
+      logger,
+    });
+
+    await userDb
+      .insertInto('resend_wh_emails')
+      .values({
+        svix_id: 'svix_lookup_delivered',
+        event_type: 'email.delivered',
+        event_created_at: new Date('2026-03-22T14:05:00.000Z'),
+        email_id: 'email_lookup_delivered',
+        from_address: 'noreply@transparenta.eu',
+        to_addresses: ['office@primarie.ro'],
+        subject: 'Dezbatere publica [teu:lookup-thread]',
+        email_created_at: new Date('2026-03-22T14:00:00.000Z'),
+        broadcast_id: null,
+        template_id: null,
+        tags: JSON.stringify([{ name: 'thread_key', value: 'lookup-thread' }]),
+        bounce_type: null,
+        bounce_sub_type: null,
+        bounce_message: null,
+        bounce_diagnostic_code: null,
+        click_ip_address: null,
+        click_link: null,
+        click_timestamp: null,
+        click_user_agent: null,
+        thread_key: 'lookup-thread',
+        metadata: JSON.stringify({}),
+      })
+      .execute();
+
+    const evidenceResult =
+      await evidenceLookup.findLatestSuccessfulSendByThreadKey('lookup-thread');
+
+    expect(evidenceResult.isOk()).toBe(true);
+    if (evidenceResult.isOk()) {
+      expect(evidenceResult.value?.observedAt.toISOString()).toBe('2026-03-22T14:00:00.000Z');
+      expect(evidenceResult.value?.resendEmailId).toBe('email_lookup_delivered');
+      expect(evidenceResult.value?.threadKey).toBe('lookup-thread');
+    }
   });
 
   it('round-trips typed object JSONB writes for thread records and resend metadata', async () => {

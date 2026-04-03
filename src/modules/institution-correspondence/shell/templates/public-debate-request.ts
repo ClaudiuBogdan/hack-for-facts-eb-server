@@ -10,12 +10,13 @@ const escapeHtml = (value: string): string =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
+const PARAGRAPH_STYLE = 'margin:0; line-height:1.5;';
+const SPACER_STYLE = 'height:10px; line-height:10px;';
+
 export const makePublicDebateTemplateRenderer = (): CorrespondenceTemplateRenderer => {
   return {
     renderPublicDebateRequest(input) {
       const bodyLines = [
-        'Cerere dezbatere buget local',
-        '',
         'Domnule Primar,',
         '',
         'Subscrisa, Funky Citizens, având sediul în Str. Brăilița nr. 7, Sector 3 București, înregistrată în Registrul Asociațiilor și Fundațiilor cu nr. 65 / 22.05.2012, cu CIF RO30339344, prin Elena Calistru, în calitate de Președinte.',
@@ -48,7 +49,11 @@ export const makePublicDebateTemplateRenderer = (): CorrespondenceTemplateRender
 
       const text = bodyLines.join('\n');
       const html = bodyLines
-        .map((line) => (line === '' ? '<br />' : `<p>${escapeHtml(line)}</p>`))
+        .map((line) =>
+          line === ''
+            ? `<div style="${SPACER_STYLE}"></div>`
+            : `<p style="${PARAGRAPH_STYLE}">${escapeHtml(line)}</p>`
+        )
         .join('');
 
       return {

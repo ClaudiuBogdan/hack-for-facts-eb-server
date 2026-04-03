@@ -8,6 +8,7 @@ import type {
   AlertSeriesProps,
   AnafForexebugDigestProps,
   NewsletterEntityProps,
+  PublicDebateAdminFailureProps,
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
@@ -189,6 +190,34 @@ describe('EmailRenderer (registry-backed)', () => {
       'Cererea ta pentru organizarea unei dezbateri publice în Municipiul Exemplu a fost trimisă către Primărie.'
     );
     expect(rendered.html).toContain('Trimiterea a eșuat');
+  });
+
+  it('renders public_debate_admin_failure template successfully', async () => {
+    const props: PublicDebateAdminFailureProps = {
+      templateType: 'public_debate_admin_failure',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      threadId: 'thread-1',
+      phase: 'failed',
+      institutionEmail: 'contact@primarie.ro',
+      subjectLine: 'Cerere dezbatere buget local - Municipiul Exemplu',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+      failureMessage: 'Provider returned 422 validation_error',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Eșec trimitere cerere dezbatere: Municipiul Exemplu');
+    expect(rendered.text).toContain('Trimiterea către Primărie a eșuat');
+    expect(rendered.text).toContain('Provider returned 422 validation_error');
+    expect(rendered.text).toContain('thread-1');
+    expect(rendered.templateName).toBe('public_debate_admin_failure');
   });
 
   it('renders anaf_forexebug_digest template successfully', async () => {
@@ -425,13 +454,14 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(7);
+    expect(templates).toHaveLength(8);
     const names = templates.map((t) => t.name);
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');
     expect(names).toContain('anaf_forexebug_digest');
     expect(names).toContain('public_debate_campaign_welcome');
+    expect(names).toContain('public_debate_admin_failure');
     expect(names).toContain('public_debate_entity_subscription');
     expect(names).toContain('public_debate_entity_update');
   });

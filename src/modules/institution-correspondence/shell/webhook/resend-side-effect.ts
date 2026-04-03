@@ -10,6 +10,7 @@ import {
   extractThreadKeyFromSubject,
   normalizeEmailAddress,
 } from '../../core/usecases/helpers.js';
+import { reconcilePlatformSendSuccess } from '../../core/usecases/reconcile-platform-send-success.js';
 
 import type {
   CorrespondenceReceivedEmailFetcher,
@@ -247,17 +248,43 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
   return {
     async handle(input: ResendWebhookSideEffectInput): Promise<void> {
       if (
-        input.event.type === 'email.sent' &&
-        input.storedEvent.threadKey !== null &&
-        input.event.data.message_id !== undefined
+        (input.event.type === 'email.sent' || input.event.type === 'email.delivered') &&
+        input.storedEvent.threadKey !== null
       ) {
-        const attachResult = await repo.attachMessageIdToCorrespondenceByResendEmail(
-          input.storedEvent.threadKey,
-          input.event.data.email_id,
-          input.event.data.message_id
+        const reconcileResult = await reconcilePlatformSendSuccess(
+          {
+            repo,
+            ...(updatePublisher !== undefined ? { updatePublisher } : {}),
+          },
+          {
+            threadKey: input.storedEvent.threadKey,
+            resendEmailId: input.event.data.email_id,
+            ...(input.event.data.message_id !== undefined
+              ? { messageId: input.event.data.message_id }
+              : {}),
+            observedAt: input.storedEvent.emailCreatedAt,
+            fromAddress: input.storedEvent.fromAddress,
+            toAddresses: input.storedEvent.toAddresses,
+            ...(input.storedEvent.ccAddresses !== undefined
+              ? { ccAddresses: input.storedEvent.ccAddresses }
+              : {}),
+            ...(input.storedEvent.bccAddresses !== undefined
+              ? { bccAddresses: input.storedEvent.bccAddresses }
+              : {}),
+            subject: input.storedEvent.subject,
+          }
         );
-        if (attachResult.isErr()) {
-          throw new Error(attachResult.error.message);
+        if (reconcileResult.isErr()) {
+          throw new Error(reconcileResult.error.message);
+        }
+        if (reconcileResult.value.confirmationState === 'pending_retry') {
+          log.warn(
+            {
+              threadKey: input.storedEvent.threadKey,
+              confirmationState: reconcileResult.value.confirmationState,
+            },
+            'Platform-send success reconciled but thread_started confirmation is still pending'
+          );
         }
         return;
       }

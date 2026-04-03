@@ -31,6 +31,7 @@ import type {
   AnafForexebugDigestProps,
   AnafForexebugDigestSection,
   EmailTemplateProps,
+  PublicDebateAdminFailureProps,
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
@@ -339,6 +340,69 @@ const buildPublicDebateEntityUpdateTemplateProps = (
       : {}),
     ...(typeof resolutionCode === 'string' || resolutionCode === null ? { resolutionCode } : {}),
     ...(typeof reviewNotes === 'string' || reviewNotes === null ? { reviewNotes } : {}),
+  });
+};
+
+const buildPublicDebateAdminFailureTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<PublicDebateAdminFailureProps, string> => {
+  const entityCui =
+    typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
+  const entityName =
+    typeof outbox.metadata['entityName'] === 'string' ? outbox.metadata['entityName'] : null;
+  const threadId =
+    typeof outbox.metadata['threadId'] === 'string' ? outbox.metadata['threadId'] : null;
+  const phase = typeof outbox.metadata['phase'] === 'string' ? outbox.metadata['phase'] : null;
+  const institutionEmail =
+    typeof outbox.metadata['institutionEmail'] === 'string'
+      ? outbox.metadata['institutionEmail']
+      : null;
+  const subjectLine =
+    typeof outbox.metadata['subject'] === 'string' ? outbox.metadata['subject'] : null;
+  const occurredAt =
+    typeof outbox.metadata['occurredAt'] === 'string' ? outbox.metadata['occurredAt'] : null;
+  const failureMessage =
+    typeof outbox.metadata['failureMessage'] === 'string'
+      ? outbox.metadata['failureMessage']
+      : null;
+
+  if (entityCui === null)
+    return err('Invalid public debate admin failure metadata: entityCui is required');
+  if (threadId === null)
+    return err('Invalid public debate admin failure metadata: threadId is required');
+  if (phase === null) return err('Invalid public debate admin failure metadata: phase is required');
+  if (institutionEmail === null) {
+    return err('Invalid public debate admin failure metadata: institutionEmail is required');
+  }
+  if (subjectLine === null)
+    return err('Invalid public debate admin failure metadata: subject is required');
+  if (occurredAt === null)
+    return err('Invalid public debate admin failure metadata: occurredAt is required');
+  if (failureMessage === null) {
+    return err('Invalid public debate admin failure metadata: failureMessage is required');
+  }
+
+  const occurredAtDate = new Date(occurredAt);
+  const copyrightYear = Number.isNaN(occurredAtDate.getTime())
+    ? new Date().getUTCFullYear()
+    : occurredAtDate.getUTCFullYear();
+
+  return ok({
+    templateType: 'public_debate_admin_failure',
+    lang: 'ro',
+    unsubscribeUrl,
+    platformBaseUrl,
+    copyrightYear,
+    entityCui,
+    ...(entityName !== null && entityName.trim() !== '' ? { entityName } : {}),
+    threadId,
+    phase,
+    institutionEmail,
+    subjectLine,
+    occurredAt,
+    failureMessage,
   });
 };
 
@@ -668,6 +732,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:welcome' &&
     outbox.notificationType !== 'funky:outbox:entity_subscription' &&
     outbox.notificationType !== 'funky:outbox:entity_update' &&
+    outbox.notificationType !== 'funky:outbox:admin_failure' &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
     return failOutboxPermanently(
@@ -844,6 +909,48 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update public debate outbox row',
       successLogMessage: 'Public debate notification composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === 'funky:outbox:admin_failure') {
+    const templatePropsResult = buildPublicDebateAdminFailureTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Public debate admin failure compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Public debate admin failure render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate admin failure outbox row',
+      successLogMessage: 'Public debate admin failure composed and send job enqueued',
     });
   }
 
