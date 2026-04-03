@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 import { FUNKY_CITIZENS_NGO_IDENTITY, PUBLIC_DEBATE_REQUEST_TYPE } from '../types.js';
+export { encodeThreadKeyForTag, decodeThreadKeyFromTag } from '@/common/resend-tag-encoding.js';
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const SUBJECT_THREAD_KEY_PREFIX = '[teu:';
