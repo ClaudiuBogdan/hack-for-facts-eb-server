@@ -9,6 +9,11 @@ export interface DuplicateResendWebhookEventError {
   svixId: string;
 }
 
+export interface InvalidResendWebhookPayloadError {
+  type: 'InvalidResendWebhookPayload';
+  message: string;
+}
+
 export type ResendWebhookError = DatabaseError | DuplicateResendWebhookEventError;
 
 export const createDatabaseError = (message: string, retryable = true): DatabaseError => ({

@@ -22,6 +22,7 @@ export type {
   ResendWebhookError,
   DatabaseError,
   DuplicateResendWebhookEventError,
+  InvalidResendWebhookPayloadError,
 } from './core/errors.js';
 
 export {
@@ -30,6 +31,7 @@ export {
   extractThreadKey,
   mapResendEmailWebhookEventToInsert,
 } from './core/mappers.js';
+export { parseResendEmailWebhookEvent } from './core/usecases/parse-resend-email-webhook-event.js';
 export { combineResendWebhookSideEffects } from './shell/combine-side-effects.js';
 
 export {

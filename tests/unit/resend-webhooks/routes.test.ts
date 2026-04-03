@@ -170,6 +170,104 @@ describe('makeResendWebhookRoutes', () => {
     expect(handle).toHaveBeenCalledTimes(1);
   });
 
+  it('returns 200 ignored for unsupported resend webhook payloads', async () => {
+    const insert = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+    const handle = vi.fn().mockResolvedValue(undefined);
+
+    app = await createTestApp({
+      webhookVerifier: {
+        verify: async () =>
+          ok({
+            type: 'domain.created',
+            created_at: '2026-04-03T14:38:06.333123Z',
+            data: {},
+          } as unknown as ResendEmailWebhookEvent),
+      },
+      emailEventsRepo: {
+        insert,
+        findBySvixId: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+        findThreadKeyByMessageReferences: vi.fn().mockResolvedValue(ok(null)),
+        updateStoredEvent: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+      },
+      sideEffect: { handle },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/resend',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'svix-unsupported-1',
+        'svix-timestamp': '123',
+        'svix-signature': 'sig',
+      },
+      payload: {
+        type: 'domain.created',
+        created_at: '2026-04-03T14:38:06.333123Z',
+        data: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ignored' });
+    expect(insert).not.toHaveBeenCalled();
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 for malformed supported resend webhook payloads so delivery can retry', async () => {
+    const insert = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+    const handle = vi.fn().mockResolvedValue(undefined);
+
+    app = await createTestApp({
+      webhookVerifier: {
+        verify: async () =>
+          ok({
+            type: 'email.delivered',
+            created_at: '2026-04-03T14:38:06.333123Z',
+            data: {
+              from: 'noreply@transparenta.eu',
+              to: ['user@example.com'],
+              subject: 'Subject',
+              created_at: '2026-04-03T14:38:06.333123Z',
+            },
+          } as unknown as ResendEmailWebhookEvent),
+      },
+      emailEventsRepo: {
+        insert,
+        findBySvixId: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+        findThreadKeyByMessageReferences: vi.fn().mockResolvedValue(ok(null)),
+        updateStoredEvent: vi.fn().mockResolvedValue(ok(createStoredEvent())),
+      },
+      sideEffect: { handle },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/resend',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'svix-malformed-1',
+        'svix-timestamp': '123',
+        'svix-signature': 'sig',
+      },
+      payload: {
+        type: 'email.delivered',
+        created_at: '2026-04-03T14:38:06.333123Z',
+        data: {
+          from: 'noreply@transparenta.eu',
+          to: ['user@example.com'],
+          subject: 'Subject',
+          created_at: '2026-04-03T14:38:06.333123Z',
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'Internal server error' });
+    expect(insert).not.toHaveBeenCalled();
+    expect(handle).not.toHaveBeenCalled();
+  });
+
   it('reruns side effects for duplicate svix ids using the stored event', async () => {
     const findBySvixId = vi.fn().mockResolvedValue(ok(createStoredEvent()));
     const handle = vi.fn().mockResolvedValue(undefined);

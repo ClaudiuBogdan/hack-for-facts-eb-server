@@ -1,69 +1,111 @@
-export type ResendEmailEventType =
-  | 'email.sent'
-  | 'email.delivered'
-  | 'email.delivery_delayed'
-  | 'email.complained'
-  | 'email.bounced'
-  | 'email.opened'
-  | 'email.clicked'
-  | 'email.failed'
-  | 'email.scheduled'
-  | 'email.suppressed'
-  | 'email.received';
+import { Type, type Static } from '@sinclair/typebox';
 
-export interface WebhookTag {
-  name: string;
-  value: string;
-}
+export const ResendEmailEventTypeSchema = Type.Union([
+  Type.Literal('email.sent'),
+  Type.Literal('email.delivered'),
+  Type.Literal('email.delivery_delayed'),
+  Type.Literal('email.complained'),
+  Type.Literal('email.bounced'),
+  Type.Literal('email.opened'),
+  Type.Literal('email.clicked'),
+  Type.Literal('email.failed'),
+  Type.Literal('email.scheduled'),
+  Type.Literal('email.suppressed'),
+  Type.Literal('email.received'),
+]);
 
-export type ResendWebhookTags = WebhookTag[] | Record<string, string>;
+export type ResendEmailEventType = Static<typeof ResendEmailEventTypeSchema>;
 
-export interface BounceData {
-  diagnosticCode?: string[];
-  message?: string;
-  subType: string;
-  type: string;
-}
+export const WebhookTagSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1 }),
+    value: Type.String(),
+  },
+  { additionalProperties: true }
+);
 
-export interface ClickData {
-  ipAddress: string;
-  link: string;
-  timestamp: string;
-  userAgent: string;
-}
+export type WebhookTag = Static<typeof WebhookTagSchema>;
 
-export interface ReceivedAttachmentData {
-  id: string;
-  filename: string;
-  content_type: string;
-  content_disposition?: string | null;
-  content_id?: string | null;
-}
+export const ResendWebhookTagsSchema = Type.Union([
+  Type.Array(WebhookTagSchema),
+  Type.Record(Type.String(), Type.String()),
+]);
 
-export interface ResendEmailWebhookEventData {
-  email_id: string;
-  from: string;
-  to: string[];
-  cc?: string[];
-  bcc?: string[];
-  message_id?: string;
-  attachments?: ReceivedAttachmentData[];
-  subject: string;
-  created_at: string;
-  broadcast_id?: string;
-  template_id?: string;
-  tags?: ResendWebhookTags;
-  bounce?: BounceData;
-  click?: ClickData;
-  reason?: string;
-  error?: string;
-}
+export type ResendWebhookTags = Static<typeof ResendWebhookTagsSchema>;
 
-export interface ResendEmailWebhookEvent {
-  type: ResendEmailEventType;
-  created_at: string;
-  data: ResendEmailWebhookEventData;
-}
+const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
+
+export const BounceDataSchema = Type.Object(
+  {
+    diagnosticCode: Type.Optional(Type.Array(Type.String())),
+    message: Type.Optional(Type.String()),
+    subType: Type.String({ minLength: 1 }),
+    type: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: true }
+);
+
+export type BounceData = Static<typeof BounceDataSchema>;
+
+export const ClickDataSchema = Type.Object(
+  {
+    ipAddress: Type.String({ minLength: 1 }),
+    link: Type.String({ minLength: 1 }),
+    timestamp: Type.String({ minLength: 1 }),
+    userAgent: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: true }
+);
+
+export type ClickData = Static<typeof ClickDataSchema>;
+
+export const ReceivedAttachmentDataSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1 }),
+    filename: Type.String({ minLength: 1 }),
+    content_type: Type.String({ minLength: 1 }),
+    content_disposition: Type.Optional(NullableStringSchema),
+    content_id: Type.Optional(NullableStringSchema),
+  },
+  { additionalProperties: true }
+);
+
+export type ReceivedAttachmentData = Static<typeof ReceivedAttachmentDataSchema>;
+
+export const ResendEmailWebhookEventDataSchema = Type.Object(
+  {
+    email_id: Type.String({ minLength: 1 }),
+    from: Type.String({ minLength: 1 }),
+    to: Type.Array(Type.String({ minLength: 1 })),
+    cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    message_id: Type.Optional(Type.String({ minLength: 1 })),
+    attachments: Type.Optional(Type.Array(ReceivedAttachmentDataSchema)),
+    subject: Type.String(),
+    created_at: Type.String({ minLength: 1 }),
+    broadcast_id: Type.Optional(Type.String({ minLength: 1 })),
+    template_id: Type.Optional(Type.String({ minLength: 1 })),
+    tags: Type.Optional(ResendWebhookTagsSchema),
+    bounce: Type.Optional(BounceDataSchema),
+    click: Type.Optional(ClickDataSchema),
+    reason: Type.Optional(Type.String()),
+    error: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true }
+);
+
+export type ResendEmailWebhookEventData = Static<typeof ResendEmailWebhookEventDataSchema>;
+
+export const ResendEmailWebhookEventSchema = Type.Object(
+  {
+    type: ResendEmailEventTypeSchema,
+    created_at: Type.String({ minLength: 1 }),
+    data: ResendEmailWebhookEventDataSchema,
+  },
+  { additionalProperties: true }
+);
+
+export type ResendEmailWebhookEvent = Static<typeof ResendEmailWebhookEventSchema>;
 
 export interface StoredResendEmailEvent {
   id: string;
