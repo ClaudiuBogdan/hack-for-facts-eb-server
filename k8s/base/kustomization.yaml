@@ -12,9 +12,12 @@ resources:
 - redis.yaml
 - bullmq-redis.yaml
 - network-policy.yaml
-commonLabels:
-  app.kubernetes.io/name: hack-for-facts-eb-server
-  app.kubernetes.io/part-of: hack-for-facts
+labels:
+- includeSelectors: true
+  includeTemplates: true
+  pairs:
+    app.kubernetes.io/name: hack-for-facts-eb-server
+    app.kubernetes.io/part-of: hack-for-facts
 
 patches:
 - patch: |-
