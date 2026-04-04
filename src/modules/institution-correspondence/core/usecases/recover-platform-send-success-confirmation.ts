@@ -1,16 +1,14 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import { buildReconcilePlatformSendSuccessInputFromThread } from './platform-send-success-confirmation.js';
-import {
-  reconcilePlatformSendSuccess,
-  type ReconcilePlatformSendSuccessInput,
-} from './reconcile-platform-send-success.js';
+import { reconcilePlatformSendSuccess } from './reconcile-platform-send-success.js';
 
 import type { InstitutionCorrespondenceError } from '../errors.js';
 import type {
   InstitutionCorrespondenceRepository,
   PublicDebateEntityUpdatePublisher,
 } from '../ports.js';
+import type { ReconcilePlatformSendSuccessInput } from './reconcile-platform-send-success-input.js';
 
 export interface PlatformSendSuccessEvidenceLookup {
   findLatestSuccessfulSendByThreadKey(
