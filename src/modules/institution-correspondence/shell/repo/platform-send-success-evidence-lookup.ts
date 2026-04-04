@@ -2,7 +2,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { createDatabaseError, type InstitutionCorrespondenceError } from '../../core/errors.js';
 
-import type { ReconcilePlatformSendSuccessInput } from '../../core/usecases/reconcile-platform-send-success.js';
+import type { ReconcilePlatformSendSuccessInput } from '../../core/usecases/reconcile-platform-send-success-input.js';
 import type { PlatformSendSuccessEvidenceLookup } from '../../core/usecases/recover-platform-send-success-confirmation.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { Logger } from 'pino';

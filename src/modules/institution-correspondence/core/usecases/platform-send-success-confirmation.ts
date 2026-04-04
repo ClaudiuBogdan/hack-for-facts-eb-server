@@ -1,5 +1,5 @@
 import type { CorrespondenceThreadRecord, ThreadRecord } from '../types.js';
-import type { ReconcilePlatformSendSuccessInput } from './reconcile-platform-send-success.js';
+import type { ReconcilePlatformSendSuccessInput } from './reconcile-platform-send-success-input.js';
 
 export const PROVIDER_SEND_EMAIL_ID_METADATA_KEY = 'providerSendEmailId' as const;
 export const PROVIDER_SEND_OBSERVED_AT_METADATA_KEY = 'providerSendObservedAt' as const;
