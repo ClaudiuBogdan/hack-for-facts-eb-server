@@ -871,5 +871,84 @@ describe('CORS Plugin', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('https://app1.com');
     });
+
+    it('normalizes configured origins before exact matching', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+
+          insDb: makeFakeInsDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            server: {
+              isDevelopment: false,
+              isProduction: true,
+              isTest: false,
+              port: 3000,
+              host: '0.0.0.0',
+              trustProxy: undefined,
+            },
+            cors: {
+              allowedOrigins: 'http://localhost:3000/,https://app.example.com:443/',
+              clientBaseUrl: 'https://client.example.com/',
+              publicClientBaseUrl: 'https://public.example.com/',
+            },
+          }),
+        },
+      });
+
+      const localhostResponse = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'http://localhost:3000',
+        },
+      });
+
+      expect(localhostResponse.statusCode).toBe(200);
+      expect(localhostResponse.headers['access-control-allow-origin']).toBe(
+        'http://localhost:3000'
+      );
+
+      const defaultPortResponse = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'https://app.example.com',
+        },
+      });
+
+      expect(defaultPortResponse.statusCode).toBe(200);
+      expect(defaultPortResponse.headers['access-control-allow-origin']).toBe(
+        'https://app.example.com'
+      );
+
+      const clientBaseUrlResponse = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'https://client.example.com',
+        },
+      });
+
+      expect(clientBaseUrlResponse.statusCode).toBe(200);
+      expect(clientBaseUrlResponse.headers['access-control-allow-origin']).toBe(
+        'https://client.example.com'
+      );
+
+      const publicClientBaseUrlResponse = await app.inject({
+        method: 'GET',
+        url: '/health/live',
+        headers: {
+          origin: 'https://public.example.com',
+        },
+      });
+
+      expect(publicClientBaseUrlResponse.statusCode).toBe(200);
+      expect(publicClientBaseUrlResponse.headers['access-control-allow-origin']).toBe(
+        'https://public.example.com'
+      );
+    });
   });
 });

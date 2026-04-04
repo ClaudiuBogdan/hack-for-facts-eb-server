@@ -13,6 +13,19 @@ interface AllowedOrigins {
   patterns: RegExp[];
 }
 
+function normalizeOrigin(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Convert a glob pattern to regex (only supports * wildcard)
  * e.g., "https://*.example.com" → /^https:\/\/.*\.vercel\.app$/
@@ -40,7 +53,8 @@ function getAllowedOrigins(config: AppConfig): AllowedOrigins {
     if (trimmed.includes('*')) {
       patterns.push(globToRegex(trimmed));
     } else {
-      exact.add(trimmed);
+      const normalized = normalizeOrigin(trimmed);
+      exact.add(normalized ?? trimmed);
     }
   };
 
@@ -51,12 +65,12 @@ function getAllowedOrigins(config: AppConfig): AllowedOrigins {
 
   // Add CLIENT_BASE_URL if present
   if (config.cors.clientBaseUrl !== undefined && config.cors.clientBaseUrl !== '') {
-    exact.add(config.cors.clientBaseUrl.trim());
+    addEntry(config.cors.clientBaseUrl);
   }
 
   // Add PUBLIC_CLIENT_BASE_URL if present
   if (config.cors.publicClientBaseUrl !== undefined && config.cors.publicClientBaseUrl !== '') {
-    exact.add(config.cors.publicClientBaseUrl.trim());
+    addEntry(config.cors.publicClientBaseUrl);
   }
 
   return { exact, patterns };
@@ -66,7 +80,8 @@ function getAllowedOrigins(config: AppConfig): AllowedOrigins {
  * Check if an origin matches allowed origins (exact or pattern)
  */
 function isOriginAllowed(origin: string, allowed: AllowedOrigins): boolean {
-  if (allowed.exact.has(origin)) return true;
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (normalizedOrigin !== null && allowed.exact.has(normalizedOrigin)) return true;
   return allowed.patterns.some((pattern) => pattern.test(origin));
 }
 
@@ -78,7 +93,12 @@ function isLocalhostOrigin(origin: string): boolean {
     }
 
     // Match hostnames exactly (avoid `startsWith('http://localhost')` pitfalls)
-    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+    return (
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '::1' ||
+      url.hostname === '[::1]'
+    );
   } catch {
     return false;
   }
