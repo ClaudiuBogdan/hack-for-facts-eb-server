@@ -313,6 +313,19 @@ export const makeInMemoryCorrespondenceRepo = (
       );
     },
 
+    async findLatestPlatformSendThreadByEntity(input) {
+      return ok(
+        [...threads]
+          .reverse()
+          .find(
+            (thread) =>
+              thread.entityCui === input.entityCui &&
+              thread.record.campaign === input.campaign &&
+              thread.record.submissionPath === 'platform_send'
+          ) ?? null
+      );
+    },
+
     async listPlatformSendThreadsPendingSuccessConfirmation() {
       return ok(
         threads.filter(

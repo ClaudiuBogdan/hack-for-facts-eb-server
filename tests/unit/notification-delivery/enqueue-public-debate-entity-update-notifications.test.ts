@@ -11,6 +11,10 @@ import {
 } from '../../fixtures/fakes.js';
 
 describe('enqueuePublicDebateEntityUpdateNotifications', () => {
+  const createComposeJobScheduler = () => ({
+    enqueue: vi.fn(async () => ok(undefined)),
+  });
+
   it('creates one outbox row per active public debate entity subscription', async () => {
     const notificationsRepo = makeFakeExtendedNotificationsRepo({
       notifications: [
@@ -29,15 +33,13 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       ],
     });
     const deliveryRepo = makeFakeDeliveryRepo();
-    const enqueue = vi.fn(async () => ok(undefined));
+    const composeJobScheduler = createComposeJobScheduler();
 
     const result = await enqueuePublicDebateEntityUpdateNotifications(
       {
         notificationsRepo,
         deliveryRepo,
-        composeJobScheduler: {
-          enqueue,
-        },
+        composeJobScheduler,
       },
       {
         runId: 'run-1',
@@ -81,7 +83,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         })
       );
     }
-    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(2);
   });
 
   it('reuses an existing deterministic outbox row instead of creating a duplicate', async () => {
@@ -101,6 +103,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       {
         notificationsRepo,
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-1',
@@ -118,6 +121,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       {
         notificationsRepo,
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-2',
@@ -208,6 +212,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       {
         notificationsRepo,
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-filtered',

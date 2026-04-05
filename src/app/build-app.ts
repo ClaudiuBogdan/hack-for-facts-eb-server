@@ -146,20 +146,16 @@ import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.j
 import {
   createDatabaseError as createCorrespondenceDatabaseError,
   makeInstitutionCorrespondenceAdminRoutes,
+  makePublicDebateNotificationOrchestrator,
   makeInstitutionCorrespondenceRepo,
   makeInstitutionCorrespondenceResendSideEffect,
   makeOfficialEmailLookup,
   makePlatformSendSuccessEvidenceLookup,
   makePublicDebateTemplateRenderer,
   startCorrespondenceRecoveryRuntime,
-  type CorrespondenceEntry,
   type CorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntimeFactory,
   type InstitutionCorrespondenceError,
-  type PublicDebateEntityUpdateNotification,
-  type PublicDebateEntityUpdatePublishResult,
-  type PublicDebateEntityUpdatePublisher,
-  type PublicDebateEntitySubscriptionService,
   type PublicDebateSelfSendApprovalService,
 } from '../modules/institution-correspondence/index.js';
 import {
@@ -197,8 +193,6 @@ import {
 } from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
-  enqueuePublicDebateAdminFailureNotifications,
-  enqueuePublicDebateEntityUpdateNotifications,
   enqueueTransactionalWelcomeNotification,
   getErrorMessage,
   makeAnafForexebugDigestTriggerRoutes,
@@ -214,7 +208,6 @@ import {
   type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
 import {
-  ensurePublicDebateAutoSubscriptions,
   makeNotificationRoutes,
   makeNotificationsRepo,
   makeDeliveriesRepo,
@@ -1276,41 +1269,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }
     }
 
-    const buildReplyTextPreview = (entry: CorrespondenceEntry | undefined): string | null => {
-      const textBody = entry?.textBody?.trim();
-      if (textBody === undefined || textBody === '') {
-        return null;
-      }
-
-      return textBody.length > 400 ? `${textBody.slice(0, 397)}...` : textBody;
-    };
-
-    const publicDebateSubscriptionService: PublicDebateEntitySubscriptionService = {
-      async ensureSubscribed(userId, entityCui) {
-        const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
-          {
-            notificationsRepo,
-            hasher: sha256Hasher,
-          },
-          {
-            userId,
-            entityCui,
-          }
-        );
-
-        if (subscriptionResult.isErr()) {
-          return err(
-            createCorrespondenceDatabaseError(
-              'Failed to ensure public debate notification subscriptions',
-              subscriptionResult.error
-            )
-          );
-        }
-
-        return ok(undefined);
-      },
-    };
-
     if (notificationDeliveryRuntime?.composeJobScheduler !== undefined) {
       userEventHandlers.push(
         makeEntityTermsAcceptedUserEventHandler({
@@ -1427,198 +1385,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       },
     };
 
-    const publicDebateUpdatePublisher: PublicDebateEntityUpdatePublisher = {
-      async publish(input: PublicDebateEntityUpdateNotification) {
-        const runIdParts = [input.eventType, input.thread.id];
-        if (input.reply !== undefined) {
-          runIdParts.push(input.reply.id);
-        } else if (input.basedOnEntryId !== undefined) {
-          runIdParts.push(input.basedOnEntryId);
-        }
-
-        let entityName = input.thread.entityCui;
-        const entityResult = await entityRepo.getById(input.thread.entityCui);
-        if (entityResult.isErr()) {
-          repoLogger.warn(
-            {
-              error: entityResult.error,
-              entityCui: input.thread.entityCui,
-              eventType: input.eventType,
-              threadId: input.thread.id,
-            },
-            'Failed to load entity name for public debate update notification'
-          );
-        } else if (
-          entityResult.value?.name !== undefined &&
-          entityResult.value.name.trim() !== ''
-        ) {
-          entityName = entityResult.value.name;
-        }
-
-        if (input.eventType === 'thread_failed') {
-          if (campaignAuditCcRecipients.length === 0) {
-            repoLogger.info(
-              {
-                entityCui: input.thread.entityCui,
-                eventType: input.eventType,
-                threadId: input.thread.id,
-              },
-              'Skipping public debate admin failure alert because no audit recipients are configured'
-            );
-
-            return ok({
-              status: 'none',
-              notificationIds: [],
-              createdOutboxIds: [],
-              reusedOutboxIds: [],
-              queuedOutboxIds: [],
-              enqueueFailedOutboxIds: [],
-            });
-          }
-
-          const adminFailureResult = await enqueuePublicDebateAdminFailureNotifications(
-            {
-              deliveryRepo,
-              ...(notificationDeliveryRuntime?.composeJobScheduler !== undefined
-                ? { composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler }
-                : {}),
-            },
-            {
-              runId: `public-debate-admin-${runIdParts.join('-')}`,
-              recipientEmails: campaignAuditCcRecipients,
-              entityCui: input.thread.entityCui,
-              entityName,
-              threadId: input.thread.id,
-              threadKey: input.thread.threadKey,
-              phase: input.thread.phase,
-              institutionEmail: input.thread.record.institutionEmail,
-              subject: input.thread.record.subject,
-              occurredAt: input.occurredAt.toISOString(),
-              failureMessage: input.failureMessage ?? 'Unknown send failure',
-            }
-          );
-
-          if (adminFailureResult.isErr()) {
-            repoLogger.error(
-              {
-                error: adminFailureResult.error,
-                entityCui: input.thread.entityCui,
-                eventType: input.eventType,
-                threadId: input.thread.id,
-              },
-              'Failed to enqueue public debate admin failure notifications'
-            );
-            return err(
-              createCorrespondenceDatabaseError(
-                'Failed to enqueue public debate admin failure notifications',
-                adminFailureResult.error
-              )
-            );
-          }
-
-          if (adminFailureResult.value.enqueueFailedOutboxIds.length > 0) {
-            repoLogger.warn(
-              {
-                entityCui: input.thread.entityCui,
-                eventType: input.eventType,
-                outboxIds: adminFailureResult.value.enqueueFailedOutboxIds,
-                threadId: input.thread.id,
-              },
-              'Public debate admin failure outbox rows were created but compose jobs were not enqueued'
-            );
-          }
-
-          return ok({
-            status:
-              adminFailureResult.value.recipientEmails.length === 0
-                ? 'none'
-                : adminFailureResult.value.enqueueFailedOutboxIds.length > 0
-                  ? 'partial'
-                  : 'queued',
-            notificationIds: [],
-            createdOutboxIds: adminFailureResult.value.createdOutboxIds,
-            reusedOutboxIds: adminFailureResult.value.reusedOutboxIds,
-            queuedOutboxIds: adminFailureResult.value.queuedOutboxIds,
-            enqueueFailedOutboxIds: adminFailureResult.value.enqueueFailedOutboxIds,
-          });
-        }
-
-        const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
-          {
-            notificationsRepo: extendedNotificationsRepo,
-            deliveryRepo,
-            ...(notificationDeliveryRuntime?.composeJobScheduler !== undefined
-              ? { composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler }
-              : {}),
-          },
-          {
-            runId: `public-debate-${runIdParts.join('-')}`,
-            eventType: input.eventType,
-            entityCui: input.thread.entityCui,
-            entityName,
-            threadId: input.thread.id,
-            threadKey: input.thread.threadKey,
-            phase: input.thread.phase,
-            institutionEmail: input.thread.record.institutionEmail,
-            subject: input.thread.record.subject,
-            occurredAt: input.occurredAt.toISOString(),
-            ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
-            ...(input.reply !== undefined
-              ? { replyTextPreview: buildReplyTextPreview(input.reply) }
-              : {}),
-            ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
-            ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-            ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
-          }
-        );
-
-        if (enqueueResult.isErr()) {
-          repoLogger.error(
-            {
-              error: enqueueResult.error,
-              entityCui: input.thread.entityCui,
-              eventType: input.eventType,
-              threadId: input.thread.id,
-            },
-            'Failed to enqueue public debate entity update notifications'
-          );
-          return err(
-            createCorrespondenceDatabaseError(
-              'Failed to enqueue public debate entity update notifications',
-              enqueueResult.error
-            )
-          );
-        }
-
-        if (enqueueResult.value.enqueueFailedOutboxIds.length > 0) {
-          repoLogger.warn(
-            {
-              entityCui: input.thread.entityCui,
-              eventType: input.eventType,
-              outboxIds: enqueueResult.value.enqueueFailedOutboxIds,
-              threadId: input.thread.id,
-            },
-            'Public debate update outbox rows were created but compose jobs were not enqueued'
-          );
-        }
-
-        const publishResult: PublicDebateEntityUpdatePublishResult = {
-          status:
-            enqueueResult.value.notificationIds.length === 0
-              ? 'none'
-              : enqueueResult.value.enqueueFailedOutboxIds.length > 0
-                ? 'partial'
-                : 'queued',
-          notificationIds: enqueueResult.value.notificationIds,
-          createdOutboxIds: enqueueResult.value.createdOutboxIds,
-          reusedOutboxIds: enqueueResult.value.reusedOutboxIds,
-          queuedOutboxIds: enqueueResult.value.queuedOutboxIds,
-          enqueueFailedOutboxIds: enqueueResult.value.enqueueFailedOutboxIds,
-        };
-
-        return ok(publishResult);
-      },
-    };
+    const publicDebateComposeJobScheduler = notificationDeliveryRuntime?.composeJobScheduler;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Setup Institution Correspondence Module (Admin REST API + Webhook Side Effects)
@@ -1657,6 +1424,26 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         logger: repoLogger,
       });
       const correspondenceInboxAddress = campaignReplyToAddress ?? '';
+      if (publicDebateComposeJobScheduler === undefined) {
+        throw new Error(
+          'Public debate correspondence requires notification delivery compose scheduling.'
+        );
+      }
+
+      const publicDebateNotificationOrchestrator = makePublicDebateNotificationOrchestrator({
+        repo: correspondenceRepo,
+        entityRepo,
+        notificationsRepo,
+        extendedNotificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: publicDebateComposeJobScheduler,
+        hasher: sha256Hasher,
+        campaignAuditCcRecipients,
+        logger: repoLogger,
+      });
+      const publicDebateUpdatePublisher = publicDebateNotificationOrchestrator.updatePublisher;
+      const publicDebateSubscriptionService =
+        publicDebateNotificationOrchestrator.subscriptionService;
 
       userEventHandlers.push(
         makePublicDebateRequestUserEventHandler({
@@ -1782,6 +1569,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           bullmqPrefix: config.jobs.prefix,
           repo: correspondenceRepo,
           evidenceLookup: platformSendSuccessEvidenceLookup,
+          notificationsRepo: extendedNotificationsRepo,
+          deliveryRepo,
           updatePublisher: publicDebateUpdatePublisher,
           logger: repoLogger,
           intervalMinutes: config.jobs.notificationRecoverySweepIntervalMinutes,

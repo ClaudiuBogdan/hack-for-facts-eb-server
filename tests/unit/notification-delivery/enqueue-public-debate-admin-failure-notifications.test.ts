@@ -7,16 +7,18 @@ import { enqueuePublicDebateAdminFailureNotifications } from '@/modules/notifica
 import { makeFakeDeliveryRepo } from '../../fixtures/fakes.js';
 
 describe('enqueuePublicDebateAdminFailureNotifications', () => {
+  const createComposeJobScheduler = () => ({
+    enqueue: vi.fn(async () => ok(undefined)),
+  });
+
   it('creates one outbox row per admin recipient with direct toEmail delivery', async () => {
     const deliveryRepo = makeFakeDeliveryRepo();
-    const enqueue = vi.fn(async () => ok(undefined));
+    const composeJobScheduler = createComposeJobScheduler();
 
     const result = await enqueuePublicDebateAdminFailureNotifications(
       {
         deliveryRepo,
-        composeJobScheduler: {
-          enqueue,
-        },
+        composeJobScheduler,
       },
       {
         runId: 'run-admin-1',
@@ -62,7 +64,7 @@ describe('enqueuePublicDebateAdminFailureNotifications', () => {
         })
       );
     }
-    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(2);
   });
 
   it('deduplicates recipients and reuses an existing deterministic outbox row', async () => {
@@ -71,6 +73,7 @@ describe('enqueuePublicDebateAdminFailureNotifications', () => {
     const firstResult = await enqueuePublicDebateAdminFailureNotifications(
       {
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-admin-1',
@@ -89,6 +92,7 @@ describe('enqueuePublicDebateAdminFailureNotifications', () => {
     const secondResult = await enqueuePublicDebateAdminFailureNotifications(
       {
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-admin-2',
@@ -155,6 +159,7 @@ describe('enqueuePublicDebateAdminFailureNotifications', () => {
     const result = await enqueuePublicDebateAdminFailureNotifications(
       {
         deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
       },
       {
         runId: 'run-admin-empty',

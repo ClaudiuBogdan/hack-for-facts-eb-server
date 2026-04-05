@@ -16,7 +16,7 @@ import {
   type PendingReplyPage,
   type ThreadRecord,
 } from '../../core/types.js';
-import { THREAD_STARTED_PUBLISHED_AT_METADATA_KEY } from '../../core/usecases/platform-send-success-confirmation.js';
+import { hasPlatformSendSuccessConfirmation } from '../../core/usecases/platform-send-success-confirmation.js';
 
 import type {
   AppendCorrespondenceEntryInput,
@@ -209,6 +209,32 @@ export const makeInstitutionCorrespondenceRepo = (
       }
     },
 
+    async findLatestPlatformSendThreadByEntity(input) {
+      try {
+        const result = await db
+          .selectFrom('institutionemailthreads')
+          .selectAll()
+          .where('entity_cui', '=', input.entityCui)
+          .where('campaign_key', '=', input.campaign)
+          .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst();
+
+        return ok(result !== undefined ? mapThreadRow(result as Record<string, unknown>) : null);
+      } catch (error) {
+        log.error(
+          { error, input },
+          'Failed to load latest platform-send correspondence thread by entity'
+        );
+        return err(
+          createDatabaseError(
+            'Failed to load latest platform-send correspondence thread by entity',
+            error
+          )
+        );
+      }
+    },
+
     async listPlatformSendThreadsPendingSuccessConfirmation(olderThanMinutes) {
       try {
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000);
@@ -216,20 +242,21 @@ export const makeInstitutionCorrespondenceRepo = (
           .selectFrom('institutionemailthreads')
           .selectAll()
           .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
-          .where(
-            sql<boolean>`(
-              phase = ${'sending'}
-              OR (
-                phase = ${'awaiting_reply'}
-                AND record->'metadata'->>${THREAD_STARTED_PUBLISHED_AT_METADATA_KEY} IS NULL
-              )
-            )`
-          )
+          .where('phase', 'in', ['sending', 'awaiting_reply'])
           .where(sql<boolean>`updated_at <= ${threshold}`)
           .orderBy('updated_at', 'asc')
           .execute();
 
-        return ok(rows.map((row) => mapThreadRow(row as Record<string, unknown>)));
+        return ok(
+          rows
+            .map((row) => mapThreadRow(row as Record<string, unknown>))
+            .filter(
+              (thread) =>
+                thread.phase === 'sending' ||
+                (thread.phase === 'awaiting_reply' &&
+                  !hasPlatformSendSuccessConfirmation(thread.record))
+            )
+        );
       } catch (error) {
         log.error(
           { error, olderThanMinutes },

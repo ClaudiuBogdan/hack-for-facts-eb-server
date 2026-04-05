@@ -5,6 +5,8 @@ import {
   PUBLIC_DEBATE_CAMPAIGN_KEY,
 } from '@/common/campaign-keys.js';
 
+import { enqueueCreatedOrReusedOutbox } from './enqueue-created-or-reused-outbox.js';
+
 import type { DeliveryError } from '../errors.js';
 import type { ComposeJobScheduler, DeliveryRepository } from '../ports.js';
 
@@ -24,7 +26,7 @@ export interface PublicDebateAdminFailureNotificationInput {
 
 export interface EnqueuePublicDebateAdminFailureNotificationsDeps {
   deliveryRepo: DeliveryRepository;
-  composeJobScheduler?: ComposeJobScheduler;
+  composeJobScheduler: ComposeJobScheduler;
 }
 
 export interface EnqueuePublicDebateAdminFailureNotificationsResult {
@@ -45,24 +47,6 @@ const normalizeRecipientEmails = (emails: readonly string[]): string[] => {
   return [...new Set(emails.map((value) => value.trim().toLowerCase()).filter(Boolean))];
 };
 
-const maybeEnqueueCompose = async (
-  composeJobScheduler: ComposeJobScheduler | undefined,
-  runId: string,
-  outboxId: string
-): Promise<boolean> => {
-  if (composeJobScheduler === undefined) {
-    return false;
-  }
-
-  const enqueueResult = await composeJobScheduler.enqueue({
-    runId,
-    kind: 'outbox',
-    outboxId,
-  });
-
-  return enqueueResult.isOk();
-};
-
 export const enqueuePublicDebateAdminFailureNotifications = async (
   deps: EnqueuePublicDebateAdminFailureNotificationsDeps,
   input: PublicDebateAdminFailureNotificationInput
@@ -76,64 +60,51 @@ export const enqueuePublicDebateAdminFailureNotifications = async (
 
   for (const recipientEmail of recipientEmails) {
     const deliveryKey = buildDeliveryKey(recipientEmail, input.threadId);
-    const createResult = await deps.deliveryRepo.create({
-      userId: `admin:${recipientEmail}`,
-      toEmail: recipientEmail,
-      notificationType: FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
-      referenceId: null,
-      scopeKey,
-      deliveryKey,
-      metadata: {
-        campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
-        entityCui: input.entityCui,
-        ...(input.entityName !== undefined ? { entityName: input.entityName } : {}),
-        threadId: input.threadId,
-        threadKey: input.threadKey,
-        phase: input.phase,
-        institutionEmail: input.institutionEmail,
-        subject: input.subject,
-        occurredAt: input.occurredAt,
-        failureMessage: input.failureMessage,
+    const enqueueResult = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo: deps.deliveryRepo,
+        composeJobScheduler: deps.composeJobScheduler,
       },
-    });
-
-    if (createResult.isErr()) {
-      if (createResult.error.type !== 'DuplicateDelivery') {
-        return err(createResult.error);
+      {
+        runId: input.runId,
+        deliveryKey,
+        createInput: {
+          userId: `admin:${recipientEmail}`,
+          toEmail: recipientEmail,
+          notificationType: FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
+          referenceId: null,
+          scopeKey,
+          deliveryKey,
+          metadata: {
+            campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
+            entityCui: input.entityCui,
+            ...(input.entityName !== undefined ? { entityName: input.entityName } : {}),
+            threadId: input.threadId,
+            threadKey: input.threadKey,
+            phase: input.phase,
+            institutionEmail: input.institutionEmail,
+            subject: input.subject,
+            occurredAt: input.occurredAt,
+            failureMessage: input.failureMessage,
+          },
+        },
       }
+    );
 
-      const duplicateResult = await deps.deliveryRepo.findByDeliveryKey(deliveryKey);
-      if (duplicateResult.isErr()) {
-        return err(duplicateResult.error);
-      }
-
-      if (duplicateResult.value !== null) {
-        reusedOutboxIds.push(duplicateResult.value.id);
-        const queued = await maybeEnqueueCompose(
-          deps.composeJobScheduler,
-          input.runId,
-          duplicateResult.value.id
-        );
-        if (queued) {
-          queuedOutboxIds.push(duplicateResult.value.id);
-        } else if (deps.composeJobScheduler !== undefined) {
-          enqueueFailedOutboxIds.push(duplicateResult.value.id);
-        }
-      }
-
-      continue;
+    if (enqueueResult.isErr()) {
+      return err(enqueueResult.error);
     }
 
-    createdOutboxIds.push(createResult.value.id);
-    const queued = await maybeEnqueueCompose(
-      deps.composeJobScheduler,
-      input.runId,
-      createResult.value.id
-    );
-    if (queued) {
-      queuedOutboxIds.push(createResult.value.id);
-    } else if (deps.composeJobScheduler !== undefined) {
-      enqueueFailedOutboxIds.push(createResult.value.id);
+    if (enqueueResult.value.source === 'created') {
+      createdOutboxIds.push(enqueueResult.value.outboxId);
+    } else {
+      reusedOutboxIds.push(enqueueResult.value.outboxId);
+    }
+
+    if (enqueueResult.value.composeEnqueued) {
+      queuedOutboxIds.push(enqueueResult.value.outboxId);
+    } else {
+      enqueueFailedOutboxIds.push(enqueueResult.value.outboxId);
     }
   }
 

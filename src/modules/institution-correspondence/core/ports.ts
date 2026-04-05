@@ -66,6 +66,10 @@ export interface InstitutionCorrespondenceRepository {
     entityCui: string;
     campaign: string;
   }): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
+  findLatestPlatformSendThreadByEntity(input: {
+    entityCui: string;
+    campaign: string;
+  }): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
   listPlatformSendThreadsPendingSuccessConfirmation(
     olderThanMinutes: number
   ): Promise<Result<ThreadRecord[], InstitutionCorrespondenceError>>;

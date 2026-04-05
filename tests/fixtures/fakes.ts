@@ -2237,6 +2237,48 @@ export const makeFakeExtendedNotificationsRepo = (
       );
     },
 
+    findActiveByType: async (notificationType: NotificationType) => {
+      if (simulateDbError) return createDbError();
+
+      return ok(
+        [...store.values()].filter(
+          (notification) =>
+            notification.notificationType === notificationType &&
+            notification.isActive &&
+            !globallyUnsubscribedUsers.has(notification.userId) &&
+            !(
+              notificationType === 'funky:notification:entity_updates' &&
+              [...store.values()].some(
+                (candidate) =>
+                  candidate.userId === notification.userId &&
+                  candidate.notificationType === 'funky:notification:global' &&
+                  !candidate.isActive
+              )
+            ) &&
+            ![...store.values()].some((candidate) => {
+              if (
+                candidate.userId !== notification.userId ||
+                candidate.notificationType !== 'global_unsubscribe'
+              ) {
+                return false;
+              }
+
+              if (!candidate.isActive) {
+                return true;
+              }
+
+              const config = candidate.config as Record<string, unknown> | null;
+              if (config !== null && typeof config === 'object') {
+                const channels = config['channels'] as Record<string, unknown> | undefined;
+                return channels?.['email'] === false;
+              }
+
+              return false;
+            })
+        )
+      );
+    },
+
     deactivate: async (notificationId: string) => {
       if (simulateDbError) return createDbError();
       const n = store.get(notificationId);
