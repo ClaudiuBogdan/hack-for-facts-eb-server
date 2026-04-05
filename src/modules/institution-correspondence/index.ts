@@ -72,6 +72,21 @@ export type {
 } from './core/ports.js';
 
 export {
+  deriveCurrentPlatformSendSnapshot,
+  type DerivedCurrentPlatformSendSnapshotResult,
+} from './core/usecases/derive-current-platform-send-snapshot.js';
+export {
+  publishCurrentPlatformSendUpdate,
+  type PublishCurrentPlatformSendUpdateDeps,
+  type PublishCurrentPlatformSendUpdateInput,
+  type PublishCurrentPlatformSendUpdateResult,
+} from './core/usecases/publish-current-platform-send-update.js';
+export {
+  recoverMissingPublicDebateSnapshots,
+  type RecoverMissingPublicDebateSnapshotsDeps,
+  type RecoverMissingPublicDebateSnapshotsResult,
+} from './core/usecases/recover-missing-public-debate-snapshots.js';
+export {
   sendPlatformRequest,
   type SendPlatformRequestDeps,
 } from './core/usecases/send-platform-request.js';
@@ -119,10 +134,19 @@ export {
   extractMessageReferences,
 } from './core/usecases/helpers.js';
 export {
+  PlatformSendThreadMetadataPatchSchema,
+  PlatformSendThreadMetadataSchema,
+  readPlatformSendThreadMetadata,
+  writePlatformSendThreadMetadata,
+  type PlatformSendThreadMetadata,
+  type PlatformSendThreadMetadataPatch,
+} from './core/platform-send-thread-metadata.js';
+export {
   buildReconcilePlatformSendSuccessInputFromThread,
   hasPlatformSendSuccessConfirmation,
   markPlatformSendSuccessConfirmed,
   readPlatformSendSuccessMetadata,
+  withPlatformSendAttemptMetadata,
   withPlatformSendSuccessMetadata,
   type PlatformSendSuccessConfirmationState,
   type PlatformSendSuccessMetadata,
@@ -143,6 +167,11 @@ export {
 } from './shell/repo/platform-send-success-evidence-lookup.js';
 
 export { makePublicDebateTemplateRenderer } from './shell/templates/public-debate-request.js';
+export {
+  makePublicDebateNotificationOrchestrator,
+  type MakePublicDebateNotificationOrchestratorDeps,
+  type PublicDebateNotificationOrchestrator,
+} from './shell/public-debate-notification-orchestrator.js';
 
 export {
   makeInstitutionCorrespondenceAdminRoutes,

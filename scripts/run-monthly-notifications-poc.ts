@@ -136,6 +136,14 @@ const makeScopedNotificationsRepo = (
     const scoped = result.value.filter((notification) => notification.userId === userId);
     return ok(limit === undefined ? scoped : scoped.slice(0, limit));
   },
+  async findActiveByType(notificationType) {
+    const result = await repo.findActiveByType(notificationType);
+    if (result.isErr()) {
+      return result;
+    }
+
+    return ok(result.value.filter((notification) => notification.userId === userId));
+  },
   async deactivate(notificationId) {
     return repo.deactivate(notificationId);
   },

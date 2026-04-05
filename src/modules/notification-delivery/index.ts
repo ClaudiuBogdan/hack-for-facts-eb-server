@@ -177,6 +177,11 @@ export {
   type PublicDebateEntityUpdateEventType,
 } from './core/usecases/enqueue-public-debate-entity-update-notifications.js';
 export {
+  buildPublicDebateEntityUpdateDeliveryKey,
+  buildPublicDebateEntityUpdateScopeKey,
+  type PublicDebateEntityUpdateKeyInput,
+} from './core/usecases/public-debate-entity-update-keys.js';
+export {
   enqueuePublicDebateTermsAcceptedNotifications,
   type EnqueuePublicDebateTermsAcceptedNotificationsDeps,
   type EnqueuePublicDebateTermsAcceptedNotificationsResult,

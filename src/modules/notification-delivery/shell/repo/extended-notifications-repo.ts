@@ -283,6 +283,52 @@ export const makeExtendedNotificationsRepo = (
       }
     },
 
+    async findActiveByType(
+      notificationType: NotificationType
+    ): Promise<Result<Notification[], DeliveryError>> {
+      try {
+        const notificationRows = await db
+          .selectFrom('notifications')
+          .select([...ALL_COLUMNS])
+          .where('notification_type', '=', notificationType)
+          .where('is_active', '=', true)
+          .orderBy('created_at', 'asc')
+          .orderBy('id', 'asc')
+          .execute();
+
+        const globallyUnsubscribedUsersResult = await loadGloballyUnsubscribedUsers(
+          notificationRows.map((row) => row.user_id)
+        );
+        if (globallyUnsubscribedUsersResult.isErr()) {
+          return err(globallyUnsubscribedUsersResult.error);
+        }
+
+        const campaignDisabledUsersResult = await loadCampaignDisabledUsers(
+          notificationType,
+          notificationRows.map((row) => row.user_id)
+        );
+        if (campaignDisabledUsersResult.isErr()) {
+          return err(campaignDisabledUsersResult.error);
+        }
+
+        const globallyUnsubscribedUsers = globallyUnsubscribedUsersResult.value;
+        const campaignDisabledUsers = campaignDisabledUsersResult.value;
+
+        return ok(
+          notificationRows
+            .map((row) => mapRow(row as unknown as QueryRow))
+            .filter(
+              (notification) =>
+                !globallyUnsubscribedUsers.has(notification.userId) &&
+                !campaignDisabledUsers.has(notification.userId)
+            )
+        );
+      } catch (error) {
+        log.error({ err: error, notificationType }, 'Failed to find active notifications by type');
+        return err(createDatabaseError('Failed to find active notifications by type'));
+      }
+    },
+
     async deactivate(notificationId: string): Promise<Result<void, DeliveryError>> {
       try {
         await db

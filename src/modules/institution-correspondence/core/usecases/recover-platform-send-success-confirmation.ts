@@ -2,6 +2,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { buildReconcilePlatformSendSuccessInputFromThread } from './platform-send-success-confirmation.js';
 import { reconcilePlatformSendSuccess } from './reconcile-platform-send-success.js';
+import { recoverMissingPublicDebateSnapshots } from './recover-missing-public-debate-snapshots.js';
 
 import type { InstitutionCorrespondenceError } from '../errors.js';
 import type {
@@ -9,6 +10,10 @@ import type {
   PublicDebateEntityUpdatePublisher,
 } from '../ports.js';
 import type { ReconcilePlatformSendSuccessInput } from './reconcile-platform-send-success-input.js';
+import type {
+  DeliveryRepository,
+  ExtendedNotificationsRepository,
+} from '@/modules/notification-delivery/index.js';
 
 export interface PlatformSendSuccessEvidenceLookup {
   findLatestSuccessfulSendByThreadKey(
@@ -20,6 +25,8 @@ export interface RecoverPlatformSendSuccessConfirmationDeps {
   repo: InstitutionCorrespondenceRepository;
   evidenceLookup: PlatformSendSuccessEvidenceLookup;
   updatePublisher?: PublicDebateEntityUpdatePublisher;
+  notificationsRepo?: Pick<ExtendedNotificationsRepository, 'findActiveByType'>;
+  deliveryRepo?: Pick<DeliveryRepository, 'findByDeliveryKey'>;
 }
 
 export interface RecoverPlatformSendSuccessConfirmationInput {
@@ -32,6 +39,14 @@ export interface RecoverPlatformSendSuccessConfirmationResult {
   publishedCount: number;
   recoveredThreadKeys: string[];
   pendingConfirmationThreadKeys: string[];
+  snapshotEntityCount: number;
+  snapshotDerivedCount: number;
+  snapshotPublishedCount: number;
+  snapshotAlreadyMaterializedCount: number;
+  snapshotSkippedCount: number;
+  snapshotPublishedEntityCuis: string[];
+  snapshotAlreadyMaterializedEntityCuis: string[];
+  snapshotSkippedEntityCuis: string[];
   errors: Record<string, string>;
 }
 export const recoverPlatformSendSuccessConfirmation = async (
@@ -94,12 +109,60 @@ export const recoverPlatformSendSuccessConfirmation = async (
     }
   }
 
+  let snapshotEntityCount = 0;
+  let snapshotDerivedCount = 0;
+  let snapshotPublishedCount = 0;
+  let snapshotAlreadyMaterializedCount = 0;
+  let snapshotSkippedCount = 0;
+  let snapshotPublishedEntityCuis: string[] = [];
+  let snapshotAlreadyMaterializedEntityCuis: string[] = [];
+  let snapshotSkippedEntityCuis: string[] = [];
+
+  if (
+    deps.updatePublisher !== undefined &&
+    deps.notificationsRepo !== undefined &&
+    deps.deliveryRepo !== undefined
+  ) {
+    const snapshotRecoveryResult = await recoverMissingPublicDebateSnapshots({
+      repo: deps.repo,
+      notificationsRepo: deps.notificationsRepo,
+      deliveryRepo: deps.deliveryRepo,
+      updatePublisher: deps.updatePublisher,
+    });
+
+    if (snapshotRecoveryResult.isErr()) {
+      errors['public-debate-snapshot-recovery'] = snapshotRecoveryResult.error.message;
+    } else {
+      snapshotEntityCount = snapshotRecoveryResult.value.entityCount;
+      snapshotDerivedCount = snapshotRecoveryResult.value.derivedCount;
+      snapshotPublishedCount = snapshotRecoveryResult.value.publishedCount;
+      snapshotAlreadyMaterializedCount = snapshotRecoveryResult.value.alreadyMaterializedCount;
+      snapshotSkippedCount = snapshotRecoveryResult.value.skippedCount;
+      snapshotPublishedEntityCuis = snapshotRecoveryResult.value.publishedEntityCuis;
+      snapshotAlreadyMaterializedEntityCuis =
+        snapshotRecoveryResult.value.alreadyMaterializedEntityCuis;
+      snapshotSkippedEntityCuis = snapshotRecoveryResult.value.skippedEntityCuis;
+
+      for (const [entityCui, message] of Object.entries(snapshotRecoveryResult.value.errors)) {
+        errors[`snapshot:${entityCui}`] = message;
+      }
+    }
+  }
+
   return ok({
     foundCount: pendingThreadsResult.value.length,
     reconciledCount,
     publishedCount,
     recoveredThreadKeys,
     pendingConfirmationThreadKeys,
+    snapshotEntityCount,
+    snapshotDerivedCount,
+    snapshotPublishedCount,
+    snapshotAlreadyMaterializedCount,
+    snapshotSkippedCount,
+    snapshotPublishedEntityCuis,
+    snapshotAlreadyMaterializedEntityCuis,
+    snapshotSkippedEntityCuis,
     errors,
   });
 };

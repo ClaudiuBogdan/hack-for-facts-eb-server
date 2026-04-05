@@ -142,6 +142,9 @@ const main = async (): Promise<void> => {
       findEligibleForDelivery() {
         return Promise.resolve(ok([]));
       },
+      findActiveByType() {
+        return Promise.resolve(ok([]));
+      },
       findActiveByTypeAndEntity() {
         return Promise.resolve(ok([]));
       },
@@ -182,6 +185,9 @@ const main = async (): Promise<void> => {
         return Promise.resolve(ok(null));
       },
       findEligibleForDelivery() {
+        return Promise.resolve(ok([]));
+      },
+      findActiveByType() {
         return Promise.resolve(ok([]));
       },
       findActiveByTypeAndEntity() {

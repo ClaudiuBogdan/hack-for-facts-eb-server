@@ -173,7 +173,6 @@ describe('recoverPlatformSendSuccessConfirmation', () => {
         }),
       ],
     });
-
     const result = await recoverPlatformSendSuccessConfirmation(
       {
         repo,

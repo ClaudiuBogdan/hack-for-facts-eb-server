@@ -13,6 +13,10 @@ import type {
   PublicDebateEntityUpdatePublisher,
 } from '../../../core/ports.js';
 import type { PlatformSendRecoveryJobPayload } from '../recovery-types.js';
+import type {
+  DeliveryRepository,
+  ExtendedNotificationsRepository,
+} from '@/modules/notification-delivery/index.js';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 
@@ -20,6 +24,8 @@ export interface CorrespondenceRecoveryWorkerDeps {
   redis: Redis;
   repo: InstitutionCorrespondenceRepository;
   evidenceLookup: PlatformSendSuccessEvidenceLookup;
+  notificationsRepo: Pick<ExtendedNotificationsRepository, 'findActiveByType'>;
+  deliveryRepo: Pick<DeliveryRepository, 'findByDeliveryKey'>;
   updatePublisher?: PublicDebateEntityUpdatePublisher;
   logger: Logger;
   bullmqPrefix: string;
@@ -28,7 +34,7 @@ export interface CorrespondenceRecoveryWorkerDeps {
 export const processCorrespondenceRecoveryJob = async (
   deps: Pick<
     CorrespondenceRecoveryWorkerDeps,
-    'repo' | 'evidenceLookup' | 'updatePublisher' | 'logger'
+    'repo' | 'evidenceLookup' | 'notificationsRepo' | 'deliveryRepo' | 'updatePublisher' | 'logger'
   >,
   payload: RecoverPlatformSendSuccessConfirmationInput
 ) => {
@@ -36,6 +42,8 @@ export const processCorrespondenceRecoveryJob = async (
     {
       repo: deps.repo,
       evidenceLookup: deps.evidenceLookup,
+      notificationsRepo: deps.notificationsRepo,
+      deliveryRepo: deps.deliveryRepo,
       ...(deps.updatePublisher !== undefined ? { updatePublisher: deps.updatePublisher } : {}),
     },
     payload
@@ -52,6 +60,11 @@ export const processCorrespondenceRecoveryJob = async (
       reconciledCount: result.value.reconciledCount,
       publishedCount: result.value.publishedCount,
       pendingConfirmationCount: result.value.pendingConfirmationThreadKeys.length,
+      snapshotEntityCount: result.value.snapshotEntityCount,
+      snapshotDerivedCount: result.value.snapshotDerivedCount,
+      snapshotPublishedCount: result.value.snapshotPublishedCount,
+      snapshotAlreadyMaterializedCount: result.value.snapshotAlreadyMaterializedCount,
+      snapshotSkippedCount: result.value.snapshotSkippedCount,
       errorCount: Object.keys(result.value.errors).length,
     },
     'Correspondence recovery job completed'
@@ -73,7 +86,16 @@ export const processCorrespondenceRecoveryJob = async (
 export const createCorrespondenceRecoveryWorker = (
   deps: CorrespondenceRecoveryWorkerDeps
 ): Worker<PlatformSendRecoveryJobPayload> => {
-  const { redis, repo, evidenceLookup, updatePublisher, logger, bullmqPrefix } = deps;
+  const {
+    redis,
+    repo,
+    evidenceLookup,
+    notificationsRepo,
+    deliveryRepo,
+    updatePublisher,
+    logger,
+    bullmqPrefix,
+  } = deps;
 
   return new Worker<PlatformSendRecoveryJobPayload>(
     QUEUE_NAMES.CORRESPONDENCE_RECOVERY,
@@ -86,6 +108,8 @@ export const createCorrespondenceRecoveryWorker = (
         {
           repo,
           evidenceLookup,
+          notificationsRepo,
+          deliveryRepo,
           ...(updatePublisher !== undefined ? { updatePublisher } : {}),
           logger,
         },

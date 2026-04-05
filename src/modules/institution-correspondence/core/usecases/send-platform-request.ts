@@ -20,6 +20,7 @@ import {
   parseOptionalDate,
   toIsoString,
 } from './helpers.js';
+import { withPlatformSendAttemptMetadata } from './platform-send-success-confirmation.js';
 import { publishPublicDebateUpdateBestEffort } from './publish-public-debate-update-best-effort.js';
 import { reconcilePlatformSendSuccess } from './reconcile-platform-send-success.js';
 
@@ -56,24 +57,32 @@ const createThreadRecord = (input: {
   contestationDeadlineAt: Date | null;
   captureAddress: string;
   subject: string;
-}): CorrespondenceThreadRecord => ({
-  version: 1,
-  campaign: DEFAULT_REQUEST_TYPE,
-  campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
-  ownerUserId: input.ownerUserId,
-  subject: input.subject,
-  submissionPath: 'platform_send',
-  institutionEmail: input.institutionEmail,
-  ngoIdentity: DEFAULT_NGO_IDENTITY,
-  requesterOrganizationName: input.requesterOrganizationName,
-  budgetPublicationDate: toIsoString(input.budgetPublicationDate),
-  consentCapturedAt: toIsoString(input.consentCapturedAt),
-  contestationDeadlineAt: toIsoString(input.contestationDeadlineAt),
-  captureAddress: input.captureAddress,
-  correspondence: [],
-  latestReview: null,
-  metadata: {},
-});
+  providerSendAttemptId: string;
+}): CorrespondenceThreadRecord => {
+  const baseRecord: CorrespondenceThreadRecord = {
+    version: 1,
+    campaign: DEFAULT_REQUEST_TYPE,
+    campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
+    ownerUserId: input.ownerUserId,
+    subject: input.subject,
+    submissionPath: 'platform_send',
+    institutionEmail: input.institutionEmail,
+    ngoIdentity: DEFAULT_NGO_IDENTITY,
+    requesterOrganizationName: input.requesterOrganizationName,
+    budgetPublicationDate: toIsoString(input.budgetPublicationDate),
+    consentCapturedAt: toIsoString(input.consentCapturedAt),
+    contestationDeadlineAt: toIsoString(input.contestationDeadlineAt),
+    captureAddress: input.captureAddress,
+    correspondence: [],
+    latestReview: null,
+    metadata: {},
+  };
+
+  return {
+    ...baseRecord,
+    metadata: withPlatformSendAttemptMetadata(baseRecord, input.providerSendAttemptId),
+  };
+};
 
 export async function sendPlatformRequest(
   deps: SendPlatformRequestDeps,
@@ -99,6 +108,7 @@ export async function sendPlatformRequest(
   }
 
   const threadKey = buildThreadKey();
+  const providerSendAttemptId = randomUUID();
   const contestationDeadlineAt = computeContestationDeadline(publicationDate);
   const rendered = deps.templateRenderer.renderPublicDebateRequest({
     institutionEmail,
@@ -123,6 +133,7 @@ export async function sendPlatformRequest(
       contestationDeadlineAt,
       captureAddress: deps.captureAddress,
       subject: rendered.subject,
+      providerSendAttemptId,
     }),
   });
   if (createThreadResult.isErr()) {
@@ -130,6 +141,7 @@ export async function sendPlatformRequest(
   }
 
   const thread = createThreadResult.value;
+  const fromAddress = deps.emailSender.getFromAddress();
   const sendResult = await deps.emailSender.send({
     to: institutionEmail,
     cc: deps.auditCcRecipients,
@@ -137,7 +149,7 @@ export async function sendPlatformRequest(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    idempotencyKey: thread.id,
+    idempotencyKey: providerSendAttemptId,
     unsubscribeUrl: `${deps.platformBaseUrl}/settings/notifications`,
     tags: [
       { name: 'thread_key', value: encodeThreadKeyForTag(thread.threadKey) },
@@ -161,7 +173,6 @@ export async function sendPlatformRequest(
   }
 
   const sentAt = new Date();
-  const fromAddress = deps.emailSender.getFromAddress();
   const reconcileResult = await reconcilePlatformSendSuccess(
     {
       repo: deps.repo,

@@ -98,7 +98,6 @@ describe('requestPublicDebatePlatformSend', () => {
 
   it('returns a correspondence error when ensuring the subscription fails', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
-
     const result = await requestPublicDebatePlatformSend(
       {
         repo,

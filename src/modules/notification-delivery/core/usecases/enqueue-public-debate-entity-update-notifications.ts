@@ -1,7 +1,12 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
-import { generateDeliveryKey } from '@/modules/notifications/core/types.js';
+
+import { enqueueCreatedOrReusedOutbox } from './enqueue-created-or-reused-outbox.js';
+import {
+  buildPublicDebateEntityUpdateDeliveryKey,
+  buildPublicDebateEntityUpdateScopeKey,
+} from './public-debate-entity-update-keys.js';
 
 import type { DeliveryError } from '../errors.js';
 import type {
@@ -37,7 +42,7 @@ export interface PublicDebateEntityUpdateNotificationInput {
 export interface EnqueuePublicDebateEntityUpdateNotificationsDeps {
   notificationsRepo: ExtendedNotificationsRepository;
   deliveryRepo: DeliveryRepository;
-  composeJobScheduler?: ComposeJobScheduler;
+  composeJobScheduler: ComposeJobScheduler;
 }
 
 export interface EnqueuePublicDebateEntityUpdateNotificationsResult {
@@ -47,19 +52,6 @@ export interface EnqueuePublicDebateEntityUpdateNotificationsResult {
   queuedOutboxIds: string[];
   enqueueFailedOutboxIds: string[];
 }
-
-const buildScopeKey = (input: PublicDebateEntityUpdateNotificationInput): string => {
-  switch (input.eventType) {
-    case 'thread_started':
-      return `funky:delivery:thread_started_${input.threadId}`;
-    case 'thread_failed':
-      return `funky:delivery:thread_failed_${input.threadId}`;
-    case 'reply_received':
-      return `funky:delivery:reply_${input.threadId}_${input.replyEntryId ?? 'unknown'}`;
-    case 'reply_reviewed':
-      return `funky:delivery:review_${input.threadId}_${input.basedOnEntryId ?? 'unknown'}`;
-  }
-};
 
 const buildMetadata = (
   input: PublicDebateEntityUpdateNotificationInput
@@ -81,29 +73,16 @@ const buildMetadata = (
   ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
 });
 
-const maybeEnqueueCompose = async (
-  composeJobScheduler: ComposeJobScheduler | undefined,
-  runId: string,
-  outboxId: string
-): Promise<boolean> => {
-  if (composeJobScheduler === undefined) {
-    return false;
-  }
-
-  const enqueueResult = await composeJobScheduler.enqueue({
-    runId,
-    kind: 'outbox',
-    outboxId,
-  });
-
-  return enqueueResult.isOk();
-};
-
 export const enqueuePublicDebateEntityUpdateNotifications = async (
   deps: EnqueuePublicDebateEntityUpdateNotificationsDeps,
   input: PublicDebateEntityUpdateNotificationInput
 ): Promise<Result<EnqueuePublicDebateEntityUpdateNotificationsResult, DeliveryError>> => {
-  const scopeKey = buildScopeKey(input);
+  const scopeKey = buildPublicDebateEntityUpdateScopeKey({
+    eventType: input.eventType,
+    threadId: input.threadId,
+    ...(input.replyEntryId !== undefined ? { replyEntryId: input.replyEntryId } : {}),
+    ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
+  });
   const notificationsResult = await deps.notificationsRepo.findActiveByTypeAndEntity(
     'funky:notification:entity_updates',
     input.entityCui
@@ -119,53 +98,44 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
   const enqueueFailedOutboxIds: string[] = [];
 
   for (const notification of notificationsResult.value) {
-    const deliveryKey = generateDeliveryKey(notification.userId, notification.id, scopeKey);
-    const createResult = await deps.deliveryRepo.create({
+    const deliveryKey = buildPublicDebateEntityUpdateDeliveryKey({
       userId: notification.userId,
-      notificationType: 'funky:outbox:entity_update',
-      referenceId: notification.id,
+      notificationId: notification.id,
       scopeKey,
-      deliveryKey,
-      metadata: buildMetadata(input),
     });
-
-    if (createResult.isErr()) {
-      if (createResult.error.type !== 'DuplicateDelivery') {
-        return err(createResult.error);
+    const enqueueResult = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo: deps.deliveryRepo,
+        composeJobScheduler: deps.composeJobScheduler,
+      },
+      {
+        runId: input.runId,
+        deliveryKey,
+        createInput: {
+          userId: notification.userId,
+          notificationType: 'funky:outbox:entity_update',
+          referenceId: notification.id,
+          scopeKey,
+          deliveryKey,
+          metadata: buildMetadata(input),
+        },
       }
+    );
 
-      const duplicateResult = await deps.deliveryRepo.findByDeliveryKey(deliveryKey);
-      if (duplicateResult.isErr()) {
-        return err(duplicateResult.error);
-      }
-
-      if (duplicateResult.value !== null) {
-        reusedOutboxIds.push(duplicateResult.value.id);
-        const queued = await maybeEnqueueCompose(
-          deps.composeJobScheduler,
-          input.runId,
-          duplicateResult.value.id
-        );
-        if (queued) {
-          queuedOutboxIds.push(duplicateResult.value.id);
-        } else if (deps.composeJobScheduler !== undefined) {
-          enqueueFailedOutboxIds.push(duplicateResult.value.id);
-        }
-      }
-
-      continue;
+    if (enqueueResult.isErr()) {
+      return err(enqueueResult.error);
     }
 
-    createdOutboxIds.push(createResult.value.id);
-    const queued = await maybeEnqueueCompose(
-      deps.composeJobScheduler,
-      input.runId,
-      createResult.value.id
-    );
-    if (queued) {
-      queuedOutboxIds.push(createResult.value.id);
-    } else if (deps.composeJobScheduler !== undefined) {
-      enqueueFailedOutboxIds.push(createResult.value.id);
+    if (enqueueResult.value.source === 'created') {
+      createdOutboxIds.push(enqueueResult.value.outboxId);
+    } else {
+      reusedOutboxIds.push(enqueueResult.value.outboxId);
+    }
+
+    if (enqueueResult.value.composeEnqueued) {
+      queuedOutboxIds.push(enqueueResult.value.outboxId);
+    } else {
+      enqueueFailedOutboxIds.push(enqueueResult.value.outboxId);
     }
   }
 

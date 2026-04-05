@@ -230,6 +230,14 @@ export interface ExtendedNotificationsRepository {
   ): Promise<Result<Notification[], DeliveryError>>;
 
   /**
+   * Finds active notifications for a specific type across all entities/users.
+   * Used for recovery scans.
+   */
+  findActiveByType(
+    notificationType: NotificationType
+  ): Promise<Result<Notification[], DeliveryError>>;
+
+  /**
    * Deactivates a notification.
    */
   deactivate(notificationId: string): Promise<Result<void, DeliveryError>>;

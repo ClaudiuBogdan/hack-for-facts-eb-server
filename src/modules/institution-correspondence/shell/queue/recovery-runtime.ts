@@ -11,6 +11,10 @@ import type {
   PublicDebateEntityUpdatePublisher,
 } from '../../core/ports.js';
 import type { PlatformSendSuccessEvidenceLookup } from '../../core/usecases/recover-platform-send-success-confirmation.js';
+import type {
+  DeliveryRepository,
+  ExtendedNotificationsRepository,
+} from '@/modules/notification-delivery/index.js';
 import type { Logger } from 'pino';
 
 export interface CorrespondenceRecoveryRuntimeConfig {
@@ -19,6 +23,8 @@ export interface CorrespondenceRecoveryRuntimeConfig {
   bullmqPrefix: string;
   repo: InstitutionCorrespondenceRepository;
   evidenceLookup: PlatformSendSuccessEvidenceLookup;
+  notificationsRepo: Pick<ExtendedNotificationsRepository, 'findActiveByType'>;
+  deliveryRepo: Pick<DeliveryRepository, 'findByDeliveryKey'>;
   updatePublisher?: PublicDebateEntityUpdatePublisher;
   logger: Logger;
   intervalMinutes: number;
@@ -43,6 +49,8 @@ export const startCorrespondenceRecoveryRuntime: CorrespondenceRecoveryRuntimeFa
     bullmqPrefix,
     repo,
     evidenceLookup,
+    notificationsRepo,
+    deliveryRepo,
     updatePublisher,
     logger,
     intervalMinutes,
@@ -68,6 +76,8 @@ export const startCorrespondenceRecoveryRuntime: CorrespondenceRecoveryRuntimeFa
     redis,
     repo,
     evidenceLookup,
+    notificationsRepo,
+    deliveryRepo,
     ...(updatePublisher !== undefined ? { updatePublisher } : {}),
     logger,
     bullmqPrefix,

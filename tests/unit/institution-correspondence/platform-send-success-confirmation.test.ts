@@ -37,6 +37,7 @@ describe('platform-send-success-confirmation helpers', () => {
         metadata: withProviderMetadata,
       })
     ).toEqual({
+      providerSendAttemptId: null,
       providerSendEmailId: 'email-1',
       providerSendObservedAt: '2026-04-03T16:43:04.930Z',
       providerSendMessageId: '<message-1>',
@@ -49,6 +50,7 @@ describe('platform-send-success-confirmation helpers', () => {
         metadata: withMarker,
       })
     ).toEqual({
+      providerSendAttemptId: null,
       providerSendEmailId: 'email-1',
       providerSendObservedAt: '2026-04-03T16:43:04.930Z',
       providerSendMessageId: '<message-1>',

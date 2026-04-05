@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PUBLIC_DEBATE_REQUEST_TYPE,
   encodeThreadKeyForTag,
-  sendPlatformRequest,
   makePublicDebateTemplateRenderer,
+  readPlatformSendSuccessMetadata,
+  sendPlatformRequest,
 } from '@/modules/institution-correspondence/index.js';
 
 import { makeInMemoryCorrespondenceRepo } from './fake-repo.js';
@@ -61,12 +62,18 @@ describe('sendPlatformRequest', () => {
         { name: 'thread_key', value: encodeThreadKeyForTag(result.value.thread.threadKey) },
         { name: 'request_type', value: 'funky' },
       ]);
+      expect(sentEmails[0]?.['idempotencyKey']).toBe(
+        readPlatformSendSuccessMetadata(result.value.thread.record).providerSendAttemptId
+      );
+      expect(sentEmails[0]?.['idempotencyKey']).not.toBe(result.value.thread.id);
+      expect(sentEmails[0]?.['idempotencyKey']).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
+      );
     }
   });
 
   it('validates the institution email', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
-
     const result = await sendPlatformRequest(
       {
         repo,
@@ -168,7 +175,6 @@ describe('sendPlatformRequest', () => {
 
   it('keeps the success path ok when thread_started publishing returns Err', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
-
     const result = await sendPlatformRequest(
       {
         repo,
@@ -209,7 +215,6 @@ describe('sendPlatformRequest', () => {
 
   it('keeps the original send error when thread_failed publishing throws', async () => {
     const repo = makeInMemoryCorrespondenceRepo();
-
     const result = await sendPlatformRequest(
       {
         repo,
