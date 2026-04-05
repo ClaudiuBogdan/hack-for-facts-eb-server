@@ -39,6 +39,7 @@ export interface InstitutionCorrespondenceResendSideEffectDeps {
   officialEmailLookup: InstitutionOfficialEmailLookup;
   selfSendContextLookup: PublicDebateSelfSendContextLookup;
   selfSendApprovalService?: PublicDebateSelfSendApprovalService;
+  onPendingReplyCreated?: (input: { threadId: string; basedOnEntryId: string }) => Promise<void>;
   emailEventsRepo: ResendWebhookEmailEventsRepository;
   receivedEmailFetcher: CorrespondenceReceivedEmailFetcher;
   captureAddress: string;
@@ -233,6 +234,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
     officialEmailLookup,
     selfSendContextLookup,
     selfSendApprovalService,
+    onPendingReplyCreated,
     emailEventsRepo,
     receivedEmailFetcher,
     captureAddress,
@@ -635,6 +637,24 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
           matchedBy: matchedBy ?? 'subject',
         }),
       });
+
+      if (onPendingReplyCreated !== undefined) {
+        try {
+          await onPendingReplyCreated({
+            threadId: appendResult.value.id,
+            basedOnEntryId: inboundEntry.id,
+          });
+        } catch (error) {
+          log.error(
+            {
+              error,
+              threadId: appendResult.value.id,
+              basedOnEntryId: inboundEntry.id,
+            },
+            'Failed to queue pending admin reply-review event'
+          );
+        }
+      }
 
       await updatePublisher?.publish({
         eventType: 'reply_received',

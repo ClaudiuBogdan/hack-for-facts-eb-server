@@ -70,6 +70,8 @@ export const QUEUE_NAMES = {
   DLQ: 'notification-dlq',
   /** Processes learning-progress user events */
   USER_EVENTS: 'user-events',
+  /** Holds manually reviewed admin-event jobs */
+  ADMIN_EVENTS: 'admin-events-review',
   /** Recovers correspondence threads stuck before platform-send completion */
   CORRESPONDENCE_RECOVERY: 'correspondence-recovery',
 } as const;

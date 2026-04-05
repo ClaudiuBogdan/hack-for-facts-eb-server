@@ -43,6 +43,10 @@
     "deps:check": "madge --circular --extensions ts src/",
     "deps:summary": "madge --extensions ts --json src/ | node -e \"const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log('Files:',Object.keys(d).length);console.log('Imports:',Object.values(d).flat().length)\"",
     "deps:graph": "echo 'Requires Graphviz: brew install graphviz (macOS) or apt install graphviz (Linux)' && madge --image deps-graph.svg --extensions ts src/",
+    "admin-events:scan": "tsx scripts/admin-events-scan.ts",
+    "admin-events:export": "tsx scripts/admin-events-export.ts",
+    "admin-events:apply": "tsx scripts/admin-events-apply.ts",
+    "admin-events:reconcile": "tsx scripts/admin-events-reconcile.ts",
     "ci": "pnpm typecheck && pnpm lint && pnpm deps:check && pnpm test && pnpm run deps:check && pnpm build",
     "prepare": "husky",
     "clean": "rm -rf dist coverage deps-graph.svg"

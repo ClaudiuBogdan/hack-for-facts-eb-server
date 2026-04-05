@@ -7,7 +7,11 @@ import { Writable } from 'node:stream';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
-const { startUserEventRuntimeMock, startCorrespondenceRecoveryRuntimeMock } = vi.hoisted(() => ({
+const {
+  startUserEventRuntimeMock,
+  startCorrespondenceRecoveryRuntimeMock,
+  startAdminEventRuntimeMock,
+} = vi.hoisted(() => ({
   startUserEventRuntimeMock: vi.fn(async () => ({
     publisher: {
       publish: vi.fn(async () => undefined),
@@ -16,6 +20,16 @@ const { startUserEventRuntimeMock, startCorrespondenceRecoveryRuntimeMock } = vi
     stop: vi.fn(async () => undefined),
   })),
   startCorrespondenceRecoveryRuntimeMock: vi.fn(async () => ({
+    stop: vi.fn(async () => undefined),
+  })),
+  startAdminEventRuntimeMock: vi.fn(async () => ({
+    queue: {
+      enqueue: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: undefined })),
+      enqueueMany: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: undefined })),
+      get: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: null })),
+      listPending: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: [] })),
+      remove: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: true })),
+    },
     stop: vi.fn(async () => undefined),
   })),
 }));
@@ -39,6 +53,17 @@ vi.mock('@/modules/institution-correspondence/index.js', async () => {
   return {
     ...actual,
     startCorrespondenceRecoveryRuntime: startCorrespondenceRecoveryRuntimeMock,
+  };
+});
+
+vi.mock('@/modules/admin-events/index.js', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/admin-events/index.js')>(
+    '@/modules/admin-events/index.js'
+  );
+
+  return {
+    ...actual,
+    startAdminEventRuntime: startAdminEventRuntimeMock,
   };
 });
 
