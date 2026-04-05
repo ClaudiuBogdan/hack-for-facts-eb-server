@@ -133,3 +133,4 @@ scripts/output/
 scripts/k8s-port-forward.sh
 
 .claude/
+.local/admin-events/

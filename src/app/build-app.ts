@@ -45,6 +45,15 @@ import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
 import {
+  createLearningProgressAdminEventSyncHook,
+  INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
+  makeDefaultAdminEventRegistry,
+  queueAdminEvent,
+  startAdminEventRuntime,
+  type AdminEventRegistry,
+  type AdminEventRuntime,
+} from '../modules/admin-events/index.js';
+import {
   makeAdvancedMapAnalyticsRepo,
   makeAdvancedMapAnalyticsRoutes,
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
@@ -286,6 +295,8 @@ export interface AppDeps {
   notificationDeliveryRuntimeFactory?: NotificationDeliveryRuntimeFactory;
   /** Optional user event runtime factory for tests */
   userEventRuntimeFactory?: UserEventRuntimeFactory;
+  /** Optional admin event runtime factory for tests */
+  adminEventRuntimeFactory?: import('../modules/admin-events/index.js').AdminEventRuntimeFactory;
   /** Optional correspondence recovery runtime factory for tests */
   correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
 }
@@ -638,6 +649,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   let notificationDeliveryRuntime: NotificationDeliveryRuntime | undefined;
   let correspondenceRecoveryRuntime: CorrespondenceRecoveryRuntime | undefined;
   let userEventRuntime: UserEventRuntime | undefined;
+  let adminEventRuntime: AdminEventRuntime | undefined;
+  let adminEventRegistry: AdminEventRegistry | undefined;
   let onClerkWebhookEventVerified:
     | ((input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>)
     | undefined;
@@ -1057,6 +1070,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }): Promise<void>;
     }[] = [];
     const userEventHandlers: UserEventHandler[] = [];
+    const learningProgressSyncHooks: ((input: {
+      userId: string;
+      events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
+    }) => Promise<void>)[] = [];
     let learningProgressOnSyncEventsApplied:
       | ((input: {
           userId: string;
@@ -1677,6 +1694,25 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         );
       };
 
+      if (hasBullmqRedisConfig && adminEventRuntime === undefined) {
+        const createAdminEventRuntime = deps.adminEventRuntimeFactory ?? startAdminEventRuntime;
+
+        adminEventRuntime = await createAdminEventRuntime({
+          redisUrl: config.jobs.redisUrl ?? '',
+          bullmqPrefix: config.jobs.prefix,
+          logger: repoLogger,
+          ...(config.jobs.redisPassword !== undefined
+            ? { redisPassword: config.jobs.redisPassword }
+            : {}),
+        });
+
+        adminEventRegistry = makeDefaultAdminEventRegistry({
+          learningProgressRepo,
+          institutionCorrespondenceRepo: correspondenceRepo,
+          prepareApproveLearningProgressReviews,
+        });
+      }
+
       if (
         config.institutionCorrespondence.adminRoutesEnabled &&
         config.institutionCorrespondence.adminApiKey !== undefined
@@ -1689,6 +1725,30 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           })
         );
       }
+
+      const pendingReplyAdminEventHook =
+        adminEventRegistry !== undefined && adminEventRuntime !== undefined
+          ? (() => {
+              const registry = adminEventRegistry;
+              const queue = adminEventRuntime.queue;
+
+              return async (eventInput: { threadId: string; basedOnEntryId: string }) => {
+                const queueResult = await queueAdminEvent(
+                  {
+                    registry,
+                    queue,
+                  },
+                  {
+                    eventType: INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
+                    payload: eventInput,
+                  }
+                );
+                if (queueResult.isErr()) {
+                  throw new Error(queueResult.error.message);
+                }
+              };
+            })()
+          : undefined;
 
       resendWebhookSideEffects.push(
         makeInstitutionCorrespondenceResendSideEffect({
@@ -1706,6 +1766,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           captureAddress: correspondenceInboxAddress,
           auditCcRecipients: campaignAuditCcRecipients,
           updatePublisher: publicDebateUpdatePublisher,
+          ...(pendingReplyAdminEventHook !== undefined
+            ? { onPendingReplyCreated: pendingReplyAdminEventHook }
+            : {}),
           logger: repoLogger,
         })
       );
@@ -1730,6 +1793,37 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }
     }
 
+    if (hasBullmqRedisConfig && adminEventRuntime === undefined) {
+      const createAdminEventRuntime = deps.adminEventRuntimeFactory ?? startAdminEventRuntime;
+
+      adminEventRuntime = await createAdminEventRuntime({
+        redisUrl: config.jobs.redisUrl ?? '',
+        bullmqPrefix: config.jobs.prefix,
+        logger: repoLogger,
+        ...(config.jobs.redisPassword !== undefined
+          ? { redisPassword: config.jobs.redisPassword }
+          : {}),
+      });
+
+      adminEventRegistry = makeDefaultAdminEventRegistry({
+        learningProgressRepo,
+        ...(prepareApproveLearningProgressReviews !== undefined
+          ? { prepareApproveLearningProgressReviews }
+          : {}),
+      });
+    }
+
+    if (adminEventRegistry !== undefined && adminEventRuntime !== undefined) {
+      learningProgressSyncHooks.push(
+        createLearningProgressAdminEventSyncHook({
+          registry: adminEventRegistry,
+          queue: adminEventRuntime.queue,
+          learningProgressRepo,
+          logger: repoLogger,
+        })
+      );
+    }
+
     if (shouldInitializeUserEventRuntime) {
       const createUserEventRuntime = deps.userEventRuntimeFactory ?? startUserEventRuntime;
 
@@ -1744,10 +1838,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           : {}),
       });
 
-      learningProgressOnSyncEventsApplied = createLearningProgressUserEventSyncHook({
-        publisher: userEventRuntime.publisher,
-        logger: repoLogger,
-      });
+      learningProgressSyncHooks.push(
+        createLearningProgressUserEventSyncHook({
+          publisher: userEventRuntime.publisher,
+          logger: repoLogger,
+        })
+      );
+    }
+
+    if (learningProgressSyncHooks.length > 0) {
+      learningProgressOnSyncEventsApplied = async (input) => {
+        for (const hook of learningProgressSyncHooks) {
+          await hook(input);
+        }
+      };
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -2028,6 +2132,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   if (userEventRuntime !== undefined) {
     app.addHook('onClose', async () => {
       await userEventRuntime.stop();
+    });
+  }
+
+  if (adminEventRuntime !== undefined) {
+    app.addHook('onClose', async () => {
+      await adminEventRuntime.stop();
     });
   }
 
