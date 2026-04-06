@@ -8,6 +8,7 @@ import {
   buildSelfSendInteractionKey,
   extractMessageReferences,
   extractThreadKeyFromSubject,
+  normalizeEmailSubject,
   normalizeEmailAddress,
 } from '../../core/usecases/helpers.js';
 import { reconcilePlatformSendSuccess } from '../../core/usecases/reconcile-platform-send-success.js';
@@ -25,6 +26,7 @@ import type {
   CorrespondenceEntry,
   CorrespondenceThreadRecord,
   ReceivedEmailSnapshot,
+  ThreadRecord,
   UnmatchedInboundMetadata,
 } from '../../core/types.js';
 import type {
@@ -101,6 +103,107 @@ const extractInstitutionCandidateEmails = (
   return [...new Set(addresses)];
 };
 
+const dedupeEntityMatches = (
+  matches: readonly {
+    entityCui: string;
+    officialEmail: string;
+  }[]
+) => {
+  return matches.filter(
+    (match, index, all) =>
+      all.findIndex((candidate) => candidate.entityCui === match.entityCui) === index
+  );
+};
+
+const FREEMAIL_DOMAINS = new Set(['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']);
+
+const extractEmailDomain = (emailAddress: string): string | null => {
+  const normalizedEmail = normalizeEmailAddress(emailAddress);
+  const atIndex = normalizedEmail.lastIndexOf('@');
+
+  if (atIndex === -1 || atIndex === normalizedEmail.length - 1) {
+    return null;
+  }
+
+  const domain = normalizedEmail.slice(atIndex + 1).trim();
+  return domain === '' ? null : domain;
+};
+
+const normalizeHeaders = (headers: Record<string, string>): Record<string, string> => {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
+  );
+};
+
+const hasVerifiedMailAuthentication = (headers: Record<string, string>): boolean => {
+  const authenticationResults = normalizeHeaders(headers)['authentication-results']?.toLowerCase();
+  if (authenticationResults === undefined) {
+    return false;
+  }
+
+  return (
+    authenticationResults.includes('dmarc=pass') || authenticationResults.includes('dkim=pass')
+  );
+};
+
+const isVerifiedInstitutionSender = (
+  senderAddress: string,
+  officialEmail: string,
+  headers: Record<string, string>
+): boolean => {
+  const normalizedSender = normalizeEmailAddress(senderAddress);
+  const normalizedOfficialEmail = normalizeEmailAddress(officialEmail);
+
+  if (normalizedSender === normalizedOfficialEmail) {
+    return true;
+  }
+
+  const senderDomain = extractEmailDomain(normalizedSender);
+  const officialDomain = extractEmailDomain(normalizedOfficialEmail);
+  if (senderDomain === null || officialDomain === null || senderDomain !== officialDomain) {
+    return false;
+  }
+
+  if (FREEMAIL_DOMAINS.has(senderDomain)) {
+    return false;
+  }
+
+  return hasVerifiedMailAuthentication(headers);
+};
+
+const SUBJECT_THREAD_KEY_TOKEN_REGEX = /\[teu:[^\]]+\]/giu;
+const REPLY_PREFIX_REGEX = /^(?:(?:re|fw|fwd)\s*:\s*)+/iu;
+
+const normalizeSubjectForThreadMatching = (subject: string): string => {
+  let normalized = subject.replace(SUBJECT_THREAD_KEY_TOKEN_REGEX, ' ').trim();
+  let previous = '';
+
+  while (normalized !== previous) {
+    previous = normalized;
+    normalized = normalized.replace(REPLY_PREFIX_REGEX, '').trim();
+  }
+
+  return normalizeEmailSubject(normalized);
+};
+
+const threadMatchesReceivedSubject = (thread: ThreadRecord, subject: string): boolean => {
+  const normalizedSubject = normalizeSubjectForThreadMatching(subject);
+  if (normalizedSubject === '') {
+    return false;
+  }
+
+  const candidates = [
+    thread.record.subject,
+    ...thread.record.correspondence
+      .filter((entry) => entry.direction === 'outbound' && entry.source === 'platform_send')
+      .map((entry) => entry.subject),
+  ];
+
+  return candidates.some(
+    (candidate) => normalizeSubjectForThreadMatching(candidate) === normalizedSubject
+  );
+};
+
 const buildDuplicateResolutionMetadata = (matchCount: number): Record<string, unknown> =>
   matchCount > 1
     ? {
@@ -135,7 +238,7 @@ const buildUnmatchedMetadata = (
 
 const buildMatchedMetadata = (input: {
   matchReason: string;
-  matchedBy: 'headers' | 'subject' | 'interaction_key';
+  matchedBy: 'headers' | 'subject' | 'interaction_key' | 'recipient';
   matchCount?: number;
 }): Record<string, unknown> => ({
   matchStatus: 'matched',
@@ -335,6 +438,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
       }
 
       let thread = null;
+      let matchReason: string | null = null;
       if (referencedThreadKeyResult.value !== null) {
         const threadResult = await repo.findThreadByKey(referencedThreadKeyResult.value);
         if (threadResult.isErr()) {
@@ -343,8 +447,11 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
         thread = threadResult.value;
       }
 
-      let matchedBy: 'headers' | 'subject' | 'interaction_key' | null =
+      let matchedBy: 'headers' | 'subject' | 'interaction_key' | 'recipient' | null =
         thread !== null ? 'headers' : null;
+      if (thread !== null) {
+        matchReason = 'matched_by_headers';
+      }
 
       const extractedThreadKey = extractThreadKeyFromSubject(receivedEmail.subject);
       if (thread === null && extractedThreadKey !== null) {
@@ -355,9 +462,14 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
 
         thread = threadByKeyResult.value;
         matchedBy = thread !== null ? 'subject' : null;
+        if (thread !== null) {
+          matchReason = 'matched_by_subject';
+        }
       }
 
       const interactionKey = buildSelfSendInteractionKey(receivedEmail.from, receivedEmail.subject);
+      const wasCapturedViaCc = isCapturedViaCc(receivedEmail, captureAddress);
+      let deferredUnmatchedMetadata: Record<string, unknown> | null = null;
 
       const approveSelfSendRecord = async (context: PublicDebateSelfSendContext): Promise<void> => {
         if (selfSendApprovalService === undefined) {
@@ -373,17 +485,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
         }
       };
 
-      if (thread === null) {
-        if (!isCapturedViaCc(receivedEmail, captureAddress)) {
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            metadata: buildUnmatchedMetadata('capture_address_not_in_cc', receivedEmail, {
-              interactionKey,
-              ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
-            }),
-          });
-          return;
-        }
-
+      if (thread === null && wasCapturedViaCc) {
         const selfSendContextMatchResult =
           await selfSendContextLookup.findByInteractionKey(interactionKey);
         if (selfSendContextMatchResult.isErr()) {
@@ -392,166 +494,29 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
 
         const selfSendContextMatch = selfSendContextMatchResult.value;
         if (selfSendContextMatch === null) {
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            metadata: buildUnmatchedMetadata('interaction_key_not_found', receivedEmail, {
+          deferredUnmatchedMetadata = buildUnmatchedMetadata(
+            'interaction_key_not_found',
+            receivedEmail,
+            {
               interactionKey,
               ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
-            }),
-          });
-          return;
-        }
-
-        const existingSelfSendThreadResult =
-          await repo.findSelfSendThreadByInteractionKey(interactionKey);
-        if (existingSelfSendThreadResult.isErr()) {
-          throw new Error(existingSelfSendThreadResult.error.message);
-        }
-
-        if (
-          existingSelfSendThreadResult.value !== null &&
-          existingSelfSendThreadResult.value.entityCui === selfSendContextMatch.context.entityCui
-        ) {
-          const outboundEntry = createEntry({
-            direction: 'outbound',
-            source: 'self_send_cc',
-            campaignKey: existingSelfSendThreadResult.value.campaignKey,
-            email: receivedEmail,
-            metadata: {
-              interactionKey,
-              rawMessage: mapRawMessage(receivedEmail),
-            },
-          });
-
-          const appendResult = await repo.appendCorrespondenceEntry({
-            threadId: existingSelfSendThreadResult.value.id,
-            lastEmailAt: receivedEmail.createdAt,
-            entry: outboundEntry,
-          });
-          if (appendResult.isErr()) {
-            throw new Error(appendResult.error.message);
-          }
-
-          await approveSelfSendRecord(selfSendContextMatch.context);
-
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            threadKey: appendResult.value.threadKey,
-            ...(receivedEmail.messageId !== null ? { messageId: receivedEmail.messageId } : {}),
-            metadata: buildMatchedMetadata({
-              matchReason: 'matched_existing_self_send_thread_by_interaction_key',
-              matchedBy: 'interaction_key',
-              matchCount: selfSendContextMatch.matchCount,
-            }),
-          });
-
-          return;
-        }
-
-        const candidateEmails = extractInstitutionCandidateEmails(receivedEmail, ownedAddresses);
-        const entityMatchesResult =
-          await officialEmailLookup.findEntitiesByOfficialEmails(candidateEmails);
-        if (entityMatchesResult.isErr()) {
-          throw new Error(entityMatchesResult.error.message);
-        }
-
-        const uniqueEntityMatches = entityMatchesResult.value.filter(
-          (match, index, all) =>
-            all.findIndex((candidate) => candidate.entityCui === match.entityCui) === index
-        );
-
-        if (uniqueEntityMatches.length !== 1) {
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            metadata: buildUnmatchedMetadata(
-              uniqueEntityMatches.length === 0
-                ? 'official_email_not_found'
-                : 'official_email_ambiguous',
-              receivedEmail,
-              {
-                interactionKey,
-                ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
-                matchStatus: uniqueEntityMatches.length === 0 ? 'unmatched' : 'ambiguous',
-                candidateEntityCuis: uniqueEntityMatches.map((match) => match.entityCui),
-                ...buildDuplicateResolutionMetadata(selfSendContextMatch.matchCount),
-              }
-            ),
-          });
-          return;
-        }
-
-        const entityMatch = uniqueEntityMatches[0];
-        if (entityMatch === undefined) {
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            metadata: buildUnmatchedMetadata('official_email_not_found', receivedEmail, {
-              interactionKey,
-              ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
-            }),
-          });
-          return;
-        }
-
-        if (entityMatch.entityCui !== selfSendContextMatch.context.entityCui) {
-          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-            metadata: buildUnmatchedMetadata('interaction_entity_mismatch', receivedEmail, {
-              interactionKey,
-              ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
-              candidateEntityCuis: [entityMatch.entityCui],
-              ...buildDuplicateResolutionMetadata(selfSendContextMatch.matchCount),
-            }),
-          });
-          return;
-        }
-
-        const outboundEntry = createEntry({
-          direction: 'outbound',
-          source: 'self_send_cc',
-          campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
-          email: receivedEmail,
-          metadata: {
-            interactionKey,
-            rawMessage: mapRawMessage(receivedEmail),
-          },
-        });
-
-        const createThreadResult = await repo.createThread({
-          entityCui: selfSendContextMatch.context.entityCui,
-          campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
-          // Subject fallback remains available only when the captured self-send email
-          // already carries a stable token; otherwise replies must correlate by headers.
-          threadKey: extractedThreadKey ?? `funky:thread:${randomUUID()}`,
-          phase: 'awaiting_reply',
-          lastEmailAt: receivedEmail.createdAt,
-          record: createSelfSendThreadRecord({
-            ownerUserId: selfSendContextMatch.context.userId,
-            institutionEmail: entityMatch.officialEmail,
-            requesterOrganizationName: selfSendContextMatch.context.requesterOrganizationName,
-            metadata: buildSelfSendThreadMetadata({
-              context: selfSendContextMatch.context,
-              interactionKey,
-              duplicateInteractionCount: selfSendContextMatch.matchCount,
-              capturedFromAddress: receivedEmail.from,
-            }),
-            subject: receivedEmail.subject,
-            captureAddress,
-            entry: outboundEntry,
-          }),
-        });
-        if (
-          createThreadResult.isErr() &&
-          createThreadResult.error.type === 'CorrespondenceConflictError'
-        ) {
-          const reloadedThreadResult =
+            }
+          );
+        } else {
+          const existingSelfSendThreadResult =
             await repo.findSelfSendThreadByInteractionKey(interactionKey);
-          if (reloadedThreadResult.isErr()) {
-            throw new Error(reloadedThreadResult.error.message);
+          if (existingSelfSendThreadResult.isErr()) {
+            throw new Error(existingSelfSendThreadResult.error.message);
           }
 
           if (
-            reloadedThreadResult.value !== null &&
-            reloadedThreadResult.value.entityCui === selfSendContextMatch.context.entityCui
+            existingSelfSendThreadResult.value !== null &&
+            existingSelfSendThreadResult.value.entityCui === selfSendContextMatch.context.entityCui
           ) {
             const outboundEntry = createEntry({
               direction: 'outbound',
               source: 'self_send_cc',
-              campaignKey: reloadedThreadResult.value.campaignKey,
+              campaignKey: existingSelfSendThreadResult.value.campaignKey,
               email: receivedEmail,
               metadata: {
                 interactionKey,
@@ -560,7 +525,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
             });
 
             const appendResult = await repo.appendCorrespondenceEntry({
-              threadId: reloadedThreadResult.value.id,
+              threadId: existingSelfSendThreadResult.value.id,
               lastEmailAt: receivedEmail.createdAt,
               entry: outboundEntry,
             });
@@ -582,31 +547,240 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
 
             return;
           }
+
+          const candidateEmails = extractInstitutionCandidateEmails(receivedEmail, ownedAddresses);
+          const entityMatchesResult =
+            await officialEmailLookup.findEntitiesByOfficialEmails(candidateEmails);
+          if (entityMatchesResult.isErr()) {
+            throw new Error(entityMatchesResult.error.message);
+          }
+
+          const uniqueEntityMatches = dedupeEntityMatches(entityMatchesResult.value);
+
+          if (uniqueEntityMatches.length !== 1) {
+            await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+              metadata: buildUnmatchedMetadata(
+                uniqueEntityMatches.length === 0
+                  ? 'official_email_not_found'
+                  : 'official_email_ambiguous',
+                receivedEmail,
+                {
+                  interactionKey,
+                  ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
+                  matchStatus: uniqueEntityMatches.length === 0 ? 'unmatched' : 'ambiguous',
+                  candidateEntityCuis: uniqueEntityMatches.map((match) => match.entityCui),
+                  ...buildDuplicateResolutionMetadata(selfSendContextMatch.matchCount),
+                }
+              ),
+            });
+            return;
+          }
+
+          const entityMatch = uniqueEntityMatches[0];
+          if (entityMatch === undefined) {
+            await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+              metadata: buildUnmatchedMetadata('official_email_not_found', receivedEmail, {
+                interactionKey,
+                ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
+              }),
+            });
+            return;
+          }
+
+          if (entityMatch.entityCui !== selfSendContextMatch.context.entityCui) {
+            await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+              metadata: buildUnmatchedMetadata('interaction_entity_mismatch', receivedEmail, {
+                interactionKey,
+                ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
+                candidateEntityCuis: [entityMatch.entityCui],
+                ...buildDuplicateResolutionMetadata(selfSendContextMatch.matchCount),
+              }),
+            });
+            return;
+          }
+
+          const outboundEntry = createEntry({
+            direction: 'outbound',
+            source: 'self_send_cc',
+            campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
+            email: receivedEmail,
+            metadata: {
+              interactionKey,
+              rawMessage: mapRawMessage(receivedEmail),
+            },
+          });
+          const createThreadResult = await repo.createThread({
+            entityCui: selfSendContextMatch.context.entityCui,
+            campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
+            // Subject fallback remains available only when the captured self-send email
+            // already carries a stable token; otherwise replies must correlate by headers.
+            threadKey: extractedThreadKey ?? `funky:thread:${randomUUID()}`,
+            phase: 'awaiting_reply',
+            lastEmailAt: receivedEmail.createdAt,
+            record: createSelfSendThreadRecord({
+              ownerUserId: selfSendContextMatch.context.userId,
+              institutionEmail: entityMatch.officialEmail,
+              requesterOrganizationName: selfSendContextMatch.context.requesterOrganizationName,
+              metadata: buildSelfSendThreadMetadata({
+                context: selfSendContextMatch.context,
+                interactionKey,
+                duplicateInteractionCount: selfSendContextMatch.matchCount,
+                capturedFromAddress: receivedEmail.from,
+              }),
+              subject: receivedEmail.subject,
+              captureAddress,
+              entry: outboundEntry,
+            }),
+          });
+          if (
+            createThreadResult.isErr() &&
+            createThreadResult.error.type === 'CorrespondenceConflictError'
+          ) {
+            const reloadedThreadResult =
+              await repo.findSelfSendThreadByInteractionKey(interactionKey);
+            if (reloadedThreadResult.isErr()) {
+              throw new Error(reloadedThreadResult.error.message);
+            }
+
+            if (
+              reloadedThreadResult.value !== null &&
+              reloadedThreadResult.value.entityCui === selfSendContextMatch.context.entityCui
+            ) {
+              const outboundEntry = createEntry({
+                direction: 'outbound',
+                source: 'self_send_cc',
+                campaignKey: reloadedThreadResult.value.campaignKey,
+                email: receivedEmail,
+                metadata: {
+                  interactionKey,
+                  rawMessage: mapRawMessage(receivedEmail),
+                },
+              });
+
+              const appendResult = await repo.appendCorrespondenceEntry({
+                threadId: reloadedThreadResult.value.id,
+                lastEmailAt: receivedEmail.createdAt,
+                entry: outboundEntry,
+              });
+              if (appendResult.isErr()) {
+                throw new Error(appendResult.error.message);
+              }
+
+              await approveSelfSendRecord(selfSendContextMatch.context);
+
+              await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+                threadKey: appendResult.value.threadKey,
+                ...(receivedEmail.messageId !== null ? { messageId: receivedEmail.messageId } : {}),
+                metadata: buildMatchedMetadata({
+                  matchReason: 'matched_existing_self_send_thread_by_interaction_key',
+                  matchedBy: 'interaction_key',
+                  matchCount: selfSendContextMatch.matchCount,
+                }),
+              });
+
+              return;
+            }
+          }
+
+          if (createThreadResult.isErr()) {
+            throw new Error(createThreadResult.error.message);
+          }
+
+          await approveSelfSendRecord(selfSendContextMatch.context);
+
+          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+            threadKey: createThreadResult.value.threadKey,
+            ...(receivedEmail.messageId !== null ? { messageId: receivedEmail.messageId } : {}),
+            metadata: buildMatchedMetadata({
+              matchReason: 'created_from_interaction_key_and_official_email',
+              matchedBy: 'interaction_key',
+              matchCount: selfSendContextMatch.matchCount,
+            }),
+          });
+
+          await updatePublisher?.publish({
+            eventType: 'thread_started',
+            thread: createThreadResult.value,
+            occurredAt: receivedEmail.createdAt,
+          });
+
+          return;
+        }
+      }
+
+      if (thread === null) {
+        const candidateEmails = extractInstitutionCandidateEmails(receivedEmail, ownedAddresses);
+        if (candidateEmails.length > 0) {
+          const recipientMatchesResult =
+            await officialEmailLookup.findEntitiesByOfficialEmails(candidateEmails);
+          if (recipientMatchesResult.isErr()) {
+            throw new Error(recipientMatchesResult.error.message);
+          }
+
+          const uniqueRecipientMatches = dedupeEntityMatches(recipientMatchesResult.value);
+          if (uniqueRecipientMatches.length === 1) {
+            const recipientMatch = uniqueRecipientMatches[0];
+            if (recipientMatch !== undefined) {
+              if (
+                isVerifiedInstitutionSender(
+                  receivedEmail.from,
+                  recipientMatch.officialEmail,
+                  receivedEmail.headers
+                )
+              ) {
+                const platformThreadResult = await repo.findPlatformSendThreadByEntity({
+                  entityCui: recipientMatch.entityCui,
+                  campaign: PUBLIC_DEBATE_CAMPAIGN_KEY,
+                });
+                if (platformThreadResult.isErr()) {
+                  throw new Error(platformThreadResult.error.message);
+                }
+
+                if (
+                  platformThreadResult.value !== null &&
+                  threadMatchesReceivedSubject(platformThreadResult.value, receivedEmail.subject)
+                ) {
+                  thread = platformThreadResult.value;
+                  matchedBy = 'recipient';
+                  matchReason = 'matched_by_recipient_and_subject';
+                }
+              } else {
+                deferredUnmatchedMetadata ??= buildUnmatchedMetadata(
+                  'platform_reply_sender_mismatch',
+                  receivedEmail,
+                  {
+                    ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
+                    candidateEntityCuis: [recipientMatch.entityCui],
+                    matchedBy: 'recipient',
+                  }
+                );
+              }
+            }
+          }
+        }
+      }
+
+      if (thread === null) {
+        if (deferredUnmatchedMetadata !== null) {
+          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+            metadata: deferredUnmatchedMetadata,
+          });
+          return;
         }
 
-        if (createThreadResult.isErr()) {
-          throw new Error(createThreadResult.error.message);
+        if (!wasCapturedViaCc) {
+          await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
+            metadata: buildUnmatchedMetadata('capture_address_not_in_cc', receivedEmail, {
+              interactionKey,
+              ...(extractedThreadKey !== null ? { extractedThreadKey } : {}),
+            }),
+          });
+          return;
         }
+      }
 
-        await approveSelfSendRecord(selfSendContextMatch.context);
-
-        await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
-          threadKey: createThreadResult.value.threadKey,
-          ...(receivedEmail.messageId !== null ? { messageId: receivedEmail.messageId } : {}),
-          metadata: buildMatchedMetadata({
-            matchReason: 'created_from_interaction_key_and_official_email',
-            matchedBy: 'interaction_key',
-            matchCount: selfSendContextMatch.matchCount,
-          }),
-        });
-
-        await updatePublisher?.publish({
-          eventType: 'thread_started',
-          thread: createThreadResult.value,
-          occurredAt: receivedEmail.createdAt,
-        });
-
-        return;
+      if (thread === null) {
+        throw new Error('Expected matched thread before appending inbound correspondence');
       }
 
       const inboundEntry = createEntry({
@@ -633,7 +807,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
       await updateStoredEvent(emailEventsRepo, input.storedEvent.id, {
         threadKey: appendResult.value.threadKey,
         metadata: buildMatchedMetadata({
-          matchReason: matchedBy === 'headers' ? 'matched_by_headers' : 'matched_by_subject',
+          matchReason: matchReason ?? 'matched_by_subject',
           matchedBy: matchedBy ?? 'subject',
         }),
       });

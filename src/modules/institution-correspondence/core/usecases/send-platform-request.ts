@@ -14,6 +14,7 @@ import {
   DEFAULT_REQUEST_TYPE,
   EMAIL_REGEX,
   encodeThreadKeyForTag,
+  embedThreadKeyInSubject,
   computeContestationDeadline,
   getBudgetYear,
   normalizeOptionalString,
@@ -119,6 +120,7 @@ export async function sendPlatformRequest(
     budgetYear: getBudgetYear(publicationDate),
     threadKey,
   });
+  const outboundSubject = embedThreadKeyInSubject(rendered.subject, threadKey);
 
   const createThreadResult = await deps.repo.createThread({
     entityCui,
@@ -147,7 +149,7 @@ export async function sendPlatformRequest(
     to: institutionEmail,
     cc: deps.auditCcRecipients,
     replyTo: [deps.captureAddress],
-    subject: rendered.subject,
+    subject: outboundSubject,
     html: rendered.html,
     text: rendered.text,
     idempotencyKey: providerSendAttemptId,
@@ -190,7 +192,7 @@ export async function sendPlatformRequest(
       toAddresses: [institutionEmail],
       ccAddresses: deps.auditCcRecipients,
       bccAddresses: [],
-      subject: rendered.subject,
+      subject: outboundSubject,
       textBody: rendered.text,
       htmlBody: rendered.html,
       headers: {},

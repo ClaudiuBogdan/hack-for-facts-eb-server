@@ -210,7 +210,7 @@ export interface UnmatchedInboundMetadata {
   candidateEntityCuis?: string[];
   duplicateInteractionCount?: number;
   duplicateResolution?: 'first_wins';
-  matchedBy?: 'headers' | 'subject' | 'interaction_key';
+  matchedBy?: 'headers' | 'subject' | 'interaction_key' | 'recipient';
 }
 
 export const RESOLUTION_TO_PHASE: Record<ResolutionCode, ThreadPhase> = {

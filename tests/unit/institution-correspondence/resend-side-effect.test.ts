@@ -13,6 +13,7 @@ import {
 
 import {
   createCorrespondenceEntry,
+  createPlatformSendOutboundEntry,
   createThreadAggregateRecord,
   createThreadRecord,
   createSendingPlatformSendThread,
@@ -218,8 +219,12 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
       repo,
       officialEmailLookup: {
-        async findEntitiesByOfficialEmails() {
-          return ok([{ entityCui: '12345678', officialEmail: 'contact@primarie.ro' }]);
+        async findEntitiesByOfficialEmails(emails) {
+          return ok(
+            emails.includes('contact@primarie.ro')
+              ? [{ entityCui: '12345678', officialEmail: 'contact@primarie.ro' }]
+              : []
+          );
         },
       },
       selfSendContextLookup: {
@@ -1209,6 +1214,368 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
       matchStatus: 'matched',
       matchReason: 'matched_by_headers',
       matchedBy: 'headers',
+    });
+  });
+
+  it('matches a platform-send thread by recipient and normalized subject when headers are missing', async () => {
+    const updateStoredEvent = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-platform-recipient-1',
+          entityCui: '12345678',
+          threadKey: 'thread-key-platform-recipient-1',
+          phase: 'awaiting_reply',
+          record: createThreadAggregateRecord({
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Comuna Test',
+            institutionEmail: 'contact@primarie.ro',
+            correspondence: [
+              createPlatformSendOutboundEntry({
+                resendEmailId: 'email-platform-1',
+                messageId: null,
+                subject:
+                  'Cerere dezbatere buget local - Comuna Test [teu:thread-key-platform-recipient-1]',
+              }),
+            ],
+          }),
+        }),
+      ],
+    });
+
+    const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
+      repo,
+      officialEmailLookup: {
+        async findEntitiesByOfficialEmails() {
+          return ok([{ entityCui: '12345678', officialEmail: 'contact@primarie.ro' }]);
+        },
+      },
+      selfSendContextLookup: {
+        async findByInteractionKey() {
+          return ok(null);
+        },
+      },
+      emailEventsRepo: {
+        async insert() {
+          throw new Error('not used');
+        },
+        async findBySvixId() {
+          throw new Error('not used');
+        },
+        async findThreadKeyByMessageReferences() {
+          return ok(null);
+        },
+        updateStoredEvent,
+      },
+      receivedEmailFetcher: {
+        async getReceivedEmail() {
+          return ok({
+            id: 'received-email-platform-reply-1',
+            to: [captureAddress],
+            from: 'office@primarie.ro',
+            createdAt: new Date('2026-03-25T13:00:00.000Z'),
+            subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+            html: '<p>Raspuns</p>',
+            text: 'Raspuns',
+            headers: {
+              'message-id': '<message-platform-reply-1>',
+              'authentication-results':
+                'mx.example; dkim=pass header.d=primarie.ro; dmarc=pass header.from=primarie.ro',
+            },
+            bcc: [],
+            cc: ['contact@primarie.ro'],
+            replyTo: [],
+            messageId: '<message-platform-reply-1>',
+            attachments: [],
+            rawDownloadUrl: null,
+            rawExpiresAt: null,
+          });
+        },
+      },
+      captureAddress,
+      auditCcRecipients: [],
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: {
+        type: 'email.received',
+        created_at: '2026-03-25T13:00:01.000Z',
+        data: {
+          email_id: 'received-email-platform-reply-1',
+          from: 'office@primarie.ro',
+          to: [captureAddress],
+          cc: ['contact@primarie.ro'],
+          bcc: [],
+          subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+          created_at: '2026-03-25T13:00:00.000Z',
+        },
+      },
+      storedEvent: createStoredEvent({
+        id: 'stored-platform-reply-1',
+        svixId: 'svix-platform-reply-1',
+        emailId: 'received-email-platform-reply-1',
+        fromAddress: 'office@primarie.ro',
+        toAddresses: [captureAddress],
+        ccAddresses: ['contact@primarie.ro'],
+        subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+      }),
+    });
+
+    const thread = await repo.findThreadById('thread-platform-recipient-1');
+    expect(thread.isOk()).toBe(true);
+    if (thread.isOk()) {
+      expect(thread.value?.phase).toBe('reply_received_unreviewed');
+      expect(thread.value?.record.correspondence).toHaveLength(2);
+      expect(thread.value?.record.correspondence[1]?.direction).toBe('inbound');
+      expect(thread.value?.lastReplyAt?.toISOString()).toBe('2026-03-25T13:00:00.000Z');
+    }
+
+    expect(updateStoredEvent).toHaveBeenCalledWith('stored-platform-reply-1', {
+      threadKey: 'thread-key-platform-recipient-1',
+      metadata: {
+        matchStatus: 'matched',
+        matchReason: 'matched_by_recipient_and_subject',
+        matchedBy: 'recipient',
+      },
+    });
+  });
+
+  it('prefers self-send correlation over recipient fallback when capture address is in cc', async () => {
+    const updateStoredEvent = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-platform-1',
+          entityCui: '12345678',
+          threadKey: 'thread-key-platform-1',
+          phase: 'awaiting_reply',
+          record: createThreadAggregateRecord({
+            submissionPath: 'platform_send',
+            subject,
+            institutionEmail: 'contact@primarie.ro',
+            correspondence: [],
+          }),
+        }),
+      ],
+    });
+
+    const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
+      repo,
+      officialEmailLookup: {
+        async findEntitiesByOfficialEmails() {
+          return ok([{ entityCui: '12345678', officialEmail: 'contact@primarie.ro' }]);
+        },
+      },
+      selfSendContextLookup: {
+        async findByInteractionKey() {
+          return ok(createSelfSendMatch());
+        },
+      },
+      emailEventsRepo: {
+        async insert() {
+          throw new Error('not used');
+        },
+        async findBySvixId() {
+          throw new Error('not used');
+        },
+        async findThreadKeyByMessageReferences() {
+          return ok(null);
+        },
+        updateStoredEvent,
+      },
+      receivedEmailFetcher: {
+        async getReceivedEmail() {
+          return ok({
+            id: 'received-email-self-send-priority',
+            to: ['contact@primarie.ro'],
+            from: 'ngo@example.com',
+            createdAt: new Date('2026-03-25T12:00:00.000Z'),
+            subject,
+            html: '<p>Body</p>',
+            text: 'Body',
+            headers: { 'message-id': '<message-self-send-priority>' },
+            bcc: [],
+            cc: [captureAddress],
+            replyTo: [],
+            messageId: '<message-self-send-priority>',
+            attachments: [],
+            rawDownloadUrl: null,
+            rawExpiresAt: null,
+          });
+        },
+      },
+      selfSendApprovalService: {
+        approvePendingRecord: async () => ok(undefined),
+      },
+      captureAddress,
+      auditCcRecipients: [],
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: {
+        type: 'email.received',
+        created_at: '2026-03-25T12:00:01.000Z',
+        data: {
+          email_id: 'received-email-self-send-priority',
+          from: 'ngo@example.com',
+          to: ['contact@primarie.ro'],
+          cc: [captureAddress],
+          bcc: [],
+          subject,
+          created_at: '2026-03-25T12:00:00.000Z',
+        },
+      },
+      storedEvent: createStoredEvent({
+        id: 'stored-self-send-priority',
+        svixId: 'svix-self-send-priority',
+        emailId: 'received-email-self-send-priority',
+        fromAddress: 'ngo@example.com',
+        toAddresses: ['contact@primarie.ro'],
+        ccAddresses: [captureAddress],
+        subject,
+      }),
+    });
+
+    const platformThread = await repo.findThreadById('thread-platform-1');
+    expect(platformThread.isOk()).toBe(true);
+    if (platformThread.isOk()) {
+      expect(platformThread.value?.record.submissionPath).toBe('platform_send');
+      expect(platformThread.value?.record.correspondence).toHaveLength(0);
+      expect(platformThread.value?.phase).toBe('awaiting_reply');
+    }
+
+    const selfSendThread = await repo.findSelfSendThreadByInteractionKey(interactionKey);
+    expect(selfSendThread.isOk()).toBe(true);
+    if (selfSendThread.isOk()) {
+      expect(selfSendThread.value?.record.submissionPath).toBe('self_send_cc');
+      expect(selfSendThread.value?.record.correspondence).toHaveLength(1);
+    }
+
+    expect(updateStoredEvent).toHaveBeenCalledWith('stored-self-send-priority', {
+      threadKey: expect.any(String),
+      messageId: '<message-self-send-priority>',
+      metadata: {
+        matchStatus: 'matched',
+        matchReason: 'created_from_interaction_key_and_official_email',
+        matchedBy: 'interaction_key',
+      },
+    });
+  });
+
+  it('does not use recipient fallback when the sender is same-domain but unauthenticated', async () => {
+    const updateStoredEvent = vi.fn().mockResolvedValue(ok(createStoredEvent()));
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-platform-sender-check',
+          entityCui: '12345678',
+          threadKey: 'thread-key-platform-sender-check',
+          phase: 'awaiting_reply',
+          record: createThreadAggregateRecord({
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Comuna Test',
+            institutionEmail: 'contact@primarie.ro',
+            correspondence: [],
+          }),
+        }),
+      ],
+    });
+
+    const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
+      repo,
+      officialEmailLookup: {
+        async findEntitiesByOfficialEmails(emails) {
+          if (emails.includes('contact@primarie.ro')) {
+            return ok([{ entityCui: '12345678', officialEmail: 'contact@primarie.ro' }]);
+          }
+
+          return ok([]);
+        },
+      },
+      selfSendContextLookup: {
+        async findByInteractionKey() {
+          return ok(null);
+        },
+      },
+      emailEventsRepo: {
+        async insert() {
+          throw new Error('not used');
+        },
+        async findBySvixId() {
+          throw new Error('not used');
+        },
+        async findThreadKeyByMessageReferences() {
+          return ok(null);
+        },
+        updateStoredEvent,
+      },
+      receivedEmailFetcher: {
+        async getReceivedEmail() {
+          return ok({
+            id: 'received-email-platform-reply-spoofed',
+            to: [captureAddress],
+            from: 'office@primarie.ro',
+            createdAt: new Date('2026-03-25T13:00:00.000Z'),
+            subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+            html: '<p>Forwarded</p>',
+            text: 'Forwarded',
+            headers: { 'message-id': '<message-platform-reply-spoofed>' },
+            bcc: [],
+            cc: ['contact@primarie.ro'],
+            replyTo: [],
+            messageId: '<message-platform-reply-spoofed>',
+            attachments: [],
+            rawDownloadUrl: null,
+            rawExpiresAt: null,
+          });
+        },
+      },
+      captureAddress,
+      auditCcRecipients: [],
+      logger: testLogger,
+    });
+
+    await sideEffect.handle({
+      event: {
+        type: 'email.received',
+        created_at: '2026-03-25T13:00:01.000Z',
+        data: {
+          email_id: 'received-email-platform-reply-spoofed',
+          from: 'office@primarie.ro',
+          to: [captureAddress],
+          cc: ['contact@primarie.ro'],
+          bcc: [],
+          subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+          created_at: '2026-03-25T13:00:00.000Z',
+        },
+      },
+      storedEvent: createStoredEvent({
+        id: 'stored-platform-reply-spoofed',
+        svixId: 'svix-platform-reply-spoofed',
+        emailId: 'received-email-platform-reply-spoofed',
+        fromAddress: 'office@primarie.ro',
+        toAddresses: [captureAddress],
+        ccAddresses: ['contact@primarie.ro'],
+        subject: 'Re: Cerere dezbatere buget local - Comuna Test',
+      }),
+    });
+
+    const thread = await repo.findThreadById('thread-platform-sender-check');
+    expect(thread.isOk()).toBe(true);
+    if (thread.isOk()) {
+      expect(thread.value?.phase).toBe('awaiting_reply');
+      expect(thread.value?.record.correspondence).toHaveLength(0);
+    }
+
+    expect(updateStoredEvent).toHaveBeenCalledWith('stored-platform-reply-spoofed', {
+      metadata: expect.objectContaining({
+        matchStatus: 'unmatched',
+        matchReason: 'platform_reply_sender_mismatch',
+        matchedBy: 'recipient',
+        candidateEntityCuis: ['12345678'],
+      }),
     });
   });
 
