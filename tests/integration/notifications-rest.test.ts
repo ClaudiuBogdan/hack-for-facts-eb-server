@@ -439,6 +439,68 @@ describe('Notifications REST API', () => {
       expect(body.data.isActive).toBe(false);
     });
 
+    it('cascades public debate master toggle updates to campaign entity subscriptions only', async () => {
+      const globalPreference = createTestNotification({
+        id: testUuid1,
+        userId: testAuth.userIds.user1,
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: true,
+      });
+      const campaignEntityNotification = createTestNotification({
+        id: 'campaign-entity-1',
+        userId: testAuth.userIds.user1,
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '12345678',
+        isActive: true,
+      });
+      const unrelatedNotification = createTestNotification({
+        id: 'newsletter-1',
+        userId: testAuth.userIds.user1,
+        notificationType: 'newsletter_entity_monthly',
+        entityCui: '12345678',
+        isActive: true,
+      });
+      const notificationsRepo = makeFakeNotificationsRepo({
+        notifications: [globalPreference, campaignEntityNotification, unrelatedNotification],
+      });
+
+      if (app != null) await app.close();
+      app = await createTestApp({ notificationsRepo });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/notifications/${testUuid1}`,
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          isActive: false,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ok).toBe(true);
+      expect(body.data.id).toBe(testUuid1);
+      expect(body.data.notificationType).toBe('funky:notification:global');
+      expect(body.data.isActive).toBe(false);
+
+      const campaignEntityResult = await notificationsRepo.findById(campaignEntityNotification.id);
+      const unrelatedResult = await notificationsRepo.findById(unrelatedNotification.id);
+
+      expect(campaignEntityResult.isOk()).toBe(true);
+      expect(unrelatedResult.isOk()).toBe(true);
+
+      if (campaignEntityResult.isOk()) {
+        expect(campaignEntityResult.value?.isActive).toBe(false);
+      }
+      if (unrelatedResult.isOk()) {
+        expect(unrelatedResult.value?.isActive).toBe(true);
+      }
+    });
+
     it('returns 404 when notification does not exist', async () => {
       if (app != null) await app.close();
       app = await createTestApp({});

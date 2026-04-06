@@ -7,6 +7,8 @@
 
 import { err, type Result } from 'neverthrow';
 
+import { FUNKY_NOTIFICATION_GLOBAL_TYPE } from '@/common/campaign-keys.js';
+
 import {
   createNotificationNotFoundError,
   createNotificationForbiddenError,
@@ -123,6 +125,17 @@ export async function updateNotification(
 
   if (newHash !== notification.hash) {
     payload.hash = newHash;
+  }
+
+  if (
+    notification.notificationType === FUNKY_NOTIFICATION_GLOBAL_TYPE &&
+    updates.isActive !== undefined
+  ) {
+    return notificationsRepo.updateCampaignGlobalPreference(notificationId, {
+      isActive: updates.isActive,
+      ...(payload.config !== undefined ? { config: payload.config } : {}),
+      ...(payload.hash !== undefined ? { hash: payload.hash } : {}),
+    });
   }
 
   // Update

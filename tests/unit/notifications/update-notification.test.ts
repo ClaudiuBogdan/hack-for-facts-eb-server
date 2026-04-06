@@ -137,6 +137,148 @@ describe('updateNotification use case', () => {
         expect(result.value.isActive).toBe(true); // Unchanged
       }
     });
+
+    it('disables all public debate entity subscriptions when the campaign master toggle is disabled', async () => {
+      const globalPreference = createTestNotification({
+        id: 'global-notification',
+        userId: 'user-1',
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: true,
+      });
+      const campaignEntityOne = createTestNotification({
+        id: 'campaign-entity-1',
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '12345678',
+        isActive: true,
+      });
+      const campaignEntityTwo = createTestNotification({
+        id: 'campaign-entity-2',
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '87654321',
+        isActive: true,
+      });
+      const unrelatedNotification = createTestNotification({
+        id: 'newsletter-1',
+        userId: 'user-1',
+        notificationType: 'newsletter_entity_monthly',
+        entityCui: '12345678',
+        isActive: true,
+      });
+      const repo = makeFakeNotificationsRepo({
+        notifications: [
+          globalPreference,
+          campaignEntityOne,
+          campaignEntityTwo,
+          unrelatedNotification,
+        ],
+      });
+
+      const result = await updateNotification(
+        { notificationsRepo: repo, hasher },
+        {
+          notificationId: globalPreference.id,
+          userId: 'user-1',
+          updates: { isActive: false },
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.isActive).toBe(false);
+      }
+
+      const campaignEntityOneResult = await repo.findById(campaignEntityOne.id);
+      const campaignEntityTwoResult = await repo.findById(campaignEntityTwo.id);
+      const unrelatedResult = await repo.findById(unrelatedNotification.id);
+
+      expect(campaignEntityOneResult.isOk()).toBe(true);
+      expect(campaignEntityTwoResult.isOk()).toBe(true);
+      expect(unrelatedResult.isOk()).toBe(true);
+
+      if (campaignEntityOneResult.isOk()) {
+        expect(campaignEntityOneResult.value?.isActive).toBe(false);
+      }
+      if (campaignEntityTwoResult.isOk()) {
+        expect(campaignEntityTwoResult.value?.isActive).toBe(false);
+      }
+      if (unrelatedResult.isOk()) {
+        expect(unrelatedResult.value?.isActive).toBe(true);
+      }
+    });
+
+    it('re-enables all public debate entity subscriptions when the campaign master toggle is enabled', async () => {
+      const globalPreference = createTestNotification({
+        id: 'global-notification',
+        userId: 'user-1',
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: false,
+      });
+      const campaignEntityOne = createTestNotification({
+        id: 'campaign-entity-1',
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '12345678',
+        isActive: false,
+      });
+      const campaignEntityTwo = createTestNotification({
+        id: 'campaign-entity-2',
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '87654321',
+        isActive: false,
+      });
+      const unrelatedNotification = createTestNotification({
+        id: 'newsletter-1',
+        userId: 'user-1',
+        notificationType: 'newsletter_entity_monthly',
+        entityCui: '12345678',
+        isActive: true,
+      });
+      const repo = makeFakeNotificationsRepo({
+        notifications: [
+          globalPreference,
+          campaignEntityOne,
+          campaignEntityTwo,
+          unrelatedNotification,
+        ],
+      });
+
+      const result = await updateNotification(
+        { notificationsRepo: repo, hasher },
+        {
+          notificationId: globalPreference.id,
+          userId: 'user-1',
+          updates: { isActive: true },
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.isActive).toBe(true);
+      }
+
+      const campaignEntityOneResult = await repo.findById(campaignEntityOne.id);
+      const campaignEntityTwoResult = await repo.findById(campaignEntityTwo.id);
+      const unrelatedResult = await repo.findById(unrelatedNotification.id);
+
+      expect(campaignEntityOneResult.isOk()).toBe(true);
+      expect(campaignEntityTwoResult.isOk()).toBe(true);
+      expect(unrelatedResult.isOk()).toBe(true);
+
+      if (campaignEntityOneResult.isOk()) {
+        expect(campaignEntityOneResult.value?.isActive).toBe(true);
+      }
+      if (campaignEntityTwoResult.isOk()) {
+        expect(campaignEntityTwoResult.value?.isActive).toBe(true);
+      }
+      if (unrelatedResult.isOk()) {
+        expect(unrelatedResult.value?.isActive).toBe(true);
+      }
+    });
   });
 
   describe('updating newsletter config', () => {
