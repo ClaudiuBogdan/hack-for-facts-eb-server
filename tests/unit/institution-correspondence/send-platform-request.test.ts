@@ -2,6 +2,7 @@ import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  extractThreadKeyFromSubject,
   PUBLIC_DEBATE_REQUEST_TYPE,
   encodeThreadKeyForTag,
   makePublicDebateTemplateRenderer,
@@ -58,6 +59,14 @@ describe('sendPlatformRequest', () => {
       );
       expect(sentEmails[0]?.['cc']).toEqual(['audit@transparenta.test']);
       expect(sentEmails[0]?.['replyTo']).toEqual(['debate@transparenta.test']);
+      expect(sentEmails[0]?.['subject']).toBe(
+        `Cerere dezbatere buget local - COMUNA ION ROATA [teu:${result.value.thread.threadKey}]`
+      );
+      expect(
+        typeof sentEmails[0]?.['subject'] === 'string'
+          ? extractThreadKeyFromSubject(sentEmails[0]['subject'])
+          : null
+      ).toBe(result.value.thread.threadKey);
       expect(sentEmails[0]?.['tags']).toEqual([
         { name: 'thread_key', value: encodeThreadKeyForTag(result.value.thread.threadKey) },
         { name: 'request_type', value: 'funky' },
