@@ -2,6 +2,11 @@ import { Button, Link, Section, Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
+import {
+  buildCampaignEntityUrl,
+  buildCampaignLocalitiesUrl,
+} from '@/common/utils/build-campaign-entity-url.js';
+
 import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
 import { getTranslations } from '../../core/i18n.js';
@@ -83,8 +88,8 @@ export const PublicDebateCampaignWelcomeEmail = (
   props: PublicDebateCampaignWelcomeProps
 ): React.ReactElement => {
   const t = getTranslations(props.lang).publicDebateCampaignWelcome;
-  const actionUrl = props.ctaUrl ?? `${props.platformBaseUrl}/entities/${props.entityCui}`;
-  const localityChangeUrl = `${props.platformBaseUrl}/primarie`;
+  const actionUrl = props.ctaUrl ?? buildCampaignEntityUrl(props.platformBaseUrl, props.entityCui);
+  const localityChangeUrl = buildCampaignLocalitiesUrl(props.platformBaseUrl);
 
   return (
     <EmailLayout

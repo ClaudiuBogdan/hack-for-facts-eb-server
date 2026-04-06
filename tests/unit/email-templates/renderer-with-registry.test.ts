@@ -86,6 +86,7 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.html).toContain('Vezi localitatea în platformă');
     expect(rendered.html).toContain('această pagină');
     expect(rendered.html).toContain('Primăria Municipiului Exemplu');
+    expect(rendered.html).toContain('https://transparenta.eu/primarie/12345678');
     expect(rendered.templateName).toBe('public_debate_campaign_welcome');
   });
 
@@ -115,6 +116,7 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.html).toContain('Localitățile selectate de tine:');
     expect(rendered.html).toContain('Municipiul Exemplu');
     expect(rendered.html).toContain('Municipiul Test');
+    expect(rendered.html).toContain('https://transparenta.eu/primarie/87654321');
     expect(rendered.templateName).toBe('public_debate_entity_subscription');
   });
 

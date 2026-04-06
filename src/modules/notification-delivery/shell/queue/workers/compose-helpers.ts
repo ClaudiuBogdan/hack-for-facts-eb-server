@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { buildCampaignEntityUrl } from '@/common/utils/build-campaign-entity-url.js';
+
 import type { TemplateError } from '../../../../email-templates/core/ports.js';
 import type {
   BudgetSummary,
@@ -42,6 +44,8 @@ export const buildNotificationSettingsUrl = (platformBaseUrl: string): string =>
 export const buildCampaignPreferencesUrl = (clientBaseUrl: string): string => {
   return `${clientBaseUrl}/provocare/notificari`;
 };
+
+export { buildCampaignEntityUrl };
 
 export const toDecimalString = (value: Decimal): string => value.toString();
 

@@ -63,6 +63,7 @@ const makeEmailRenderer = (
       preferencesUrl?: string;
       selectedEntities?: string[];
       entityName?: string;
+      ctaUrl?: string;
     }) => void;
   } = {}
 ) => ({
@@ -71,6 +72,7 @@ const makeEmailRenderer = (
     preferencesUrl?: string;
     selectedEntities?: string[];
     entityName?: string;
+    ctaUrl?: string;
   }) {
     options.onRender?.(props);
 
@@ -179,6 +181,7 @@ describe('compose worker helpers', () => {
   it('composes public debate campaign welcome emails from existing outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedPreferencesUrl: string | undefined;
+    let renderedCtaUrl: string | undefined;
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
         createTestDeliveryRecord({
@@ -207,6 +210,7 @@ describe('compose worker helpers', () => {
         emailRenderer: makeEmailRenderer({
           onRender: (props) => {
             renderedPreferencesUrl = props.preferencesUrl;
+            renderedCtaUrl = props.ctaUrl;
           },
         }),
         platformBaseUrl: 'https://transparenta.eu',
@@ -234,11 +238,13 @@ describe('compose worker helpers', () => {
       expect(outbox.value?.renderedHtml).toContain('public_debate_campaign_welcome');
     }
     expect(renderedPreferencesUrl).toBe('https://transparenta.eu/provocare/notificari');
+    expect(renderedCtaUrl).toBe('https://transparenta.eu/primarie/12345678');
   });
 
   it('composes public debate entity subscription emails from existing outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedSelectedEntities: string[] | undefined;
+    let renderedCtaUrl: string | undefined;
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
         createTestDeliveryRecord({
@@ -268,6 +274,7 @@ describe('compose worker helpers', () => {
         emailRenderer: makeEmailRenderer({
           onRender(props) {
             renderedSelectedEntities = props.selectedEntities;
+            renderedCtaUrl = props.ctaUrl;
           },
         }),
         platformBaseUrl: 'https://transparenta.eu',
@@ -294,6 +301,7 @@ describe('compose worker helpers', () => {
       expect(outbox.value?.renderedHtml).toContain('public_debate_entity_subscription');
     }
     expect(renderedSelectedEntities).toEqual(['Municipiul Test', 'Municipiul Exemplu']);
+    expect(renderedCtaUrl).toBe('https://transparenta.eu/primarie/87654321');
   });
 
   it('composes public debate entity update emails from outbox metadata', async () => {

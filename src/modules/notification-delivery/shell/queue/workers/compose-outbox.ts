@@ -4,6 +4,7 @@ import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 
 import {
+  buildCampaignEntityUrl,
   buildCampaignPreferencesUrl,
   buildNotificationSettingsUrl,
   type BundleComposeError,
@@ -196,7 +197,7 @@ const buildPublicDebateCampaignWelcomeTemplateProps = (
     entityCui,
     entityName,
     acceptedTermsAt,
-    ctaUrl: `${platformBaseUrl}/entities/${entityCui}`,
+    ctaUrl: buildCampaignEntityUrl(platformBaseUrl, entityCui),
   });
 };
 
@@ -253,7 +254,7 @@ const buildPublicDebateEntitySubscriptionTemplateProps = (
     entityName,
     acceptedTermsAt,
     ...(selectedEntities !== undefined && selectedEntities.length > 0 ? { selectedEntities } : {}),
-    ctaUrl: `${platformBaseUrl}/entities/${entityCui}`,
+    ctaUrl: buildCampaignEntityUrl(platformBaseUrl, entityCui),
   });
 };
 
