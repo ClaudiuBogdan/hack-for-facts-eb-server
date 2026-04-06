@@ -170,6 +170,7 @@ import {
   type ReviewDecision,
   type SyncEventsInput,
 } from '../modules/learning-progress/index.js';
+import { createLearningProgressPostSyncHookRunner } from '../modules/learning-progress/shell/post-sync-hooks.js';
 import {
   createMcpServer,
   makeMcpRoutes,
@@ -1063,10 +1064,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }): Promise<void>;
     }[] = [];
     const userEventHandlers: UserEventHandler[] = [];
-    const learningProgressSyncHooks: ((input: {
-      userId: string;
-      events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
-    }) => Promise<void>)[] = [];
+    const learningProgressSyncHooks: {
+      name: string;
+      run(input: {
+        userId: string;
+        events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
+      }): Promise<void>;
+    }[] = [];
     let learningProgressOnSyncEventsApplied:
       | ((input: {
           userId: string;
@@ -1603,14 +1607,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
 
     if (adminEventRegistry !== undefined && adminEventRuntime !== undefined) {
-      learningProgressSyncHooks.push(
-        createLearningProgressAdminEventSyncHook({
+      learningProgressSyncHooks.push({
+        name: 'admin-events-review-pending',
+        run: createLearningProgressAdminEventSyncHook({
           registry: adminEventRegistry,
           queue: adminEventRuntime.queue,
           learningProgressRepo,
           logger: repoLogger,
-        })
-      );
+        }),
+      });
     }
 
     if (shouldInitializeUserEventRuntime) {
@@ -1627,20 +1632,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           : {}),
       });
 
-      learningProgressSyncHooks.push(
-        createLearningProgressUserEventSyncHook({
+      learningProgressSyncHooks.push({
+        name: 'user-events',
+        run: createLearningProgressUserEventSyncHook({
           publisher: userEventRuntime.publisher,
           logger: repoLogger,
-        })
-      );
+        }),
+      });
     }
 
     if (learningProgressSyncHooks.length > 0) {
-      learningProgressOnSyncEventsApplied = async (input) => {
-        for (const hook of learningProgressSyncHooks) {
-          await hook(input);
-        }
-      };
+      learningProgressOnSyncEventsApplied = createLearningProgressPostSyncHookRunner({
+        hooks: learningProgressSyncHooks,
+        logger: repoLogger,
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

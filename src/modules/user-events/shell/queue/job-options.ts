@@ -1,3 +1,5 @@
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
+
 import type { UserEventJobPayload } from '../../core/types.js';
 
 export const USER_EVENT_JOB_NAME = 'user-event';
@@ -10,7 +12,7 @@ const normalizeSourceForJobId = (source: UserEventJobPayload['source']): string 
 };
 
 export const getUserEventJobId = (job: UserEventJobPayload): string => {
-  return `${normalizeSourceForJobId(job.source)}:${job.userId}:${job.eventId}`;
+  return buildBullmqJobId(normalizeSourceForJobId(job.source), job.userId, job.eventId);
 };
 
 export const getUserEventJobOptions = (job: UserEventJobPayload) => ({

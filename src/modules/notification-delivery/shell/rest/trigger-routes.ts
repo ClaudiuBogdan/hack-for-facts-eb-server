@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 
 import { Type, type Static } from '@sinclair/typebox';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
+
 import { createTriggerApiKeyPreHandler } from './trigger-auth.js';
 import { generatePeriodKey, type NotificationType } from '../../../notifications/core/types.js';
 
@@ -153,9 +155,11 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
         // Generate job ID for deduplication
         // Default: dedupe by notificationType + periodKey (prevents accidental double-trigger)
         // With force=true: includes runId (allows intentional re-runs)
-        const jobId = force
-          ? `collect:${notificationType}:${periodKey}:${runId}`
-          : `collect:${notificationType}:${periodKey}`;
+        const jobId = buildBullmqJobId(
+          'collect',
+          `${notificationType}\n${periodKey}`,
+          force ? runId : 'dedupe'
+        );
 
         // Enqueue collect job
         // BullMQ's add() always returns a Job (creates new or returns existing for duplicate jobId)

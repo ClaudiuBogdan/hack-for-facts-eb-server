@@ -18,6 +18,7 @@ import {
   getBudgetYear,
   normalizeOptionalString,
   parseOptionalDate,
+  sanitizeResendTagValue,
   toIsoString,
 } from './helpers.js';
 import { withPlatformSendAttemptMetadata } from './platform-send-success-confirmation.js';
@@ -152,8 +153,11 @@ export async function sendPlatformRequest(
     idempotencyKey: providerSendAttemptId,
     unsubscribeUrl: `${deps.platformBaseUrl}/settings/notifications`,
     tags: [
-      { name: 'thread_key', value: encodeThreadKeyForTag(thread.threadKey) },
-      { name: 'request_type', value: DEFAULT_REQUEST_TYPE },
+      {
+        name: 'thread_key',
+        value: sanitizeResendTagValue(encodeThreadKeyForTag(thread.threadKey)),
+      },
+      { name: 'request_type', value: sanitizeResendTagValue(DEFAULT_REQUEST_TYPE) },
     ],
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   buildLearningProgressUserEventJobs,
   makeUserEventPublisher,
@@ -36,7 +37,7 @@ describe('makeUserEventPublisher', () => {
         eventId: 'event-single',
       }),
       expect.objectContaining({
-        jobId: 'learning-progress:user-1:event-single',
+        jobId: buildBullmqJobId('learning-progress', 'user-1', 'event-single'),
         attempts: 3,
         backoff: {
           type: 'exponential',
@@ -82,7 +83,7 @@ describe('makeUserEventPublisher', () => {
           eventType: 'interactive.updated',
         }),
         opts: expect.objectContaining({
-          jobId: 'learning-progress:user-1:event-interactive',
+          jobId: buildBullmqJobId('learning-progress', 'user-1', 'event-interactive'),
           attempts: 3,
           removeOnComplete: true,
           removeOnFail: {
@@ -98,7 +99,7 @@ describe('makeUserEventPublisher', () => {
           eventType: 'progress.reset',
         }),
         opts: expect.objectContaining({
-          jobId: 'learning-progress:user-1:event-reset',
+          jobId: buildBullmqJobId('learning-progress', 'user-1', 'event-reset'),
           attempts: 3,
           removeOnComplete: true,
           removeOnFail: {
@@ -107,5 +108,31 @@ describe('makeUserEventPublisher', () => {
         }),
       }),
     ]);
+  });
+
+  it('encodes user ids and event ids before building BullMQ job ids', async () => {
+    const add = vi.fn(async () => undefined);
+    const publisher = makeUserEventPublisher({
+      userEventQueue: {
+        add,
+        addBulk: vi.fn(async () => []),
+      } as never,
+    });
+
+    await publisher.publish({
+      source: 'learning_progress',
+      userId: 'user:unsafe',
+      eventId: 'event:unsafe',
+      eventType: 'progress.reset',
+      occurredAt: '2026-03-31T10:05:00.000Z',
+    });
+
+    expect(add).toHaveBeenCalledWith(
+      'user-event',
+      expect.any(Object),
+      expect.objectContaining({
+        jobId: buildBullmqJobId('learning-progress', 'user:unsafe', 'event:unsafe'),
+      })
+    );
   });
 });
