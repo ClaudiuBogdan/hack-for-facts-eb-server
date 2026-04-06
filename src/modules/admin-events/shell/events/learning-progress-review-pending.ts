@@ -1,6 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { err, ok, type Result } from 'neverthrow';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   updateInteractionReview,
   type ApprovedReviewSideEffectPlan,
@@ -100,7 +101,11 @@ export const makeLearningProgressReviewPendingEventDefinition = (
     payloadSchema: LearningProgressReviewPendingPayloadSchema,
     outcomeSchema: LearningProgressReviewPendingOutcomeSchema,
     getJobId(payload) {
-      return `${LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE}:${payload.userId}:${payload.recordKey}`;
+      return buildBullmqJobId(
+        LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
+        payload.userId,
+        payload.recordKey
+      );
     },
     async scanPending() {
       const rows: LearningProgressReviewPendingPayload[] = [];

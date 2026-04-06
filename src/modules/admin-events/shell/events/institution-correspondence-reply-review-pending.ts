@@ -1,6 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { err, ok } from 'neverthrow';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   REVIEWABLE_PHASE,
   reviewReply,
@@ -105,7 +106,11 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
     payloadSchema: InstitutionCorrespondenceReplyReviewPendingPayloadSchema,
     outcomeSchema: InstitutionCorrespondenceReplyReviewPendingOutcomeSchema,
     getJobId(payload) {
-      return `${INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE}:${payload.threadId}:${payload.basedOnEntryId}`;
+      return buildBullmqJobId(
+        INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
+        payload.threadId,
+        payload.basedOnEntryId
+      );
     },
     async scanPending() {
       const payloads: InstitutionCorrespondenceReplyReviewPendingPayload[] = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import { makeLearningProgressReviewPendingEventDefinition } from '@/modules/admin-events/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../../fixtures/index.js';
@@ -21,6 +22,22 @@ const makeRow = (
 });
 
 describe('learning_progress.review_pending event definition', () => {
+  it('encodes record keys when building BullMQ job ids', () => {
+    const definition = makeLearningProgressReviewPendingEventDefinition({
+      learningProgressRepo: makeFakeLearningProgressRepo(),
+    });
+
+    const jobId = definition.getJobId({
+      userId: 'user-1',
+      recordKey: 'review-me::global',
+    });
+
+    expect(jobId).toBe(
+      buildBullmqJobId('learning_progress.review_pending', 'user-1', 'review-me::global')
+    );
+    expect(jobId.split(':')).toHaveLength(3);
+  });
+
   it('loads context and applies approve or reject outcomes', async () => {
     const pendingRecord = createTestInteractiveRecord({
       key: 'review-me::global',

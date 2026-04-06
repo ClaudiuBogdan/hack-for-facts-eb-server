@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
   LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
@@ -89,7 +90,7 @@ describe('admin event queue use cases', () => {
     expect(learningProgressResult.isOk()).toBe(true);
     if (learningProgressResult.isOk()) {
       expect(learningProgressResult.value.jobId).toBe(
-        'learning_progress.review_pending:user-1:review-target::global'
+        buildBullmqJobId('learning_progress.review_pending', 'user-1', pendingRecord.key)
       );
     }
 
@@ -107,7 +108,7 @@ describe('admin event queue use cases', () => {
     expect(correspondenceResult.isOk()).toBe(true);
     if (correspondenceResult.isOk()) {
       expect(correspondenceResult.value.jobId).toBe(
-        'institution_correspondence.reply_review_pending:thread-1:reply-1'
+        buildBullmqJobId('institution_correspondence.reply_review_pending', 'thread-1', 'reply-1')
       );
     }
 
@@ -150,7 +151,7 @@ describe('admin event queue use cases', () => {
     expect(secondScan.isOk()).toBe(true);
     expect(queue.snapshot()).toHaveLength(1);
     expect(queue.snapshot()[0]?.jobId).toBe(
-      'learning_progress.review_pending:user-1:review-repeat::global'
+      buildBullmqJobId('learning_progress.review_pending', 'user-1', pendingRecord.key)
     );
   });
 });

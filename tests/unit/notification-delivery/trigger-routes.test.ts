@@ -2,6 +2,7 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import pinoLogger from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   makeTriggerRoutes,
   type CollectJobPayload,
@@ -157,7 +158,7 @@ describe('makeTriggerRoutes', () => {
         notificationIds: ['notification-1', 'notification-2'],
       }),
       expect.objectContaining({
-        jobId: 'collect:newsletter_entity_monthly:2026-03',
+        jobId: buildBullmqJobId('collect', 'newsletter_entity_monthly\n2026-03', 'dedupe'),
         removeOnComplete: true,
         removeOnFail: true,
       })
@@ -227,8 +228,27 @@ describe('makeTriggerRoutes', () => {
         notificationIds: ['notification-1'],
       }),
       expect.objectContaining({
-        jobId: expect.stringMatching(/^collect:newsletter_entity_monthly:2026-03:/u),
+        jobId: expect.any(String),
       })
     );
+
+    const lastCall = add.mock.calls.at(-1) as
+      | [string, CollectJobPayload, { jobId: string }]
+      | undefined;
+    expect(lastCall).toBeDefined();
+    const jobOptions = lastCall?.[2];
+    const forceBody = forceResponse.json();
+    expect(jobOptions).toEqual(
+      expect.objectContaining({
+        jobId: expect.any(String),
+      })
+    );
+
+    if (jobOptions !== undefined) {
+      expect(jobOptions.jobId).toBe(
+        buildBullmqJobId('collect', 'newsletter_entity_monthly\n2026-03', forceBody.runId)
+      );
+      expect(jobOptions.jobId.split(':')).toHaveLength(3);
+    }
   });
 });

@@ -6,6 +6,7 @@
 
 import { Worker } from 'bullmq';
 
+import { sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
@@ -47,11 +48,6 @@ export interface SendWorkerDeps {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Sanitizes a tag value for Resend (ASCII letters, numbers, underscores, dashes only).
- */
-const sanitizeTagValue = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
 
 /**
  * Determines if an error is transient (retryable).
@@ -218,22 +214,28 @@ export const processSendJob = async (
   }
 
   const tags = [
-    { name: 'delivery_id', value: sanitizeTagValue(delivery.id) },
-    { name: 'notification_type', value: sanitizeTagValue(delivery.notificationType) },
-    { name: 'scope_key', value: sanitizeTagValue(delivery.scopeKey) },
-    { name: 'env', value: sanitizeTagValue(environment) },
+    { name: 'delivery_id', value: sanitizeResendTagValue(delivery.id) },
+    { name: 'notification_type', value: sanitizeResendTagValue(delivery.notificationType) },
+    { name: 'scope_key', value: sanitizeResendTagValue(delivery.scopeKey) },
+    { name: 'env', value: sanitizeResendTagValue(environment) },
   ];
 
   if (delivery.referenceId !== null) {
-    tags.splice(1, 0, { name: 'notification_id', value: sanitizeTagValue(delivery.referenceId) });
+    tags.splice(1, 0, {
+      name: 'notification_id',
+      value: sanitizeResendTagValue(delivery.referenceId),
+    });
   }
 
   if (delivery.templateName !== null) {
-    tags.push({ name: 'template_name', value: sanitizeTagValue(delivery.templateName) });
+    tags.push({ name: 'template_name', value: sanitizeResendTagValue(delivery.templateName) });
   }
 
   if (delivery.templateVersion !== null) {
-    tags.push({ name: 'template_version', value: sanitizeTagValue(delivery.templateVersion) });
+    tags.push({
+      name: 'template_version',
+      value: sanitizeResendTagValue(delivery.templateVersion),
+    });
   }
 
   const sendParams = {
