@@ -91,7 +91,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-master-dev-results-${{ github.run_id }}
           path: test-output.txt
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-master-prod-results-${{ github.run_id }}
           path: test-output.txt
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload security results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-nightly-results-${{ github.run_id }}
           path: security-results
