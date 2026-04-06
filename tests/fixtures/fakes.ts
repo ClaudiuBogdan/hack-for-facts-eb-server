@@ -5,6 +5,7 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
+import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
 import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
 import {
@@ -887,6 +888,48 @@ export const makeFakeNotificationsRepo = (
       };
       store.set(id, updated);
       return ok(updated);
+    },
+
+    updateCampaignGlobalPreference: async (
+      id,
+      input
+    ): Promise<Result<Notification, NotificationError>> => {
+      if (simulateDbError) return createDbError();
+      const notification = store.get(id);
+      if (notification === undefined) {
+        return err({
+          type: 'NotificationNotFoundError',
+          message: `Notification with ID '${id}' not found`,
+          id,
+        });
+      }
+
+      const updatedAt = new Date();
+      const updatedGlobal: Notification = {
+        ...notification,
+        isActive: input.isActive,
+        ...(input.config !== undefined && { config: input.config }),
+        ...(input.hash !== undefined && { hash: input.hash }),
+        updatedAt,
+      };
+      store.set(id, updatedGlobal);
+
+      for (const current of store.values()) {
+        if (
+          current.userId !== updatedGlobal.userId ||
+          current.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE
+        ) {
+          continue;
+        }
+
+        store.set(current.id, {
+          ...current,
+          isActive: input.isActive,
+          updatedAt,
+        });
+      }
+
+      return ok(updatedGlobal);
     },
 
     deleteCascade: async (id: string): Promise<Result<Notification | null, NotificationError>> => {

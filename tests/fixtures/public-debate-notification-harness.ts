@@ -4,6 +4,7 @@ import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { vi } from 'vitest';
 
+import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
 import {
   makePublicDebateNotificationOrchestrator,
   PUBLIC_DEBATE_REQUEST_TYPE,
@@ -174,6 +175,44 @@ const createSharedNotificationsRepo = (): {
       };
       store.set(notificationId, updated);
       return ok(updated);
+    },
+
+    async updateCampaignGlobalPreference(notificationId, input) {
+      const existing = store.get(notificationId);
+      if (existing === undefined) {
+        return err({
+          type: 'NotificationNotFoundError',
+          message: `Notification with ID '${notificationId}' not found`,
+          id: notificationId,
+        } satisfies NotificationError);
+      }
+
+      const updatedAt = new Date();
+      const updatedGlobal: Notification = {
+        ...existing,
+        isActive: input.isActive,
+        ...(input.config !== undefined ? { config: input.config } : {}),
+        ...(input.hash !== undefined ? { hash: input.hash } : {}),
+        updatedAt,
+      };
+      store.set(notificationId, updatedGlobal);
+
+      for (const notification of store.values()) {
+        if (
+          notification.userId !== updatedGlobal.userId ||
+          notification.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE
+        ) {
+          continue;
+        }
+
+        store.set(notification.id, {
+          ...notification,
+          isActive: input.isActive,
+          updatedAt,
+        });
+      }
+
+      return ok(updatedGlobal);
     },
 
     async deleteCascade(notificationId) {

@@ -48,6 +48,12 @@ export interface UpdateNotificationRepoInput {
   hash?: string;
 }
 
+export interface UpdateCampaignGlobalPreferenceRepoInput {
+  isActive: boolean;
+  config?: NotificationConfig;
+  hash?: string;
+}
+
 /**
  * Repository interface for notifications.
  */
@@ -103,6 +109,15 @@ export interface NotificationsRepository {
   update(
     id: string,
     input: UpdateNotificationRepoInput
+  ): Promise<Result<Notification, NotificationError>>;
+
+  /**
+   * Updates the public debate campaign master preference and cascades the same
+   * active state to the user's entity update subscriptions in one transaction.
+   */
+  updateCampaignGlobalPreference(
+    id: string,
+    input: UpdateCampaignGlobalPreferenceRepoInput
   ): Promise<Result<Notification, NotificationError>>;
 
   /**

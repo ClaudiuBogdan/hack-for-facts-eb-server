@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { sql, type Transaction } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import { createDatabaseError, type NotificationError } from '../../core/errors.js';
@@ -23,6 +24,7 @@ import { sha256Hasher } from '../crypto/hasher.js';
 import type {
   NotificationsRepository,
   CreateNotificationInput,
+  UpdateCampaignGlobalPreferenceRepoInput,
   UpdateNotificationRepoInput,
 } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
@@ -57,6 +59,30 @@ export interface NotificationsRepoOptions {
 }
 
 type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+
+const buildUpdateValues = (
+  input: UpdateNotificationRepoInput,
+  updatedAt: Date
+): Record<string, unknown> => {
+  const updateValues: Record<string, unknown> = {
+    updated_at: updatedAt,
+  };
+
+  if (input.isActive !== undefined) {
+    updateValues['is_active'] = input.isActive;
+  }
+
+  if (input.config !== undefined) {
+    updateValues['config'] =
+      input.config !== null ? sql`${JSON.stringify(input.config)}::jsonb` : null;
+  }
+
+  if (input.hash !== undefined) {
+    updateValues['hash'] = input.hash;
+  }
+
+  return updateValues;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository Implementation
@@ -339,22 +365,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     this.log.debug({ notificationId: id, input }, 'Updating notification');
 
     try {
-      const updateValues: Record<string, unknown> = {
-        updated_at: new Date(),
-      };
-
-      if (input.isActive !== undefined) {
-        updateValues['is_active'] = input.isActive;
-      }
-
-      if (input.config !== undefined) {
-        updateValues['config'] =
-          input.config !== null ? sql`${JSON.stringify(input.config)}::jsonb` : null;
-      }
-
-      if (input.hash !== undefined) {
-        updateValues['hash'] = input.hash;
-      }
+      const updateValues = buildUpdateValues(input, new Date());
 
       const row = await this.db
         .updateTable('notifications')
@@ -378,6 +389,61 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     } catch (error) {
       this.log.error({ err: error, notificationId: id }, 'Failed to update notification');
       return err(createDatabaseError('Failed to update notification', error));
+    }
+  }
+
+  async updateCampaignGlobalPreference(
+    id: string,
+    input: UpdateCampaignGlobalPreferenceRepoInput
+  ): Promise<Result<Notification, NotificationError>> {
+    this.log.debug({ notificationId: id, input }, 'Updating campaign global preference');
+
+    try {
+      const updatedAt = new Date();
+      const row = await this.db.transaction().execute(async (trx) => {
+        const updateValues = buildUpdateValues(input, updatedAt);
+
+        const updatedGlobal = await trx
+          .updateTable('notifications')
+          .set(updateValues)
+          .where('id', '=', id)
+          .returning([
+            'id',
+            'user_id',
+            'entity_cui',
+            'notification_type',
+            'is_active',
+            'config',
+            'hash',
+            'created_at',
+            'updated_at',
+          ])
+          .executeTakeFirstOrThrow();
+
+        await trx
+          .updateTable('notifications')
+          .set({
+            is_active: input.isActive,
+            updated_at: updatedAt,
+          } as never)
+          .where('user_id', '=', updatedGlobal.user_id)
+          .where('notification_type', '=', FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE)
+          .execute();
+
+        return updatedGlobal;
+      });
+
+      this.log.debug(
+        { notificationId: id, isActive: input.isActive },
+        'Campaign global preference updated successfully'
+      );
+      return ok(this.mapRowToNotification(row as unknown as QueryRow));
+    } catch (error) {
+      this.log.error(
+        { err: error, notificationId: id },
+        'Failed to update campaign global preference'
+      );
+      return err(createDatabaseError('Failed to update campaign global preference', error));
     }
   }
 
