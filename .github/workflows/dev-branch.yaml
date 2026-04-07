@@ -126,7 +126,7 @@ jobs:
         run: pnpm build
 
       - name: Get Secrets from Bitwarden
-        uses: bitwarden/sm-action@v1
+        uses: bitwarden/sm-action@v2
         with:
           access_token: ${{ secrets.BW_ACCESS_TOKEN }}
           secrets: |
