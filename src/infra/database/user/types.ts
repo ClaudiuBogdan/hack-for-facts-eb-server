@@ -57,6 +57,17 @@ export interface NotificationOutbox {
   created_at: Generated<Timestamp>;
 }
 
+export interface VPublicDebateCampaignUserTotal {
+  campaign_key: string;
+  total_users: string;
+}
+
+export interface VPublicDebateUatUserCounts {
+  campaign_key: string;
+  entity_cui: string;
+  total_users: string;
+}
+
 // User Interactions Table
 // Stores one row per user and per client-controlled record key.
 export interface UserInteractionsTable {
@@ -254,6 +265,8 @@ export interface UserDatabase {
   shortlinks: ShortLinks;
   notifications: Notifications;
   notificationsoutbox: NotificationOutbox;
+  v_public_debate_campaign_user_total: VPublicDebateCampaignUserTotal;
+  v_public_debate_uat_user_counts: VPublicDebateUatUserCounts;
   userinteractions: UserInteractionsTable;
   institutionemailthreads: InstitutionEmailThreads;
   resend_wh_emails: ResendWhEmails;

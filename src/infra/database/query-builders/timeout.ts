@@ -8,7 +8,7 @@
  * This prevents any SQL injection through the timeout parameter.
  */
 
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 
 // ============================================================================
 // Constants
@@ -46,7 +46,7 @@ export const MIN_QUERY_TIMEOUT_MS = 1_000;
  * ```
  */
 export async function setStatementTimeout<DB>(
-  db: Kysely<DB>,
+  db: Kysely<DB> | Transaction<DB>,
   timeoutMs: number = DEFAULT_QUERY_TIMEOUT_MS
 ): Promise<void> {
   // Validate timeout is a safe integer
@@ -91,7 +91,7 @@ export async function setStatementTimeout<DB>(
  * ```
  */
 export async function withTimeout<DB, T>(
-  db: Kysely<DB>,
+  db: Kysely<DB> | Transaction<DB>,
   timeoutMs: number,
   fn: () => Promise<T>
 ): Promise<T> {
