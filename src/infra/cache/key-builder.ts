@@ -56,6 +56,8 @@ export const CacheNamespace = {
   // ─────────────────────────────────────────────────────────────────────────
   /** Advanced map analytics grouped-series extracted vectors */
   ADVANCED_MAP_ANALYTICS_SERIES: 'advanced-map-analytics:series',
+  /** Public campaign subscription aggregates */
+  CAMPAIGN_SUBSCRIPTION_STATS: 'campaigns:subscription-stats',
   /** Dataset files */
   DATASETS: 'datasets',
 } as const;

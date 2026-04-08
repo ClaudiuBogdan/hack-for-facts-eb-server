@@ -75,6 +75,10 @@ import {
   type BudgetSectorRepository,
 } from '../modules/budget-sector/index.js';
 import {
+  makeCampaignSubscriptionStatsReader,
+  makeCampaignSubscriptionStatsRoutes,
+} from '../modules/campaign-subscription-stats/index.js';
+import {
   makeClassificationResolvers,
   ClassificationSchema,
   makeFunctionalClassificationRepo,
@@ -312,6 +316,8 @@ const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
 const WEBHOOK_RESEND_ROUTE_PATH = '/api/v1/webhooks/resend';
 const NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX = '/api/v1/notifications/unsubscribe/';
+const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_SUFFIX = '/subscription-stats';
+const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_PREFIX = '/api/v1/campaigns/';
 const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
 const ADVANCED_MAP_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-analytics/public/';
 const ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH = '/api/v1/advanced-map-analytics/grouped-series';
@@ -355,6 +361,15 @@ function isNotificationAdminRoute(url: string): boolean {
   return getRequestPath(url).startsWith(NOTIFICATION_ADMIN_ROUTE_PREFIX);
 }
 
+function isCampaignSubscriptionStatsRoute(url: string): boolean {
+  const path = getRequestPath(url);
+
+  return (
+    path.startsWith(CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_PREFIX) &&
+    path.endsWith(CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_SUFFIX)
+  );
+}
+
 function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequest): boolean {
   const path = getRequestPath(request.url);
 
@@ -380,6 +395,7 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     path === WEBHOOK_CLERK_ROUTE_PATH ||
     path === WEBHOOK_RESEND_ROUTE_PATH ||
     path === ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH ||
+    isCampaignSubscriptionStatsRoute(path) ||
     path.startsWith(GPT_ROUTE_PREFIX) ||
     path.startsWith(NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX) ||
     path.startsWith(ADVANCED_MAP_PUBLIC_ROUTE_PREFIX)
@@ -1104,6 +1120,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         deliveriesRepo,
         tokenSigner,
         hasher: sha256Hasher,
+      })
+    );
+
+    const campaignSubscriptionStatsReader = makeCampaignSubscriptionStatsReader({
+      userDb,
+      budgetDb,
+      logger: repoLogger,
+      cache,
+      keyBuilder,
+    });
+
+    await app.register(
+      makeCampaignSubscriptionStatsRoutes({
+        reader: campaignSubscriptionStatsReader,
       })
     );
 
