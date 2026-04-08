@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
+import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import {
   generateNotificationHash,
   makeNotificationsRepo,
@@ -12,7 +13,107 @@ import {
 import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
+class RecordingCampaignSubscriptionStatsInvalidator {
+  readonly invalidatedCampaignIds: string[] = [];
+  invalidateAllCalls = 0;
+
+  async invalidateCampaign(campaignId: string): Promise<void> {
+    this.invalidatedCampaignIds.push(campaignId);
+  }
+
+  async invalidateAll(): Promise<void> {
+    this.invalidateAllCalls += 1;
+  }
+}
+
 describe('Notifications repository', () => {
+  it('invalidates public campaign stats cache when creating a public debate entity subscription', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const invalidator = new RecordingCampaignSubscriptionStatsInvalidator();
+    const repo = makeNotificationsRepo({
+      db: userDb,
+      logger: pinoLogger({ level: 'silent' }),
+      campaignSubscriptionStatsInvalidator: invalidator,
+    });
+
+    const userId = `entity-subscription-user-${randomUUID()}`;
+    const createResult = await repo.create({
+      userId,
+      notificationType: 'funky:notification:entity_updates',
+      entityCui: '12345678',
+      config: null,
+      hash: generateNotificationHash(
+        sha256Hasher,
+        userId,
+        'funky:notification:entity_updates',
+        '12345678',
+        null
+      ),
+    });
+
+    expect(createResult.isOk()).toBe(true);
+    expect(invalidator.invalidatedCampaignIds).toEqual([PUBLIC_DEBATE_CAMPAIGN_KEY]);
+    expect(invalidator.invalidateAllCalls).toBe(0);
+  });
+
+  it('does not invalidate public campaign stats cache for unrelated subscriptions', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const invalidator = new RecordingCampaignSubscriptionStatsInvalidator();
+    const repo = makeNotificationsRepo({
+      db: userDb,
+      logger: pinoLogger({ level: 'silent' }),
+      campaignSubscriptionStatsInvalidator: invalidator,
+    });
+
+    const userId = `newsletter-user-${randomUUID()}`;
+    const createResult = await repo.create({
+      userId,
+      notificationType: 'newsletter_entity_monthly',
+      entityCui: '12345678',
+      config: null,
+      hash: generateNotificationHash(
+        sha256Hasher,
+        userId,
+        'newsletter_entity_monthly',
+        '12345678',
+        null
+      ),
+    });
+
+    expect(createResult.isOk()).toBe(true);
+    expect(invalidator.invalidatedCampaignIds).toEqual([]);
+    expect(invalidator.invalidateAllCalls).toBe(0);
+  });
+
+  it('invalidates all public campaign stats cache entries for global unsubscribe changes', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const { userDb } = getTestClients();
+    const invalidator = new RecordingCampaignSubscriptionStatsInvalidator();
+    const repo = makeNotificationsRepo({
+      db: userDb,
+      logger: pinoLogger({ level: 'silent' }),
+      campaignSubscriptionStatsInvalidator: invalidator,
+    });
+
+    const userId = `global-unsubscribe-user-${randomUUID()}`;
+    const deactivateResult = await repo.deactivateGlobalUnsubscribe(userId);
+
+    expect(deactivateResult.isOk()).toBe(true);
+    expect(invalidator.invalidatedCampaignIds).toEqual([]);
+    expect(invalidator.invalidateAllCalls).toBe(1);
+  });
+
   it('updates the campaign master preference and entity subscriptions in one transaction', async () => {
     if (!dockerAvailable) {
       return;

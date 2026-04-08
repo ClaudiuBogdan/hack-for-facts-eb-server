@@ -18,6 +18,7 @@ import {
   type Notification,
   type NotificationType,
   type NotificationConfig,
+  NOTIFICATION_TYPE_CONFIGS,
 } from '../../core/types.js';
 import { sha256Hasher } from '../crypto/hasher.js';
 
@@ -56,9 +57,15 @@ interface QueryRow {
 export interface NotificationsRepoOptions {
   db: UserDbConnection;
   logger: Logger;
+  campaignSubscriptionStatsInvalidator?: CampaignSubscriptionStatsInvalidator;
 }
 
 type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+
+export interface CampaignSubscriptionStatsInvalidator {
+  invalidateCampaign(campaignId: string): Promise<void>;
+  invalidateAll(): Promise<void>;
+}
 
 const buildUpdateValues = (
   input: UpdateNotificationRepoInput,
@@ -94,10 +101,14 @@ const buildUpdateValues = (
 class KyselyNotificationsRepo implements NotificationsRepository {
   private readonly db: UserDbConnection;
   private readonly log: Logger;
+  private readonly campaignSubscriptionStatsInvalidator:
+    | CampaignSubscriptionStatsInvalidator
+    | undefined;
 
   constructor(options: NotificationsRepoOptions) {
     this.db = options.db;
     this.log = options.logger.child({ repo: 'NotificationsRepo' });
+    this.campaignSubscriptionStatsInvalidator = options.campaignSubscriptionStatsInvalidator;
   }
 
   async create(input: CreateNotificationInput): Promise<Result<Notification, NotificationError>> {
@@ -137,6 +148,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         ])
         .executeTakeFirstOrThrow();
 
+      await this.invalidateCampaignSubscriptionStatsCache(notificationType);
       this.log.debug({ notificationId: id }, 'Notification created successfully');
       return ok(this.mapRowToNotification(row as unknown as QueryRow));
     } catch (error) {
@@ -384,6 +396,9 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         ])
         .executeTakeFirstOrThrow();
 
+      await this.invalidateCampaignSubscriptionStatsCache(
+        row.notification_type as NotificationType
+      );
       this.log.debug({ notificationId: id }, 'Notification updated successfully');
       return ok(this.mapRowToNotification(row as unknown as QueryRow));
     } catch (error) {
@@ -433,6 +448,9 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         return updatedGlobal;
       });
 
+      await this.invalidateCampaignSubscriptionStatsCache(
+        row.notification_type as NotificationType
+      );
       this.log.debug(
         { notificationId: id, isActive: input.isActive },
         'Campaign global preference updated successfully'
@@ -469,6 +487,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         await trx.deleteFrom('notifications').where('id', '=', id).execute();
       });
 
+      await this.invalidateCampaignSubscriptionStatsCache(notification.notificationType);
       this.log.debug({ notificationId: id }, 'Notification deleted successfully with cascade');
       return ok(notification);
     } catch (error) {
@@ -522,6 +541,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
             updated_at = NOW()
       `.execute(this.db);
 
+      await this.invalidateCampaignSubscriptionStatsCache('global_unsubscribe');
       this.log.info({ userId }, 'Global unsubscribe deactivated');
       return ok(undefined);
     } catch (error) {
@@ -549,6 +569,42 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       createdAt: parseDbTimestamp(row.created_at, 'created_at'),
       updatedAt: parseDbTimestamp(row.updated_at, 'updated_at'),
     };
+  }
+
+  private async invalidateCampaignSubscriptionStatsCache(
+    notificationType: NotificationType
+  ): Promise<void> {
+    const invalidator = this.campaignSubscriptionStatsInvalidator;
+    if (invalidator === undefined) {
+      return;
+    }
+
+    try {
+      if (notificationType === 'global_unsubscribe') {
+        await invalidator.invalidateAll();
+        this.log.debug(
+          { notificationType },
+          'Invalidated all campaign subscription stats cache entries'
+        );
+        return;
+      }
+
+      const campaignKey = NOTIFICATION_TYPE_CONFIGS[notificationType].campaignKey;
+      if (campaignKey === undefined) {
+        return;
+      }
+
+      await invalidator.invalidateCampaign(campaignKey);
+      this.log.debug(
+        { notificationType, campaignKey },
+        'Invalidated campaign subscription stats cache entry'
+      );
+    } catch (error) {
+      this.log.warn(
+        { err: error, notificationType },
+        'Failed to invalidate campaign subscription stats cache'
+      );
+    }
   }
 }
 

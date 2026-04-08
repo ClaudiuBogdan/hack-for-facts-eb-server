@@ -30,7 +30,7 @@ import {
   wrapInsRepo,
 } from './cache-wrappers.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
-import { initCache, type CacheClient } from '../infra/cache/index.js';
+import { CacheNamespace, initCache, type CacheClient } from '../infra/cache/index.js';
 import {
   makeEmailClient,
   makeReceivedEmailFetcher,
@@ -213,6 +213,7 @@ import {
   type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
 import {
+  type CampaignSubscriptionStatsInvalidator,
   makeNotificationRoutes,
   makeNotificationsRepo,
   makeDeliveriesRepo,
@@ -755,6 +756,16 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // ─────────────────────────────────────────────────────────────────────────────
   const { cache, keyBuilder, rawCache } =
     deps.cacheClient ?? initCache({ config: config.cache, logger: repoLogger });
+  const campaignSubscriptionStatsCacheInvalidator: CampaignSubscriptionStatsInvalidator = {
+    async invalidateCampaign(campaignId) {
+      const key = keyBuilder.build(CacheNamespace.CAMPAIGN_SUBSCRIPTION_STATS, campaignId);
+      await cache.delete(key);
+    },
+    async invalidateAll() {
+      const prefix = keyBuilder.getPrefix(CacheNamespace.CAMPAIGN_SUBSCRIPTION_STATS);
+      await cache.clearByPrefix(prefix);
+    },
+  };
 
   app.addHook('onClose', async () => {
     await rawCache.close?.();
@@ -1058,7 +1069,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
 
     // Create notification repositories
-    const notificationsRepo = makeNotificationsRepo({ db: userDb, logger: repoLogger });
+    const notificationsRepo = makeNotificationsRepo({
+      db: userDb,
+      logger: repoLogger,
+      campaignSubscriptionStatsInvalidator: campaignSubscriptionStatsCacheInvalidator,
+    });
     const extendedNotificationsRepo = makeExtendedNotificationsRepo({
       db: userDb,
       logger: repoLogger,
@@ -1317,10 +1332,19 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
 
     const createLearningProgressSyncHandlers = (
-      db: Parameters<typeof makeNotificationsRepo>[0]['db']
+      db: Parameters<typeof makeNotificationsRepo>[0]['db'],
+      campaignSubscriptionStatsInvalidatorOverride?: CampaignSubscriptionStatsInvalidator
     ): readonly LearningProgressAppliedEventHandler[] => [
       makeEntityTermsAcceptedSyncHandler({
-        notificationsRepo: makeNotificationsRepo({ db, logger: repoLogger }),
+        notificationsRepo: makeNotificationsRepo({
+          db,
+          logger: repoLogger,
+          ...(campaignSubscriptionStatsInvalidatorOverride !== undefined
+            ? {
+                campaignSubscriptionStatsInvalidator: campaignSubscriptionStatsInvalidatorOverride,
+              }
+            : {}),
+        }),
         hasher: sha256Hasher,
         logger: repoLogger,
       }),
@@ -1328,6 +1352,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     const learningProgressSyncEventsWithSideEffects = async (input: SyncEventsInput) => {
       try {
+        const deferredCampaignSubscriptionStatsInvalidation = {
+          invalidatedCampaignIds: new Set<string>(),
+          shouldInvalidateAll: false,
+        };
+
         const value = await userDb.transaction().execute(async (transaction) => {
           const transactionalLearningProgressRepo = makeLearningProgressRepo({
             db: transaction,
@@ -1344,7 +1373,23 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           if (syncResult.value.appliedEvents.length > 0) {
             await processLearningProgressAppliedEvents(
               {
-                handlers: createLearningProgressSyncHandlers(transaction),
+                handlers: createLearningProgressSyncHandlers(transaction, {
+                  invalidateCampaign(campaignId) {
+                    if (deferredCampaignSubscriptionStatsInvalidation.shouldInvalidateAll) {
+                      return Promise.resolve();
+                    }
+
+                    deferredCampaignSubscriptionStatsInvalidation.invalidatedCampaignIds.add(
+                      campaignId
+                    );
+                    return Promise.resolve();
+                  },
+                  invalidateAll() {
+                    deferredCampaignSubscriptionStatsInvalidation.shouldInvalidateAll = true;
+                    deferredCampaignSubscriptionStatsInvalidation.invalidatedCampaignIds.clear();
+                    return Promise.resolve();
+                  },
+                }),
                 logger: repoLogger,
               },
               {
@@ -1356,6 +1401,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
           return syncResult.value;
         });
+
+        if (deferredCampaignSubscriptionStatsInvalidation.shouldInvalidateAll) {
+          await campaignSubscriptionStatsCacheInvalidator.invalidateAll();
+        } else {
+          for (const campaignId of deferredCampaignSubscriptionStatsInvalidation.invalidatedCampaignIds) {
+            await campaignSubscriptionStatsCacheInvalidator.invalidateCampaign(campaignId);
+          }
+        }
 
         return ok(value);
       } catch (error) {

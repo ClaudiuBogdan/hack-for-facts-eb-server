@@ -155,6 +155,7 @@ export {
 export {
   makeNotificationsRepo,
   type NotificationsRepoOptions,
+  type CampaignSubscriptionStatsInvalidator,
 } from './shell/repo/notifications-repo.js';
 export { makeDeliveriesRepo, type DeliveriesRepoOptions } from './shell/repo/deliveries-repo.js';
 
