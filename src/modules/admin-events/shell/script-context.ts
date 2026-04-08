@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { err, ok } from 'neverthrow';
 
+import { CacheNamespace, initCache } from '@/infra/cache/index.js';
 import { createConfig, parseEnv, type AppConfig } from '@/infra/config/index.js';
 import { initDatabases, type DatabaseClients } from '@/infra/database/client.js';
 import { makeEmailClient } from '@/infra/email/client.js';
@@ -51,6 +52,10 @@ export const createAdminEventScriptContext = async (): Promise<AdminEventScriptC
     pretty: config.logger.pretty,
   });
   const databases = initDatabases(config);
+  const { cache, keyBuilder, rawCache } = initCache({
+    config: config.cache,
+    logger,
+  });
   const learningProgressRepo = makeLearningProgressRepo({
     db: databases.userDb,
     logger,
@@ -63,6 +68,16 @@ export const createAdminEventScriptContext = async (): Promise<AdminEventScriptC
   const notificationsRepo = makeNotificationsRepo({
     db: databases.userDb,
     logger,
+    campaignSubscriptionStatsInvalidator: {
+      async invalidateCampaign(campaignId) {
+        const key = keyBuilder.build(CacheNamespace.CAMPAIGN_SUBSCRIPTION_STATS, campaignId);
+        await cache.delete(key);
+      },
+      async invalidateAll() {
+        const prefix = keyBuilder.getPrefix(CacheNamespace.CAMPAIGN_SUBSCRIPTION_STATS);
+        await cache.clearByPrefix(prefix);
+      },
+    },
   });
   const publicDebateSubscriptionService = {
     async ensureSubscribed(userId: string, entityCui: string) {
@@ -153,6 +168,7 @@ export const createAdminEventScriptContext = async (): Promise<AdminEventScriptC
     defaultExportDir,
     async close() {
       await adminEventRuntime.stop();
+      await rawCache.close?.();
       await Promise.all([
         databases.budgetDb.destroy(),
         databases.insDb.destroy(),
