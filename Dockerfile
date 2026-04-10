@@ -16,7 +16,7 @@
 # =============================================================================
 
 ARG NODE_BUILD_BASE=node:24-trixie-slim@sha256:c319bb4fac67c01ced508b67193a0397e02d37555d8f9b72958649efd302b7f8
-ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:924918584d0e6793e578fc0e98b8b8026ae4ac2ccf2fea283bc54a7165441ccd
+ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:1e2c4183b84122745dc2236b9b43bee09c54db091044d593eb8f755a954ad22a
 
 # -----------------------------------------------------------------------------
 # Build Stage
