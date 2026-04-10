@@ -380,8 +380,10 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('advanced-map-analytics/');
+      expect(routes).toContain('advanced-map-');
+      expect(routes).toContain('analytics/');
       expect(routes).toContain('grouped-series (POST)');
+      expect(routes).toContain('datasets (POST, GET, HEAD)');
 
       await app.close();
     });
@@ -404,7 +406,8 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('advanced-map-analytics/');
+      expect(routes).toContain('advanced-map-');
+      expect(routes).toContain('analytics/');
       expect(routes).toContain('maps (POST, GET, HEAD)');
       expect(routes).toContain('public/');
       expect(routes).toContain(':publicId (GET, HEAD)');
@@ -1471,6 +1474,166 @@ describe('App Factory', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ status: 'received' });
+
+      await app.close();
+    });
+
+    it('bypasses bearer auth validation for public dataset routes', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/advanced-map-datasets/public',
+        headers: {
+          authorization: 'Bearer invalid-token',
+        },
+      });
+
+      expect(response.statusCode).not.toBe(401);
+
+      await app.close();
+    });
+
+    it('bypasses bearer auth validation for public advanced map routes', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/advanced-map-analytics/public/public_1',
+        headers: {
+          authorization: 'Bearer invalid-token',
+        },
+      });
+
+      expect(response.statusCode).not.toBe(401);
+
+      await app.close();
+    });
+
+    it('does not bypass bearer auth validation for grouped-series routes', async () => {
+      const testAuth = createTestAuthProvider();
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          authProvider: testAuth.provider,
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/grouped-series',
+        headers: {
+          authorization: 'Bearer invalid-token',
+          'content-type': 'application/json',
+        },
+        payload: {
+          granularity: 'UAT',
+          series: [
+            {
+              id: 's1',
+              type: 'line-items-aggregated-yearly',
+              filter: {
+                account_category: 'ch',
+                report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+                report_period: {
+                  type: 'YEAR',
+                  selection: {
+                    interval: {
+                      start: '2025',
+                      end: '2025',
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          payload: {
+            format: 'csv_wide_matrix_v1',
+            compression: 'none',
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(401);
+
+      await app.close();
+    });
+
+    it('starts without clerk secret key so non-public advanced map writes remain available', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            auth: {
+              clerkSecretKey: undefined,
+              clerkJwtKey: 'jwt-public-key',
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
+        },
+      });
+
+      await app.close();
+    });
+
+    it('starts with a blank clerk secret key so non-public advanced map writes remain available', async () => {
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig({
+            auth: {
+              clerkSecretKey: '   ',
+              clerkJwtKey: 'jwt-public-key',
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
+        },
+      });
 
       await app.close();
     });

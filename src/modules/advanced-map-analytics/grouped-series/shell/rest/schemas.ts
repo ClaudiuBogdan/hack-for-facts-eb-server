@@ -13,6 +13,11 @@ const MapSeriesBaseFields = {
   unit: Type.Optional(Type.String()),
 };
 
+const MapSeriesInputBaseFields = {
+  id: Type.Optional(Type.String({ minLength: 1 })),
+  unit: Type.Optional(Type.String()),
+};
+
 const PeriodDateSchema = Type.String({ minLength: 4 });
 
 const ReportPeriodSelectionSchema = Type.Union([
@@ -67,6 +72,15 @@ export const ExecutionMapSeriesSchema = Type.Object(
   { additionalProperties: true }
 );
 
+export const ExecutionMapSeriesInputSchema = Type.Object(
+  {
+    ...MapSeriesInputBaseFields,
+    type: Type.Literal('line-items-aggregated-yearly'),
+    filter: ExecutionFilterSchema,
+  },
+  { additionalProperties: true }
+);
+
 export const CommitmentsMapSeriesSchema = Type.Object(
   {
     ...MapSeriesBaseFields,
@@ -92,6 +106,16 @@ export const CommitmentsMapSeriesSchema = Type.Object(
   { additionalProperties: true }
 );
 
+export const CommitmentsMapSeriesInputSchema = Type.Object(
+  {
+    ...MapSeriesInputBaseFields,
+    type: Type.Literal('commitments-analytics'),
+    metric: CommitmentsMapSeriesSchema.properties.metric,
+    filter: CommitmentsFilterSchema,
+  },
+  { additionalProperties: true }
+);
+
 export const InsMapSeriesSchema = Type.Object(
   {
     ...MapSeriesBaseFields,
@@ -112,10 +136,84 @@ export const InsMapSeriesSchema = Type.Object(
   { additionalProperties: true }
 );
 
+export const InsMapSeriesInputSchema = Type.Object(
+  {
+    ...MapSeriesInputBaseFields,
+    type: Type.Literal('ins-series'),
+    datasetCode: Type.Optional(Type.String({ minLength: 1 })),
+    period: Type.Optional(ReportPeriodInputSchema),
+    aggregation: Type.Optional(
+      Type.Union([Type.Literal('sum'), Type.Literal('average'), Type.Literal('first')])
+    ),
+    territoryCodes: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    sirutaCodes: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    unitCodes: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    classificationSelections: Type.Optional(
+      Type.Record(Type.String(), Type.Array(Type.String({ minLength: 1 })))
+    ),
+    hasValue: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: true }
+);
+
+const UploadedMapDatasetSeriesByIdSchema = Type.Object(
+  {
+    ...MapSeriesBaseFields,
+    type: Type.Literal('uploaded-map-dataset'),
+    datasetId: Type.String({ format: 'uuid' }),
+  },
+  { additionalProperties: false }
+);
+
+const UploadedMapDatasetSeriesByIdInputSchema = Type.Object(
+  {
+    ...MapSeriesInputBaseFields,
+    type: Type.Literal('uploaded-map-dataset'),
+    datasetId: Type.String({ format: 'uuid' }),
+  },
+  { additionalProperties: false }
+);
+
+const UploadedMapDatasetSeriesByPublicIdSchema = Type.Object(
+  {
+    ...MapSeriesBaseFields,
+    type: Type.Literal('uploaded-map-dataset'),
+    datasetPublicId: Type.String({ format: 'uuid' }),
+  },
+  { additionalProperties: false }
+);
+
+const UploadedMapDatasetSeriesByPublicIdInputSchema = Type.Object(
+  {
+    ...MapSeriesInputBaseFields,
+    type: Type.Literal('uploaded-map-dataset'),
+    datasetPublicId: Type.String({ format: 'uuid' }),
+  },
+  { additionalProperties: false }
+);
+
+export const UploadedMapDatasetSeriesSchema = Type.Union([
+  UploadedMapDatasetSeriesByIdSchema,
+  UploadedMapDatasetSeriesByPublicIdSchema,
+]);
+
+export const UploadedMapDatasetSeriesInputSchema = Type.Union([
+  UploadedMapDatasetSeriesByIdInputSchema,
+  UploadedMapDatasetSeriesByPublicIdInputSchema,
+]);
+
 export const MapRequestSeriesSchema = Type.Union([
   ExecutionMapSeriesSchema,
   CommitmentsMapSeriesSchema,
   InsMapSeriesSchema,
+  UploadedMapDatasetSeriesSchema,
+]);
+
+export const MapRequestSeriesInputSchema = Type.Union([
+  ExecutionMapSeriesInputSchema,
+  CommitmentsMapSeriesInputSchema,
+  InsMapSeriesInputSchema,
+  UploadedMapDatasetSeriesInputSchema,
 ]);
 
 export const GroupedSeriesPayloadRequestSchema = Type.Object(
@@ -138,7 +236,20 @@ export const GroupedSeriesDataBodySchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const GroupedSeriesDataBodyInputSchema = Type.Object(
+  {
+    granularity: Type.Literal('UAT'),
+    series: Type.Array(MapRequestSeriesInputSchema, {
+      minItems: 1,
+      maxItems: 64,
+    }),
+    payload: GroupedSeriesPayloadRequestSchema,
+  },
+  { additionalProperties: false }
+);
+
 export type GroupedSeriesDataBody = Static<typeof GroupedSeriesDataBodySchema>;
+export type GroupedSeriesDataBodyInput = Static<typeof GroupedSeriesDataBodyInputSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response Schemas

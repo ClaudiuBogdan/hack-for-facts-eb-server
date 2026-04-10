@@ -65,6 +65,7 @@ export interface UpdateAdvancedMapAnalyticsMapInput {
   title?: string;
   description?: string | null;
   visibility?: AdvancedMapAnalyticsVisibility;
+  allowPublicWrite?: boolean;
 }
 
 export interface SaveAdvancedMapAnalyticsSnapshotInput {
@@ -73,6 +74,7 @@ export interface SaveAdvancedMapAnalyticsSnapshotInput {
   state: Record<string, unknown>;
   title?: string;
   description?: string | null;
+  allowPublicWrite?: boolean;
   mapPatch?: {
     title?: string;
     description?: string | null;

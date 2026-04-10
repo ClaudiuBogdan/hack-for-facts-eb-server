@@ -166,4 +166,90 @@ describe('getGroupedSeriesData', () => {
     expect(result.error.type).toBe('InvalidInputError');
     expect(result.error.message).toContain('Duplicate series id');
   });
+
+  it('returns invalid input error when a series id uses a reserved system prefix', async () => {
+    const request: GroupedSeriesDataRequest = {
+      granularity: 'UAT',
+      series: [
+        {
+          id: 'group_total',
+          type: 'line-items-aggregated-yearly',
+          filter: {
+            account_category: 'ch',
+            report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+            report_period: {
+              type: Frequency.YEAR,
+              selection: {
+                interval: {
+                  start: '2025',
+                  end: '2025',
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const result = await getGroupedSeriesData(
+      {
+        provider: makeProvider({
+          vectors: [],
+        }),
+      },
+      { request }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isOk()) {
+      return;
+    }
+
+    expect(result.error.type).toBe('InvalidInputError');
+    expect(result.error.message).toContain('reserved prefix');
+    expect(result.error.message).toContain('group_');
+  });
+
+  it('returns invalid input error when a series id uses an unsafe CSV prefix', async () => {
+    const request: GroupedSeriesDataRequest = {
+      granularity: 'UAT',
+      series: [
+        {
+          id: '=sum',
+          type: 'line-items-aggregated-yearly',
+          filter: {
+            account_category: 'ch',
+            report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+            report_period: {
+              type: Frequency.YEAR,
+              selection: {
+                interval: {
+                  start: '2025',
+                  end: '2025',
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const result = await getGroupedSeriesData(
+      {
+        provider: makeProvider({
+          vectors: [],
+        }),
+      },
+      { request }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isOk()) {
+      return;
+    }
+
+    expect(result.error.type).toBe('InvalidInputError');
+    expect(result.error.message).toContain('unsafe CSV prefix');
+    expect(result.error.message).toContain('=');
+  });
 });

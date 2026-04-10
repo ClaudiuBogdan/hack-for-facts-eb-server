@@ -157,6 +157,7 @@ export async function saveMapSnapshot(
       nextMapDescription: mapDescriptionResult.value,
       nextVisibility,
       nextPublicId,
+      allowPublicWrite: request.allowPublicWrite === true,
       snapshotCap,
     });
   } catch (error) {

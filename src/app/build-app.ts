@@ -61,6 +61,12 @@ import {
   defaultAdvancedMapAnalyticsIdGenerator,
 } from '../modules/advanced-map-analytics/index.js';
 import {
+  defaultAdvancedMapDatasetIdGenerator,
+  makeAdvancedMapDatasetRoutes,
+  makeAdvancedMapDatasetsRepo,
+  makeClerkAdvancedMapDatasetWritePermissionChecker,
+} from '../modules/advanced-map-datasets/index.js';
+import {
   makeAggregatedLineItemsResolvers,
   AggregatedLineItemsSchema,
   makeAggregatedLineItemsRepo,
@@ -321,7 +327,8 @@ const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_SUFFIX = '/subscription-stats';
 const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_PREFIX = '/api/v1/campaigns/';
 const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
 const ADVANCED_MAP_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-analytics/public/';
-const ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH = '/api/v1/advanced-map-analytics/grouped-series';
+const ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PATH = '/api/v1/advanced-map-datasets/public';
+const ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-datasets/public/';
 const SAFE_ERROR_CODES = new Set([
   'ValidationError',
   'NotFoundError',
@@ -395,11 +402,12 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     path === '/openapi.json' ||
     path === WEBHOOK_CLERK_ROUTE_PATH ||
     path === WEBHOOK_RESEND_ROUTE_PATH ||
-    path === ADVANCED_MAP_GROUPED_SERIES_ROUTE_PATH ||
     isCampaignSubscriptionStatsRoute(path) ||
     path.startsWith(GPT_ROUTE_PREFIX) ||
     path.startsWith(NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX) ||
-    path.startsWith(ADVANCED_MAP_PUBLIC_ROUTE_PREFIX)
+    path.startsWith(ADVANCED_MAP_PUBLIC_ROUTE_PREFIX) ||
+    path === ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PATH ||
+    path.startsWith(ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PREFIX)
   ) {
     return true;
   }
@@ -1838,6 +1846,36 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Setup Advanced Map Datasets Module (REST API)
+    // ─────────────────────────────────────────────────────────────────────────
+    const advancedMapDatasetClerkSecret = config.auth.clerkSecretKey?.trim();
+
+    const advancedMapDatasetRepo = makeAdvancedMapDatasetsRepo({
+      db: userDb,
+      logger: repoLogger,
+    });
+
+    const advancedMapDatasetWritePermissionChecker =
+      advancedMapDatasetClerkSecret !== undefined && advancedMapDatasetClerkSecret !== ''
+        ? makeClerkAdvancedMapDatasetWritePermissionChecker({
+            secretKey: advancedMapDatasetClerkSecret,
+            permissionName: 'advanced_map:public_write',
+            logger: repoLogger,
+          })
+        : {
+            canWrite: () => Promise.resolve(false),
+          };
+
+    await app.register(
+      makeAdvancedMapDatasetRoutes({
+        repo: advancedMapDatasetRepo,
+        budgetDb,
+        idGenerator: defaultAdvancedMapDatasetIdGenerator,
+        writePermissionChecker: advancedMapDatasetWritePermissionChecker,
+      })
+    );
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Setup Advanced Map Analytics Module (REST API)
     // ─────────────────────────────────────────────────────────────────────────
     const advancedMapAnalyticsRepo = makeAdvancedMapAnalyticsRepo({
@@ -1847,6 +1885,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     const groupedSeriesProvider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
       budgetDb,
+      datasetRepo: advancedMapDatasetRepo,
       commitmentsRepo,
       insRepo,
       normalizationService,
@@ -1858,8 +1897,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     await app.register(
       makeAdvancedMapAnalyticsRoutes({
         repo: advancedMapAnalyticsRepo,
+        datasetRepo: advancedMapDatasetRepo,
         groupedSeriesProvider,
         idGenerator: defaultAdvancedMapAnalyticsIdGenerator,
+        publicWritePermissionChecker: advancedMapDatasetWritePermissionChecker,
       })
     );
 

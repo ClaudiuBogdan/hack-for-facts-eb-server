@@ -2,10 +2,14 @@
  * Advanced Map Analytics Repository - Kysely implementation
  */
 
-import { sql } from 'kysely';
+import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { acquireAdvancedMapDatasetTransactionLocks } from '@/infra/database/user/advisory-locks.js';
+
 import {
+  createForbiddenError,
+  createInvalidInputError,
   createNotFoundError,
   createProviderError,
   createSnapshotLimitReachedError,
@@ -25,13 +29,17 @@ import type {
   AdvancedMapAnalyticsSnapshotDocument,
   AdvancedMapAnalyticsSnapshotSummary,
 } from '../../core/types.js';
-import type { UserDbClient } from '@/infra/database/client.js';
+import type { UserDatabase, UserDbClient } from '@/infra/database/client.js';
 import type { Logger } from 'pino';
 
 export interface AdvancedMapAnalyticsRepoOptions {
   db: UserDbClient;
   logger: Logger;
 }
+
+type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+const PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE =
+  'You do not have permission to manage public advanced maps';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -60,6 +68,226 @@ function isSnapshotDocument(value: unknown): value is AdvancedMapAnalyticsSnapsh
 
 function toSnapshotDocument(value: unknown): AdvancedMapAnalyticsSnapshotDocument | null {
   return isSnapshotDocument(value) ? value : null;
+}
+
+interface UploadedDatasetSnapshotReferences {
+  datasetIds: string[];
+  datasetPublicIds: string[];
+}
+
+function extractUploadedDatasetReferencesFromSnapshot(
+  snapshot: unknown
+): UploadedDatasetSnapshotReferences {
+  const document = toSnapshotDocument(snapshot);
+  if (document === null) {
+    return {
+      datasetIds: [],
+      datasetPublicIds: [],
+    };
+  }
+
+  const rawSeries = document.state['series'];
+  if (!Array.isArray(rawSeries)) {
+    return {
+      datasetIds: [],
+      datasetPublicIds: [],
+    };
+  }
+
+  const datasetIds = new Set<string>();
+  const datasetPublicIds = new Set<string>();
+
+  for (const series of rawSeries) {
+    if (!isRecord(series) || series['type'] !== 'uploaded-map-dataset') {
+      continue;
+    }
+
+    const datasetId = series['datasetId'];
+    if (typeof datasetId === 'string') {
+      const trimmed = datasetId.trim();
+      if (trimmed !== '') {
+        datasetIds.add(trimmed);
+      }
+    }
+
+    const datasetPublicId = series['datasetPublicId'];
+    if (typeof datasetPublicId === 'string') {
+      const trimmedPublicId = datasetPublicId.trim();
+      if (trimmedPublicId !== '') {
+        datasetPublicIds.add(trimmedPublicId);
+      }
+    }
+  }
+
+  return {
+    datasetIds: Array.from(datasetIds),
+    datasetPublicIds: Array.from(datasetPublicIds),
+  };
+}
+
+async function applyDatasetReferenceDelta(
+  db: UserDbConnection,
+  removedDatasetIds: string[],
+  addedDatasetIds: string[]
+): Promise<void> {
+  const decrementIds = removedDatasetIds.filter(
+    (datasetId) => !addedDatasetIds.includes(datasetId)
+  );
+  const incrementIds = addedDatasetIds.filter(
+    (datasetId) => !removedDatasetIds.includes(datasetId)
+  );
+
+  if (decrementIds.length > 0) {
+    await db
+      .updateTable('advancedmapdatasets')
+      .set({
+        reference_count: sql<number>`GREATEST(reference_count - 1, 0)`,
+      })
+      .where('id', 'in', decrementIds)
+      .execute();
+  }
+
+  if (incrementIds.length > 0) {
+    await db
+      .updateTable('advancedmapdatasets')
+      .set({
+        reference_count: sql<number>`reference_count + 1`,
+      })
+      .where('id', 'in', incrementIds)
+      .execute();
+  }
+}
+
+function normalizeDatasetIds(datasetIds: readonly string[]): string[] {
+  return Array.from(
+    new Set(datasetIds.map((datasetId) => datasetId.trim()).filter((datasetId) => datasetId !== ''))
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeDatasetPublicIds(datasetPublicIds: readonly string[]): string[] {
+  return Array.from(
+    new Set(
+      datasetPublicIds
+        .map((datasetPublicId) => datasetPublicId.trim())
+        .filter((datasetPublicId) => datasetPublicId !== '')
+    )
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+interface DatasetAccessRow {
+  id: string;
+  public_id: string;
+  user_id: string;
+  visibility: 'private' | 'unlisted' | 'public';
+}
+
+async function resolveUploadedDatasetReferenceIdsForLocking(
+  db: UserDbConnection,
+  references: UploadedDatasetSnapshotReferences
+): Promise<string[]> {
+  const datasetIds = normalizeDatasetIds(references.datasetIds);
+  const datasetPublicIds = normalizeDatasetPublicIds(references.datasetPublicIds);
+
+  if (datasetPublicIds.length === 0) {
+    return datasetIds;
+  }
+
+  const rows = await db
+    .selectFrom('advancedmapdatasets')
+    .select(['id'])
+    .where('deleted_at', 'is', null)
+    .where('public_id', 'in', datasetPublicIds)
+    .execute();
+
+  return normalizeDatasetIds([...datasetIds, ...rows.map((row) => row.id)]);
+}
+
+async function validateUploadedDatasetAccessForMapWrite(
+  db: UserDbConnection,
+  input: {
+    userId: string;
+    references: UploadedDatasetSnapshotReferences;
+    requireShareable: boolean;
+  }
+): Promise<Result<string[], AdvancedMapAnalyticsError>> {
+  // This recheck runs inside the same transaction-scoped dataset lock boundary
+  // that save/publish operations use. See:
+  // docs/specs/specs-202604091600-advanced-map-dataset-consistency-boundary.md
+  const datasetIds = normalizeDatasetIds(input.references.datasetIds);
+  const datasetPublicIds = normalizeDatasetPublicIds(input.references.datasetPublicIds);
+  if (datasetIds.length === 0 && datasetPublicIds.length === 0) {
+    return ok([]);
+  }
+
+  const rows = await db
+    .selectFrom('advancedmapdatasets')
+    .select(['id', 'public_id', 'user_id', 'visibility'])
+    .where('deleted_at', 'is', null)
+    .where((eb) =>
+      eb.or([
+        ...(datasetIds.length > 0 ? [eb('id', 'in', datasetIds)] : []),
+        ...(datasetPublicIds.length > 0 ? [eb('public_id', 'in', datasetPublicIds)] : []),
+      ])
+    )
+    .forUpdate()
+    .execute();
+
+  const rowById = new Map<string, DatasetAccessRow>();
+  const rowByPublicId = new Map<string, DatasetAccessRow>();
+  for (const row of rows) {
+    const datasetRow = row as unknown as DatasetAccessRow;
+    rowById.set(datasetRow.id, datasetRow);
+    rowByPublicId.set(datasetRow.public_id, datasetRow);
+  }
+
+  const resolvedDatasetIds: string[] = [];
+  for (const datasetId of datasetIds) {
+    const row = rowById.get(datasetId);
+    if (row === undefined) {
+      return err(createInvalidInputError('Uploaded map dataset not found or not accessible'));
+    }
+
+    const isAccessible =
+      row.user_id === input.userId || row.visibility === 'public' || row.visibility === 'unlisted';
+    if (!isAccessible) {
+      return err(createInvalidInputError('Uploaded map dataset not found or not accessible'));
+    }
+
+    if (input.requireShareable && row.visibility === 'private') {
+      return err(
+        createInvalidInputError(
+          'Public maps can reference only unlisted or public uploaded datasets'
+        )
+      );
+    }
+
+    resolvedDatasetIds.push(row.id);
+  }
+
+  for (const datasetPublicId of datasetPublicIds) {
+    const row = rowByPublicId.get(datasetPublicId);
+    if (row === undefined) {
+      return err(createInvalidInputError('Uploaded map dataset not found or not accessible'));
+    }
+
+    const isAccessible =
+      row.user_id === input.userId || row.visibility === 'public' || row.visibility === 'unlisted';
+    if (!isAccessible) {
+      return err(createInvalidInputError('Uploaded map dataset not found or not accessible'));
+    }
+
+    if (input.requireShareable && row.visibility === 'private') {
+      return err(
+        createInvalidInputError(
+          'Public maps can reference only unlisted or public uploaded datasets'
+        )
+      );
+    }
+
+    resolvedDatasetIds.push(row.id);
+  }
+
+  return ok(normalizeDatasetIds(resolvedDatasetIds));
 }
 
 function toDate(value: unknown): Date {
@@ -235,26 +463,70 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     input: UpdateMapParams
   ): Promise<Result<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>> {
     try {
-      const updated = await this.db
-        .updateTable('advancedmapanalyticsmaps')
-        .set({
-          title: input.title,
-          description: input.description,
-          visibility: input.visibility,
-          public_id: input.publicId,
-          updated_at: new Date(),
-        } as never)
-        .where('id', '=', input.mapId)
-        .where('user_id', '=', input.userId)
-        .where('deleted_at', 'is', null)
-        .returningAll()
-        .executeTakeFirst();
+      const txResult = await this.db.transaction().execute(async (trx) => {
+        const mapRow = await trx
+          .selectFrom('advancedmapanalyticsmaps')
+          .selectAll()
+          .where('id', '=', input.mapId)
+          .where('user_id', '=', input.userId)
+          .where('deleted_at', 'is', null)
+          .forUpdate()
+          .executeTakeFirst();
 
-      if (updated === undefined) {
-        return ok(null);
-      }
+        if (mapRow === undefined) {
+          return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
+        }
 
-      return ok(mapMapRow(updated as unknown as MapRow));
+        if (
+          !input.allowPublicWrite &&
+          (mapRow.visibility === 'public' || input.visibility === 'public')
+        ) {
+          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+        }
+
+        if (input.visibility === 'public') {
+          const referencedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+            mapRow.last_snapshot
+          );
+          const referencedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+            trx,
+            referencedDatasetRefs
+          );
+          await acquireAdvancedMapDatasetTransactionLocks(trx, referencedDatasetIds);
+
+          const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
+            userId: input.userId,
+            references: referencedDatasetRefs,
+            requireShareable: true,
+          });
+          if (datasetValidationResult.isErr()) {
+            return err(datasetValidationResult.error);
+          }
+        }
+
+        const updated = await trx
+          .updateTable('advancedmapanalyticsmaps')
+          .set({
+            title: input.title,
+            description: input.description,
+            visibility: input.visibility,
+            public_id: input.publicId,
+            updated_at: new Date(),
+          } as never)
+          .where('id', '=', input.mapId)
+          .where('user_id', '=', input.userId)
+          .where('deleted_at', 'is', null)
+          .returningAll()
+          .executeTakeFirst();
+
+        if (updated === undefined) {
+          return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
+        }
+
+        return ok(mapMapRow(updated as unknown as MapRow));
+      });
+
+      return txResult;
     } catch (error) {
       this.log.error(
         { err: error, mapId: input.mapId, userId: input.userId },
@@ -266,25 +538,52 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
 
   async softDeleteMap(
     mapId: string,
-    userId: string
+    userId: string,
+    allowPublicWrite: boolean
   ): Promise<Result<boolean, AdvancedMapAnalyticsError>> {
     try {
-      const now = new Date();
+      const txResult = await this.db.transaction().execute(async (trx) => {
+        const mapRow = await trx
+          .selectFrom('advancedmapanalyticsmaps')
+          .selectAll()
+          .where('id', '=', mapId)
+          .where('user_id', '=', userId)
+          .where('deleted_at', 'is', null)
+          .forUpdate()
+          .executeTakeFirst();
 
-      const result = await this.db
-        .updateTable('advancedmapanalyticsmaps')
-        .set({
-          deleted_at: now,
-          updated_at: now,
-        } as never)
-        .where('id', '=', mapId)
-        .where('user_id', '=', userId)
-        .where('deleted_at', 'is', null)
-        .executeTakeFirst();
+        if (mapRow === undefined) {
+          return ok<boolean, AdvancedMapAnalyticsError>(false);
+        }
 
-      const updatedCount = Number(result.numUpdatedRows);
+        if (!allowPublicWrite && mapRow.visibility === 'public') {
+          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+        }
 
-      return ok(updatedCount > 0);
+        const now = new Date();
+        await trx
+          .updateTable('advancedmapanalyticsmaps')
+          .set({
+            deleted_at: now,
+            updated_at: now,
+          } as never)
+          .where('id', '=', mapId)
+          .where('user_id', '=', userId)
+          .where('deleted_at', 'is', null)
+          .execute();
+
+        const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+          mapRow.last_snapshot
+        );
+        const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+          trx,
+          removedDatasetRefs
+        );
+        await applyDatasetReferenceDelta(trx, removedDatasetIds, []);
+        return ok<boolean, AdvancedMapAnalyticsError>(true);
+      });
+
+      return txResult;
     } catch (error) {
       this.log.error({ err: error, mapId, userId }, 'Failed to soft delete map');
       return err(createProviderError('Failed to delete map', error));
@@ -318,8 +617,45 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
           return err(createSnapshotLimitReachedError(input.snapshotCap));
         }
 
+        if (
+          !input.allowPublicWrite &&
+          (mapRow.visibility === 'public' || input.nextVisibility === 'public')
+        ) {
+          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+        }
+
         const now = new Date();
         const snapshotJson = JSON.stringify(input.snapshotDocument);
+        const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+          mapRow.last_snapshot
+        );
+        const addedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+          input.snapshotDocument
+        );
+        const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+          trx,
+          removedDatasetRefs
+        );
+        const addedDatasetIdsForLocking = await resolveUploadedDatasetReferenceIdsForLocking(
+          trx,
+          addedDatasetRefs
+        );
+        const lockedDatasetIds = normalizeDatasetIds([
+          ...removedDatasetIds,
+          ...addedDatasetIdsForLocking,
+        ]);
+
+        await acquireAdvancedMapDatasetTransactionLocks(trx, lockedDatasetIds);
+
+        const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
+          userId: input.userId,
+          references: addedDatasetRefs,
+          requireShareable: input.nextVisibility === 'public',
+        });
+        if (datasetValidationResult.isErr()) {
+          return err(datasetValidationResult.error);
+        }
+        const addedDatasetIds = datasetValidationResult.value;
 
         const updatedMap = await trx
           .updateTable('advancedmapanalyticsmaps')
@@ -363,6 +699,8 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
         if (snapshotDetail === null) {
           throw new Error('Snapshot payload validation failed after insert');
         }
+
+        await applyDatasetReferenceDelta(trx, removedDatasetIds, addedDatasetIds);
 
         return ok({
           map: mapMapRow(updatedMap as unknown as MapRow),

@@ -11,15 +11,17 @@ import {
   createProviderError,
   type GroupedSeriesError,
 } from '../errors.js';
+import {
+  GROUPED_SERIES_RESERVED_ID_PREFIXES,
+  GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES,
+  type GroupedSeriesDataRequest,
+  type GroupedSeriesMatrixData,
+  type GroupedSeriesMatrixRow,
+  type MapRequestSeries,
+  type MapSeriesVector,
+} from '../types.js';
 
 import type { GroupedSeriesProvider } from '../ports.js';
-import type {
-  GroupedSeriesDataRequest,
-  GroupedSeriesMatrixData,
-  GroupedSeriesMatrixRow,
-  MapRequestSeries,
-  MapSeriesVector,
-} from '../types.js';
 
 export interface GetGroupedSeriesDataDeps {
   provider: GroupedSeriesProvider;
@@ -47,6 +49,68 @@ function findDuplicateSeriesId(series: MapRequestSeries[]): string | undefined {
   }
 
   return undefined;
+}
+
+function findReservedSeriesIdPrefix(series: MapRequestSeries[]): string | undefined {
+  for (const item of series) {
+    const seriesId = item.id.trim();
+    const normalizedSeriesId = seriesId.toLowerCase();
+
+    for (const prefix of GROUPED_SERIES_RESERVED_ID_PREFIXES) {
+      if (normalizedSeriesId.startsWith(prefix)) {
+        return seriesId;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function findUnsafeCsvSeriesIdPrefix(series: MapRequestSeries[]): string | undefined {
+  for (const item of series) {
+    const seriesId = item.id.trim();
+
+    for (const prefix of GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES) {
+      if (seriesId.startsWith(prefix)) {
+        return seriesId;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function validateGroupedSeriesRequestSeries(
+  series: MapRequestSeries[]
+): Result<void, GroupedSeriesError> {
+  const duplicateSeriesId = findDuplicateSeriesId(series);
+  if (duplicateSeriesId !== undefined) {
+    if (duplicateSeriesId === '') {
+      return err(createInvalidInputError('Series id cannot be empty'));
+    }
+
+    return err(createInvalidInputError(`Duplicate series id: ${duplicateSeriesId}`));
+  }
+
+  const reservedSeriesId = findReservedSeriesIdPrefix(series);
+  if (reservedSeriesId !== undefined) {
+    return err(
+      createInvalidInputError(
+        `Series id uses a reserved prefix: ${reservedSeriesId}. Reserved prefixes: ${GROUPED_SERIES_RESERVED_ID_PREFIXES.join(', ')}`
+      )
+    );
+  }
+
+  const unsafeCsvSeriesId = findUnsafeCsvSeriesIdPrefix(series);
+  if (unsafeCsvSeriesId !== undefined) {
+    return err(
+      createInvalidInputError(
+        `Series id uses an unsafe CSV prefix: ${unsafeCsvSeriesId}. Unsafe prefixes: ${GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES.join(', ')}`
+      )
+    );
+  }
+
+  return ok(undefined);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -94,13 +158,9 @@ export async function getGroupedSeriesData(
     return err(createInvalidInputError('At least one series is required'));
   }
 
-  const duplicateSeriesId = findDuplicateSeriesId(request.series);
-  if (duplicateSeriesId !== undefined) {
-    if (duplicateSeriesId === '') {
-      return err(createInvalidInputError('Series id cannot be empty'));
-    }
-
-    return err(createInvalidInputError(`Duplicate series id: ${duplicateSeriesId}`));
+  const seriesValidationResult = validateGroupedSeriesRequestSeries(request.series);
+  if (seriesValidationResult.isErr()) {
+    return err(seriesValidationResult.error);
   }
 
   let providerResult: Awaited<ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']>>;

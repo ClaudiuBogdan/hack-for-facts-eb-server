@@ -41,7 +41,7 @@ function makeRepo(
     getMapForUser: async () => ok(makeMap()),
     listMapsForUser: async () => ok([]),
     updateMap: async (_input: UpdateMapParams) => ok(makeMap()),
-    softDeleteMap: async (_mapId: string, _userId: string) => ok(true),
+    softDeleteMap: async (_mapId: string, _userId: string, _allowPublicWrite: boolean) => ok(true),
     appendSnapshot: async (_input: AppendSnapshotParams) =>
       ok({
         map: makeMap(),
