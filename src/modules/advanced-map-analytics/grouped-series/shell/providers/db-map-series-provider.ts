@@ -6,11 +6,16 @@ import { CacheNamespace, type KeyBuilder, type SilentCachePort } from '@/infra/c
 import { extractCommitmentsSeriesVector } from './extract-commitments-series.js';
 import { extractExecutionSeriesVector } from './extract-execution-series.js';
 import { extractInsSeriesVector } from './extract-ins-series.js';
+import { extractUploadedDatasetSeriesVector } from './extract-uploaded-dataset-series.js';
 import {
   normalizeCommitmentsSeriesInput,
   normalizeExecutionSeriesInput,
 } from './filter-normalizers.js';
-import { createProviderError } from '../../core/errors.js';
+import {
+  createInvalidInputError,
+  createNotFoundError,
+  createProviderError,
+} from '../../core/errors.js';
 
 import type { GroupedSeriesProvider } from '../../core/ports.js';
 import type {
@@ -21,9 +26,11 @@ import type {
   InsMapSeries,
   MapRequestSeries,
   MapSeriesVector,
+  UploadedMapDatasetSeries,
 } from '../../core/types.js';
 import type { ReportPeriodInput } from '@/common/types/analytics.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
+import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
@@ -34,7 +41,7 @@ interface SirutaRow {
 }
 
 const DEFAULT_SERIES_CACHE_TTL_MS = 60 * 60 * 1000;
-const SERIES_CACHE_KEY_VERSION = 1;
+const SERIES_CACHE_KEY_VERSION = 2;
 const SERIES_CACHE_ENTRY_VERSION = 1;
 const SET_LIKE_FILTER_ARRAY_KEYS = [
   'report_ids',
@@ -70,6 +77,7 @@ interface CachedSeriesVectorEntry {
 
 export interface MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps {
   budgetDb: BudgetDbClient;
+  datasetRepo?: AdvancedMapDatasetRepository;
   commitmentsRepo: CommitmentsRepository;
   insRepo: InsRepository;
   normalizationService: NormalizationService;
@@ -289,9 +297,31 @@ function createInsSeriesCacheKeyPayload(
   };
 }
 
+function createUploadedDatasetSeriesCacheKeyPayload(
+  granularity: GroupedSeriesDataRequest['granularity'],
+  series: UploadedMapDatasetSeries,
+  requestUserId: string | undefined,
+  resolvedDatasetId: string,
+  datasetVersion: string
+): Record<string, unknown> {
+  return {
+    version: SERIES_CACHE_KEY_VERSION,
+    granularity,
+    seriesType: series.type,
+    datasetId: resolvedDatasetId,
+    requestUserId: trimToUndefined(requestUserId),
+    datasetVersion,
+  };
+}
+
 function createSeriesCacheKeyPayload(
   granularity: GroupedSeriesDataRequest['granularity'],
-  series: MapRequestSeries
+  series: MapRequestSeries,
+  requestUserId: string | undefined,
+  options?: {
+    resolvedDatasetId: string;
+    datasetVersion: string;
+  }
 ) {
   if (series.type === 'line-items-aggregated-yearly') {
     return createExecutionSeriesCacheKeyPayload(granularity, series);
@@ -299,6 +329,24 @@ function createSeriesCacheKeyPayload(
 
   if (series.type === 'commitments-analytics') {
     return createCommitmentsSeriesCacheKeyPayload(granularity, series);
+  }
+
+  if (series.type === 'uploaded-map-dataset') {
+    if (options === undefined) {
+      return err(
+        createProviderError('Uploaded dataset cache key requires a resolved dataset head')
+      );
+    }
+
+    return ok(
+      createUploadedDatasetSeriesCacheKeyPayload(
+        granularity,
+        series,
+        requestUserId,
+        options.resolvedDatasetId,
+        options.datasetVersion
+      )
+    );
   }
 
   return ok(createInsSeriesCacheKeyPayload(granularity, series));
@@ -483,8 +531,16 @@ export function makeDbAdvancedMapAnalyticsGroupedSeriesProvider(
 
         for (const series of request.series) {
           let cacheKey: string | undefined;
-          if (cache !== undefined && keyBuilder !== undefined) {
-            const keyPayloadResult = createSeriesCacheKeyPayload(request.granularity, series);
+          if (
+            series.type !== 'uploaded-map-dataset' &&
+            cache !== undefined &&
+            keyBuilder !== undefined
+          ) {
+            const keyPayloadResult = createSeriesCacheKeyPayload(
+              request.granularity,
+              series,
+              request.requestUserId
+            );
             if (keyPayloadResult.isErr()) {
               return err(keyPayloadResult.error);
             }
@@ -572,6 +628,103 @@ export function makeDbAdvancedMapAnalyticsGroupedSeriesProvider(
                 extractedUnit,
                 commitmentsResult.value.valuesBySirutaCode,
                 commitmentsResult.value.warnings
+              );
+              await cache.set(cacheKey, cacheEntry, { ttlMs });
+            }
+            continue;
+          }
+
+          if (series.type === 'uploaded-map-dataset') {
+            if (deps.datasetRepo === undefined) {
+              return err(createProviderError('Advanced map dataset repository is not configured'));
+            }
+
+            const datasetId = trimToUndefined(series.datasetId);
+            const datasetPublicId = trimToUndefined(series.datasetPublicId);
+            const hasDatasetId = datasetId !== undefined;
+            const hasDatasetPublicId = datasetPublicId !== undefined;
+            if (hasDatasetId === hasDatasetPublicId) {
+              return err(
+                createInvalidInputError(
+                  'uploaded-map-dataset series requires exactly one of datasetId or datasetPublicId'
+                )
+              );
+            }
+
+            const datasetResult = await deps.datasetRepo.getAccessibleDataset({
+              ...(datasetId !== undefined ? { datasetId } : {}),
+              ...(datasetPublicId !== undefined ? { datasetPublicId } : {}),
+              ...(request.requestUserId !== undefined && request.requestUserId.trim() !== ''
+                ? { requestUserId: request.requestUserId.trim() }
+                : {}),
+            });
+            if (datasetResult.isErr()) {
+              return err(createProviderError(datasetResult.error.message, datasetResult.error));
+            }
+
+            if (datasetResult.value === null) {
+              return err(createNotFoundError('Uploaded map dataset not found'));
+            }
+
+            if (cache !== undefined && keyBuilder !== undefined) {
+              const datasetVersion = (
+                datasetResult.value.replacedAt ?? datasetResult.value.updatedAt
+              ).toISOString();
+              const keyPayloadResult = createSeriesCacheKeyPayload(
+                request.granularity,
+                series,
+                request.requestUserId,
+                {
+                  resolvedDatasetId: datasetResult.value.id,
+                  datasetVersion,
+                }
+              );
+              if (keyPayloadResult.isErr()) {
+                return err(keyPayloadResult.error);
+              }
+
+              cacheKey = keyBuilder.fromFilter(
+                CacheNamespace.ADVANCED_MAP_ANALYTICS_SERIES,
+                keyPayloadResult.value
+              );
+
+              const cachedEntry = readCachedSeriesEntry(await cache.get(cacheKey), series.type);
+              if (cachedEntry !== undefined) {
+                const cachedWarnings = fromCachedWarnings(cachedEntry.warnings, series.id);
+                warnings.push(...cachedWarnings);
+                const unit = resolveSeriesUnit(series.unit, cachedEntry.unit);
+                vectors.push({
+                  seriesId: series.id,
+                  ...(unit !== undefined ? { unit } : {}),
+                  valuesBySirutaCode: fromCachedValues(cachedEntry.valuesBySirutaCode),
+                });
+                continue;
+              }
+            }
+
+            const extractedDatasetResult = await extractUploadedDatasetSeriesVector(
+              datasetResult.value,
+              sirutaUniverseSet
+            );
+            if (extractedDatasetResult.isErr()) {
+              return err(extractedDatasetResult.error);
+            }
+
+            warnings.push(...extractedDatasetResult.value.warnings);
+            const extractedUnit = datasetResult.value.unit ?? undefined;
+            const unit = resolveSeriesUnit(series.unit, extractedUnit);
+            vectors.push({
+              seriesId: series.id,
+              ...(unit !== undefined ? { unit } : {}),
+              valuesBySirutaCode: extractedDatasetResult.value.valuesBySirutaCode,
+            });
+
+            if (cache !== undefined && cacheKey !== undefined) {
+              const cacheEntry = toCachedSeriesEntry(
+                series.type,
+                extractedUnit,
+                extractedDatasetResult.value.valuesBySirutaCode,
+                extractedDatasetResult.value.warnings
               );
               await cache.set(cacheKey, cacheEntry, { ttlMs });
             }

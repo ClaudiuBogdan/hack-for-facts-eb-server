@@ -14,6 +14,7 @@ export type {
   ExecutionMapSeries,
   CommitmentsMapSeries,
   InsMapSeries,
+  UploadedMapDatasetSeries,
   MapRequestSeries,
   GroupedSeriesDataRequest,
   GroupedSeriesWarning,
@@ -25,14 +26,22 @@ export type {
   GroupedSeriesMatrixData,
 } from './core/types.js';
 
+export { GROUPED_SERIES_RESERVED_ID_PREFIXES } from './core/types.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { InvalidInputError, ProviderError, GroupedSeriesError } from './core/errors.js';
+export type {
+  InvalidInputError,
+  NotFoundError,
+  ProviderError,
+  GroupedSeriesError,
+} from './core/errors.js';
 
 export {
   createInvalidInputError,
+  createNotFoundError,
   createProviderError,
   GROUPED_SERIES_ERROR_HTTP_STATUS,
   getHttpStatusForError,
@@ -50,6 +59,7 @@ export type { GroupedSeriesProvider } from './core/ports.js';
 
 export {
   getGroupedSeriesData,
+  validateGroupedSeriesRequestSeries,
   type GetGroupedSeriesDataDeps,
   type GetGroupedSeriesDataInput,
 } from './core/usecases/get-grouped-series-data.js';

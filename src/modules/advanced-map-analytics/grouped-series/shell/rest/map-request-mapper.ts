@@ -4,7 +4,7 @@
 
 import { Frequency } from '@/common/types/temporal.js';
 
-import type { GroupedSeriesDataBody } from './schemas.js';
+import type { GroupedSeriesDataBody, GroupedSeriesDataBodyInput } from './schemas.js';
 import type { GroupedSeriesDataRequest, MapRequestSeries } from '../../core/types.js';
 import type { PeriodDate, ReportPeriodInput } from '@/common/types/analytics.js';
 
@@ -45,11 +45,20 @@ function toReportPeriodInput(period: {
 }
 
 export function toMapRequestSeries(
-  series: GroupedSeriesDataBody['series'][number]
+  series: GroupedSeriesDataBodyInput['series'][number],
+  id: string
 ): MapRequestSeries {
+  if (series.type === 'uploaded-map-dataset') {
+    return {
+      ...series,
+      id,
+    };
+  }
+
   if (series.type === 'line-items-aggregated-yearly') {
     return {
       ...series,
+      id,
       filter: {
         ...series.filter,
         report_period: toReportPeriodInput(series.filter.report_period),
@@ -60,6 +69,7 @@ export function toMapRequestSeries(
   if (series.type === 'commitments-analytics') {
     return {
       ...series,
+      id,
       filter: {
         ...series.filter,
         report_period: toReportPeriodInput(series.filter.report_period),
@@ -71,16 +81,40 @@ export function toMapRequestSeries(
   return period !== undefined
     ? {
         ...rest,
+        id,
         period: toReportPeriodInput(period),
       }
-    : rest;
+    : {
+        ...rest,
+        id,
+      };
+}
+
+function buildGeneratedSeriesId(preferredIndex: number, usedIds: Set<string>): string {
+  let candidate = `series_${String(preferredIndex + 1)}`;
+  let suffix = 2;
+
+  while (usedIds.has(candidate)) {
+    candidate = `series_${String(preferredIndex + 1)}_${String(suffix)}`;
+    suffix += 1;
+  }
+
+  return candidate;
 }
 
 export function mapGroupedSeriesBodyToRequest(
-  body: GroupedSeriesDataBody
+  body: GroupedSeriesDataBody | GroupedSeriesDataBodyInput
 ): GroupedSeriesDataRequest {
+  const usedIds = new Set<string>();
+
   return {
     granularity: body.granularity,
-    series: body.series.map((series) => toMapRequestSeries(series)),
+    series: body.series.map((series, index) => {
+      const explicitId =
+        typeof series.id === 'string' && series.id.trim() !== '' ? series.id.trim() : undefined;
+      const id = explicitId ?? buildGeneratedSeriesId(index, usedIds);
+      usedIds.add(id);
+      return toMapRequestSeries(series, id);
+    }),
   };
 }

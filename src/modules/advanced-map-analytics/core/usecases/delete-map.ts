@@ -15,6 +15,7 @@ export interface DeleteMapDeps {
 export interface DeleteMapInput {
   userId: string;
   mapId: string;
+  allowPublicWrite?: boolean;
 }
 
 export async function deleteMap(
@@ -24,7 +25,11 @@ export async function deleteMap(
   let deleteResult: Awaited<ReturnType<AdvancedMapAnalyticsRepository['softDeleteMap']>>;
 
   try {
-    deleteResult = await deps.repo.softDeleteMap(input.mapId, input.userId);
+    deleteResult = await deps.repo.softDeleteMap(
+      input.mapId,
+      input.userId,
+      input.allowPublicWrite === true
+    );
   } catch (error) {
     return err(createProviderError('Failed to delete map', error));
   }

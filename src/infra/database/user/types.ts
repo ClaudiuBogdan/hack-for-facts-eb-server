@@ -257,6 +257,30 @@ export interface AdvancedMapAnalyticsSnapshots {
   created_at: Generated<Timestamp>;
 }
 
+export interface AdvancedMapDatasets {
+  id: Generated<string>;
+  public_id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  markdown_text: string | null;
+  unit: string | null;
+  visibility: 'private' | 'unlisted' | 'public';
+  row_count: Generated<number>;
+  reference_count: Generated<number>;
+  replaced_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
+}
+
+export interface AdvancedMapDatasetRows {
+  dataset_id: string;
+  siruta_code: string;
+  value_number: string | null;
+  value_json: JSONColumnType<Record<string, unknown> | null>;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
@@ -272,4 +296,6 @@ export interface UserDatabase {
   resend_wh_emails: ResendWhEmails;
   advancedmapanalyticsmaps: AdvancedMapAnalyticsMaps;
   advancedmapanalyticssnapshots: AdvancedMapAnalyticsSnapshots;
+  advancedmapdatasets: AdvancedMapDatasets;
+  advancedmapdatasetrows: AdvancedMapDatasetRows;
 }

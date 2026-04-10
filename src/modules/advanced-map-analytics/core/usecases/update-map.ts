@@ -93,6 +93,7 @@ export async function updateMap(
       description: descriptionResult.value,
       visibility,
       publicId,
+      allowPublicWrite: request.allowPublicWrite === true,
     });
   } catch (error) {
     return err(createProviderError('Failed to update map', error));

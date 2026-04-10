@@ -38,7 +38,8 @@ function makeRepo(
   overrides: {
     softDeleteMap?: (
       mapId: string,
-      userId: string
+      userId: string,
+      allowPublicWrite: boolean
     ) => ReturnType<AdvancedMapAnalyticsRepository['softDeleteMap']>;
   } = {}
 ): AdvancedMapAnalyticsRepository {
@@ -47,9 +48,9 @@ function makeRepo(
     getMapForUser: async () => ok(makeMap()),
     listMapsForUser: async () => ok([makeMap()]),
     updateMap: async (_input: UpdateMapParams) => ok(makeMap()),
-    softDeleteMap: async (mapId: string, userId: string) => {
+    softDeleteMap: async (mapId: string, userId: string, allowPublicWrite: boolean) => {
       if (overrides.softDeleteMap !== undefined) {
-        return overrides.softDeleteMap(mapId, userId);
+        return overrides.softDeleteMap(mapId, userId, allowPublicWrite);
       }
 
       return ok(true);

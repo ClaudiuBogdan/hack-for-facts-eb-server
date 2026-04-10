@@ -29,6 +29,7 @@ export interface UpdateMapParams {
   description: string | null;
   visibility: AdvancedMapAnalyticsVisibility;
   publicId: string | null;
+  allowPublicWrite: boolean;
 }
 
 export interface AppendSnapshotParams {
@@ -42,6 +43,7 @@ export interface AppendSnapshotParams {
   nextMapDescription: string | null;
   nextVisibility: AdvancedMapAnalyticsVisibility;
   nextPublicId: string | null;
+  allowPublicWrite: boolean;
   snapshotCap: number;
 }
 
@@ -63,7 +65,11 @@ export interface AdvancedMapAnalyticsRepository {
     input: UpdateMapParams
   ): Promise<Result<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>>;
 
-  softDeleteMap(mapId: string, userId: string): Promise<Result<boolean, AdvancedMapAnalyticsError>>;
+  softDeleteMap(
+    mapId: string,
+    userId: string,
+    allowPublicWrite: boolean
+  ): Promise<Result<boolean, AdvancedMapAnalyticsError>>;
 
   appendSnapshot(
     input: AppendSnapshotParams

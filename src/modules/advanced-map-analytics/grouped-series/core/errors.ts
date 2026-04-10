@@ -14,7 +14,12 @@ export interface ProviderError {
   cause?: unknown;
 }
 
-export type GroupedSeriesError = InvalidInputError | ProviderError;
+export interface NotFoundError {
+  type: 'NotFoundError';
+  message: string;
+}
+
+export type GroupedSeriesError = InvalidInputError | NotFoundError | ProviderError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructors
@@ -31,12 +36,18 @@ export const createProviderError = (message: string, cause?: unknown): ProviderE
   ...(cause !== undefined ? { cause } : {}),
 });
 
+export const createNotFoundError = (message: string): NotFoundError => ({
+  type: 'NotFoundError',
+  message,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HTTP Mapping
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const GROUPED_SERIES_ERROR_HTTP_STATUS: Record<GroupedSeriesError['type'], number> = {
   InvalidInputError: 400,
+  NotFoundError: 404,
   ProviderError: 500,
 };
 

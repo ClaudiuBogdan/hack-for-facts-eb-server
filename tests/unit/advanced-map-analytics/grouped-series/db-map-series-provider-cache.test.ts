@@ -16,10 +16,12 @@ import {
   type ExecutionMapSeries,
   type GroupedSeriesDataRequest,
   type InsMapSeries,
+  type UploadedMapDatasetSeries,
   makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
 } from '@/modules/advanced-map-analytics/index.js';
 
 import type { BudgetDbClient } from '@/infra/database/client.js';
+import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
@@ -122,6 +124,21 @@ function makeNormalizationService(): NormalizationService {
       population: new Map(),
     }),
   } as unknown as NormalizationService;
+}
+
+function makeUploadedDatasetSeries(
+  id: string,
+  options: {
+    datasetId?: string;
+    datasetPublicId?: string;
+  }
+): UploadedMapDatasetSeries {
+  return {
+    id,
+    type: 'uploaded-map-dataset',
+    ...(options.datasetId !== undefined ? { datasetId: options.datasetId } : {}),
+    ...(options.datasetPublicId !== undefined ? { datasetPublicId: options.datasetPublicId } : {}),
+  };
 }
 
 class RecordingCache implements SilentCachePort {
@@ -705,5 +722,328 @@ describe('db map series provider cache behavior', () => {
     });
 
     expect(observationCalls).toBe(1);
+  });
+
+  it('rechecks uploaded dataset access before using a cached anonymous vector', async () => {
+    let visibility: 'public' | 'private' = 'public';
+    let rowCalls = 0;
+
+    const datasetRepo: AdvancedMapDatasetRepository = {
+      createDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      getDatasetForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      listDatasetsForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      updateDatasetMetadata: async () => {
+        throw new Error('Not implemented');
+      },
+      replaceDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      softDeleteDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      listPublicDatasets: async () => {
+        throw new Error('Not implemented');
+      },
+      getPublicDatasetByPublicId: async () => {
+        throw new Error('Not implemented');
+      },
+      getShareableDatasetHeadById: async () => {
+        throw new Error('Not implemented');
+      },
+      getAccessibleDatasetHead: async () =>
+        visibility === 'public'
+          ? ok({
+              id: 'dataset-1',
+              publicId: 'public-1',
+              userId: 'user-1',
+              title: 'Dataset',
+              description: null,
+              markdown: null,
+              unit: 'RON',
+              visibility: 'public',
+              rowCount: 1,
+              replacedAt: null,
+              createdAt: new Date('2026-04-09T07:00:00.000Z'),
+              updatedAt: new Date('2026-04-09T07:00:00.000Z'),
+            })
+          : ok(null),
+      getAccessibleDataset: async () => {
+        rowCalls += 1;
+        return visibility === 'public'
+          ? ok({
+              id: 'dataset-1',
+              publicId: 'public-1',
+              userId: 'user-1',
+              title: 'Dataset',
+              description: null,
+              markdown: null,
+              unit: 'RON',
+              visibility: 'public',
+              rowCount: 1,
+              replacedAt: null,
+              createdAt: new Date('2026-04-09T07:00:00.000Z'),
+              updatedAt: new Date('2026-04-09T07:00:00.000Z'),
+              rows: [{ sirutaCode: '1001', valueNumber: '1', valueJson: null }],
+            })
+          : ok(null);
+      },
+      listDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      listReferencingMaps: async () => ok([]),
+      listPublicReferencingMaps: async () => ok([]),
+    };
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      datasetRepo,
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    const request: GroupedSeriesDataRequest = {
+      granularity: 'UAT',
+      series: [makeUploadedDatasetSeries('uploaded-1', { datasetPublicId: 'public-1' })],
+    };
+
+    const first = await provider.fetchGroupedSeriesVectors(request);
+    expect(first.isOk()).toBe(true);
+    expect(rowCalls).toBe(1);
+
+    visibility = 'private';
+    const second = await provider.fetchGroupedSeriesVectors(request);
+    expect(second.isErr()).toBe(true);
+    expect(rowCalls).toBe(2);
+    if (second.isOk()) {
+      return;
+    }
+
+    expect(second.error.type).toBe('NotFoundError');
+  });
+
+  it('returns not found when uploaded dataset rows disappear after the head check', async () => {
+    const datasetRepo: AdvancedMapDatasetRepository = {
+      createDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      getDatasetForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      listDatasetsForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      updateDatasetMetadata: async () => {
+        throw new Error('Not implemented');
+      },
+      replaceDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      softDeleteDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      listPublicDatasets: async () => {
+        throw new Error('Not implemented');
+      },
+      getPublicDatasetByPublicId: async () => {
+        throw new Error('Not implemented');
+      },
+      getShareableDatasetHeadById: async () => {
+        throw new Error('Not implemented');
+      },
+      getAccessibleDatasetHead: async () =>
+        ok({
+          id: 'dataset-1',
+          publicId: 'public-1',
+          userId: 'user-1',
+          title: 'Dataset',
+          description: null,
+          markdown: null,
+          unit: 'RON',
+          visibility: 'public',
+          rowCount: 1,
+          replacedAt: null,
+          createdAt: new Date('2026-04-09T07:00:00.000Z'),
+          updatedAt: new Date('2026-04-09T07:00:00.000Z'),
+        }),
+      getAccessibleDataset: async () => ok(null),
+      listDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      listReferencingMaps: async () => ok([]),
+      listPublicReferencingMaps: async () => ok([]),
+    };
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      datasetRepo,
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    const result = await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [makeUploadedDatasetSeries('uploaded-1', { datasetPublicId: 'public-1' })],
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isOk()) {
+      return;
+    }
+
+    expect(result.error.type).toBe('NotFoundError');
+  });
+
+  it('versions uploaded dataset cache keys with dataset freshness', async () => {
+    let updatedAt = new Date('2026-04-09T07:00:00.000Z');
+    let rowValue = '1';
+    let rowCalls = 0;
+
+    const datasetRepo: AdvancedMapDatasetRepository = {
+      createDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      getDatasetForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      listDatasetsForUser: async () => {
+        throw new Error('Not implemented');
+      },
+      updateDatasetMetadata: async () => {
+        throw new Error('Not implemented');
+      },
+      replaceDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      softDeleteDataset: async () => {
+        throw new Error('Not implemented');
+      },
+      listPublicDatasets: async () => {
+        throw new Error('Not implemented');
+      },
+      getPublicDatasetByPublicId: async () => {
+        throw new Error('Not implemented');
+      },
+      getShareableDatasetHeadById: async () => {
+        throw new Error('Not implemented');
+      },
+      getAccessibleDatasetHead: async () =>
+        ok({
+          id: 'dataset-1',
+          publicId: 'public-1',
+          userId: 'user-1',
+          title: 'Dataset',
+          description: null,
+          markdown: null,
+          unit: 'RON',
+          visibility: 'public',
+          rowCount: 1,
+          replacedAt: null,
+          createdAt: new Date('2026-04-09T07:00:00.000Z'),
+          updatedAt,
+        }),
+      getAccessibleDataset: async () => {
+        rowCalls += 1;
+        return ok({
+          id: 'dataset-1',
+          publicId: 'public-1',
+          userId: 'user-1',
+          title: 'Dataset',
+          description: null,
+          markdown: null,
+          unit: 'RON',
+          visibility: 'public',
+          rowCount: 1,
+          replacedAt: null,
+          createdAt: new Date('2026-04-09T07:00:00.000Z'),
+          updatedAt,
+          rows: [{ sirutaCode: '1001', valueNumber: rowValue, valueJson: null }],
+        });
+      },
+      listDatasetRows: async () => {
+        throw new Error('Not implemented');
+      },
+      listReferencingMaps: async () => ok([]),
+      listPublicReferencingMaps: async () => ok([]),
+    };
+
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      datasetRepo,
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+      cache: createSilentCache(createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 }), {
+        logger: createMockLogger(),
+      }),
+      keyBuilder: createKeyBuilder(),
+    });
+
+    const request: GroupedSeriesDataRequest = {
+      granularity: 'UAT',
+      series: [makeUploadedDatasetSeries('uploaded-1', { datasetPublicId: 'public-1' })],
+    };
+
+    const first = await provider.fetchGroupedSeriesVectors(request);
+    expect(first.isOk()).toBe(true);
+    expect(rowCalls).toBe(1);
+
+    updatedAt = new Date('2026-04-09T08:00:00.000Z');
+    rowValue = '5';
+
+    const second = await provider.fetchGroupedSeriesVectors(request);
+    expect(second.isOk()).toBe(true);
+    expect(rowCalls).toBe(2);
+    if (second.isErr()) {
+      return;
+    }
+
+    expect(second.value.vectors[0]?.valuesBySirutaCode.get('1001')).toBe(5);
+  });
+
+  it('rejects uploaded dataset series when both identifiers are provided', async () => {
+    const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
+      budgetDb: makeBudgetDb(['1001']),
+      datasetRepo: {} as unknown as AdvancedMapDatasetRepository,
+      commitmentsRepo: {} as unknown as CommitmentsRepository,
+      insRepo: {} as unknown as InsRepository,
+      normalizationService: makeNormalizationService(),
+      uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
+    });
+
+    const result = await provider.fetchGroupedSeriesVectors({
+      granularity: 'UAT',
+      series: [
+        makeUploadedDatasetSeries('uploaded-1', {
+          datasetId: '11111111-1111-4111-8111-111111111111',
+          datasetPublicId: '22222222-2222-4222-8222-222222222222',
+        }),
+      ],
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isOk()) {
+      return;
+    }
+
+    expect(result.error.type).toBe('InvalidInputError');
   });
 });

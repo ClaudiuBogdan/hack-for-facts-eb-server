@@ -21,6 +21,8 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type MapGranularity = 'UAT';
+export const GROUPED_SERIES_RESERVED_ID_PREFIXES = ['group_'] as const;
+export const GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES = ['=', '+', '-', '@'] as const;
 
 interface MapRequestSeriesBase {
   id: string;
@@ -81,11 +83,22 @@ export interface InsMapSeries extends MapRequestSeriesBase {
   hasValue?: boolean;
 }
 
-export type MapRequestSeries = ExecutionMapSeries | CommitmentsMapSeries | InsMapSeries;
+export interface UploadedMapDatasetSeries extends MapRequestSeriesBase {
+  type: 'uploaded-map-dataset';
+  datasetId?: string;
+  datasetPublicId?: string;
+}
+
+export type MapRequestSeries =
+  | ExecutionMapSeries
+  | CommitmentsMapSeries
+  | InsMapSeries
+  | UploadedMapDatasetSeries;
 
 export interface GroupedSeriesDataRequest {
   granularity: MapGranularity;
   series: MapRequestSeries[];
+  requestUserId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

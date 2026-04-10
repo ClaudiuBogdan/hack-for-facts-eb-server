@@ -59,6 +59,11 @@ function resolveSeriesUnit(series: MapRequestSeries): string | undefined {
   }
 
   if (series.type !== 'line-items-aggregated-yearly' && series.type !== 'commitments-analytics') {
+    if (series.type === 'uploaded-map-dataset') {
+      const unit = series.unit?.trim();
+      return unit !== undefined && unit !== '' ? unit : 'custom';
+    }
+
     return undefined;
   }
 
