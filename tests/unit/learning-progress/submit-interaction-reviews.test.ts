@@ -59,11 +59,12 @@ describe('submitInteractionReviews', () => {
     });
     const resolvedRecord = createTestInteractiveRecord({
       key: 'resolved-record::global',
-      phase: 'resolved',
+      phase: 'failed',
       updatedAt: '2026-03-23T20:01:00.000Z',
       review: {
-        status: 'approved',
+        status: 'rejected',
         reviewedAt: '2026-03-23T20:01:00.000Z',
+        feedbackText: 'Already rejected',
       },
     });
 
@@ -104,7 +105,7 @@ describe('submitInteractionReviews', () => {
 
     expect(user1Rows[0]?.record.phase).toBe('pending');
     expect(user1Rows[0]?.record.review).toBeUndefined();
-    expect(user2Rows[0]?.record.phase).toBe('resolved');
-    expect(user2Rows[0]?.record.review?.status).toBe('approved');
+    expect(user2Rows[0]?.record.phase).toBe('failed');
+    expect(user2Rows[0]?.record.review?.status).toBe('rejected');
   });
 });
