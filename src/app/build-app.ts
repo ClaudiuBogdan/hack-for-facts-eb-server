@@ -45,7 +45,6 @@ import { BaseSchema } from '../infra/graphql/schema.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
 import {
-  createLearningProgressAdminEventSyncHook,
   INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
   makeDefaultAdminEventRegistry,
   queueAdminEvent,
@@ -169,8 +168,10 @@ import {
   type PublicDebateSelfSendApprovalService,
 } from '../modules/institution-correspondence/index.js';
 import {
+  CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
   createDatabaseError as createLearningProgressDatabaseError,
-  makeLearningProgressAdminReviewRoutes,
+  makeCampaignAdminUserInteractionRoutes,
+  makeClerkCampaignAdminPermissionAuthorizer,
   makeLearningProgressRoutes,
   makeLearningProgressRepo,
   syncEvents,
@@ -316,7 +317,6 @@ export interface AppOptions {
 }
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
-const LEARNING_PROGRESS_ADMIN_REVIEW_PATH = '/api/v1/admin/learning-progress/reviews';
 const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
@@ -357,10 +357,6 @@ function isHealthRoute(url: string): boolean {
   return HEALTH_ROUTE_PATHS.has(getRequestPath(url));
 }
 
-function isLearningProgressAdminReviewRoute(url: string): boolean {
-  return getRequestPath(url) === LEARNING_PROGRESS_ADMIN_REVIEW_PATH;
-}
-
 function isInstitutionCorrespondenceAdminRoute(url: string): boolean {
   return getRequestPath(url).startsWith(INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX);
 }
@@ -389,11 +385,7 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     return true;
   }
 
-  if (
-    isLearningProgressAdminReviewRoute(path) ||
-    isInstitutionCorrespondenceAdminRoute(path) ||
-    isNotificationAdminRoute(path)
-  ) {
+  if (isInstitutionCorrespondenceAdminRoute(path) || isNotificationAdminRoute(path)) {
     return true;
   }
 
@@ -548,6 +540,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     shouldEnqueueClerkWelcomeNotifications ||
     shouldStartNotificationWorkers;
   const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
+  const enabledCampaignAdminKeys = config.learningProgress.campaignAdminEnabledCampaigns;
+  const supportedCampaignAdminKeys = new Set<string>(CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS);
+  const unsupportedCampaignAdminKeys = enabledCampaignAdminKeys.filter(
+    (campaignKey) => !supportedCampaignAdminKeys.has(campaignKey)
+  );
   const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
   const emailFromAddress = config.email.fromAddress?.trim();
   const funkyEmailFromAddress = config.email.funkyFromAddress?.trim();
@@ -603,6 +600,22 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
   }
 
+  if (unsupportedCampaignAdminKeys.length > 0) {
+    throw new Error(
+      `Campaign admin routes configured for unsupported campaigns: ${unsupportedCampaignAdminKeys.join(', ')}.`
+    );
+  }
+
+  if (enabledCampaignAdminKeys.length > 0 && deps.userDb === undefined) {
+    throw new Error('Campaign admin routes require userDb when the campaign admin API is enabled.');
+  }
+
+  if (enabledCampaignAdminKeys.length > 0 && deps.authProvider === undefined) {
+    throw new Error(
+      'Campaign admin routes require authProvider when the campaign admin API is enabled.'
+    );
+  }
+
   // Create Fastify instance
   const app = fastifyLib({
     ...fastifyOptions,
@@ -623,6 +636,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         ok: false,
         error: 'ValidationError',
         message: 'Request validation failed',
+        retryable: false,
         ...(isProduction ? {} : { details: error.validation }),
       });
     }
@@ -644,6 +658,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         ok: false,
         error: getPublicErrorCode(error, statusCode),
         message,
+        retryable: false,
       });
     }
 
@@ -651,6 +666,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       ok: false,
       error: 'InternalServerError',
       message: isProduction ? 'An unexpected error occurred' : error.message,
+      retryable: false,
     });
   });
 
@@ -661,6 +677,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       message: config.server.isProduction
         ? 'Not found'
         : `Route ${request.method} ${request.url} not found`,
+      retryable: false,
     });
   });
 
@@ -1457,6 +1474,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             recordKey,
             expectedUpdatedAt: recordRow.updatedAt,
             status: 'approved',
+            actor: {
+              actor: 'system',
+              actorSource: 'user_event_worker',
+            },
           }
         );
 
@@ -1558,6 +1579,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       );
 
       prepareApproveLearningProgressReviews = async (input) => {
+        // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
         return prepareApprovedPublicDebateReviewSideEffects(
           {
             learningProgressRepo,
@@ -1589,9 +1611,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         });
 
         adminEventRegistry = makeDefaultAdminEventRegistry({
-          learningProgressRepo,
           institutionCorrespondenceRepo: correspondenceRepo,
-          prepareApproveLearningProgressReviews,
         });
       }
 
@@ -1675,38 +1695,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             : {}),
         });
       }
-    }
-
-    if (hasBullmqRedisConfig && adminEventRuntime === undefined) {
-      const createAdminEventRuntime = deps.adminEventRuntimeFactory ?? startAdminEventRuntime;
-
-      adminEventRuntime = await createAdminEventRuntime({
-        redisUrl: config.jobs.redisUrl ?? '',
-        bullmqPrefix: config.jobs.prefix,
-        logger: repoLogger,
-        ...(config.jobs.redisPassword !== undefined
-          ? { redisPassword: config.jobs.redisPassword }
-          : {}),
-      });
-
-      adminEventRegistry = makeDefaultAdminEventRegistry({
-        learningProgressRepo,
-        ...(prepareApproveLearningProgressReviews !== undefined
-          ? { prepareApproveLearningProgressReviews }
-          : {}),
-      });
-    }
-
-    if (adminEventRegistry !== undefined && adminEventRuntime !== undefined) {
-      learningProgressSyncHooks.push({
-        name: 'admin-events-review-pending',
-        run: createLearningProgressAdminEventSyncHook({
-          registry: adminEventRegistry,
-          queue: adminEventRuntime.queue,
-          learningProgressRepo,
-          logger: repoLogger,
-        }),
-      });
     }
 
     if (shouldInitializeUserEventRuntime) {
@@ -1800,17 +1788,33 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       })
     );
 
-    if (
-      config.learningProgress.reviewApiEnabled &&
-      config.learningProgress.reviewApiKey !== undefined
-    ) {
+    // Spec: docs/specs/specs-202604110932-campaign-admin-fail-closed-authorization.md
+    if (enabledCampaignAdminKeys.length > 0) {
+      const campaignAdminClerkSecret = config.auth.clerkSecretKey?.trim();
+      if (campaignAdminClerkSecret === undefined || campaignAdminClerkSecret === '') {
+        throw new Error(
+          'Campaign admin routes require CLERK_SECRET_KEY when the campaign admin API is enabled.'
+        );
+      }
+
+      if (prepareApproveLearningProgressReviews === undefined) {
+        throw new Error(
+          'Campaign admin routes require public debate correspondence wiring when the campaign admin API is enabled.'
+        );
+      }
+
       await app.register(
-        makeLearningProgressAdminReviewRoutes({
+        makeCampaignAdminUserInteractionRoutes({
           learningProgressRepo,
-          apiKey: config.learningProgress.reviewApiKey,
-          ...(prepareApproveLearningProgressReviews !== undefined
-            ? { prepareApproveReviews: prepareApproveLearningProgressReviews }
-            : {}),
+          entityRepo,
+          entityProfileRepo,
+          enabledCampaignKeys:
+            enabledCampaignAdminKeys as readonly import('../modules/learning-progress/index.js').CampaignAdminCampaignKey[],
+          permissionAuthorizer: makeClerkCampaignAdminPermissionAuthorizer({
+            secretKey: campaignAdminClerkSecret,
+            logger: repoLogger,
+          }),
+          prepareApproveReviews: prepareApproveLearningProgressReviews,
         })
       );
     }

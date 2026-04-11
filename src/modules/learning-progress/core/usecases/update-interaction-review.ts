@@ -13,6 +13,7 @@ import type {
   InteractionPhase,
   InteractionResult,
   LearningProgressRecordRow,
+  ReviewActorMetadata,
   ReviewDecisionStatus,
 } from '../types.js';
 
@@ -26,6 +27,7 @@ export interface UpdateInteractionReviewInput {
   expectedUpdatedAt: string;
   status: ReviewDecisionStatus;
   feedbackText?: string;
+  actor?: ReviewActorMetadata;
 }
 
 export interface UpdateInteractionReviewOutput {
@@ -102,11 +104,98 @@ function buildReviewAuditResult(params: {
   };
 }
 
+function normalizeReviewActorMetadata(actor: ReviewActorMetadata | undefined): Result<
+  {
+    actor: 'system' | 'admin';
+    actorUserId?: string;
+    actorPermission?: string;
+    actorSource?: ReviewActorMetadata['actorSource'];
+  },
+  LearningProgressError
+> {
+  const resolvedActor = actor?.actor ?? 'system';
+  const actorUserId = actor?.actorUserId?.trim();
+  const actorPermission = actor?.actorPermission?.trim();
+
+  if (resolvedActor === 'admin') {
+    if (actorUserId === undefined || actorUserId === '') {
+      return err(createInvalidEventError('Admin reviews require a reviewer user id.'));
+    }
+
+    return ok({
+      actor: resolvedActor,
+      actorUserId,
+      ...(actorPermission !== undefined && actorPermission !== '' ? { actorPermission } : {}),
+      ...(actor?.actorSource !== undefined ? { actorSource: actor.actorSource } : {}),
+    });
+  }
+
+  if (actorUserId !== undefined && actorUserId !== '') {
+    return err(createInvalidEventError('System reviews must not include a reviewer user id.'));
+  }
+
+  if (actorPermission !== undefined && actorPermission !== '') {
+    return err(createInvalidEventError('System reviews must not include actor permissions.'));
+  }
+
+  return ok({
+    actor: resolvedActor,
+    ...(actor?.actorSource !== undefined ? { actorSource: actor.actorSource } : {}),
+  });
+}
+
+function normalizeOptionalFeedbackText(feedbackText: string | null | undefined): string | null {
+  if (feedbackText === undefined || feedbackText === null) {
+    return null;
+  }
+
+  const trimmedFeedbackText = feedbackText.trim();
+  return trimmedFeedbackText === '' ? null : trimmedFeedbackText;
+}
+
+function matchesExistingReview(input: {
+  row: LearningProgressRecordRow;
+  status: ReviewDecisionStatus;
+  feedbackText: string | null;
+  actor: {
+    actor: 'system' | 'admin';
+    actorUserId?: string;
+    actorSource?: ReviewActorMetadata['actorSource'];
+  };
+}): boolean {
+  const expectedPhase: InteractionPhase = input.status === 'approved' ? 'resolved' : 'failed';
+  const existingReview = input.row.record.review;
+
+  if (existingReview === undefined || existingReview === null) {
+    return false;
+  }
+
+  if (
+    input.row.record.phase !== expectedPhase ||
+    existingReview.status !== input.status ||
+    normalizeOptionalFeedbackText(existingReview.feedbackText) !== input.feedbackText ||
+    existingReview.reviewSource !== input.actor.actorSource
+  ) {
+    return false;
+  }
+
+  if (input.actor.actor === 'admin') {
+    return existingReview.reviewedByUserId === input.actor.actorUserId;
+  }
+
+  return existingReview.reviewedByUserId === undefined;
+}
+
 export async function updateInteractionReview(
   deps: UpdateInteractionReviewDeps,
   input: UpdateInteractionReviewInput
 ): Promise<Result<UpdateInteractionReviewOutput, LearningProgressError>> {
   const trimmedFeedbackText = input.feedbackText?.trim();
+  const actorResult = normalizeReviewActorMetadata(input.actor);
+
+  if (actorResult.isErr()) {
+    return err(actorResult.error);
+  }
 
   if (
     input.status === 'rejected' &&
@@ -126,7 +215,25 @@ export async function updateInteractionReview(
       return err(createNotFoundError(`Interaction record "${input.recordKey}" was not found.`));
     }
 
+    const feedbackText = normalizeOptionalFeedbackText(trimmedFeedbackText);
+    const reviewActor = actorResult.value;
+    const nextPhase: InteractionPhase = input.status === 'approved' ? 'resolved' : 'failed';
+
     if (existingRow.record.phase !== 'pending') {
+      if (
+        matchesExistingReview({
+          row: existingRow,
+          status: input.status,
+          feedbackText,
+          actor: reviewActor,
+        })
+      ) {
+        return ok({
+          applied: false,
+          row: existingRow,
+        });
+      }
+
       return err(
         createConflictError(
           `Interaction record "${input.recordKey}" is no longer reviewable because it is not pending.`
@@ -143,8 +250,6 @@ export async function updateInteractionReview(
     }
 
     const nextUpdatedAt = getNextTimestamp(existingRow.record.updatedAt);
-    const feedbackText = trimmedFeedbackText ?? null;
-    const nextPhase: InteractionPhase = input.status === 'approved' ? 'resolved' : 'failed';
     const nextRecord = {
       ...existingRow.record,
       phase: nextPhase,
@@ -153,6 +258,8 @@ export async function updateInteractionReview(
         status: input.status,
         reviewedAt: nextUpdatedAt,
         ...(feedbackText !== null ? { feedbackText } : {}),
+        ...(reviewActor.actor === 'admin' ? { reviewedByUserId: reviewActor.actorUserId } : {}),
+        ...(reviewActor.actorSource !== undefined ? { reviewSource: reviewActor.actorSource } : {}),
       },
       updatedAt: nextUpdatedAt,
     };
@@ -169,7 +276,12 @@ export async function updateInteractionReview(
       interactionId: existingRow.record.interactionId,
       type: 'evaluated',
       at: nextUpdatedAt,
-      actor: 'system',
+      actor: reviewActor.actor,
+      ...(reviewActor.actorUserId !== undefined ? { actorUserId: reviewActor.actorUserId } : {}),
+      ...(reviewActor.actorPermission !== undefined
+        ? { actorPermission: reviewActor.actorPermission }
+        : {}),
+      ...(reviewActor.actorSource !== undefined ? { actorSource: reviewActor.actorSource } : {}),
       phase: nextPhase,
       result: auditResult,
     };

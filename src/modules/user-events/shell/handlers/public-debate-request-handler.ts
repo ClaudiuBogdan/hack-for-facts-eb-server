@@ -1,4 +1,5 @@
 import { UnrecoverableError } from 'bullmq';
+import { err, ok, type Result } from 'neverthrow';
 
 import {
   DEBATE_REQUEST_INTERACTION_ID,
@@ -18,6 +19,7 @@ import {
 import {
   updateInteractionReview,
   type InteractiveStateRecord,
+  type LearningProgressError,
   type LearningProgressRecordRow,
   type LearningProgressRepository,
 } from '@/modules/learning-progress/index.js';
@@ -25,6 +27,7 @@ import {
 import {
   executePreparedPublicDebateRequestDispatch,
   preparePublicDebateRequestDispatch,
+  type PreparedPublicDebateRequestDispatch,
 } from './public-debate-request-dispatch.js';
 
 import type { UserEventHandler } from '../../core/ports.js';
@@ -45,6 +48,18 @@ export interface PublicDebateRequestUserEventHandlerDeps {
   updatePublisher?: PublicDebateEntityUpdatePublisher;
   logger: Logger;
 }
+
+type DebateDispatchTransactionResult =
+  | { kind: 'skipped' }
+  | {
+      kind: 'dispatch_failed';
+      error: InstitutionCorrespondenceError;
+    }
+  | {
+      kind: 'approved';
+      created: boolean;
+      threadId: string;
+    };
 
 function isEligibleDebateRequestRecord(record: InteractiveStateRecord): boolean {
   return (
@@ -82,23 +97,45 @@ const isRetryableCorrespondenceError = (error: InstitutionCorrespondenceError): 
   }
 };
 
+function getTimestampMilliseconds(timestamp: string): number | null {
+  const parsedTimestamp = Date.parse(timestamp);
+  return Number.isNaN(parsedTimestamp) ? null : parsedTimestamp;
+}
+
+function compareTimestampInstants(leftTimestamp: string, rightTimestamp: string): number {
+  const leftMilliseconds = getTimestampMilliseconds(leftTimestamp);
+  const rightMilliseconds = getTimestampMilliseconds(rightTimestamp);
+
+  if (leftMilliseconds !== null && rightMilliseconds !== null) {
+    if (leftMilliseconds < rightMilliseconds) return -1;
+    if (leftMilliseconds > rightMilliseconds) return 1;
+    return 0;
+  }
+
+  return leftTimestamp.localeCompare(rightTimestamp);
+}
+
 async function approvePendingRecord(
-  deps: PublicDebateRequestUserEventHandlerDeps,
+  repo: LearningProgressRepository,
   recordRow: LearningProgressRecordRow,
   logger: Logger
-): Promise<void> {
+): Promise<Result<'approved' | 'skipped', LearningProgressError>> {
   const reviewResult = await updateInteractionReview(
-    { repo: deps.learningProgressRepo },
+    { repo },
     {
       userId: recordRow.userId,
       recordKey: recordRow.recordKey,
       expectedUpdatedAt: recordRow.updatedAt,
       status: 'approved',
+      actor: {
+        actor: 'system',
+        actorSource: 'user_event_worker',
+      },
     }
   );
 
   if (reviewResult.isOk()) {
-    return;
+    return ok('approved');
   }
 
   if (
@@ -109,10 +146,10 @@ async function approvePendingRecord(
       { recordKey: recordRow.recordKey, userId: recordRow.userId },
       'Skipping approval because the debate-request record is no longer pending'
     );
-    return;
+    return ok('skipped');
   }
 
-  throw new Error(getErrorMessage(reviewResult.error));
+  return err(reviewResult.error);
 }
 
 async function rejectPendingRecord(
@@ -129,6 +166,10 @@ async function rejectPendingRecord(
       expectedUpdatedAt: recordRow.updatedAt,
       status: 'rejected',
       feedbackText,
+      actor: {
+        actor: 'system',
+        actorSource: 'user_event_worker',
+      },
     }
   );
 
@@ -298,14 +339,74 @@ export const makePublicDebateRequestUserEventHandler = (
         return;
       }
 
-      const sendResult = await executePreparedPublicDebateRequestDispatch(
-        deps,
-        preparationResult.value
-      );
-      if (sendResult.isErr()) {
+      const preparedDispatch: PreparedPublicDebateRequestDispatch = preparationResult.value;
+      const dispatchResult =
+        await deps.learningProgressRepo.withTransaction<DebateDispatchTransactionResult>(
+          async (transactionalRepo) => {
+            const lockedRecordResult = await transactionalRepo.getRecordForUpdate(
+              recordRow.userId,
+              recordRow.recordKey
+            );
+            if (lockedRecordResult.isErr()) {
+              return err(lockedRecordResult.error);
+            }
+
+            const lockedRecordRow = lockedRecordResult.value;
+            if (lockedRecordRow?.record.phase !== 'pending') {
+              return ok({ kind: 'skipped' as const });
+            }
+
+            if (compareTimestampInstants(lockedRecordRow.updatedAt, recordRow.updatedAt) !== 0) {
+              return ok({ kind: 'skipped' as const });
+            }
+
+            const sendResult = await executePreparedPublicDebateRequestDispatch(
+              deps,
+              preparedDispatch
+            );
+            if (sendResult.isErr()) {
+              return ok({
+                kind: 'dispatch_failed' as const,
+                error: sendResult.error,
+              });
+            }
+
+            const approveResult = await approvePendingRecord(
+              transactionalRepo,
+              lockedRecordRow,
+              log
+            );
+            if (approveResult.isErr()) {
+              return err(approveResult.error);
+            }
+
+            if (approveResult.value === 'skipped') {
+              return ok({ kind: 'skipped' as const });
+            }
+
+            return ok({
+              kind: 'approved' as const,
+              created: sendResult.value.created,
+              threadId: sendResult.value.thread.id,
+            });
+          }
+        );
+      if (dispatchResult.isErr()) {
+        throw new Error(getErrorMessage(dispatchResult.error));
+      }
+
+      if (dispatchResult.value.kind === 'skipped') {
+        log.debug(
+          { eventId: event.eventId, recordKey: record.key, userId: event.userId },
+          'Skipping public debate platform dispatch because the record changed before approval'
+        );
+        return;
+      }
+
+      if (dispatchResult.value.kind === 'dispatch_failed') {
         log.warn(
           {
-            error: sendResult.error,
+            error: dispatchResult.value.error,
             entityCui,
             eventId: event.eventId,
             recordKey: record.key,
@@ -313,22 +414,20 @@ export const makePublicDebateRequestUserEventHandler = (
           },
           'Public debate platform send failed after user event processing'
         );
-        if (!isRetryableCorrespondenceError(sendResult.error)) {
-          throw new UnrecoverableError(getErrorMessage(sendResult.error));
+        if (!isRetryableCorrespondenceError(dispatchResult.value.error)) {
+          throw new UnrecoverableError(getErrorMessage(dispatchResult.value.error));
         }
 
-        throw new Error(getErrorMessage(sendResult.error));
+        throw new Error(getErrorMessage(dispatchResult.value.error));
       }
 
-      await approvePendingRecord(deps, recordRow, log);
-
-      if (preparationResult.value.existingThread !== undefined || !sendResult.value.created) {
+      if (preparationResult.value.existingThread !== undefined || !dispatchResult.value.created) {
         log.info(
           {
             entityCui,
             eventId: event.eventId,
             recordKey: record.key,
-            threadId: sendResult.value.thread.id,
+            threadId: dispatchResult.value.threadId,
             userId: event.userId,
           },
           'Skipping public debate platform send because a thread already exists'

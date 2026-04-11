@@ -128,8 +128,8 @@ export const EnvSchema = Type.Object({
   /** HMAC secret for signing unsubscribe tokens */
   UNSUBSCRIBE_HMAC_SECRET: Type.Optional(Type.String({ minLength: 32 })),
 
-  // Learning Progress Admin Review API
-  LEARNING_PROGRESS_REVIEW_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
+  // Learning Progress Campaign Admin API
+  ENABLED_ADMIN_CAMPAIGNS: Type.Optional(Type.String()),
 
   // Institution Correspondence
   INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
@@ -281,8 +281,8 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     NOTIFICATION_TRIGGER_API_KEY: env['NOTIFICATION_TRIGGER_API_KEY'],
     API_BASE_URL: env['API_BASE_URL'],
     UNSUBSCRIBE_HMAC_SECRET: env['UNSUBSCRIBE_HMAC_SECRET'],
-    // Learning Progress Admin Review API
-    LEARNING_PROGRESS_REVIEW_API_KEY: env['LEARNING_PROGRESS_REVIEW_API_KEY'],
+    // Learning Progress Campaign Admin API
+    ENABLED_ADMIN_CAMPAIGNS: env['ENABLED_ADMIN_CAMPAIGNS'],
     INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: env['INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
@@ -462,10 +462,14 @@ export const createConfig = (env: Env) => ({
     enabled: env.RESEND_API_KEY !== undefined && env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
   },
   learningProgress: {
-    /** API key for the admin review endpoints */
-    reviewApiKey: env.LEARNING_PROGRESS_REVIEW_API_KEY,
-    /** Whether admin review endpoints are enabled */
-    reviewApiEnabled: env.LEARNING_PROGRESS_REVIEW_API_KEY !== undefined,
+    /** Campaign keys with enabled campaign-admin routes */
+    campaignAdminEnabledCampaigns: [
+      ...new Set(
+        env.ENABLED_ADMIN_CAMPAIGNS?.split(',')
+          .map((value) => value.trim())
+          .filter(Boolean) ?? []
+      ),
+    ],
   },
   institutionCorrespondence: {
     /** API key for institution correspondence admin routes */

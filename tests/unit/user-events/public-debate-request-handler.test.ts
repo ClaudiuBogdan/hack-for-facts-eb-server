@@ -7,6 +7,11 @@ import {
   type EntityProfileRepository,
   type EntityRepository,
 } from '@/modules/entity/index.js';
+import {
+  updateInteractionReview,
+  type LearningProgressRecordRow,
+  type LearningProgressRepository,
+} from '@/modules/learning-progress/index.js';
 import { makePublicDebateRequestUserEventHandler } from '@/modules/user-events/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../../fixtures/fakes.js';
@@ -21,10 +26,6 @@ import type {
   InstitutionCorrespondenceRepository,
   PublicDebateEntitySubscriptionService,
 } from '@/modules/institution-correspondence/index.js';
-import type {
-  LearningProgressRecordRow,
-  LearningProgressRepository,
-} from '@/modules/learning-progress/index.js';
 
 function makeLearningRow(
   userId: string,
@@ -525,6 +526,66 @@ describe('makePublicDebateRequestUserEventHandler', () => {
     expect(send).not.toHaveBeenCalled();
     expect(correspondenceRepo.snapshotThreads()).toHaveLength(1);
     const storedRows = await learningProgressRepo.getRecords('user-1');
+    expect(storedRows.isOk()).toBe(true);
+    const storedRecord = storedRows._unsafeUnwrap()[0];
+    expect(storedRecord?.record.phase).toBe('resolved');
+    expect(storedRecord?.record.review?.status).toBe('approved');
+  });
+
+  it('does not send or create side effects after another reviewer wins the approval race', async () => {
+    const record = createDebateRequestRecord({
+      submissionPath: 'request_platform',
+    });
+    const baseRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    let simulatedRace = false;
+    const learningProgressRepo: LearningProgressRepository = {
+      ...baseRepo,
+      async withTransaction(callback) {
+        if (!simulatedRace) {
+          simulatedRace = true;
+          const reviewResult = await updateInteractionReview(
+            { repo: baseRepo },
+            {
+              userId: 'user-1',
+              recordKey: record.key,
+              expectedUpdatedAt: record.updatedAt,
+              status: 'approved',
+              actor: {
+                actor: 'system',
+                actorSource: 'campaign_admin_api',
+              },
+            }
+          );
+          if (reviewResult.isErr()) {
+            return err(reviewResult.error);
+          }
+        }
+
+        return baseRepo.withTransaction(callback);
+      },
+    };
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo();
+    const send = vi.fn(async () => ok({ emailId: 'email-1' }));
+    const handler = createHandler({
+      learningProgressRepo,
+      correspondenceRepo,
+      send,
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-1',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(correspondenceRepo.snapshotThreads()).toHaveLength(0);
+    const storedRows = await baseRepo.getRecords('user-1');
     expect(storedRows.isOk()).toBe(true);
     const storedRecord = storedRows._unsafeUnwrap()[0];
     expect(storedRecord?.record.phase).toBe('resolved');

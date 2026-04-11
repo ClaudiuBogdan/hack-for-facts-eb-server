@@ -380,7 +380,6 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('advanced-map-');
       expect(routes).toContain('analytics/');
       expect(routes).toContain('grouped-series (POST)');
       expect(routes).toContain('datasets (POST, GET, HEAD)');
@@ -406,7 +405,6 @@ describe('App Factory', () => {
       await app.ready();
       const routes = app.printRoutes();
 
-      expect(routes).toContain('advanced-map-');
       expect(routes).toContain('analytics/');
       expect(routes).toContain('maps (POST, GET, HEAD)');
       expect(routes).toContain('public/');
@@ -1724,7 +1722,7 @@ describe('App Factory', () => {
       );
     });
 
-    it('does not register learning progress admin review routes when the API key is unset', async () => {
+    it('does not register campaign-admin routes when the API is disabled', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
         deps: {
@@ -1740,7 +1738,7 @@ describe('App Factory', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/api/v1/admin/learning-progress/reviews',
+        url: '/api/v1/admin/campaigns/funky/user-interactions',
       });
 
       expect(response.statusCode).toBe(404);
@@ -1748,20 +1746,51 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('registers learning progress admin review routes and bypasses bearer auth validation', async () => {
+    it('does not register the removed legacy learning progress admin review routes', async () => {
       const testAuth = createTestAuthProvider();
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
       const app = await buildApp({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
-          authProvider: testAuth.provider,
           datasetRepo: makeFakeDatasetRepo(),
+          authProvider: testAuth.provider,
+          notificationDeliveryRuntimeFactory,
           config: makeTestConfig({
             learningProgress: {
-              reviewApiKey: 'r'.repeat(32),
-              reviewApiEnabled: true,
+              campaignAdminEnabledCampaigns: ['funky'],
+            },
+            jobs: {
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
             },
           }),
         },
@@ -1772,16 +1801,226 @@ describe('App Factory', () => {
       const response = await app.inject({
         method: 'GET',
         url: '/api/v1/admin/learning-progress/reviews',
-        headers: {
-          authorization: 'Bearer invalid-token',
+      });
+
+      expect(response.statusCode).toBe(404);
+
+      await app.close();
+    });
+
+    it('fails closed when campaign-admin routes are enabled without userDb', async () => {
+      const testAuth = createTestAuthProvider();
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            authProvider: testAuth.provider,
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['funky'],
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes require userDb when the campaign admin API is enabled.'
+      );
+    });
+
+    it('fails closed when campaign-admin routes are enabled without authProvider', async () => {
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['funky'],
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes require authProvider when the campaign admin API is enabled.'
+      );
+    });
+
+    it('fails closed when campaign-admin routes are enabled without CLERK_SECRET_KEY', async () => {
+      const testAuth = createTestAuthProvider();
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            authProvider: testAuth.provider,
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['funky'],
+              },
+              auth: {
+                clerkSecretKey: undefined,
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: false,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes require CLERK_SECRET_KEY when the campaign admin API is enabled.'
+      );
+    });
+
+    it('fails closed when campaign-admin routes are enabled without correspondence wiring', async () => {
+      const testAuth = createTestAuthProvider();
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            authProvider: testAuth.provider,
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['funky'],
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes require public debate correspondence wiring when the campaign admin API is enabled.'
+      );
+    });
+
+    it('fails closed when campaign-admin routes are configured for an unsupported campaign', async () => {
+      const testAuth = createTestAuthProvider();
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            authProvider: testAuth.provider,
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['unknown-campaign'],
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes configured for unsupported campaigns: unknown-campaign.'
+      );
+    });
+
+    it('registers campaign-admin routes and keeps session auth enforced when enabled', async () => {
+      const testAuth = createTestAuthProvider();
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
+      const app = await buildApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          insDb: makeFakeInsDb(),
+          userDb: makeFakeKyselyDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          authProvider: testAuth.provider,
+          notificationDeliveryRuntimeFactory,
+          config: makeTestConfig({
+            learningProgress: {
+              campaignAdminEnabledCampaigns: ['funky'],
+            },
+            jobs: {
+              redisUrl: 'redis://localhost:6379',
+              redisPassword: undefined,
+              concurrency: 5,
+              prefix: 'test:jobs',
+              notificationRecoverySweepIntervalMinutes: 15,
+              notificationStuckSendingThresholdMinutes: 15,
+            },
+            email: {
+              apiKey: 're_test_key',
+              webhookSecret: undefined,
+              fromAddress: 'noreply@test.example.com',
+              funkyFromAddress: 'campaign@test.example.com',
+              funkyFromAddressCcRecipients: ['review@test.example.com'],
+              funkyReplyToAddress: 'debate@transparenta.test',
+              previewEnabled: false,
+              maxRps: 2,
+              enabled: true,
+            },
+            auth: {
+              clerkSecretKey: 'sk_test_clerk',
+              clerkJwtKey: undefined,
+              clerkAuthorizedParties: undefined,
+              clerkWebhookSigningSecret: undefined,
+              enabled: true,
+            },
+          }),
         },
+      });
+
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/campaigns/funky/user-interactions',
       });
 
       expect(response.statusCode).toBe(401);
       expect(response.json()).toEqual({
         ok: false,
-        error: 'UNAUTHORIZED',
-        message: 'X-Learning-Progress-Review-Api-Key header required',
+        error: 'AuthenticationRequiredError',
+        message: 'Authentication required',
         retryable: false,
       });
 

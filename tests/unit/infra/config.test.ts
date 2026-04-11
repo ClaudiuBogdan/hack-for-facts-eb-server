@@ -135,11 +135,13 @@ describe('Configuration', () => {
       expect(env.NOTIFICATION_STUCK_SENDING_THRESHOLD_MINUTES).toBe(45);
     });
 
-    it('accepts optional LEARNING_PROGRESS_REVIEW_API_KEY', () => {
-      const apiKey = 'r'.repeat(32);
-      const env = parseEnv({ ...requiredEnv, LEARNING_PROGRESS_REVIEW_API_KEY: apiKey });
+    it('accepts optional ENABLED_ADMIN_CAMPAIGNS', () => {
+      const env = parseEnv({
+        ...requiredEnv,
+        ENABLED_ADMIN_CAMPAIGNS: 'funky,other,funky',
+      });
 
-      expect(env.LEARNING_PROGRESS_REVIEW_API_KEY).toBe(apiKey);
+      expect(env.ENABLED_ADMIN_CAMPAIGNS).toBe('funky,other,funky');
     });
 
     it('accepts optional SPECIAL_RATE_LIMIT_KEY', () => {
@@ -199,17 +201,6 @@ describe('Configuration', () => {
 
       expect(env.TRUST_PROXY).toBe('loopback');
       expect(typeof env.TRUST_PROXY).toBe('string');
-    });
-
-    it('rejects short LEARNING_PROGRESS_REVIEW_API_KEY values', () => {
-      expect(() =>
-        parseEnv({
-          ...requiredEnv,
-          LEARNING_PROGRESS_REVIEW_API_KEY: 'local-key',
-        })
-      ).toThrow(
-        'Invalid environment configuration: /LEARNING_PROGRESS_REVIEW_API_KEY: Expected string length greater or equal to 32'
-      );
     });
 
     it('throws on invalid PORT (non-numeric)', () => {
@@ -340,14 +331,15 @@ describe('Configuration', () => {
       expect(config.server.host).toBe('127.0.0.1');
     });
 
-    it('enables learning progress admin review config when the API key is set', () => {
-      const apiKey = 'r'.repeat(32);
+    it('parses enabled campaign-admin keys from ENABLED_ADMIN_CAMPAIGNS', () => {
       const config = createConfig(
-        parseEnv({ ...requiredEnv, LEARNING_PROGRESS_REVIEW_API_KEY: apiKey })
+        parseEnv({
+          ...requiredEnv,
+          ENABLED_ADMIN_CAMPAIGNS: ' funky, other , funky ',
+        })
       );
 
-      expect(config.learningProgress.reviewApiKey).toBe(apiKey);
-      expect(config.learningProgress.reviewApiEnabled).toBe(true);
+      expect(config.learningProgress.campaignAdminEnabledCampaigns).toEqual(['funky', 'other']);
     });
 
     it('enables institution correspondence admin config when the API key is set', () => {

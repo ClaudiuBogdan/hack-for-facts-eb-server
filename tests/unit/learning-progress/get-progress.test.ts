@@ -207,6 +207,80 @@ describe('getProgress', () => {
     expect(data.cursor).toBe('5');
   });
 
+  it('strips admin review attribution from public snapshots and deltas', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'reviewed::global',
+      phase: 'resolved',
+      updatedAt: '2024-01-15T12:00:00.000Z',
+      review: {
+        status: 'approved',
+        reviewedAt: '2024-01-15T12:00:00.000Z',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
+      },
+    });
+
+    const evaluatedAudit = {
+      ...createTestEvaluatedAuditEvent({
+        recordKey: reviewedRecord.key,
+        lessonId: reviewedRecord.lessonId,
+        interactionId: reviewedRecord.interactionId,
+        at: '2024-01-15T12:00:00.000Z',
+      }),
+      actor: 'admin' as const,
+      actorUserId: 'admin-user-1',
+      actorPermission: 'campaign:funky_admin',
+      actorSource: 'campaign_admin_api' as const,
+      seq: '3',
+      sourceClientEventId: 'event-3',
+      sourceClientId: 'server-review',
+    };
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: reviewedRecord.key,
+        record: reviewedRecord,
+        auditEvents: [evaluatedAudit],
+        updatedSeq: '3',
+        createdAt: reviewedRecord.updatedAt,
+        updatedAt: reviewedRecord.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const result = await getProgress({ repo }, { userId: 'user-1', since: '0' });
+
+    expect(result.isOk()).toBe(true);
+    const data = result._unsafeUnwrap();
+
+    expect(data.snapshot.recordsByKey[reviewedRecord.key]).toEqual({
+      ...reviewedRecord,
+      review: {
+        status: 'approved',
+        reviewedAt: '2024-01-15T12:00:00.000Z',
+      },
+    });
+    expect(data.events[0]?.payload.record).toEqual({
+      ...reviewedRecord,
+      review: {
+        status: 'approved',
+        reviewedAt: '2024-01-15T12:00:00.000Z',
+      },
+    });
+    expect(data.events[0]?.payload.auditEvents).toEqual([
+      expect.objectContaining({
+        type: 'evaluated',
+        actor: 'system',
+        phase: 'resolved',
+      }),
+    ]);
+    expect(data.events[0]?.payload.auditEvents?.[0]).not.toHaveProperty('actorUserId');
+    expect(data.events[0]?.payload.auditEvents?.[0]).not.toHaveProperty('actorPermission');
+    expect(data.events[0]?.payload.auditEvents?.[0]).not.toHaveProperty('actorSource');
+  });
+
   it('returns an invalid cursor error for non-numeric cursors', async () => {
     const repo = makeFakeLearningProgressRepo();
 

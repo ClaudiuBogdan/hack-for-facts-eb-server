@@ -35,6 +35,10 @@ export interface InteractionResult {
 
 export type InteractionReviewStatus = 'pending' | 'approved' | 'rejected';
 export type ReviewDecisionStatus = Exclude<InteractionReviewStatus, 'pending'>;
+export type InteractionReviewSource =
+  | 'campaign_admin_api'
+  | 'learning_progress_admin_api'
+  | 'user_event_worker';
 
 export interface InteractionReview {
   /**
@@ -47,6 +51,8 @@ export interface InteractionReview {
   readonly status: InteractionReviewStatus;
   readonly reviewedAt: string | null;
   readonly feedbackText?: string | null;
+  readonly reviewedByUserId?: string;
+  readonly reviewSource?: InteractionReviewSource;
 }
 
 export type InteractiveDefinitionKind = 'quiz' | 'url' | 'text-input' | 'custom';
@@ -113,7 +119,10 @@ export type InteractiveAuditEvent =
       readonly interactionId: string;
       readonly type: 'evaluated';
       readonly at: string;
-      readonly actor: 'system';
+      readonly actor: 'system' | 'admin';
+      readonly actorUserId?: string;
+      readonly actorPermission?: string;
+      readonly actorSource?: InteractionReviewSource;
       readonly phase: 'resolved' | 'failed';
       readonly result: InteractionResult;
     };
@@ -182,24 +191,158 @@ export interface ReviewDecision {
   readonly feedbackText?: string;
 }
 
+export interface ApprovedReviewSideEffectPlan {
+  afterCommit(): Promise<void>;
+}
+
+export interface ReviewActorMetadata {
+  readonly actor: 'system' | 'admin';
+  readonly actorUserId?: string;
+  readonly actorPermission?: string;
+  readonly actorSource?: InteractionReviewSource;
+}
+
 export interface GetRecordsOptions {
   readonly recordKeyPrefix?: string;
 }
 
-export interface ListReviewRowsInput {
-  readonly status: InteractionReviewStatus;
+export type CampaignAdminCampaignKey = 'funky';
+
+export type CampaignAdminSubmissionPath =
+  | 'request_platform'
+  | 'send_yourself'
+  | 'send_email'
+  | 'download_text';
+
+export type CampaignAdminInstitutionThreadPhase =
+  | 'sending'
+  | 'awaiting_reply'
+  | 'reply_received_unreviewed'
+  | 'manual_follow_up_needed'
+  | 'resolved_positive'
+  | 'resolved_negative'
+  | 'closed_no_response'
+  | 'failed';
+
+export interface CampaignAdminListCursor {
+  readonly updatedAt: string;
+  readonly userId: string;
+  readonly recordKey: string;
+}
+
+export interface CampaignAdminInstitutionThreadSummary {
+  readonly threadId: string;
+  readonly threadPhase: CampaignAdminInstitutionThreadPhase;
+  readonly lastEmailAt: string | null;
+  readonly lastReplyAt: string | null;
+  readonly nextActionAt: string | null;
+}
+
+export interface CampaignAdminReviewableInteraction {
+  readonly interactionId: string;
+  readonly reviewableSubmissionPath?: CampaignAdminSubmissionPath;
+}
+
+export interface CampaignAdminInteractionRow {
+  readonly userId: string;
+  readonly recordKey: string;
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly record: InteractiveStateRecord;
+  readonly auditEvents: readonly StoredInteractiveAuditEvent[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly threadSummary: CampaignAdminInstitutionThreadSummary | null;
+}
+
+export interface CampaignAdminReviewStatusCounts {
+  readonly pending: number;
+  readonly approved: number;
+  readonly rejected: number;
+  readonly notReviewed: number;
+}
+
+export interface CampaignAdminPhaseCounts {
+  readonly idle: number;
+  readonly draft: number;
+  readonly pending: number;
+  readonly resolved: number;
+  readonly failed: number;
+}
+
+export interface CampaignAdminThreadPhaseCounts {
+  readonly sending: number;
+  readonly awaiting_reply: number;
+  readonly reply_received_unreviewed: number;
+  readonly manual_follow_up_needed: number;
+  readonly resolved_positive: number;
+  readonly resolved_negative: number;
+  readonly closed_no_response: number;
+  readonly failed: number;
+  readonly none: number;
+}
+
+export interface CampaignAdminStats {
+  readonly total: number;
+  readonly riskFlagged: number;
+  readonly withInstitutionThread: number;
+  readonly reviewStatusCounts: CampaignAdminReviewStatusCounts;
+  readonly phaseCounts: CampaignAdminPhaseCounts;
+  readonly threadPhaseCounts: CampaignAdminThreadPhaseCounts;
+}
+
+export interface CampaignAdminStatsBase {
+  readonly total: number;
+  readonly withInstitutionThread: number;
+  readonly reviewStatusCounts: CampaignAdminReviewStatusCounts;
+  readonly phaseCounts: CampaignAdminPhaseCounts;
+  readonly threadPhaseCounts: CampaignAdminThreadPhaseCounts;
+}
+
+export interface CampaignAdminRiskFlagCandidate {
+  readonly interactionId: string;
+  readonly entityCui: string | null;
+  readonly institutionEmail: string | null;
+  readonly threadPhase: CampaignAdminInstitutionThreadPhase | null;
+  readonly count: number;
+}
+
+export interface ListCampaignAdminInteractionRowsInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly reviewableInteractions: readonly CampaignAdminReviewableInteraction[];
+  readonly phase?: InteractionPhase;
+  readonly reviewStatus?: InteractionReviewStatus;
+  readonly submissionPath?: CampaignAdminSubmissionPath;
+  readonly lessonId?: string;
+  readonly entityCui?: string;
+  readonly scopeType?: InteractionScope['type'];
+  readonly payloadKind?: InteractionValue['kind'];
   readonly userId?: string;
   readonly recordKey?: string;
   readonly recordKeyPrefix?: string;
-  readonly interactionId?: string;
-  readonly lessonId?: string;
+  readonly submittedAtFrom?: string;
+  readonly submittedAtTo?: string;
+  readonly updatedAtFrom?: string;
+  readonly updatedAtTo?: string;
+  readonly hasInstitutionThread?: boolean;
+  readonly threadPhase?: CampaignAdminInstitutionThreadPhase;
   readonly limit: number;
-  readonly offset: number;
+  readonly cursor?: CampaignAdminListCursor;
 }
 
-export interface ListReviewRowsOutput {
-  readonly rows: readonly LearningProgressRecordRow[];
+export interface ListCampaignAdminInteractionRowsOutput {
+  readonly rows: readonly CampaignAdminInteractionRow[];
   readonly hasMore: boolean;
+  readonly nextCursor: CampaignAdminListCursor | null;
+}
+
+export interface GetCampaignAdminStatsInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly reviewableInteractions: readonly CampaignAdminReviewableInteraction[];
+}
+
+export interface GetCampaignAdminStatsOutput {
+  readonly stats: CampaignAdminStatsBase;
+  readonly riskFlagCandidates: readonly CampaignAdminRiskFlagCandidate[];
 }
 
 export interface UpsertInteractiveRecordInput {

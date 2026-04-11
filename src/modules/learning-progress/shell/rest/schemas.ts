@@ -69,6 +69,14 @@ export const InteractionReviewSchema = Type.Object(
     ]),
     reviewedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     feedbackText: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    reviewedByUserId: Type.Optional(Type.String({ minLength: 1 })),
+    reviewSource: Type.Optional(
+      Type.Union([
+        Type.Literal('campaign_admin_api'),
+        Type.Literal('learning_progress_admin_api'),
+        Type.Literal('user_event_worker'),
+      ])
+    ),
   },
   { additionalProperties: false }
 );
@@ -142,7 +150,16 @@ export const InteractiveAuditEventSchema = Type.Union([
     interactionId: Type.String({ minLength: 1 }),
     type: Type.Literal('evaluated'),
     at: Type.String({ format: 'date-time' }),
-    actor: Type.Literal('system'),
+    actor: Type.Union([Type.Literal('system'), Type.Literal('admin')]),
+    actorUserId: Type.Optional(Type.String({ minLength: 1 })),
+    actorPermission: Type.Optional(Type.String({ minLength: 1 })),
+    actorSource: Type.Optional(
+      Type.Union([
+        Type.Literal('campaign_admin_api'),
+        Type.Literal('learning_progress_admin_api'),
+        Type.Literal('user_event_worker'),
+      ])
+    ),
     phase: Type.Union([Type.Literal('resolved'), Type.Literal('failed')]),
     result: InteractionResultSchema,
   }),
