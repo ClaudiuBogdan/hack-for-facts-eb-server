@@ -10,6 +10,19 @@ spec:
   gateways:
     - istio-system/istio-https-gateway
   http:
+    # Allow the browser-facing campaign-admin routes.
+    - match:
+        - uri:
+            prefix: /api/v1/admin/campaigns/
+      route:
+        - destination:
+            port:
+              number: 80
+            host: hack-for-facts-eb-server
+      retries:
+        attempts: 3
+        perTryTimeout: 30s
+      timeout: 30s
     # Block sensitive internal/admin routes at the ingress gateway.
     # This preserves direct ClusterIP access from inside the cluster while
     # preventing public ingress traffic from reaching these handlers.
