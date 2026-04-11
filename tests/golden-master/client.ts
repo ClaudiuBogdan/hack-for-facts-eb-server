@@ -272,8 +272,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
         enabled: false,
       },
       learningProgress: {
-        reviewApiKey: undefined,
-        reviewApiEnabled: false,
+        campaignAdminEnabledCampaigns: [],
       },
       institutionCorrespondence: {
         adminApiKey: undefined,

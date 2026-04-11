@@ -4,9 +4,11 @@
 
 import type { LearningProgressError } from './errors.js';
 import type {
+  GetCampaignAdminStatsInput,
+  GetCampaignAdminStatsOutput,
   GetRecordsOptions,
-  ListReviewRowsInput,
-  ListReviewRowsOutput,
+  ListCampaignAdminInteractionRowsInput,
+  ListCampaignAdminInteractionRowsOutput,
   LearningProgressRecordRow,
   UpsertInteractiveRecordInput,
   UpsertInteractiveRecordResult,
@@ -29,9 +31,13 @@ export interface LearningProgressRepository {
     recordKey: string
   ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>>;
 
-  listReviewRows(
-    input: ListReviewRowsInput
-  ): Promise<Result<ListReviewRowsOutput, LearningProgressError>>;
+  listCampaignAdminInteractionRows(
+    input: ListCampaignAdminInteractionRowsInput
+  ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>>;
+
+  getCampaignAdminStats(
+    input: GetCampaignAdminStatsInput
+  ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>>;
 
   upsertInteractiveRecord(
     input: UpsertInteractiveRecordInput

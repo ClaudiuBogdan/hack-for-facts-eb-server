@@ -30,6 +30,23 @@ function makeRow(userId: string, record: LearningProgressRecordRow['record'], up
   } satisfies LearningProgressRecordRow;
 }
 
+function stripHiddenReviewMetadata(
+  record: LearningProgressRecordRow['record']
+): LearningProgressRecordRow['record'] {
+  if (record.review === undefined || record.review === null) {
+    return record;
+  }
+
+  const { reviewedByUserId, reviewSource, ...publicReview } = record.review;
+  void reviewedByUserId;
+  void reviewSource;
+
+  return {
+    ...record,
+    review: publicReview,
+  };
+}
+
 function expectSyncEventsSuccess(
   result: {
     newEventsCount: number;
@@ -52,7 +69,7 @@ function expectSyncEventsSuccess(
 }
 
 describe('normalizePublicInteractiveRecord', () => {
-  it('accepts echoed stored review data on exact round-trips', () => {
+  it('accepts public round-trips when stored review contains hidden metadata', () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
@@ -62,18 +79,93 @@ describe('normalizePublicInteractiveRecord', () => {
         status: 'approved',
         reviewedAt: '2026-03-23T19:30:00.000Z',
         feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
       },
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
 
     const result = normalizePublicInteractiveRecord({
-      incomingRecord: reviewedRecord,
+      incomingRecord: stripHiddenReviewMetadata(reviewedRecord),
       storedRow: makeRow('user-1', reviewedRecord, '1'),
       eventId: 'event-roundtrip',
     });
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual(reviewedRecord);
+  });
+
+  it('accepts public round-trips when review fields arrive in a different property order', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: {
+        ...stripHiddenReviewMetadata(reviewedRecord),
+        review: {
+          feedbackText: 'Approved by review.',
+          reviewedAt: '2026-03-23T19:30:00.000Z',
+          status: 'approved',
+        },
+      },
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-roundtrip-property-order',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual(reviewedRecord);
+  });
+
+  it('rejects client-supplied hidden review metadata even when public review fields match', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: {
+        ...stripHiddenReviewMetadata(reviewedRecord),
+        review: {
+          status: 'approved',
+          reviewedAt: '2026-03-23T19:30:00.000Z',
+          feedbackText: 'Approved by review.',
+          reviewedByUserId: 'admin-user-1',
+        },
+      },
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-hidden-review-metadata',
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-hidden-review-metadata',
+        message: 'Public progress sync cannot set record.review.',
+      })
+    );
   });
 
   it('preserves stored review metadata on ordinary public updates', () => {
@@ -94,6 +186,8 @@ describe('normalizePublicInteractiveRecord', () => {
         status: 'approved',
         reviewedAt: '2026-03-23T19:30:00.000Z',
         feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
       },
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
@@ -177,6 +271,8 @@ describe('normalizePublicInteractiveRecord', () => {
         status: 'approved',
         reviewedAt: '2026-03-23T19:30:00.000Z',
         feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
       },
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
@@ -391,16 +487,6 @@ describe('syncEvents', () => {
     expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
     expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
-
-    const reviewQueueResult = await repo.listReviewRows({
-      status: 'approved',
-      limit: 10,
-      offset: 0,
-    });
-    expect(reviewQueueResult.isOk()).toBe(true);
-    expect(reviewQueueResult._unsafeUnwrap().rows).toEqual([
-      expect.objectContaining({ recordKey: reviewedRecord.key }),
-    ]);
   });
 
   it('clears stored review metadata on newer public retries back to pending', async () => {
@@ -661,6 +747,59 @@ describe('syncEvents', () => {
     expect(result.isOk()).toBe(true);
     expectSyncEventsSuccess(result._unsafeUnwrap(), {
       newEventsCount: 0,
+    });
+  });
+
+  it('rejects client-authored evaluated audit events', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+
+    const repo = makeFakeLearningProgressRepo();
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2024-01-15T10:01:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-evaluated-audit',
+            payload: {
+              record,
+              auditEvents: [
+                {
+                  id: 'evaluated-1',
+                  recordKey: record.key,
+                  lessonId: record.lessonId,
+                  interactionId: record.interactionId,
+                  type: 'evaluated',
+                  at: '2024-01-15T10:00:00.000Z',
+                  actor: 'system',
+                  phase: 'resolved',
+                  result: {
+                    outcome: 'correct',
+                    evaluatedAt: '2024-01-15T10:00:00.000Z',
+                  },
+                },
+              ],
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-evaluated-audit',
+          errorType: 'InvalidEventError',
+          message: 'Public progress sync cannot include non-user audit events.',
+        },
+      ],
     });
   });
 

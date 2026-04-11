@@ -4,6 +4,14 @@
 **Date**: 2026-04-04
 **Author**: Codex
 
+## Implementation update
+
+As of 2026-04-11, `learning_progress.review_pending` has been retired. The
+live queue-backed workflow retained from this design is
+`institution_correspondence.reply_review_pending`. References below to the
+learning-progress queue remain historical design context unless reintroduced by
+a future spec.
+
 ## Problem
 
 The server already has multiple places where admin work accumulates, but it does

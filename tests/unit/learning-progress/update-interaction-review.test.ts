@@ -184,6 +184,114 @@ describe('updateInteractionReview', () => {
     });
   });
 
+  it('stores admin reviewer attribution when the actor is admin', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      phase: 'pending',
+      updatedAt: '2026-03-23T19:35:00.000Z',
+      submittedAt: '2026-03-23T19:35:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '2',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+
+    const result = await updateInteractionReview(
+      { repo },
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        expectedUpdatedAt: record.updatedAt,
+        status: 'approved',
+        actor: {
+          actor: 'admin',
+          actorUserId: 'admin-user-1',
+          actorPermission: 'campaign:funky_admin',
+          actorSource: 'campaign_admin_api',
+        },
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    const value = result._unsafeUnwrap();
+    expect(value.row.record.review).toEqual({
+      status: 'approved',
+      reviewedAt: value.row.record.updatedAt,
+      reviewedByUserId: 'admin-user-1',
+      reviewSource: 'campaign_admin_api',
+    });
+    expect(value.row.auditEvents.at(-1)).toEqual(
+      expect.objectContaining({
+        type: 'evaluated',
+        actor: 'admin',
+        actorUserId: 'admin-user-1',
+        actorPermission: 'campaign:funky_admin',
+        actorSource: 'campaign_admin_api',
+      })
+    );
+  });
+
+  it('treats same-admin same-decision retries as idempotent', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      phase: 'pending',
+      updatedAt: '2026-03-23T19:35:00.000Z',
+      submittedAt: '2026-03-23T19:35:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '2',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const input = {
+      userId: 'user-1',
+      recordKey: record.key,
+      expectedUpdatedAt: record.updatedAt,
+      status: 'approved' as const,
+      actor: {
+        actor: 'admin' as const,
+        actorUserId: 'admin-user-1',
+        actorPermission: 'campaign:funky_admin',
+        actorSource: 'campaign_admin_api' as const,
+      },
+    };
+
+    const firstResult = await updateInteractionReview({ repo }, input);
+    expect(firstResult.isOk()).toBe(true);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow).toBeDefined();
+
+    const retryResult = await updateInteractionReview({ repo }, input);
+
+    expect(retryResult.isOk()).toBe(true);
+    expect(retryResult._unsafeUnwrap()).toEqual({
+      applied: false,
+      row: storedRow,
+    });
+  });
+
   it('rejects stale expectedUpdatedAt values with a conflict', async () => {
     const record = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
@@ -314,7 +422,7 @@ describe('updateInteractionReview', () => {
     }
   });
 
-  it('rejects reviews for non-pending rows', async () => {
+  it('rejects conflicting reviews for non-pending rows', async () => {
     const record = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       phase: 'resolved',
@@ -346,7 +454,8 @@ describe('updateInteractionReview', () => {
         userId: 'user-1',
         recordKey: record.key,
         expectedUpdatedAt: record.updatedAt,
-        status: 'approved',
+        status: 'rejected',
+        feedbackText: 'Needs more evidence.',
       }
     );
 

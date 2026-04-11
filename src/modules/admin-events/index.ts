@@ -88,16 +88,6 @@ export {
 export { makeLocalAdminEventBundleStore } from './shell/filesystem/bundle-store.js';
 
 export {
-  LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
-  LearningProgressReviewPendingPayloadSchema,
-  LearningProgressReviewPendingOutcomeSchema,
-  makeLearningProgressReviewPendingEventDefinition,
-  type LearningProgressReviewPendingPayload,
-  type LearningProgressReviewPendingOutcome,
-  type LearningProgressReviewPendingContext,
-  type LearningProgressReviewPendingEventDefinitionDeps,
-} from './shell/events/learning-progress-review-pending.js';
-export {
   INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
   InstitutionCorrespondenceReplyReviewPendingPayloadSchema,
   InstitutionCorrespondenceReplyReviewPendingOutcomeSchema,
@@ -111,11 +101,6 @@ export {
   makeDefaultAdminEventRegistry,
   type DefaultAdminEventRegistryDeps,
 } from './shell/registry.js';
-export {
-  createLearningProgressAdminEventSyncHook,
-  type LearningProgressAdminEventSyncHookDeps,
-  type LearningProgressAdminEventSyncHookInput,
-} from './shell/learning-progress-sync-hook.js';
 export {
   createAdminEventScriptContext,
   type AdminEventScriptContext,

@@ -3,19 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
   INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
-  LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
   makeAdminEventRegistry,
   makeInstitutionCorrespondenceReplyReviewPendingEventDefinition,
-  makeLearningProgressReviewPendingEventDefinition,
   queueAdminEvent,
   scanAndQueueAdminEvents,
 } from '@/modules/admin-events/index.js';
 
-import {
-  createTestInteractiveRecord,
-  makeFakeLearningProgressRepo,
-  makeInMemoryAdminEventQueue,
-} from '../../fixtures/index.js';
+import { makeInMemoryAdminEventQueue } from '../../fixtures/index.js';
 import {
   createCorrespondenceEntry,
   createThreadAggregateRecord,
@@ -23,32 +17,8 @@ import {
   makeInMemoryCorrespondenceRepo,
 } from '../institution-correspondence/fake-repo.js';
 
-import type { LearningProgressRecordRow } from '@/modules/learning-progress/index.js';
-
-const makeRow = (
-  userId: string,
-  record: LearningProgressRecordRow['record'],
-  updatedSeq: string
-): LearningProgressRecordRow => ({
-  userId,
-  recordKey: record.key,
-  record,
-  auditEvents: [],
-  updatedSeq,
-  createdAt: record.updatedAt,
-  updatedAt: record.updatedAt,
-});
-
 describe('admin event queue use cases', () => {
   it('validates payloads before enqueueing and uses deterministic job ids', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'review-target::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T09:00:00.000Z',
-    });
-    const learningProgressRepo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
-    });
     const correspondenceRepo = makeInMemoryCorrespondenceRepo({
       threads: [
         createThreadRecord({
@@ -67,32 +37,11 @@ describe('admin event queue use cases', () => {
       ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo,
-      }),
       makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
         repo: correspondenceRepo,
       }),
     ]);
     const queue = makeInMemoryAdminEventQueue();
-
-    const learningProgressResult = await queueAdminEvent(
-      { registry, queue },
-      {
-        eventType: LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
-        payload: {
-          userId: 'user-1',
-          recordKey: pendingRecord.key,
-        },
-      }
-    );
-
-    expect(learningProgressResult.isOk()).toBe(true);
-    if (learningProgressResult.isOk()) {
-      expect(learningProgressResult.value.jobId).toBe(
-        buildBullmqJobId('learning_progress.review_pending', 'user-1', pendingRecord.key)
-      );
-    }
 
     const correspondenceResult = await queueAdminEvent(
       { registry, queue },
@@ -115,9 +64,9 @@ describe('admin event queue use cases', () => {
     const invalidResult = await queueAdminEvent(
       { registry, queue },
       {
-        eventType: LEARNING_PROGRESS_REVIEW_PENDING_EVENT_TYPE,
+        eventType: INSTITUTION_CORRESPONDENCE_REPLY_REVIEW_PENDING_EVENT_TYPE,
         payload: {
-          userId: 'user-1',
+          threadId: 'thread-1',
         },
       }
     );
@@ -128,18 +77,27 @@ describe('admin event queue use cases', () => {
     }
   });
 
-  it('re-scans pending rows without creating duplicate jobs', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'review-repeat::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T09:05:00.000Z',
-    });
-    const learningProgressRepo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
+  it('re-scans pending replies without creating duplicate jobs', async () => {
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-repeat-1',
+          phase: 'reply_received_unreviewed',
+          record: createThreadAggregateRecord({
+            correspondence: [
+              createCorrespondenceEntry({
+                id: 'reply-repeat-1',
+                direction: 'inbound',
+                source: 'institution_reply',
+              }),
+            ],
+          }),
+        }),
+      ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo,
+      makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
+        repo: correspondenceRepo,
       }),
     ]);
     const queue = makeInMemoryAdminEventQueue();
@@ -151,7 +109,11 @@ describe('admin event queue use cases', () => {
     expect(secondScan.isOk()).toBe(true);
     expect(queue.snapshot()).toHaveLength(1);
     expect(queue.snapshot()[0]?.jobId).toBe(
-      buildBullmqJobId('learning_progress.review_pending', 'user-1', pendingRecord.key)
+      buildBullmqJobId(
+        'institution_correspondence.reply_review_pending',
+        'thread-repeat-1',
+        'reply-repeat-1'
+      )
     );
   });
 });

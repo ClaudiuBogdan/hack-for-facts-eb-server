@@ -11,6 +11,7 @@ export type {
   InteractionResult,
   InteractionReviewStatus,
   ReviewDecisionStatus,
+  InteractionReviewSource,
   InteractionReview,
   InteractiveDefinitionKind,
   InteractionCompletionRule,
@@ -27,9 +28,25 @@ export type {
   SyncEventsRequest,
   LearningProgressRecordRow,
   ReviewDecision,
+  ApprovedReviewSideEffectPlan,
+  ReviewActorMetadata,
   GetRecordsOptions,
-  ListReviewRowsInput,
-  ListReviewRowsOutput,
+  CampaignAdminCampaignKey,
+  CampaignAdminSubmissionPath,
+  CampaignAdminInstitutionThreadPhase,
+  CampaignAdminListCursor,
+  CampaignAdminInstitutionThreadSummary,
+  CampaignAdminInteractionRow,
+  CampaignAdminReviewStatusCounts,
+  CampaignAdminPhaseCounts,
+  CampaignAdminThreadPhaseCounts,
+  CampaignAdminStats,
+  CampaignAdminStatsBase,
+  CampaignAdminRiskFlagCandidate,
+  ListCampaignAdminInteractionRowsInput,
+  ListCampaignAdminInteractionRowsOutput,
+  GetCampaignAdminStatsInput,
+  GetCampaignAdminStatsOutput,
   UpsertInteractiveRecordInput,
   UpsertInteractiveRecordResult,
 } from './core/types.js';
@@ -85,13 +102,6 @@ export {
 } from './core/usecases/sync-events.js';
 
 export {
-  listInteractionReviews,
-  type ListInteractionReviewsDeps,
-  type ListInteractionReviewsInput,
-  type ListInteractionReviewsOutput,
-} from './core/usecases/list-interaction-reviews.js';
-
-export {
   submitInteractionReviews,
   type SubmitInteractionReviewsDeps,
   type SubmitInteractionReviewsInput,
@@ -116,10 +126,16 @@ export {
 } from './shell/rest/routes.js';
 
 export {
-  makeLearningProgressAdminReviewRoutes,
-  type ApprovedReviewSideEffectPlan,
-  type MakeLearningProgressAdminReviewRoutesDeps,
-} from './shell/rest/admin-routes.js';
+  CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
+  makeCampaignAdminUserInteractionRoutes,
+  type MakeCampaignAdminUserInteractionRoutesDeps,
+} from './shell/rest/campaign-admin-routes.js';
+
+export {
+  makeClerkCampaignAdminPermissionAuthorizer,
+  type CampaignAdminPermissionAuthorizer,
+  type ClerkCampaignAdminPermissionAuthorizerOptions,
+} from './shell/security/clerk-campaign-admin-permission-checker.js';
 
 export {
   GetProgressQuerySchema,
@@ -140,19 +156,22 @@ export {
 } from './shell/rest/schemas.js';
 
 export {
-  LEARNING_PROGRESS_REVIEW_API_KEY_HEADER,
-  makeLearningProgressAdminReviewAuthHook,
-  type LearningProgressAdminReviewAuthConfig,
-} from './shell/rest/admin-auth.js';
-
-export {
-  ReviewQueueQuerySchema,
-  SubmitInteractionReviewsBodySchema,
-  ReviewQueueResponseSchema,
-  SubmitInteractionReviewsResponseSchema,
-  LearningProgressRecordRowSchema,
-  StoredInteractiveAuditEventSchema,
-  type ReviewQueueQuery,
-  type ReviewDecisionBody,
-  type SubmitInteractionReviewsBody,
-} from './shell/rest/admin-schemas.js';
+  CampaignKeyParamsSchema,
+  CampaignAdminCursorSchema,
+  CampaignAdminListQuerySchema,
+  CampaignAdminAvailableInteractionTypeSchema,
+  CampaignAdminReviewStatusCountsSchema,
+  CampaignAdminPhaseCountsSchema,
+  CampaignAdminThreadPhaseCountsSchema,
+  CampaignAdminStatsSchema,
+  CampaignAdminInteractionListItemSchema,
+  CampaignAdminMetaResponseSchema,
+  CampaignAdminListResponseSchema,
+  CampaignAdminReviewDecisionSchema,
+  CampaignAdminSubmitReviewsBodySchema,
+  CampaignAdminSubmitReviewsResponseSchema,
+  type CampaignKeyParams,
+  type CampaignAdminListQuery,
+  type CampaignAdminReviewDecisionBody,
+  type CampaignAdminSubmitReviewsBody,
+} from './shell/rest/campaign-admin-schemas.js';

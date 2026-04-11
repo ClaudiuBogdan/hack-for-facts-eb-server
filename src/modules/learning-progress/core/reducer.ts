@@ -37,7 +37,37 @@ function stripStoredAuditMetadata(storedEvent: StoredInteractiveAuditEvent): Int
   void seq;
   void sourceClientEventId;
   void sourceClientId;
+
+  if (event.type === 'evaluated') {
+    const { actorUserId, actorPermission, actorSource, ...sanitizedEvent } = event;
+    void actorUserId;
+    void actorPermission;
+    void actorSource;
+
+    return {
+      ...sanitizedEvent,
+      actor: 'system',
+    };
+  }
+
   return event;
+}
+
+function stripPublicReviewMetadata(
+  record: LearningProgressRecordRow['record']
+): LearningProgressRecordRow['record'] {
+  if (record.review === undefined || record.review === null) {
+    return record;
+  }
+
+  const { reviewedByUserId, reviewSource, ...review } = record.review;
+  void reviewedByUserId;
+  void reviewSource;
+
+  return {
+    ...record,
+    review,
+  };
 }
 
 export function createEmptySnapshot(): LearningProgressSnapshot {
@@ -57,7 +87,7 @@ export function buildSnapshotFromRecords(
 
   const sortedRecords = [...records].sort(compareStoredRows);
   const recordsByKey = Object.fromEntries(
-    sortedRecords.map((row) => [row.recordKey, row.record] as const)
+    sortedRecords.map((row) => [row.recordKey, stripPublicReviewMetadata(row.record)] as const)
   );
   const lastUpdated = sortedRecords.reduce<string | null>((latest, row) => {
     if (latest === null || row.updatedAt > latest) {
@@ -91,7 +121,7 @@ export function buildDeltaEventsFromRecords(
         clientId: 'server',
         type: 'interactive.updated',
         payload: {
-          record: row.record,
+          record: stripPublicReviewMetadata(row.record),
           ...(auditEvents.length > 0 ? { auditEvents } : {}),
         },
       };

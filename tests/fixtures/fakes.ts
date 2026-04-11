@@ -52,14 +52,22 @@ import type {
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
+  CampaignAdminPhaseCounts,
+  CampaignAdminInteractionRow,
+  CampaignAdminReviewStatusCounts,
+  CampaignAdminRiskFlagCandidate,
+  CampaignAdminStatsBase,
+  CampaignAdminThreadPhaseCounts,
+  GetCampaignAdminStatsInput,
+  GetCampaignAdminStatsOutput,
   GetRecordsOptions,
   InteractiveAuditEvent,
   InteractiveStateRecord,
-  ListReviewRowsInput,
+  ListCampaignAdminInteractionRowsInput,
+  ListCampaignAdminInteractionRowsOutput,
   LearningInteractiveUpdatedEvent,
   LearningProgressEvent,
   LearningProgressRecordRow,
-  ListReviewRowsOutput,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
 } from '@/modules/learning-progress/core/types.js';
@@ -1322,6 +1330,8 @@ export const createTestUrlMetadata = (overrides: Partial<UrlMetadata> = {}): Url
 interface FakeLearningProgressRepoOptions {
   /** Initial records per user (Map<userId, records>) */
   initialRecords?: Map<string, LearningProgressRecordRow[]>;
+  /** Optional minimal campaign-admin thread summaries keyed by campaign/entity */
+  campaignAdminThreadSummaries?: Map<string, CampaignAdminInteractionRow['threadSummary']>;
   /** Enable database error simulation */
   simulateDbError?: boolean;
   /** Fail when a specific upsert attempt is reached (1-based) */
@@ -1339,6 +1349,7 @@ export const makeFakeLearningProgressRepo = (
   options: FakeLearningProgressRepoOptions = {}
 ): LearningProgressRepository => {
   const store = new Map<string, Map<string, LearningProgressRecordRow>>();
+  const campaignAdminThreadSummaries = options.campaignAdminThreadSummaries ?? new Map();
   const simulateDbError = options.simulateDbError ?? false;
   const failOnUpsertAttempt = options.failOnUpsertAttempt;
   const failOnResetAttempt = options.failOnResetAttempt;
@@ -1395,6 +1406,120 @@ export const makeFakeLearningProgressRepo = (
 
     return leftRow.recordKey.localeCompare(rightRow.recordKey);
   };
+
+  const getSubmissionPath = (record: InteractiveStateRecord): string | null => {
+    const payloadValue =
+      record.value?.kind === 'json' ? (record.value.json.value as Record<string, unknown>) : null;
+
+    return typeof payloadValue?.['submissionPath'] === 'string'
+      ? payloadValue['submissionPath']
+      : null;
+  };
+
+  const getCampaignThreadSummary = (
+    row: LearningProgressRecordRow,
+    campaignKey: string
+  ): CampaignAdminInteractionRow['threadSummary'] => {
+    if (row.record.scope.type !== 'entity') {
+      return null;
+    }
+
+    const threadSummary = campaignAdminThreadSummaries.get(
+      `${campaignKey}::${row.record.scope.entityCui}`
+    ) as CampaignAdminInteractionRow['threadSummary'] | undefined;
+    return threadSummary ?? null;
+  };
+
+  const getCampaignAdminReviewStatus = (
+    row: LearningProgressRecordRow
+  ): 'pending' | 'approved' | 'rejected' | null => {
+    if (row.record.review?.status !== undefined) {
+      return row.record.review.status;
+    }
+
+    return row.record.phase === 'pending' ? 'pending' : null;
+  };
+
+  const getInstitutionEmail = (record: InteractiveStateRecord): string | null => {
+    if (record.value?.kind !== 'json') {
+      return null;
+    }
+
+    const value = record.value.json.value as Record<string, unknown>;
+    return typeof value['primariaEmail'] === 'string' && value['primariaEmail'].trim() !== ''
+      ? value['primariaEmail'].trim()
+      : null;
+  };
+
+  const createEmptyCampaignAdminReviewStatusCounts = (): CampaignAdminReviewStatusCounts => ({
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    notReviewed: 0,
+  });
+
+  const createEmptyCampaignAdminPhaseCounts = (): CampaignAdminPhaseCounts => ({
+    idle: 0,
+    draft: 0,
+    pending: 0,
+    resolved: 0,
+    failed: 0,
+  });
+
+  const createEmptyCampaignAdminThreadPhaseCounts = (): CampaignAdminThreadPhaseCounts => ({
+    sending: 0,
+    awaiting_reply: 0,
+    reply_received_unreviewed: 0,
+    manual_follow_up_needed: 0,
+    resolved_positive: 0,
+    resolved_negative: 0,
+    closed_no_response: 0,
+    failed: 0,
+    none: 0,
+  });
+
+  const createEmptyCampaignAdminStatsBase = (): CampaignAdminStatsBase => ({
+    total: 0,
+    withInstitutionThread: 0,
+    reviewStatusCounts: createEmptyCampaignAdminReviewStatusCounts(),
+    phaseCounts: createEmptyCampaignAdminPhaseCounts(),
+    threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
+  });
+
+  interface MutableCampaignAdminReviewStatusCounts {
+    pending: number;
+    approved: number;
+    rejected: number;
+    notReviewed: number;
+  }
+
+  interface MutableCampaignAdminPhaseCounts {
+    idle: number;
+    draft: number;
+    pending: number;
+    resolved: number;
+    failed: number;
+  }
+
+  interface MutableCampaignAdminThreadPhaseCounts {
+    sending: number;
+    awaiting_reply: number;
+    reply_received_unreviewed: number;
+    manual_follow_up_needed: number;
+    resolved_positive: number;
+    resolved_negative: number;
+    closed_no_response: number;
+    failed: number;
+    none: number;
+  }
+
+  interface MutableCampaignAdminStatsBase {
+    total: number;
+    withInstitutionThread: number;
+    reviewStatusCounts: MutableCampaignAdminReviewStatusCounts;
+    phaseCounts: MutableCampaignAdminPhaseCounts;
+    threadPhaseCounts: MutableCampaignAdminThreadPhaseCounts;
+  }
 
   const cloneStore = (source: Map<string, Map<string, LearningProgressRecordRow>>) => {
     const clonedStore = new Map<string, Map<string, LearningProgressRecordRow>>();
@@ -1478,21 +1603,62 @@ export const makeFakeLearningProgressRepo = (
         return ok(userStore?.get(recordKey) ?? null);
       },
 
-      listReviewRows: async (
-        input: ListReviewRowsInput
-      ): Promise<Result<ListReviewRowsOutput, LearningProgressError>> => {
+      listCampaignAdminInteractionRows: async (
+        input: ListCampaignAdminInteractionRowsInput
+      ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
-        const rows = [...currentStore.values()]
+        const filteredRows = [...currentStore.values()]
           .flatMap((userStore) => [...userStore.values()])
           .filter((row) => {
-            const matchesStatus =
-              input.status === 'pending'
-                ? row.record.phase === 'pending'
-                : row.record.review?.status === input.status;
-
-            if (!matchesStatus) {
+            const matchingInteraction = input.reviewableInteractions.find(
+              (interaction) => interaction.interactionId === row.record.interactionId
+            );
+            if (matchingInteraction === undefined) {
               return false;
+            }
+
+            if (matchingInteraction.reviewableSubmissionPath !== undefined) {
+              if (getSubmissionPath(row.record) !== matchingInteraction.reviewableSubmissionPath) {
+                return false;
+              }
+            }
+
+            if (input.phase !== undefined && row.record.phase !== input.phase) {
+              return false;
+            }
+
+            if (input.reviewStatus !== undefined) {
+              const reviewStatus =
+                row.record.review?.status ?? (row.record.phase === 'pending' ? 'pending' : null);
+              if (reviewStatus !== input.reviewStatus) {
+                return false;
+              }
+            }
+
+            if (input.lessonId !== undefined && row.record.lessonId !== input.lessonId) {
+              return false;
+            }
+
+            if (
+              input.entityCui !== undefined &&
+              (row.record.scope.type !== 'entity' || row.record.scope.entityCui !== input.entityCui)
+            ) {
+              return false;
+            }
+
+            if (input.scopeType !== undefined && row.record.scope.type !== input.scopeType) {
+              return false;
+            }
+
+            if (input.payloadKind !== undefined && row.record.value?.kind !== input.payloadKind) {
+              return false;
+            }
+
+            if (input.submissionPath !== undefined) {
+              if (getSubmissionPath(row.record) !== input.submissionPath) {
+                return false;
+              }
             }
 
             if (input.userId !== undefined && row.userId !== input.userId) {
@@ -1511,24 +1677,235 @@ export const makeFakeLearningProgressRepo = (
             }
 
             if (
-              input.interactionId !== undefined &&
-              row.record.interactionId !== input.interactionId
+              input.submittedAtFrom !== undefined &&
+              (row.record.submittedAt === undefined ||
+                row.record.submittedAt === null ||
+                compareTimestamps(row.record.submittedAt, input.submittedAtFrom) < 0)
             ) {
               return false;
             }
 
-            if (input.lessonId !== undefined && row.record.lessonId !== input.lessonId) {
+            if (
+              input.submittedAtTo !== undefined &&
+              (row.record.submittedAt === undefined ||
+                row.record.submittedAt === null ||
+                compareTimestamps(row.record.submittedAt, input.submittedAtTo) > 0)
+            ) {
               return false;
             }
 
-            return true;
+            if (
+              input.updatedAtFrom !== undefined &&
+              compareTimestamps(row.updatedAt, input.updatedAtFrom) < 0
+            ) {
+              return false;
+            }
+
+            if (
+              input.updatedAtTo !== undefined &&
+              compareTimestamps(row.updatedAt, input.updatedAtTo) > 0
+            ) {
+              return false;
+            }
+
+            const threadSummary = getCampaignThreadSummary(row, input.campaignKey);
+            if (input.hasInstitutionThread === true && threadSummary === null) {
+              return false;
+            }
+
+            if (input.hasInstitutionThread === false && threadSummary !== null) {
+              return false;
+            }
+
+            if (
+              input.threadPhase !== undefined &&
+              threadSummary?.threadPhase !== input.threadPhase
+            ) {
+              return false;
+            }
+
+            if (input.cursor === undefined) {
+              return true;
+            }
+
+            return (
+              compareTimestamps(row.updatedAt, input.cursor.updatedAt) < 0 ||
+              (compareTimestamps(row.updatedAt, input.cursor.updatedAt) === 0 &&
+                (row.userId > input.cursor.userId ||
+                  (row.userId === input.cursor.userId && row.recordKey > input.cursor.recordKey)))
+            );
           })
           .sort(compareReviewRows);
 
-        const pagedRows = rows.slice(input.offset, input.offset + input.limit + 1);
+        const pageRows = filteredRows.slice(0, input.limit + 1);
+        const rows = pageRows.slice(0, input.limit).map(
+          (row): CampaignAdminInteractionRow => ({
+            userId: row.userId,
+            recordKey: row.recordKey,
+            campaignKey: input.campaignKey,
+            record: row.record,
+            auditEvents: row.auditEvents,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            threadSummary: getCampaignThreadSummary(row, input.campaignKey),
+          })
+        );
+
         return ok({
-          rows: pagedRows.slice(0, input.limit),
-          hasMore: pagedRows.length > input.limit,
+          rows,
+          hasMore: pageRows.length > input.limit,
+          nextCursor:
+            pageRows.length > input.limit && rows.length > 0
+              ? {
+                  updatedAt: rows.at(-1)?.updatedAt ?? '',
+                  userId: rows.at(-1)?.userId ?? '',
+                  recordKey: rows.at(-1)?.recordKey ?? '',
+                }
+              : null,
+        });
+      },
+
+      getCampaignAdminStats: async (
+        input: GetCampaignAdminStatsInput
+      ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        if (input.reviewableInteractions.length === 0) {
+          return ok({
+            stats: createEmptyCampaignAdminStatsBase(),
+            riskFlagCandidates: [],
+          });
+        }
+
+        const matchingRows = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) => {
+            const matchingInteraction = input.reviewableInteractions.find(
+              (interaction) => interaction.interactionId === row.record.interactionId
+            );
+            if (matchingInteraction === undefined) {
+              return false;
+            }
+
+            if (matchingInteraction.reviewableSubmissionPath === undefined) {
+              return true;
+            }
+
+            return getSubmissionPath(row.record) === matchingInteraction.reviewableSubmissionPath;
+          });
+
+        const stats: MutableCampaignAdminStatsBase = {
+          total: 0,
+          withInstitutionThread: 0,
+          reviewStatusCounts: {
+            pending: 0,
+            approved: 0,
+            rejected: 0,
+            notReviewed: 0,
+          },
+          phaseCounts: {
+            idle: 0,
+            draft: 0,
+            pending: 0,
+            resolved: 0,
+            failed: 0,
+          },
+          threadPhaseCounts: {
+            sending: 0,
+            awaiting_reply: 0,
+            reply_received_unreviewed: 0,
+            manual_follow_up_needed: 0,
+            resolved_positive: 0,
+            resolved_negative: 0,
+            closed_no_response: 0,
+            failed: 0,
+            none: 0,
+          },
+        };
+        const riskCandidateMap = new Map<string, CampaignAdminRiskFlagCandidate>();
+
+        for (const row of matchingRows) {
+          stats.total += 1;
+
+          const reviewStatus = getCampaignAdminReviewStatus(row);
+          if (reviewStatus === 'pending') {
+            stats.reviewStatusCounts.pending += 1;
+          } else if (reviewStatus === 'approved') {
+            stats.reviewStatusCounts.approved += 1;
+          } else if (reviewStatus === 'rejected') {
+            stats.reviewStatusCounts.rejected += 1;
+          } else {
+            stats.reviewStatusCounts.notReviewed += 1;
+          }
+
+          if (row.record.phase === 'idle') {
+            stats.phaseCounts.idle += 1;
+          } else if (row.record.phase === 'draft') {
+            stats.phaseCounts.draft += 1;
+          } else if (row.record.phase === 'pending') {
+            stats.phaseCounts.pending += 1;
+          } else if (row.record.phase === 'resolved') {
+            stats.phaseCounts.resolved += 1;
+          } else {
+            stats.phaseCounts.failed += 1;
+          }
+
+          const threadSummary = getCampaignThreadSummary(row, input.campaignKey);
+          if (threadSummary !== null) {
+            stats.withInstitutionThread += 1;
+          }
+
+          if (threadSummary?.threadPhase === 'sending') {
+            stats.threadPhaseCounts.sending += 1;
+          } else if (threadSummary?.threadPhase === 'awaiting_reply') {
+            stats.threadPhaseCounts.awaiting_reply += 1;
+          } else if (threadSummary?.threadPhase === 'reply_received_unreviewed') {
+            stats.threadPhaseCounts.reply_received_unreviewed += 1;
+          } else if (threadSummary?.threadPhase === 'manual_follow_up_needed') {
+            stats.threadPhaseCounts.manual_follow_up_needed += 1;
+          } else if (threadSummary?.threadPhase === 'resolved_positive') {
+            stats.threadPhaseCounts.resolved_positive += 1;
+          } else if (threadSummary?.threadPhase === 'resolved_negative') {
+            stats.threadPhaseCounts.resolved_negative += 1;
+          } else if (threadSummary?.threadPhase === 'closed_no_response') {
+            stats.threadPhaseCounts.closed_no_response += 1;
+          } else if (threadSummary?.threadPhase === 'failed') {
+            stats.threadPhaseCounts.failed += 1;
+          } else {
+            stats.threadPhaseCounts.none += 1;
+          }
+
+          const candidate: CampaignAdminRiskFlagCandidate = {
+            interactionId: row.record.interactionId,
+            entityCui: row.record.scope.type === 'entity' ? row.record.scope.entityCui : null,
+            institutionEmail: getInstitutionEmail(row.record),
+            threadPhase: threadSummary?.threadPhase ?? null,
+            count: 0,
+          };
+          const candidateKey = JSON.stringify([
+            candidate.interactionId,
+            candidate.entityCui,
+            candidate.institutionEmail,
+            candidate.threadPhase,
+          ]);
+          const existingCandidate = riskCandidateMap.get(candidateKey);
+
+          if (existingCandidate === undefined) {
+            riskCandidateMap.set(candidateKey, {
+              ...candidate,
+              count: 1,
+            });
+          } else {
+            riskCandidateMap.set(candidateKey, {
+              ...existingCandidate,
+              count: existingCandidate.count + 1,
+            });
+          }
+        }
+
+        return ok({
+          stats,
+          riskFlagCandidates: [...riskCandidateMap.values()],
         });
       },
 

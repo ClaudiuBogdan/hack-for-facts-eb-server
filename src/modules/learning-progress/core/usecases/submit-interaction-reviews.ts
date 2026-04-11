@@ -4,7 +4,7 @@ import { createInvalidEventError, type LearningProgressError } from '../errors.j
 import { updateInteractionReview } from './update-interaction-review.js';
 
 import type { LearningProgressRepository } from '../ports.js';
-import type { LearningProgressRecordRow, ReviewDecision } from '../types.js';
+import type { LearningProgressRecordRow, ReviewActorMetadata, ReviewDecision } from '../types.js';
 
 export interface SubmitInteractionReviewsDeps {
   repo: LearningProgressRepository;
@@ -12,6 +12,7 @@ export interface SubmitInteractionReviewsDeps {
 
 export interface SubmitInteractionReviewsInput {
   items: readonly ReviewDecision[];
+  actor?: ReviewActorMetadata;
 }
 
 export interface SubmitInteractionReviewsOutput {
@@ -44,7 +45,13 @@ export async function submitInteractionReviews(
     const rows: LearningProgressRecordRow[] = [];
 
     for (const item of input.items) {
-      const updateResult = await updateInteractionReview({ repo: transactionalRepo }, item);
+      const updateResult = await updateInteractionReview(
+        { repo: transactionalRepo },
+        {
+          ...item,
+          ...(input.actor !== undefined ? { actor: input.actor } : {}),
+        }
+      );
       if (updateResult.isErr()) {
         return err(updateResult.error);
       }

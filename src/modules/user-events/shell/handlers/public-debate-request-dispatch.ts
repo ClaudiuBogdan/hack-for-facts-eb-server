@@ -80,11 +80,10 @@ const INVALID_INSTITUTION_EMAIL_MESSAGE =
 const EMAIL_MISMATCH_MESSAGE =
   'The submitted city hall email does not match the current official email on record.';
 
-function isPendingPublicDebateRequestRecord(record: InteractiveStateRecord): boolean {
+function isPublicDebateRequestRecord(record: InteractiveStateRecord): boolean {
   return (
     record.interactionId === DEBATE_REQUEST_INTERACTION_ID &&
     record.scope.type === 'entity' &&
-    record.phase === 'pending' &&
     record.value?.kind === 'json'
   );
 }
@@ -152,10 +151,21 @@ export const buildPublicDebateRequestEmailMismatchError = (): InstitutionCorresp
 
 export async function preparePublicDebateRequestDispatch(
   deps: PublicDebateRequestDispatchDeps,
-  recordRow: LearningProgressRecordRow
+  recordRow: LearningProgressRecordRow,
+  options?: {
+    allowApprovedReview?: boolean;
+  }
 ): Promise<Result<PublicDebateRequestDispatchPreparation, InstitutionCorrespondenceError>> {
   const record = recordRow.record;
-  if (!isPendingPublicDebateRequestRecord(record)) {
+  const isApprovedReviewRetry =
+    options?.allowApprovedReview === true &&
+    record.phase === 'resolved' &&
+    record.review?.status === 'approved';
+
+  if (
+    !isPublicDebateRequestRecord(record) ||
+    (record.phase !== 'pending' && !isApprovedReviewRetry)
+  ) {
     return ok({ kind: 'not_applicable' });
   }
 
@@ -204,21 +214,23 @@ export async function preparePublicDebateRequestDispatch(
     });
   }
 
-  const officialEmailMatchResult = await loadOfficialEmailMatch(deps, {
-    entityCui,
-    institutionEmail,
-  });
-
-  if (officialEmailMatchResult.isErr()) {
-    return err(officialEmailMatchResult.error);
-  }
-
-  if (!officialEmailMatchResult.value.exactMatch) {
-    return ok({
-      kind: 'blocked_email_mismatch',
-      submittedInstitutionEmail: institutionEmail,
-      officialEmail: officialEmailMatchResult.value.officialEmail,
+  if (!isApprovedReviewRetry) {
+    const officialEmailMatchResult = await loadOfficialEmailMatch(deps, {
+      entityCui,
+      institutionEmail,
     });
+
+    if (officialEmailMatchResult.isErr()) {
+      return err(officialEmailMatchResult.error);
+    }
+
+    if (!officialEmailMatchResult.value.exactMatch) {
+      return ok({
+        kind: 'blocked_email_mismatch',
+        submittedInstitutionEmail: institutionEmail,
+        officialEmail: officialEmailMatchResult.value.officialEmail,
+      });
+    }
   }
 
   const entityNameResult = await loadEntityName(deps, entityCui);
@@ -233,6 +245,10 @@ export async function preparePublicDebateRequestDispatch(
       entityName: entityNameResult.value,
     },
   });
+}
+
+function isApprovedReviewRecord(recordRow: LearningProgressRecordRow): boolean {
+  return recordRow.record.phase === 'resolved' && recordRow.record.review?.status === 'approved';
 }
 
 export async function executePreparedPublicDebateRequestDispatch(
@@ -301,6 +317,7 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
     LearningProgressError | InstitutionCorrespondenceError
   >
 > {
+  // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
   const preparedDispatches: PreparedPublicDebateRequestDispatch[] = [];
 
   for (const item of input.items) {
@@ -318,7 +335,9 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
       return err(createNotFoundError(`Interaction record "${item.recordKey}" was not found.`));
     }
 
-    if (recordRow.record.phase !== 'pending') {
+    const pendingRecord = recordRow.record.phase === 'pending';
+    const approvedRecord = isApprovedReviewRecord(recordRow);
+    if (!pendingRecord && !approvedRecord) {
       return err(
         createLearningProgressConflictError(
           `Interaction record "${item.recordKey}" is no longer reviewable because it is not pending.`
@@ -326,7 +345,10 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
       );
     }
 
-    if (compareTimestampInstants(recordRow.updatedAt, item.expectedUpdatedAt) !== 0) {
+    if (
+      pendingRecord &&
+      compareTimestampInstants(recordRow.updatedAt, item.expectedUpdatedAt) !== 0
+    ) {
       return err(
         createLearningProgressConflictError(
           `Interaction record "${item.recordKey}" changed since it was loaded for review.`
@@ -334,7 +356,9 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
       );
     }
 
-    const preparationResult = await preparePublicDebateRequestDispatch(deps, recordRow);
+    const preparationResult = await preparePublicDebateRequestDispatch(deps, recordRow, {
+      allowApprovedReview: approvedRecord,
+    });
     if (preparationResult.isErr()) {
       return err(preparationResult.error);
     }
@@ -365,7 +389,9 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
         );
 
         if (dispatchResult.isErr()) {
-          throw new Error(dispatchResult.error.message);
+          throw new Error(dispatchResult.error.message, {
+            cause: dispatchResult.error,
+          });
         }
       }
     },

@@ -117,6 +117,23 @@ function stripSourceUrl(
   return legacyRecord;
 }
 
+function stripHiddenReviewMetadata(
+  record: LearningProgressRecordRow['record']
+): LearningProgressRecordRow['record'] {
+  if (record.review === undefined || record.review === null) {
+    return record;
+  }
+
+  const { reviewedByUserId, reviewSource, ...publicReview } = record.review;
+  void reviewedByUserId;
+  void reviewSource;
+
+  return {
+    ...record,
+    review: publicReview,
+  };
+}
+
 const makeComposeJobScheduler = (jobs: ComposeJobPayload[]): ComposeJobScheduler => ({
   async enqueue(job) {
     jobs.push(job);
@@ -786,7 +803,7 @@ describe('Learning Progress REST API', () => {
     });
   });
 
-  it('accepts exact round-trips of reviewed records returned by GET', async () => {
+  it('accepts reviewed GET→PUT round-trips when stored review hides private metadata', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       interactionId: 'funky:interaction:city_hall_website',
@@ -806,9 +823,12 @@ describe('Learning Progress REST API', () => {
         status: 'approved',
         reviewedAt: '2026-03-23T19:30:00.000Z',
         feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
       },
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
+    const publicReviewedRecord = stripHiddenReviewMetadata(reviewedRecord);
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
     initialRecords.set(testAuth.userIds.user1, [
@@ -834,7 +854,9 @@ describe('Learning Progress REST API', () => {
     if (roundTrippedRecord === undefined) {
       throw new Error('Expected reviewed record to be present in snapshot.');
     }
-    expect(roundTrippedRecord).toEqual(reviewedRecord);
+    expect(roundTrippedRecord).toEqual(publicReviewedRecord);
+    expect(roundTrippedRecord.review).not.toHaveProperty('reviewedByUserId');
+    expect(roundTrippedRecord.review).not.toHaveProperty('reviewSource');
 
     const putResponse = await app.inject({
       method: 'PUT',
@@ -870,6 +892,85 @@ describe('Learning Progress REST API', () => {
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
     expect(storedRecord?.record).toEqual(reviewedRecord);
+  });
+
+  it('rejects reviewed PUT round-trips that reintroduce hidden review metadata', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://reviewed.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: reviewedRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-hidden-review-metadata',
+            occurredAt: reviewedRecord.updatedAt,
+            payload: {
+              record: {
+                ...stripHiddenReviewMetadata(reviewedRecord),
+                review: {
+                  status: 'approved',
+                  reviewedAt: '2026-03-23T19:30:00.000Z',
+                  feedbackText: 'Approved by review.',
+                  reviewedByUserId: 'admin-user-1',
+                },
+              },
+            },
+          }),
+        ],
+      },
+    });
+
+    expect(putResponse.statusCode).toBe(200);
+    expect(putResponse.json()).toEqual({
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-hidden-review-metadata',
+            errorType: 'InvalidEventError',
+            message: 'Public progress sync cannot set record.review.',
+          },
+        ],
+      },
+    });
   });
 
   it('does not bump cursor for legacy round-trips that omit sourceUrl', async () => {
@@ -960,6 +1061,8 @@ describe('Learning Progress REST API', () => {
         status: 'approved',
         reviewedAt: '2026-03-23T19:30:00.000Z',
         feedbackText: 'Approved by review.',
+        reviewedByUserId: 'admin-user-1',
+        reviewSource: 'campaign_admin_api',
       },
       updatedAt: '2026-03-23T19:30:00.000Z',
     });
@@ -1108,16 +1211,6 @@ describe('Learning Progress REST API', () => {
     expect(storedRecord?.record.value).toEqual(updatedRecord.value);
     expect(storedRecord?.record.updatedAt).toBe(updatedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
-
-    const reviewQueueResult = await repo.listReviewRows({
-      status: 'approved',
-      limit: 10,
-      offset: 0,
-    });
-    expect(reviewQueueResult.isOk()).toBe(true);
-    expect(reviewQueueResult._unsafeUnwrap().rows).toEqual([
-      expect.objectContaining({ recordKey: reviewedRecord.key }),
-    ]);
   });
 
   it('clears stored review metadata on newer public retries back to pending', async () => {

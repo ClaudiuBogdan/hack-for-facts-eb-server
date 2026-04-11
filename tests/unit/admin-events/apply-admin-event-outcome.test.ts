@@ -8,46 +8,41 @@ import {
   applyAdminEventOutcome,
   exportAdminEventBundles,
   makeAdminEventRegistry,
-  makeLearningProgressReviewPendingEventDefinition,
+  makeInstitutionCorrespondenceReplyReviewPendingEventDefinition,
   makeLocalAdminEventBundleStore,
   queueAdminEvent,
 } from '@/modules/admin-events/index.js';
 
+import { makeInMemoryAdminEventQueue } from '../../fixtures/index.js';
 import {
-  createTestInteractiveRecord,
-  makeFakeLearningProgressRepo,
-  makeInMemoryAdminEventQueue,
-} from '../../fixtures/index.js';
-
-import type { LearningProgressRecordRow } from '@/modules/learning-progress/index.js';
-
-const makeRow = (
-  userId: string,
-  record: LearningProgressRecordRow['record'],
-  updatedSeq: string
-): LearningProgressRecordRow => ({
-  userId,
-  recordKey: record.key,
-  record,
-  auditEvents: [],
-  updatedSeq,
-  createdAt: record.updatedAt,
-  updatedAt: record.updatedAt,
-});
+  createCorrespondenceEntry,
+  createThreadAggregateRecord,
+  createThreadRecord,
+  makeInMemoryCorrespondenceRepo,
+} from '../institution-correspondence/fake-repo.js';
 
 describe('applyAdminEventOutcome', () => {
   it('returns queueCleanupPending when DB apply succeeds but queue removal fails once', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'apply-review::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T12:00:00.000Z',
-    });
-    const repo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-apply-1',
+          phase: 'reply_received_unreviewed',
+          record: createThreadAggregateRecord({
+            correspondence: [
+              createCorrespondenceEntry({
+                id: 'reply-apply-1',
+                direction: 'inbound',
+                source: 'institution_reply',
+              }),
+            ],
+          }),
+        }),
+      ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo: repo,
+      makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
+        repo,
       }),
     ]);
     const queue = makeInMemoryAdminEventQueue({
@@ -58,10 +53,10 @@ describe('applyAdminEventOutcome', () => {
     const queueResult = await queueAdminEvent(
       { registry, queue },
       {
-        eventType: 'learning_progress.review_pending',
+        eventType: 'institution_correspondence.reply_review_pending',
         payload: {
-          userId: 'user-1',
-          recordKey: pendingRecord.key,
+          threadId: 'thread-apply-1',
+          basedOnEntryId: 'reply-apply-1',
         },
       }
     );
@@ -93,7 +88,7 @@ describe('applyAdminEventOutcome', () => {
 
     await writeFile(
       path.join(bundleDir, 'outcome.json'),
-      `${JSON.stringify({ decision: 'approve' }, null, 2)}\n`,
+      `${JSON.stringify({ resolutionCode: 'debate_announced' }, null, 2)}\n`,
       'utf8'
     );
 
@@ -140,17 +135,26 @@ describe('applyAdminEventOutcome', () => {
   });
 
   it('returns ok(already_applied) when queue cleanup still fails after the canonical write is already done', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'apply-review-already::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T12:30:00.000Z',
-    });
-    const repo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-apply-2',
+          phase: 'reply_received_unreviewed',
+          record: createThreadAggregateRecord({
+            correspondence: [
+              createCorrespondenceEntry({
+                id: 'reply-apply-2',
+                direction: 'inbound',
+                source: 'institution_reply',
+              }),
+            ],
+          }),
+        }),
+      ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo: repo,
+      makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
+        repo,
       }),
     ]);
     const queue = makeInMemoryAdminEventQueue({
@@ -161,10 +165,10 @@ describe('applyAdminEventOutcome', () => {
     await queueAdminEvent(
       { registry, queue },
       {
-        eventType: 'learning_progress.review_pending',
+        eventType: 'institution_correspondence.reply_review_pending',
         payload: {
-          userId: 'user-1',
-          recordKey: pendingRecord.key,
+          threadId: 'thread-apply-2',
+          basedOnEntryId: 'reply-apply-2',
         },
       }
     );
@@ -195,7 +199,7 @@ describe('applyAdminEventOutcome', () => {
 
     await writeFile(
       path.join(bundleDir, 'outcome.json'),
-      `${JSON.stringify({ decision: 'approve' }, null, 2)}\n`,
+      `${JSON.stringify({ resolutionCode: 'debate_announced' }, null, 2)}\n`,
       'utf8'
     );
 

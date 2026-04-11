@@ -150,8 +150,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       enabled: false,
     },
     learningProgress: {
-      reviewApiKey: undefined,
-      reviewApiEnabled: false,
+      campaignAdminEnabledCampaigns: [],
     },
     institutionCorrespondence: {
       adminApiKey: undefined,

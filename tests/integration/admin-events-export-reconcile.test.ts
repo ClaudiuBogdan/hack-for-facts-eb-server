@@ -9,22 +9,14 @@ import {
   exportAdminEventBundles,
   makeAdminEventRegistry,
   makeInstitutionCorrespondenceReplyReviewPendingEventDefinition,
-  makeLearningProgressReviewPendingEventDefinition,
   makeLocalAdminEventBundleStore,
   queueAdminEvent,
   reconcileAdminEventQueue,
   scanAndQueueAdminEvents,
 } from '@/modules/admin-events/index.js';
-import {
-  updateInteractionReview,
-  type LearningProgressRecordRow,
-} from '@/modules/learning-progress/index.js';
+import { reviewReply } from '@/modules/institution-correspondence/index.js';
 
-import {
-  createTestInteractiveRecord,
-  makeFakeLearningProgressRepo,
-  makeInMemoryAdminEventQueue,
-} from '../fixtures/index.js';
+import { makeInMemoryAdminEventQueue } from '../fixtures/index.js';
 import {
   createCorrespondenceEntry,
   createThreadAggregateRecord,
@@ -34,30 +26,8 @@ import {
 
 const safeJsonParse = fromThrowable(JSON.parse);
 
-const makeRow = (
-  userId: string,
-  record: LearningProgressRecordRow['record'],
-  updatedSeq: string
-): LearningProgressRecordRow => ({
-  userId,
-  recordKey: record.key,
-  record,
-  auditEvents: [],
-  updatedSeq,
-  createdAt: record.updatedAt,
-  updatedAt: record.updatedAt,
-});
-
 describe('admin events export and reconcile workflow', () => {
   it('exports jobs non-destructively and writes the expected bundle layout', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'export-review::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T13:00:00.000Z',
-    });
-    const learningProgressRepo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
-    });
     const reply = createCorrespondenceEntry({
       id: 'reply-export-1',
       direction: 'inbound',
@@ -75,9 +45,6 @@ describe('admin events export and reconcile workflow', () => {
       ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo,
-      }),
       makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
         repo: correspondenceRepo,
       }),
@@ -85,16 +52,6 @@ describe('admin events export and reconcile workflow', () => {
     const queue = makeInMemoryAdminEventQueue();
     const bundleStore = makeLocalAdminEventBundleStore();
 
-    await queueAdminEvent(
-      { registry, queue },
-      {
-        eventType: 'learning_progress.review_pending',
-        payload: {
-          userId: 'user-1',
-          recordKey: pendingRecord.key,
-        },
-      }
-    );
     await queueAdminEvent(
       { registry, queue },
       {
@@ -125,8 +82,8 @@ describe('admin events export and reconcile workflow', () => {
       return;
     }
 
-    expect(queue.snapshot()).toHaveLength(2);
-    expect(exportResult.value.jobs).toHaveLength(2);
+    expect(queue.snapshot()).toHaveLength(1);
+    expect(exportResult.value.jobs).toHaveLength(1);
 
     const manifestPath = path.join(outputDir, 'export-bulk-1', 'manifest.json');
     const manifestResult = safeJsonParse(await readFile(manifestPath, 'utf8'));
@@ -138,7 +95,7 @@ describe('admin events export and reconcile workflow', () => {
     const manifest = manifestResult.value as {
       jobs: { bundleDir: string }[];
     };
-    expect(manifest.jobs).toHaveLength(2);
+    expect(manifest.jobs).toHaveLength(1);
 
     for (const job of manifest.jobs) {
       const inputResult = safeJsonParse(
@@ -167,17 +124,26 @@ describe('admin events export and reconcile workflow', () => {
   });
 
   it('recreates missing jobs on rescan and removes resolved jobs on reconcile', async () => {
-    const pendingRecord = createTestInteractiveRecord({
-      key: 'scan-review::global',
-      phase: 'pending',
-      updatedAt: '2026-04-05T13:30:00.000Z',
-    });
-    const learningProgressRepo = makeFakeLearningProgressRepo({
-      initialRecords: new Map([['user-1', [makeRow('user-1', pendingRecord, '1')]]]),
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-scan-1',
+          phase: 'reply_received_unreviewed',
+          record: createThreadAggregateRecord({
+            correspondence: [
+              createCorrespondenceEntry({
+                id: 'reply-scan-1',
+                direction: 'inbound',
+                source: 'institution_reply',
+              }),
+            ],
+          }),
+        }),
+      ],
     });
     const registry = makeAdminEventRegistry([
-      makeLearningProgressReviewPendingEventDefinition({
-        learningProgressRepo,
+      makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
+        repo: correspondenceRepo,
       }),
     ]);
     const queue = makeInMemoryAdminEventQueue();
@@ -199,22 +165,16 @@ describe('admin events export and reconcile workflow', () => {
     expect(secondScan.isOk()).toBe(true);
     expect(queue.snapshot()).toHaveLength(1);
 
-    const currentRow = await learningProgressRepo.getRecord('user-1', pendingRecord.key);
-    expect(currentRow.isOk()).toBe(true);
-    if (currentRow.isErr() || currentRow.value === null) {
-      return;
-    }
-
-    const approveResult = await updateInteractionReview(
-      { repo: learningProgressRepo },
+    const reviewResult = await reviewReply(
+      { repo: correspondenceRepo },
       {
-        userId: 'user-1',
-        recordKey: pendingRecord.key,
-        expectedUpdatedAt: currentRow.value.updatedAt,
-        status: 'approved',
+        threadId: 'thread-scan-1',
+        basedOnEntryId: 'reply-scan-1',
+        resolutionCode: 'debate_announced',
+        reviewNotes: null,
       }
     );
-    expect(approveResult.isOk()).toBe(true);
+    expect(reviewResult.isOk()).toBe(true);
 
     const reconcileResult = await reconcileAdminEventQueue({ registry, queue });
     expect(reconcileResult.isOk()).toBe(true);

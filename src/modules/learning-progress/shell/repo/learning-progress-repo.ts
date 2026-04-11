@@ -12,10 +12,18 @@ import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
+  CampaignAdminPhaseCounts,
+  CampaignAdminReviewStatusCounts,
+  CampaignAdminInstitutionThreadSummary,
+  CampaignAdminRiskFlagCandidate,
+  CampaignAdminStatsBase,
+  CampaignAdminThreadPhaseCounts,
+  GetCampaignAdminStatsInput,
+  GetCampaignAdminStatsOutput,
   GetRecordsOptions,
   InteractiveStateRecord,
-  ListReviewRowsInput,
-  ListReviewRowsOutput,
+  ListCampaignAdminInteractionRowsInput,
+  ListCampaignAdminInteractionRowsOutput,
   LearningProgressRecordRow,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
@@ -87,6 +95,100 @@ function escapeLikePattern(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
+function buildCampaignAdminReviewableInteractionsSql(
+  reviewableInteractions: readonly {
+    interactionId: string;
+    reviewableSubmissionPath?: string;
+  }[]
+) {
+  return sql.join(
+    reviewableInteractions.map((interaction) =>
+      interaction.reviewableSubmissionPath === undefined
+        ? sql<boolean>`record->>'interactionId' = ${interaction.interactionId}`
+        : sql<boolean>`
+            record->>'interactionId' = ${interaction.interactionId}
+            and record->'value'->'json'->'value'->>'submissionPath' = ${interaction.reviewableSubmissionPath}
+          `
+    ),
+    sql<boolean>` or `
+  );
+}
+
+function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
+  const reviewableInteractionsSql = buildCampaignAdminReviewableInteractionsSql(
+    input.reviewableInteractions
+  );
+
+  return sql`
+    with campaign_admin_items as (
+      select
+        record->>'interactionId' as interaction_id,
+        record->>'phase' as phase,
+        case
+          when record->'review'->>'status' is not null then record->'review'->>'status'
+          when record->>'phase' = 'pending' then 'pending'
+          else null
+        end as review_status,
+        record->'scope'->>'entityCui' as entity_cui,
+        nullif(btrim(record->'value'->'json'->'value'->>'primariaEmail'), '') as institution_email,
+        (
+          select iet.phase
+          from institutionemailthreads as iet
+          where iet.entity_cui = record->'scope'->>'entityCui'
+            and iet.campaign_key = ${input.campaignKey}
+            and iet.record->>'submissionPath' = ${'platform_send'}
+          order by iet.created_at desc
+          limit 1
+        ) as thread_phase
+      from userinteractions
+      where (${reviewableInteractionsSql})
+    )
+  `;
+}
+
+function createEmptyCampaignAdminReviewStatusCounts(): CampaignAdminReviewStatusCounts {
+  return {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    notReviewed: 0,
+  };
+}
+
+function createEmptyCampaignAdminPhaseCounts(): CampaignAdminPhaseCounts {
+  return {
+    idle: 0,
+    draft: 0,
+    pending: 0,
+    resolved: 0,
+    failed: 0,
+  };
+}
+
+function createEmptyCampaignAdminThreadPhaseCounts(): CampaignAdminThreadPhaseCounts {
+  return {
+    sending: 0,
+    awaiting_reply: 0,
+    reply_received_unreviewed: 0,
+    manual_follow_up_needed: 0,
+    resolved_positive: 0,
+    resolved_negative: 0,
+    closed_no_response: 0,
+    failed: 0,
+    none: 0,
+  };
+}
+
+function createEmptyCampaignAdminStatsBase(): CampaignAdminStatsBase {
+  return {
+    total: 0,
+    withInstitutionThread: 0,
+    reviewStatusCounts: createEmptyCampaignAdminReviewStatusCounts(),
+    phaseCounts: createEmptyCampaignAdminPhaseCounts(),
+    threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
+  };
+}
+
 function compareTimestamps(leftTimestamp: string, rightTimestamp: string): number {
   const leftValue = Date.parse(leftTimestamp);
   const rightValue = Date.parse(rightTimestamp);
@@ -98,6 +200,23 @@ function compareTimestamps(leftTimestamp: string, rightTimestamp: string): numbe
   if (leftValue < rightValue) return -1;
   if (leftValue > rightValue) return 1;
   return 0;
+}
+
+function mapCampaignAdminThreadSummary(
+  row: CampaignAdminQueryRow
+): CampaignAdminInstitutionThreadSummary | null {
+  if (row.thread_id === null || row.thread_phase === null) {
+    return null;
+  }
+
+  return {
+    threadId: row.thread_id,
+    threadPhase: row.thread_phase,
+    lastEmailAt: row.thread_last_email_at !== null ? toIsoString(row.thread_last_email_at) : null,
+    lastReplyAt: row.thread_last_reply_at !== null ? toIsoString(row.thread_last_reply_at) : null,
+    nextActionAt:
+      row.thread_next_action_at !== null ? toIsoString(row.thread_next_action_at) : null,
+  };
 }
 
 class LearningProgressTransactionRollbackError extends Error {
@@ -183,16 +302,92 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     return this.getRecordInternal(userId, recordKey, true);
   }
 
-  async listReviewRows(
-    input: ListReviewRowsInput
-  ): Promise<Result<ListReviewRowsOutput, LearningProgressError>> {
-    try {
-      let query = this.db.selectFrom(USER_INTERACTIONS_TABLE).select(LEARNING_PROGRESS_ROW_COLUMNS);
+  async listCampaignAdminInteractionRows(
+    input: ListCampaignAdminInteractionRowsInput
+  ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>> {
+    if (input.reviewableInteractions.length === 0) {
+      return ok({
+        rows: [],
+        hasMore: false,
+        nextCursor: null,
+      });
+    }
 
-      query =
-        input.status === 'pending'
-          ? query.where(sql<boolean>`record->>'phase' = 'pending'`)
-          : query.where(sql<boolean>`record->'review'->>'status' = ${input.status}`);
+    const reviewableInteractionsSql = buildCampaignAdminReviewableInteractionsSql(
+      input.reviewableInteractions
+    );
+    const entityCuiSql = sql<string | null>`record->'scope'->>'entityCui'`;
+    const threadSubquerySql = sql`
+      from institutionemailthreads as iet
+      where iet.entity_cui = ${entityCuiSql}
+        and iet.campaign_key = ${input.campaignKey}
+        and iet.record->>'submissionPath' = ${'platform_send'}
+      order by iet.created_at desc
+      limit 1
+    `;
+    const hasThreadSql = sql<boolean>`
+      exists (
+        select 1
+        from institutionemailthreads as iet
+        where iet.entity_cui = ${entityCuiSql}
+          and iet.campaign_key = ${input.campaignKey}
+          and iet.record->>'submissionPath' = ${'platform_send'}
+      )
+    `;
+
+    try {
+      let query = this.db
+        .selectFrom(USER_INTERACTIONS_TABLE)
+        .select(LEARNING_PROGRESS_ROW_COLUMNS)
+        .select([
+          sql<string | null>`(select iet.id::text ${threadSubquerySql})`.as('thread_id'),
+          sql<CampaignAdminQueryRow['thread_phase']>`(select iet.phase ${threadSubquerySql})`.as(
+            'thread_phase'
+          ),
+          sql<Date | string | null>`(select iet.last_email_at ${threadSubquerySql})`.as(
+            'thread_last_email_at'
+          ),
+          sql<Date | string | null>`(select iet.last_reply_at ${threadSubquerySql})`.as(
+            'thread_last_reply_at'
+          ),
+          sql<Date | string | null>`(select iet.next_action_at ${threadSubquerySql})`.as(
+            'thread_next_action_at'
+          ),
+        ])
+        .where(sql<boolean>`(${reviewableInteractionsSql})`);
+
+      if (input.phase !== undefined) {
+        query = query.where(sql<boolean>`record->>'phase' = ${input.phase}`);
+      }
+
+      if (input.reviewStatus !== undefined) {
+        query =
+          input.reviewStatus === 'pending'
+            ? query.where(sql<boolean>`record->>'phase' = 'pending'`)
+            : query.where(sql<boolean>`record->'review'->>'status' = ${input.reviewStatus}`);
+      }
+
+      if (input.lessonId !== undefined) {
+        query = query.where(sql<boolean>`record->>'lessonId' = ${input.lessonId}`);
+      }
+
+      if (input.entityCui !== undefined) {
+        query = query.where(sql<boolean>`record->'scope'->>'entityCui' = ${input.entityCui}`);
+      }
+
+      if (input.scopeType !== undefined) {
+        query = query.where(sql<boolean>`record->'scope'->>'type' = ${input.scopeType}`);
+      }
+
+      if (input.payloadKind !== undefined) {
+        query = query.where(sql<boolean>`record->'value'->>'kind' = ${input.payloadKind}`);
+      }
+
+      if (input.submissionPath !== undefined) {
+        query = query.where(
+          sql<boolean>`record->'value'->'json'->'value'->>'submissionPath' = ${input.submissionPath}`
+        );
+      }
 
       if (input.userId !== undefined) {
         query = query.where('user_id', '=', input.userId);
@@ -208,30 +403,204 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         );
       }
 
-      if (input.interactionId !== undefined) {
-        query = query.where(sql<boolean>`record->>'interactionId' = ${input.interactionId}`);
+      if (input.submittedAtFrom !== undefined) {
+        query = query.where(
+          sql<boolean>`(record->>'submittedAt')::timestamptz >= ${input.submittedAtFrom}::timestamptz`
+        );
       }
 
-      if (input.lessonId !== undefined) {
-        query = query.where(sql<boolean>`record->>'lessonId' = ${input.lessonId}`);
+      if (input.submittedAtTo !== undefined) {
+        query = query.where(
+          sql<boolean>`(record->>'submittedAt')::timestamptz <= ${input.submittedAtTo}::timestamptz`
+        );
+      }
+
+      if (input.updatedAtFrom !== undefined) {
+        query = query.where(sql<boolean>`updated_at >= ${input.updatedAtFrom}::timestamptz`);
+      }
+
+      if (input.updatedAtTo !== undefined) {
+        query = query.where(sql<boolean>`updated_at <= ${input.updatedAtTo}::timestamptz`);
+      }
+
+      if (input.hasInstitutionThread === true) {
+        query = query.where(hasThreadSql);
+      }
+
+      if (input.hasInstitutionThread === false) {
+        query = query.where(sql<boolean>`not (${hasThreadSql})`);
+      }
+
+      if (input.threadPhase !== undefined) {
+        query = query.where(
+          sql<boolean>`(select iet.phase ${threadSubquerySql}) = ${input.threadPhase}`
+        );
+      }
+
+      if (input.cursor !== undefined) {
+        query = query.where(
+          sql<boolean>`
+            updated_at < ${input.cursor.updatedAt}::timestamptz
+            or (
+              updated_at = ${input.cursor.updatedAt}::timestamptz
+              and user_id > ${input.cursor.userId}
+            )
+            or (
+              updated_at = ${input.cursor.updatedAt}::timestamptz
+              and user_id = ${input.cursor.userId}
+              and record_key > ${input.cursor.recordKey}
+            )
+          `
+        );
       }
 
       const rows = await query
         .orderBy('updated_at', 'desc')
         .orderBy('user_id', 'asc')
         .orderBy('record_key', 'asc')
-        .offset(input.offset)
         .limit(input.limit + 1)
         .execute();
 
       const hasMore = rows.length > input.limit;
+      const pageRows = rows.slice(0, input.limit) as unknown as CampaignAdminQueryRow[];
+      const lastRow = pageRows.at(-1);
+
       return ok({
-        rows: rows.slice(0, input.limit).map((row) => this.mapRow(row as unknown as QueryRow)),
+        rows: pageRows.map((row) => ({
+          userId: row.user_id,
+          recordKey: row.record_key,
+          campaignKey: input.campaignKey,
+          record: normalizeRecordValueRow(row.record),
+          auditEvents: row.audit_events.map(normalizeAuditEventRow).sort(sortAuditEvents),
+          createdAt: toIsoString(row.created_at),
+          updatedAt: toIsoString(row.updated_at),
+          threadSummary: mapCampaignAdminThreadSummary(row),
+        })),
         hasMore,
+        nextCursor:
+          hasMore && lastRow !== undefined
+            ? {
+                updatedAt: toIsoString(lastRow.updated_at),
+                userId: lastRow.user_id,
+                recordKey: lastRow.record_key,
+              }
+            : null,
       });
     } catch (error) {
-      this.log.error({ err: error, input }, 'Failed to list learning progress review rows');
-      return err(createDatabaseError('Failed to list learning progress review rows', error));
+      this.log.error(
+        { err: error, input },
+        'Failed to list campaign-admin learning progress interaction rows'
+      );
+      return err(
+        createDatabaseError(
+          'Failed to list campaign-admin learning progress interaction rows',
+          error
+        )
+      );
+    }
+  }
+
+  async getCampaignAdminStats(
+    input: GetCampaignAdminStatsInput
+  ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> {
+    if (input.reviewableInteractions.length === 0) {
+      return ok({
+        stats: createEmptyCampaignAdminStatsBase(),
+        riskFlagCandidates: [],
+      });
+    }
+
+    const campaignAdminItemsCteSql = buildCampaignAdminItemsCteSql(input);
+
+    try {
+      const statsResult = await sql<CampaignAdminStatsAggregateQueryRow>`
+        ${campaignAdminItemsCteSql}
+        select
+          count(*)::int as total,
+          count(*) filter (where thread_phase is not null)::int as with_institution_thread,
+          count(*) filter (where review_status = 'pending')::int as review_status_pending,
+          count(*) filter (where review_status = 'approved')::int as review_status_approved,
+          count(*) filter (where review_status = 'rejected')::int as review_status_rejected,
+          count(*) filter (where review_status is null)::int as review_status_not_reviewed,
+          count(*) filter (where phase = 'idle')::int as phase_idle,
+          count(*) filter (where phase = 'draft')::int as phase_draft,
+          count(*) filter (where phase = 'pending')::int as phase_pending,
+          count(*) filter (where phase = 'resolved')::int as phase_resolved,
+          count(*) filter (where phase = 'failed')::int as phase_failed,
+          count(*) filter (where thread_phase = 'sending')::int as thread_phase_sending,
+          count(*) filter (where thread_phase = 'awaiting_reply')::int as thread_phase_awaiting_reply,
+          count(*) filter (where thread_phase = 'reply_received_unreviewed')::int as thread_phase_reply_received_unreviewed,
+          count(*) filter (where thread_phase = 'manual_follow_up_needed')::int as thread_phase_manual_follow_up_needed,
+          count(*) filter (where thread_phase = 'resolved_positive')::int as thread_phase_resolved_positive,
+          count(*) filter (where thread_phase = 'resolved_negative')::int as thread_phase_resolved_negative,
+          count(*) filter (where thread_phase = 'closed_no_response')::int as thread_phase_closed_no_response,
+          count(*) filter (where thread_phase = 'failed')::int as thread_phase_failed,
+          count(*) filter (where thread_phase is null)::int as thread_phase_none
+        from campaign_admin_items
+      `.execute(this.db);
+
+      const riskCandidateResult = await sql<CampaignAdminRiskFlagCandidateQueryRow>`
+        ${campaignAdminItemsCteSql}
+        select
+          interaction_id,
+          entity_cui,
+          institution_email,
+          thread_phase,
+          count(*)::int as item_count
+        from campaign_admin_items
+        group by interaction_id, entity_cui, institution_email, thread_phase
+      `.execute(this.db);
+
+      const statsRow = statsResult.rows[0];
+      if (statsRow === undefined) {
+        return ok({
+          stats: createEmptyCampaignAdminStatsBase(),
+          riskFlagCandidates: [],
+        });
+      }
+
+      return ok({
+        stats: {
+          total: statsRow.total,
+          withInstitutionThread: statsRow.with_institution_thread,
+          reviewStatusCounts: {
+            pending: statsRow.review_status_pending,
+            approved: statsRow.review_status_approved,
+            rejected: statsRow.review_status_rejected,
+            notReviewed: statsRow.review_status_not_reviewed,
+          },
+          phaseCounts: {
+            idle: statsRow.phase_idle,
+            draft: statsRow.phase_draft,
+            pending: statsRow.phase_pending,
+            resolved: statsRow.phase_resolved,
+            failed: statsRow.phase_failed,
+          },
+          threadPhaseCounts: {
+            sending: statsRow.thread_phase_sending,
+            awaiting_reply: statsRow.thread_phase_awaiting_reply,
+            reply_received_unreviewed: statsRow.thread_phase_reply_received_unreviewed,
+            manual_follow_up_needed: statsRow.thread_phase_manual_follow_up_needed,
+            resolved_positive: statsRow.thread_phase_resolved_positive,
+            resolved_negative: statsRow.thread_phase_resolved_negative,
+            closed_no_response: statsRow.thread_phase_closed_no_response,
+            failed: statsRow.thread_phase_failed,
+            none: statsRow.thread_phase_none,
+          },
+        },
+        riskFlagCandidates: riskCandidateResult.rows.map(
+          (row): CampaignAdminRiskFlagCandidate => ({
+            interactionId: row.interaction_id,
+            entityCui: row.entity_cui,
+            institutionEmail: row.institution_email,
+            threadPhase: row.thread_phase,
+            count: row.item_count,
+          })
+        ),
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to load campaign-admin interaction stats');
+      return err(createDatabaseError('Failed to load campaign-admin interaction stats', error));
     }
   }
 
@@ -440,6 +809,45 @@ interface QueryRow {
   updated_seq: string;
   created_at: Date | string;
   updated_at: Date | string;
+}
+
+interface CampaignAdminQueryRow extends QueryRow {
+  thread_id: string | null;
+  thread_phase: CampaignAdminInstitutionThreadSummary['threadPhase'] | null;
+  thread_last_email_at: Date | string | null;
+  thread_last_reply_at: Date | string | null;
+  thread_next_action_at: Date | string | null;
+}
+
+interface CampaignAdminStatsAggregateQueryRow {
+  total: number;
+  with_institution_thread: number;
+  review_status_pending: number;
+  review_status_approved: number;
+  review_status_rejected: number;
+  review_status_not_reviewed: number;
+  phase_idle: number;
+  phase_draft: number;
+  phase_pending: number;
+  phase_resolved: number;
+  phase_failed: number;
+  thread_phase_sending: number;
+  thread_phase_awaiting_reply: number;
+  thread_phase_reply_received_unreviewed: number;
+  thread_phase_manual_follow_up_needed: number;
+  thread_phase_resolved_positive: number;
+  thread_phase_resolved_negative: number;
+  thread_phase_closed_no_response: number;
+  thread_phase_failed: number;
+  thread_phase_none: number;
+}
+
+interface CampaignAdminRiskFlagCandidateQueryRow {
+  interaction_id: string;
+  entity_cui: string | null;
+  institution_email: string | null;
+  thread_phase: CampaignAdminInstitutionThreadSummary['threadPhase'] | null;
+  item_count: number;
 }
 
 export const makeLearningProgressRepo = (

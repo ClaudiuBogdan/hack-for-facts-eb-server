@@ -11,6 +11,7 @@ import {
 } from '../errors.js';
 import {
   MAX_EVENTS_PER_REQUEST,
+  type InteractiveAuditEvent,
   isInteractiveUpdatedEvent,
   isProgressResetEvent,
   type InteractiveStateRecord,
@@ -61,11 +62,50 @@ function hasReviewValue(record: Pick<InteractiveStateRecord, 'review'>): boolean
   return typeof record.review !== 'undefined' && record.review !== null;
 }
 
+function stripHiddenReviewMetadata(
+  review: InteractiveStateRecord['review']
+): InteractiveStateRecord['review'] {
+  if (review === undefined || review === null) {
+    return review;
+  }
+
+  const { reviewedByUserId, reviewSource, ...publicReview } = review;
+  void reviewedByUserId;
+  void reviewSource;
+  return publicReview;
+}
+
+function hasHiddenReviewMetadata(review: InteractiveStateRecord['review']): boolean {
+  if (review === undefined || review === null) {
+    return false;
+  }
+
+  return (
+    ('reviewedByUserId' in review && typeof review.reviewedByUserId === 'string') ||
+    ('reviewSource' in review && typeof review.reviewSource === 'string')
+  );
+}
+
 function reviewsAreEqual(
   leftReview: InteractiveStateRecord['review'],
   rightReview: InteractiveStateRecord['review']
 ): boolean {
-  return JSON.stringify(leftReview ?? null) === JSON.stringify(rightReview ?? null);
+  const resolvedLeftReview = stripHiddenReviewMetadata(leftReview);
+  const resolvedRightReview = stripHiddenReviewMetadata(rightReview);
+
+  if (resolvedLeftReview === undefined || resolvedLeftReview === null) {
+    return resolvedRightReview === undefined || resolvedRightReview === null;
+  }
+
+  if (resolvedRightReview === undefined || resolvedRightReview === null) {
+    return false;
+  }
+
+  return (
+    resolvedLeftReview.status === resolvedRightReview.status &&
+    resolvedLeftReview.reviewedAt === resolvedRightReview.reviewedAt &&
+    (resolvedLeftReview.feedbackText ?? null) === (resolvedRightReview.feedbackText ?? null)
+  );
 }
 
 function stripReview(record: InteractiveStateRecord): InteractiveStateRecord {
@@ -169,6 +209,12 @@ export function normalizePublicInteractiveRecord(params: {
       );
     }
 
+    if (hasHiddenReviewMetadata(incomingRecord.review)) {
+      return err(
+        createInvalidEventError('Public progress sync cannot set record.review.', eventId)
+      );
+    }
+
     if (!reviewsAreEqual(incomingRecord.review, storedRow.record.review)) {
       return err(
         createInvalidEventError('Public progress sync cannot set record.review.', eventId)
@@ -262,6 +308,24 @@ function validatePublicInteractiveRecord(
   return ok(undefined);
 }
 
+function validatePublicInteractiveAuditEvents(input: {
+  auditEvents: readonly InteractiveAuditEvent[];
+  eventId: string;
+}): Result<void, LearningProgressError> {
+  for (const auditEvent of input.auditEvents) {
+    if (auditEvent.type !== 'submitted') {
+      return err(
+        createInvalidEventError(
+          'Public progress sync cannot include non-user audit events.',
+          input.eventId
+        )
+      );
+    }
+  }
+
+  return ok(undefined);
+}
+
 export async function syncEvents(
   deps: SyncEventsDeps,
   input: SyncEventsInput
@@ -339,6 +403,23 @@ export async function syncEvents(
           }
 
           return err(validationResult.error);
+        }
+
+        const auditValidationResult = validatePublicInteractiveAuditEvents({
+          auditEvents: event.payload.auditEvents ?? [],
+          eventId: event.eventId,
+        });
+        if (auditValidationResult.isErr()) {
+          if (auditValidationResult.error.type === 'InvalidEventError') {
+            failedEvents.push({
+              eventId: event.eventId,
+              errorType: auditValidationResult.error.type,
+              message: auditValidationResult.error.message,
+            });
+            continue;
+          }
+
+          return err(auditValidationResult.error);
         }
 
         const upsertResult = await transactionalRepo.upsertInteractiveRecord({
