@@ -60,6 +60,7 @@ const createThreadRecord = (input: {
   captureAddress: string;
   subject: string;
   providerSendAttemptId: string;
+  metadata?: Readonly<Record<string, unknown>> | null;
 }): CorrespondenceThreadRecord => {
   const baseRecord: CorrespondenceThreadRecord = {
     version: 1,
@@ -77,7 +78,7 @@ const createThreadRecord = (input: {
     captureAddress: input.captureAddress,
     correspondence: [],
     latestReview: null,
-    metadata: {},
+    metadata: input.metadata ?? {},
   };
 
   return {
@@ -137,6 +138,7 @@ export async function sendPlatformRequest(
       captureAddress: deps.captureAddress,
       subject: rendered.subject,
       providerSendAttemptId,
+      metadata: input.metadata ?? null,
     }),
   });
   if (createThreadResult.isErr()) {

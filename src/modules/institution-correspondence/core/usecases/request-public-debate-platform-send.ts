@@ -1,17 +1,38 @@
 import { err, ok, type Result } from 'neverthrow';
 
-import { sendPlatformRequest, type SendPlatformRequestDeps } from './send-platform-request.js';
+import { createConflictError, type InstitutionCorrespondenceError } from '../errors.js';
 import {
   PUBLIC_DEBATE_REQUEST_TYPE,
   type SendPlatformRequestInput,
   type SendPlatformRequestOutput,
 } from '../types.js';
-
-import type { InstitutionCorrespondenceError } from '../errors.js';
-import type { PublicDebateEntitySubscriptionService } from '../ports.js';
+import { normalizeEmailAddress } from './helpers.js';
+import { sendPlatformRequest, type SendPlatformRequestDeps } from './send-platform-request.js';
 
 export interface RequestPublicDebatePlatformSendDeps extends SendPlatformRequestDeps {
-  subscriptionService?: PublicDebateEntitySubscriptionService;
+  subscriptionService?: import('../ports.js').PublicDebateEntitySubscriptionService;
+}
+
+const EXISTING_THREAD_EMAIL_CONFLICT_MESSAGE =
+  'An active platform-send thread already exists for this entity with a different city hall email.';
+
+function threadUsesInstitutionEmail(
+  institutionEmail: string,
+  thread: SendPlatformRequestOutput['thread']
+): boolean {
+  return (
+    normalizeEmailAddress(thread.record.institutionEmail) ===
+    normalizeEmailAddress(institutionEmail)
+  );
+}
+
+function requiresInstitutionEmailReuseMatch(input: SendPlatformRequestInput): boolean {
+  const metadata = input.metadata;
+  if (typeof metadata !== 'object' || metadata === null) {
+    return false;
+  }
+
+  return typeof metadata['institutionEmailOverride'] === 'object';
 }
 
 export async function requestPublicDebatePlatformSend(
@@ -38,6 +59,13 @@ export async function requestPublicDebatePlatformSend(
   }
 
   if (existingThreadResult.value !== null) {
+    if (
+      requiresInstitutionEmailReuseMatch(input) &&
+      !threadUsesInstitutionEmail(input.institutionEmail, existingThreadResult.value)
+    ) {
+      return err(createConflictError(EXISTING_THREAD_EMAIL_CONFLICT_MESSAGE));
+    }
+
     return ok({
       created: false,
       thread: existingThreadResult.value,
@@ -56,6 +84,13 @@ export async function requestPublicDebatePlatformSend(
     }
 
     if (reloadedThreadResult.value !== null) {
+      if (
+        requiresInstitutionEmailReuseMatch(input) &&
+        !threadUsesInstitutionEmail(input.institutionEmail, reloadedThreadResult.value)
+      ) {
+        return err(createConflictError(EXISTING_THREAD_EMAIL_CONFLICT_MESSAGE));
+      }
+
       return ok({
         created: false,
         thread: reloadedThreadResult.value,

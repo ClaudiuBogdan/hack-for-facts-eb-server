@@ -164,6 +164,7 @@ export interface SendPlatformRequestInput {
   requesterOrganizationName?: string | null;
   budgetPublicationDate?: string | null;
   consentCapturedAt?: string | null;
+  metadata?: Readonly<Record<string, unknown>> | null;
 }
 
 export interface SendPlatformRequestOutput {
