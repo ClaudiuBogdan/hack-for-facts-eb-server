@@ -408,6 +408,7 @@ export interface MakeCampaignAdminUserInteractionRoutesDeps {
   enabledCampaignKeys: readonly CampaignAdminCampaignKey[];
   prepareApproveReviews?: (input: {
     items: readonly ReviewDecision[];
+    reviewerUserId: string;
   }) => Promise<
     Result<
       ApprovedReviewSideEffectPlan | null,
@@ -2009,6 +2010,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
         if (deps.prepareApproveReviews !== undefined) {
           const sideEffectResult = await deps.prepareApproveReviews({
             items: request.body.items,
+            reviewerUserId: access.userId,
           });
 
           if (sideEffectResult.isErr()) {

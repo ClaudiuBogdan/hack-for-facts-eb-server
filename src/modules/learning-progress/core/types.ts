@@ -189,6 +189,7 @@ export interface ReviewDecision {
   readonly expectedUpdatedAt: string;
   readonly status: ReviewDecisionStatus;
   readonly feedbackText?: string;
+  readonly approvalRiskAcknowledged?: boolean;
 }
 
 export interface ApprovedReviewSideEffectPlan {

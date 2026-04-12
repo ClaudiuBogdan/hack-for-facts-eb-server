@@ -448,6 +448,7 @@ const ApproveReviewDecisionSchema = Type.Object(
     expectedUpdatedAt: Type.String({ format: 'date-time' }),
     status: Type.Literal('approved'),
     feedbackText: Type.Optional(Type.String({ minLength: 1 })),
+    approvalRiskAcknowledged: Type.Optional(Type.Boolean()),
     pendingReason: Type.Optional(Type.Never()),
   },
   { additionalProperties: false }

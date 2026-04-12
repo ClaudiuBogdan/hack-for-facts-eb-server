@@ -1136,6 +1136,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     let prepareApproveLearningProgressReviews:
       | ((input: {
           items: readonly ReviewDecision[];
+          reviewerUserId: string;
         }) => Promise<
           Result<
             ApprovedReviewSideEffectPlan | null,

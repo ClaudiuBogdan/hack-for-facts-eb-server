@@ -16,7 +16,11 @@ import {
 import { prepareApprovedPublicDebateReviewSideEffects } from '@/modules/user-events/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
-import { makeInMemoryCorrespondenceRepo } from '../unit/institution-correspondence/fake-repo.js';
+import {
+  createSendingPlatformSendThread,
+  createThreadAggregateRecord,
+  makeInMemoryCorrespondenceRepo,
+} from '../unit/institution-correspondence/fake-repo.js';
 
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
@@ -479,7 +483,10 @@ function createPublicDebateApprovalHook(input: {
 
   return {
     correspondenceRepo,
-    prepareApproveReviews: async (reviewInput: { items: readonly ReviewDecision[] }) => {
+    prepareApproveReviews: async (reviewInput: {
+      items: readonly ReviewDecision[];
+      reviewerUserId: string;
+    }) => {
       return prepareApprovedPublicDebateReviewSideEffects(
         {
           learningProgressRepo: input.learningProgressRepo,
@@ -533,6 +540,7 @@ const createTestApp = async (options?: {
   entityProfileRepo?: EntityProfileRepository;
   prepareApproveReviews?: (input: {
     items: readonly ReviewDecision[];
+    reviewerUserId: string;
   }) => ReturnType<typeof prepareApprovedPublicDebateReviewSideEffects>;
 }) => {
   const testAuth = createTestAuthProvider();
@@ -2264,6 +2272,215 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
   });
 
+  it('keeps mismatch approvals blocked unless the risk was explicitly acknowledged', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const entityProfileRepo = makeTestEntityProfileRepo({
+      '12345678': 'contact@primarie.ro',
+    });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      sentEmails,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'CorrespondenceConflictError',
+      message: 'The submitted city hall email does not match the current official email on record.',
+      retryable: false,
+    });
+    expect(sentEmails).toHaveLength(0);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('pending');
+    expect(storedRow?.record.review).toBeUndefined();
+  });
+
+  it('allows explicitly acknowledged mismatch approvals to send to the submitted email', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const entityProfileRepo = makeTestEntityProfileRepo({
+      '12345678': 'contact@primarie.ro',
+    });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      sentEmails,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+            approvalRiskAcknowledged: true,
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0]).toEqual(
+      expect.objectContaining({
+        to: 'different@primarie.ro',
+      })
+    );
+
+    const thread = approvalHook.correspondenceRepo.snapshotThreads()[0];
+    expect(thread?.record.institutionEmail).toBe('different@primarie.ro');
+    expect(thread?.record.metadata).toEqual(
+      expect.objectContaining({
+        institutionEmailOverride: expect.objectContaining({
+          type: 'admin_risk_acknowledged',
+          reason: 'institution_email_mismatch',
+          approvedByUserId: setup.testAuth.userIds.user1,
+          submittedInstitutionEmail: 'different@primarie.ro',
+          officialInstitutionEmail: 'contact@primarie.ro',
+        }),
+      })
+    );
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('resolved');
+    expect(storedRow?.record.review).toEqual({
+      status: 'approved',
+      reviewedAt: storedRow?.record.updatedAt,
+      reviewedByUserId: setup.testAuth.userIds.user1,
+      reviewSource: 'campaign_admin_api',
+    });
+  });
+
+  it('rejects acknowledged mismatch approvals when an active thread already targets a different email', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const entityProfileRepo = makeTestEntityProfileRepo({
+      '12345678': 'contact@primarie.ro',
+    });
+    const sentEmails: unknown[] = [];
+    const correspondenceRepo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createSendingPlatformSendThread({
+          entityCui: '12345678',
+          campaignKey: 'funky',
+          record: createThreadAggregateRecord({
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+    });
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      correspondenceRepo,
+      sentEmails,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+            approvalRiskAcknowledged: true,
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'CorrespondenceConflictError',
+      message:
+        'An active platform-send thread already exists for this entity with a different city hall email.',
+      retryable: false,
+    });
+    expect(sentEmails).toHaveLength(0);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('pending');
+    expect(storedRow?.record.review).toBeUndefined();
+  });
+
   it('returns 502 when approval side effects fail after commit and allows a safe retry', async () => {
     const record = createDebateRequestRecord({});
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
@@ -2363,5 +2580,104 @@ describe('Campaign Admin User Interactions REST API', () => {
     );
     expect(activeThreadResult.isOk()).toBe(true);
     expect(activeThreadResult._unsafeUnwrap()).not.toBeNull();
+  });
+
+  it('allows approved mismatch retries to succeed without resending the acknowledgement flag', async () => {
+    const record = createDebateRequestRecord({
+      institutionEmail: 'different@primarie.ro',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const entityProfileRepo = makeTestEntityProfileRepo({
+      '12345678': 'contact@primarie.ro',
+    });
+    const sentEmails: unknown[] = [];
+    const approvalHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      sentEmails,
+      failSendAttempts: 1,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      entityProfileRepo,
+      prepareApproveReviews: approvalHook.prepareApproveReviews,
+    });
+    app = setup.app;
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+            approvalRiskAcknowledged: true,
+          },
+        ],
+      },
+    });
+
+    expect(firstResponse.statusCode).toBe(502);
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(retryResponse.statusCode).toBe(200);
+    expect(sentEmails).toHaveLength(2);
+    expect(sentEmails[0]).toEqual(
+      expect.objectContaining({
+        to: 'different@primarie.ro',
+      })
+    );
+    expect(sentEmails[1]).toEqual(
+      expect.objectContaining({
+        to: 'different@primarie.ro',
+      })
+    );
+
+    const activeThreadResult = await approvalHook.correspondenceRepo.findPlatformSendThreadByEntity(
+      {
+        entityCui: '12345678',
+        campaign: 'funky',
+      }
+    );
+    expect(activeThreadResult.isOk()).toBe(true);
+    expect(activeThreadResult._unsafeUnwrap()).not.toBeNull();
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('resolved');
+    expect(storedRow?.record.review).toEqual({
+      status: 'approved',
+      reviewedAt: storedRow?.record.updatedAt,
+      reviewedByUserId: setup.testAuth.userIds.user1,
+      reviewSource: 'campaign_admin_api',
+    });
   });
 });

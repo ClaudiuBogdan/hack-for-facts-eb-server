@@ -61,6 +61,11 @@ export interface PreparedPublicDebateRequestDispatch {
   existingThread?: ThreadRecord;
 }
 
+interface PublicDebateInstitutionEmailOverride {
+  reviewerUserId: string;
+  approvedAt: string;
+}
+
 export type PublicDebateRequestDispatchPreparation =
   | { kind: 'not_applicable' }
   | {
@@ -79,6 +84,8 @@ const INVALID_INSTITUTION_EMAIL_MESSAGE =
   'The submitted city hall email is not a valid email address.';
 const EMAIL_MISMATCH_MESSAGE =
   'The submitted city hall email does not match the current official email on record.';
+const EXISTING_THREAD_EMAIL_CONFLICT_MESSAGE =
+  'An active platform-send thread already exists for this entity with a different city hall email.';
 
 function isPublicDebateRequestRecord(record: InteractiveStateRecord): boolean {
   return (
@@ -149,18 +156,63 @@ export const buildPublicDebateRequestEmailMismatchError = (): InstitutionCorresp
   return createCorrespondenceConflictError(EMAIL_MISMATCH_MESSAGE);
 };
 
+function threadUsesInstitutionEmail(thread: ThreadRecord, institutionEmail: string): boolean {
+  return (
+    normalizeEmailAddress(thread.record.institutionEmail) ===
+    normalizeEmailAddress(institutionEmail)
+  );
+}
+
+function buildExistingThreadEmailConflictError(): InstitutionCorrespondenceError {
+  return createCorrespondenceConflictError(EXISTING_THREAD_EMAIL_CONFLICT_MESSAGE);
+}
+
+function hasApprovedInstitutionEmailOverride(recordRow: LearningProgressRecordRow): boolean {
+  for (const auditEvent of [...recordRow.auditEvents].reverse()) {
+    if (auditEvent.type !== 'evaluated' || auditEvent.phase !== 'resolved') {
+      continue;
+    }
+
+    if (
+      auditEvent.actor !== 'admin' ||
+      auditEvent.actorSource !== 'campaign_admin_api' ||
+      auditEvent.result.response === null ||
+      auditEvent.result.response === undefined
+    ) {
+      continue;
+    }
+
+    return auditEvent.result.response['approvalRiskAcknowledged'] === true;
+  }
+
+  return false;
+}
+
 export async function preparePublicDebateRequestDispatch(
   deps: PublicDebateRequestDispatchDeps,
   recordRow: LearningProgressRecordRow,
   options?: {
     allowApprovedReview?: boolean;
+    institutionEmailOverride?: PublicDebateInstitutionEmailOverride;
   }
 ): Promise<Result<PublicDebateRequestDispatchPreparation, InstitutionCorrespondenceError>> {
   const record = recordRow.record;
+  const review = record.review;
   const isApprovedReviewRetry =
     options?.allowApprovedReview === true &&
     record.phase === 'resolved' &&
-    record.review?.status === 'approved';
+    review?.status === 'approved';
+  const effectiveInstitutionEmailOverride =
+    options?.institutionEmailOverride ??
+    (isApprovedReviewRetry &&
+    hasApprovedInstitutionEmailOverride(recordRow) &&
+    typeof review.reviewedByUserId === 'string' &&
+    typeof review.reviewedAt === 'string'
+      ? {
+          reviewerUserId: review.reviewedByUserId,
+          approvedAt: review.reviewedAt,
+        }
+      : undefined);
 
   if (
     !isPublicDebateRequestRecord(record) ||
@@ -189,6 +241,37 @@ export async function preparePublicDebateRequestDispatch(
     consentCapturedAt: payload.submittedAt,
   };
 
+  if (!EMAIL_REGEX.test(institutionEmail)) {
+    return ok({
+      kind: 'blocked_invalid_institution_email',
+      feedbackText: INVALID_INSTITUTION_EMAIL_MESSAGE,
+      submittedInstitutionEmail: institutionEmail,
+    });
+  }
+
+  const officialEmailMatchResult = await loadOfficialEmailMatch(deps, {
+    entityCui,
+    institutionEmail,
+  });
+
+  if (officialEmailMatchResult.isErr()) {
+    return err(officialEmailMatchResult.error);
+  }
+
+  const officialEmail = officialEmailMatchResult.value.officialEmail;
+
+  if (
+    !officialEmailMatchResult.value.exactMatch &&
+    !isApprovedReviewRetry &&
+    effectiveInstitutionEmailOverride === undefined
+  ) {
+    return ok({
+      kind: 'blocked_email_mismatch',
+      submittedInstitutionEmail: institutionEmail,
+      officialEmail: officialEmailMatchResult.value.officialEmail,
+    });
+  }
+
   const existingThreadResult = await deps.repo.findPlatformSendThreadByEntity({
     entityCui,
     campaign: PUBLIC_DEBATE_REQUEST_TYPE,
@@ -199,38 +282,18 @@ export async function preparePublicDebateRequestDispatch(
   }
 
   if (existingThreadResult.value !== null) {
+    if (
+      effectiveInstitutionEmailOverride !== undefined &&
+      !threadUsesInstitutionEmail(existingThreadResult.value, institutionEmail)
+    ) {
+      return err(buildExistingThreadEmailConflictError());
+    }
+
     return ok({
       kind: 'execute',
       sendInput: baseSendInput,
       existingThread: existingThreadResult.value,
     });
-  }
-
-  if (!EMAIL_REGEX.test(institutionEmail)) {
-    return ok({
-      kind: 'blocked_invalid_institution_email',
-      feedbackText: INVALID_INSTITUTION_EMAIL_MESSAGE,
-      submittedInstitutionEmail: institutionEmail,
-    });
-  }
-
-  if (!isApprovedReviewRetry) {
-    const officialEmailMatchResult = await loadOfficialEmailMatch(deps, {
-      entityCui,
-      institutionEmail,
-    });
-
-    if (officialEmailMatchResult.isErr()) {
-      return err(officialEmailMatchResult.error);
-    }
-
-    if (!officialEmailMatchResult.value.exactMatch) {
-      return ok({
-        kind: 'blocked_email_mismatch',
-        submittedInstitutionEmail: institutionEmail,
-        officialEmail: officialEmailMatchResult.value.officialEmail,
-      });
-    }
   }
 
   const entityNameResult = await loadEntityName(deps, entityCui);
@@ -243,6 +306,22 @@ export async function preparePublicDebateRequestDispatch(
     sendInput: {
       ...baseSendInput,
       entityName: entityNameResult.value,
+      ...(effectiveInstitutionEmailOverride !== undefined &&
+      !officialEmailMatchResult.value.exactMatch
+        ? {
+            metadata: {
+              institutionEmailOverride: {
+                type: 'admin_risk_acknowledged',
+                reason:
+                  officialEmail === null ? 'missing_official_email' : 'institution_email_mismatch',
+                approvedByUserId: effectiveInstitutionEmailOverride.reviewerUserId,
+                approvedAt: effectiveInstitutionEmailOverride.approvedAt,
+                submittedInstitutionEmail: institutionEmail,
+                officialInstitutionEmail: officialEmail,
+              },
+            },
+          }
+        : {}),
     },
   });
 }
@@ -310,7 +389,10 @@ function compareTimestampInstants(leftTimestamp: string, rightTimestamp: string)
 
 export async function prepareApprovedPublicDebateReviewSideEffects(
   deps: PublicDebateRequestReviewSideEffectDeps,
-  input: { items: readonly ReviewDecision[] }
+  input: {
+    items: readonly ReviewDecision[];
+    reviewerUserId: string;
+  }
 ): Promise<
   Result<
     PreparedPublicDebateReviewSideEffectPlan | null,
@@ -319,6 +401,7 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
 > {
   // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
   const preparedDispatches: PreparedPublicDebateRequestDispatch[] = [];
+  const approvedAt = new Date().toISOString();
 
   for (const item of input.items) {
     if (item.status !== 'approved') {
@@ -358,6 +441,14 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
 
     const preparationResult = await preparePublicDebateRequestDispatch(deps, recordRow, {
       allowApprovedReview: approvedRecord,
+      ...(item.approvalRiskAcknowledged === true
+        ? {
+            institutionEmailOverride: {
+              reviewerUserId: input.reviewerUserId,
+              approvedAt,
+            },
+          }
+        : {}),
     });
     if (preparationResult.isErr()) {
       return err(preparationResult.error);

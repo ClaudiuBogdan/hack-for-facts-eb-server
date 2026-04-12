@@ -27,6 +27,7 @@ export interface UpdateInteractionReviewInput {
   expectedUpdatedAt: string;
   status: ReviewDecisionStatus;
   feedbackText?: string;
+  approvalRiskAcknowledged?: boolean;
   actor?: ReviewActorMetadata;
 }
 
@@ -93,6 +94,7 @@ function buildReviewAuditResult(params: {
   existingResult: InteractionResult | null;
   feedbackText: string | null;
   evaluatedAt: string;
+  approvalRiskAcknowledged: boolean;
 }): InteractionResult {
   return {
     outcome: params.existingResult?.outcome ?? null,
@@ -100,6 +102,13 @@ function buildReviewAuditResult(params: {
       ? { score: params.existingResult.score }
       : {}),
     feedbackText: params.feedbackText,
+    ...(params.approvalRiskAcknowledged
+      ? {
+          response: {
+            approvalRiskAcknowledged: true,
+          },
+        }
+      : {}),
     evaluatedAt: params.evaluatedAt,
   };
 }
@@ -268,6 +277,7 @@ export async function updateInteractionReview(
       existingResult: nextRecord.result,
       feedbackText,
       evaluatedAt: nextUpdatedAt,
+      approvalRiskAcknowledged: input.approvalRiskAcknowledged === true,
     });
     const auditEvent: InteractiveAuditEvent = {
       id: createEventId(),
