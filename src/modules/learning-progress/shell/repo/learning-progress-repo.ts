@@ -16,14 +16,20 @@ import type {
   CampaignAdminReviewStatusCounts,
   CampaignAdminInstitutionThreadSummary,
   CampaignAdminRiskFlagCandidate,
+  CampaignAdminSortOrder,
   CampaignAdminStatsBase,
   CampaignAdminThreadPhaseCounts,
+  CampaignAdminUserListCursor,
+  CampaignAdminUserRow,
+  CampaignAdminUserSortBy,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
   GetRecordsOptions,
   InteractiveStateRecord,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
+  ListCampaignAdminUsersInput,
+  ListCampaignAdminUsersOutput,
   LearningProgressRecordRow,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
@@ -158,6 +164,129 @@ function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
       where (${visibleInteractionsSql})
     )
   `;
+}
+
+function buildCampaignAdminUserOrderBySql(
+  sortBy: CampaignAdminUserSortBy,
+  sortOrder: CampaignAdminSortOrder
+) {
+  switch (sortBy) {
+    case 'userId':
+      return sortOrder === 'asc'
+        ? sql`order by aggregated_user_rows.user_id asc`
+        : sql`order by aggregated_user_rows.user_id desc`;
+    case 'latestUpdatedAt':
+      return sortOrder === 'asc'
+        ? sql`order by aggregated_user_rows.latest_updated_at asc, aggregated_user_rows.user_id asc`
+        : sql`order by aggregated_user_rows.latest_updated_at desc, aggregated_user_rows.user_id asc`;
+    case 'interactionCount':
+      return sortOrder === 'asc'
+        ? sql`order by aggregated_user_rows.interaction_count asc, aggregated_user_rows.user_id asc`
+        : sql`order by aggregated_user_rows.interaction_count desc, aggregated_user_rows.user_id asc`;
+    case 'pendingReviewCount':
+      return sortOrder === 'asc'
+        ? sql`order by aggregated_user_rows.pending_review_count asc, aggregated_user_rows.user_id asc`
+        : sql`order by aggregated_user_rows.pending_review_count desc, aggregated_user_rows.user_id asc`;
+    default:
+      return sql`order by aggregated_user_rows.latest_updated_at desc, aggregated_user_rows.user_id asc`;
+  }
+}
+
+function buildCampaignAdminUserCursorFilterSql(input: {
+  sortBy: CampaignAdminUserSortBy;
+  sortOrder: CampaignAdminSortOrder;
+  cursor?: CampaignAdminUserListCursor;
+}) {
+  if (input.cursor === undefined) {
+    return sql``;
+  }
+
+  switch (input.sortBy) {
+    case 'userId':
+      return input.sortOrder === 'asc'
+        ? sql`and aggregated_user_rows.user_id > ${input.cursor.userId}`
+        : sql`and aggregated_user_rows.user_id < ${input.cursor.userId}`;
+    case 'latestUpdatedAt':
+      return input.sortOrder === 'asc'
+        ? sql`
+            and (
+              aggregated_user_rows.latest_updated_at > ${String(input.cursor.value)}::timestamptz
+              or (
+                aggregated_user_rows.latest_updated_at = ${String(input.cursor.value)}::timestamptz
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `
+        : sql`
+            and (
+              aggregated_user_rows.latest_updated_at < ${String(input.cursor.value)}::timestamptz
+              or (
+                aggregated_user_rows.latest_updated_at = ${String(input.cursor.value)}::timestamptz
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `;
+    case 'interactionCount':
+      return input.sortOrder === 'asc'
+        ? sql`
+            and (
+              aggregated_user_rows.interaction_count > ${Number(input.cursor.value)}
+              or (
+                aggregated_user_rows.interaction_count = ${Number(input.cursor.value)}
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `
+        : sql`
+            and (
+              aggregated_user_rows.interaction_count < ${Number(input.cursor.value)}
+              or (
+                aggregated_user_rows.interaction_count = ${Number(input.cursor.value)}
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `;
+    case 'pendingReviewCount':
+      return input.sortOrder === 'asc'
+        ? sql`
+            and (
+              aggregated_user_rows.pending_review_count > ${Number(input.cursor.value)}
+              or (
+                aggregated_user_rows.pending_review_count = ${Number(input.cursor.value)}
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `
+        : sql`
+            and (
+              aggregated_user_rows.pending_review_count < ${Number(input.cursor.value)}
+              or (
+                aggregated_user_rows.pending_review_count = ${Number(input.cursor.value)}
+                and aggregated_user_rows.user_id > ${input.cursor.userId}
+              )
+            )
+          `;
+    default:
+      return sql``;
+  }
+}
+
+function getCampaignAdminUserCursorValue(
+  row: CampaignAdminUserRow,
+  sortBy: CampaignAdminUserSortBy
+): CampaignAdminUserListCursor['value'] {
+  switch (sortBy) {
+    case 'userId':
+      return row.userId;
+    case 'latestUpdatedAt':
+      return row.latestUpdatedAt;
+    case 'interactionCount':
+      return row.interactionCount;
+    case 'pendingReviewCount':
+      return row.pendingReviewCount;
+    default:
+      return row.latestUpdatedAt;
+  }
 }
 
 function createEmptyCampaignAdminReviewStatusCounts(): CampaignAdminReviewStatusCounts {
@@ -512,6 +641,140 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
   }
 
+  async listCampaignAdminUsers(
+    input: ListCampaignAdminUsersInput
+  ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>> {
+    if (input.interactions.length === 0) {
+      return ok({
+        items: [],
+        hasMore: false,
+        nextCursor: null,
+      });
+    }
+
+    const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
+    const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      input.reviewableInteractions
+    );
+    const queryFilterSql =
+      input.query !== undefined
+        ? sql<boolean>`and user_id ilike ${`%${escapeLikePattern(input.query)}%`} escape '\\'`
+        : sql``;
+    const cursorFilterSql = buildCampaignAdminUserCursorFilterSql({
+      sortBy: input.sortBy,
+      sortOrder: input.sortOrder,
+      ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+    });
+    const orderBySql = buildCampaignAdminUserOrderBySql(input.sortBy, input.sortOrder);
+
+    try {
+      const result = await sql<CampaignAdminUserAggregateQueryRow>`
+        with filtered_items as (
+          select
+            user_id,
+            record_key,
+            updated_at,
+            record->>'interactionId' as interaction_id,
+            record->'scope'->>'entityCui' as entity_cui,
+            case
+              when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+              when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+              else null
+            end as review_status
+          from userinteractions
+          where (${visibleInteractionsSql})
+            ${queryFilterSql}
+        ),
+        ranked_items as (
+          select
+            user_id,
+            record_key,
+            updated_at,
+            interaction_id,
+            entity_cui,
+            review_status,
+            row_number() over (
+              partition by user_id
+              order by updated_at desc, record_key asc
+            ) as latest_row_number
+          from filtered_items
+        ),
+        aggregated_users as (
+          select
+            user_id,
+            count(*)::int as interaction_count,
+            count(*) filter (where review_status = 'pending')::int as pending_review_count
+          from ranked_items
+          group by user_id
+        ),
+        latest_rows as (
+          select
+            user_id,
+            updated_at as latest_updated_at,
+            interaction_id as latest_interaction_id,
+            entity_cui as latest_entity_cui
+          from ranked_items
+          where latest_row_number = 1
+        ),
+        aggregated_user_rows as (
+          select
+            aggregated_users.user_id,
+            aggregated_users.interaction_count,
+            aggregated_users.pending_review_count,
+            latest_rows.latest_updated_at,
+            latest_rows.latest_interaction_id,
+            latest_rows.latest_entity_cui
+          from aggregated_users
+          inner join latest_rows
+            on latest_rows.user_id = aggregated_users.user_id
+        )
+        select
+          aggregated_user_rows.user_id,
+          aggregated_user_rows.interaction_count,
+          aggregated_user_rows.pending_review_count,
+          aggregated_user_rows.latest_updated_at,
+          aggregated_user_rows.latest_interaction_id,
+          aggregated_user_rows.latest_entity_cui
+        from aggregated_user_rows
+        where true
+          ${cursorFilterSql}
+        ${orderBySql}
+        limit ${input.limit + 1}
+      `.execute(this.db);
+
+      const hasMore = result.rows.length > input.limit;
+      const pageRows = result.rows.slice(0, input.limit);
+      const items = pageRows.map(
+        (row): CampaignAdminUserRow => ({
+          userId: row.user_id,
+          interactionCount: row.interaction_count,
+          pendingReviewCount: row.pending_review_count,
+          latestUpdatedAt: toIsoString(row.latest_updated_at),
+          latestInteractionId: row.latest_interaction_id,
+          latestEntityCui: row.latest_entity_cui,
+        })
+      );
+      const lastItem = items.at(-1);
+
+      return ok({
+        items,
+        hasMore,
+        nextCursor:
+          hasMore && lastItem !== undefined
+            ? {
+                sortBy: input.sortBy,
+                sortOrder: input.sortOrder,
+                userId: lastItem.userId,
+                value: getCampaignAdminUserCursorValue(lastItem, input.sortBy),
+              }
+            : null,
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to list campaign-admin users');
+      return err(createDatabaseError('Failed to list campaign-admin users', error));
+    }
+  }
+
   async getCampaignAdminStats(
     input: GetCampaignAdminStatsInput
   ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> {
@@ -852,6 +1115,15 @@ interface CampaignAdminStatsAggregateQueryRow {
   thread_phase_closed_no_response: number;
   thread_phase_failed: number;
   thread_phase_none: number;
+}
+
+interface CampaignAdminUserAggregateQueryRow {
+  user_id: string;
+  interaction_count: number;
+  pending_review_count: number;
+  latest_updated_at: Date | string;
+  latest_interaction_id: string;
+  latest_entity_cui: string | null;
 }
 
 interface CampaignAdminRiskFlagCandidateQueryRow {

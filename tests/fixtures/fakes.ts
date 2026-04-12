@@ -56,8 +56,12 @@ import type {
   CampaignAdminInteractionRow,
   CampaignAdminReviewStatusCounts,
   CampaignAdminRiskFlagCandidate,
+  CampaignAdminSortOrder,
   CampaignAdminStatsBase,
   CampaignAdminThreadPhaseCounts,
+  CampaignAdminUserListCursor,
+  CampaignAdminUserRow,
+  CampaignAdminUserSortBy,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
   GetRecordsOptions,
@@ -65,6 +69,8 @@ import type {
   InteractiveStateRecord,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
+  ListCampaignAdminUsersInput,
+  ListCampaignAdminUsersOutput,
   LearningInteractiveUpdatedEvent,
   LearningProgressEvent,
   LearningProgressRecordRow,
@@ -1460,6 +1466,107 @@ export const makeFakeLearningProgressRepo = (
     return row.record.phase === 'pending' ? 'pending' : null;
   };
 
+  const getCampaignAdminUserCursorValue = (
+    row: CampaignAdminUserRow,
+    sortBy: CampaignAdminUserSortBy
+  ): CampaignAdminUserListCursor['value'] => {
+    switch (sortBy) {
+      case 'userId':
+        return row.userId;
+      case 'latestUpdatedAt':
+        return row.latestUpdatedAt;
+      case 'interactionCount':
+        return row.interactionCount;
+      case 'pendingReviewCount':
+        return row.pendingReviewCount;
+      default:
+        return row.latestUpdatedAt;
+    }
+  };
+
+  const compareCampaignAdminUserPrimaryValue = (
+    leftRow: CampaignAdminUserRow,
+    rightRow: CampaignAdminUserRow,
+    sortBy: CampaignAdminUserSortBy,
+    sortOrder: CampaignAdminSortOrder
+  ): number => {
+    switch (sortBy) {
+      case 'userId':
+        return sortOrder === 'asc'
+          ? leftRow.userId.localeCompare(rightRow.userId)
+          : rightRow.userId.localeCompare(leftRow.userId);
+      case 'latestUpdatedAt': {
+        const comparison = compareTimestamps(leftRow.latestUpdatedAt, rightRow.latestUpdatedAt);
+        return sortOrder === 'asc' ? comparison : -comparison;
+      }
+      case 'interactionCount': {
+        const comparison = leftRow.interactionCount - rightRow.interactionCount;
+        return sortOrder === 'asc' ? comparison : -comparison;
+      }
+      case 'pendingReviewCount': {
+        const comparison = leftRow.pendingReviewCount - rightRow.pendingReviewCount;
+        return sortOrder === 'asc' ? comparison : -comparison;
+      }
+      default:
+        return 0;
+    }
+  };
+
+  const compareCampaignAdminUsers = (
+    leftRow: CampaignAdminUserRow,
+    rightRow: CampaignAdminUserRow,
+    sortBy: CampaignAdminUserSortBy,
+    sortOrder: CampaignAdminSortOrder
+  ): number => {
+    const primaryComparison = compareCampaignAdminUserPrimaryValue(
+      leftRow,
+      rightRow,
+      sortBy,
+      sortOrder
+    );
+    if (primaryComparison !== 0) {
+      return primaryComparison;
+    }
+
+    if (sortBy === 'userId') {
+      return 0;
+    }
+
+    return leftRow.userId.localeCompare(rightRow.userId);
+  };
+
+  const isCampaignAdminUserAfterCursor = (
+    row: CampaignAdminUserRow,
+    cursor: CampaignAdminUserListCursor,
+    sortBy: CampaignAdminUserSortBy,
+    sortOrder: CampaignAdminSortOrder
+  ): boolean => {
+    if (sortBy === 'userId') {
+      return sortOrder === 'asc' ? row.userId > cursor.userId : row.userId < cursor.userId;
+    }
+
+    const cursorRow: CampaignAdminUserRow =
+      sortBy === 'interactionCount'
+        ? {
+            ...row,
+            userId: cursor.userId,
+            interactionCount: Number(cursor.value),
+          }
+        : sortBy === 'pendingReviewCount'
+          ? {
+              ...row,
+              userId: cursor.userId,
+              pendingReviewCount: Number(cursor.value),
+            }
+          : {
+              ...row,
+              userId: cursor.userId,
+              latestUpdatedAt: String(cursor.value),
+            };
+
+    return compareCampaignAdminUsers(row, cursorRow, sortBy, sortOrder) > 0;
+  };
+
   const getInstitutionEmail = (record: InteractiveStateRecord): string | null => {
     if (record.value?.kind !== 'json') {
       return null;
@@ -1774,6 +1881,91 @@ export const makeFakeLearningProgressRepo = (
                   updatedAt: rows.at(-1)?.updatedAt ?? '',
                   userId: rows.at(-1)?.userId ?? '',
                   recordKey: rows.at(-1)?.recordKey ?? '',
+                }
+              : null,
+        });
+      },
+
+      listCampaignAdminUsers: async (
+        input: ListCampaignAdminUsersInput
+      ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const normalizedQuery = input.query?.trim().toLowerCase();
+        const aggregatedRows = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) => {
+            if (
+              !input.interactions.some((interaction) =>
+                matchesCampaignAdminInteractionFilter(row, interaction)
+              )
+            ) {
+              return false;
+            }
+
+            if (normalizedQuery !== undefined && normalizedQuery !== '') {
+              return row.userId.toLowerCase().includes(normalizedQuery);
+            }
+
+            return true;
+          })
+          .reduce<Map<string, LearningProgressRecordRow[]>>((groups, row) => {
+            const existingRows = groups.get(row.userId) ?? [];
+            existingRows.push(row);
+            groups.set(row.userId, existingRows);
+            return groups;
+          }, new Map());
+
+        const users = [...aggregatedRows.entries()].map(([userId, rows]): CampaignAdminUserRow => {
+          const latestRow = [...rows].sort((leftRow, rightRow) => {
+            const updatedAtComparison = compareTimestamps(rightRow.updatedAt, leftRow.updatedAt);
+            if (updatedAtComparison !== 0) {
+              return updatedAtComparison;
+            }
+
+            return leftRow.recordKey.localeCompare(rightRow.recordKey);
+          })[0];
+
+          return {
+            userId,
+            interactionCount: rows.length,
+            pendingReviewCount: rows.filter((row) => {
+              const isReviewable = input.reviewableInteractions.some((interaction) =>
+                matchesCampaignAdminInteractionFilter(row, interaction)
+              );
+              return getCampaignAdminReviewStatus(row, isReviewable) === 'pending';
+            }).length,
+            latestUpdatedAt: latestRow?.updatedAt ?? '',
+            latestInteractionId: latestRow?.record.interactionId ?? '',
+            latestEntityCui:
+              latestRow?.record.scope.type === 'entity' ? latestRow.record.scope.entityCui : null,
+          };
+        });
+
+        const cursor = input.cursor;
+        const filteredUsers =
+          cursor === undefined
+            ? users
+            : users.filter((row) =>
+                isCampaignAdminUserAfterCursor(row, cursor, input.sortBy, input.sortOrder)
+              );
+        const sortedUsers = [...filteredUsers].sort((leftRow, rightRow) =>
+          compareCampaignAdminUsers(leftRow, rightRow, input.sortBy, input.sortOrder)
+        );
+        const pageRows = sortedUsers.slice(0, input.limit + 1);
+        const items = pageRows.slice(0, input.limit);
+        const lastItem = items.at(-1);
+
+        return ok({
+          items,
+          hasMore: pageRows.length > input.limit,
+          nextCursor:
+            pageRows.length > input.limit && lastItem !== undefined
+              ? {
+                  sortBy: input.sortBy,
+                  sortOrder: input.sortOrder,
+                  userId: lastItem.userId,
+                  value: getCampaignAdminUserCursorValue(lastItem, input.sortBy),
                 }
               : null,
         });

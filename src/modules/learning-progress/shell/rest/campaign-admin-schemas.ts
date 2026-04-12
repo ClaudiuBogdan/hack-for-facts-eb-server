@@ -102,6 +102,58 @@ export const CampaignAdminListQuerySchema = Type.Object(
 
 export type CampaignAdminListQuery = Static<typeof CampaignAdminListQuerySchema>;
 
+export const CampaignAdminUserSortBySchema = Type.Union([
+  Type.Literal('userId'),
+  Type.Literal('latestUpdatedAt'),
+  Type.Literal('interactionCount'),
+  Type.Literal('pendingReviewCount'),
+]);
+
+export const CampaignAdminUserCursorSchema = Type.Union([
+  Type.Object(
+    {
+      sortBy: Type.Literal('userId'),
+      sortOrder: CampaignAdminSortOrderSchema,
+      userId: Type.String({ minLength: 1 }),
+      value: Type.String({ minLength: 1 }),
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      sortBy: Type.Literal('latestUpdatedAt'),
+      sortOrder: CampaignAdminSortOrderSchema,
+      userId: Type.String({ minLength: 1 }),
+      value: Type.String({ minLength: 1 }),
+    },
+    { additionalProperties: false }
+  ),
+  Type.Object(
+    {
+      sortBy: Type.Union([Type.Literal('interactionCount'), Type.Literal('pendingReviewCount')]),
+      sortOrder: CampaignAdminSortOrderSchema,
+      userId: Type.String({ minLength: 1 }),
+      value: Type.Integer({ minimum: 0 }),
+    },
+    { additionalProperties: false }
+  ),
+]);
+
+export type CampaignAdminUserCursor = Static<typeof CampaignAdminUserCursorSchema>;
+
+export const CampaignAdminUserListQuerySchema = Type.Object(
+  {
+    query: Type.Optional(Type.String()),
+    sortBy: Type.Optional(CampaignAdminUserSortBySchema),
+    sortOrder: Type.Optional(CampaignAdminSortOrderSchema),
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
+    limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
+  },
+  { additionalProperties: false }
+);
+
+export type CampaignAdminUserListQuery = Static<typeof CampaignAdminUserListQuerySchema>;
+
 export const CampaignAdminAvailableInteractionTypeSchema = Type.Object(
   {
     interactionId: Type.String({ minLength: 1 }),
@@ -431,6 +483,41 @@ export const CampaignAdminListResponseSchema = Type.Object(
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             sortBy: Type.Optional(CampaignAdminSortBySchema),
             sortOrder: Type.Optional(CampaignAdminSortOrderSchema),
+          },
+          { additionalProperties: false }
+        ),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminUserListItemSchema = Type.Object(
+  {
+    userId: Type.String({ minLength: 1 }),
+    interactionCount: Type.Number({ minimum: 0 }),
+    pendingReviewCount: Type.Number({ minimum: 0 }),
+    latestUpdatedAt: Type.String({ format: 'date-time' }),
+    latestInteractionId: Type.String({ minLength: 1 }),
+    latestEntityCui: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    latestEntityName: Type.Union([Type.String(), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminUserListResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        items: Type.Array(CampaignAdminUserListItemSchema),
+        page: Type.Object(
+          {
+            hasMore: Type.Boolean(),
+            nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+            sortBy: CampaignAdminUserSortBySchema,
+            sortOrder: CampaignAdminSortOrderSchema,
           },
           { additionalProperties: false }
         ),
