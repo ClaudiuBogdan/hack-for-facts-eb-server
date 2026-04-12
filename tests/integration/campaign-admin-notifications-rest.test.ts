@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import {
   makeCampaignAdminNotificationRoutes,
+  makeCampaignNotificationOutboxAuditRepo,
   makeCampaignNotificationTemplatePreviewService,
   makeCampaignNotificationTriggerRegistry,
   type CampaignNotificationAuditRepository,
   type CampaignNotificationAuditCursor,
+  type CampaignNotificationMetaCounts,
   type ListCampaignNotificationAuditInput,
 } from '@/modules/campaign-admin-notifications/index.js';
 
@@ -62,20 +64,75 @@ const decodeCursor = (value: string): CampaignNotificationAuditCursor => {
   return parsed.value as CampaignNotificationAuditCursor;
 };
 
-const makeAuditRepository = (
-  implementation?: (
+const makeAuditRepository = (implementation?: {
+  list?: (
     input: ListCampaignNotificationAuditInput
-  ) => ReturnType<CampaignNotificationAuditRepository['listCampaignNotificationAudit']>
-) => {
+  ) => ReturnType<CampaignNotificationAuditRepository['listCampaignNotificationAudit']>;
+  meta?: () => ReturnType<CampaignNotificationAuditRepository['getCampaignNotificationMetaCounts']>;
+}) => {
   const calls: ListCampaignNotificationAuditInput[] = [];
+  const metaCalls: number[] = [];
   const repository: CampaignNotificationAuditRepository = {
     async listCampaignNotificationAudit(input) {
       calls.push(input);
-      return implementation?.(input) ?? ok({ items: [], nextCursor: null, hasMore: false });
+      return implementation?.list?.(input) ?? ok({ items: [], nextCursor: null, hasMore: false });
+    },
+    async getCampaignNotificationMetaCounts() {
+      metaCalls.push(1);
+      return (
+        implementation?.meta?.() ??
+        ok<CampaignNotificationMetaCounts>({
+          pendingDeliveryCount: 0,
+          failedDeliveryCount: 0,
+          replyReceivedCount: 0,
+        })
+      );
     },
   };
 
-  return { repository, calls };
+  return { repository, calls, metaCalls };
+};
+
+const createAggregateExpression = () => {
+  const expression = {
+    filterWhere: () => expression,
+    as: () => expression,
+  };
+
+  return expression;
+};
+
+interface MetaCountSelectBuilder {
+  fn: {
+    count: () => ReturnType<typeof createAggregateExpression>;
+  };
+}
+
+const makeMetaCountDb = (counts: {
+  pendingDeliveryCount: string | number | bigint;
+  failedDeliveryCount: string | number | bigint;
+  replyReceivedCount: string | number | bigint;
+}) => {
+  const query = {
+    select: (selection: (builder: MetaCountSelectBuilder) => unknown) => {
+      selection({
+        fn: {
+          count: () => createAggregateExpression(),
+        },
+      });
+      return query;
+    },
+    where: () => query,
+    executeTakeFirst: async () => ({
+      pending_delivery_count: counts.pendingDeliveryCount,
+      failed_delivery_count: counts.failedDeliveryCount,
+      reply_received_count: counts.replyReceivedCount,
+    }),
+  };
+
+  return {
+    selectFrom: () => query,
+  };
 };
 
 const createTestApp = async (options?: {
@@ -192,6 +249,229 @@ describe('campaign admin notifications routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect(audit.calls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('returns 401 for notifications meta when unauthenticated', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(audit.metaCalls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('returns 403 for notifications meta and does not call the audit repo when permission is denied', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      permissionAllowed: false,
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(audit.metaCalls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('returns zero-count notifications meta responses', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        pendingDeliveryCount: 0,
+        failedDeliveryCount: 0,
+        replyReceivedCount: 0,
+      },
+    });
+    expect(audit.metaCalls).toHaveLength(1);
+
+    await setup.app.close();
+  });
+
+  it('documents that Fastify currently coerces leaked string meta counts at the response boundary', async () => {
+    const audit = makeAuditRepository({
+      meta: async () =>
+        ok({
+          pendingDeliveryCount: '3' as unknown as number,
+          failedDeliveryCount: '2' as unknown as number,
+          replyReceivedCount: '1' as unknown as number,
+        } as CampaignNotificationMetaCounts),
+    });
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        pendingDeliveryCount: 3,
+        failedDeliveryCount: 2,
+        replyReceivedCount: 1,
+      },
+    });
+    expect(audit.metaCalls).toHaveLength(1);
+
+    await setup.app.close();
+  });
+
+  it('returns campaign notification meta counts for a realistic audit dataset', async () => {
+    const auditRows = [
+      { status: 'pending', eventType: null },
+      { status: 'composing', eventType: null },
+      { status: 'sending', eventType: null },
+      { status: 'webhook_timeout', eventType: null },
+      { status: 'failed_transient', eventType: null },
+      { status: 'failed_permanent', eventType: null },
+      { status: 'suppressed', eventType: null },
+      { status: 'delivered', eventType: 'reply_received' },
+      { status: 'sent', eventType: 'reply_received' },
+      { status: 'delivered', eventType: 'thread_started' },
+    ] as const;
+
+    const audit = makeAuditRepository({
+      meta: async () =>
+        ok({
+          pendingDeliveryCount: auditRows.filter(
+            (row) =>
+              row.status === 'pending' || row.status === 'composing' || row.status === 'sending'
+          ).length,
+          failedDeliveryCount: auditRows.filter(
+            (row) =>
+              row.status === 'webhook_timeout' ||
+              row.status === 'failed_transient' ||
+              row.status === 'failed_permanent'
+          ).length,
+          replyReceivedCount: auditRows.filter((row) => row.eventType === 'reply_received').length,
+        }),
+    });
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        pendingDeliveryCount: 3,
+        failedDeliveryCount: 3,
+        replyReceivedCount: 2,
+      },
+    });
+    expect(audit.metaCalls).toHaveLength(1);
+
+    await setup.app.close();
+  });
+
+  it('coerces Postgres string notification meta counts to numbers in the real repo', async () => {
+    const auditRepository = makeCampaignNotificationOutboxAuditRepo({
+      db: makeMetaCountDb({
+        pendingDeliveryCount: '3',
+        failedDeliveryCount: '2',
+        replyReceivedCount: '1',
+      }) as never,
+      logger,
+    });
+    const setup = await createTestApp({
+      auditRepository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        pendingDeliveryCount: 3,
+        failedDeliveryCount: 2,
+        replyReceivedCount: 1,
+      },
+    });
+
+    await setup.app.close();
+  });
+
+  it('fails closed when the real repo receives malformed notification meta counts', async () => {
+    const auditRepository = makeCampaignNotificationOutboxAuditRepo({
+      db: makeMetaCountDb({
+        pendingDeliveryCount: 'three',
+        failedDeliveryCount: '2',
+        replyReceivedCount: '1',
+      }) as never,
+      logger,
+    });
+    const setup = await createTestApp({
+      auditRepository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'Invalid notification meta count for pending_delivery_count.',
+      retryable: false,
+    });
 
     await setup.app.close();
   });
@@ -357,18 +637,19 @@ describe('campaign admin notifications routes', () => {
   });
 
   it('encodes nextCursor with the active sort metadata', async () => {
-    const audit = makeAuditRepository(async (input) =>
-      ok({
-        items: [],
-        hasMore: true,
-        nextCursor: {
-          sortBy: input.sortBy,
-          sortOrder: input.sortOrder,
-          id: 'outbox-2',
-          value: 2,
-        },
-      })
-    );
+    const audit = makeAuditRepository({
+      list: async (input) =>
+        ok({
+          items: [],
+          hasMore: true,
+          nextCursor: {
+            sortBy: input.sortBy,
+            sortOrder: input.sortOrder,
+            id: 'outbox-2',
+            value: 2,
+          },
+        }),
+    });
     const setup = await createTestApp({
       auditRepository: audit.repository,
     });
@@ -459,6 +740,26 @@ describe('campaign admin notifications routes', () => {
     });
 
     expect(response.statusCode).toBe(404);
+
+    await setup.app.close();
+  });
+
+  it('returns 404 for unsupported campaigns on notifications meta', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/unknown/notifications/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(audit.metaCalls).toHaveLength(0);
 
     await setup.app.close();
   });

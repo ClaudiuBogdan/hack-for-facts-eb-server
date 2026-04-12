@@ -388,6 +388,16 @@ export interface ListCampaignAdminUsersOutput {
   readonly nextCursor: CampaignAdminUserListCursor | null;
 }
 
+export interface GetCampaignAdminUsersMetaCountsInput {
+  readonly interactions: readonly CampaignAdminInteractionFilter[];
+  readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
+}
+
+export interface CampaignAdminUsersMetaCounts {
+  readonly totalUsers: number;
+  readonly usersWithPendingReviews: number;
+}
+
 export type CampaignAdminReviewableInteraction = CampaignAdminInteractionFilter;
 
 export interface UpsertInteractiveRecordInput {

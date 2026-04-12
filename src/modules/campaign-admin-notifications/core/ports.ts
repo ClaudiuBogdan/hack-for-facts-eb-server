@@ -2,6 +2,7 @@ import type { CampaignAdminNotificationError } from './errors.js';
 import type {
   CampaignNotificationAdminCampaignKey,
   CampaignNotificationFieldDescriptor,
+  CampaignNotificationMetaCounts,
   CampaignNotificationTemplateDescriptor,
   CampaignNotificationTemplatePreview,
   CampaignNotificationTriggerDescriptor,
@@ -16,6 +17,10 @@ export interface CampaignNotificationAuditRepository {
   listCampaignNotificationAudit(
     input: ListCampaignNotificationAuditInput
   ): Promise<Result<ListCampaignNotificationAuditOutput, CampaignAdminNotificationError>>;
+
+  getCampaignNotificationMetaCounts(input: {
+    campaignKey: CampaignNotificationAdminCampaignKey;
+  }): Promise<Result<CampaignNotificationMetaCounts, CampaignAdminNotificationError>>;
 }
 
 export interface CampaignNotificationTriggerExecutionInput {

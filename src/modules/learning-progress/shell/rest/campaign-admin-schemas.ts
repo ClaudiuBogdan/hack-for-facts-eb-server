@@ -529,6 +529,20 @@ export const CampaignAdminUserListResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignAdminUsersMetaResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        totalUsers: Type.Number({ minimum: 0 }),
+        usersWithPendingReviews: Type.Number({ minimum: 0 }),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
 const ApproveReviewDecisionSchema = Type.Object(
   {
     userId: Type.String({ minLength: 1 }),

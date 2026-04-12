@@ -347,6 +347,44 @@ describe('Campaign Admin Users REST API', () => {
     expect(listUsersSpy).not.toHaveBeenCalled();
   });
 
+  it('returns 401 for users meta when authentication is missing', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(metaSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for users meta when the authenticated user lacks campaign-admin permission', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const setup = await createTestApp({
+      permissionAllowed: false,
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(metaSpy).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for unknown campaigns', async () => {
     const setup = await createTestApp();
     app = setup.app;
@@ -360,6 +398,26 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it('returns 404 for unknown campaigns on users meta', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/unknown/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(metaSpy).not.toHaveBeenCalled();
   });
 
   it('returns an empty 200 response with default paging metadata', async () => {
@@ -387,6 +445,65 @@ describe('Campaign Admin Users REST API', () => {
         },
       },
     });
+  });
+
+  it('returns zero-count users meta responses', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        totalUsers: 0,
+        usersWithPendingReviews: 0,
+      },
+    });
+  });
+
+  it('passes only campaign-derived interaction filters to the users meta repo', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(metaSpy).toHaveBeenCalledWith({
+      interactions: expect.arrayContaining([
+        { interactionId: 'funky:interaction:public_debate_request' },
+        { interactionId: 'funky:interaction:city_hall_website' },
+        { interactionId: 'funky:interaction:funky_participation' },
+      ]),
+      reviewableInteractions: expect.arrayContaining([
+        {
+          interactionId: 'funky:interaction:public_debate_request',
+          submissionPath: 'request_platform',
+        },
+        { interactionId: 'funky:interaction:city_hall_website' },
+      ]),
+    });
+    expect(metaSpy).toHaveBeenCalledTimes(1);
   });
 
   it('aggregates campaign users across multiple rows and keeps pendingReviewCount reviewable-only', async () => {
@@ -463,6 +580,62 @@ describe('Campaign Admin Users REST API', () => {
       'pendingReviewCount',
       'userId',
     ]);
+  });
+
+  it('returns campaign users meta counts for a realistic dataset', async () => {
+    const userOnePendingRecord = createDebateRequestRecord({
+      entityCui: '11111111',
+      updatedAt: '2026-04-10T10:00:00.000Z',
+      submissionPath: 'request_platform',
+      phase: 'pending',
+    });
+    const userOneNonReviewableRecord = createDebateRequestRecord({
+      entityCui: '22222222',
+      updatedAt: '2026-04-10T11:00:00.000Z',
+      submissionPath: 'send_yourself',
+      phase: 'pending',
+    });
+    const userTwoResolvedRecord = createCityHallWebsiteRecord({
+      entityCui: '33333333',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+      phase: 'resolved',
+      reviewStatus: 'approved',
+    });
+    const userThreeParticipationRecord = createParticipationReportRecord({
+      entityCui: '44444444',
+      updatedAt: '2026-04-10T13:00:00.000Z',
+      phase: 'resolved',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-meta-1', [
+      makeRow('user-meta-1', userOnePendingRecord, '1'),
+      makeRow('user-meta-1', userOneNonReviewableRecord, '2'),
+    ]);
+    initialRecords.set('user-meta-2', [makeRow('user-meta-2', userTwoResolvedRecord, '3')]);
+    initialRecords.set('user-meta-3', [makeRow('user-meta-3', userThreeParticipationRecord, '4')]);
+
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        totalUsers: 3,
+        usersWithPendingReviews: 1,
+      },
+    });
   });
 
   it('passes entityCui through to the users repo and allows subscription-only rows', async () => {

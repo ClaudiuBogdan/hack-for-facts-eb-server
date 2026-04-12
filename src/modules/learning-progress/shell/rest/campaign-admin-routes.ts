@@ -34,6 +34,7 @@ import {
   CampaignAdminUserListItemSchema,
   CampaignAdminUserListQuerySchema,
   CampaignAdminUserListResponseSchema,
+  CampaignAdminUsersMetaResponseSchema,
   CampaignAdminSubmitReviewsBodySchema,
   CampaignAdminSubmitReviewsResponseSchema,
   CampaignKeyParamsSchema,
@@ -1562,6 +1563,44 @@ export const makeCampaignAdminUserInteractionRoutes = (
               riskFlagged,
             },
           },
+        });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams }>(
+      '/api/v1/admin/campaigns/:campaignKey/users/meta',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          response: {
+            200: CampaignAdminUsersMetaResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminAccess(request);
+        const metaResult = await deps.learningProgressRepo.getCampaignAdminUsersMetaCounts({
+          interactions: getCampaignVisibleInteractions(access.config),
+          reviewableInteractions: getCampaignReviewableInteractions(access.config),
+        });
+
+        if (metaResult.isErr()) {
+          const statusCode = getHttpStatusForError(metaResult.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: metaResult.error.type,
+            message: metaResult.error.message,
+            retryable: 'retryable' in metaResult.error ? metaResult.error.retryable : false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: metaResult.value,
         });
       }
     );

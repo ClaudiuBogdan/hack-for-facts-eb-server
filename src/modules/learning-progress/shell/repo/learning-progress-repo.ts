@@ -29,12 +29,14 @@ import type {
   CampaignAdminUserSortBy,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
+  GetCampaignAdminUsersMetaCountsInput,
   GetRecordsOptions,
   InteractiveStateRecord,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
   ListCampaignAdminUsersInput,
   ListCampaignAdminUsersOutput,
+  CampaignAdminUsersMetaCounts,
   LearningProgressRecordRow,
   StoredInteractiveAuditEvent,
   UpsertInteractiveRecordInput,
@@ -335,6 +337,13 @@ function createEmptyCampaignAdminStatsBase(): CampaignAdminStatsBase {
     reviewStatusCounts: createEmptyCampaignAdminReviewStatusCounts(),
     phaseCounts: createEmptyCampaignAdminPhaseCounts(),
     threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
+  };
+}
+
+function createEmptyCampaignAdminUsersMetaCounts(): CampaignAdminUsersMetaCounts {
+  return {
+    totalUsers: 0,
+    usersWithPendingReviews: 0,
   };
 }
 
@@ -908,6 +917,55 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
   }
 
+  async getCampaignAdminUsersMetaCounts(
+    input: GetCampaignAdminUsersMetaCountsInput
+  ): Promise<Result<CampaignAdminUsersMetaCounts, LearningProgressError>> {
+    if (input.interactions.length === 0) {
+      return ok(createEmptyCampaignAdminUsersMetaCounts());
+    }
+
+    const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
+    const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      input.reviewableInteractions
+    );
+
+    try {
+      const result = await sql<CampaignAdminUserMetaCountsQueryRow>`
+        with filtered_items as (
+          select
+            user_id,
+            case
+              when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+              when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+              else null
+            end as review_status
+          from userinteractions
+          where (${visibleInteractionsSql})
+        ),
+        aggregated_users as (
+          select
+            user_id,
+            count(*) filter (where review_status = 'pending')::int as pending_review_count
+          from filtered_items
+          group by user_id
+        )
+        select
+          count(*)::int as total_users,
+          count(*) filter (where pending_review_count > 0)::int as users_with_pending_reviews
+        from aggregated_users
+      `.execute(this.db);
+
+      const row = result.rows[0];
+      return ok({
+        totalUsers: row?.total_users ?? 0,
+        usersWithPendingReviews: row?.users_with_pending_reviews ?? 0,
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to get campaign-admin user meta counts');
+      return err(createDatabaseError('Failed to get campaign-admin user meta counts', error));
+    }
+  }
+
   async getCampaignAdminStats(
     input: GetCampaignAdminStatsInput
   ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> {
@@ -1257,6 +1315,11 @@ interface CampaignAdminUserAggregateQueryRow {
   latest_updated_at: Date | string;
   latest_interaction_id: string | null;
   latest_entity_cui: string | null;
+}
+
+interface CampaignAdminUserMetaCountsQueryRow {
+  total_users: number;
+  users_with_pending_reviews: number;
 }
 
 interface CampaignAdminRiskFlagCandidateQueryRow {
