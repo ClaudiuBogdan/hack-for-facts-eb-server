@@ -247,6 +247,31 @@ describe('campaign admin notifications routes', () => {
     await setup.app.close();
   });
 
+  it('passes userId through to the notification audit repository', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?userId=user-1',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(audit.calls).toEqual([
+      expect.objectContaining({
+        campaignKey: 'funky',
+        userId: 'user-1',
+      }),
+    ]);
+
+    await setup.app.close();
+  });
+
   it.each([
     ['createdAt', 'asc'],
     ['createdAt', 'desc'],

@@ -420,6 +420,7 @@ describe('campaign notification outbox audit repo', () => {
         sortBy: 'attemptCount',
         sortOrder: 'desc',
         limit: 10,
+        userId: 'user-2',
         eventType: 'reply_received',
         entityCui: '12345678',
       });

@@ -102,6 +102,7 @@ export interface ListCampaignNotificationAuditInput {
   readonly campaignKey: CampaignNotificationAdminCampaignKey;
   readonly notificationType?: string;
   readonly templateId?: string;
+  readonly userId?: string;
   readonly status?: string;
   readonly eventType?: string;
   readonly entityCui?: string;
