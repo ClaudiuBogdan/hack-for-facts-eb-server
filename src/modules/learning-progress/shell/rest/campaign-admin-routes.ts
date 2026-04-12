@@ -40,11 +40,17 @@ import {
   CampaignAdminInteractionListItemSchema,
   CampaignAdminListQuerySchema,
   CampaignAdminListResponseSchema,
+  CampaignAdminUserCursorSchema,
+  CampaignAdminUserListItemSchema,
+  CampaignAdminUserListQuerySchema,
+  CampaignAdminUserListResponseSchema,
   CampaignAdminSubmitReviewsBodySchema,
   CampaignAdminSubmitReviewsResponseSchema,
   CampaignKeyParamsSchema,
   ErrorResponseSchema,
   type CampaignAdminListQuery,
+  type CampaignAdminUserCursor,
+  type CampaignAdminUserListQuery,
   type CampaignAdminSubmitReviewsBody,
   type CampaignKeyParams,
 } from './campaign-admin-schemas.js';
@@ -66,6 +72,8 @@ import type {
   CampaignAdminInteractionRow,
   CampaignAdminListCursor,
   CampaignAdminRiskFlagCandidate,
+  CampaignAdminUserListCursor,
+  CampaignAdminUserRow,
   ListCampaignAdminInteractionRowsInput,
   CampaignAdminSubmissionPath,
   ReviewDecision,
@@ -76,6 +84,9 @@ import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fast
 type CampaignAdminInteractionListItem = Static<typeof CampaignAdminInteractionListItemSchema>;
 type CampaignAdminSortKey = NonNullable<CampaignAdminListQuery['sortBy']>;
 type CampaignAdminSortOrder = NonNullable<CampaignAdminListQuery['sortOrder']>;
+type CampaignAdminUserListItem = Static<typeof CampaignAdminUserListItemSchema>;
+type CampaignAdminUserSortKey = NonNullable<CampaignAdminUserListQuery['sortBy']>;
+type CampaignAdminUserSortOrder = NonNullable<CampaignAdminUserListQuery['sortOrder']>;
 
 interface CampaignAdminPageCursor {
   readonly userId: string;
@@ -468,6 +479,43 @@ function decodeCursor(encodedCursor: string): CampaignAdminPageCursor | null {
   }
 }
 
+function encodeCampaignAdminUserCursor(cursor: CampaignAdminUserListCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf-8').toString('base64url');
+}
+
+function isValidCampaignAdminUserCursorValue(cursor: CampaignAdminUserCursor): boolean {
+  if (cursor.sortBy !== 'latestUpdatedAt') {
+    return true;
+  }
+
+  return !Number.isNaN(Date.parse(cursor.value));
+}
+
+function isCampaignAdminUserPageCursor(value: unknown): value is CampaignAdminUserCursor {
+  if (!Value.Check(CampaignAdminUserCursorSchema, value)) {
+    return false;
+  }
+
+  return isValidCampaignAdminUserCursorValue(value);
+}
+
+function decodeCampaignAdminUserCursor(encodedCursor: string): CampaignAdminUserCursor | null {
+  const safeJsonParse = fromThrowable(JSON.parse);
+
+  try {
+    const decoded = Buffer.from(encodedCursor, 'base64url').toString('utf-8');
+    const parseResult = safeJsonParse(decoded);
+    if (parseResult.isErr()) {
+      return null;
+    }
+
+    const payload: unknown = parseResult.value;
+    return isCampaignAdminUserPageCursor(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 function getDefaultSortOrder(sortBy: CampaignAdminSortKey): CampaignAdminSortOrder {
   switch (sortBy) {
     case 'updatedAt':
@@ -489,6 +537,44 @@ function normalizeRequestedSort(
     sortBy: query.sortBy,
     sortOrder: query.sortOrder ?? getDefaultSortOrder(query.sortBy),
   };
+}
+
+function getDefaultCampaignAdminUserSortOrder(
+  sortBy: CampaignAdminUserSortKey
+): CampaignAdminUserSortOrder {
+  switch (sortBy) {
+    case 'userId':
+      return 'asc';
+    case 'latestUpdatedAt':
+    case 'interactionCount':
+    case 'pendingReviewCount':
+      return 'desc';
+    default:
+      return 'desc';
+  }
+}
+
+function normalizeRequestedCampaignAdminUserSort(
+  query: Pick<CampaignAdminUserListQuery, 'sortBy' | 'sortOrder'>
+): {
+  readonly sortBy: CampaignAdminUserSortKey;
+  readonly sortOrder: CampaignAdminUserSortOrder;
+} {
+  const sortBy = query.sortBy ?? 'latestUpdatedAt';
+
+  return {
+    sortBy,
+    sortOrder: query.sortOrder ?? getDefaultCampaignAdminUserSortOrder(sortBy),
+  };
+}
+
+function normalizeCampaignAdminUserQuery(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue === '' ? undefined : trimmedValue;
 }
 
 function getCampaignAdminReviewStatusLabel(
@@ -1013,30 +1099,39 @@ async function loadEntityNameMap(
   entityRepo: EntityRepository,
   log: Pick<FastifyBaseLogger, 'warn'>
 ): Promise<Map<string, string | null>> {
-  const entityCuis = [
-    ...new Set(
-      rows.flatMap((row) => {
-        const entityCui = extractEntityCui(row);
-        return entityCui !== null ? [entityCui] : [];
+  return loadEntityNameMapForEntityCuis({
+    entityCuis: collectUniqueEntityCuis(
+      rows.map((row) => {
+        return extractEntityCui(row);
       })
     ),
-  ];
+    entityRepo,
+    log,
+    failureMessage: 'Failed to load entity names for campaign-admin interaction audit list',
+  });
+}
 
-  if (entityCuis.length === 0) {
+async function loadEntityNameMapForEntityCuis(input: {
+  entityCuis: readonly string[];
+  entityRepo: EntityRepository;
+  log: Pick<FastifyBaseLogger, 'warn'>;
+  failureMessage: string;
+}): Promise<Map<string, string | null>> {
+  if (input.entityCuis.length === 0) {
     return new Map();
   }
 
-  const entitiesResult = await entityRepo.getByIds(entityCuis);
+  const entitiesResult = await input.entityRepo.getByIds([...input.entityCuis]);
   if (entitiesResult.isErr()) {
-    log.warn(
-      { error: entitiesResult.error, entityCuis },
-      'Failed to load entity names for campaign-admin interaction audit list'
+    input.log.warn(
+      { error: entitiesResult.error, entityCuis: input.entityCuis },
+      input.failureMessage
     );
     return new Map();
   }
 
   return new Map(
-    entityCuis.map((entityCui) => [
+    input.entityCuis.map((entityCui) => [
       entityCui,
       toNullableTrimmedString(entitiesResult.value.get(entityCui)?.name ?? null),
     ])
@@ -1392,6 +1487,30 @@ async function formatCampaignAdminInteractionRows(input: {
       officialEmailLookupFailed: lookupFailed,
     })
   );
+}
+
+async function formatCampaignAdminUserRows(input: {
+  rows: readonly CampaignAdminUserRow[];
+  entityRepo: EntityRepository;
+  log: Pick<FastifyBaseLogger, 'warn'>;
+}): Promise<readonly CampaignAdminUserListItem[]> {
+  const entityNameMap = await loadEntityNameMapForEntityCuis({
+    entityCuis: collectUniqueEntityCuis(input.rows.map((row) => row.latestEntityCui)),
+    entityRepo: input.entityRepo,
+    log: input.log,
+    failureMessage: 'Failed to load entity names for campaign-admin users list',
+  });
+
+  return input.rows.map((row) => ({
+    userId: row.userId,
+    interactionCount: row.interactionCount,
+    pendingReviewCount: row.pendingReviewCount,
+    latestUpdatedAt: row.latestUpdatedAt,
+    latestInteractionId: row.latestInteractionId,
+    latestEntityCui: row.latestEntityCui,
+    latestEntityName:
+      row.latestEntityCui !== null ? (entityNameMap.get(row.latestEntityCui) ?? null) : null,
+  }));
 }
 
 function filterItemsByReviewStatus(
@@ -1761,6 +1880,113 @@ export const makeCampaignAdminUserInteractionRoutes = (
             stats: {
               ...statsResult.value.stats,
               riskFlagged,
+            },
+          },
+        });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams; Querystring: CampaignAdminUserListQuery }>(
+      '/api/v1/admin/campaigns/:campaignKey/users',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          querystring: CampaignAdminUserListQuerySchema,
+          response: {
+            200: CampaignAdminUserListResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminAccess(request);
+        const requestedSort = normalizeRequestedCampaignAdminUserSort(request.query);
+        const normalizedQuery = normalizeCampaignAdminUserQuery(request.query.query);
+        const decodedCursor =
+          request.query.cursor !== undefined
+            ? decodeCampaignAdminUserCursor(request.query.cursor)
+            : undefined;
+        const cursor = decodedCursor === null ? undefined : decodedCursor;
+
+        if (request.query.cursor !== undefined && cursor === undefined) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: 'Invalid campaign user cursor',
+            retryable: false,
+          });
+        }
+
+        if (
+          cursor !== undefined &&
+          (cursor.sortBy !== requestedSort.sortBy || cursor.sortOrder !== requestedSort.sortOrder)
+        ) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: 'Invalid campaign user cursor',
+            retryable: false,
+          });
+        }
+
+        const visibleInteractions = getCampaignVisibleInteractions(access.config);
+        if (visibleInteractions.length === 0) {
+          return reply.status(200).send({
+            ok: true,
+            data: {
+              items: [],
+              page: {
+                hasMore: false,
+                nextCursor: null,
+                sortBy: requestedSort.sortBy,
+                sortOrder: requestedSort.sortOrder,
+              },
+            },
+          });
+        }
+
+        const usersResult = await deps.learningProgressRepo.listCampaignAdminUsers({
+          interactions: visibleInteractions,
+          reviewableInteractions: getCampaignReviewableInteractions(access.config),
+          ...(normalizedQuery !== undefined ? { query: normalizedQuery } : {}),
+          sortBy: requestedSort.sortBy,
+          sortOrder: requestedSort.sortOrder,
+          limit: request.query.limit ?? DEFAULT_PAGE_LIMIT,
+          ...(cursor !== undefined ? { cursor } : {}),
+        });
+
+        if (usersResult.isErr()) {
+          const statusCode = getHttpStatusForError(usersResult.error);
+          return reply.status(statusCode as 400 | 500).send({
+            ok: false,
+            error: usersResult.error.type,
+            message: usersResult.error.message,
+            retryable: 'retryable' in usersResult.error ? usersResult.error.retryable : false,
+          });
+        }
+
+        const items = await formatCampaignAdminUserRows({
+          rows: usersResult.value.items,
+          entityRepo: deps.entityRepo,
+          log: request.log,
+        });
+
+        return reply.status(200).send({
+          ok: true,
+          data: {
+            items,
+            page: {
+              hasMore: usersResult.value.hasMore,
+              nextCursor:
+                usersResult.value.nextCursor !== null
+                  ? encodeCampaignAdminUserCursor(usersResult.value.nextCursor)
+                  : null,
+              sortBy: requestedSort.sortBy,
+              sortOrder: requestedSort.sortOrder,
             },
           },
         });

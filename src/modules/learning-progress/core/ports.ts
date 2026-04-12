@@ -9,6 +9,8 @@ import type {
   GetRecordsOptions,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
+  ListCampaignAdminUsersInput,
+  ListCampaignAdminUsersOutput,
   LearningProgressRecordRow,
   UpsertInteractiveRecordInput,
   UpsertInteractiveRecordResult,
@@ -34,6 +36,10 @@ export interface LearningProgressRepository {
   listCampaignAdminInteractionRows(
     input: ListCampaignAdminInteractionRowsInput
   ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>>;
+
+  listCampaignAdminUsers(
+    input: ListCampaignAdminUsersInput
+  ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>>;
 
   getCampaignAdminStats(
     input: GetCampaignAdminStatsInput

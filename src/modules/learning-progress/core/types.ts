@@ -208,6 +208,7 @@ export interface GetRecordsOptions {
 }
 
 export type CampaignAdminCampaignKey = 'funky';
+export type CampaignAdminSortOrder = 'asc' | 'desc';
 
 export type CampaignAdminSubmissionPath =
   | 'request_platform'
@@ -229,6 +230,19 @@ export interface CampaignAdminListCursor {
   readonly updatedAt: string;
   readonly userId: string;
   readonly recordKey: string;
+}
+
+export type CampaignAdminUserSortBy =
+  | 'userId'
+  | 'latestUpdatedAt'
+  | 'interactionCount'
+  | 'pendingReviewCount';
+
+export interface CampaignAdminUserListCursor {
+  readonly sortBy: CampaignAdminUserSortBy;
+  readonly sortOrder: CampaignAdminSortOrder;
+  readonly userId: string;
+  readonly value: string | number;
 }
 
 export interface CampaignAdminInstitutionThreadSummary {
@@ -253,6 +267,15 @@ export interface CampaignAdminInteractionRow {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly threadSummary: CampaignAdminInstitutionThreadSummary | null;
+}
+
+export interface CampaignAdminUserRow {
+  readonly userId: string;
+  readonly interactionCount: number;
+  readonly pendingReviewCount: number;
+  readonly latestUpdatedAt: string;
+  readonly latestInteractionId: string;
+  readonly latestEntityCui: string | null;
 }
 
 export interface CampaignAdminReviewStatusCounts {
@@ -346,6 +369,22 @@ export interface GetCampaignAdminStatsInput {
 export interface GetCampaignAdminStatsOutput {
   readonly stats: CampaignAdminStatsBase;
   readonly riskFlagCandidates: readonly CampaignAdminRiskFlagCandidate[];
+}
+
+export interface ListCampaignAdminUsersInput {
+  readonly interactions: readonly CampaignAdminInteractionFilter[];
+  readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
+  readonly query?: string;
+  readonly sortBy: CampaignAdminUserSortBy;
+  readonly sortOrder: CampaignAdminSortOrder;
+  readonly limit: number;
+  readonly cursor?: CampaignAdminUserListCursor;
+}
+
+export interface ListCampaignAdminUsersOutput {
+  readonly items: readonly CampaignAdminUserRow[];
+  readonly hasMore: boolean;
+  readonly nextCursor: CampaignAdminUserListCursor | null;
 }
 
 export type CampaignAdminReviewableInteraction = CampaignAdminInteractionFilter;
