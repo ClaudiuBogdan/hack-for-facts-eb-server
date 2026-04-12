@@ -13,6 +13,7 @@ import {
   CampaignKeyParamsSchema,
   CampaignNotificationListQuerySchema,
   CampaignNotificationListResponseSchema,
+  CampaignNotificationMetaResponseSchema,
   CampaignNotificationSortBySchema,
   CampaignNotificationSortOrderSchema,
   CampaignNotificationTemplateIdParamsSchema,
@@ -325,6 +326,43 @@ export const makeCampaignAdminNotificationRoutes = (
               hasMore: result.value.hasMore,
             },
           },
+        });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/meta',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          response: {
+            200: CampaignNotificationMetaResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+        const result = await deps.auditRepository.getCampaignNotificationMetaCounts({
+          campaignKey: access.config.campaignKey,
+        });
+
+        if (result.isErr()) {
+          const statusCode = getHttpStatusForError(result.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: result.value,
         });
       }
     );

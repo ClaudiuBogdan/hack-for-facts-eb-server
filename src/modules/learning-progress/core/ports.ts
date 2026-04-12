@@ -4,8 +4,10 @@
 
 import type { LearningProgressError } from './errors.js';
 import type {
+  CampaignAdminUsersMetaCounts,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
+  GetCampaignAdminUsersMetaCountsInput,
   GetRecordsOptions,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
@@ -40,6 +42,10 @@ export interface LearningProgressRepository {
   listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput
   ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>>;
+
+  getCampaignAdminUsersMetaCounts(
+    input: GetCampaignAdminUsersMetaCountsInput
+  ): Promise<Result<CampaignAdminUsersMetaCounts, LearningProgressError>>;
 
   getCampaignAdminStats(
     input: GetCampaignAdminStatsInput

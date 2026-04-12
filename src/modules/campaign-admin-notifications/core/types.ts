@@ -120,6 +120,12 @@ export interface ListCampaignNotificationAuditOutput {
   readonly hasMore: boolean;
 }
 
+export interface CampaignNotificationMetaCounts {
+  readonly pendingDeliveryCount: number;
+  readonly failedDeliveryCount: number;
+  readonly replyReceivedCount: number;
+}
+
 export interface CampaignNotificationFieldDescriptor {
   readonly name: string;
   readonly type: string;

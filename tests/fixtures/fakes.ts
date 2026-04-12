@@ -62,8 +62,10 @@ import type {
   CampaignAdminUserListCursor,
   CampaignAdminUserRow,
   CampaignAdminUserSortBy,
+  CampaignAdminUsersMetaCounts,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
+  GetCampaignAdminUsersMetaCountsInput,
   GetRecordsOptions,
   InteractiveAuditEvent,
   InteractiveStateRecord,
@@ -1613,6 +1615,11 @@ export const makeFakeLearningProgressRepo = (
     threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
   });
 
+  const createEmptyCampaignAdminUsersMetaCounts = (): CampaignAdminUsersMetaCounts => ({
+    totalUsers: 0,
+    usersWithPendingReviews: 0,
+  });
+
   interface MutableCampaignAdminReviewStatusCounts {
     pending: number;
     approved: number;
@@ -1968,6 +1975,49 @@ export const makeFakeLearningProgressRepo = (
                   value: getCampaignAdminUserCursorValue(lastItem, input.sortBy),
                 }
               : null,
+        });
+      },
+
+      getCampaignAdminUsersMetaCounts: async (
+        input: GetCampaignAdminUsersMetaCountsInput
+      ): Promise<Result<CampaignAdminUsersMetaCounts, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        if (input.interactions.length === 0) {
+          return ok(createEmptyCampaignAdminUsersMetaCounts());
+        }
+
+        const rowsByUserId = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) =>
+            input.interactions.some((interaction) =>
+              matchesCampaignAdminInteractionFilter(row, interaction)
+            )
+          )
+          .reduce<Map<string, LearningProgressRecordRow[]>>((groups, row) => {
+            const existingRows = groups.get(row.userId) ?? [];
+            existingRows.push(row);
+            groups.set(row.userId, existingRows);
+            return groups;
+          }, new Map());
+
+        let usersWithPendingReviews = 0;
+        for (const rows of rowsByUserId.values()) {
+          const hasPendingReview = rows.some((row) => {
+            const isReviewable = input.reviewableInteractions.some((interaction) =>
+              matchesCampaignAdminInteractionFilter(row, interaction)
+            );
+            return getCampaignAdminReviewStatus(row, isReviewable) === 'pending';
+          });
+
+          if (hasPendingReview) {
+            usersWithPendingReviews += 1;
+          }
+        }
+
+        return ok({
+          totalUsers: rowsByUserId.size,
+          usersWithPendingReviews,
         });
       },
 

@@ -23,6 +23,7 @@ import type {
   CampaignNotificationAuditItem,
   CampaignNotificationAuditSortBy,
   CampaignNotificationAuditSortOrder,
+  CampaignNotificationMetaCounts,
   CampaignNotificationProjection,
   CampaignNotificationSafeError,
   CampaignNotificationTriggerSource,
@@ -63,6 +64,12 @@ interface QueryRow {
   triggerSource: string | null;
 }
 
+interface MetaCountsRow {
+  pending_delivery_count: string | number | bigint;
+  failed_delivery_count: string | number | bigint;
+  reply_received_count: string | number | bigint;
+}
+
 const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_WELCOME_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
@@ -70,6 +77,43 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
 ] as const;
 const FUNKY_AUDIT_NOTIFICATION_TYPE_SET = new Set<string>(FUNKY_AUDIT_NOTIFICATION_TYPES);
+const PENDING_DELIVERY_STATUSES = ['pending', 'composing', 'sending'] as const;
+const FAILED_DELIVERY_STATUSES = [
+  'webhook_timeout',
+  'failed_transient',
+  'failed_permanent',
+] as const;
+const MAX_SAFE_INTEGER_AS_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+const parseMetaCountValue = (
+  value: string | number | bigint,
+  fieldName: keyof MetaCountsRow
+): Result<number, CampaignAdminNotificationError> => {
+  if (typeof value === 'number') {
+    if (Number.isSafeInteger(value) && value >= 0) {
+      return ok(value);
+    }
+
+    return err(createDatabaseError(`Invalid notification meta count for ${fieldName}.`, false));
+  }
+
+  if (typeof value === 'bigint') {
+    if (value >= 0n && value <= MAX_SAFE_INTEGER_AS_BIGINT) {
+      return ok(Number(value));
+    }
+
+    return err(createDatabaseError(`Invalid notification meta count for ${fieldName}.`, false));
+  }
+
+  if (/^\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) {
+      return ok(parsed);
+    }
+  }
+
+  return err(createDatabaseError(`Invalid notification meta count for ${fieldName}.`, false));
+};
 
 const buildTriggerSourceExpression = () => sql<string | null>`
   coalesce(
@@ -405,6 +449,83 @@ export const makeCampaignNotificationOutboxAuditRepo = (
       } catch (error) {
         log.error({ error, input }, 'Failed to list campaign notification audit rows');
         return err(createDatabaseError('Failed to list campaign notification audit rows'));
+      }
+    },
+
+    async getCampaignNotificationMetaCounts(
+      input
+    ): Promise<Result<CampaignNotificationMetaCounts, CampaignAdminNotificationError>> {
+      try {
+        const result = await deps.db
+          .selectFrom('notificationsoutbox as outbox')
+          .select((eb) => [
+            eb.fn
+              .count<number>('outbox.id')
+              .filterWhere('outbox.status', 'in', [...PENDING_DELIVERY_STATUSES])
+              .as('pending_delivery_count'),
+            eb.fn
+              .count<number>('outbox.id')
+              .filterWhere('outbox.status', 'in', [...FAILED_DELIVERY_STATUSES])
+              .as('failed_delivery_count'),
+            eb.fn
+              .count<number>('outbox.id')
+              .filterWhere(sql<boolean>`outbox.metadata->>'eventType' = ${'reply_received'}`)
+              .as('reply_received_count'),
+          ])
+          .where('outbox.notification_type', 'in', [...FUNKY_AUDIT_NOTIFICATION_TYPES])
+          .where(sql<boolean>`outbox.metadata->>'campaignKey' = ${input.campaignKey}`)
+          .executeTakeFirst();
+
+        const counts = (result as MetaCountsRow | undefined) ?? {
+          pending_delivery_count: 0,
+          failed_delivery_count: 0,
+          reply_received_count: 0,
+        };
+
+        const pendingDeliveryCount = parseMetaCountValue(
+          counts.pending_delivery_count,
+          'pending_delivery_count'
+        );
+        if (pendingDeliveryCount.isErr()) {
+          log.error(
+            { input, value: counts.pending_delivery_count },
+            'Invalid pending delivery count returned from database'
+          );
+          return err(pendingDeliveryCount.error);
+        }
+
+        const failedDeliveryCount = parseMetaCountValue(
+          counts.failed_delivery_count,
+          'failed_delivery_count'
+        );
+        if (failedDeliveryCount.isErr()) {
+          log.error(
+            { input, value: counts.failed_delivery_count },
+            'Invalid failed delivery count returned from database'
+          );
+          return err(failedDeliveryCount.error);
+        }
+
+        const replyReceivedCount = parseMetaCountValue(
+          counts.reply_received_count,
+          'reply_received_count'
+        );
+        if (replyReceivedCount.isErr()) {
+          log.error(
+            { input, value: counts.reply_received_count },
+            'Invalid reply received count returned from database'
+          );
+          return err(replyReceivedCount.error);
+        }
+
+        return ok({
+          pendingDeliveryCount: pendingDeliveryCount.value,
+          failedDeliveryCount: failedDeliveryCount.value,
+          replyReceivedCount: replyReceivedCount.value,
+        });
+      } catch (error) {
+        log.error({ error, input }, 'Failed to get campaign notification meta counts');
+        return err(createDatabaseError('Failed to get campaign notification meta counts'));
       }
     },
   };

@@ -201,6 +201,21 @@ export const CampaignNotificationListResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignNotificationMetaResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        pendingDeliveryCount: Type.Number({ minimum: 0 }),
+        failedDeliveryCount: Type.Number({ minimum: 0 }),
+        replyReceivedCount: Type.Number({ minimum: 0 }),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignNotificationTriggerFieldSchema = Type.Object(
   {
     name: Type.String({ minLength: 1 }),
