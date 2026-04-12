@@ -21,7 +21,12 @@ import {
   parseDebateRequestPayloadValue,
   parseParticipationReportPayloadValue,
 } from '@/common/campaign-user-interactions.js';
-import { requireAuth } from '@/modules/auth/index.js';
+import {
+  FUNKY_CAMPAIGN_ADMIN_PERMISSION,
+  makeCampaignAdminAuthorizationHook,
+  resolveCampaignAdminPermissionAccess,
+  type CampaignAdminPermissionAuthorizer,
+} from '@/modules/campaign-admin/index.js';
 import {
   EMAIL_REGEX,
   getHttpStatusForError as getCorrespondenceHttpStatusForError,
@@ -65,9 +70,8 @@ import type {
   CampaignAdminSubmissionPath,
   ReviewDecision,
 } from '../../core/types.js';
-import type { CampaignAdminPermissionAuthorizer } from '../security/clerk-campaign-admin-permission-checker.js';
 import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
-import type { FastifyBaseLogger, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 type CampaignAdminInteractionListItem = Static<typeof CampaignAdminInteractionListItemSchema>;
 type CampaignAdminSortKey = NonNullable<CampaignAdminListQuery['sortBy']>;
@@ -131,7 +135,6 @@ declare module 'fastify' {
   }
 }
 
-const FUNKY_CAMPAIGN_ADMIN_PERMISSION = 'campaign:funky_admin' as const;
 const DEFAULT_PAGE_LIMIT = 50;
 const INTERNAL_ROW_FETCH_LIMIT = 500;
 const MAX_CAMPAIGN_ADMIN_LIST_ROWS = 5000;
@@ -1442,62 +1445,25 @@ async function ensureCampaignAdminAccess(input: {
   userId: string;
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   enabledCampaignKeys: ReadonlySet<string>;
-}): Promise<
-  | { ok: true; config: CampaignAuditConfig }
-  | { ok: false; statusCode: 403 | 404; error: string; message: string }
-> {
-  if (!input.enabledCampaignKeys.has(input.campaignKey)) {
-    return {
-      ok: false,
-      statusCode: 404,
-      error: 'NotFoundError',
-      message: 'Campaign interaction audit not found',
-    };
-  }
-
-  const config = getCampaignReviewConfig(input.campaignKey);
-  if (config === null) {
-    return {
-      ok: false,
-      statusCode: 404,
-      error: 'NotFoundError',
-      message: 'Campaign interaction audit not found',
-    };
-  }
-
-  const allowed = await input.permissionAuthorizer.hasPermission({
+}) {
+  return resolveCampaignAdminPermissionAccess({
+    campaignKey: input.campaignKey,
     userId: input.userId,
-    permissionName: config.permissionName,
+    permissionAuthorizer: input.permissionAuthorizer,
+    enabledCampaignKeys: input.enabledCampaignKeys,
+    getConfig: getCampaignReviewConfig,
+    getPermissionName(config) {
+      return config.permissionName;
+    },
+    buildAccessContext({ userId, config }) {
+      return {
+        userId,
+        config,
+      };
+    },
+    notFoundMessage: 'Campaign interaction audit not found',
+    forbiddenMessage: 'You do not have permission to access this campaign interaction audit',
   });
-  if (!allowed) {
-    return {
-      ok: false,
-      statusCode: 403,
-      error: 'ForbiddenError',
-      message: 'You do not have permission to access this campaign interaction audit',
-    };
-  }
-
-  return { ok: true, config };
-}
-
-function sendCampaignAdminError(
-  reply: FastifyReply,
-  statusCode: 401 | 403 | 404,
-  error: string,
-  message: string
-) {
-  return reply.status(statusCode).send({
-    ok: false,
-    error,
-    message,
-    retryable: false,
-  });
-}
-
-function getRequestCampaignKey(request: FastifyRequest): string | null {
-  const params = request.params as { campaignKey?: unknown };
-  return typeof params.campaignKey === 'string' ? params.campaignKey : null;
 }
 
 function getCampaignAdminAccess(request: FastifyRequest): CampaignAdminAccessContext {
@@ -1514,43 +1480,19 @@ function makeCampaignAdminAuthHook(input: {
   enabledCampaignKeys: ReadonlySet<string>;
 }) {
   // Spec: docs/specs/specs-202604110932-campaign-admin-fail-closed-authorization.md
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    request.campaignAdminAccess = null;
-
-    const campaignKey = getRequestCampaignKey(request);
-    if (campaignKey === null) {
-      void sendCampaignAdminError(
-        reply,
-        404,
-        'NotFoundError',
-        'Campaign interaction audit not found'
-      );
-      return;
-    }
-
-    const authResult = requireAuth(request.auth);
-    if (authResult.isErr()) {
-      void sendCampaignAdminError(reply, 401, authResult.error.type, authResult.error.message);
-      return;
-    }
-
-    const access = await ensureCampaignAdminAccess({
-      campaignKey,
-      userId: authResult.value as string,
-      permissionAuthorizer: input.permissionAuthorizer,
-      enabledCampaignKeys: input.enabledCampaignKeys,
-    });
-
-    if (!access.ok) {
-      void sendCampaignAdminError(reply, access.statusCode, access.error, access.message);
-      return;
-    }
-
-    request.campaignAdminAccess = {
-      userId: authResult.value as string,
-      config: access.config,
-    };
-  };
+  return makeCampaignAdminAuthorizationHook<CampaignAdminAccessContext>({
+    setAccessContext(request, accessContext) {
+      request.campaignAdminAccess = accessContext;
+    },
+    authorize: async ({ campaignKey, userId }) => {
+      return ensureCampaignAdminAccess({
+        campaignKey,
+        userId,
+        permissionAuthorizer: input.permissionAuthorizer,
+        enabledCampaignKeys: input.enabledCampaignKeys,
+      });
+    },
+  });
 }
 
 async function validateCampaignReviewItems(input: {

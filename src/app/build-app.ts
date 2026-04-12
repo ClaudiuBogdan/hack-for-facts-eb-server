@@ -79,6 +79,13 @@ import {
   makeBudgetSectorRepo,
   type BudgetSectorRepository,
 } from '../modules/budget-sector/index.js';
+import { makeClerkCampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
+import {
+  makeCampaignAdminNotificationRoutes,
+  makeCampaignNotificationOutboxAuditRepo,
+  makeCampaignNotificationTemplatePreviewService,
+  makeCampaignNotificationTriggerRegistry,
+} from '../modules/campaign-admin-notifications/index.js';
 import {
   makeCampaignSubscriptionStatsReader,
   makeCampaignSubscriptionStatsRoutes,
@@ -164,6 +171,7 @@ import {
   startCorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntimeFactory,
+  type InstitutionCorrespondenceRepository,
   type InstitutionCorrespondenceError,
   type PublicDebateSelfSendApprovalService,
 } from '../modules/institution-correspondence/index.js';
@@ -171,7 +179,6 @@ import {
   CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
   createDatabaseError as createLearningProgressDatabaseError,
   makeCampaignAdminUserInteractionRoutes,
-  makeClerkCampaignAdminPermissionAuthorizer,
   makeLearningProgressRoutes,
   makeLearningProgressRepo,
   syncEvents,
@@ -1106,6 +1113,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
     const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
     const learningProgressRepo = makeLearningProgressRepo({ db: userDb, logger: repoLogger });
+    const emailRenderer = makeEmailRenderer({ logger: repoLogger });
     const emailEventsRepo =
       config.email.webhookSecret !== undefined
         ? makeResendWebhookEmailEventsRepo({
@@ -1144,6 +1152,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           >
         >)
       | undefined;
+    let correspondenceRepo: InstitutionCorrespondenceRepository | undefined;
 
     const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
 
@@ -1258,7 +1267,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
                   datasetRepo,
                   logger: repoLogger,
                 }),
-                emailRenderer: makeEmailRenderer({ logger: repoLogger }),
+                emailRenderer,
                 platformBaseUrl: config.notifications.platformBaseUrl,
                 apiBaseUrl: config.notifications.apiBaseUrl,
                 environment: config.server.isProduction
@@ -1513,10 +1522,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         throw new Error('Email is enabled but RESEND_API_KEY is missing.');
       }
 
-      const correspondenceRepo = makeInstitutionCorrespondenceRepo({
+      correspondenceRepo = makeInstitutionCorrespondenceRepo({
         db: userDb,
         logger: repoLogger,
       });
+      const correspondenceRepoInstance = correspondenceRepo;
       const emailSender = makeEmailClient({
         apiKey: emailApiKey,
         fromAddress: funkyEmailFromAddress ?? '',
@@ -1548,7 +1558,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }
 
       const publicDebateNotificationOrchestrator = makePublicDebateNotificationOrchestrator({
-        repo: correspondenceRepo,
+        repo: correspondenceRepoInstance,
         entityRepo,
         notificationsRepo,
         extendedNotificationsRepo,
@@ -1567,7 +1577,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           learningProgressRepo,
           entityRepo,
           entityProfileRepo,
-          repo: correspondenceRepo,
+          repo: correspondenceRepoInstance,
           emailSender,
           templateRenderer: correspondenceTemplateRenderer,
           auditCcRecipients: campaignAuditCcRecipients,
@@ -1586,7 +1596,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             learningProgressRepo,
             entityRepo,
             entityProfileRepo,
-            repo: correspondenceRepo,
+            repo: correspondenceRepoInstance,
             emailSender,
             templateRenderer: correspondenceTemplateRenderer,
             auditCcRecipients: campaignAuditCcRecipients,
@@ -1612,7 +1622,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         });
 
         adminEventRegistry = makeDefaultAdminEventRegistry({
-          institutionCorrespondenceRepo: correspondenceRepo,
+          institutionCorrespondenceRepo: correspondenceRepoInstance,
         });
       }
 
@@ -1622,7 +1632,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       ) {
         await app.register(
           makeInstitutionCorrespondenceAdminRoutes({
-            repo: correspondenceRepo,
+            repo: correspondenceRepoInstance,
             apiKey: config.institutionCorrespondence.adminApiKey,
             updatePublisher: publicDebateUpdatePublisher,
           })
@@ -1655,7 +1665,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
       resendWebhookSideEffects.push(
         makeInstitutionCorrespondenceResendSideEffect({
-          repo: correspondenceRepo,
+          repo: correspondenceRepoInstance,
           officialEmailLookup,
           selfSendContextLookup,
           selfSendApprovalService: publicDebateSelfSendApprovalService,
@@ -1683,7 +1693,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         correspondenceRecoveryRuntime = await createCorrespondenceRecoveryRuntime({
           redisUrl: config.jobs.redisUrl ?? '',
           bullmqPrefix: config.jobs.prefix,
-          repo: correspondenceRepo,
+          repo: correspondenceRepoInstance,
           evidenceLookup: platformSendSuccessEvidenceLookup,
           notificationsRepo: extendedNotificationsRepo,
           deliveryRepo,
@@ -1804,18 +1814,57 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         );
       }
 
+      if (correspondenceRepo === undefined) {
+        throw new Error(
+          'Campaign admin notification routes require public debate correspondence wiring when the campaign admin API is enabled.'
+        );
+      }
+
+      if (publicDebateComposeJobScheduler === undefined) {
+        throw new Error(
+          'Campaign admin notification routes require notification delivery compose scheduling when the campaign admin API is enabled.'
+        );
+      }
+
+      const campaignAdminPermissionAuthorizer = makeClerkCampaignAdminPermissionAuthorizer({
+        secretKey: campaignAdminClerkSecret,
+        logger: repoLogger,
+      });
+      const campaignAdminEnabledKeys =
+        enabledCampaignAdminKeys as readonly import('../modules/learning-progress/index.js').CampaignAdminCampaignKey[];
+
       await app.register(
         makeCampaignAdminUserInteractionRoutes({
           learningProgressRepo,
           entityRepo,
           entityProfileRepo,
-          enabledCampaignKeys:
-            enabledCampaignAdminKeys as readonly import('../modules/learning-progress/index.js').CampaignAdminCampaignKey[],
-          permissionAuthorizer: makeClerkCampaignAdminPermissionAuthorizer({
-            secretKey: campaignAdminClerkSecret,
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
+          prepareApproveReviews: prepareApproveLearningProgressReviews,
+        })
+      );
+
+      await app.register(
+        makeCampaignAdminNotificationRoutes({
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
+          auditRepository: makeCampaignNotificationOutboxAuditRepo({
+            db: userDb,
             logger: repoLogger,
           }),
-          prepareApproveReviews: prepareApproveLearningProgressReviews,
+          triggerRegistry: makeCampaignNotificationTriggerRegistry({
+            learningProgressRepo,
+            notificationsRepo,
+            extendedNotificationsRepo,
+            deliveryRepo,
+            composeJobScheduler: publicDebateComposeJobScheduler,
+            entityRepo,
+            correspondenceRepo,
+          }),
+          templatePreviewService: makeCampaignNotificationTemplatePreviewService({
+            logger: repoLogger,
+            renderer: emailRenderer,
+          }),
         })
       );
     }

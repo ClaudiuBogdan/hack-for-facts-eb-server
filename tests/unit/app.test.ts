@@ -1743,6 +1743,13 @@ describe('App Factory', () => {
 
       expect(response.statusCode).toBe(404);
 
+      const notificationsResponse = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/campaigns/funky/notifications',
+      });
+
+      expect(notificationsResponse.statusCode).toBe(404);
+
       await app.close();
     });
 
@@ -2018,6 +2025,19 @@ describe('App Factory', () => {
 
       expect(response.statusCode).toBe(401);
       expect(response.json()).toEqual({
+        ok: false,
+        error: 'AuthenticationRequiredError',
+        message: 'Authentication required',
+        retryable: false,
+      });
+
+      const notificationsResponse = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/campaigns/funky/notifications',
+      });
+
+      expect(notificationsResponse.statusCode).toBe(401);
+      expect(notificationsResponse.json()).toEqual({
         ok: false,
         error: 'AuthenticationRequiredError',
         message: 'Authentication required',

@@ -1,6 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { createDatabaseError, type DeliveryError } from '../errors.js';
+import { TERMINAL_STATUSES, type DeliveryRecord } from '../types.js';
 
 import type { ComposeJobScheduler, CreateDeliveryInput, DeliveryRepository } from '../ports.js';
 
@@ -9,30 +10,67 @@ export interface EnqueueCreatedOrReusedOutboxDeps {
   composeJobScheduler: ComposeJobScheduler;
 }
 
+export type ReusedOutboxComposeStrategy = 'always_enqueue_compose' | 'skip_terminal_compose';
+export type DirectOutboxComposeStatus =
+  | 'compose_enqueued'
+  | 'compose_enqueue_failed'
+  | 'skipped_terminal';
+
 export interface EnqueueCreatedOrReusedOutboxInput {
   runId: string;
   deliveryKey: string;
   createInput: CreateDeliveryInput;
+  reusedOutboxComposeStrategy?: ReusedOutboxComposeStrategy;
 }
 
 export interface EnqueueCreatedOrReusedOutboxResult {
   outboxId: string;
   source: 'created' | 'reused';
   composeEnqueued: boolean;
+  composeStatus: DirectOutboxComposeStatus;
 }
 
 const enqueueCompose = async (
   composeJobScheduler: ComposeJobScheduler,
   runId: string,
   outboxId: string
-): Promise<boolean> => {
+): Promise<DirectOutboxComposeStatus> => {
   const enqueueResult = await composeJobScheduler.enqueue({
     runId,
     kind: 'outbox',
     outboxId,
   });
 
-  return enqueueResult.isOk();
+  return enqueueResult.isOk() ? 'compose_enqueued' : 'compose_enqueue_failed';
+};
+
+const maybeEnqueueCompose = async (
+  composeJobScheduler: ComposeJobScheduler,
+  input: EnqueueCreatedOrReusedOutboxInput,
+  outbox: DeliveryRecord,
+  source: EnqueueCreatedOrReusedOutboxResult['source']
+): Promise<EnqueueCreatedOrReusedOutboxResult> => {
+  if (
+    source === 'reused' &&
+    input.reusedOutboxComposeStrategy === 'skip_terminal_compose' &&
+    TERMINAL_STATUSES.includes(outbox.status)
+  ) {
+    return {
+      outboxId: outbox.id,
+      source,
+      composeEnqueued: false,
+      composeStatus: 'skipped_terminal',
+    };
+  }
+
+  const composeStatus = await enqueueCompose(composeJobScheduler, input.runId, outbox.id);
+
+  return {
+    outboxId: outbox.id,
+    source,
+    composeEnqueued: composeStatus === 'compose_enqueued',
+    composeStatus,
+  };
 };
 
 export const enqueueCreatedOrReusedOutbox = async (
@@ -59,24 +97,12 @@ export const enqueueCreatedOrReusedOutbox = async (
       );
     }
 
-    return ok({
-      outboxId: duplicateResult.value.id,
-      source: 'reused',
-      composeEnqueued: await enqueueCompose(
-        deps.composeJobScheduler,
-        input.runId,
-        duplicateResult.value.id
-      ),
-    });
+    return ok(
+      await maybeEnqueueCompose(deps.composeJobScheduler, input, duplicateResult.value, 'reused')
+    );
   }
 
-  return ok({
-    outboxId: createResult.value.id,
-    source: 'created',
-    composeEnqueued: await enqueueCompose(
-      deps.composeJobScheduler,
-      input.runId,
-      createResult.value.id
-    ),
-  });
+  return ok(
+    await maybeEnqueueCompose(deps.composeJobScheduler, input, createResult.value, 'created')
+  );
 };

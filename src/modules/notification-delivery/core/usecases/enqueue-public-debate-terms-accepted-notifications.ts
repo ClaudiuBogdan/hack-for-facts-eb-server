@@ -12,6 +12,8 @@ export interface PublicDebateTermsAcceptedEvent {
   runId: string;
   source: string;
   sourceEventId: string;
+  triggerSource?: string;
+  triggeredByUserId?: string;
   userId: string;
   campaignKey: typeof PUBLIC_DEBATE_CAMPAIGN_KEY;
   entityCui: string;
@@ -97,12 +99,15 @@ const hasMatchingTriggeringEntity = (
 };
 
 const buildMetadata = (input: PublicDebateTermsAcceptedEvent): Record<string, unknown> => ({
+  runId: input.runId,
   campaignKey: input.campaignKey,
   entityCui: input.entityCui,
   entityName: input.entityName,
   acceptedTermsAt: input.acceptedTermsAt,
   source: input.source,
   sourceEventId: input.sourceEventId,
+  ...(input.triggerSource !== undefined ? { triggerSource: input.triggerSource } : {}),
+  ...(input.triggeredByUserId !== undefined ? { triggeredByUserId: input.triggeredByUserId } : {}),
   ...(input.selectedEntities !== undefined ? { selectedEntities: input.selectedEntities } : {}),
 });
 

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createQueueError } from '@/modules/notification-delivery/core/errors.js';
 import { enqueueCreatedOrReusedOutbox } from '@/modules/notification-delivery/core/usecases/enqueue-created-or-reused-outbox.js';
 
-import { makeFakeDeliveryRepo } from '../../fixtures/fakes.js';
+import { createTestDeliveryRecord, makeFakeDeliveryRepo } from '../../fixtures/fakes.js';
 
 describe('enqueueCreatedOrReusedOutbox', () => {
   const createComposeJobScheduler = () => ({
@@ -40,6 +40,7 @@ describe('enqueueCreatedOrReusedOutbox', () => {
     if (result.isOk()) {
       expect(result.value.source).toBe('created');
       expect(result.value.composeEnqueued).toBe(true);
+      expect(result.value.composeStatus).toBe('compose_enqueued');
     }
     expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(1);
   });
@@ -66,8 +67,46 @@ describe('enqueueCreatedOrReusedOutbox', () => {
     if (result.isOk()) {
       expect(result.value.source).toBe('reused');
       expect(result.value.composeEnqueued).toBe(true);
+      expect(result.value.composeStatus).toBe('compose_enqueued');
     }
     expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips compose requeue when a reused outbox row is already terminal and the caller opts in', async () => {
+    const existingOutbox = createTestDeliveryRecord({
+      id: 'delivery-terminal',
+      userId: createInput.userId,
+      notificationType: createInput.notificationType,
+      referenceId: createInput.referenceId,
+      scopeKey: createInput.scopeKey,
+      deliveryKey: createInput.deliveryKey,
+      status: 'delivered',
+      metadata: createInput.metadata,
+    });
+    const deliveryRepo = makeFakeDeliveryRepo({ deliveries: [existingOutbox] });
+    const composeJobScheduler = createComposeJobScheduler();
+
+    const result = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo,
+        composeJobScheduler,
+      },
+      {
+        runId: 'run-terminal',
+        deliveryKey: createInput.deliveryKey,
+        reusedOutboxComposeStrategy: 'skip_terminal_compose',
+        createInput,
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.outboxId).toBe(existingOutbox.id);
+      expect(result.value.source).toBe('reused');
+      expect(result.value.composeEnqueued).toBe(false);
+      expect(result.value.composeStatus).toBe('skipped_terminal');
+    }
+    expect(composeJobScheduler.enqueue).not.toHaveBeenCalled();
   });
 
   it('returns a DatabaseError when DuplicateDelivery is reported but the outbox row cannot be reloaded', async () => {
@@ -125,6 +164,7 @@ describe('enqueueCreatedOrReusedOutbox', () => {
     if (result.isOk()) {
       expect(result.value.source).toBe('created');
       expect(result.value.composeEnqueued).toBe(false);
+      expect(result.value.composeStatus).toBe('compose_enqueue_failed');
     }
   });
 });
