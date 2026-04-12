@@ -465,6 +465,72 @@ describe('Campaign Admin Users REST API', () => {
     ]);
   });
 
+  it('passes entityCui through to the users repo and allows subscription-only rows', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers').mockResolvedValue(
+      ok({
+        items: [
+          {
+            userId: 'subscriber-only',
+            interactionCount: 0,
+            pendingReviewCount: 0,
+            latestUpdatedAt: '2026-04-10T14:00:00.000Z',
+            latestInteractionId: null,
+            latestEntityCui: '12345678',
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      })
+    );
+    const setup = await createTestApp({
+      learningProgressRepo,
+      entityRepo: makeTestEntityRepo({
+        '12345678': 'Primaria One',
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users?entityCui=12345678',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listUsersSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityCui: '12345678',
+        sortBy: 'latestUpdatedAt',
+        sortOrder: 'desc',
+      })
+    );
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          {
+            userId: 'subscriber-only',
+            interactionCount: 0,
+            pendingReviewCount: 0,
+            latestUpdatedAt: '2026-04-10T14:00:00.000Z',
+            latestInteractionId: null,
+            latestEntityCui: '12345678',
+            latestEntityName: 'Primaria One',
+          },
+        ],
+        page: {
+          hasMore: false,
+          nextCursor: null,
+          sortBy: 'latestUpdatedAt',
+          sortOrder: 'desc',
+        },
+      },
+    });
+  });
+
   it('supports sorting by each supported user aggregate key', async () => {
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
     initialRecords.set('user-beta', [
@@ -736,6 +802,37 @@ describe('Campaign Admin Users REST API', () => {
     });
   });
 
+  it('returns 400 when cursor sort does not match the request sort', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const mismatchedCursor = Buffer.from(
+      JSON.stringify({
+        sortBy: 'latestUpdatedAt',
+        sortOrder: 'desc',
+        userId: 'user-1',
+        value: '2026-04-10T10:00:00.000Z',
+      }),
+      'utf-8'
+    ).toString('base64url');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/users?sortBy=userId&sortOrder=asc&cursor=${encodeURIComponent(mismatchedCursor)}`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign user cursor',
+      retryable: false,
+    });
+  });
+
   it('returns 400 for a structured cursor with an invalid sort value', async () => {
     const setup = await createTestApp();
     app = setup.app;
@@ -765,6 +862,54 @@ describe('Campaign Admin Users REST API', () => {
       message: 'Invalid campaign user cursor',
       retryable: false,
     });
+  });
+
+  it('returns 400 for unsupported filters on the users list', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers');
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users?hasSubscribers=true',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      ok: false,
+      retryable: false,
+    });
+    expect(listUsersSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for unsupported user sorts', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers');
+    const setup = await createTestApp({
+      learningProgressRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users?sortBy=entityName',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      ok: false,
+      retryable: false,
+    });
+    expect(listUsersSpy).not.toHaveBeenCalled();
   });
 
   it('validates limit bounds', async () => {

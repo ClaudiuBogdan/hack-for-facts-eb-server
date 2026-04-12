@@ -274,7 +274,7 @@ export interface CampaignAdminUserRow {
   readonly interactionCount: number;
   readonly pendingReviewCount: number;
   readonly latestUpdatedAt: string;
-  readonly latestInteractionId: string;
+  readonly latestInteractionId: string | null;
   readonly latestEntityCui: string | null;
 }
 
@@ -375,6 +375,7 @@ export interface ListCampaignAdminUsersInput {
   readonly interactions: readonly CampaignAdminInteractionFilter[];
   readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
   readonly query?: string;
+  readonly entityCui?: string;
   readonly sortBy: CampaignAdminUserSortBy;
   readonly sortOrder: CampaignAdminSortOrder;
   readonly limit: number;

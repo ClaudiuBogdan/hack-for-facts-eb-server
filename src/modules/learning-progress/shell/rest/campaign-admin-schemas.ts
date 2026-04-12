@@ -144,6 +144,7 @@ export type CampaignAdminUserCursor = Static<typeof CampaignAdminUserCursorSchem
 export const CampaignAdminUserListQuerySchema = Type.Object(
   {
     query: Type.Optional(Type.String()),
+    entityCui: Type.Optional(Type.String({ minLength: 1 })),
     sortBy: Type.Optional(CampaignAdminUserSortBySchema),
     sortOrder: Type.Optional(CampaignAdminSortOrderSchema),
     cursor: Type.Optional(Type.String({ minLength: 1 })),
@@ -499,7 +500,7 @@ export const CampaignAdminUserListItemSchema = Type.Object(
     interactionCount: Type.Number({ minimum: 0 }),
     pendingReviewCount: Type.Number({ minimum: 0 }),
     latestUpdatedAt: Type.String({ format: 'date-time' }),
-    latestInteractionId: Type.String({ minLength: 1 }),
+    latestInteractionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     latestEntityCui: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     latestEntityName: Type.Union([Type.String(), Type.Null()]),
   },

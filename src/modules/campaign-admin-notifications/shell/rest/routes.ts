@@ -69,6 +69,19 @@ const CAMPAIGN_NOTIFICATION_ROUTE_CONFIGS: Readonly<
 };
 
 const DEFAULT_LIST_LIMIT = 50;
+const ALLOWED_CAMPAIGN_NOTIFICATION_QUERY_KEYS = new Set<string>([
+  'notificationType',
+  'templateId',
+  'status',
+  'eventType',
+  'entityCui',
+  'threadId',
+  'source',
+  'sortBy',
+  'sortOrder',
+  'cursor',
+  'limit',
+]);
 
 const CampaignNotificationCursorSchema = Type.Object(
   {
@@ -157,6 +170,27 @@ function decodeCursor(encodedCursor: string): CampaignNotificationAuditCursor | 
     : null;
 }
 
+function getUnknownQueryKeys(
+  request: FastifyRequest,
+  allowedKeys: ReadonlySet<string>
+): readonly string[] {
+  const requestUrl = request.raw.url;
+  if (requestUrl === undefined) {
+    return [];
+  }
+
+  const searchParams = new URL(requestUrl, 'http://localhost').searchParams;
+  const unknownKeys = new Set<string>();
+
+  for (const key of searchParams.keys()) {
+    if (!allowedKeys.has(key)) {
+      unknownKeys.add(key);
+    }
+  }
+
+  return [...unknownKeys];
+}
+
 export interface MakeCampaignAdminNotificationRoutesDeps {
   enabledCampaignKeys: readonly CampaignNotificationAdminCampaignKey[];
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
@@ -203,6 +237,19 @@ export const makeCampaignAdminNotificationRoutes = (
       },
       async (request, reply) => {
         const access = getCampaignAdminNotificationAccess(request);
+        const unknownQueryKeys = getUnknownQueryKeys(
+          request,
+          ALLOWED_CAMPAIGN_NOTIFICATION_QUERY_KEYS
+        );
+        if (unknownQueryKeys.length > 0) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: `Unknown campaign notification filters: ${unknownQueryKeys.join(', ')}`,
+            retryable: false,
+          });
+        }
+
         const decodedCursor =
           request.query.cursor !== undefined ? decodeCursor(request.query.cursor) : undefined;
         const requestedSortBy = request.query.sortBy ?? 'createdAt';

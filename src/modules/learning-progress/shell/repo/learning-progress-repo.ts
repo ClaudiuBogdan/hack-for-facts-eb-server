@@ -7,6 +7,11 @@
 import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
+} from '@/common/campaign-keys.js';
+
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
 import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
@@ -50,6 +55,7 @@ export interface LearningProgressRepoOptions {
 }
 
 const USER_INTERACTIONS_TABLE = 'userinteractions' as const;
+const GLOBAL_UNSUBSCRIBE_TYPE = 'global_unsubscribe' as const;
 
 const LEARNING_PROGRESS_ROW_COLUMNS = [
   'user_id',
@@ -644,7 +650,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput
   ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>> {
-    if (input.interactions.length === 0) {
+    if (input.interactions.length === 0 && input.entityCui === undefined) {
       return ok({
         items: [],
         hasMore: false,
@@ -668,79 +674,206 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     const orderBySql = buildCampaignAdminUserOrderBySql(input.sortBy, input.sortOrder);
 
     try {
-      const result = await sql<CampaignAdminUserAggregateQueryRow>`
-        with filtered_items as (
-          select
-            user_id,
-            record_key,
-            updated_at,
-            record->>'interactionId' as interaction_id,
-            record->'scope'->>'entityCui' as entity_cui,
-            case
-              when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
-              when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
-              else null
-            end as review_status
-          from userinteractions
-          where (${visibleInteractionsSql})
-            ${queryFilterSql}
-        ),
-        ranked_items as (
-          select
-            user_id,
-            record_key,
-            updated_at,
-            interaction_id,
-            entity_cui,
-            review_status,
-            row_number() over (
-              partition by user_id
-              order by updated_at desc, record_key asc
-            ) as latest_row_number
-          from filtered_items
-        ),
-        aggregated_users as (
-          select
-            user_id,
-            count(*)::int as interaction_count,
-            count(*) filter (where review_status = 'pending')::int as pending_review_count
-          from ranked_items
-          group by user_id
-        ),
-        latest_rows as (
-          select
-            user_id,
-            updated_at as latest_updated_at,
-            interaction_id as latest_interaction_id,
-            entity_cui as latest_entity_cui
-          from ranked_items
-          where latest_row_number = 1
-        ),
-        aggregated_user_rows as (
-          select
-            aggregated_users.user_id,
-            aggregated_users.interaction_count,
-            aggregated_users.pending_review_count,
-            latest_rows.latest_updated_at,
-            latest_rows.latest_interaction_id,
-            latest_rows.latest_entity_cui
-          from aggregated_users
-          inner join latest_rows
-            on latest_rows.user_id = aggregated_users.user_id
-        )
-        select
-          aggregated_user_rows.user_id,
-          aggregated_user_rows.interaction_count,
-          aggregated_user_rows.pending_review_count,
-          aggregated_user_rows.latest_updated_at,
-          aggregated_user_rows.latest_interaction_id,
-          aggregated_user_rows.latest_entity_cui
-        from aggregated_user_rows
-        where true
-          ${cursorFilterSql}
-        ${orderBySql}
-        limit ${input.limit + 1}
-      `.execute(this.db);
+      const result =
+        input.entityCui === undefined
+          ? await sql<CampaignAdminUserAggregateQueryRow>`
+              with filtered_items as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  record->>'interactionId' as interaction_id,
+                  record->'scope'->>'entityCui' as entity_cui,
+                  case
+                    when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+                    when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+                    else null
+                  end as review_status
+                from userinteractions
+                where (${visibleInteractionsSql})
+                  ${queryFilterSql}
+              ),
+              ranked_items as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  interaction_id,
+                  entity_cui,
+                  review_status,
+                  row_number() over (
+                    partition by user_id
+                    order by updated_at desc, record_key asc
+                  ) as latest_row_number
+                from filtered_items
+              ),
+              aggregated_users as (
+                select
+                  user_id,
+                  count(*)::int as interaction_count,
+                  count(*) filter (where review_status = 'pending')::int as pending_review_count
+                from ranked_items
+                group by user_id
+              ),
+              latest_rows as (
+                select
+                  user_id,
+                  updated_at as latest_updated_at,
+                  interaction_id as latest_interaction_id,
+                  entity_cui as latest_entity_cui
+                from ranked_items
+                where latest_row_number = 1
+              ),
+              aggregated_user_rows as (
+                select
+                  aggregated_users.user_id,
+                  aggregated_users.interaction_count,
+                  aggregated_users.pending_review_count,
+                  latest_rows.latest_updated_at,
+                  latest_rows.latest_interaction_id,
+                  latest_rows.latest_entity_cui
+                from aggregated_users
+                inner join latest_rows
+                  on latest_rows.user_id = aggregated_users.user_id
+              )
+              select
+                aggregated_user_rows.user_id,
+                aggregated_user_rows.interaction_count,
+                aggregated_user_rows.pending_review_count,
+                aggregated_user_rows.latest_updated_at,
+                aggregated_user_rows.latest_interaction_id,
+                aggregated_user_rows.latest_entity_cui
+              from aggregated_user_rows
+              where true
+                ${cursorFilterSql}
+              ${orderBySql}
+              limit ${input.limit + 1}
+            `.execute(this.db)
+          : await sql<CampaignAdminUserAggregateQueryRow>`
+              with active_global_users as (
+                select distinct n.user_id
+                from notifications as n
+                where n.notification_type = ${FUNKY_NOTIFICATION_GLOBAL_TYPE}
+                  and n.is_active = true
+              ),
+              globally_unsubscribed_users as (
+                select distinct n.user_id
+                from notifications as n
+                where n.notification_type = ${GLOBAL_UNSUBSCRIBE_TYPE}
+                  and (
+                    n.is_active = false
+                    or n.config->'channels'->>'email' = 'false'
+                  )
+              ),
+              interaction_rows as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  record->>'interactionId' as interaction_id,
+                  case
+                    when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+                    when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+                    else null
+                  end as review_status
+                from userinteractions
+                where record->'scope'->>'type' = 'entity'
+                  and nullif(btrim(record->'scope'->>'entityCui'), '') = ${input.entityCui}
+                  and (${visibleInteractionsSql})
+                  ${queryFilterSql}
+              ),
+              ranked_interaction_rows as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  interaction_id,
+                  review_status,
+                  row_number() over (
+                    partition by user_id
+                    order by updated_at desc, record_key asc
+                  ) as latest_row_number
+                from interaction_rows
+              ),
+              interaction_aggregate as (
+                select
+                  user_id,
+                  count(*)::int as interaction_count,
+                  count(*) filter (where review_status = 'pending')::int as pending_review_count
+                from ranked_interaction_rows
+                group by user_id
+              ),
+              latest_interaction_rows as (
+                select
+                  user_id,
+                  updated_at as latest_updated_at,
+                  interaction_id as latest_interaction_id
+                from ranked_interaction_rows
+                where latest_row_number = 1
+              ),
+              subscriber_users as (
+                select
+                  entity_subscriptions.user_id,
+                  max(entity_subscriptions.updated_at) as latest_subscription_updated_at
+                from notifications as entity_subscriptions
+                inner join active_global_users
+                  on active_global_users.user_id = entity_subscriptions.user_id
+                left join globally_unsubscribed_users
+                  on globally_unsubscribed_users.user_id = entity_subscriptions.user_id
+                where entity_subscriptions.notification_type = ${FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE}
+                  and entity_subscriptions.is_active = true
+                  and nullif(btrim(entity_subscriptions.entity_cui), '') = ${input.entityCui}
+                  and globally_unsubscribed_users.user_id is null
+                  ${
+                    input.query !== undefined
+                      ? sql<boolean>`
+                          and entity_subscriptions.user_id ilike ${`%${escapeLikePattern(input.query)}%`} escape '\\'
+                        `
+                      : sql``
+                  }
+                group by entity_subscriptions.user_id
+              ),
+              base_users as (
+                select user_id from interaction_aggregate
+                union
+                select user_id from subscriber_users
+              ),
+              aggregated_user_rows as (
+                select
+                  base_users.user_id,
+                  coalesce(interaction_aggregate.interaction_count, 0)::int as interaction_count,
+                  coalesce(interaction_aggregate.pending_review_count, 0)::int as pending_review_count,
+                  case
+                    when latest_interaction_rows.latest_updated_at is null then subscriber_users.latest_subscription_updated_at
+                    when subscriber_users.latest_subscription_updated_at is null then latest_interaction_rows.latest_updated_at
+                    else greatest(
+                      latest_interaction_rows.latest_updated_at,
+                      subscriber_users.latest_subscription_updated_at
+                    )
+                  end as latest_updated_at,
+                  latest_interaction_rows.latest_interaction_id,
+                  ${input.entityCui}::text as latest_entity_cui
+                from base_users
+                left join interaction_aggregate
+                  on interaction_aggregate.user_id = base_users.user_id
+                left join latest_interaction_rows
+                  on latest_interaction_rows.user_id = base_users.user_id
+                left join subscriber_users
+                  on subscriber_users.user_id = base_users.user_id
+              )
+              select
+                aggregated_user_rows.user_id,
+                aggregated_user_rows.interaction_count,
+                aggregated_user_rows.pending_review_count,
+                aggregated_user_rows.latest_updated_at,
+                aggregated_user_rows.latest_interaction_id,
+                aggregated_user_rows.latest_entity_cui
+              from aggregated_user_rows
+              where aggregated_user_rows.latest_updated_at is not null
+                ${cursorFilterSql}
+              ${orderBySql}
+              limit ${input.limit + 1}
+            `.execute(this.db);
 
       const hasMore = result.rows.length > input.limit;
       const pageRows = result.rows.slice(0, input.limit);
@@ -1122,7 +1255,7 @@ interface CampaignAdminUserAggregateQueryRow {
   interaction_count: number;
   pending_review_count: number;
   latest_updated_at: Date | string;
-  latest_interaction_id: string;
+  latest_interaction_id: string | null;
   latest_entity_cui: string | null;
 }
 

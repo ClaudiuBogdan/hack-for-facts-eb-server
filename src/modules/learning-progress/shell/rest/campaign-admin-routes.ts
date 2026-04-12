@@ -2,17 +2,8 @@ import { type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { err, fromThrowable, ok, type Result } from 'neverthrow';
 
-import { FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import {
-  BUDGET_CONTESTATION_INTERACTION_ID,
-  BUDGET_DOCUMENT_INTERACTION_ID,
-  BUDGET_PUBLICATION_DATE_INTERACTION_ID,
-  BUDGET_STATUS_INTERACTION_ID,
-  CITY_HALL_WEBSITE_INTERACTION_ID,
-  CITY_HALL_CONTACT_INTERACTION_ID,
-  CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS,
   DEBATE_REQUEST_INTERACTION_ID,
-  PARTICIPATION_REPORT_INTERACTION_ID,
   parseBudgetDocumentPayloadValue,
   parseBudgetPublicationDatePayloadValue,
   parseBudgetStatusReportPayloadValue,
@@ -22,7 +13,6 @@ import {
   parseParticipationReportPayloadValue,
 } from '@/common/campaign-user-interactions.js';
 import {
-  FUNKY_CAMPAIGN_ADMIN_PERMISSION,
   makeCampaignAdminAuthorizationHook,
   resolveCampaignAdminPermissionAccess,
   type CampaignAdminPermissionAuthorizer,
@@ -54,6 +44,15 @@ import {
   type CampaignAdminSubmitReviewsBody,
   type CampaignKeyParams,
 } from './campaign-admin-schemas.js';
+import {
+  buildCampaignInteractionFilters,
+  getCampaignAdminInteractionConfig as getSharedCampaignAdminInteractionConfig,
+  getCampaignAdminReviewConfig as getSharedCampaignAdminReviewConfig,
+  selectCampaignAdminAuditVisibleInteractions,
+  type CampaignAdminInteractionConfig,
+  type CampaignAuditConfig,
+  type CampaignInteractionStepLocation,
+} from '../../core/campaign-admin-config.js';
 import {
   createConflictError,
   createInvalidEventError,
@@ -100,41 +99,6 @@ interface CampaignAdminNormalizedSort {
   readonly sortOrder: CampaignAdminSortOrder;
 }
 
-type CampaignReviewProjectionKind =
-  | 'public_debate_request'
-  | 'website_url'
-  | 'budget_document'
-  | 'budget_publication_date'
-  | 'budget_status'
-  | 'city_hall_contact'
-  | 'participation_report'
-  | 'quiz'
-  | 'contestation';
-
-interface CampaignInteractionStepLocation {
-  readonly moduleSlug: string;
-  readonly challengeSlug: string;
-  readonly stepSlug: string;
-}
-
-interface CampaignAdminInteractionConfig {
-  readonly campaignKey: CampaignAdminCampaignKey;
-  readonly interactionId: string;
-  readonly label: string | null;
-  readonly projection: CampaignReviewProjectionKind;
-  readonly interactionStepLocation: CampaignInteractionStepLocation | null;
-  readonly adminAuditVisible: boolean;
-  readonly reviewable: boolean;
-  readonly reviewableSubmissionPaths?: readonly CampaignAdminSubmissionPath[];
-  readonly supportsInstitutionThreadSummary: boolean;
-}
-
-interface CampaignAuditConfig {
-  readonly campaignKey: CampaignAdminCampaignKey;
-  readonly permissionName: string;
-  readonly interactions: readonly CampaignAdminInteractionConfig[];
-}
-
 interface CampaignAdminAccessContext {
   readonly userId: string;
   readonly config: CampaignAuditConfig;
@@ -149,270 +113,18 @@ declare module 'fastify' {
 const DEFAULT_PAGE_LIMIT = 50;
 const INTERNAL_ROW_FETCH_LIMIT = 500;
 const MAX_CAMPAIGN_ADMIN_LIST_ROWS = 5000;
+const ALLOWED_CAMPAIGN_ADMIN_USER_QUERY_KEYS = new Set<string>([
+  'query',
+  'entityCui',
+  'sortBy',
+  'sortOrder',
+  'cursor',
+  'limit',
+]);
 const SORT_VALUE_COLLATOR = new Intl.Collator('en', {
   numeric: true,
   sensitivity: 'base',
 });
-
-function createCampaignInteractionConfig(
-  input: Omit<CampaignAdminInteractionConfig, 'campaignKey' | 'adminAuditVisible'> & {
-    readonly campaignKey?: CampaignAdminCampaignKey;
-    readonly adminAuditVisible?: boolean;
-  }
-): CampaignAdminInteractionConfig {
-  return {
-    campaignKey: input.campaignKey ?? FUNKY_CAMPAIGN_KEY,
-    adminAuditVisible: input.adminAuditVisible ?? true,
-    ...input,
-  };
-}
-
-const FUNKY_CIVIC_QUIZ_CONFIGS = [
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
-    label: 'Quiz: Module structure',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '01-about-this-challenge',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[1],
-    label: 'Quiz: Why the local budget matters',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '01-about-this-challenge',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[2],
-    label: 'Quiz: Budget consultation actions',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '01-about-this-challenge',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[3],
-    label: 'Quiz: Budget proposer',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '02-budget-calendar-and-rights',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[4],
-    label: 'Quiz: Contestation deadline',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '02-budget-calendar-and-rights',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[5],
-    label: 'Quiz: Right to a public debate',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-intro',
-      stepSlug: '02-budget-calendar-and-rights',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[6],
-    label: 'Quiz: Why budget status matters',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-monitor-and-request',
-      stepSlug: '03-budget-status-2026',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[7],
-    label: 'Quiz: Why request a debate',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-monitor-and-request',
-      stepSlug: '04-debate-request',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[8],
-    label: 'Quiz: Debate request follow-up',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-monitor-and-request',
-      stepSlug: '04-debate-request',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[9],
-    label: 'Quiz: Debate preparation',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-participate-and-act',
-      stepSlug: '05-participation-report',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-  createCampaignInteractionConfig({
-    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[10],
-    label: 'Quiz: What makes a contestation effective',
-    projection: 'quiz',
-    interactionStepLocation: {
-      moduleSlug: 'civic-campaign',
-      challengeSlug: 'civic-participate-and-act',
-      stepSlug: '06-contestation',
-    },
-    reviewable: false,
-    supportsInstitutionThreadSummary: false,
-  }),
-] as const satisfies readonly CampaignAdminInteractionConfig[];
-
-// Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
-const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, CampaignAuditConfig>> = {
-  [FUNKY_CAMPAIGN_KEY]: {
-    campaignKey: FUNKY_CAMPAIGN_KEY,
-    permissionName: FUNKY_CAMPAIGN_ADMIN_PERMISSION,
-    interactions: [
-      createCampaignInteractionConfig({
-        interactionId: DEBATE_REQUEST_INTERACTION_ID,
-        label: 'Public debate request',
-        projection: 'public_debate_request',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '04-debate-request',
-        },
-        reviewable: true,
-        reviewableSubmissionPaths: ['request_platform'],
-        supportsInstitutionThreadSummary: true,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
-        label: 'City hall website',
-        projection: 'website_url',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '03-budget-status-2026',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: BUDGET_DOCUMENT_INTERACTION_ID,
-        label: 'Budget document',
-        projection: 'budget_document',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '03-budget-status-2026',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: BUDGET_PUBLICATION_DATE_INTERACTION_ID,
-        label: 'Budget publication date',
-        projection: 'budget_publication_date',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '03-budget-status-2026',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: BUDGET_STATUS_INTERACTION_ID,
-        label: 'Budget status',
-        projection: 'budget_status',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '03-budget-status-2026',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: CITY_HALL_CONTACT_INTERACTION_ID,
-        label: 'City hall contact',
-        projection: 'city_hall_contact',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-monitor-and-request',
-          stepSlug: '04-debate-request',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: PARTICIPATION_REPORT_INTERACTION_ID,
-        label: 'Participation report',
-        projection: 'participation_report',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-participate-and-act',
-          stepSlug: '05-participation-report',
-        },
-        reviewable: false,
-        supportsInstitutionThreadSummary: false,
-      }),
-      createCampaignInteractionConfig({
-        interactionId: BUDGET_CONTESTATION_INTERACTION_ID,
-        label: 'Budget contestation',
-        projection: 'contestation',
-        interactionStepLocation: {
-          moduleSlug: 'civic-campaign',
-          challengeSlug: 'civic-participate-and-act',
-          stepSlug: '06-contestation',
-        },
-        reviewable: true,
-        supportsInstitutionThreadSummary: false,
-      }),
-      ...FUNKY_CIVIC_QUIZ_CONFIGS,
-    ],
-  },
-};
-
-export const CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS = Object.freeze(
-  Object.keys(CAMPAIGN_REVIEW_CONFIGS) as CampaignAdminCampaignKey[]
-);
 
 export interface MakeCampaignAdminUserInteractionRoutesDeps {
   learningProgressRepo: LearningProgressRepository;
@@ -441,17 +153,14 @@ function isInstitutionCorrespondenceError(error: unknown): error is InstitutionC
 }
 
 function getCampaignReviewConfig(campaignKey: string): CampaignAuditConfig | null {
-  const configMap = CAMPAIGN_REVIEW_CONFIGS as Partial<Record<string, CampaignAuditConfig>>;
-  return configMap[campaignKey] ?? null;
+  return getSharedCampaignAdminReviewConfig(campaignKey);
 }
 
 function getCampaignInteractionConfig(
   config: CampaignAuditConfig,
   interactionId: string
 ): CampaignAdminInteractionConfig | null {
-  return (
-    config.interactions.find((interaction) => interaction.interactionId === interactionId) ?? null
-  );
+  return getSharedCampaignAdminInteractionConfig(config, interactionId);
 }
 
 function encodeCursor(cursor: CampaignAdminPageCursor): string {
@@ -575,6 +284,36 @@ function normalizeCampaignAdminUserQuery(value: string | undefined): string | un
 
   const trimmedValue = value.trim();
   return trimmedValue === '' ? undefined : trimmedValue;
+}
+
+function normalizeCampaignAdminUserEntityCui(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue === '' ? undefined : trimmedValue;
+}
+
+function getUnknownQueryKeys(
+  request: FastifyRequest,
+  allowedKeys: ReadonlySet<string>
+): readonly string[] {
+  const requestUrl = request.raw.url;
+  if (requestUrl === undefined) {
+    return [];
+  }
+
+  const searchParams = new URL(requestUrl, 'http://localhost').searchParams;
+  const unknownKeys = new Set<string>();
+
+  for (const key of searchParams.keys()) {
+    if (!allowedKeys.has(key)) {
+      unknownKeys.add(key);
+    }
+  }
+
+  return [...unknownKeys];
 }
 
 function getCampaignAdminReviewStatusLabel(
@@ -998,30 +737,6 @@ function shouldAttachThreadSummary(input: {
     extractSubmissionPath(input.row),
     input.interactionConfig.reviewableSubmissionPaths
   );
-}
-
-function selectAuditVisibleInteractions(input: {
-  config: CampaignAuditConfig;
-  interactionId?: string;
-  requiresInstitutionThreadSummary: boolean;
-}): readonly CampaignAdminInteractionConfig[] {
-  let interactions = input.config.interactions.filter(
-    (interaction) => interaction.adminAuditVisible
-  );
-
-  if (input.interactionId !== undefined) {
-    interactions = interactions.filter(
-      (interaction) => interaction.interactionId === input.interactionId
-    );
-  }
-
-  if (input.requiresInstitutionThreadSummary) {
-    interactions = interactions.filter(
-      (interaction) => interaction.supportsInstitutionThreadSummary
-    );
-  }
-
-  return interactions;
 }
 
 function collectUniqueEntityCuis(values: readonly (string | null)[]): string[] {
@@ -1663,41 +1378,6 @@ async function validateCampaignReviewItems(input: {
   return ok({ pendingItems });
 }
 
-function buildCampaignInteractionFilters(input: {
-  interactions: readonly CampaignAdminInteractionConfig[];
-  kind: 'visible' | 'reviewable' | 'thread_summary';
-}): readonly CampaignAdminInteractionFilter[] {
-  return input.interactions.flatMap((interaction) => {
-    if (input.kind === 'visible') {
-      return interaction.adminAuditVisible ? [{ interactionId: interaction.interactionId }] : [];
-    }
-
-    if (input.kind === 'reviewable') {
-      if (!interaction.reviewable) {
-        return [];
-      }
-
-      return interaction.reviewableSubmissionPaths === undefined
-        ? [{ interactionId: interaction.interactionId }]
-        : interaction.reviewableSubmissionPaths.map((submissionPath) => ({
-            interactionId: interaction.interactionId,
-            submissionPath,
-          }));
-    }
-
-    if (!interaction.supportsInstitutionThreadSummary) {
-      return [];
-    }
-
-    return interaction.reviewableSubmissionPaths === undefined
-      ? [{ interactionId: interaction.interactionId }]
-      : interaction.reviewableSubmissionPaths.map((submissionPath) => ({
-          interactionId: interaction.interactionId,
-          submissionPath,
-        }));
-  });
-}
-
 function getCampaignVisibleInteractions(
   config: CampaignAuditConfig
 ): readonly CampaignAdminInteractionFilter[] {
@@ -1904,6 +1584,20 @@ export const makeCampaignAdminUserInteractionRoutes = (
       },
       async (request, reply) => {
         const access = getCampaignAdminAccess(request);
+        const unknownQueryKeys = getUnknownQueryKeys(
+          request,
+          ALLOWED_CAMPAIGN_ADMIN_USER_QUERY_KEYS
+        );
+        if (unknownQueryKeys.length > 0) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: `Unknown campaign user filters: ${unknownQueryKeys.join(', ')}`,
+            retryable: false,
+          });
+        }
+
+        const entityCui = normalizeCampaignAdminUserEntityCui(request.query.entityCui);
         const requestedSort = normalizeRequestedCampaignAdminUserSort(request.query);
         const normalizedQuery = normalizeCampaignAdminUserQuery(request.query.query);
         const decodedCursor =
@@ -1911,6 +1605,15 @@ export const makeCampaignAdminUserInteractionRoutes = (
             ? decodeCampaignAdminUserCursor(request.query.cursor)
             : undefined;
         const cursor = decodedCursor === null ? undefined : decodedCursor;
+
+        if (request.query.entityCui !== undefined && entityCui === undefined) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: 'Entity CUI is required',
+            retryable: false,
+          });
+        }
 
         if (request.query.cursor !== undefined && cursor === undefined) {
           return reply.status(400).send({
@@ -1934,7 +1637,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
         }
 
         const visibleInteractions = getCampaignVisibleInteractions(access.config);
-        if (visibleInteractions.length === 0) {
+        if (visibleInteractions.length === 0 && entityCui === undefined) {
           return reply.status(200).send({
             ok: true,
             data: {
@@ -1953,6 +1656,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
           interactions: visibleInteractions,
           reviewableInteractions: getCampaignReviewableInteractions(access.config),
           ...(normalizedQuery !== undefined ? { query: normalizedQuery } : {}),
+          ...(entityCui !== undefined ? { entityCui } : {}),
           sortBy: requestedSort.sortBy,
           sortOrder: requestedSort.sortOrder,
           limit: request.query.limit ?? DEFAULT_PAGE_LIMIT,
@@ -2041,7 +1745,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
         const requiresInstitutionThreadSummary =
           request.query.hasInstitutionThread !== undefined ||
           request.query.threadPhase !== undefined;
-        const selectedInteractions = selectAuditVisibleInteractions({
+        const selectedInteractions = selectCampaignAdminAuditVisibleInteractions({
           config: access.config,
           ...(request.query.interactionId !== undefined
             ? { interactionId: request.query.interactionId }
