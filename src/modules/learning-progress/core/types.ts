@@ -238,9 +238,9 @@ export interface CampaignAdminInstitutionThreadSummary {
   readonly nextActionAt: string | null;
 }
 
-export interface CampaignAdminReviewableInteraction {
+export interface CampaignAdminInteractionFilter {
   readonly interactionId: string;
-  readonly reviewableSubmissionPath?: CampaignAdminSubmissionPath;
+  readonly submissionPath?: CampaignAdminSubmissionPath;
 }
 
 export interface CampaignAdminInteractionRow {
@@ -308,7 +308,7 @@ export interface CampaignAdminRiskFlagCandidate {
 
 export interface ListCampaignAdminInteractionRowsInput {
   readonly campaignKey: CampaignAdminCampaignKey;
-  readonly reviewableInteractions: readonly CampaignAdminReviewableInteraction[];
+  readonly interactions: readonly CampaignAdminInteractionFilter[];
   readonly phase?: InteractionPhase;
   readonly reviewStatus?: InteractionReviewStatus;
   readonly submissionPath?: CampaignAdminSubmissionPath;
@@ -337,13 +337,17 @@ export interface ListCampaignAdminInteractionRowsOutput {
 
 export interface GetCampaignAdminStatsInput {
   readonly campaignKey: CampaignAdminCampaignKey;
-  readonly reviewableInteractions: readonly CampaignAdminReviewableInteraction[];
+  readonly interactions: readonly CampaignAdminInteractionFilter[];
+  readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
+  readonly threadSummaryInteractions: readonly CampaignAdminInteractionFilter[];
 }
 
 export interface GetCampaignAdminStatsOutput {
   readonly stats: CampaignAdminStatsBase;
   readonly riskFlagCandidates: readonly CampaignAdminRiskFlagCandidate[];
 }
+
+export type CampaignAdminReviewableInteraction = CampaignAdminInteractionFilter;
 
 export interface UpsertInteractiveRecordInput {
   readonly userId: string;

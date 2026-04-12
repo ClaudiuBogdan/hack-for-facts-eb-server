@@ -95,19 +95,23 @@ function escapeLikePattern(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
-function buildCampaignAdminReviewableInteractionsSql(
-  reviewableInteractions: readonly {
+function buildCampaignAdminInteractionFiltersSql(
+  interactions: readonly {
     interactionId: string;
-    reviewableSubmissionPath?: string;
+    submissionPath?: string;
   }[]
 ) {
+  if (interactions.length === 0) {
+    return sql<boolean>`false`;
+  }
+
   return sql.join(
-    reviewableInteractions.map((interaction) =>
-      interaction.reviewableSubmissionPath === undefined
+    interactions.map((interaction) =>
+      interaction.submissionPath === undefined
         ? sql<boolean>`record->>'interactionId' = ${interaction.interactionId}`
         : sql<boolean>`
             record->>'interactionId' = ${interaction.interactionId}
-            and record->'value'->'json'->'value'->>'submissionPath' = ${interaction.reviewableSubmissionPath}
+            and record->'value'->'json'->'value'->>'submissionPath' = ${interaction.submissionPath}
           `
     ),
     sql<boolean>` or `
@@ -115,8 +119,12 @@ function buildCampaignAdminReviewableInteractionsSql(
 }
 
 function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
-  const reviewableInteractionsSql = buildCampaignAdminReviewableInteractionsSql(
+  const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
+  const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
     input.reviewableInteractions
+  );
+  const threadSummaryInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+    input.threadSummaryInteractions
   );
 
   return sql`
@@ -125,23 +133,29 @@ function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
         record->>'interactionId' as interaction_id,
         record->>'phase' as phase,
         case
-          when record->'review'->>'status' is not null then record->'review'->>'status'
-          when record->>'phase' = 'pending' then 'pending'
+          when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+          when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
           else null
         end as review_status,
         record->'scope'->>'entityCui' as entity_cui,
-        nullif(btrim(record->'value'->'json'->'value'->>'primariaEmail'), '') as institution_email,
-        (
-          select iet.phase
-          from institutionemailthreads as iet
-          where iet.entity_cui = record->'scope'->>'entityCui'
-            and iet.campaign_key = ${input.campaignKey}
-            and iet.record->>'submissionPath' = ${'platform_send'}
-          order by iet.created_at desc
-          limit 1
-        ) as thread_phase
+        case
+          when (${reviewableInteractionsSql}) then nullif(btrim(record->'value'->'json'->'value'->>'primariaEmail'), '')
+          else null
+        end as institution_email,
+        case
+          when (${threadSummaryInteractionsSql}) then (
+            select iet.phase
+            from institutionemailthreads as iet
+            where iet.entity_cui = record->'scope'->>'entityCui'
+              and iet.campaign_key = ${input.campaignKey}
+              and iet.record->>'submissionPath' = ${'platform_send'}
+            order by iet.created_at desc
+            limit 1
+          )
+          else null
+        end as thread_phase
       from userinteractions
-      where (${reviewableInteractionsSql})
+      where (${visibleInteractionsSql})
     )
   `;
 }
@@ -305,7 +319,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async listCampaignAdminInteractionRows(
     input: ListCampaignAdminInteractionRowsInput
   ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>> {
-    if (input.reviewableInteractions.length === 0) {
+    if (input.interactions.length === 0) {
       return ok({
         rows: [],
         hasMore: false,
@@ -313,9 +327,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       });
     }
 
-    const reviewableInteractionsSql = buildCampaignAdminReviewableInteractionsSql(
-      input.reviewableInteractions
-    );
+    const interactionFiltersSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
     const entityCuiSql = sql<string | null>`record->'scope'->>'entityCui'`;
     const threadSubquerySql = sql`
       from institutionemailthreads as iet
@@ -354,7 +366,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
             'thread_next_action_at'
           ),
         ])
-        .where(sql<boolean>`(${reviewableInteractionsSql})`);
+        .where(sql<boolean>`(${interactionFiltersSql})`);
 
       if (input.phase !== undefined) {
         query = query.where(sql<boolean>`record->>'phase' = ${input.phase}`);
@@ -503,7 +515,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async getCampaignAdminStats(
     input: GetCampaignAdminStatsInput
   ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> {
-    if (input.reviewableInteractions.length === 0) {
+    if (input.interactions.length === 0) {
       return ok({
         stats: createEmptyCampaignAdminStatsBase(),
         riskFlagCandidates: [],

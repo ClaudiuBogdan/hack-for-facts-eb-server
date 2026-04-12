@@ -1416,6 +1416,21 @@ export const makeFakeLearningProgressRepo = (
       : null;
   };
 
+  const matchesCampaignAdminInteractionFilter = (
+    row: LearningProgressRecordRow,
+    interaction: { interactionId: string; submissionPath?: string }
+  ): boolean => {
+    if (interaction.interactionId !== row.record.interactionId) {
+      return false;
+    }
+
+    if (interaction.submissionPath === undefined) {
+      return true;
+    }
+
+    return getSubmissionPath(row.record) === interaction.submissionPath;
+  };
+
   const getCampaignThreadSummary = (
     row: LearningProgressRecordRow,
     campaignKey: string
@@ -1431,8 +1446,13 @@ export const makeFakeLearningProgressRepo = (
   };
 
   const getCampaignAdminReviewStatus = (
-    row: LearningProgressRecordRow
+    row: LearningProgressRecordRow,
+    reviewable: boolean
   ): 'pending' | 'approved' | 'rejected' | null => {
+    if (!reviewable) {
+      return null;
+    }
+
     if (row.record.review?.status !== undefined) {
       return row.record.review.status;
     }
@@ -1611,17 +1631,11 @@ export const makeFakeLearningProgressRepo = (
         const filteredRows = [...currentStore.values()]
           .flatMap((userStore) => [...userStore.values()])
           .filter((row) => {
-            const matchingInteraction = input.reviewableInteractions.find(
-              (interaction) => interaction.interactionId === row.record.interactionId
+            const matchingInteraction = input.interactions.find((interaction) =>
+              matchesCampaignAdminInteractionFilter(row, interaction)
             );
             if (matchingInteraction === undefined) {
               return false;
-            }
-
-            if (matchingInteraction.reviewableSubmissionPath !== undefined) {
-              if (getSubmissionPath(row.record) !== matchingInteraction.reviewableSubmissionPath) {
-                return false;
-              }
             }
 
             if (input.phase !== undefined && row.record.phase !== input.phase) {
@@ -1770,7 +1784,7 @@ export const makeFakeLearningProgressRepo = (
       ): Promise<Result<GetCampaignAdminStatsOutput, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
-        if (input.reviewableInteractions.length === 0) {
+        if (input.interactions.length === 0) {
           return ok({
             stats: createEmptyCampaignAdminStatsBase(),
             riskFlagCandidates: [],
@@ -1780,18 +1794,9 @@ export const makeFakeLearningProgressRepo = (
         const matchingRows = [...currentStore.values()]
           .flatMap((userStore) => [...userStore.values()])
           .filter((row) => {
-            const matchingInteraction = input.reviewableInteractions.find(
-              (interaction) => interaction.interactionId === row.record.interactionId
+            return input.interactions.some((interaction) =>
+              matchesCampaignAdminInteractionFilter(row, interaction)
             );
-            if (matchingInteraction === undefined) {
-              return false;
-            }
-
-            if (matchingInteraction.reviewableSubmissionPath === undefined) {
-              return true;
-            }
-
-            return getSubmissionPath(row.record) === matchingInteraction.reviewableSubmissionPath;
           });
 
         const stats: MutableCampaignAdminStatsBase = {
@@ -1827,7 +1832,12 @@ export const makeFakeLearningProgressRepo = (
         for (const row of matchingRows) {
           stats.total += 1;
 
-          const reviewStatus = getCampaignAdminReviewStatus(row);
+          const reviewStatus = getCampaignAdminReviewStatus(
+            row,
+            input.reviewableInteractions.some((interaction) =>
+              matchesCampaignAdminInteractionFilter(row, interaction)
+            )
+          );
           if (reviewStatus === 'pending') {
             stats.reviewStatusCounts.pending += 1;
           } else if (reviewStatus === 'approved') {
@@ -1850,7 +1860,11 @@ export const makeFakeLearningProgressRepo = (
             stats.phaseCounts.failed += 1;
           }
 
-          const threadSummary = getCampaignThreadSummary(row, input.campaignKey);
+          const threadSummary = input.threadSummaryInteractions.some((interaction) =>
+            matchesCampaignAdminInteractionFilter(row, interaction)
+          )
+            ? getCampaignThreadSummary(row, input.campaignKey)
+            : null;
           if (threadSummary !== null) {
             stats.withInstitutionThread += 1;
           }
