@@ -1,6 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
+import type { CampaignAdminPermissionAuthorizer } from '../../core/ports.js';
 import type { Logger } from 'pino';
 
 const DEFAULT_CLERK_API_BASE_URL = 'https://api.clerk.com/v1';
@@ -33,10 +34,6 @@ interface CacheEntry {
 interface PermissionLookupResult {
   permissions: ReadonlySet<string>;
   cacheable: boolean;
-}
-
-export interface CampaignAdminPermissionAuthorizer {
-  hasPermission(input: { userId: string; permissionName: string }): Promise<boolean>;
 }
 
 export interface ClerkCampaignAdminPermissionAuthorizerOptions {

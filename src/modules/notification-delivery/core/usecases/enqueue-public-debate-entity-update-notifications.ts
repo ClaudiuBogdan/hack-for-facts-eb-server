@@ -2,7 +2,10 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 
-import { enqueueCreatedOrReusedOutbox } from './enqueue-created-or-reused-outbox.js';
+import {
+  enqueueCreatedOrReusedOutbox,
+  type ReusedOutboxComposeStrategy,
+} from './enqueue-created-or-reused-outbox.js';
 import {
   buildPublicDebateEntityUpdateDeliveryKey,
   buildPublicDebateEntityUpdateScopeKey,
@@ -24,6 +27,9 @@ export type PublicDebateEntityUpdateEventType =
 export interface PublicDebateEntityUpdateNotificationInput {
   runId: string;
   eventType: PublicDebateEntityUpdateEventType;
+  triggerSource?: string;
+  triggeredByUserId?: string;
+  reusedOutboxComposeStrategy?: ReusedOutboxComposeStrategy;
   entityCui: string;
   entityName?: string;
   threadId: string;
@@ -50,14 +56,18 @@ export interface EnqueuePublicDebateEntityUpdateNotificationsResult {
   createdOutboxIds: string[];
   reusedOutboxIds: string[];
   queuedOutboxIds: string[];
+  skippedTerminalOutboxIds: string[];
   enqueueFailedOutboxIds: string[];
 }
 
 const buildMetadata = (
   input: PublicDebateEntityUpdateNotificationInput
 ): Record<string, unknown> => ({
+  runId: input.runId,
   campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
   eventType: input.eventType,
+  ...(input.triggerSource !== undefined ? { triggerSource: input.triggerSource } : {}),
+  ...(input.triggeredByUserId !== undefined ? { triggeredByUserId: input.triggeredByUserId } : {}),
   entityCui: input.entityCui,
   ...(input.entityName !== undefined ? { entityName: input.entityName } : {}),
   threadId: input.threadId,
@@ -77,6 +87,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
   deps: EnqueuePublicDebateEntityUpdateNotificationsDeps,
   input: PublicDebateEntityUpdateNotificationInput
 ): Promise<Result<EnqueuePublicDebateEntityUpdateNotificationsResult, DeliveryError>> => {
+  const reusedOutboxComposeStrategy = input.reusedOutboxComposeStrategy ?? 'always_enqueue_compose';
   const scopeKey = buildPublicDebateEntityUpdateScopeKey({
     eventType: input.eventType,
     threadId: input.threadId,
@@ -95,6 +106,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
   const createdOutboxIds: string[] = [];
   const reusedOutboxIds: string[] = [];
   const queuedOutboxIds: string[] = [];
+  const skippedTerminalOutboxIds: string[] = [];
   const enqueueFailedOutboxIds: string[] = [];
 
   for (const notification of notificationsResult.value) {
@@ -111,6 +123,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
       {
         runId: input.runId,
         deliveryKey,
+        reusedOutboxComposeStrategy,
         createInput: {
           userId: notification.userId,
           notificationType: 'funky:outbox:entity_update',
@@ -132,8 +145,10 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
       reusedOutboxIds.push(enqueueResult.value.outboxId);
     }
 
-    if (enqueueResult.value.composeEnqueued) {
+    if (enqueueResult.value.composeStatus === 'compose_enqueued') {
       queuedOutboxIds.push(enqueueResult.value.outboxId);
+    } else if (enqueueResult.value.composeStatus === 'skipped_terminal') {
+      skippedTerminalOutboxIds.push(enqueueResult.value.outboxId);
     } else {
       enqueueFailedOutboxIds.push(enqueueResult.value.outboxId);
     }
@@ -144,6 +159,7 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
     createdOutboxIds,
     reusedOutboxIds,
     queuedOutboxIds,
+    skippedTerminalOutboxIds,
     enqueueFailedOutboxIds,
   });
 };

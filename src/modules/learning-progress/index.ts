@@ -133,10 +133,10 @@ export {
 } from './shell/rest/campaign-admin-routes.js';
 
 export {
-  makeClerkCampaignAdminPermissionAuthorizer,
   type CampaignAdminPermissionAuthorizer,
+  makeClerkCampaignAdminPermissionAuthorizer,
   type ClerkCampaignAdminPermissionAuthorizerOptions,
-} from './shell/security/clerk-campaign-admin-permission-checker.js';
+} from '@/modules/campaign-admin/index.js';
 
 export {
   GetProgressQuerySchema,
