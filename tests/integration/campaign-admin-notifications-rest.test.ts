@@ -1,5 +1,5 @@
 import fastifyLib from 'fastify';
-import { ok } from 'neverthrow';
+import { fromThrowable, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +8,9 @@ import {
   makeCampaignAdminNotificationRoutes,
   makeCampaignNotificationTemplatePreviewService,
   makeCampaignNotificationTriggerRegistry,
+  type CampaignNotificationAuditRepository,
+  type CampaignNotificationAuditCursor,
+  type ListCampaignNotificationAuditInput,
 } from '@/modules/campaign-admin-notifications/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
@@ -45,12 +48,40 @@ const createAcceptedTermsRecord = (
     submittedAt: acceptedTermsAt,
   });
 
+const encodeCursor = (cursor: CampaignNotificationAuditCursor): string =>
+  Buffer.from(JSON.stringify(cursor), 'utf-8').toString('base64url');
+
+const parseJson = fromThrowable(JSON.parse);
+
+const decodeCursor = (value: string): CampaignNotificationAuditCursor => {
+  const parsed = parseJson(Buffer.from(value, 'base64url').toString('utf-8'));
+  if (parsed.isErr()) {
+    throw parsed.error;
+  }
+
+  return parsed.value as CampaignNotificationAuditCursor;
+};
+
+const makeAuditRepository = (
+  implementation?: (
+    input: ListCampaignNotificationAuditInput
+  ) => ReturnType<CampaignNotificationAuditRepository['listCampaignNotificationAudit']>
+) => {
+  const calls: ListCampaignNotificationAuditInput[] = [];
+  const repository: CampaignNotificationAuditRepository = {
+    async listCampaignNotificationAudit(input) {
+      calls.push(input);
+      return implementation?.(input) ?? ok({ items: [], nextCursor: null, hasMore: false });
+    },
+  };
+
+  return { repository, calls };
+};
+
 const createTestApp = async (options?: {
   permissionAllowed?: boolean;
   learningProgressRepo?: ReturnType<typeof makeFakeLearningProgressRepo>;
-  auditRepository?: {
-    listCampaignNotificationAudit: ReturnType<typeof vi.fn>;
-  };
+  auditRepository?: CampaignNotificationAuditRepository;
   harness?: ReturnType<typeof createPublicDebateNotificationHarness>;
 }) => {
   const testAuth = createTestAuthProvider();
@@ -100,21 +131,13 @@ const createTestApp = async (options?: {
         ],
       ]),
     });
-  const auditRepository = options?.auditRepository ?? {
-    listCampaignNotificationAudit: vi.fn(async () =>
-      ok({
-        items: [],
-        nextCursor: null,
-        hasMore: false,
-      })
-    ),
-  };
+  const auditRepository = options?.auditRepository ?? makeAuditRepository().repository;
 
   await app.register(
     makeCampaignAdminNotificationRoutes({
       enabledCampaignKeys: ['funky'],
       permissionAuthorizer,
-      auditRepository: auditRepository as never,
+      auditRepository,
       triggerRegistry: makeCampaignNotificationTriggerRegistry({
         learningProgressRepo,
         notificationsRepo: harness.notificationsRepo,
@@ -153,12 +176,10 @@ describe('campaign admin notifications routes', () => {
   });
 
   it('returns 403 and does not call the audit repo when permission is denied', async () => {
-    const auditRepository = {
-      listCampaignNotificationAudit: vi.fn(),
-    };
+    const audit = makeAuditRepository();
     const setup = await createTestApp({
       permissionAllowed: false,
-      auditRepository,
+      auditRepository: audit.repository,
     });
 
     const response = await setup.app.inject({
@@ -170,7 +191,158 @@ describe('campaign admin notifications routes', () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(auditRepository.listCampaignNotificationAudit).not.toHaveBeenCalled();
+    expect(audit.calls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('uses createdAt desc as the default notification audit sort', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(audit.calls).toEqual([
+      expect.objectContaining({
+        campaignKey: 'funky',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      }),
+    ]);
+
+    await setup.app.close();
+  });
+
+  it.each([
+    ['createdAt', 'asc'],
+    ['createdAt', 'desc'],
+    ['sentAt', 'asc'],
+    ['sentAt', 'desc'],
+    ['status', 'asc'],
+    ['status', 'desc'],
+    ['attemptCount', 'asc'],
+    ['attemptCount', 'desc'],
+  ] as const)('passes %s %s through to the audit repository', async (sortBy, sortOrder) => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications?sortBy=${sortBy}&sortOrder=${sortOrder}`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(audit.calls).toEqual([
+      expect.objectContaining({
+        sortBy,
+        sortOrder,
+      }),
+    ]);
+
+    await setup.app.close();
+  });
+
+  it('encodes nextCursor with the active sort metadata', async () => {
+    const audit = makeAuditRepository(async (input) =>
+      ok({
+        items: [],
+        hasMore: true,
+        nextCursor: {
+          sortBy: input.sortBy,
+          sortOrder: input.sortOrder,
+          id: 'outbox-2',
+          value: 2,
+        },
+      })
+    );
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?sortBy=attemptCount&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body: {
+      data: { page: { nextCursor: string | null } };
+    } = response.json();
+    const nextCursor = body.data.page.nextCursor;
+    expect(nextCursor).not.toBeNull();
+    if (nextCursor === null) {
+      return;
+    }
+    expect(decodeCursor(nextCursor)).toEqual({
+      sortBy: 'attemptCount',
+      sortOrder: 'asc',
+      id: 'outbox-2',
+      value: 2,
+    });
+
+    await setup.app.close();
+  });
+
+  it('rejects a cursor whose sort metadata does not match the active sort', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications?sortBy=status&sortOrder=asc&cursor=${encodeCursor(
+        {
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+          id: 'outbox-1',
+          value: '2026-04-10T10:00:00.000Z',
+        }
+      )}`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(audit.calls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('fails closed on invalid sort values through schema validation', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?sortBy=updatedAt&sortOrder=desc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(audit.calls).toHaveLength(0);
 
     await setup.app.close();
   });
