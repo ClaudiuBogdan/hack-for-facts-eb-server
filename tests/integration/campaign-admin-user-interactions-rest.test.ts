@@ -46,11 +46,12 @@ function createDebateRequestRecord(input: {
   submissionPath?: 'request_platform' | 'send_yourself';
   updatedAt?: string;
   organizationName?: string | null;
+  sourceUrl?: string;
 }) {
   const entityCui = input.entityCui ?? '12345678';
   const updatedAt = input.updatedAt ?? '2026-04-10T10:00:00.000Z';
 
-  return createTestInteractiveRecord({
+  const record = createTestInteractiveRecord({
     key: `funky:interaction:public_debate_request::entity:${entityCui}`,
     interactionId: 'funky:interaction:public_debate_request',
     lessonId: 'civic-monitor-and-request',
@@ -78,6 +79,13 @@ function createDebateRequestRecord(input: {
     updatedAt,
     submittedAt: updatedAt,
   });
+
+  return input.sourceUrl !== undefined
+    ? {
+        ...record,
+        sourceUrl: input.sourceUrl,
+      }
+    : record;
 }
 
 function createCityHallWebsiteRecord(input?: {
@@ -1000,6 +1008,8 @@ describe('Campaign Admin User Interactions REST API', () => {
     const publicDebateRecord = createDebateRequestRecord({
       entityCui: '12345678',
       updatedAt: '2026-04-10T11:00:00.000Z',
+      sourceUrl:
+        'https://transparenta.eu/ro/primarie/12345678/buget/provocari/civic-campaign/civic-monitor-and-request/04-debate-request?section=send&draft=existing#email-preview',
     });
     const cityHallWebsiteRecord = createCityHallWebsiteRecord({
       entityCui: '87654321',
@@ -1050,7 +1060,7 @@ describe('Campaign Admin User Interactions REST API', () => {
             interactionId: 'funky:interaction:public_debate_request',
             entityName: 'Oras Test',
             interactionElementLink:
-              '/primarie/12345678/buget/provocari/civic-campaign/civic-monitor-and-request/04-debate-request',
+              '/primarie/12345678/buget/provocari/civic-campaign/civic-monitor-and-request/04-debate-request?section=send&draft=existing#email-preview',
             submissionPath: 'request_platform',
             pendingReason: 'awaiting_manual_review',
             websiteUrl: null,
