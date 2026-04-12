@@ -45,6 +45,49 @@ function createKyselyClient<T>(connectionString: string): Kysely<T> {
   });
 }
 
+const listIds = (items: readonly { outboxId: string }[]): string[] =>
+  items.map((item) => item.outboxId);
+
+async function listAllPages(input: {
+  repo: ReturnType<typeof makeCampaignNotificationOutboxAuditRepo>;
+  sortBy: 'createdAt' | 'sentAt' | 'status' | 'attemptCount';
+  sortOrder: 'asc' | 'desc';
+}): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor:
+    | {
+        sortBy: 'createdAt' | 'sentAt' | 'status' | 'attemptCount';
+        sortOrder: 'asc' | 'desc';
+        id: string;
+        value: string | number | null;
+      }
+    | undefined;
+
+  while (true) {
+    const result = await input.repo.listCampaignNotificationAudit({
+      campaignKey: 'funky',
+      sortBy: input.sortBy,
+      sortOrder: input.sortOrder,
+      limit: 1,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) {
+      return ids;
+    }
+
+    ids.push(...listIds(result.value.items));
+    if (result.value.nextCursor === null) {
+      break;
+    }
+
+    cursor = result.value.nextCursor;
+  }
+
+  return ids;
+}
+
 describe('campaign notification outbox audit repo', () => {
   const startedContainers: StartedPostgreSqlContainer[] = [];
 
@@ -52,7 +95,7 @@ describe('campaign notification outbox audit repo', () => {
     await Promise.all(startedContainers.map(async (container) => container.stop()));
   });
 
-  it('lists campaign-scoped outbox rows with filtering, cursor pagination, redaction, and safe error mapping', async () => {
+  it('lists campaign-scoped outbox rows with filtering, sorting, cursor pagination, redaction, and safe error mapping', async () => {
     if (!dockerAvailable) {
       return;
     }
@@ -162,6 +205,29 @@ describe('campaign notification outbox audit repo', () => {
               'failureMessage', 'Sensitive provider failure'
             ),
             '2026-04-12T12:00:00.000Z'::timestamptz
+          ),
+          (
+            '44444444-4444-4444-4444-444444444444',
+            'user-4',
+            'user4@example.com',
+            'funky:outbox:entity_subscription',
+            NULL,
+            'funky:delivery:entity_subscription_87654321',
+            'funky:outbox:entity_subscription:user-4:87654321',
+            'suppressed',
+            'public_debate_entity_subscription',
+            '2026.04',
+            'email.suppressed: policy',
+            1,
+            NULL,
+            jsonb_build_object(
+              'campaignKey', 'funky',
+              'entityCui', '87654321',
+              'entityName', 'Comuna Test',
+              'acceptedTermsAt', '2026-04-12T11:55:00.000Z',
+              'selectedEntities', jsonb_build_array('Comuna Test', 'Municipiul Exemplu')
+            ),
+            '2026-04-12T12:00:00.000Z'::timestamptz
           )
       `);
     });
@@ -189,19 +255,26 @@ describe('campaign notification outbox audit repo', () => {
       expect(firstPage.value.items).toHaveLength(2);
       expect(firstPage.value.hasMore).toBe(true);
       expect(firstPage.value.nextCursor).not.toBeNull();
+      expect(firstPage.value.nextCursor).toEqual({
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        id: '33333333-3333-3333-3333-333333333333',
+        value: '2026-04-12T12:00:00.000Z',
+      });
       expect(firstPage.value.items[0]).toEqual(
         expect.objectContaining({
-          notificationType: 'funky:outbox:admin_failure',
+          outboxId: '44444444-4444-4444-4444-444444444444',
+          notificationType: 'funky:outbox:entity_subscription',
           safeError: {
             category: 'suppressed',
             code: 'suppressed',
           },
           projection: {
-            kind: 'public_debate_admin_failure',
+            kind: 'public_debate_entity_subscription',
             entityCui: '87654321',
             entityName: 'Comuna Test',
-            threadId: 'thread-2',
-            phase: 'failed',
+            acceptedTermsAt: '2026-04-12T11:55:00.000Z',
+            selectedEntitiesCount: 2,
           },
         })
       );
@@ -215,11 +288,11 @@ describe('campaign notification outbox audit repo', () => {
         string,
         unknown
       >;
-      expect(firstProjection['failureMessage']).toBeUndefined();
-      expect(secondProjection['institutionEmail']).toBeUndefined();
+      expect(firstProjection['institutionEmail']).toBeUndefined();
+      expect(secondProjection['failureMessage']).toBeUndefined();
       expect(firstPage.value.items[1]?.safeError).toEqual({
-        category: 'render_error',
-        code: 'render_error',
+        category: 'suppressed',
+        code: 'suppressed',
       });
 
       const secondPage = await repo.listCampaignNotificationAudit({
@@ -232,39 +305,115 @@ describe('campaign notification outbox audit repo', () => {
 
       expect(secondPage.isOk()).toBe(true);
       if (secondPage.isOk()) {
-        expect(secondPage.value.items).toHaveLength(1);
-        expect(secondPage.value.items[0]?.notificationType).toBe('funky:outbox:welcome');
+        expect(listIds(secondPage.value.items)).toEqual([
+          '22222222-2222-2222-2222-222222222222',
+          '11111111-1111-1111-1111-111111111111',
+        ]);
       }
 
-      const sentAtPage = await repo.listCampaignNotificationAudit({
-        campaignKey: 'funky',
-        sortBy: 'sentAt',
-        sortOrder: 'desc',
-        limit: 2,
-      });
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'createdAt',
+          sortOrder: 'asc',
+        })
+      ).resolves.toEqual([
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+        '44444444-4444-4444-4444-444444444444',
+      ]);
 
-      expect(sentAtPage.isOk()).toBe(true);
-      if (sentAtPage.isErr()) {
-        return;
-      }
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        })
+      ).resolves.toEqual([
+        '44444444-4444-4444-4444-444444444444',
+        '33333333-3333-3333-3333-333333333333',
+        '22222222-2222-2222-2222-222222222222',
+        '11111111-1111-1111-1111-111111111111',
+      ]);
 
-      expect(sentAtPage.value.items).toHaveLength(2);
-      expect(sentAtPage.value.hasMore).toBe(true);
-      expect(sentAtPage.value.nextCursor).not.toBeNull();
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'sentAt',
+          sortOrder: 'asc',
+        })
+      ).resolves.toEqual([
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+        '44444444-4444-4444-4444-444444444444',
+      ]);
 
-      const sentAtSecondPage = await repo.listCampaignNotificationAudit({
-        campaignKey: 'funky',
-        sortBy: 'sentAt',
-        sortOrder: 'desc',
-        limit: 2,
-        ...(sentAtPage.value.nextCursor !== null ? { cursor: sentAtPage.value.nextCursor } : {}),
-      });
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'sentAt',
+          sortOrder: 'desc',
+        })
+      ).resolves.toEqual([
+        '44444444-4444-4444-4444-444444444444',
+        '33333333-3333-3333-3333-333333333333',
+        '22222222-2222-2222-2222-222222222222',
+        '11111111-1111-1111-1111-111111111111',
+      ]);
 
-      expect(sentAtSecondPage.isOk()).toBe(true);
-      if (sentAtSecondPage.isOk()) {
-        expect(sentAtSecondPage.value.items).toHaveLength(1);
-        expect(sentAtSecondPage.value.items[0]?.notificationType).toBe('funky:outbox:welcome');
-      }
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'status',
+          sortOrder: 'asc',
+        })
+      ).resolves.toEqual([
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+        '44444444-4444-4444-4444-444444444444',
+      ]);
+
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'status',
+          sortOrder: 'desc',
+        })
+      ).resolves.toEqual([
+        '44444444-4444-4444-4444-444444444444',
+        '33333333-3333-3333-3333-333333333333',
+        '22222222-2222-2222-2222-222222222222',
+        '11111111-1111-1111-1111-111111111111',
+      ]);
+
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'attemptCount',
+          sortOrder: 'asc',
+        })
+      ).resolves.toEqual([
+        '11111111-1111-1111-1111-111111111111',
+        '33333333-3333-3333-3333-333333333333',
+        '44444444-4444-4444-4444-444444444444',
+        '22222222-2222-2222-2222-222222222222',
+      ]);
+
+      await expect(
+        listAllPages({
+          repo,
+          sortBy: 'attemptCount',
+          sortOrder: 'desc',
+        })
+      ).resolves.toEqual([
+        '22222222-2222-2222-2222-222222222222',
+        '44444444-4444-4444-4444-444444444444',
+        '33333333-3333-3333-3333-333333333333',
+        '11111111-1111-1111-1111-111111111111',
+      ]);
 
       const filtered = await repo.listCampaignNotificationAudit({
         campaignKey: 'funky',

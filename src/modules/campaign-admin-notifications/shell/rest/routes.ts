@@ -205,6 +205,8 @@ export const makeCampaignAdminNotificationRoutes = (
         const access = getCampaignAdminNotificationAccess(request);
         const decodedCursor =
           request.query.cursor !== undefined ? decodeCursor(request.query.cursor) : undefined;
+        const requestedSortBy = request.query.sortBy ?? 'createdAt';
+        const requestedSortOrder = request.query.sortOrder ?? 'desc';
         if (request.query.cursor !== undefined && decodedCursor === null) {
           return reply.status(400).send({
             ok: false,
@@ -214,6 +216,17 @@ export const makeCampaignAdminNotificationRoutes = (
           });
         }
         const cursor = decodedCursor ?? undefined;
+        if (
+          cursor !== undefined &&
+          (cursor.sortBy !== requestedSortBy || cursor.sortOrder !== requestedSortOrder)
+        ) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'ValidationError',
+            message: 'Invalid campaign notification cursor',
+            retryable: false,
+          });
+        }
 
         const result = await listCampaignNotificationAudit(
           {
@@ -236,8 +249,8 @@ export const makeCampaignAdminNotificationRoutes = (
               : {}),
             ...(request.query.threadId !== undefined ? { threadId: request.query.threadId } : {}),
             ...(request.query.source !== undefined ? { source: request.query.source } : {}),
-            sortBy: request.query.sortBy ?? 'createdAt',
-            sortOrder: request.query.sortOrder ?? 'desc',
+            sortBy: requestedSortBy,
+            sortOrder: requestedSortOrder,
             ...(cursor !== undefined ? { cursor } : {}),
             limit: request.query.limit ?? DEFAULT_LIST_LIMIT,
           }
