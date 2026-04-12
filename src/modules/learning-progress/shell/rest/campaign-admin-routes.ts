@@ -788,6 +788,52 @@ function buildCampaignProvocariStepPath(
   return `/primarie/${encodedEntityCui}/buget/provocari/${encodeSegment(stepLocation.moduleSlug)}/${encodeSegment(stepLocation.challengeSlug)}/${encodeSegment(stepLocation.stepSlug)}`;
 }
 
+function stripLocalePrefix(pathname: string): string {
+  const strippedPathname = pathname.replace(/^\/(?:en|ro)(?=\/|$)/, '');
+  return strippedPathname === '' ? '/' : strippedPathname;
+}
+
+function buildInteractionElementLink(input: {
+  row: CampaignAdminInteractionRow;
+  entityCui: string | null;
+  interactionConfig: CampaignAdminInteractionConfig | null;
+}): string | null {
+  const { row, entityCui, interactionConfig } = input;
+
+  if (
+    entityCui === null ||
+    interactionConfig?.interactionStepLocation === null ||
+    interactionConfig?.interactionStepLocation === undefined
+  ) {
+    return null;
+  }
+
+  const fallbackPath = buildCampaignProvocariStepPath(
+    entityCui,
+    interactionConfig.interactionStepLocation
+  );
+  const sourceUrl = toNullableTrimmedString(row.record.sourceUrl);
+
+  if (sourceUrl === null) {
+    return fallbackPath;
+  }
+
+  try {
+    const parsedUrl = new URL(sourceUrl);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return fallbackPath;
+    }
+
+    if (stripLocalePrefix(parsedUrl.pathname) !== fallbackPath) {
+      return fallbackPath;
+    }
+
+    return `${fallbackPath}${parsedUrl.search}${parsedUrl.hash}`;
+  } catch {
+    return fallbackPath;
+  }
+}
+
 function extractEntityCui(row: Pick<CampaignAdminInteractionRow, 'record'>): string | null {
   if (row.record.scope.type !== 'entity') {
     return null;
@@ -1237,12 +1283,11 @@ function formatCampaignAdminInteractionRow(input: {
   const threadSummary = shouldAttachThreadSummary({ row, interactionConfig })
     ? row.threadSummary
     : null;
-  const interactionElementLink =
-    entityCui !== null &&
-    interactionConfig?.interactionStepLocation !== null &&
-    interactionConfig?.interactionStepLocation !== undefined
-      ? buildCampaignProvocariStepPath(entityCui, interactionConfig.interactionStepLocation)
-      : null;
+  const interactionElementLink = buildInteractionElementLink({
+    row,
+    entityCui,
+    interactionConfig,
+  });
 
   if (interactionConfig?.projection === 'public_debate_request' && isReviewable) {
     if (institutionEmail === null || !EMAIL_REGEX.test(institutionEmail)) {
