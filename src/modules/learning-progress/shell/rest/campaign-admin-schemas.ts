@@ -106,6 +106,7 @@ export const CampaignAdminAvailableInteractionTypeSchema = Type.Object(
   {
     interactionId: Type.String({ minLength: 1 }),
     label: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    reviewable: Type.Boolean(),
   },
   { additionalProperties: false }
 );
@@ -297,6 +298,16 @@ const ParticipationReportPayloadSummarySchema = Type.Object(
   { additionalProperties: false }
 );
 
+const QuizPayloadSummarySchema = Type.Object(
+  {
+    kind: Type.Literal('quiz'),
+    selectedOptionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    outcome: Type.Union([Type.Literal('correct'), Type.Literal('incorrect'), Type.Null()]),
+    score: Type.Union([Type.Number(), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 const ContestationPayloadSummarySchema = Type.Object(
   {
     kind: Type.Literal('contestation'),
@@ -319,6 +330,7 @@ export const CampaignAdminPayloadSummarySchema = Type.Union([
   BudgetStatusPayloadSummarySchema,
   CityHallContactPayloadSummarySchema,
   ParticipationReportPayloadSummarySchema,
+  QuizPayloadSummarySchema,
   ContestationPayloadSummarySchema,
 ]);
 
@@ -345,6 +357,7 @@ export const CampaignAdminInteractionListItemSchema = Type.Object(
       Type.Literal('rejected'),
       Type.Null(),
     ]),
+    reviewable: Type.Boolean(),
     pendingReason: Type.Union([PendingReasonSchema, Type.Null()]),
     submittedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     createdAt: Type.String({ format: 'date-time' }),

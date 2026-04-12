@@ -33,6 +33,7 @@ export type {
   GetRecordsOptions,
   CampaignAdminCampaignKey,
   CampaignAdminSubmissionPath,
+  CampaignAdminInteractionFilter,
   CampaignAdminInstitutionThreadPhase,
   CampaignAdminListCursor,
   CampaignAdminInstitutionThreadSummary,

@@ -310,6 +310,55 @@ function createBudgetContestationRecord(input?: {
   });
 }
 
+function createQuizRecord(input?: {
+  interactionId?: string;
+  lessonId?: string;
+  updatedAt?: string;
+  selectedOptionId?: string | null;
+  outcome?: 'correct' | 'incorrect' | null;
+  score?: number | null;
+  phase?: 'idle' | 'draft' | 'pending' | 'resolved' | 'failed';
+}) {
+  const interactionId = input?.interactionId ?? 'ch-civic-03-why-check-q1';
+  const updatedAt = input?.updatedAt ?? '2026-04-10T10:00:00.000Z';
+
+  return createTestInteractiveRecord({
+    key: `${interactionId}::global`,
+    interactionId,
+    lessonId: input?.lessonId ?? 'ch-civic-03-budget-status-2026',
+    kind: 'quiz',
+    completionRule: { type: 'outcome', outcome: 'correct' },
+    scope: { type: 'global' },
+    phase: input?.phase ?? 'resolved',
+    value:
+      input?.selectedOptionId === undefined
+        ? {
+            kind: 'choice',
+            choice: { selectedId: 'b' },
+          }
+        : input.selectedOptionId === null
+          ? null
+          : {
+              kind: 'choice',
+              choice: { selectedId: input.selectedOptionId },
+            },
+    result:
+      input?.outcome === undefined
+        ? {
+            outcome: 'correct',
+            score: 100,
+            evaluatedAt: updatedAt,
+          }
+        : {
+            outcome: input.outcome,
+            score: input.score ?? null,
+            evaluatedAt: updatedAt,
+          },
+    updatedAt,
+    submittedAt: updatedAt,
+  });
+}
+
 function makeTestEntityProfileRepo(
   officialEmails: Record<string, string | null>
 ): EntityProfileRepository {
@@ -525,6 +574,104 @@ const createTestApp = async (options?: {
   return { app, testAuth, permissionAuthorizer };
 };
 
+const EXPECTED_AVAILABLE_INTERACTION_TYPES = [
+  {
+    interactionId: 'funky:interaction:public_debate_request',
+    label: 'Public debate request',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:city_hall_website',
+    label: 'City hall website',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:budget_document',
+    label: 'Budget document',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:budget_publication_date',
+    label: 'Budget publication date',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:budget_status',
+    label: 'Budget status',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:city_hall_contact',
+    label: 'City hall contact',
+    reviewable: true,
+  },
+  {
+    interactionId: 'funky:interaction:funky_participation',
+    label: 'Participation report',
+    reviewable: false,
+  },
+  {
+    interactionId: 'funky:interaction:budget_contestation',
+    label: 'Budget contestation',
+    reviewable: true,
+  },
+  {
+    interactionId: 'ch-civic-01-how-module-works-q1',
+    label: 'Quiz: Module structure',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-01-why-budget-matters-q1',
+    label: 'Quiz: Why the local budget matters',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-01-what-campaign-is-q1',
+    label: 'Quiz: Budget consultation actions',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-02-cycle-q1',
+    label: 'Quiz: Budget proposer',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-02-deadlines-q1',
+    label: 'Quiz: Contestation deadline',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-02-rights-q1',
+    label: 'Quiz: Right to a public debate',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-03-why-check-q1',
+    label: 'Quiz: Why budget status matters',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-04-why-debate-q1',
+    label: 'Quiz: Why request a debate',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-04-next-steps-q1',
+    label: 'Quiz: Debate request follow-up',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-05-preparation-q1',
+    label: 'Quiz: Debate preparation',
+    reviewable: false,
+  },
+  {
+    interactionId: 'ch-civic-06-when-contest-q1',
+    label: 'Quiz: What makes a contestation effective',
+    reviewable: false,
+  },
+] as const;
+
 describe('Campaign Admin User Interactions REST API', () => {
   let app: FastifyInstance;
 
@@ -573,7 +720,7 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: false,
       error: 'ForbiddenError',
-      message: 'You do not have permission to manage this campaign review queue',
+      message: 'You do not have permission to access this campaign interaction audit',
       retryable: false,
     });
     expect(setup.permissionAuthorizer.hasPermission).toHaveBeenCalledWith({
@@ -614,16 +761,7 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: true,
       data: {
-        availableInteractionTypes: [
-          {
-            interactionId: 'funky:interaction:public_debate_request',
-            label: 'Public debate request',
-          },
-          {
-            interactionId: 'funky:interaction:city_hall_website',
-            label: 'City hall website',
-          },
-        ],
+        availableInteractionTypes: EXPECTED_AVAILABLE_INTERACTION_TYPES,
         stats: {
           total: 0,
           riskFlagged: 0,
@@ -739,16 +877,7 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: true,
       data: {
-        availableInteractionTypes: [
-          {
-            interactionId: 'funky:interaction:public_debate_request',
-            label: 'Public debate request',
-          },
-          {
-            interactionId: 'funky:interaction:city_hall_website',
-            label: 'City hall website',
-          },
-        ],
+        availableInteractionTypes: EXPECTED_AVAILABLE_INTERACTION_TYPES,
         stats: {
           total: 4,
           riskFlagged: 2,
@@ -825,16 +954,7 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: true,
       data: {
-        availableInteractionTypes: [
-          {
-            interactionId: 'funky:interaction:public_debate_request',
-            label: 'Public debate request',
-          },
-          {
-            interactionId: 'funky:interaction:city_hall_website',
-            label: 'City hall website',
-          },
-        ],
+        availableInteractionTypes: EXPECTED_AVAILABLE_INTERACTION_TYPES,
         stats: {
           total: 2,
           riskFlagged: 1,
@@ -950,7 +1070,7 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
   });
 
-  it('keeps non-allowlisted interaction types out of the campaign-admin queue', async () => {
+  it('lists campaign-wide audit rows with safe summaries for non-debate interactions', async () => {
     const websiteRecord = createCityHallWebsiteRecord({
       entityCui: '10000001',
       updatedAt: '2026-04-10T16:00:00.000Z',
@@ -1010,27 +1130,106 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      ok: true,
+    const body = response.json<{
+      ok: boolean;
       data: {
-        items: [
-          expect.objectContaining({
-            recordKey: websiteRecord.key,
-            interactionElementLink:
-              '/primarie/10000001/buget/provocari/civic-campaign/civic-monitor-and-request/03-budget-status-2026',
-            payloadSummary: {
-              kind: 'website_url',
-              websiteUrl: 'https://primarie-website.test',
-            },
-          }),
-        ],
-        page: {
-          limit: 50,
-          hasMore: false,
-          nextCursor: null,
-        },
+        items: Record<string, unknown>[];
+        page: { limit: number; hasMore: boolean; nextCursor: string | null };
+      };
+    }>();
+
+    expect(body.ok).toBe(true);
+    expect(body.data.page).toEqual({
+      limit: 50,
+      hasMore: false,
+      nextCursor: null,
+    });
+    expect(body.data.items).toHaveLength(7);
+
+    const itemsByRecordKey = new Map(
+      body.data.items.map((item) => [String(item['recordKey']), item] as const)
+    );
+
+    expect(itemsByRecordKey.get(websiteRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:city_hall_website',
+      reviewable: true,
+      interactionElementLink:
+        '/primarie/10000001/buget/provocari/civic-campaign/civic-monitor-and-request/03-budget-status-2026',
+      payloadSummary: {
+        kind: 'website_url',
+        websiteUrl: 'https://primarie-website.test',
       },
     });
+    expect(itemsByRecordKey.get(documentRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:budget_document',
+      reviewable: true,
+      payloadSummary: {
+        kind: 'budget_document',
+        documentUrl: 'https://primarie.test/buget.pdf',
+        documentTypes: ['pdf', 'excel'],
+      },
+    });
+    expect(itemsByRecordKey.get(publicationDateRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:budget_publication_date',
+      reviewable: true,
+      payloadSummary: {
+        kind: 'budget_publication_date',
+        publicationDate: '2026-02-20',
+        sources: [{ type: 'website', url: 'https://primarie.test/anunt' }],
+      },
+    });
+    expect(itemsByRecordKey.get(statusRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:budget_status',
+      reviewable: true,
+      payloadSummary: {
+        kind: 'budget_status',
+        isPublished: 'yes',
+        budgetStage: 'approved',
+      },
+    });
+    expect(itemsByRecordKey.get(contactRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:city_hall_contact',
+      reviewable: true,
+      payloadSummary: {
+        kind: 'city_hall_contact',
+        email: 'contact@primarie-contact.test',
+        phone: '+40 321 654 987',
+      },
+    });
+    expect(itemsByRecordKey.get(participationRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:funky_participation',
+      reviewable: false,
+      reviewStatus: null,
+      payloadSummary: {
+        kind: 'participation_report',
+        debateTookPlace: 'yes',
+        approximateAttendees: 42,
+        citizensAllowedToSpeak: 'partially',
+        citizenInputsRecorded: 'yes',
+        observations: 'Citizens raised multiple budget priorities.',
+      },
+    });
+    expect(itemsByRecordKey.get(contestationRecord.key)).toMatchObject({
+      interactionId: 'funky:interaction:budget_contestation',
+      reviewable: true,
+      institutionEmail: 'contact@primarie.ro',
+      submissionPath: 'send_email',
+      payloadSummary: {
+        kind: 'contestation',
+        contestedItem: 'Chapter 65 personnel expenses',
+        reasoning: 'The increase is disproportionate to the proposed investment cuts.',
+        impact: 'Community services would lose funding.',
+        proposedChange: 'Rebalance the increase toward infrastructure.',
+        senderName: 'Asociatia Test',
+        submissionPath: 'send_email',
+        institutionEmail: 'contact@primarie.ro',
+      },
+    });
+
+    for (const item of body.data.items) {
+      expect(item).not.toHaveProperty('record');
+      expect(item).not.toHaveProperty('auditEvents');
+    }
   });
 
   it('filters the queue by a single configured interactionId', async () => {
@@ -1083,6 +1282,70 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
   });
 
+  it('includes persisted civic quiz rows in the audit list with minimized summaries', async () => {
+    const quizRecord = createQuizRecord({
+      interactionId: 'ch-civic-04-why-debate-q1',
+      lessonId: 'ch-civic-04-debate-request',
+      updatedAt: '2026-04-10T11:00:00.000Z',
+      selectedOptionId: 'b',
+      outcome: 'correct',
+      score: 100,
+      phase: 'resolved',
+    });
+    const websiteRecord = createCityHallWebsiteRecord({
+      entityCui: '87654321',
+      updatedAt: '2026-04-10T10:00:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', quizRecord, '1')]);
+    initialRecords.set('user-2', [makeRow('user-2', websiteRecord, '2')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const setup = await createTestApp({ learningProgressRepo: repo });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/user-interactions?interactionId=ch-civic-04-why-debate-q1',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          expect.objectContaining({
+            recordKey: quizRecord.key,
+            interactionId: 'ch-civic-04-why-debate-q1',
+            lessonId: 'ch-civic-04-debate-request',
+            scopeType: 'global',
+            entityCui: null,
+            entityName: null,
+            reviewable: false,
+            reviewStatus: null,
+            interactionElementLink: null,
+            payloadKind: 'choice',
+            payloadSummary: {
+              kind: 'quiz',
+              selectedOptionId: 'b',
+              outcome: 'correct',
+              score: 100,
+            },
+          }),
+        ],
+        page: {
+          limit: 50,
+          hasMore: false,
+          nextCursor: null,
+        },
+      },
+    });
+  });
+
   it('supports generic submissionPath filters for contestation rows', async () => {
     const contestationRecord = createBudgetContestationRecord({
       entityCui: '12345678',
@@ -1115,7 +1378,14 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: true,
       data: {
-        items: [],
+        items: [
+          expect.objectContaining({
+            recordKey: contestationRecord.key,
+            interactionId: 'funky:interaction:budget_contestation',
+            reviewable: true,
+            submissionPath: 'send_email',
+          }),
+        ],
         page: {
           limit: 50,
           hasMore: false,
@@ -1587,7 +1857,7 @@ describe('Campaign Admin User Interactions REST API', () => {
       ok: false,
       error: 'InvalidEventError',
       message:
-        'Campaign review query matched too many rows. Narrow the filters to 5000 rows or fewer.',
+        'Campaign interaction audit query matched too many rows. Narrow the filters to 5000 rows or fewer.',
       retryable: false,
     });
   });
@@ -1617,12 +1887,12 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.json()).toEqual({
       ok: false,
       error: 'ValidationError',
-      message: 'Invalid campaign review cursor',
+      message: 'Invalid campaign interaction cursor',
       retryable: false,
     });
   });
 
-  it('excludes self-send public-debate submissions from the review queue and rejects review attempts for them', async () => {
+  it('shows self-send public-debate submissions in the audit list but still rejects reviews for them', async () => {
     const selfSendRecord = createDebateRequestRecord({
       entityCui: '12345678',
       submissionPath: 'send_yourself',
@@ -1647,7 +1917,19 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(listResponse.json()).toEqual({
       ok: true,
       data: {
-        items: [],
+        items: [
+          expect.objectContaining({
+            recordKey: selfSendRecord.key,
+            interactionId: 'funky:interaction:public_debate_request',
+            reviewable: false,
+            reviewStatus: null,
+            pendingReason: null,
+            submissionPath: 'send_yourself',
+            institutionEmail: 'contact@primarie.ro',
+            riskFlags: [],
+            threadId: null,
+          }),
+        ],
         page: {
           limit: 50,
           hasMore: false,
@@ -1676,6 +1958,41 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
 
     expect(reviewResponse.statusCode).toBe(404);
+  });
+
+  it('rejects review attempts for audit-only participation reports', async () => {
+    const participationRecord = createParticipationReportRecord({
+      entityCui: '12345678',
+      updatedAt: '2026-04-10T10:00:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', participationRecord, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const setup = await createTestApp({ learningProgressRepo: repo });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: participationRecord.key,
+            expectedUpdatedAt: participationRecord.updatedAt,
+            status: 'approved',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 
   it('does not emit missing-official-email risk flags when official-email enrichment fails', async () => {

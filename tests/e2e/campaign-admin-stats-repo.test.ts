@@ -236,13 +236,27 @@ describe('Learning progress repo campaign-admin stats', () => {
       });
       const result = await repo.getCampaignAdminStats({
         campaignKey: 'funky',
-        reviewableInteractions: [
+        interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
-            reviewableSubmissionPath: 'request_platform',
           },
           {
             interactionId: 'funky:interaction:city_hall_website',
+          },
+        ],
+        reviewableInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+          {
+            interactionId: 'funky:interaction:city_hall_website',
+          },
+        ],
+        threadSummaryInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
           },
         ],
       });

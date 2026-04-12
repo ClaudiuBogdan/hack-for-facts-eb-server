@@ -4,8 +4,15 @@ import { err, fromThrowable, ok, type Result } from 'neverthrow';
 
 import { FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import {
+  BUDGET_CONTESTATION_INTERACTION_ID,
+  BUDGET_DOCUMENT_INTERACTION_ID,
+  BUDGET_PUBLICATION_DATE_INTERACTION_ID,
+  BUDGET_STATUS_INTERACTION_ID,
   CITY_HALL_WEBSITE_INTERACTION_ID,
+  CITY_HALL_CONTACT_INTERACTION_ID,
+  CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS,
   DEBATE_REQUEST_INTERACTION_ID,
+  PARTICIPATION_REPORT_INTERACTION_ID,
   parseBudgetDocumentPayloadValue,
   parseBudgetPublicationDatePayloadValue,
   parseBudgetStatusReportPayloadValue,
@@ -50,6 +57,7 @@ import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
   ApprovedReviewSideEffectPlan,
   CampaignAdminCampaignKey,
+  CampaignAdminInteractionFilter,
   CampaignAdminInteractionRow,
   CampaignAdminListCursor,
   CampaignAdminRiskFlagCandidate,
@@ -85,32 +93,36 @@ type CampaignReviewProjectionKind =
   | 'budget_status'
   | 'city_hall_contact'
   | 'participation_report'
+  | 'quiz'
   | 'contestation';
+
 interface CampaignInteractionStepLocation {
-  moduleSlug: string;
-  challengeSlug: string;
-  stepSlug: string;
+  readonly moduleSlug: string;
+  readonly challengeSlug: string;
+  readonly stepSlug: string;
 }
 
-interface CampaignReviewInteractionConfig {
-  campaignKey: CampaignAdminCampaignKey;
-  interactionId: string;
-  label: string | null;
-  projection: CampaignReviewProjectionKind;
-  interactionStepLocation: CampaignInteractionStepLocation | null;
-  reviewableSubmissionPath?: CampaignAdminSubmissionPath;
-  supportsInstitutionThreadSummary: boolean;
+interface CampaignAdminInteractionConfig {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly interactionId: string;
+  readonly label: string | null;
+  readonly projection: CampaignReviewProjectionKind;
+  readonly interactionStepLocation: CampaignInteractionStepLocation | null;
+  readonly adminAuditVisible: boolean;
+  readonly reviewable: boolean;
+  readonly reviewableSubmissionPaths?: readonly CampaignAdminSubmissionPath[];
+  readonly supportsInstitutionThreadSummary: boolean;
 }
 
-interface CampaignReviewConfig {
-  campaignKey: CampaignAdminCampaignKey;
-  permissionName: string;
-  interactions: readonly CampaignReviewInteractionConfig[];
+interface CampaignAuditConfig {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly permissionName: string;
+  readonly interactions: readonly CampaignAdminInteractionConfig[];
 }
 
 interface CampaignAdminAccessContext {
-  userId: string;
-  config: CampaignReviewConfig;
+  readonly userId: string;
+  readonly config: CampaignAuditConfig;
 }
 
 declare module 'fastify' {
@@ -128,14 +140,161 @@ const SORT_VALUE_COLLATOR = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
+function createCampaignInteractionConfig(
+  input: Omit<CampaignAdminInteractionConfig, 'campaignKey' | 'adminAuditVisible'> & {
+    readonly campaignKey?: CampaignAdminCampaignKey;
+    readonly adminAuditVisible?: boolean;
+  }
+): CampaignAdminInteractionConfig {
+  return {
+    campaignKey: input.campaignKey ?? FUNKY_CAMPAIGN_KEY,
+    adminAuditVisible: input.adminAuditVisible ?? true,
+    ...input,
+  };
+}
+
+const FUNKY_CIVIC_QUIZ_CONFIGS = [
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
+    label: 'Quiz: Module structure',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '01-about-this-challenge',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[1],
+    label: 'Quiz: Why the local budget matters',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '01-about-this-challenge',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[2],
+    label: 'Quiz: Budget consultation actions',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '01-about-this-challenge',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[3],
+    label: 'Quiz: Budget proposer',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '02-budget-calendar-and-rights',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[4],
+    label: 'Quiz: Contestation deadline',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '02-budget-calendar-and-rights',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[5],
+    label: 'Quiz: Right to a public debate',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-intro',
+      stepSlug: '02-budget-calendar-and-rights',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[6],
+    label: 'Quiz: Why budget status matters',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-monitor-and-request',
+      stepSlug: '03-budget-status-2026',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[7],
+    label: 'Quiz: Why request a debate',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-monitor-and-request',
+      stepSlug: '04-debate-request',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[8],
+    label: 'Quiz: Debate request follow-up',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-monitor-and-request',
+      stepSlug: '04-debate-request',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[9],
+    label: 'Quiz: Debate preparation',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-participate-and-act',
+      stepSlug: '05-participation-report',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+  createCampaignInteractionConfig({
+    interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[10],
+    label: 'Quiz: What makes a contestation effective',
+    projection: 'quiz',
+    interactionStepLocation: {
+      moduleSlug: 'civic-campaign',
+      challengeSlug: 'civic-participate-and-act',
+      stepSlug: '06-contestation',
+    },
+    reviewable: false,
+    supportsInstitutionThreadSummary: false,
+  }),
+] as const satisfies readonly CampaignAdminInteractionConfig[];
+
 // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
-const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, CampaignReviewConfig>> = {
+const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, CampaignAuditConfig>> = {
   [FUNKY_CAMPAIGN_KEY]: {
     campaignKey: FUNKY_CAMPAIGN_KEY,
     permissionName: FUNKY_CAMPAIGN_ADMIN_PERMISSION,
     interactions: [
-      {
-        campaignKey: FUNKY_CAMPAIGN_KEY,
+      createCampaignInteractionConfig({
         interactionId: DEBATE_REQUEST_INTERACTION_ID,
         label: 'Public debate request',
         projection: 'public_debate_request',
@@ -144,11 +303,11 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           challengeSlug: 'civic-monitor-and-request',
           stepSlug: '04-debate-request',
         },
-        reviewableSubmissionPath: 'request_platform',
+        reviewable: true,
+        reviewableSubmissionPaths: ['request_platform'],
         supportsInstitutionThreadSummary: true,
-      },
-      {
-        campaignKey: FUNKY_CAMPAIGN_KEY,
+      }),
+      createCampaignInteractionConfig({
         interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
         label: 'City hall website',
         projection: 'website_url',
@@ -157,8 +316,82 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           challengeSlug: 'civic-monitor-and-request',
           stepSlug: '03-budget-status-2026',
         },
+        reviewable: true,
         supportsInstitutionThreadSummary: false,
-      },
+      }),
+      createCampaignInteractionConfig({
+        interactionId: BUDGET_DOCUMENT_INTERACTION_ID,
+        label: 'Budget document',
+        projection: 'budget_document',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-monitor-and-request',
+          stepSlug: '03-budget-status-2026',
+        },
+        reviewable: true,
+        supportsInstitutionThreadSummary: false,
+      }),
+      createCampaignInteractionConfig({
+        interactionId: BUDGET_PUBLICATION_DATE_INTERACTION_ID,
+        label: 'Budget publication date',
+        projection: 'budget_publication_date',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-monitor-and-request',
+          stepSlug: '03-budget-status-2026',
+        },
+        reviewable: true,
+        supportsInstitutionThreadSummary: false,
+      }),
+      createCampaignInteractionConfig({
+        interactionId: BUDGET_STATUS_INTERACTION_ID,
+        label: 'Budget status',
+        projection: 'budget_status',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-monitor-and-request',
+          stepSlug: '03-budget-status-2026',
+        },
+        reviewable: true,
+        supportsInstitutionThreadSummary: false,
+      }),
+      createCampaignInteractionConfig({
+        interactionId: CITY_HALL_CONTACT_INTERACTION_ID,
+        label: 'City hall contact',
+        projection: 'city_hall_contact',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-monitor-and-request',
+          stepSlug: '04-debate-request',
+        },
+        reviewable: true,
+        supportsInstitutionThreadSummary: false,
+      }),
+      createCampaignInteractionConfig({
+        interactionId: PARTICIPATION_REPORT_INTERACTION_ID,
+        label: 'Participation report',
+        projection: 'participation_report',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-participate-and-act',
+          stepSlug: '05-participation-report',
+        },
+        reviewable: false,
+        supportsInstitutionThreadSummary: false,
+      }),
+      createCampaignInteractionConfig({
+        interactionId: BUDGET_CONTESTATION_INTERACTION_ID,
+        label: 'Budget contestation',
+        projection: 'contestation',
+        interactionStepLocation: {
+          moduleSlug: 'civic-campaign',
+          challengeSlug: 'civic-participate-and-act',
+          stepSlug: '06-contestation',
+        },
+        reviewable: true,
+        supportsInstitutionThreadSummary: false,
+      }),
+      ...FUNKY_CIVIC_QUIZ_CONFIGS,
     ],
   },
 };
@@ -192,15 +425,15 @@ function isInstitutionCorrespondenceError(error: unknown): error is InstitutionC
   return typeof candidate.type === 'string' && candidate.type.startsWith('Correspondence');
 }
 
-function getCampaignReviewConfig(campaignKey: string): CampaignReviewConfig | null {
-  const configMap = CAMPAIGN_REVIEW_CONFIGS as Partial<Record<string, CampaignReviewConfig>>;
+function getCampaignReviewConfig(campaignKey: string): CampaignAuditConfig | null {
+  const configMap = CAMPAIGN_REVIEW_CONFIGS as Partial<Record<string, CampaignAuditConfig>>;
   return configMap[campaignKey] ?? null;
 }
 
 function getCampaignInteractionConfig(
-  config: CampaignReviewConfig,
+  config: CampaignAuditConfig,
   interactionId: string
-): CampaignReviewInteractionConfig | null {
+): CampaignAdminInteractionConfig | null {
   return (
     config.interactions.find((interaction) => interaction.interactionId === interactionId) ?? null
   );
@@ -325,7 +558,7 @@ function getEntitySortValue(item: CampaignAdminInteractionListItem): string | nu
 
 function getInteractionTypeSortValue(
   item: CampaignAdminInteractionListItem,
-  config: CampaignReviewConfig
+  config: CampaignAuditConfig
 ): string {
   const trimmedLabel = getCampaignInteractionConfig(config, item.interactionId)?.label?.trim();
   return trimmedLabel !== undefined && trimmedLabel !== '' ? trimmedLabel : item.interactionId;
@@ -334,7 +567,7 @@ function getInteractionTypeSortValue(
 function getSortValue(input: {
   item: CampaignAdminInteractionListItem;
   sortBy: CampaignAdminSortKey;
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
 }): string | number | null {
   const { item, sortBy, config } = input;
 
@@ -383,7 +616,7 @@ function compareCampaignAdminInteractionItems(input: {
   left: CampaignAdminInteractionListItem;
   right: CampaignAdminInteractionListItem;
   sort: CampaignAdminNormalizedSort;
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
 }): number {
   const leftValue = getSortValue({
     item: input.left,
@@ -422,7 +655,7 @@ function compareCampaignAdminInteractionItems(input: {
 function sortCampaignAdminInteractionItems(input: {
   items: readonly CampaignAdminInteractionListItem[];
   sort: CampaignAdminNormalizedSort | null;
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
 }): readonly CampaignAdminInteractionListItem[] {
   if (input.sort === null) {
     return input.items;
@@ -486,8 +719,13 @@ function buildNextCursor(input: {
 }
 
 function getReviewStatus(
-  row: CampaignAdminInteractionRow
+  row: CampaignAdminInteractionRow,
+  reviewable: boolean
 ): CampaignAdminInteractionListItem['reviewStatus'] {
+  if (!reviewable) {
+    return null;
+  }
+
   if (row.record.review?.status !== undefined) {
     return row.record.review.status;
   }
@@ -571,25 +809,73 @@ function extractWebsiteUrl(row: Pick<CampaignAdminInteractionRow, 'record'>): st
   return typeof candidate === 'string' ? toNullableTrimmedString(candidate) : null;
 }
 
-function selectReviewableInteractions(input: {
-  config: CampaignReviewConfig;
+function extractSubmissionPath(
+  row: Pick<CampaignAdminInteractionRow, 'record'>
+): CampaignAdminSubmissionPath | null {
+  if (row.record.value?.kind !== 'json') {
+    return null;
+  }
+
+  const submissionPath = row.record.value.json.value['submissionPath'];
+  return submissionPath === 'request_platform' ||
+    submissionPath === 'send_yourself' ||
+    submissionPath === 'send_email' ||
+    submissionPath === 'download_text'
+    ? submissionPath
+    : null;
+}
+
+function matchesRestrictedSubmissionPaths(
+  submissionPath: CampaignAdminSubmissionPath | null,
+  restrictedSubmissionPaths: readonly CampaignAdminSubmissionPath[] | undefined
+): boolean {
+  if (restrictedSubmissionPaths === undefined || restrictedSubmissionPaths.length === 0) {
+    return true;
+  }
+
+  return submissionPath !== null && restrictedSubmissionPaths.includes(submissionPath);
+}
+
+function isInteractionRowReviewable(input: {
+  row: CampaignAdminInteractionRow;
+  interactionConfig: CampaignAdminInteractionConfig | null;
+}): boolean {
+  if (input.interactionConfig?.reviewable !== true) {
+    return false;
+  }
+
+  return matchesRestrictedSubmissionPaths(
+    extractSubmissionPath(input.row),
+    input.interactionConfig.reviewableSubmissionPaths
+  );
+}
+
+function shouldAttachThreadSummary(input: {
+  row: CampaignAdminInteractionRow;
+  interactionConfig: CampaignAdminInteractionConfig | null;
+}): boolean {
+  if (input.interactionConfig?.supportsInstitutionThreadSummary !== true) {
+    return false;
+  }
+
+  return matchesRestrictedSubmissionPaths(
+    extractSubmissionPath(input.row),
+    input.interactionConfig.reviewableSubmissionPaths
+  );
+}
+
+function selectAuditVisibleInteractions(input: {
+  config: CampaignAuditConfig;
   interactionId?: string;
-  submissionPath?: CampaignAdminSubmissionPath;
   requiresInstitutionThreadSummary: boolean;
-}): readonly CampaignReviewInteractionConfig[] {
-  let interactions = input.config.interactions;
+}): readonly CampaignAdminInteractionConfig[] {
+  let interactions = input.config.interactions.filter(
+    (interaction) => interaction.adminAuditVisible
+  );
 
   if (input.interactionId !== undefined) {
     interactions = interactions.filter(
       (interaction) => interaction.interactionId === input.interactionId
-    );
-  }
-
-  if (input.submissionPath !== undefined) {
-    interactions = interactions.filter(
-      (interaction) =>
-        interaction.reviewableSubmissionPath === undefined ||
-        interaction.reviewableSubmissionPath === input.submissionPath
     );
   }
 
@@ -668,7 +954,7 @@ async function loadOfficialEmailMap(
     entityCuis,
     entityProfileRepo,
     log,
-    failureMessage: 'Failed to load entity profiles for campaign-admin interaction review list',
+    failureMessage: 'Failed to load entity profiles for campaign-admin interaction audit list',
   });
 }
 
@@ -694,7 +980,7 @@ async function loadEntityNameMap(
   if (entitiesResult.isErr()) {
     log.warn(
       { error: entitiesResult.error, entityCuis },
-      'Failed to load entity names for campaign-admin interaction review list'
+      'Failed to load entity names for campaign-admin interaction audit list'
     );
     return new Map();
   }
@@ -709,7 +995,7 @@ async function loadEntityNameMap(
 
 function isCampaignAdminRiskFlagCandidateRisky(input: {
   candidate: CampaignAdminRiskFlagCandidate;
-  interactionConfig: CampaignReviewInteractionConfig | null;
+  interactionConfig: CampaignAdminInteractionConfig | null;
   officialEmail: string | null;
   officialEmailLookupFailed: boolean;
 }): boolean {
@@ -739,7 +1025,7 @@ function isCampaignAdminRiskFlagCandidateRisky(input: {
 
 async function countRiskFlaggedCampaignAdminItems(input: {
   riskFlagCandidates: readonly CampaignAdminRiskFlagCandidate[];
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
   entityProfileRepo: EntityProfileRepository;
   log: Pick<FastifyBaseLogger, 'warn'>;
 }): Promise<number> {
@@ -787,13 +1073,14 @@ async function countRiskFlaggedCampaignAdminItems(input: {
 
 function formatCampaignAdminInteractionRow(input: {
   row: CampaignAdminInteractionRow;
-  interactionConfig: CampaignReviewInteractionConfig | null;
+  interactionConfig: CampaignAdminInteractionConfig | null;
   entityName: string | null;
   officialEmail: string | null;
   officialEmailLookupFailed: boolean;
 }): CampaignAdminInteractionListItem {
   const { row, interactionConfig, entityName, officialEmail, officialEmailLookupFailed } = input;
-  const reviewStatus = getReviewStatus(row);
+  const isReviewable = isInteractionRowReviewable({ row, interactionConfig });
+  const reviewStatus = getReviewStatus(row, isReviewable);
   const payloadSummary = (() => {
     switch (interactionConfig?.projection) {
       case 'public_debate_request': {
@@ -905,6 +1192,16 @@ function formatCampaignAdminInteractionRow(input: {
           observations: toNullableTrimmedString(payload.observations),
         };
       }
+      case 'quiz':
+        return {
+          kind: 'quiz' as const,
+          selectedOptionId:
+            row.record.value?.kind === 'choice'
+              ? toNullableTrimmedString(row.record.value.choice.selectedId)
+              : null,
+          outcome: row.record.result?.outcome ?? null,
+          score: typeof row.record.result?.score === 'number' ? row.record.result.score : null,
+        };
       case 'contestation': {
         if (row.record.value?.kind !== 'json') {
           return null;
@@ -932,10 +1229,13 @@ function formatCampaignAdminInteractionRow(input: {
   })();
   const entityCui = extractEntityCui(row);
   const institutionEmail =
-    payloadSummary?.kind === 'public_debate_request' ? payloadSummary.institutionEmail : null;
+    payloadSummary?.kind === 'public_debate_request' || payloadSummary?.kind === 'contestation'
+      ? payloadSummary.institutionEmail
+      : null;
   const riskFlags: CampaignAdminInteractionListItem['riskFlags'] = [];
-  const threadSummary =
-    interactionConfig?.supportsInstitutionThreadSummary === true ? row.threadSummary : null;
+  const threadSummary = shouldAttachThreadSummary({ row, interactionConfig })
+    ? row.threadSummary
+    : null;
   const interactionElementLink =
     entityCui !== null &&
     interactionConfig?.interactionStepLocation !== null &&
@@ -943,7 +1243,7 @@ function formatCampaignAdminInteractionRow(input: {
       ? buildCampaignProvocariStepPath(entityCui, interactionConfig.interactionStepLocation)
       : null;
 
-  if (interactionConfig?.projection === 'public_debate_request') {
+  if (interactionConfig?.projection === 'public_debate_request' && isReviewable) {
     if (institutionEmail === null || !EMAIL_REGEX.test(institutionEmail)) {
       riskFlags.push('invalid_institution_email');
     } else if (!officialEmailLookupFailed && officialEmail === null) {
@@ -961,6 +1261,7 @@ function formatCampaignAdminInteractionRow(input: {
     }
   }
 
+  const review = isReviewable ? (row.record.review ?? null) : null;
   const pendingReason = getPendingReason({
     reviewStatus,
     riskFlags,
@@ -977,14 +1278,15 @@ function formatCampaignAdminInteractionRow(input: {
     scopeType: row.record.scope.type,
     phase: row.record.phase,
     reviewStatus,
+    reviewable: isReviewable,
     pendingReason,
     submittedAt: row.record.submittedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    reviewedAt: row.record.review?.reviewedAt ?? null,
-    reviewedByUserId: row.record.review?.reviewedByUserId ?? null,
-    reviewSource: row.record.review?.reviewSource ?? null,
-    feedbackText: row.record.review?.feedbackText ?? null,
+    reviewedAt: review?.reviewedAt ?? null,
+    reviewedByUserId: review?.reviewedByUserId ?? null,
+    reviewSource: review?.reviewSource ?? null,
+    feedbackText: review?.feedbackText ?? null,
     payloadKind: row.record.value?.kind ?? null,
     payloadSummary,
     institutionEmail,
@@ -1011,7 +1313,7 @@ function formatCampaignAdminInteractionRow(input: {
 
 async function formatCampaignAdminInteractionRows(input: {
   rows: readonly CampaignAdminInteractionRow[];
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
   entityRepo: EntityRepository;
   entityProfileRepo: EntityProfileRepository;
   log: Pick<FastifyBaseLogger, 'warn'>;
@@ -1043,6 +1345,17 @@ async function formatCampaignAdminInteractionRows(input: {
   );
 }
 
+function filterItemsByReviewStatus(
+  items: readonly CampaignAdminInteractionListItem[],
+  reviewStatus: CampaignAdminInteractionListItem['reviewStatus'] | undefined
+): readonly CampaignAdminInteractionListItem[] {
+  if (reviewStatus === undefined) {
+    return items;
+  }
+
+  return items.filter((item) => item.reviewStatus === reviewStatus);
+}
+
 async function loadAllCampaignAdminInteractionRows(input: {
   repo: LearningProgressRepository;
   query: Omit<ListCampaignAdminInteractionRowsInput, 'cursor' | 'limit'>;
@@ -1065,7 +1378,7 @@ async function loadAllCampaignAdminInteractionRows(input: {
     if (rows.length > MAX_CAMPAIGN_ADMIN_LIST_ROWS) {
       return err(
         createInvalidEventError(
-          `Campaign review query matched too many rows. Narrow the filters to ${String(MAX_CAMPAIGN_ADMIN_LIST_ROWS)} rows or fewer.`
+          `Campaign interaction audit query matched too many rows. Narrow the filters to ${String(MAX_CAMPAIGN_ADMIN_LIST_ROWS)} rows or fewer.`
         )
       );
     }
@@ -1084,7 +1397,7 @@ async function ensureCampaignAdminAccess(input: {
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   enabledCampaignKeys: ReadonlySet<string>;
 }): Promise<
-  | { ok: true; config: CampaignReviewConfig }
+  | { ok: true; config: CampaignAuditConfig }
   | { ok: false; statusCode: 403 | 404; error: string; message: string }
 > {
   if (!input.enabledCampaignKeys.has(input.campaignKey)) {
@@ -1092,7 +1405,7 @@ async function ensureCampaignAdminAccess(input: {
       ok: false,
       statusCode: 404,
       error: 'NotFoundError',
-      message: 'Campaign review queue not found',
+      message: 'Campaign interaction audit not found',
     };
   }
 
@@ -1102,7 +1415,7 @@ async function ensureCampaignAdminAccess(input: {
       ok: false,
       statusCode: 404,
       error: 'NotFoundError',
-      message: 'Campaign review queue not found',
+      message: 'Campaign interaction audit not found',
     };
   }
 
@@ -1115,7 +1428,7 @@ async function ensureCampaignAdminAccess(input: {
       ok: false,
       statusCode: 403,
       error: 'ForbiddenError',
-      message: 'You do not have permission to manage this campaign review queue',
+      message: 'You do not have permission to access this campaign interaction audit',
     };
   }
 
@@ -1160,7 +1473,12 @@ function makeCampaignAdminAuthHook(input: {
 
     const campaignKey = getRequestCampaignKey(request);
     if (campaignKey === null) {
-      void sendCampaignAdminError(reply, 404, 'NotFoundError', 'Campaign review queue not found');
+      void sendCampaignAdminError(
+        reply,
+        404,
+        'NotFoundError',
+        'Campaign interaction audit not found'
+      );
       return;
     }
 
@@ -1191,7 +1509,7 @@ function makeCampaignAdminAuthHook(input: {
 
 async function validateCampaignReviewItems(input: {
   items: readonly ReviewDecision[];
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
   repo: LearningProgressRepository;
   reviewerUserId: string;
 }): Promise<Result<{ pendingItems: readonly ReviewDecision[] }, LearningProgressError>> {
@@ -1238,26 +1556,77 @@ async function validateCampaignReviewItems(input: {
   return ok({ pendingItems });
 }
 
+function buildCampaignInteractionFilters(input: {
+  interactions: readonly CampaignAdminInteractionConfig[];
+  kind: 'visible' | 'reviewable' | 'thread_summary';
+}): readonly CampaignAdminInteractionFilter[] {
+  return input.interactions.flatMap((interaction) => {
+    if (input.kind === 'visible') {
+      return interaction.adminAuditVisible ? [{ interactionId: interaction.interactionId }] : [];
+    }
+
+    if (input.kind === 'reviewable') {
+      if (!interaction.reviewable) {
+        return [];
+      }
+
+      return interaction.reviewableSubmissionPaths === undefined
+        ? [{ interactionId: interaction.interactionId }]
+        : interaction.reviewableSubmissionPaths.map((submissionPath) => ({
+            interactionId: interaction.interactionId,
+            submissionPath,
+          }));
+    }
+
+    if (!interaction.supportsInstitutionThreadSummary) {
+      return [];
+    }
+
+    return interaction.reviewableSubmissionPaths === undefined
+      ? [{ interactionId: interaction.interactionId }]
+      : interaction.reviewableSubmissionPaths.map((submissionPath) => ({
+          interactionId: interaction.interactionId,
+          submissionPath,
+        }));
+  });
+}
+
+function getCampaignVisibleInteractions(
+  config: CampaignAuditConfig
+): readonly CampaignAdminInteractionFilter[] {
+  return buildCampaignInteractionFilters({
+    interactions: config.interactions,
+    kind: 'visible',
+  });
+}
+
 function getCampaignReviewableInteractions(
-  config: CampaignReviewConfig
-): ListCampaignAdminInteractionRowsInput['reviewableInteractions'] {
-  return config.interactions.map((interaction) => ({
-    interactionId: interaction.interactionId,
-    ...(interaction.reviewableSubmissionPath !== undefined
-      ? { reviewableSubmissionPath: interaction.reviewableSubmissionPath }
-      : {}),
-  }));
+  config: CampaignAuditConfig
+): readonly CampaignAdminInteractionFilter[] {
+  return buildCampaignInteractionFilters({
+    interactions: config.interactions,
+    kind: 'reviewable',
+  });
+}
+
+function getCampaignThreadSummaryInteractions(
+  config: CampaignAuditConfig
+): readonly CampaignAdminInteractionFilter[] {
+  return buildCampaignInteractionFilters({
+    interactions: config.interactions,
+    kind: 'thread_summary',
+  });
 }
 
 async function loadCampaignReviewRow(input: {
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
   repo: LearningProgressRepository;
   userId: string;
   recordKey: string;
 }): Promise<Result<CampaignAdminInteractionRow | null, LearningProgressError>> {
   const rowResult = await input.repo.listCampaignAdminInteractionRows({
     campaignKey: input.config.campaignKey,
-    reviewableInteractions: getCampaignReviewableInteractions(input.config),
+    interactions: getCampaignReviewableInteractions(input.config),
     userId: input.userId,
     recordKey: input.recordKey,
     limit: 1,
@@ -1302,7 +1671,7 @@ function isIdempotentCampaignAdminReviewRetry(input: {
 
 async function loadReviewedResponseRows(input: {
   items: readonly ReviewDecision[];
-  config: CampaignReviewConfig;
+  config: CampaignAuditConfig;
   repo: LearningProgressRepository;
 }): Promise<Result<readonly CampaignAdminInteractionRow[], LearningProgressError>> {
   const rows: CampaignAdminInteractionRow[] = [];
@@ -1367,13 +1736,11 @@ export const makeCampaignAdminUserInteractionRoutes = (
       },
       async (request, reply) => {
         const access = getCampaignAdminAccess(request);
-        const reviewableInteractions = selectReviewableInteractions({
-          config: access.config,
-          requiresInstitutionThreadSummary: false,
-        });
         const statsResult = await deps.learningProgressRepo.getCampaignAdminStats({
           campaignKey: access.config.campaignKey,
-          reviewableInteractions,
+          interactions: getCampaignVisibleInteractions(access.config),
+          reviewableInteractions: getCampaignReviewableInteractions(access.config),
+          threadSummaryInteractions: getCampaignThreadSummaryInteractions(access.config),
         });
 
         if (statsResult.isErr()) {
@@ -1396,10 +1763,13 @@ export const makeCampaignAdminUserInteractionRoutes = (
         return reply.status(200).send({
           ok: true,
           data: {
-            availableInteractionTypes: access.config.interactions.map((interaction) => ({
-              interactionId: interaction.interactionId,
-              label: interaction.label,
-            })),
+            availableInteractionTypes: access.config.interactions
+              .filter((interaction) => interaction.adminAuditVisible)
+              .map((interaction) => ({
+                interactionId: interaction.interactionId,
+                label: interaction.label,
+                reviewable: interaction.reviewable,
+              })),
             stats: {
               ...statsResult.value.stats,
               riskFlagged,
@@ -1446,7 +1816,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
           return reply.status(400).send({
             ok: false,
             error: 'ValidationError',
-            message: 'Invalid campaign review cursor',
+            message: 'Invalid campaign interaction cursor',
             retryable: false,
           });
         }
@@ -1454,17 +1824,15 @@ export const makeCampaignAdminUserInteractionRoutes = (
 
         const limit = request.query.limit ?? DEFAULT_PAGE_LIMIT;
         const requestedSort = normalizeRequestedSort(request.query);
-        const selectedInteractions = selectReviewableInteractions({
+        const requiresInstitutionThreadSummary =
+          request.query.hasInstitutionThread !== undefined ||
+          request.query.threadPhase !== undefined;
+        const selectedInteractions = selectAuditVisibleInteractions({
           config: access.config,
           ...(request.query.interactionId !== undefined
             ? { interactionId: request.query.interactionId }
             : {}),
-          ...(request.query.submissionPath !== undefined
-            ? { submissionPath: request.query.submissionPath }
-            : {}),
-          requiresInstitutionThreadSummary:
-            request.query.hasInstitutionThread !== undefined ||
-            request.query.threadPhase !== undefined,
+          requiresInstitutionThreadSummary,
         });
 
         if (selectedInteractions.length === 0) {
@@ -1489,16 +1857,11 @@ export const makeCampaignAdminUserInteractionRoutes = (
 
         const listQuery: Omit<ListCampaignAdminInteractionRowsInput, 'cursor' | 'limit'> = {
           campaignKey: access.config.campaignKey,
-          reviewableInteractions: selectedInteractions.map((interaction) => ({
-            interactionId: interaction.interactionId,
-            ...(interaction.reviewableSubmissionPath !== undefined
-              ? { reviewableSubmissionPath: interaction.reviewableSubmissionPath }
-              : {}),
-          })),
+          interactions: buildCampaignInteractionFilters({
+            interactions: selectedInteractions,
+            kind: requiresInstitutionThreadSummary ? 'thread_summary' : 'visible',
+          }),
           ...(request.query.phase !== undefined ? { phase: request.query.phase } : {}),
-          ...(request.query.reviewStatus !== undefined
-            ? { reviewStatus: request.query.reviewStatus }
-            : {}),
           ...(request.query.lessonId !== undefined ? { lessonId: request.query.lessonId } : {}),
           ...(request.query.entityCui !== undefined ? { entityCui: request.query.entityCui } : {}),
           ...(request.query.scopeType !== undefined ? { scopeType: request.query.scopeType } : {}),
@@ -1555,8 +1918,9 @@ export const makeCampaignAdminUserInteractionRoutes = (
           entityProfileRepo: deps.entityProfileRepo,
           log: request.log,
         });
+        const filteredItems = filterItemsByReviewStatus(allItems, request.query.reviewStatus);
         const sortedItems = sortCampaignAdminInteractionItems({
-          items: allItems,
+          items: filteredItems,
           sort: requestedSort,
           config: access.config,
         });
@@ -1570,7 +1934,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
           return reply.status(400).send({
             ok: false,
             error: 'ValidationError',
-            message: 'Invalid campaign review cursor',
+            message: 'Invalid campaign interaction cursor',
             retryable: false,
           });
         }

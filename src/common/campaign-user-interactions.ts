@@ -16,6 +16,19 @@ export const BUDGET_STATUS_INTERACTION_ID = 'funky:interaction:budget_status' as
 export const CITY_HALL_CONTACT_INTERACTION_ID = 'funky:interaction:city_hall_contact' as const;
 export const PARTICIPATION_REPORT_INTERACTION_ID = 'funky:interaction:funky_participation' as const;
 export const BUDGET_CONTESTATION_INTERACTION_ID = 'funky:interaction:budget_contestation' as const;
+export const CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS = [
+  'ch-civic-01-how-module-works-q1',
+  'ch-civic-01-why-budget-matters-q1',
+  'ch-civic-01-what-campaign-is-q1',
+  'ch-civic-02-cycle-q1',
+  'ch-civic-02-deadlines-q1',
+  'ch-civic-02-rights-q1',
+  'ch-civic-03-why-check-q1',
+  'ch-civic-04-why-debate-q1',
+  'ch-civic-04-next-steps-q1',
+  'ch-civic-05-preparation-q1',
+  'ch-civic-06-when-contest-q1',
+] as const;
 
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 const NullableNumberSchema = Type.Union([Type.Number(), Type.Null()]);
