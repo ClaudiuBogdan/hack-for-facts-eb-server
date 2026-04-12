@@ -133,10 +133,26 @@ export {
 } from './shell/rest/routes.js';
 
 export {
-  CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
   makeCampaignAdminUserInteractionRoutes,
   type MakeCampaignAdminUserInteractionRoutesDeps,
 } from './shell/rest/campaign-admin-routes.js';
+
+export type {
+  CampaignReviewProjectionKind,
+  CampaignInteractionStepLocation,
+  CampaignAdminInteractionConfig,
+  CampaignAuditConfig,
+  CampaignAdminAvailableInteractionType,
+} from './core/campaign-admin-config.js';
+
+export {
+  CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
+  getCampaignAdminReviewConfig,
+  getCampaignAdminInteractionConfig,
+  selectCampaignAdminAuditVisibleInteractions,
+  buildCampaignInteractionFilters,
+  listCampaignAdminAvailableInteractionTypes,
+} from './core/campaign-admin-config.js';
 
 export {
   type CampaignAdminPermissionAuthorizer,

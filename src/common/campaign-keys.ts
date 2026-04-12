@@ -1,4 +1,5 @@
 export const FUNKY_CAMPAIGN_KEY = 'funky' as const;
+export const FUNKY_CAMPAIGN_ADMIN_PERMISSION = 'campaign:funky_admin' as const;
 export const PUBLIC_DEBATE_CAMPAIGN_KEY = FUNKY_CAMPAIGN_KEY;
 
 export const FUNKY_NOTIFICATION_GLOBAL_TYPE = 'funky:notification:global' as const;

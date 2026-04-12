@@ -222,6 +222,31 @@ describe('campaign admin notifications routes', () => {
     await setup.app.close();
   });
 
+  it('passes entityCui through to the notification audit repository', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?entityCui=12345678',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(audit.calls).toEqual([
+      expect.objectContaining({
+        campaignKey: 'funky',
+        entityCui: '12345678',
+      }),
+    ]);
+
+    await setup.app.close();
+  });
+
   it.each([
     ['createdAt', 'asc'],
     ['createdAt', 'desc'],
@@ -252,6 +277,56 @@ describe('campaign admin notifications routes', () => {
         sortOrder,
       }),
     ]);
+
+    await setup.app.close();
+  });
+
+  it('returns 400 for an invalid notification cursor', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?cursor=invalid',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign notification cursor',
+      retryable: false,
+    });
+    expect(audit.calls).toHaveLength(0);
+
+    await setup.app.close();
+  });
+
+  it('returns 400 for unsupported notification filters', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?deliveryKey=secret',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      ok: false,
+      retryable: false,
+    });
+    expect(audit.calls).toHaveLength(0);
 
     await setup.app.close();
   });

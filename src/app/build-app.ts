@@ -81,6 +81,10 @@ import {
 } from '../modules/budget-sector/index.js';
 import { makeClerkCampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
 import {
+  makeCampaignAdminEntitiesRepo,
+  makeCampaignAdminEntitiesRoutes,
+} from '../modules/campaign-admin-entities/index.js';
+import {
   makeCampaignAdminNotificationRoutes,
   makeCampaignNotificationOutboxAuditRepo,
   makeCampaignNotificationTemplatePreviewService,
@@ -1841,6 +1845,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
           prepareApproveReviews: prepareApproveLearningProgressReviews,
+        })
+      );
+
+      await app.register(
+        makeCampaignAdminEntitiesRoutes({
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
+          entitiesRepository: makeCampaignAdminEntitiesRepo({
+            db: userDb,
+            entityRepo,
+            logger: repoLogger,
+          }),
         })
       );
 
