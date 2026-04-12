@@ -338,6 +338,10 @@ export const makeCampaignNotificationOutboxAuditRepo = (
           query = query.where('outbox.template_name', '=', input.templateId);
         }
 
+        if (input.userId !== undefined) {
+          query = query.where('outbox.user_id', '=', input.userId);
+        }
+
         if (input.status !== undefined) {
           query = query.where(sql<boolean>`outbox.status = ${input.status}`);
         }

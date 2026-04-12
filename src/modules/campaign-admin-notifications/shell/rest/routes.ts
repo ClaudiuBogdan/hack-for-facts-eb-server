@@ -72,6 +72,7 @@ const DEFAULT_LIST_LIMIT = 50;
 const ALLOWED_CAMPAIGN_NOTIFICATION_QUERY_KEYS = new Set<string>([
   'notificationType',
   'templateId',
+  'userId',
   'status',
   'eventType',
   'entityCui',
@@ -287,6 +288,7 @@ export const makeCampaignAdminNotificationRoutes = (
             ...(request.query.templateId !== undefined
               ? { templateId: request.query.templateId }
               : {}),
+            ...(request.query.userId !== undefined ? { userId: request.query.userId } : {}),
             ...(request.query.status !== undefined ? { status: request.query.status } : {}),
             ...(request.query.eventType !== undefined
               ? { eventType: request.query.eventType }

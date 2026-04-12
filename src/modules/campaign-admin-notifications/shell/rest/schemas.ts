@@ -63,6 +63,7 @@ export const CampaignNotificationListQuerySchema = Type.Object(
   {
     notificationType: Type.Optional(Type.String({ minLength: 1 })),
     templateId: Type.Optional(Type.String({ minLength: 1 })),
+    userId: Type.Optional(Type.String({ minLength: 1 })),
     status: Type.Optional(CampaignNotificationStatusSchema),
     eventType: Type.Optional(CampaignNotificationEventTypeSchema),
     entityCui: Type.Optional(Type.String({ minLength: 1 })),
