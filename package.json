@@ -64,7 +64,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^10.0.0",
-    "@fastify/otel": "^0.18.0",
+    "@fastify/otel": "^0.18.1",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/swagger": "^9.7.0",
     "@graphql-tools/schema": "^10.0.31",
