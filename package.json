@@ -83,7 +83,7 @@
     "@react-email/components": "^1.0.11",
     "@react-email/render": "^2.0.5",
     "@sinclair/typebox": "^0.34.49",
-    "bullmq": "^5.73.1",
+    "bullmq": "^5.73.5",
     "csv-parse": "^6.2.1",
     "decimal.js": "^10.6.0",
     "fastify": "^5.8.4",
