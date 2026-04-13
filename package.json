@@ -80,7 +80,7 @@
     "@opentelemetry/sdk-node": "^0.214.0",
     "@opentelemetry/sdk-trace-base": "^2.6.1",
     "@opentelemetry/semantic-conventions": "^1.40.0",
-    "@react-email/components": "^1.0.11",
+    "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.0.5",
     "@sinclair/typebox": "^0.34.49",
     "bullmq": "^5.73.1",
