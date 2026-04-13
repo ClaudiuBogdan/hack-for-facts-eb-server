@@ -7,6 +7,7 @@ import pg from 'pg';
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
+import { CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS } from '@/common/campaign-user-interactions.js';
 import { makeLearningProgressRepo } from '@/modules/learning-progress/index.js';
 
 import { dockerAvailable } from './setup.js';
@@ -198,6 +199,107 @@ describe('Learning progress repo campaign-admin users', () => {
               '2026-04-10T14:00:00.000Z'
             )
         `);
+
+        await client.query(`
+          INSERT INTO userinteractions (user_id, record_key, record, audit_events, updated_seq, created_at, updated_at)
+          VALUES
+            (
+              'user-a',
+              'funky:progress:terms_accepted::entity:22222222',
+              '{
+                "key":"funky:progress:terms_accepted::entity:22222222",
+                "interactionId":"funky:progress:terms_accepted::entity:22222222",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"22222222","acceptedTermsAt":"2026-04-10T12:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T12:00:00.000Z",
+                "submittedAt":"2026-04-10T12:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              6,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            ),
+            (
+              'user-b',
+              'funky:progress:terms_accepted::entity:44444444',
+              '{
+                "key":"funky:progress:terms_accepted::entity:44444444",
+                "interactionId":"funky:progress:terms_accepted::entity:44444444",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"44444444","acceptedTermsAt":"2026-04-10T13:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T13:00:00.000Z",
+                "submittedAt":"2026-04-10T13:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              7,
+              '2026-04-10T13:00:00.000Z',
+              '2026-04-10T13:00:00.000Z'
+            ),
+            (
+              'user-c',
+              'funky:progress:terms_accepted::entity:55555555',
+              '{
+                "key":"funky:progress:terms_accepted::entity:55555555",
+                "interactionId":"funky:progress:terms_accepted::entity:55555555",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"55555555","acceptedTermsAt":"2026-04-10T14:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T14:00:00.000Z",
+                "submittedAt":"2026-04-10T14:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              8,
+              '2026-04-10T14:00:00.000Z',
+              '2026-04-10T14:00:00.000Z'
+            ),
+            (
+              'user-terms-only',
+              'funky:progress:terms_accepted::entity:66666666',
+              '{
+                "key":"funky:progress:terms_accepted::entity:66666666",
+                "interactionId":"funky:progress:terms_accepted::entity:66666666",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"66666666","acceptedTermsAt":"2026-04-10T15:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T15:00:00.000Z",
+                "submittedAt":"2026-04-10T15:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              9,
+              '2026-04-10T15:00:00.000Z',
+              '2026-04-10T15:00:00.000Z'
+            )
+        `);
       });
 
       const repo = makeLearningProgressRepo({
@@ -205,7 +307,42 @@ describe('Learning progress repo campaign-admin users', () => {
         logger: pinoLogger({ level: 'silent' }),
       });
 
+      const metaCounts = await repo.getCampaignAdminUsersMetaCounts({
+        campaignKey: 'funky',
+        interactions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+          },
+          {
+            interactionId: 'funky:interaction:city_hall_website',
+          },
+          {
+            interactionId: 'funky:interaction:funky_participation',
+          },
+        ],
+        reviewableInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+          {
+            interactionId: 'funky:interaction:city_hall_website',
+          },
+        ],
+      });
+
+      expect(metaCounts.isOk()).toBe(true);
+      if (metaCounts.isErr()) {
+        return;
+      }
+
+      expect(metaCounts.value).toEqual({
+        totalUsers: 4,
+        usersWithPendingReviews: 2,
+      });
+
       const firstPage = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -263,6 +400,7 @@ describe('Learning progress repo campaign-admin users', () => {
       });
 
       const secondPage = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -303,11 +441,20 @@ describe('Learning progress repo campaign-admin users', () => {
           latestInteractionId: 'funky:interaction:funky_participation',
           latestEntityCui: '55555555',
         },
+        {
+          userId: 'user-terms-only',
+          interactionCount: 0,
+          pendingReviewCount: 0,
+          latestUpdatedAt: '2026-04-10T15:00:00.000Z',
+          latestInteractionId: null,
+          latestEntityCui: '66666666',
+        },
       ]);
       expect(secondPage.value.hasMore).toBe(false);
       expect(secondPage.value.nextCursor).toBeNull();
 
       const filtered = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -355,7 +502,7 @@ describe('Learning progress repo campaign-admin users', () => {
     }
   });
 
-  it('aggregates entity-associated users from interactions and active subscriptions', async () => {
+  it('aggregates entity-associated users from interactions and accepted terms', async () => {
     if (!dockerAvailable) {
       return;
     }
@@ -441,6 +588,83 @@ describe('Learning progress repo campaign-admin users', () => {
               3,
               '2026-04-10T13:00:00.000Z',
               '2026-04-10T13:00:00.000Z'
+            )
+        `);
+
+        await client.query(`
+          INSERT INTO userinteractions (user_id, record_key, record, audit_events, updated_seq, created_at, updated_at)
+          VALUES
+            (
+              'user-alpha',
+              'funky:progress:terms_accepted::entity:11111111',
+              '{
+                "key":"funky:progress:terms_accepted::entity:11111111",
+                "interactionId":"funky:progress:terms_accepted::entity:11111111",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"11111111","acceptedTermsAt":"2026-04-10T11:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T11:00:00.000Z",
+                "submittedAt":"2026-04-10T11:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              4,
+              '2026-04-10T11:00:00.000Z',
+              '2026-04-10T11:00:00.000Z'
+            ),
+            (
+              'user-beta',
+              'funky:progress:terms_accepted::entity:11111111',
+              '{
+                "key":"funky:progress:terms_accepted::entity:11111111",
+                "interactionId":"funky:progress:terms_accepted::entity:11111111",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"11111111","acceptedTermsAt":"2026-04-10T12:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T12:00:00.000Z",
+                "submittedAt":"2026-04-10T12:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              5,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            ),
+            (
+              'user-subscriber',
+              'funky:progress:terms_accepted::entity:11111111',
+              '{
+                "key":"funky:progress:terms_accepted::entity:11111111",
+                "interactionId":"funky:progress:terms_accepted::entity:11111111",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"11111111","acceptedTermsAt":"2026-04-10T14:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T14:00:00.000Z",
+                "submittedAt":"2026-04-10T14:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              6,
+              '2026-04-10T14:00:00.000Z',
+              '2026-04-10T14:00:00.000Z'
             )
         `);
 
@@ -552,6 +776,7 @@ describe('Learning progress repo campaign-admin users', () => {
       });
 
       const firstPage = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -607,6 +832,7 @@ describe('Learning progress repo campaign-admin users', () => {
       });
 
       const secondPage = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -650,6 +876,7 @@ describe('Learning progress repo campaign-admin users', () => {
       expect(secondPage.value.nextCursor).toBeNull();
 
       const filtered = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -691,6 +918,7 @@ describe('Learning progress repo campaign-admin users', () => {
       ]);
 
       const outboxOnly = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
         interactions: [
           {
             interactionId: 'funky:interaction:public_debate_request',
@@ -722,6 +950,177 @@ describe('Learning progress repo campaign-admin users', () => {
       expect(outboxOnly.value.items).toEqual([]);
       expect(outboxOnly.value.hasMore).toBe(false);
       expect(outboxOnly.value.nextCursor).toBeNull();
+    } finally {
+      await userDb.destroy();
+      await database.stop();
+    }
+  });
+
+  it('includes users with global-only admin-visible interactions', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const quizInteractionId = CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0];
+    const database = await startTestDatabase();
+    const userDb = createKyselyClient<UserDatabase>(database.connectionString);
+
+    try {
+      await withPgClient(database.connectionString, async (client) => {
+        await client.query(USER_SCHEMA);
+
+        await client.query(`
+          INSERT INTO userinteractions (user_id, record_key, record, audit_events, updated_seq, created_at, updated_at)
+          VALUES
+            (
+              'user-quiz-only',
+              '${quizInteractionId}::global',
+              '{
+                "key":"${quizInteractionId}::global",
+                "interactionId":"${quizInteractionId}",
+                "lessonId":"civic-campaign-quiz",
+                "kind":"quiz",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"outcome","outcome":"correct"},
+                "phase":"resolved",
+                "value":{"kind":"choice","choice":{"selectedId":"option-a"}},
+                "result":null,
+                "updatedAt":"2026-04-10T14:00:00.000Z",
+                "submittedAt":"2026-04-10T14:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              1,
+              '2026-04-10T14:00:00.000Z',
+              '2026-04-10T14:00:00.000Z'
+            ),
+            (
+              'user-entity',
+              'funky:interaction:public_debate_request::entity:12345678',
+              '{
+                "key":"funky:interaction:public_debate_request::entity:12345678",
+                "interactionId":"funky:interaction:public_debate_request",
+                "lessonId":"civic-monitor-and-request",
+                "kind":"custom",
+                "scope":{"type":"entity","entityCui":"12345678"},
+                "completionRule":{"type":"resolved"},
+                "phase":"pending",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"submissionPath":"request_platform","submittedAt":"2026-04-10T12:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T12:00:00.000Z",
+                "submittedAt":"2026-04-10T12:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              2,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            ),
+            (
+              'user-entity',
+              'funky:progress:terms_accepted::entity:12345678',
+              '{
+                "key":"funky:progress:terms_accepted::entity:12345678",
+                "interactionId":"funky:progress:terms_accepted::entity:12345678",
+                "lessonId":"funky:progress:state",
+                "kind":"custom",
+                "scope":{"type":"global"},
+                "completionRule":{"type":"resolved"},
+                "phase":"resolved",
+                "value":{
+                  "kind":"json",
+                  "json":{"value":{"entityCui":"12345678","acceptedTermsAt":"2026-04-10T12:00:00.000Z"}}
+                },
+                "result":null,
+                "updatedAt":"2026-04-10T12:00:00.000Z",
+                "submittedAt":"2026-04-10T12:00:00.000Z"
+              }'::jsonb,
+              '[]'::jsonb,
+              3,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            )
+        `);
+      });
+
+      const repo = makeLearningProgressRepo({
+        db: userDb,
+        logger: pinoLogger({ level: 'silent' }),
+      });
+
+      const listResult = await repo.listCampaignAdminUsers({
+        campaignKey: 'funky',
+        interactions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+          },
+          {
+            interactionId: quizInteractionId,
+          },
+        ],
+        reviewableInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+        ],
+        sortBy: 'latestUpdatedAt',
+        sortOrder: 'desc',
+        limit: 10,
+      });
+
+      expect(listResult.isOk()).toBe(true);
+      if (listResult.isErr()) {
+        return;
+      }
+
+      expect(listResult.value.items).toEqual([
+        {
+          userId: 'user-quiz-only',
+          interactionCount: 1,
+          pendingReviewCount: 0,
+          latestUpdatedAt: '2026-04-10T14:00:00.000Z',
+          latestInteractionId: quizInteractionId,
+          latestEntityCui: null,
+        },
+        {
+          userId: 'user-entity',
+          interactionCount: 1,
+          pendingReviewCount: 1,
+          latestUpdatedAt: '2026-04-10T12:00:00.000Z',
+          latestInteractionId: 'funky:interaction:public_debate_request',
+          latestEntityCui: '12345678',
+        },
+      ]);
+
+      const metaCounts = await repo.getCampaignAdminUsersMetaCounts({
+        campaignKey: 'funky',
+        interactions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+          },
+          {
+            interactionId: quizInteractionId,
+          },
+        ],
+        reviewableInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+        ],
+      });
+
+      expect(metaCounts.isOk()).toBe(true);
+      if (metaCounts.isErr()) {
+        return;
+      }
+
+      expect(metaCounts.value).toEqual({
+        totalUsers: 2,
+        usersWithPendingReviews: 1,
+      });
     } finally {
       await userDb.destroy();
       await database.stop();

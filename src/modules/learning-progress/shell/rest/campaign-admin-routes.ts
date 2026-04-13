@@ -1584,6 +1584,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
       async (request, reply) => {
         const access = getCampaignAdminAccess(request);
         const metaResult = await deps.learningProgressRepo.getCampaignAdminUsersMetaCounts({
+          campaignKey: access.config.campaignKey,
           interactions: getCampaignVisibleInteractions(access.config),
           reviewableInteractions: getCampaignReviewableInteractions(access.config),
         });
@@ -1676,22 +1677,9 @@ export const makeCampaignAdminUserInteractionRoutes = (
         }
 
         const visibleInteractions = getCampaignVisibleInteractions(access.config);
-        if (visibleInteractions.length === 0 && entityCui === undefined) {
-          return reply.status(200).send({
-            ok: true,
-            data: {
-              items: [],
-              page: {
-                hasMore: false,
-                nextCursor: null,
-                sortBy: requestedSort.sortBy,
-                sortOrder: requestedSort.sortOrder,
-              },
-            },
-          });
-        }
 
         const usersResult = await deps.learningProgressRepo.listCampaignAdminUsers({
+          campaignKey: access.config.campaignKey,
           interactions: visibleInteractions,
           reviewableInteractions: getCampaignReviewableInteractions(access.config),
           ...(normalizedQuery !== undefined ? { query: normalizedQuery } : {}),

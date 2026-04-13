@@ -2,6 +2,7 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import { ok } from 'neverthrow';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS } from '@/common/campaign-user-interactions.js';
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import { type EntityProfileRepository, type EntityRepository } from '@/modules/entity/index.js';
 import {
@@ -166,6 +167,85 @@ function createParticipationReportRecord(input: {
     updatedAt: input.updatedAt,
     submittedAt: input.updatedAt,
   });
+}
+
+function createQuizRecord(input: { interactionId: string; updatedAt: string }) {
+  return createTestInteractiveRecord({
+    interactionId: input.interactionId,
+    lessonId: 'civic-campaign-quiz',
+    scope: { type: 'global' },
+    phase: 'resolved',
+    updatedAt: input.updatedAt,
+    submittedAt: input.updatedAt,
+  });
+}
+
+function createAcceptedTermsRecord(input: { entityCui: string; updatedAt: string }) {
+  return createTestInteractiveRecord({
+    key: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+    interactionId: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+    lessonId: 'funky:progress:state',
+    kind: 'custom',
+    completionRule: { type: 'resolved' },
+    scope: { type: 'global' },
+    phase: 'resolved',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          entityCui: input.entityCui,
+          acceptedTermsAt: input.updatedAt,
+        },
+      },
+    },
+    result: null,
+    updatedAt: input.updatedAt,
+    submittedAt: input.updatedAt,
+  });
+}
+
+function withAcceptedTermsRows(
+  initialRecords: Map<string, LearningProgressRecordRow[]>
+): Map<string, LearningProgressRecordRow[]> {
+  const nextRecords = new Map<string, LearningProgressRecordRow[]>();
+
+  for (const [userId, rows] of initialRecords.entries()) {
+    const latestAcceptedTermsByEntity = new Map<string, string>();
+    const existingTermsKeys = new Set(
+      rows
+        .filter((row) => row.recordKey.startsWith('funky:progress:terms_accepted::entity:'))
+        .map((row) => row.recordKey)
+    );
+
+    for (const row of rows) {
+      if (row.record.scope.type !== 'entity') {
+        continue;
+      }
+
+      const previousUpdatedAt = latestAcceptedTermsByEntity.get(row.record.scope.entityCui);
+      if (
+        previousUpdatedAt === undefined ||
+        Date.parse(row.updatedAt) > Date.parse(previousUpdatedAt)
+      ) {
+        latestAcceptedTermsByEntity.set(row.record.scope.entityCui, row.updatedAt);
+      }
+    }
+
+    const acceptedTermsRows = [...latestAcceptedTermsByEntity.entries()].flatMap(
+      ([entityCui, updatedAt], index) => {
+        const record = createAcceptedTermsRecord({ entityCui, updatedAt });
+        if (existingTermsKeys.has(record.key)) {
+          return [];
+        }
+
+        return [makeRow(userId, record, String(rows.length + index + 1))];
+      }
+    );
+
+    nextRecords.set(userId, [...rows, ...acceptedTermsRows]);
+  }
+
+  return nextRecords;
 }
 
 function makeTestEntityRepo(entityNames: Record<string, string>): EntityRepository {
@@ -490,6 +570,7 @@ describe('Campaign Admin Users REST API', () => {
 
     expect(response.statusCode).toBe(200);
     expect(metaSpy).toHaveBeenCalledWith({
+      campaignKey: 'funky',
       interactions: expect.arrayContaining([
         { interactionId: 'funky:interaction:public_debate_request' },
         { interactionId: 'funky:interaction:city_hall_website' },
@@ -533,7 +614,9 @@ describe('Campaign Admin Users REST API', () => {
     ]);
 
     const setup = await createTestApp({
-      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
       entityRepo: makeTestEntityRepo({
         '11111111': 'Primaria One',
         '22222222': 'Primaria Two',
@@ -616,7 +699,9 @@ describe('Campaign Admin Users REST API', () => {
     initialRecords.set('user-meta-3', [makeRow('user-meta-3', userThreeParticipationRecord, '4')]);
 
     const setup = await createTestApp({
-      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
     });
     app = setup.app;
 
@@ -633,6 +718,91 @@ describe('Campaign Admin Users REST API', () => {
       ok: true,
       data: {
         totalUsers: 3,
+        usersWithPendingReviews: 1,
+      },
+    });
+  });
+
+  it('includes users with global-only admin-visible interactions', async () => {
+    const quizRecord = createQuizRecord({
+      interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
+      updatedAt: '2026-04-10T14:00:00.000Z',
+    });
+    const debateRequestRecord = createDebateRequestRecord({
+      entityCui: '12345678',
+      updatedAt: '2026-04-10T12:00:00.000Z',
+      submissionPath: 'request_platform',
+      phase: 'pending',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-quiz-only', [makeRow('user-quiz-only', quizRecord, '1')]);
+    initialRecords.set('user-entity', [makeRow('user-entity', debateRequestRecord, '2')]);
+
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
+      entityRepo: makeTestEntityRepo({
+        '12345678': 'Primaria One',
+      }),
+    });
+    app = setup.app;
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          {
+            userId: 'user-quiz-only',
+            interactionCount: 1,
+            pendingReviewCount: 0,
+            latestUpdatedAt: '2026-04-10T14:00:00.000Z',
+            latestInteractionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
+            latestEntityCui: null,
+            latestEntityName: null,
+          },
+          {
+            userId: 'user-entity',
+            interactionCount: 1,
+            pendingReviewCount: 1,
+            latestUpdatedAt: '2026-04-10T12:00:00.000Z',
+            latestInteractionId: 'funky:interaction:public_debate_request',
+            latestEntityCui: '12345678',
+            latestEntityName: 'Primaria One',
+          },
+        ],
+        page: {
+          hasMore: false,
+          nextCursor: null,
+          sortBy: 'latestUpdatedAt',
+          sortOrder: 'desc',
+        },
+      },
+    });
+
+    const metaResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/users/meta',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(metaResponse.statusCode).toBe(200);
+    expect(metaResponse.json()).toEqual({
+      ok: true,
+      data: {
+        totalUsers: 2,
         usersWithPendingReviews: 1,
       },
     });
@@ -675,6 +845,7 @@ describe('Campaign Admin Users REST API', () => {
     expect(response.statusCode).toBe(200);
     expect(listUsersSpy).toHaveBeenCalledWith(
       expect.objectContaining({
+        campaignKey: 'funky',
         entityCui: '12345678',
         sortBy: 'latestUpdatedAt',
         sortOrder: 'desc',
@@ -772,7 +943,9 @@ describe('Campaign Admin Users REST API', () => {
     ]);
 
     const setup = await createTestApp({
-      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
     });
     app = setup.app;
 
@@ -880,7 +1053,9 @@ describe('Campaign Admin Users REST API', () => {
     ]);
 
     const setup = await createTestApp({
-      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
     });
     app = setup.app;
 
@@ -937,7 +1112,9 @@ describe('Campaign Admin Users REST API', () => {
     ]);
 
     const setup = await createTestApp({
-      learningProgressRepo: makeFakeLearningProgressRepo({ initialRecords }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: withAcceptedTermsRows(initialRecords),
+      }),
     });
     app = setup.app;
 
