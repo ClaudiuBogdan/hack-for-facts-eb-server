@@ -5,7 +5,10 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
-import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX,
+} from '@/common/campaign-keys.js';
 import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
 import {
@@ -52,6 +55,7 @@ import type {
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
+  CampaignAdminCampaignKey,
   CampaignAdminPhaseCounts,
   CampaignAdminInteractionRow,
   CampaignAdminReviewStatusCounts,
@@ -1468,6 +1472,41 @@ export const makeFakeLearningProgressRepo = (
     return row.record.phase === 'pending' ? 'pending' : null;
   };
 
+  const getCampaignTermsAcceptedRecordKeyPrefix = (
+    campaignKey: CampaignAdminCampaignKey
+  ): string => {
+    void campaignKey;
+    return FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX;
+  };
+
+  const getAcceptedTermsEntityCui = (row: LearningProgressRecordRow): string | null => {
+    if (row.record.value?.kind !== 'json') {
+      return null;
+    }
+
+    const value = row.record.value.json.value as Record<string, unknown>;
+    return typeof value['entityCui'] === 'string' && value['entityCui'].trim() !== ''
+      ? value['entityCui'].trim()
+      : null;
+  };
+
+  const isCampaignTermsAcceptedRow = (
+    row: LearningProgressRecordRow,
+    campaignKey: CampaignAdminCampaignKey,
+    entityCui?: string
+  ): boolean => {
+    const recordKeyPrefix = getCampaignTermsAcceptedRecordKeyPrefix(campaignKey);
+    if (!row.recordKey.startsWith(recordKeyPrefix)) {
+      return false;
+    }
+
+    if (entityCui === undefined) {
+      return true;
+    }
+
+    return getAcceptedTermsEntityCui(row) === entityCui;
+  };
+
   const getCampaignAdminUserCursorValue = (
     row: CampaignAdminUserRow,
     sortBy: CampaignAdminUserSortBy
@@ -1613,11 +1652,6 @@ export const makeFakeLearningProgressRepo = (
     reviewStatusCounts: createEmptyCampaignAdminReviewStatusCounts(),
     phaseCounts: createEmptyCampaignAdminPhaseCounts(),
     threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
-  });
-
-  const createEmptyCampaignAdminUsersMetaCounts = (): CampaignAdminUsersMetaCounts => ({
-    totalUsers: 0,
-    usersWithPendingReviews: 0,
   });
 
   interface MutableCampaignAdminReviewStatusCounts {
@@ -1899,9 +1933,35 @@ export const makeFakeLearningProgressRepo = (
         if (simulateDbError) return createDbError();
 
         const normalizedQuery = input.query?.trim().toLowerCase();
-        const aggregatedRows = [...currentStore.values()]
-          .flatMap((userStore) => [...userStore.values()])
+        const allRows = [...currentStore.values()].flatMap((userStore) => [...userStore.values()]);
+        const acceptedTermsRowsByUserId = allRows
           .filter((row) => {
+            if (!isCampaignTermsAcceptedRow(row, input.campaignKey, input.entityCui)) {
+              return false;
+            }
+
+            if (normalizedQuery !== undefined && normalizedQuery !== '') {
+              return row.userId.toLowerCase().includes(normalizedQuery);
+            }
+
+            return true;
+          })
+          .reduce<Map<string, LearningProgressRecordRow[]>>((groups, row) => {
+            const existingRows = groups.get(row.userId) ?? [];
+            existingRows.push(row);
+            groups.set(row.userId, existingRows);
+            return groups;
+          }, new Map());
+
+        const interactionRowsByUserId = allRows
+          .filter((row) => {
+            if (
+              input.entityCui !== undefined &&
+              (row.record.scope.type !== 'entity' || row.record.scope.entityCui !== input.entityCui)
+            ) {
+              return false;
+            }
+
             if (
               !input.interactions.some((interaction) =>
                 matchesCampaignAdminInteractionFilter(row, interaction)
@@ -1923,8 +1983,15 @@ export const makeFakeLearningProgressRepo = (
             return groups;
           }, new Map());
 
-        const users = [...aggregatedRows.entries()].map(([userId, rows]): CampaignAdminUserRow => {
-          const latestRow = [...rows].sort((leftRow, rightRow) => {
+        const baseUserIds = new Set<string>([
+          ...acceptedTermsRowsByUserId.keys(),
+          ...interactionRowsByUserId.keys(),
+        ]);
+
+        const users = [...baseUserIds].map((userId): CampaignAdminUserRow => {
+          const acceptedTermsRows = acceptedTermsRowsByUserId.get(userId) ?? [];
+          const interactionRows = interactionRowsByUserId.get(userId) ?? [];
+          const latestAcceptedTermsRow = [...acceptedTermsRows].sort((leftRow, rightRow) => {
             const updatedAtComparison = compareTimestamps(rightRow.updatedAt, leftRow.updatedAt);
             if (updatedAtComparison !== 0) {
               return updatedAtComparison;
@@ -1932,20 +1999,51 @@ export const makeFakeLearningProgressRepo = (
 
             return leftRow.recordKey.localeCompare(rightRow.recordKey);
           })[0];
+          const latestInteractionRow = [...interactionRows].sort((leftRow, rightRow) => {
+            const updatedAtComparison = compareTimestamps(rightRow.updatedAt, leftRow.updatedAt);
+            if (updatedAtComparison !== 0) {
+              return updatedAtComparison;
+            }
+
+            return leftRow.recordKey.localeCompare(rightRow.recordKey);
+          })[0];
+          const latestUpdatedAt =
+            latestInteractionRow === undefined
+              ? (latestAcceptedTermsRow?.updatedAt ?? '')
+              : latestAcceptedTermsRow === undefined
+                ? latestInteractionRow.updatedAt
+                : compareTimestamps(
+                      latestInteractionRow.updatedAt,
+                      latestAcceptedTermsRow.updatedAt
+                    ) >= 0
+                  ? latestInteractionRow.updatedAt
+                  : latestAcceptedTermsRow.updatedAt;
+          const latestEntityCui =
+            input.entityCui ??
+            (latestInteractionRow !== undefined &&
+            latestAcceptedTermsRow !== undefined &&
+            compareTimestamps(latestInteractionRow.updatedAt, latestAcceptedTermsRow.updatedAt) >= 0
+              ? latestInteractionRow.record.scope.type === 'entity'
+                ? latestInteractionRow.record.scope.entityCui
+                : null
+              : latestAcceptedTermsRow !== undefined
+                ? getAcceptedTermsEntityCui(latestAcceptedTermsRow)
+                : latestInteractionRow?.record.scope.type === 'entity'
+                  ? latestInteractionRow.record.scope.entityCui
+                  : null);
 
           return {
             userId,
-            interactionCount: rows.length,
-            pendingReviewCount: rows.filter((row) => {
+            interactionCount: interactionRows.length,
+            pendingReviewCount: interactionRows.filter((row) => {
               const isReviewable = input.reviewableInteractions.some((interaction) =>
                 matchesCampaignAdminInteractionFilter(row, interaction)
               );
               return getCampaignAdminReviewStatus(row, isReviewable) === 'pending';
             }).length,
-            latestUpdatedAt: latestRow?.updatedAt ?? '',
-            latestInteractionId: latestRow?.record.interactionId ?? '',
-            latestEntityCui:
-              latestRow?.record.scope.type === 'entity' ? latestRow.record.scope.entityCui : null,
+            latestUpdatedAt,
+            latestInteractionId: latestInteractionRow?.record.interactionId ?? null,
+            latestEntityCui,
           };
         });
 
@@ -1983,12 +2081,17 @@ export const makeFakeLearningProgressRepo = (
       ): Promise<Result<CampaignAdminUsersMetaCounts, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
-        if (input.interactions.length === 0) {
-          return ok(createEmptyCampaignAdminUsersMetaCounts());
-        }
+        const allRows = [...currentStore.values()].flatMap((userStore) => [...userStore.values()]);
+        const acceptedTermsRowsByUserId = allRows
+          .filter((row) => isCampaignTermsAcceptedRow(row, input.campaignKey))
+          .reduce<Map<string, LearningProgressRecordRow[]>>((groups, row) => {
+            const existingRows = groups.get(row.userId) ?? [];
+            existingRows.push(row);
+            groups.set(row.userId, existingRows);
+            return groups;
+          }, new Map());
 
-        const rowsByUserId = [...currentStore.values()]
-          .flatMap((userStore) => [...userStore.values()])
+        const interactionRowsByUserId = allRows
           .filter((row) =>
             input.interactions.some((interaction) =>
               matchesCampaignAdminInteractionFilter(row, interaction)
@@ -2001,8 +2104,14 @@ export const makeFakeLearningProgressRepo = (
             return groups;
           }, new Map());
 
+        const baseUserIds = new Set<string>([
+          ...acceptedTermsRowsByUserId.keys(),
+          ...interactionRowsByUserId.keys(),
+        ]);
+
         let usersWithPendingReviews = 0;
-        for (const rows of rowsByUserId.values()) {
+        for (const userId of baseUserIds) {
+          const rows = interactionRowsByUserId.get(userId) ?? [];
           const hasPendingReview = rows.some((row) => {
             const isReviewable = input.reviewableInteractions.some((interaction) =>
               matchesCampaignAdminInteractionFilter(row, interaction)
@@ -2016,7 +2125,7 @@ export const makeFakeLearningProgressRepo = (
         }
 
         return ok({
-          totalUsers: rowsByUserId.size,
+          totalUsers: baseUserIds.size,
           usersWithPendingReviews,
         });
       },

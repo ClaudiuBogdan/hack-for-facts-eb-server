@@ -372,6 +372,7 @@ export interface GetCampaignAdminStatsOutput {
 }
 
 export interface ListCampaignAdminUsersInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
   readonly interactions: readonly CampaignAdminInteractionFilter[];
   readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
   readonly query?: string;
@@ -389,6 +390,7 @@ export interface ListCampaignAdminUsersOutput {
 }
 
 export interface GetCampaignAdminUsersMetaCountsInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
   readonly interactions: readonly CampaignAdminInteractionFilter[];
   readonly reviewableInteractions: readonly CampaignAdminInteractionFilter[];
 }

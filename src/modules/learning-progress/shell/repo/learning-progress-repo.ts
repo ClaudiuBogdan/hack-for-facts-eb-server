@@ -7,16 +7,14 @@
 import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import {
-  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
-  FUNKY_NOTIFICATION_GLOBAL_TYPE,
-} from '@/common/campaign-keys.js';
+import { FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX } from '@/common/campaign-keys.js';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
 import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
+  CampaignAdminCampaignKey,
   CampaignAdminPhaseCounts,
   CampaignAdminReviewStatusCounts,
   CampaignAdminInstitutionThreadSummary,
@@ -57,8 +55,6 @@ export interface LearningProgressRepoOptions {
 }
 
 const USER_INTERACTIONS_TABLE = 'userinteractions' as const;
-const GLOBAL_UNSUBSCRIBE_TYPE = 'global_unsubscribe' as const;
-
 const LEARNING_PROGRESS_ROW_COLUMNS = [
   'user_id',
   'record_key',
@@ -130,6 +126,11 @@ function buildCampaignAdminInteractionFiltersSql(
     ),
     sql<boolean>` or `
   );
+}
+
+function getCampaignTermsAcceptedRecordKeyPrefix(campaignKey: CampaignAdminCampaignKey): string {
+  void campaignKey;
+  return FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX;
 }
 
 function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
@@ -337,13 +338,6 @@ function createEmptyCampaignAdminStatsBase(): CampaignAdminStatsBase {
     reviewStatusCounts: createEmptyCampaignAdminReviewStatusCounts(),
     phaseCounts: createEmptyCampaignAdminPhaseCounts(),
     threadPhaseCounts: createEmptyCampaignAdminThreadPhaseCounts(),
-  };
-}
-
-function createEmptyCampaignAdminUsersMetaCounts(): CampaignAdminUsersMetaCounts {
-  return {
-    totalUsers: 0,
-    usersWithPendingReviews: 0,
   };
 }
 
@@ -659,13 +653,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput
   ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>> {
-    if (input.interactions.length === 0 && input.entityCui === undefined) {
-      return ok({
-        items: [],
-        hasMore: false,
-        nextCursor: null,
-      });
-    }
+    const termsAcceptedRecordKeyPrefix = getCampaignTermsAcceptedRecordKeyPrefix(input.campaignKey);
 
     const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
     const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
@@ -686,7 +674,33 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       const result =
         input.entityCui === undefined
           ? await sql<CampaignAdminUserAggregateQueryRow>`
-              with filtered_items as (
+              with accepted_terms_rows as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui,
+                  row_number() over (
+                    partition by user_id
+                    order by updated_at desc, record_key asc
+                  ) as latest_row_number
+                from userinteractions
+                where record_key like ${`${escapeLikePattern(termsAcceptedRecordKeyPrefix)}%`} escape '\\'
+                  ${queryFilterSql}
+              ),
+              accepted_terms_users as (
+                select distinct user_id
+                from accepted_terms_rows
+              ),
+              latest_terms_rows as (
+                select
+                  user_id,
+                  updated_at as latest_terms_updated_at,
+                  entity_cui as latest_terms_entity_cui
+                from accepted_terms_rows
+                where latest_row_number = 1
+              ),
+              filtered_items as (
                 select
                   user_id,
                   record_key,
@@ -733,17 +747,39 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                 from ranked_items
                 where latest_row_number = 1
               ),
+              base_users as (
+                select user_id from accepted_terms_users
+                union
+                select user_id from aggregated_users
+              ),
               aggregated_user_rows as (
                 select
-                  aggregated_users.user_id,
-                  aggregated_users.interaction_count,
-                  aggregated_users.pending_review_count,
-                  latest_rows.latest_updated_at,
+                  base_users.user_id,
+                  coalesce(aggregated_users.interaction_count, 0)::int as interaction_count,
+                  coalesce(aggregated_users.pending_review_count, 0)::int as pending_review_count,
+                  case
+                    when latest_rows.latest_updated_at is null then latest_terms_rows.latest_terms_updated_at
+                    when latest_terms_rows.latest_terms_updated_at is null then latest_rows.latest_updated_at
+                    else greatest(
+                      latest_rows.latest_updated_at,
+                      latest_terms_rows.latest_terms_updated_at
+                    )
+                  end as latest_updated_at,
                   latest_rows.latest_interaction_id,
-                  latest_rows.latest_entity_cui
-                from aggregated_users
-                inner join latest_rows
-                  on latest_rows.user_id = aggregated_users.user_id
+                  case
+                    when latest_rows.latest_updated_at is null then latest_terms_rows.latest_terms_entity_cui
+                    when latest_terms_rows.latest_terms_updated_at is null then latest_rows.latest_entity_cui
+                    when latest_rows.latest_updated_at > latest_terms_rows.latest_terms_updated_at then latest_rows.latest_entity_cui
+                    when latest_rows.latest_updated_at < latest_terms_rows.latest_terms_updated_at then latest_terms_rows.latest_terms_entity_cui
+                    else coalesce(latest_rows.latest_entity_cui, latest_terms_rows.latest_terms_entity_cui)
+                  end as latest_entity_cui
+                from base_users
+                left join aggregated_users
+                  on aggregated_users.user_id = base_users.user_id
+                left join latest_rows
+                  on latest_rows.user_id = base_users.user_id
+                left join latest_terms_rows
+                  on latest_terms_rows.user_id = base_users.user_id
               )
               select
                 aggregated_user_rows.user_id,
@@ -753,26 +789,36 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                 aggregated_user_rows.latest_interaction_id,
                 aggregated_user_rows.latest_entity_cui
               from aggregated_user_rows
-              where true
+              where aggregated_user_rows.latest_updated_at is not null
                 ${cursorFilterSql}
               ${orderBySql}
               limit ${input.limit + 1}
             `.execute(this.db)
           : await sql<CampaignAdminUserAggregateQueryRow>`
-              with active_global_users as (
-                select distinct n.user_id
-                from notifications as n
-                where n.notification_type = ${FUNKY_NOTIFICATION_GLOBAL_TYPE}
-                  and n.is_active = true
+              with accepted_terms_rows as (
+                select
+                  user_id,
+                  record_key,
+                  updated_at,
+                  row_number() over (
+                    partition by user_id
+                    order by updated_at desc, record_key asc
+                  ) as latest_row_number
+                from userinteractions
+                where record_key like ${`${escapeLikePattern(termsAcceptedRecordKeyPrefix)}%`} escape '\\'
+                  and nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') = ${input.entityCui}
+                  ${queryFilterSql}
               ),
-              globally_unsubscribed_users as (
-                select distinct n.user_id
-                from notifications as n
-                where n.notification_type = ${GLOBAL_UNSUBSCRIBE_TYPE}
-                  and (
-                    n.is_active = false
-                    or n.config->'channels'->>'email' = 'false'
-                  )
+              accepted_terms_users as (
+                select distinct user_id
+                from accepted_terms_rows
+              ),
+              latest_terms_rows as (
+                select
+                  user_id,
+                  updated_at as latest_terms_updated_at
+                from accepted_terms_rows
+                where latest_row_number = 1
               ),
               interaction_rows as (
                 select
@@ -820,32 +866,8 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                 from ranked_interaction_rows
                 where latest_row_number = 1
               ),
-              subscriber_users as (
-                select
-                  entity_subscriptions.user_id,
-                  max(entity_subscriptions.updated_at) as latest_subscription_updated_at
-                from notifications as entity_subscriptions
-                inner join active_global_users
-                  on active_global_users.user_id = entity_subscriptions.user_id
-                left join globally_unsubscribed_users
-                  on globally_unsubscribed_users.user_id = entity_subscriptions.user_id
-                where entity_subscriptions.notification_type = ${FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE}
-                  and entity_subscriptions.is_active = true
-                  and nullif(btrim(entity_subscriptions.entity_cui), '') = ${input.entityCui}
-                  and globally_unsubscribed_users.user_id is null
-                  ${
-                    input.query !== undefined
-                      ? sql<boolean>`
-                          and entity_subscriptions.user_id ilike ${`%${escapeLikePattern(input.query)}%`} escape '\\'
-                        `
-                      : sql``
-                  }
-                group by entity_subscriptions.user_id
-              ),
               base_users as (
-                select user_id from interaction_aggregate
-                union
-                select user_id from subscriber_users
+                select user_id from accepted_terms_users
               ),
               aggregated_user_rows as (
                 select
@@ -853,11 +875,11 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                   coalesce(interaction_aggregate.interaction_count, 0)::int as interaction_count,
                   coalesce(interaction_aggregate.pending_review_count, 0)::int as pending_review_count,
                   case
-                    when latest_interaction_rows.latest_updated_at is null then subscriber_users.latest_subscription_updated_at
-                    when subscriber_users.latest_subscription_updated_at is null then latest_interaction_rows.latest_updated_at
+                    when latest_interaction_rows.latest_updated_at is null then latest_terms_rows.latest_terms_updated_at
+                    when latest_terms_rows.latest_terms_updated_at is null then latest_interaction_rows.latest_updated_at
                     else greatest(
                       latest_interaction_rows.latest_updated_at,
-                      subscriber_users.latest_subscription_updated_at
+                      latest_terms_rows.latest_terms_updated_at
                     )
                   end as latest_updated_at,
                   latest_interaction_rows.latest_interaction_id,
@@ -867,8 +889,8 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                   on interaction_aggregate.user_id = base_users.user_id
                 left join latest_interaction_rows
                   on latest_interaction_rows.user_id = base_users.user_id
-                left join subscriber_users
-                  on subscriber_users.user_id = base_users.user_id
+                left join latest_terms_rows
+                  on latest_terms_rows.user_id = base_users.user_id
               )
               select
                 aggregated_user_rows.user_id,
@@ -920,9 +942,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async getCampaignAdminUsersMetaCounts(
     input: GetCampaignAdminUsersMetaCountsInput
   ): Promise<Result<CampaignAdminUsersMetaCounts, LearningProgressError>> {
-    if (input.interactions.length === 0) {
-      return ok(createEmptyCampaignAdminUsersMetaCounts());
-    }
+    const termsAcceptedRecordKeyPrefix = getCampaignTermsAcceptedRecordKeyPrefix(input.campaignKey);
 
     const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
     const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
@@ -931,7 +951,12 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
     try {
       const result = await sql<CampaignAdminUserMetaCountsQueryRow>`
-        with filtered_items as (
+        with accepted_terms_users as (
+          select distinct user_id
+          from userinteractions
+          where record_key like ${`${escapeLikePattern(termsAcceptedRecordKeyPrefix)}%`} escape '\\'
+        ),
+        filtered_items as (
           select
             user_id,
             case
@@ -942,17 +967,24 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
           from userinteractions
           where (${visibleInteractionsSql})
         ),
-        aggregated_users as (
+        aggregated_interactions as (
           select
             user_id,
             count(*) filter (where review_status = 'pending')::int as pending_review_count
           from filtered_items
           group by user_id
+        ),
+        base_users as (
+          select user_id from accepted_terms_users
+          union
+          select user_id from aggregated_interactions
         )
         select
           count(*)::int as total_users,
-          count(*) filter (where pending_review_count > 0)::int as users_with_pending_reviews
-        from aggregated_users
+          count(*) filter (where coalesce(aggregated_interactions.pending_review_count, 0) > 0)::int as users_with_pending_reviews
+        from base_users
+        left join aggregated_interactions
+          on aggregated_interactions.user_id = base_users.user_id
       `.execute(this.db);
 
       const row = result.rows[0];
