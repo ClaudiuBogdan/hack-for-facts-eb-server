@@ -128,7 +128,7 @@
     "eslint-plugin-import-x": "^4.16.2",
     "eslint-plugin-promise": "^7.2.1",
     "eslint-plugin-unicorn": "^64.0.0",
-    "globals": "^17.4.0",
+    "globals": "^17.5.0",
     "husky": "^9.1.7",
     "kysely-codegen": "^0.20.0",
     "lint-staged": "^16.4.0",
