@@ -14,18 +14,19 @@ describe('Campaign notification template preview service', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.map((item) => item.templateId)).toEqual([
+        'admin_reviewed_user_interaction',
         'public_debate_campaign_welcome',
         'public_debate_entity_subscription',
         'public_debate_entity_update',
         'public_debate_admin_failure',
       ]);
       expect(
-        result.value.find((item) => item.templateId === 'public_debate_entity_update')
+        result.value.find((item) => item.templateId === 'admin_reviewed_user_interaction')
       ).toEqual(
         expect.objectContaining({
           requiredFields: expect.arrayContaining([
-            expect.objectContaining({ name: 'eventType', required: true }),
-            expect.objectContaining({ name: 'threadId', required: true }),
+            expect.objectContaining({ name: 'interactionId', required: true }),
+            expect.objectContaining({ name: 'reviewStatus', required: true }),
           ]),
         })
       );

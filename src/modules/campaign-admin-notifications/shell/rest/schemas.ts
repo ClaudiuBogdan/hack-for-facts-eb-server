@@ -156,11 +156,30 @@ const PublicDebateAdminFailureProjectionSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const AdminReviewedInteractionProjectionSchema = Type.Object(
+  {
+    kind: Type.Literal('admin_reviewed_interaction'),
+    userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    recordKey: Type.String({ minLength: 1 }),
+    interactionId: Type.String({ minLength: 1 }),
+    interactionLabel: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    reviewStatus: Type.Union([Type.Literal('approved'), Type.Literal('rejected')]),
+    reviewedAt: Type.String({ format: 'date-time' }),
+    hasFeedbackText: Type.Boolean(),
+    nextStepCount: Type.Number({ minimum: 0 }),
+    triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignNotificationProjectionSchema = Type.Union([
   PublicDebateCampaignWelcomeProjectionSchema,
   PublicDebateEntitySubscriptionProjectionSchema,
   PublicDebateEntityUpdateProjectionSchema,
   PublicDebateAdminFailureProjectionSchema,
+  AdminReviewedInteractionProjectionSchema,
 ]);
 
 export const CampaignNotificationListItemSchema = Type.Object(
@@ -225,14 +244,28 @@ export const CampaignNotificationTriggerFieldSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignNotificationTriggerCapabilitiesSchema = Type.Object(
+  {
+    supportsSingleExecution: Type.Boolean(),
+    supportsBulkExecution: Type.Boolean(),
+    supportsDryRun: Type.Boolean(),
+    defaultLimit: Type.Optional(Type.Number({ minimum: 1 })),
+    maxLimit: Type.Optional(Type.Number({ minimum: 1 })),
+    bulkInputFields: Type.Optional(Type.Array(CampaignNotificationTriggerFieldSchema)),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignNotificationTriggerDescriptorSchema = Type.Object(
   {
     triggerId: Type.String({ minLength: 1 }),
     campaignKey: Type.String({ minLength: 1 }),
+    familyId: Type.Optional(Type.String({ minLength: 1 })),
     templateId: Type.String({ minLength: 1 }),
     description: Type.String({ minLength: 1 }),
     inputFields: Type.Array(CampaignNotificationTriggerFieldSchema),
     targetKind: Type.String({ minLength: 1 }),
+    capabilities: Type.Optional(CampaignNotificationTriggerCapabilitiesSchema),
   },
   { additionalProperties: false }
 );
@@ -250,7 +283,7 @@ export const CampaignNotificationTriggerListResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const CampaignNotificationTriggerResultSchema = Type.Object(
+export const CampaignNotificationTriggerLegacyResultSchema = Type.Object(
   {
     status: Type.Union([Type.Literal('queued'), Type.Literal('skipped'), Type.Literal('partial')]),
     reason: Type.Optional(Type.String({ minLength: 1 })),
@@ -262,6 +295,31 @@ export const CampaignNotificationTriggerResultSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignNotificationTriggerFamilySingleResultSchema = Type.Object(
+  {
+    kind: Type.Literal('family_single'),
+    familyId: Type.String({ minLength: 1 }),
+    status: Type.Union([
+      Type.Literal('queued'),
+      Type.Literal('skipped'),
+      Type.Literal('partial'),
+      Type.Literal('delegated'),
+    ]),
+    reason: Type.String({ minLength: 1 }),
+    delegateTarget: Type.Optional(Type.String({ minLength: 1 })),
+    createdOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+    reusedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+    queuedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+    enqueueFailedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationTriggerExecutionResultSchema = Type.Union([
+  CampaignNotificationTriggerLegacyResultSchema,
+  CampaignNotificationTriggerFamilySingleResultSchema,
+]);
+
 export const CampaignNotificationTriggerExecutionResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
@@ -270,7 +328,55 @@ export const CampaignNotificationTriggerExecutionResponseSchema = Type.Object(
         triggerId: Type.String({ minLength: 1 }),
         campaignKey: Type.String({ minLength: 1 }),
         templateId: Type.String({ minLength: 1 }),
-        result: CampaignNotificationTriggerResultSchema,
+        result: CampaignNotificationTriggerExecutionResultSchema,
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationTriggerBulkRequestSchema = Type.Object(
+  {
+    filters: Type.Object({}, { additionalProperties: true }),
+    dryRun: Type.Optional(Type.Boolean()),
+    limit: Type.Optional(Type.Number({ minimum: 1, maximum: 1000 })),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationTriggerBulkResultSchema = Type.Object(
+  {
+    kind: Type.Literal('family_bulk'),
+    familyId: Type.String({ minLength: 1 }),
+    dryRun: Type.Boolean(),
+    watermark: Type.String({ minLength: 1 }),
+    limit: Type.Number({ minimum: 1 }),
+    hasMoreCandidates: Type.Boolean(),
+    candidateCount: Type.Number({ minimum: 0 }),
+    plannedCount: Type.Number({ minimum: 0 }),
+    eligibleCount: Type.Number({ minimum: 0 }),
+    queuedCount: Type.Number({ minimum: 0 }),
+    reusedCount: Type.Number({ minimum: 0 }),
+    skippedCount: Type.Number({ minimum: 0 }),
+    delegatedCount: Type.Number({ minimum: 0 }),
+    ineligibleCount: Type.Number({ minimum: 0 }),
+    notReplayableCount: Type.Number({ minimum: 0 }),
+    staleCount: Type.Number({ minimum: 0 }),
+    enqueueFailedCount: Type.Number({ minimum: 0 }),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationTriggerBulkExecutionResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        triggerId: Type.String({ minLength: 1 }),
+        campaignKey: Type.String({ minLength: 1 }),
+        templateId: Type.String({ minLength: 1 }),
+        result: CampaignNotificationTriggerBulkResultSchema,
       },
       { additionalProperties: false }
     ),

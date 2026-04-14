@@ -73,7 +73,6 @@ export {
   prepareApprovedPublicDebateReviewSideEffects,
   preparePublicDebateRequestDispatch,
   type PreparedPublicDebateRequestDispatch,
-  type PreparedPublicDebateReviewSideEffectPlan,
   type PublicDebateRequestDispatchDeps,
   type PublicDebateRequestDispatchPreparation,
   type PublicDebateRequestReviewSideEffectDeps,

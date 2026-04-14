@@ -30,6 +30,7 @@ import {
   type LearningProgressRecordRow,
   type LearningProgressRepository,
   type ReviewDecision,
+  type ReviewSideEffectPlan,
 } from '@/modules/learning-progress/index.js';
 
 import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
@@ -49,10 +50,6 @@ export interface PublicDebateRequestDispatchDeps {
 
 export interface PublicDebateRequestReviewSideEffectDeps extends PublicDebateRequestDispatchDeps {
   learningProgressRepo: LearningProgressRepository;
-}
-
-export interface PreparedPublicDebateReviewSideEffectPlan {
-  afterCommit(): Promise<void>;
 }
 
 export interface PreparedPublicDebateRequestDispatch {
@@ -392,12 +389,10 @@ export async function prepareApprovedPublicDebateReviewSideEffects(
   input: {
     items: readonly ReviewDecision[];
     reviewerUserId: string;
+    sendNotification?: boolean;
   }
 ): Promise<
-  Result<
-    PreparedPublicDebateReviewSideEffectPlan | null,
-    LearningProgressError | InstitutionCorrespondenceError
-  >
+  Result<ReviewSideEffectPlan | null, LearningProgressError | InstitutionCorrespondenceError>
 > {
   // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
   const preparedDispatches: PreparedPublicDebateRequestDispatch[] = [];

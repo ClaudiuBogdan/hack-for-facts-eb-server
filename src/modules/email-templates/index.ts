@@ -14,6 +14,7 @@ export type {
   AlertSeriesProps,
   WelcomeEmailProps,
   PublicDebateEntityUpdateProps,
+  AdminReviewedInteractionProps,
   AnafForexebugDigestSection,
   AnafForexebugDigestProps,
   EmailTemplateProps,
@@ -35,11 +36,13 @@ export {
   DecimalStringSchema,
   WelcomePayloadSchema,
   PublicDebateEntityUpdatePayloadSchema,
+  AdminReviewedInteractionPayloadSchema,
   AnafForexebugDigestPayloadSchema,
 } from './core/schemas.js';
 export type {
   WelcomePayload,
   PublicDebateEntityUpdatePayload,
+  AdminReviewedInteractionPayload,
   AnafForexebugDigestPayload,
 } from './core/schemas.js';
 

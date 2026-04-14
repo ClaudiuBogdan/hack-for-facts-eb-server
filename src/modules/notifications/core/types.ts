@@ -364,7 +364,8 @@ export const NOTIFICATION_TYPE_CONFIGS: Record<NotificationType, NotificationTyp
   'funky:notification:entity_updates': {
     type: 'funky:notification:entity_updates',
     label: 'Public Debate Updates',
-    description: 'Receive updates about public debate correspondence for this entity',
+    description:
+      'Receive public debate correspondence and reviewed-interaction updates for this entity',
     requiresEntity: true,
     requiresConfig: false,
     campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,

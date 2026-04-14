@@ -11,8 +11,11 @@ import { ok, err, type Result } from 'neverthrow';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import { createDatabaseError, type DeliveryError } from '../../core/errors.js';
+import {
+  type ExtendedNotificationsRepository,
+  type TargetedNotificationEligibility,
+} from '../../core/ports.js';
 
-import type { ExtendedNotificationsRepository } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type {
   Notification,
@@ -158,6 +161,28 @@ export const makeExtendedNotificationsRepo = (
     return ok(new Set(disabledRows.map((row) => row.user_id)));
   };
 
+  const loadMatchingNotification = async (
+    userId: string,
+    notificationType: NotificationType,
+    entityCui: string
+  ): Promise<Notification | null> => {
+    const row = await db
+      .selectFrom('notifications')
+      .select([...ALL_COLUMNS])
+      .where('user_id', '=', userId)
+      .where('notification_type', '=', notificationType)
+      .where('entity_cui', '=', entityCui)
+      .orderBy('updated_at', 'desc')
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+
+    if (row === undefined) {
+      return null;
+    }
+
+    return mapRow(row as unknown as QueryRow);
+  };
+
   return {
     async findById(notificationId: string): Promise<Result<Notification | null, DeliveryError>> {
       try {
@@ -280,6 +305,72 @@ export const makeExtendedNotificationsRepo = (
           'Failed to find active notifications by type and entity'
         );
         return err(createDatabaseError('Failed to find active notifications by type and entity'));
+      }
+    },
+
+    async findEligibleByUserTypeAndEntity(
+      userId: string,
+      notificationType: NotificationType,
+      entityCui: string
+    ): Promise<Result<TargetedNotificationEligibility, DeliveryError>> {
+      try {
+        const notification = await loadMatchingNotification(userId, notificationType, entityCui);
+
+        if (notification === null) {
+          return ok({
+            isEligible: false,
+            reason: 'missing_preference',
+            notification: null,
+          });
+        }
+
+        if (!notification.isActive) {
+          return ok({
+            isEligible: false,
+            reason: 'inactive_preference',
+            notification,
+          });
+        }
+
+        const globalUnsubscribeResult = await loadGloballyUnsubscribedUsers([userId]);
+        if (globalUnsubscribeResult.isErr()) {
+          return err(globalUnsubscribeResult.error);
+        }
+
+        if (globalUnsubscribeResult.value.has(userId)) {
+          return ok({
+            isEligible: false,
+            reason: 'global_unsubscribe',
+            notification,
+          });
+        }
+
+        const campaignDisabledUsersResult = await loadCampaignDisabledUsers(notificationType, [
+          userId,
+        ]);
+        if (campaignDisabledUsersResult.isErr()) {
+          return err(campaignDisabledUsersResult.error);
+        }
+
+        if (campaignDisabledUsersResult.value.has(userId)) {
+          return ok({
+            isEligible: false,
+            reason: 'campaign_disabled',
+            notification,
+          });
+        }
+
+        return ok({
+          isEligible: true,
+          reason: 'eligible',
+          notification,
+        });
+      } catch (error) {
+        log.error(
+          { err: error, userId, notificationType, entityCui },
+          'Failed to evaluate targeted notification eligibility'
+        );
+        return err(createDatabaseError('Failed to evaluate targeted notification eligibility'));
       }
     },
 

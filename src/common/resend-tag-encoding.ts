@@ -1,7 +1,13 @@
+import { createHash } from 'node:crypto';
+
 const RESEND_TAG_ENCODED_PREFIX = 'b64_' as const;
 
 export const sanitizeResendTagValue = (value: string): string => {
   return value.replace(/[^A-Za-z0-9_-]/g, '-');
+};
+
+export const hashResendTagValue = (value: string): string => {
+  return createHash('sha256').update(value).digest('hex').slice(0, 32);
 };
 
 export const encodeThreadKeyForTag = (threadKey: string): string => {

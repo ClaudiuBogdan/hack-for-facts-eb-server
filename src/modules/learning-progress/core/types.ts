@@ -192,8 +192,23 @@ export interface ReviewDecision {
   readonly approvalRiskAcknowledged?: boolean;
 }
 
-export interface ApprovedReviewSideEffectPlan {
+export interface ReviewSideEffectPlan {
   afterCommit(): Promise<void>;
+}
+
+export type ApprovedReviewSideEffectPlan = ReviewSideEffectPlan;
+
+export interface PrepareReviewSideEffectsInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly items: readonly ReviewDecision[];
+  readonly reviewerUserId: string;
+  /**
+   * Admin review submissions default to "save only".
+   *
+   * Notification-capable side effects must stay disabled unless the caller
+   * explicitly opts in. Core non-notification follow-up work may still run.
+   */
+  readonly sendNotification: boolean;
 }
 
 export interface ReviewActorMetadata {
@@ -335,6 +350,7 @@ export interface ListCampaignAdminInteractionRowsInput {
   readonly interactions: readonly CampaignAdminInteractionFilter[];
   readonly phase?: InteractionPhase;
   readonly reviewStatus?: InteractionReviewStatus;
+  readonly reviewSource?: InteractionReviewSource;
   readonly submissionPath?: CampaignAdminSubmissionPath;
   readonly lessonId?: string;
   readonly entityCui?: string;

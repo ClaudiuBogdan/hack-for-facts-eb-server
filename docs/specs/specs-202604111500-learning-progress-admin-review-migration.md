@@ -39,7 +39,7 @@ Remove the legacy learning-progress system-admin review path and its dedicated q
 
 - Delete the API-key route surface and the code that only existed to mount and authenticate it.
 - Remove the `learning_progress.review_pending` admin-event definition, registry wiring, sync hook, repository listing path, and legacy tests.
-- Keep the campaign-admin review routes and the shared review write path (`submitInteractionReviews`, `updateInteractionReview`, and the post-approve side-effect plan contract).
+- Keep the campaign-admin review routes and the shared review write path (`submitInteractionReviews`, `updateInteractionReview`, and the optional review side-effect plan contract gated by request-level opt-in such as `send_notification`).
 - Keep `institution_correspondence.reply_review_pending` and the shared admin-events infrastructure because that workflow still needs queue/export/apply behavior.
 - Record the remaining gap clearly: generic/browserless learning-progress review is no longer supported by this backend until equivalent campaign-admin coverage or a new machine-to-machine flow is added.
 

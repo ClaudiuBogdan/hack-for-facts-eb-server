@@ -11,7 +11,9 @@ import {
 import {
   makeCampaignAdminUserInteractionRoutes,
   type LearningProgressRepository,
+  type PrepareReviewSideEffectsInput,
   type ReviewDecision,
+  type ReviewSideEffectPlan,
 } from '@/modules/learning-progress/index.js';
 import { prepareApprovedPublicDebateReviewSideEffects } from '@/modules/user-events/index.js';
 
@@ -483,17 +485,41 @@ function createPublicDebateApprovalHook(input: {
   entityProfileRepo: EntityProfileRepository;
   correspondenceRepo?: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
   sentEmails?: unknown[];
+  notificationEvents?: unknown[];
+  subscriptionEvents?: unknown[];
+  publishedUpdates?: unknown[];
   sendError?: boolean;
   failSendAttempts?: number;
 }) {
   const correspondenceRepo = input.correspondenceRepo ?? makeInMemoryCorrespondenceRepo();
   let sendAttempts = 0;
 
+  const createNotificationPlan = (
+    reviewInput: PrepareReviewSideEffectsInput
+  ): ReviewSideEffectPlan | null => {
+    if (!reviewInput.sendNotification) {
+      return null;
+    }
+
+    return {
+      async afterCommit(): Promise<void> {
+        input.notificationEvents?.push(
+          reviewInput.items.map((item) => ({
+            userId: item.userId,
+            recordKey: item.recordKey,
+            status: item.status,
+          }))
+        );
+      },
+    };
+  };
+
   return {
     correspondenceRepo,
     prepareApproveReviews: async (reviewInput: {
       items: readonly ReviewDecision[];
       reviewerUserId: string;
+      sendNotification?: boolean;
     }) => {
       return prepareApprovedPublicDebateReviewSideEffects(
         {
@@ -534,9 +560,111 @@ function createPublicDebateApprovalHook(input: {
           auditCcRecipients: ['audit@transparenta.test'],
           platformBaseUrl: 'https://transparenta.test',
           captureAddress: 'debate@transparenta.test',
+          subscriptionService: {
+            async ensureSubscribed(userId, entityCui) {
+              input.subscriptionEvents?.push({ userId, entityCui });
+              return ok(undefined);
+            },
+          },
+          updatePublisher: {
+            async publish(notification) {
+              input.publishedUpdates?.push(notification);
+              return ok({
+                status: 'queued',
+                notificationIds: [],
+                createdOutboxIds: [],
+                reusedOutboxIds: [],
+                queuedOutboxIds: [],
+                enqueueFailedOutboxIds: [],
+              });
+            },
+          },
         },
         reviewInput
       );
+    },
+    prepareReviewSideEffects: async (reviewInput: PrepareReviewSideEffectsInput) => {
+      const approvedPlanResult = await prepareApprovedPublicDebateReviewSideEffects(
+        {
+          learningProgressRepo: input.learningProgressRepo,
+          entityRepo: makeTestEntityRepo(),
+          entityProfileRepo: input.entityProfileRepo,
+          repo: correspondenceRepo,
+          emailSender: {
+            getFromAddress() {
+              return 'noreply@transparenta.eu';
+            },
+            async send(params) {
+              input.sentEmails?.push(params);
+              sendAttempts += 1;
+              if (
+                input.sendError === true ||
+                (input.failSendAttempts !== undefined && sendAttempts <= input.failSendAttempts)
+              ) {
+                return err({
+                  type: 'SERVER' as const,
+                  message: 'Provider send failed',
+                  retryable: true,
+                });
+              }
+
+              return ok({ emailId: `email-${String(input.sentEmails?.length ?? 1)}` });
+            },
+          },
+          templateRenderer: {
+            renderPublicDebateRequest(renderInput) {
+              return {
+                subject: `Public debate [teu:${renderInput.threadKey}]`,
+                text: `Text for ${renderInput.institutionEmail}`,
+                html: `<p>${renderInput.institutionEmail}</p>`,
+              };
+            },
+          },
+          auditCcRecipients: ['audit@transparenta.test'],
+          platformBaseUrl: 'https://transparenta.test',
+          captureAddress: 'debate@transparenta.test',
+          subscriptionService: {
+            async ensureSubscribed(userId, entityCui) {
+              input.subscriptionEvents?.push({ userId, entityCui });
+              return ok(undefined);
+            },
+          },
+          updatePublisher: {
+            async publish(notification) {
+              input.publishedUpdates?.push(notification);
+              return ok({
+                status: 'queued',
+                notificationIds: [],
+                createdOutboxIds: [],
+                reusedOutboxIds: [],
+                queuedOutboxIds: [],
+                enqueueFailedOutboxIds: [],
+              });
+            },
+          },
+        },
+        reviewInput
+      );
+
+      if (approvedPlanResult.isErr()) {
+        return approvedPlanResult;
+      }
+
+      const plans = [approvedPlanResult.value, createNotificationPlan(reviewInput)].filter(
+        (plan): plan is ReviewSideEffectPlan => plan !== null
+      );
+
+      if (plans.length === 0) {
+        return ok(null);
+      }
+
+      return ok({
+        async afterCommit(): Promise<void> {
+          for (const plan of plans) {
+            await plan.afterCommit();
+          }
+        },
+      });
     },
   };
 }
@@ -546,9 +674,13 @@ const createTestApp = async (options?: {
   permissionAllowed?: boolean;
   entityRepo?: EntityRepository;
   entityProfileRepo?: EntityProfileRepository;
+  prepareReviewSideEffects?: (
+    input: PrepareReviewSideEffectsInput
+  ) => ReturnType<typeof prepareApprovedPublicDebateReviewSideEffects>;
   prepareApproveReviews?: (input: {
     items: readonly ReviewDecision[];
     reviewerUserId: string;
+    sendNotification?: boolean;
   }) => ReturnType<typeof prepareApprovedPublicDebateReviewSideEffects>;
 }) => {
   const testAuth = createTestAuthProvider();
@@ -580,6 +712,9 @@ const createTestApp = async (options?: {
         makeTestEntityProfileRepo({ '12345678': 'contact@primarie.ro' }),
       enabledCampaignKeys: ['funky'],
       permissionAuthorizer,
+      ...(options?.prepareReviewSideEffects !== undefined
+        ? { prepareReviewSideEffects: options.prepareReviewSideEffects }
+        : {}),
       ...(options?.prepareApproveReviews !== undefined
         ? { prepareApproveReviews: options.prepareApproveReviews }
         : {}),
@@ -2226,7 +2361,162 @@ describe('Campaign Admin User Interactions REST API', () => {
     });
   });
 
-  it('approves public-debate requests and runs server-derived side effects after commit', async () => {
+  it('does not trigger notification side effects when send_notification is omitted', async () => {
+    const record = createBudgetDocumentRecord({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const notificationEvents: unknown[] = [];
+    const reviewHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo: makeTestEntityProfileRepo({
+        '12345678': 'contact@primarie.ro',
+      }),
+      notificationEvents,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      prepareReviewSideEffects: reviewHook.prepareReviewSideEffects,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'rejected',
+            feedbackText: 'Needs clearer evidence.',
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(notificationEvents).toEqual([]);
+
+    const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
+    expect(storedRow?.record.phase).toBe('failed');
+    expect(storedRow?.record.review).toEqual({
+      status: 'rejected',
+      reviewedAt: storedRow?.record.updatedAt,
+      feedbackText: 'Needs clearer evidence.',
+      reviewedByUserId: setup.testAuth.userIds.user1,
+      reviewSource: 'campaign_admin_api',
+    });
+  });
+
+  it('does not trigger notification side effects when send_notification is false', async () => {
+    const record = createBudgetDocumentRecord({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const notificationEvents: unknown[] = [];
+    const reviewHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo: makeTestEntityProfileRepo({
+        '12345678': 'contact@primarie.ro',
+      }),
+      notificationEvents,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      prepareReviewSideEffects: reviewHook.prepareReviewSideEffects,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'rejected',
+            feedbackText: 'Needs clearer evidence.',
+          },
+        ],
+        send_notification: false,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(notificationEvents).toEqual([]);
+  });
+
+  it('triggers notification side effects only when send_notification is true', async () => {
+    const record = createBudgetDocumentRecord({});
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const notificationEvents: unknown[] = [];
+    const reviewHook = createPublicDebateApprovalHook({
+      learningProgressRepo: repo,
+      entityProfileRepo: makeTestEntityProfileRepo({
+        '12345678': 'contact@primarie.ro',
+      }),
+      notificationEvents,
+    });
+
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+      prepareReviewSideEffects: reviewHook.prepareReviewSideEffects,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/reviews',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        items: [
+          {
+            userId: 'user-1',
+            recordKey: record.key,
+            expectedUpdatedAt: record.updatedAt,
+            status: 'rejected',
+            feedbackText: 'Needs clearer evidence.',
+          },
+        ],
+        send_notification: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(notificationEvents).toEqual([
+      [
+        {
+          userId: 'user-1',
+          recordKey: record.key,
+          status: 'rejected',
+        },
+      ],
+    ]);
+  });
+
+  it('preserves approved public-debate correspondence side effects when notifications are omitted', async () => {
     const record = createDebateRequestRecord({});
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
     initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
@@ -2236,16 +2526,22 @@ describe('Campaign Admin User Interactions REST API', () => {
       '12345678': 'contact@primarie.ro',
     });
     const sentEmails: unknown[] = [];
+    const notificationEvents: unknown[] = [];
+    const subscriptionEvents: unknown[] = [];
+    const publishedUpdates: unknown[] = [];
     const approvalHook = createPublicDebateApprovalHook({
       learningProgressRepo: repo,
       entityProfileRepo,
       sentEmails,
+      notificationEvents,
+      subscriptionEvents,
+      publishedUpdates,
     });
 
     const setup = await createTestApp({
       learningProgressRepo: repo,
       entityProfileRepo,
-      prepareApproveReviews: approvalHook.prepareApproveReviews,
+      prepareReviewSideEffects: approvalHook.prepareReviewSideEffects,
     });
     app = setup.app;
 
@@ -2271,6 +2567,16 @@ describe('Campaign Admin User Interactions REST API', () => {
     expect(response.statusCode).toBe(200);
     expect(sentEmails).toHaveLength(1);
     expect(approvalHook.correspondenceRepo.snapshotThreads()).toHaveLength(1);
+    expect(notificationEvents).toEqual([]);
+    expect(subscriptionEvents).toEqual([{ userId: 'user-1', entityCui: '12345678' }]);
+    expect(publishedUpdates).toEqual([
+      expect.objectContaining({
+        eventType: 'thread_started',
+        thread: expect.objectContaining({
+          entityCui: '12345678',
+        }),
+      }),
+    ]);
 
     const storedRow = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
     expect(storedRow?.record.phase).toBe('resolved');

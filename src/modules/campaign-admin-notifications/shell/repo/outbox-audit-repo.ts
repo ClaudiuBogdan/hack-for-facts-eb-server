@@ -4,11 +4,13 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   FUNKY_CAMPAIGN_KEY,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
+  FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
   FUNKY_OUTBOX_WELCOME_TYPE,
 } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
+import { parseAdminReviewedInteractionOutboxMetadata } from '@/modules/notification-delivery/index.js';
 
 import {
   createDatabaseError,
@@ -62,6 +64,14 @@ interface QueryRow {
   basedOnEntryId: string | null;
   resolutionCode: string | null;
   triggerSource: string | null;
+  recordKey: string | null;
+  interactionId: string | null;
+  interactionLabel: string | null;
+  reviewStatus: 'approved' | 'rejected' | null;
+  reviewedAt: string | null;
+  feedbackText: string | null;
+  nextStepCount: number | null;
+  metadata: unknown;
 }
 
 interface MetaCountsRow {
@@ -75,6 +85,7 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
+  FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
 ] as const;
 const FUNKY_AUDIT_NOTIFICATION_TYPE_SET = new Set<string>(FUNKY_AUDIT_NOTIFICATION_TYPES);
 const PENDING_DELIVERY_STATUSES = ['pending', 'composing', 'sending'] as const;
@@ -234,6 +245,29 @@ const mapProjection = (row: QueryRow): CampaignNotificationProjection => {
     };
   }
 
+  if (row.notificationType === FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE) {
+    const metadataResult = parseAdminReviewedInteractionOutboxMetadata(row.metadata);
+    if (metadataResult.isErr()) {
+      throw new Error(`Invalid reviewed interaction audit metadata: ${metadataResult.error}`);
+    }
+
+    const metadata = metadataResult.value;
+    return {
+      kind: 'admin_reviewed_interaction',
+      userId: row.userId,
+      entityCui: metadata.entityCui,
+      entityName: metadata.entityName,
+      recordKey: metadata.recordKey,
+      interactionId: metadata.interactionId,
+      interactionLabel: metadata.interactionLabel,
+      reviewStatus: metadata.reviewStatus,
+      reviewedAt: metadata.reviewedAt,
+      hasFeedbackText: metadata.feedbackText !== undefined && metadata.feedbackText.trim() !== '',
+      nextStepCount: metadata.nextStepLinks?.length ?? 0,
+      triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
+    };
+  }
+
   return {
     kind: 'public_debate_admin_failure',
     entityCui: row.entityCui ?? '',
@@ -354,6 +388,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
             'outbox.sent_at as sentAt',
             'outbox.last_attempt_at as lastAttemptAt',
             'outbox.last_error as lastError',
+            'outbox.metadata as metadata',
             sql<string | null>`outbox.metadata->>'entityCui'`.as('entityCui'),
             sql<string | null>`outbox.metadata->>'entityName'`.as('entityName'),
             sql<string | null>`outbox.metadata->>'acceptedTermsAt'`.as('acceptedTermsAt'),
@@ -369,6 +404,19 @@ export const makeCampaignNotificationOutboxAuditRepo = (
             sql<string | null>`outbox.metadata->>'replyEntryId'`.as('replyEntryId'),
             sql<string | null>`outbox.metadata->>'basedOnEntryId'`.as('basedOnEntryId'),
             sql<string | null>`outbox.metadata->>'resolutionCode'`.as('resolutionCode'),
+            sql<string | null>`outbox.metadata->>'recordKey'`.as('recordKey'),
+            sql<string | null>`outbox.metadata->>'interactionId'`.as('interactionId'),
+            sql<string | null>`outbox.metadata->>'interactionLabel'`.as('interactionLabel'),
+            sql<'approved' | 'rejected' | null>`outbox.metadata->>'reviewStatus'`.as(
+              'reviewStatus'
+            ),
+            sql<string | null>`outbox.metadata->>'reviewedAt'`.as('reviewedAt'),
+            sql<string | null>`outbox.metadata->>'feedbackText'`.as('feedbackText'),
+            sql<
+              number | null
+            >`jsonb_array_length(coalesce(outbox.metadata->'nextStepLinks', '[]'::jsonb))`.as(
+              'nextStepCount'
+            ),
             buildTriggerSourceExpression().as('triggerSource'),
           ])
           .where('outbox.notification_type', 'in', [...FUNKY_AUDIT_NOTIFICATION_TYPES])

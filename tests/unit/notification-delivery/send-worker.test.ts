@@ -2,10 +2,12 @@ import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 
+import { hashResendTagValue } from '@/common/resend-tag-encoding.js';
 import { createUserEmailLookupError } from '@/modules/notification-delivery/core/errors.js';
 import { processSendJob } from '@/modules/notification-delivery/shell/queue/workers/send-worker.js';
 
 import {
+  createTestNotification,
   createTestDeliveryRecord,
   makeFakeDeliveryRepo,
   makeFakeExtendedNotificationsRepo,
@@ -376,5 +378,160 @@ describe('processSendJob', () => {
       expect(stored.value?.status).toBe('failed_transient');
       expect(stored.value?.lastError).toBe('Provider temporarily unavailable');
     }
+  });
+
+  it('skips reviewed-interaction delivery when entity updates were disabled after enqueue', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-reviewed-optout',
+          notificationType: 'funky:outbox:admin_reviewed_interaction',
+          referenceId: 'notification-1',
+          scopeKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          deliveryKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          renderedSubject: 'Reviewed interaction',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'admin_reviewed_interaction',
+            recordKey: 'record-1',
+            interactionId: 'funky:interaction:budget_document',
+            interactionLabel: 'Document buget',
+            reviewStatus: 'rejected',
+            reviewedAt: '2026-04-13T12:00:00.000Z',
+            feedbackText: 'Documentul trimis nu este suficient de clar.',
+            userId: 'user-1',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '12345678',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-global',
+              userId: 'user-1',
+              entityCui: null,
+              notificationType: 'funky:notification:global',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-reviewed-optout' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-reviewed-optout',
+      status: 'skipped_unsubscribed',
+    });
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-reviewed-optout');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
+  it('hashes the scope_key provider tag for reviewed-interaction deliveries', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-reviewed-tags',
+          notificationType: 'funky:outbox:admin_reviewed_interaction',
+          referenceId: 'notification-1',
+          scopeKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          deliveryKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          renderedSubject: 'Reviewed interaction',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'admin_reviewed_interaction',
+            recordKey: 'record-1',
+            interactionId: 'funky:interaction:budget_document',
+            interactionLabel: 'Document buget',
+            reviewStatus: 'rejected',
+            reviewedAt: '2026-04-13T12:00:00.000Z',
+            feedbackText: 'Documentul trimis nu este suficient de clar.',
+            userId: 'user-1',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const scopeKey =
+      'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected';
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '12345678',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: true,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-reviewed-tags' }
+    );
+
+    expect(result.status).toBe('sent');
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: expect.arrayContaining([
+          {
+            name: 'scope_key',
+            value: hashResendTagValue(scopeKey),
+          },
+        ]),
+      })
+    );
   });
 });

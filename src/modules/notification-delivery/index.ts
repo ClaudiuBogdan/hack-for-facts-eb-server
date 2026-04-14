@@ -25,6 +25,11 @@ export type {
   ResendWebhookEvent,
 } from './core/types.js';
 
+export type {
+  AdminReviewedInteractionNextStepLink,
+  AdminReviewedInteractionOutboxMetadata,
+} from './core/reviewed-interaction.js';
+
 export {
   TERMINAL_STATUSES,
   CLAIMABLE_STATUSES,
@@ -37,6 +42,13 @@ export {
   MAX_RETRY_ATTEMPTS,
   STUCK_SENDING_THRESHOLD_MINUTES,
 } from './core/types.js';
+
+export {
+  ADMIN_REVIEWED_INTERACTION_FAMILY_ID,
+  AdminReviewedInteractionNextStepLinkSchema,
+  AdminReviewedInteractionOutboxMetadataSchema,
+  parseAdminReviewedInteractionOutboxMetadata,
+} from './core/reviewed-interaction.js';
 
 // Core errors
 export type {
@@ -95,6 +107,8 @@ export type {
   DataFetcher,
   NewsletterData,
   AlertData,
+  TargetedNotificationEligibility,
+  TargetedNotificationEligibilityReason,
 } from './core/ports.js';
 
 // Shell - Repositories
@@ -177,10 +191,23 @@ export {
   type PublicDebateEntityUpdateEventType,
 } from './core/usecases/enqueue-public-debate-entity-update-notifications.js';
 export {
+  enqueueAdminReviewedInteractionNotification,
+  type EnqueueAdminReviewedInteractionNotificationDeps,
+  type EnqueueAdminReviewedInteractionNotificationResult,
+  type AdminReviewedInteractionNotificationInput,
+  type AdminReviewedInteractionStaleGuardResult,
+  type AdminReviewedInteractionExecutionReason,
+} from './core/usecases/enqueue-admin-reviewed-interaction-notification.js';
+export {
   buildPublicDebateEntityUpdateDeliveryKey,
   buildPublicDebateEntityUpdateScopeKey,
   type PublicDebateEntityUpdateKeyInput,
 } from './core/usecases/public-debate-entity-update-keys.js';
+export {
+  buildAdminReviewedInteractionDeliveryKey,
+  buildAdminReviewedInteractionScopeKey,
+  type AdminReviewedInteractionKeyInput,
+} from './core/usecases/admin-reviewed-interaction-keys.js';
 export {
   enqueuePublicDebateTermsAcceptedNotifications,
   type EnqueuePublicDebateTermsAcceptedNotificationsDeps,

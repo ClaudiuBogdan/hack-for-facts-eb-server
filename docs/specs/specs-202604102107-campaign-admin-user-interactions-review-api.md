@@ -191,6 +191,11 @@ derived only from the reviewable subset.
 `POST /api/v1/admin/campaigns/:campaignKey/user-interactions/reviews`
 
 - accepts only reviewable rows
+- accepts `send_notification?: boolean`
+- defaults `send_notification` to `false`
+- persists the review decision regardless of the flag
+- dispatches notification-producing review follow-ups only when
+  `send_notification = true`
 - continues to reject audit-only rows with fail-closed lookup behavior
 - preserves existing public-debate approval side effects
 

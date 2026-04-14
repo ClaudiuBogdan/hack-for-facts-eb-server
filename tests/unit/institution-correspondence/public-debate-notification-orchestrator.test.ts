@@ -252,6 +252,58 @@ const makeSharedNotificationRepos = (
       );
     },
 
+    async findEligibleByUserTypeAndEntity(
+      userId: string,
+      notificationType: NotificationType,
+      entityCui: string
+    ) {
+      const notification =
+        notifications.find(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === notificationType &&
+            candidate.entityCui === entityCui
+        ) ?? null;
+
+      if (notification === null) {
+        return ok({
+          isEligible: false,
+          reason: 'missing_preference' as const,
+          notification: null,
+        });
+      }
+
+      if (!notification.isActive) {
+        return ok({
+          isEligible: false,
+          reason: 'inactive_preference' as const,
+          notification,
+        });
+      }
+
+      if (
+        notificationType === 'funky:notification:entity_updates' &&
+        notifications.some(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === 'funky:notification:global' &&
+            !candidate.isActive
+        )
+      ) {
+        return ok({
+          isEligible: false,
+          reason: 'campaign_disabled' as const,
+          notification,
+        });
+      }
+
+      return ok({
+        isEligible: true,
+        reason: 'eligible' as const,
+        notification,
+      });
+    },
+
     async deactivate(notificationId) {
       const notificationIndex = notifications.findIndex(
         (notification) => notification.id === notificationId

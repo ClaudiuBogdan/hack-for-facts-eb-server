@@ -52,8 +52,11 @@ import {
   selectCampaignAdminAuditVisibleInteractions,
   type CampaignAdminInteractionConfig,
   type CampaignAuditConfig,
-  type CampaignInteractionStepLocation,
 } from '../../core/campaign-admin-config.js';
+import {
+  buildCampaignAdminInteractionStepLink,
+  extractInteractionEntityCui,
+} from '../../core/campaign-admin-step-links.js';
 import {
   createConflictError,
   createInvalidEventError,
@@ -66,7 +69,6 @@ import { submitInteractionReviews } from '../../core/usecases/submit-interaction
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
-  ApprovedReviewSideEffectPlan,
   CampaignAdminCampaignKey,
   CampaignAdminInteractionFilter,
   CampaignAdminInteractionRow,
@@ -74,9 +76,11 @@ import type {
   CampaignAdminRiskFlagCandidate,
   CampaignAdminUserListCursor,
   CampaignAdminUserRow,
-  ListCampaignAdminInteractionRowsInput,
   CampaignAdminSubmissionPath,
+  ListCampaignAdminInteractionRowsInput,
+  PrepareReviewSideEffectsInput,
   ReviewDecision,
+  ReviewSideEffectPlan,
 } from '../../core/types.js';
 import type { EntityProfileRepository, EntityRepository } from '@/modules/entity/index.js';
 import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fastify';
@@ -133,14 +137,17 @@ export interface MakeCampaignAdminUserInteractionRoutesDeps {
   entityProfileRepo: EntityProfileRepository;
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   enabledCampaignKeys: readonly CampaignAdminCampaignKey[];
+  prepareReviewSideEffects?: (
+    input: PrepareReviewSideEffectsInput
+  ) => Promise<
+    Result<ReviewSideEffectPlan | null, LearningProgressError | InstitutionCorrespondenceError>
+  >;
   prepareApproveReviews?: (input: {
     items: readonly ReviewDecision[];
     reviewerUserId: string;
+    sendNotification?: boolean;
   }) => Promise<
-    Result<
-      ApprovedReviewSideEffectPlan | null,
-      LearningProgressError | InstitutionCorrespondenceError
-    >
+    Result<ReviewSideEffectPlan | null, LearningProgressError | InstitutionCorrespondenceError>
   >;
 }
 
@@ -607,69 +614,8 @@ function toNullableTrimmedString(value: string | null | undefined): string | nul
   return trimmedValue === undefined || trimmedValue === '' ? null : trimmedValue;
 }
 
-function buildCampaignProvocariStepPath(
-  entityCui: string,
-  stepLocation: CampaignInteractionStepLocation
-): string {
-  const encodedEntityCui = encodeURIComponent(entityCui.trim());
-  const encodeSegment = (value: string) => encodeURIComponent(value.trim());
-
-  return `/primarie/${encodedEntityCui}/buget/provocari/${encodeSegment(stepLocation.moduleSlug)}/${encodeSegment(stepLocation.challengeSlug)}/${encodeSegment(stepLocation.stepSlug)}`;
-}
-
-function stripLocalePrefix(pathname: string): string {
-  const strippedPathname = pathname.replace(/^\/(?:en|ro)(?=\/|$)/, '');
-  return strippedPathname === '' ? '/' : strippedPathname;
-}
-
-function buildInteractionElementLink(input: {
-  row: CampaignAdminInteractionRow;
-  entityCui: string | null;
-  interactionConfig: CampaignAdminInteractionConfig | null;
-}): string | null {
-  const { row, entityCui, interactionConfig } = input;
-
-  if (
-    entityCui === null ||
-    interactionConfig?.interactionStepLocation === null ||
-    interactionConfig?.interactionStepLocation === undefined
-  ) {
-    return null;
-  }
-
-  const fallbackPath = buildCampaignProvocariStepPath(
-    entityCui,
-    interactionConfig.interactionStepLocation
-  );
-  const sourceUrl = toNullableTrimmedString(row.record.sourceUrl);
-
-  if (sourceUrl === null) {
-    return fallbackPath;
-  }
-
-  try {
-    const parsedUrl = new URL(sourceUrl);
-    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-      return fallbackPath;
-    }
-
-    if (stripLocalePrefix(parsedUrl.pathname) !== fallbackPath) {
-      return fallbackPath;
-    }
-
-    return `${fallbackPath}${parsedUrl.search}${parsedUrl.hash}`;
-  } catch {
-    return fallbackPath;
-  }
-}
-
 function extractEntityCui(row: Pick<CampaignAdminInteractionRow, 'record'>): string | null {
-  if (row.record.scope.type !== 'entity') {
-    return null;
-  }
-
-  const entityCui = row.record.scope.entityCui;
-  return typeof entityCui === 'string' ? toNullableTrimmedString(entityCui) : null;
+  return extractInteractionEntityCui(row.record);
 }
 
 function extractWebsiteUrl(row: Pick<CampaignAdminInteractionRow, 'record'>): string | null {
@@ -1097,9 +1043,8 @@ function formatCampaignAdminInteractionRow(input: {
   const threadSummary = shouldAttachThreadSummary({ row, interactionConfig })
     ? row.threadSummary
     : null;
-  const interactionElementLink = buildInteractionElementLink({
-    row,
-    entityCui,
+  const interactionElementLink = buildCampaignAdminInteractionStepLink({
+    record: row.record,
     interactionConfig,
   });
 
@@ -1485,6 +1430,33 @@ async function loadReviewedResponseRows(input: {
   return ok(rows);
 }
 
+function resolvePrepareReviewSideEffects(
+  deps: MakeCampaignAdminUserInteractionRoutesDeps
+):
+  | ((
+      input: PrepareReviewSideEffectsInput
+    ) => Promise<
+      Result<ReviewSideEffectPlan | null, LearningProgressError | InstitutionCorrespondenceError>
+    >)
+  | undefined {
+  if (deps.prepareReviewSideEffects !== undefined) {
+    return deps.prepareReviewSideEffects;
+  }
+
+  if (deps.prepareApproveReviews === undefined) {
+    return undefined;
+  }
+
+  const prepareApproveReviews = deps.prepareApproveReviews;
+  return async (input) => {
+    return prepareApproveReviews({
+      items: input.items,
+      reviewerUserId: input.reviewerUserId,
+      sendNotification: input.sendNotification,
+    });
+  };
+}
+
 export const makeCampaignAdminUserInteractionRoutes = (
   deps: MakeCampaignAdminUserInteractionRoutesDeps
 ): FastifyPluginAsync => {
@@ -1498,6 +1470,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
 
   // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync uses async plugin factories
   return async (fastify) => {
+    const prepareReviewSideEffects = resolvePrepareReviewSideEffects(deps);
     const enabledCampaignKeys = new Set<string>(deps.enabledCampaignKeys);
     fastify.decorateRequest('campaignAdminAccess', null);
     fastify.addHook(
@@ -1950,11 +1923,13 @@ export const makeCampaignAdminUserInteractionRoutes = (
           });
         }
 
-        let approvedReviewSideEffectPlan: ApprovedReviewSideEffectPlan | null = null;
-        if (deps.prepareApproveReviews !== undefined) {
-          const sideEffectResult = await deps.prepareApproveReviews({
+        let reviewSideEffectPlan: ReviewSideEffectPlan | null = null;
+        if (prepareReviewSideEffects !== undefined) {
+          const sideEffectResult = await prepareReviewSideEffects({
+            campaignKey: access.config.campaignKey,
             items: request.body.items,
             reviewerUserId: access.userId,
+            sendNotification: request.body.send_notification === true,
           });
 
           if (sideEffectResult.isErr()) {
@@ -1971,7 +1946,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
             });
           }
 
-          approvedReviewSideEffectPlan = sideEffectResult.value;
+          reviewSideEffectPlan = sideEffectResult.value;
         }
 
         if (validationResult.value.pendingItems.length > 0) {
@@ -1999,9 +1974,9 @@ export const makeCampaignAdminUserInteractionRoutes = (
           }
         }
 
-        if (approvedReviewSideEffectPlan !== null) {
+        if (reviewSideEffectPlan !== null) {
           try {
-            await approvedReviewSideEffectPlan.afterCommit();
+            await reviewSideEffectPlan.afterCommit();
           } catch (error) {
             const postCommitError =
               error instanceof Error && error.cause !== undefined ? error.cause : error;
@@ -2012,7 +1987,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
                 itemCount: request.body.items.length,
                 recordKeys: request.body.items.map((item) => item.recordKey),
               },
-              'Campaign-admin approval side effects failed after commit'
+              'Campaign-admin review side effects failed after commit'
             );
 
             if (isInstitutionCorrespondenceError(postCommitError)) {

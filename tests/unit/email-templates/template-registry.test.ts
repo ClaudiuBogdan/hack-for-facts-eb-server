@@ -37,9 +37,10 @@ describe('Template Registry', () => {
 
   it('discovers all registration files', () => {
     const all = registry.getAll();
-    expect(all).toHaveLength(8);
+    expect(all).toHaveLength(9);
     const ids = all.map((r) => r.id);
     expect(ids).toEqual([
+      'admin_reviewed_user_interaction',
       'alert_series',
       'anaf_forexebug_digest',
       'newsletter_entity',
@@ -68,6 +69,7 @@ describe('Template Registry', () => {
     expect(registry.has('alert_series')).toBe(true);
     expect(registry.has('newsletter_entity')).toBe(true);
     expect(registry.has('anaf_forexebug_digest')).toBe(true);
+    expect(registry.has('admin_reviewed_user_interaction')).toBe(true);
     expect(registry.has('public_debate_admin_failure')).toBe(true);
     expect(registry.has('public_debate_campaign_welcome')).toBe(true);
     expect(registry.has('public_debate_entity_subscription')).toBe(true);

@@ -129,6 +129,33 @@ export const PublicDebateAdminFailurePayloadSchema = Type.Object({
 
 export type PublicDebateAdminFailurePayload = Static<typeof PublicDebateAdminFailurePayloadSchema>;
 
+export const AdminReviewedInteractionNextStepLinkSchema = Type.Object({
+  kind: Type.Union([
+    Type.Literal('retry_interaction'),
+    Type.Literal('start_public_debate_request'),
+    Type.Literal('view_entity'),
+  ]),
+  label: Type.String({ minLength: 1 }),
+  url: Type.String({ minLength: 1 }),
+  description: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const AdminReviewedInteractionPayloadSchema = Type.Object({
+  campaignKey: Type.String({ minLength: 1 }),
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  interactionId: Type.String({ minLength: 1 }),
+  interactionLabel: Type.String({ minLength: 1 }),
+  reviewStatus: Type.Union([Type.Literal('approved'), Type.Literal('rejected')]),
+  reviewedAt: Type.String({ minLength: 1 }),
+  feedbackText: Type.Optional(Type.String({ minLength: 1 })),
+  nextStepLinks: Type.Optional(
+    Type.Array(AdminReviewedInteractionNextStepLinkSchema, { minItems: 1 })
+  ),
+});
+
+export type AdminReviewedInteractionPayload = Static<typeof AdminReviewedInteractionPayloadSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alert Series Template
 // ─────────────────────────────────────────────────────────────────────────────

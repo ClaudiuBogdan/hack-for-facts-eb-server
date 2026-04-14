@@ -2,9 +2,11 @@ import type { CampaignAdminNotificationError } from './errors.js';
 import type {
   CampaignNotificationAdminCampaignKey,
   CampaignNotificationFieldDescriptor,
+  CampaignNotificationTriggerCapabilities,
   CampaignNotificationMetaCounts,
   CampaignNotificationTemplateDescriptor,
   CampaignNotificationTemplatePreview,
+  CampaignNotificationTriggerBulkExecutionResult,
   CampaignNotificationTriggerDescriptor,
   CampaignNotificationTriggerExecutionResult,
   ListCampaignNotificationAuditInput,
@@ -30,17 +32,32 @@ export interface CampaignNotificationTriggerExecutionInput {
   readonly payload: unknown;
 }
 
+export interface CampaignNotificationTriggerBulkExecutionInput {
+  readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly triggerId: string;
+  readonly actorUserId: string;
+  readonly payload: unknown;
+}
+
 export interface CampaignNotificationTriggerDefinition {
   readonly triggerId: string;
   readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly familyId?: string;
   readonly templateId: string;
   readonly description: string;
   readonly inputSchema: TSchema;
   readonly inputFields: readonly CampaignNotificationFieldDescriptor[];
   readonly targetKind: string;
+  readonly capabilities?: CampaignNotificationTriggerCapabilities;
+  readonly bulkInputSchema?: TSchema;
   execute(
     input: CampaignNotificationTriggerExecutionInput
   ): Promise<Result<CampaignNotificationTriggerExecutionResult, CampaignAdminNotificationError>>;
+  executeBulk?(
+    input: CampaignNotificationTriggerBulkExecutionInput
+  ): Promise<
+    Result<CampaignNotificationTriggerBulkExecutionResult, CampaignAdminNotificationError>
+  >;
 }
 
 export interface CampaignNotificationTriggerRegistry {

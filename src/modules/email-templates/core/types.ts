@@ -274,6 +274,29 @@ export interface PublicDebateAdminFailureProps extends BaseTemplateProps {
   failureMessage: string;
 }
 
+export interface AdminReviewedInteractionNextStepLink {
+  kind: 'retry_interaction' | 'start_public_debate_request' | 'view_entity';
+  label: string;
+  url: string;
+  description?: string;
+}
+
+/**
+ * Props for reviewed interaction outcome notifications.
+ */
+export interface AdminReviewedInteractionProps extends BaseTemplateProps {
+  templateType: 'admin_reviewed_user_interaction';
+  campaignKey: string;
+  entityCui: string;
+  entityName: string;
+  interactionId: string;
+  interactionLabel: string;
+  reviewStatus: 'approved' | 'rejected';
+  reviewedAt: string;
+  feedbackText?: string;
+  nextStepLinks?: AdminReviewedInteractionNextStepLink[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle Template Props
 // ─────────────────────────────────────────────────────────────────────────────

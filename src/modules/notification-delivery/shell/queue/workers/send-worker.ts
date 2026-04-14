@@ -6,10 +6,12 @@
 
 import { Worker } from 'bullmq';
 
-import { sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
+import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import { hashResendTagValue, sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
+import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import { MAX_RETRY_ATTEMPTS, type SendJobPayload } from '../../../core/types.js';
 
 import type {
@@ -152,6 +154,55 @@ export const processSendJob = async (
     return { outboxId, status: 'skipped_unsubscribed' };
   }
 
+  if (delivery.notificationType === 'funky:outbox:admin_reviewed_interaction') {
+    const metadataResult = parseAdminReviewedInteractionOutboxMetadata(delivery.metadata);
+    if (metadataResult.isErr()) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: `Invalid reviewed interaction metadata: ${metadataResult.error}`,
+      });
+      return {
+        outboxId,
+        status: 'failed_permanent',
+        error: `Invalid reviewed interaction metadata: ${metadataResult.error}`,
+      };
+    }
+
+    const eligibilityResult = await notificationsRepo.findEligibleByUserTypeAndEntity(
+      delivery.userId,
+      FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+      metadataResult.value.entityCui
+    );
+    if (eligibilityResult.isErr()) {
+      const errorMessage = `Failed to re-check reviewed interaction eligibility: ${getErrorMessage(eligibilityResult.error)}`;
+      const retryable = isRetryableError(eligibilityResult.error);
+
+      await deliveryRepo.updateStatusIfStillSending(
+        outboxId,
+        retryable ? 'failed_transient' : 'failed_permanent',
+        { lastError: errorMessage }
+      );
+
+      if (retryable) {
+        throw new Error(errorMessage);
+      }
+
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    if (!eligibilityResult.value.isEligible) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          reason: eligibilityResult.value.reason,
+        },
+        'Reviewed interaction no longer eligible at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+  }
+
   if (delivery.attemptCount > MAX_RETRY_ATTEMPTS) {
     log.warn({ outboxId, attemptCount: delivery.attemptCount }, 'Max retry attempts exceeded');
 
@@ -216,7 +267,7 @@ export const processSendJob = async (
   const tags = [
     { name: 'delivery_id', value: sanitizeResendTagValue(delivery.id) },
     { name: 'notification_type', value: sanitizeResendTagValue(delivery.notificationType) },
-    { name: 'scope_key', value: sanitizeResendTagValue(delivery.scopeKey) },
+    { name: 'scope_key', value: hashResendTagValue(delivery.scopeKey) },
     { name: 'env', value: sanitizeResendTagValue(environment) },
   ];
 

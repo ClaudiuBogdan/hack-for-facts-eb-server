@@ -517,6 +517,12 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
             : query.where(sql<boolean>`record->'review'->>'status' = ${input.reviewStatus}`);
       }
 
+      if (input.reviewSource !== undefined) {
+        query = query.where(
+          sql<boolean>`record->'review'->>'reviewSource' = ${input.reviewSource}`
+        );
+      }
+
       if (input.lessonId !== undefined) {
         query = query.where(sql<boolean>`record->>'lessonId' = ${input.lessonId}`);
       }

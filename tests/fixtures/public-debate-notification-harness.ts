@@ -275,6 +275,73 @@ const createSharedNotificationsRepo = (): {
       );
     },
 
+    async findEligibleByUserTypeAndEntity(
+      userId: string,
+      notificationType: NotificationType,
+      entityCui: string
+    ) {
+      const notification =
+        [...store.values()].find(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === notificationType &&
+            candidate.entityCui === entityCui
+        ) ?? null;
+
+      if (notification === null) {
+        return ok({
+          isEligible: false,
+          reason: 'missing_preference' as const,
+          notification: null,
+        });
+      }
+
+      if (!notification.isActive) {
+        return ok({
+          isEligible: false,
+          reason: 'inactive_preference' as const,
+          notification,
+        });
+      }
+
+      const globallyUnsubscribed = [...store.values()].some(
+        (candidate) =>
+          candidate.userId === userId &&
+          candidate.notificationType === 'global_unsubscribe' &&
+          !candidate.isActive
+      );
+
+      if (globallyUnsubscribed) {
+        return ok({
+          isEligible: false,
+          reason: 'global_unsubscribe' as const,
+          notification,
+        });
+      }
+
+      if (
+        notificationType === FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE &&
+        [...store.values()].some(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === 'funky:notification:global' &&
+            !candidate.isActive
+        )
+      ) {
+        return ok({
+          isEligible: false,
+          reason: 'campaign_disabled' as const,
+          notification,
+        });
+      }
+
+      return ok({
+        isEligible: true,
+        reason: 'eligible' as const,
+        notification,
+      });
+    },
+
     async deactivate(notificationId) {
       const existing = store.get(notificationId);
       if (existing !== undefined) {

@@ -14,6 +14,11 @@ import {
   type CampaignNotificationMetaCounts,
   type ListCampaignNotificationAuditInput,
 } from '@/modules/campaign-admin-notifications/index.js';
+import { buildAdminReviewedInteractionDeliveryKey } from '@/modules/notification-delivery/index.js';
+import {
+  ensurePublicDebateAutoSubscriptions,
+  sha256Hasher,
+} from '@/modules/notifications/index.js';
 
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 import { createPublicDebateNotificationHarness } from '../fixtures/public-debate-notification-harness.js';
@@ -48,6 +53,38 @@ const createAcceptedTermsRecord = (
     result: null,
     updatedAt: acceptedTermsAt,
     submittedAt: acceptedTermsAt,
+  });
+
+const createReviewedBudgetDocumentRecord = (
+  entityCui = '12345678',
+  reviewedAt = '2026-04-12T15:00:00.000Z'
+) =>
+  createTestInteractiveRecord({
+    key: `test:${entityCui}:budget-document-reviewed`,
+    interactionId: 'funky:interaction:budget_document',
+    lessonId: 'lesson-budget-document',
+    kind: 'custom',
+    completionRule: { type: 'resolved' },
+    scope: { type: 'entity', entityCui },
+    phase: 'failed',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          documentUrl: 'https://example.invalid/buget.pdf',
+          submittedAt: '2026-04-11T10:00:00.000Z',
+        },
+      },
+    },
+    review: {
+      status: 'rejected',
+      reviewedAt,
+      feedbackText: 'Documentul trimis nu este suficient de clar.',
+      reviewedByUserId: 'admin-user',
+      reviewSource: 'campaign_admin_api',
+    },
+    updatedAt: reviewedAt,
+    submittedAt: '2026-04-11T10:00:00.000Z',
   });
 
 const encodeCursor = (cursor: CampaignNotificationAuditCursor): string =>
@@ -203,6 +240,7 @@ const createTestApp = async (options?: {
         composeJobScheduler: harness.composeJobScheduler as never,
         entityRepo: harness.entityRepo,
         correspondenceRepo: harness.correspondenceRepo,
+        platformBaseUrl: 'https://transparenta.eu',
       }),
       templatePreviewService: makeCampaignNotificationTemplatePreviewService({
         logger,
@@ -780,6 +818,11 @@ describe('campaign admin notifications routes', () => {
       ok: true,
       data: {
         items: expect.arrayContaining([
+          expect.objectContaining({
+            triggerId: 'admin_reviewed_user_interaction',
+            familyId: 'admin_reviewed_interaction',
+            description: expect.stringContaining('does not trigger this endpoint by default'),
+          }),
           expect.objectContaining({ triggerId: 'public_debate_campaign_welcome' }),
           expect.objectContaining({ triggerId: 'public_debate_entity_subscription' }),
           expect.objectContaining({ triggerId: 'public_debate_entity_update.thread_started' }),
@@ -789,6 +832,185 @@ describe('campaign admin notifications routes', () => {
         ]),
       },
     });
+
+    await setup.app.close();
+  });
+
+  it('queues an admin reviewed interaction notification for a reviewed budget document', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord();
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/admin_reviewed_user_interaction',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        userId: 'user-1',
+        recordKey: reviewedRecord.key,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        triggerId: 'admin_reviewed_user_interaction',
+        templateId: 'admin_reviewed_user_interaction',
+        result: expect.objectContaining({
+          kind: 'family_single',
+          status: 'queued',
+          familyId: 'admin_reviewed_interaction',
+        }),
+      }),
+    });
+
+    const outbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+      buildAdminReviewedInteractionDeliveryKey({
+        campaignKey: 'funky',
+        userId: 'user-1',
+        interactionId: 'funky:interaction:budget_document',
+        recordKey: reviewedRecord.key,
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? reviewedRecord.updatedAt,
+        reviewStatus: 'rejected',
+      })
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.notificationType).toBe('funky:outbox:admin_reviewed_interaction');
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          familyId: 'admin_reviewed_interaction',
+          interactionId: 'funky:interaction:budget_document',
+          reviewStatus: 'rejected',
+          entityCui: '12345678',
+          nextStepLinks: [
+            expect.objectContaining({
+              kind: 'retry_interaction',
+              url: 'https://transparenta.eu/primarie/12345678/buget/provocari/civic-campaign/civic-monitor-and-request/03-budget-status-2026',
+            }),
+          ],
+        })
+      );
+    }
+
+    await setup.app.close();
+  });
+
+  it('supports dry-run bulk execution for admin reviewed interaction notifications', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/admin_reviewed_user_interaction/bulk',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        filters: {
+          userId: 'user-1',
+        },
+        dryRun: true,
+        limit: 10,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        triggerId: 'admin_reviewed_user_interaction',
+        result: expect.objectContaining({
+          kind: 'family_bulk',
+          familyId: 'admin_reviewed_interaction',
+          dryRun: true,
+          candidateCount: 1,
+          plannedCount: 1,
+          eligibleCount: 1,
+          queuedCount: 1,
+        }),
+      }),
+    });
+
+    const outbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+      buildAdminReviewedInteractionDeliveryKey({
+        campaignKey: 'funky',
+        userId: 'user-1',
+        interactionId: 'funky:interaction:budget_document',
+        recordKey: reviewedRecord.key,
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? reviewedRecord.updatedAt,
+        reviewStatus: 'rejected',
+      })
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value).toBeNull();
+    }
 
     await setup.app.close();
   });
