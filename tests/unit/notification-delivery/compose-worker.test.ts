@@ -436,6 +436,132 @@ describe('compose worker helpers', () => {
     }
   });
 
+  it('composes reviewed-interaction emails from outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-reviewed-interaction-1',
+          notificationType: 'funky:outbox:admin_reviewed_interaction',
+          referenceId: 'notif-reviewed-1',
+          scopeKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          deliveryKey:
+            'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'admin_reviewed_interaction',
+            recordKey: 'record-1',
+            interactionId: 'funky:interaction:budget_document',
+            interactionLabel: 'Document buget',
+            reviewStatus: 'rejected',
+            reviewedAt: '2026-04-13T12:00:00.000Z',
+            feedbackText: 'Documentul trimis nu este suficient de clar.',
+            userId: 'user-1',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            nextStepLinks: [
+              {
+                kind: 'retry_interaction',
+                label: 'Revino la pasul pentru documentul de buget',
+                url: 'https://transparenta.eu/retry',
+              },
+            ],
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-reviewed-interaction-1',
+        kind: 'outbox',
+        outboxId: 'outbox-reviewed-interaction-1',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('admin_reviewed_user_interaction');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-reviewed-interaction-1' });
+
+    const outbox = await deliveryRepo.findById('outbox-reviewed-interaction-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('admin_reviewed_user_interaction');
+      expect(outbox.value?.renderedHtml).toContain('admin_reviewed_user_interaction');
+    }
+  });
+
+  it('marks reviewed-interaction outbox rows failed_permanent when metadata is invalid', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-reviewed-interaction-invalid',
+          notificationType: 'funky:outbox:admin_reviewed_interaction',
+          referenceId: 'notif-reviewed-invalid',
+          scopeKey: 'reviewed_interaction:invalid',
+          deliveryKey: 'reviewed_interaction:invalid',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'admin_reviewed_interaction',
+            entityCui: '12345678',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer(),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-reviewed-interaction-invalid',
+        kind: 'outbox',
+        outboxId: 'outbox-reviewed-interaction-invalid',
+      }
+    );
+
+    expect(result).toEqual({
+      runId: 'run-reviewed-interaction-invalid',
+      outboxId: 'outbox-reviewed-interaction-invalid',
+      status: 'failed_permanent',
+      error: expect.stringContaining('Invalid reviewed interaction metadata'),
+    });
+    expect(jobs).toEqual([]);
+
+    const outbox = await deliveryRepo.findById('outbox-reviewed-interaction-invalid');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.status).toBe('failed_permanent');
+    }
+  });
+
   it('marks public debate update outbox rows failed_permanent when required metadata is missing', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     const deliveryRepo = makeFakeDeliveryRepo({

@@ -9,6 +9,8 @@ export const FUNKY_OUTBOX_WELCOME_TYPE = 'funky:outbox:welcome' as const;
 export const FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE = 'funky:outbox:entity_subscription' as const;
 export const FUNKY_OUTBOX_ENTITY_UPDATE_TYPE = 'funky:outbox:entity_update' as const;
 export const FUNKY_OUTBOX_ADMIN_FAILURE_TYPE = 'funky:outbox:admin_failure' as const;
+export const FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE =
+  'funky:outbox:admin_reviewed_interaction' as const;
 
 export const FUNKY_PROGRESS_STATE_KEY = 'funky:progress:state' as const;
 export const FUNKY_PROGRESS_ONBOARDING_KEY = 'funky:progress:onboarding' as const;

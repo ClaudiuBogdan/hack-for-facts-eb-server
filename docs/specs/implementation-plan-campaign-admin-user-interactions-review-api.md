@@ -23,6 +23,7 @@ interactions, starting with public-debate requests, with:
 - authenticated Clerk-backed campaign-admin authorization
 - safe flattened list responses
 - durable reviewer attribution in `UserInteractions`
+- explicit `send_notification` opt-in for notification-producing follow-ups
 - allowlisted approval/rejection behavior
 - targeted tests for auth, redaction, audit, side effects, and pagination
 
@@ -251,6 +252,10 @@ Changes:
 - enforce allowlisted interaction ids for that campaign
 - use the dedicated review list query
 - use the updated review write path with reviewer attribution
+- extend the review POST body with `send_notification?: boolean`
+- default `send_notification` to `false`
+- invoke notification-producing post-commit review side effects only when the
+  request explicitly sets `send_notification = true`
 - keep side effects server-derived through the existing public-debate approval
   preflight path
 
@@ -296,6 +301,10 @@ Must cover:
 - reviewer attribution persisted in review and audit event
 - approve happy path with public-debate side effects
 - reject path with feedback
+- `send_notification = false` does not dispatch notification-producing review
+  follow-ups
+- `send_notification = true` dispatches the supported notification-producing
+  review follow-ups
 - stale update conflict
 - no duplicate send on repeated review attempts
 

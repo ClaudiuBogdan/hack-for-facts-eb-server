@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { makeEmailRenderer } from '@/modules/email-templates/shell/renderer/index.js';
 
 import type {
+  AdminReviewedInteractionProps,
   WelcomeEmailProps,
   AlertSeriesProps,
   AnafForexebugDigestProps,
@@ -454,10 +455,48 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(error.message).toContain('registeredAt');
   });
 
+  it('renders admin_reviewed_user_interaction template successfully', async () => {
+    const props: AdminReviewedInteractionProps = {
+      templateType: 'admin_reviewed_user_interaction',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      campaignKey: 'funky',
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      interactionId: 'funky:interaction:budget_document',
+      interactionLabel: 'Document buget',
+      reviewStatus: 'rejected',
+      reviewedAt: '2026-04-13T12:00:00.000Z',
+      feedbackText: 'Documentul trimis nu este suficient de clar.',
+      nextStepLinks: [
+        {
+          kind: 'retry_interaction',
+          label: 'Revino la pasul pentru documentul de buget',
+          url: 'https://transparenta.eu/primarie/87654321/buget/provocari/civic-campaign/civic-monitor-and-request/03-budget-status-2026',
+          description: 'Actualizeaza documentul si retrimite interactiunea.',
+        },
+      ],
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Interactiune respinsa: Document buget - Municipiul Exemplu');
+    expect(rendered.html).toContain('Interactiunea ta are nevoie de o noua incercare');
+    expect(rendered.text).toContain('Documentul trimis nu este suficient de clar.');
+    expect(rendered.text).toContain('Revino la pasul pentru documentul de buget');
+    expect(rendered.templateName).toBe('admin_reviewed_user_interaction');
+  });
+
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(8);
+    expect(templates).toHaveLength(9);
     const names = templates.map((t) => t.name);
+    expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');

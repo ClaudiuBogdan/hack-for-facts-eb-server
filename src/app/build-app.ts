@@ -30,6 +30,10 @@ import {
   wrapInsRepo,
 } from './cache-wrappers.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
+import {
+  BUDGET_DOCUMENT_INTERACTION_ID,
+  DEBATE_REQUEST_INTERACTION_ID,
+} from '../common/campaign-user-interactions.js';
 import { CacheNamespace, initCache, type CacheClient } from '../infra/cache/index.js';
 import {
   makeEmailClient,
@@ -85,6 +89,7 @@ import {
   makeCampaignAdminEntitiesRoutes,
 } from '../modules/campaign-admin-entities/index.js';
 import {
+  makeAdminReviewedInteractionTriggerDefinition,
   makeCampaignAdminNotificationRoutes,
   makeCampaignNotificationOutboxAuditRepo,
   makeCampaignNotificationTemplatePreviewService,
@@ -187,9 +192,10 @@ import {
   makeLearningProgressRepo,
   syncEvents,
   updateInteractionReview,
-  type ApprovedReviewSideEffectPlan,
   type LearningProgressError,
+  type PrepareReviewSideEffectsInput,
   type ReviewDecision,
+  type ReviewSideEffectPlan,
   type SyncEventsInput,
 } from '../modules/learning-progress/index.js';
 import { createLearningProgressPostSyncHookRunner } from '../modules/learning-progress/shell/post-sync-hooks.js';
@@ -338,6 +344,26 @@ const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_SUFFIX = '/subscription-stats';
 const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_PREFIX = '/api/v1/campaigns/';
 const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
 const ADVANCED_MAP_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-analytics/public/';
+
+function combineReviewSideEffectPlans(
+  plans: readonly (ReviewSideEffectPlan | null | undefined)[]
+): ReviewSideEffectPlan | null {
+  const activePlans = plans.filter(
+    (plan): plan is ReviewSideEffectPlan => plan !== null && plan !== undefined
+  );
+
+  if (activePlans.length === 0) {
+    return null;
+  }
+
+  return {
+    async afterCommit(): Promise<void> {
+      for (const plan of activePlans) {
+        await plan.afterCommit();
+      }
+    },
+  };
+}
 const ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PATH = '/api/v1/advanced-map-datasets/public';
 const ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-datasets/public/';
 const SAFE_ERROR_CODES = new Set([
@@ -1145,16 +1171,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           events: readonly import('../modules/learning-progress/index.js').LearningProgressEvent[];
         }) => Promise<void>)
       | undefined;
-    let prepareApproveLearningProgressReviews:
-      | ((input: {
-          items: readonly ReviewDecision[];
-          reviewerUserId: string;
-        }) => Promise<
+    let prepareLearningProgressReviewSideEffects:
+      | ((
+          input: PrepareReviewSideEffectsInput
+        ) => Promise<
           Result<
-            ApprovedReviewSideEffectPlan | null,
+            ReviewSideEffectPlan | null,
             LearningProgressError | InstitutionCorrespondenceError
           >
         >)
+      | undefined;
+    let prepareLearningProgressReviewedInteractionSideEffects:
+      | ((
+          input: PrepareReviewSideEffectsInput
+        ) => Promise<Result<ReviewSideEffectPlan | null, LearningProgressError>>)
       | undefined;
     let correspondenceRepo: InstitutionCorrespondenceRepository | undefined;
 
@@ -1575,6 +1605,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       const publicDebateUpdatePublisher = publicDebateNotificationOrchestrator.updatePublisher;
       const publicDebateSubscriptionService =
         publicDebateNotificationOrchestrator.subscriptionService;
+      const adminReviewedInteractionTrigger = makeAdminReviewedInteractionTriggerDefinition({
+        learningProgressRepo,
+        extendedNotificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: publicDebateComposeJobScheduler,
+        entityRepo,
+        platformBaseUrl: config.notifications.platformBaseUrl,
+      });
 
       userEventHandlers.push(
         makePublicDebateRequestUserEventHandler({
@@ -1593,9 +1631,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         })
       );
 
-      prepareApproveLearningProgressReviews = async (input) => {
-        // Maintenance note: check /docs/guides/INTERACTIVE-ELEMENT-CHECKS-AND-TRIGGERS.md.
-        return prepareApprovedPublicDebateReviewSideEffects(
+      prepareLearningProgressReviewSideEffects = async (input) => {
+        const approvedSideEffectPlanResult = await prepareApprovedPublicDebateReviewSideEffects(
           {
             learningProgressRepo,
             entityRepo,
@@ -1611,6 +1648,90 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           },
           input
         );
+
+        if (approvedSideEffectPlanResult.isErr()) {
+          return approvedSideEffectPlanResult;
+        }
+
+        if (prepareLearningProgressReviewedInteractionSideEffects === undefined) {
+          return approvedSideEffectPlanResult;
+        }
+
+        if (!input.sendNotification) {
+          return approvedSideEffectPlanResult;
+        }
+
+        const reviewedInteractionPlanResult =
+          await prepareLearningProgressReviewedInteractionSideEffects(input);
+
+        if (reviewedInteractionPlanResult.isErr()) {
+          return reviewedInteractionPlanResult;
+        }
+
+        return ok(
+          combineReviewSideEffectPlans([
+            approvedSideEffectPlanResult.value,
+            reviewedInteractionPlanResult.value,
+          ])
+        );
+      };
+
+      prepareLearningProgressReviewedInteractionSideEffects = async (input) => {
+        if (!input.sendNotification) {
+          return ok(null);
+        }
+
+        const directItems: ReviewDecision[] = [];
+
+        for (const item of input.items) {
+          const rowResult = await learningProgressRepo.getRecord(item.userId, item.recordKey);
+          if (rowResult.isErr()) {
+            return err(rowResult.error);
+          }
+
+          const row = rowResult.value;
+          if (row?.record.scope.type !== 'entity') {
+            continue;
+          }
+
+          if (row.record.interactionId === BUDGET_DOCUMENT_INTERACTION_ID) {
+            directItems.push(item);
+            continue;
+          }
+
+          if (
+            row.record.interactionId === DEBATE_REQUEST_INTERACTION_ID &&
+            item.status === 'rejected'
+          ) {
+            directItems.push(item);
+          }
+        }
+
+        if (directItems.length === 0) {
+          return ok(null);
+        }
+
+        return ok({
+          async afterCommit(): Promise<void> {
+            for (const item of directItems) {
+              const executionResult = await adminReviewedInteractionTrigger.execute({
+                campaignKey: input.campaignKey,
+                triggerId: adminReviewedInteractionTrigger.triggerId,
+                actorUserId: input.reviewerUserId,
+                payload: {
+                  userId: item.userId,
+                  recordKey: item.recordKey,
+                },
+              });
+
+              if (executionResult.isErr()) {
+                throw new Error(executionResult.error.message, {
+                  cause: executionResult.error,
+                });
+              }
+            }
+          },
+        });
       };
 
       if (hasBullmqRedisConfig && adminEventRuntime === undefined) {
@@ -1812,7 +1933,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         );
       }
 
-      if (prepareApproveLearningProgressReviews === undefined) {
+      if (prepareLearningProgressReviewSideEffects === undefined) {
         throw new Error(
           'Campaign admin routes require public debate correspondence wiring when the campaign admin API is enabled.'
         );
@@ -1844,7 +1965,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           entityProfileRepo,
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
-          prepareApproveReviews: prepareApproveLearningProgressReviews,
+          prepareReviewSideEffects: prepareLearningProgressReviewSideEffects,
         })
       );
 
@@ -1876,6 +1997,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             composeJobScheduler: publicDebateComposeJobScheduler,
             entityRepo,
             correspondenceRepo,
+            platformBaseUrl: config.notifications.platformBaseUrl,
           }),
           templatePreviewService: makeCampaignNotificationTemplatePreviewService({
             logger: repoLogger,

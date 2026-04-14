@@ -230,6 +230,17 @@ export interface ExtendedNotificationsRepository {
   ): Promise<Result<Notification[], DeliveryError>>;
 
   /**
+   * Evaluates whether one user is currently eligible for an entity-scoped
+   * notification. Returns the matching entity preference row when present, even
+   * if eligibility is blocked by a higher-level preference.
+   */
+  findEligibleByUserTypeAndEntity(
+    userId: string,
+    notificationType: NotificationType,
+    entityCui: string
+  ): Promise<Result<TargetedNotificationEligibility, DeliveryError>>;
+
+  /**
    * Finds active notifications for a specific type across all entities/users.
    * Used for recovery scans.
    */
@@ -249,6 +260,19 @@ export interface ExtendedNotificationsRepository {
    * - config.channels.email is false (email channel disabled)
    */
   isUserGloballyUnsubscribed(userId: string): Promise<Result<boolean, DeliveryError>>;
+}
+
+export type TargetedNotificationEligibilityReason =
+  | 'eligible'
+  | 'missing_preference'
+  | 'inactive_preference'
+  | 'global_unsubscribe'
+  | 'campaign_disabled';
+
+export interface TargetedNotificationEligibility {
+  isEligible: boolean;
+  reason: TargetedNotificationEligibilityReason;
+  notification: Notification | null;
 }
 
 /**

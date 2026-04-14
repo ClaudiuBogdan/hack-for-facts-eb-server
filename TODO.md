@@ -12,6 +12,7 @@
 
 ## Notifications
 
+- [ ] Add explicit notification control (`sendNotification` boolean flag) to admin review API. Persist this flag and only send notifications when explicitly enabled. This allows "review now, notify later" workflows and scheduled batch notifications.
 - [ ] TEST: Add unsubscribe link with self signed token and return success html.
 - [ ] Implement the email institution sending, with deduplication and lifecycle management. Add subscribed users to a specific institution queue.
 - [ ] Add user email notification on registration? And use the hook to set the notifications preferences?

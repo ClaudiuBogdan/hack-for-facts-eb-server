@@ -25,6 +25,7 @@ import {
   type NotificationsRepository,
 } from '@/modules/notifications/index.js';
 
+import { makeAdminReviewedInteractionTriggerDefinition } from './admin-reviewed-interaction-trigger.js';
 import { createDatabaseError, type CampaignAdminNotificationError } from '../../core/errors.js';
 import { listSchemaFields } from '../shared/schema-field-descriptors.js';
 
@@ -45,6 +46,7 @@ interface TriggerRegistryDeps {
   composeJobScheduler: ComposeJobScheduler;
   entityRepo: EntityRepository;
   correspondenceRepo: InstitutionCorrespondenceRepository;
+  platformBaseUrl: string;
 }
 
 const TermsAcceptedTriggerSchema = Type.Object(
@@ -418,7 +420,7 @@ const buildThreadEventDefinition = (
 export const makeCampaignNotificationTriggerRegistry = (
   deps: TriggerRegistryDeps
 ): CampaignNotificationTriggerRegistry => {
-  const definitions = [
+  const definitions: readonly CampaignNotificationTriggerDefinition[] = [
     {
       triggerId: 'public_debate_campaign_welcome',
       campaignKey: FUNKY_CAMPAIGN_KEY,
@@ -560,27 +562,39 @@ export const makeCampaignNotificationTriggerRegistry = (
       triggerId: 'public_debate_entity_update.reply_reviewed',
       eventType: 'reply_reviewed',
     }),
-  ] as const satisfies readonly CampaignNotificationTriggerDefinition[];
+    makeAdminReviewedInteractionTriggerDefinition({
+      learningProgressRepo: deps.learningProgressRepo,
+      extendedNotificationsRepo: deps.extendedNotificationsRepo,
+      deliveryRepo: deps.deliveryRepo,
+      composeJobScheduler: deps.composeJobScheduler,
+      entityRepo: deps.entityRepo,
+      platformBaseUrl: deps.platformBaseUrl,
+    }),
+  ];
 
   const definitionMap = new Map(
-    definitions.map((definition) => [definition.triggerId, definition])
+    definitions.map((definition) => [
+      `${definition.campaignKey}:${definition.triggerId}`,
+      definition,
+    ])
   );
 
   return {
-    list() {
+    list(_campaignKey) {
       return definitions.map((definition) => ({
         triggerId: definition.triggerId,
         campaignKey: definition.campaignKey,
+        ...(definition.familyId !== undefined ? { familyId: definition.familyId } : {}),
         templateId: definition.templateId,
         description: definition.description,
         inputFields: definition.inputFields,
         targetKind: definition.targetKind,
+        ...(definition.capabilities !== undefined ? { capabilities: definition.capabilities } : {}),
       }));
     },
 
     get(campaignKey, triggerId) {
-      void campaignKey;
-      return definitionMap.get(triggerId) ?? null;
+      return definitionMap.get(`${campaignKey}:${triggerId}`) ?? null;
     },
   };
 };

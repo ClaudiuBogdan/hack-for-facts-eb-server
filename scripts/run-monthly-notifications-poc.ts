@@ -155,6 +155,26 @@ const makeScopedNotificationsRepo = (
 
     return ok(result.value.filter((notification) => notification.userId === userId));
   },
+  async findEligibleByUserTypeAndEntity(candidateUserId, notificationType, entityCui) {
+    const result = await repo.findEligibleByUserTypeAndEntity(
+      candidateUserId,
+      notificationType,
+      entityCui
+    );
+    if (result.isErr()) {
+      return result;
+    }
+
+    if (candidateUserId !== userId) {
+      return ok({
+        isEligible: false,
+        reason: 'missing_preference' as const,
+        notification: null,
+      });
+    }
+
+    return result;
+  },
   async isUserGloballyUnsubscribed(candidateUserId) {
     return repo.isUserGloballyUnsubscribed(candidateUserId);
   },

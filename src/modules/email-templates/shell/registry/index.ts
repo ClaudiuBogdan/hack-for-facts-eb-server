@@ -4,6 +4,7 @@
  * Single source of truth for available email templates.
  */
 
+import { registration as adminReviewedUserInteractionRegistration } from './registrations/admin-reviewed-user-interaction.js';
 import { registration as alertSeriesRegistration } from './registrations/alert-series.js';
 import { registration as anafForexebugDigestRegistration } from './registrations/anaf-forexebug-digest.js';
 import { registration as newsletterEntityRegistration } from './registrations/newsletter-entity.js';
@@ -86,6 +87,10 @@ export const indexRegistrations = (
 };
 
 const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
+  {
+    label: 'admin-reviewed-user-interaction',
+    registration: adminReviewedUserInteractionRegistration,
+  },
   {
     label: 'anaf-forexebug-digest',
     registration: anafForexebugDigestRegistration,

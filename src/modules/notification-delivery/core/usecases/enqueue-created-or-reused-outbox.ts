@@ -1,7 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { createDatabaseError, type DeliveryError } from '../errors.js';
-import { TERMINAL_STATUSES, type DeliveryRecord } from '../types.js';
+import { CLAIMABLE_STATUSES, TERMINAL_STATUSES, type DeliveryRecord } from '../types.js';
 
 import type { ComposeJobScheduler, CreateDeliveryInput, DeliveryRepository } from '../ports.js';
 
@@ -10,11 +10,15 @@ export interface EnqueueCreatedOrReusedOutboxDeps {
   composeJobScheduler: ComposeJobScheduler;
 }
 
-export type ReusedOutboxComposeStrategy = 'always_enqueue_compose' | 'skip_terminal_compose';
+export type ReusedOutboxComposeStrategy =
+  | 'always_enqueue_compose'
+  | 'skip_terminal_compose'
+  | 'enqueue_if_claimable';
 export type DirectOutboxComposeStatus =
   | 'compose_enqueued'
   | 'compose_enqueue_failed'
-  | 'skipped_terminal';
+  | 'skipped_terminal'
+  | 'skipped_not_replayable';
 
 export interface EnqueueCreatedOrReusedOutboxInput {
   runId: string;
@@ -60,6 +64,19 @@ const maybeEnqueueCompose = async (
       source,
       composeEnqueued: false,
       composeStatus: 'skipped_terminal',
+    };
+  }
+
+  if (
+    source === 'reused' &&
+    input.reusedOutboxComposeStrategy === 'enqueue_if_claimable' &&
+    !CLAIMABLE_STATUSES.includes(outbox.status)
+  ) {
+    return {
+      outboxId: outbox.id,
+      source,
+      composeEnqueued: false,
+      composeStatus: 'skipped_not_replayable',
     };
   }
 

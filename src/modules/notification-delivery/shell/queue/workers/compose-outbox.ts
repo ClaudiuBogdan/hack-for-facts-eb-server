@@ -16,6 +16,7 @@ import {
   toDecimalString,
 } from './compose-helpers.js';
 import { getErrorMessage, isRetryableError, type DeliveryError } from '../../../core/errors.js';
+import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
   parseAnafForexebugDigestScopeKey,
   isBundleOutboxType,
@@ -29,6 +30,7 @@ import { enqueueSendJob } from '../send-job-options.js';
 
 import type { EmailRenderer } from '../../../../email-templates/core/ports.js';
 import type {
+  AdminReviewedInteractionProps,
   AnafForexebugDigestProps,
   AnafForexebugDigestSection,
   EmailTemplateProps,
@@ -407,6 +409,44 @@ const buildPublicDebateAdminFailureTemplateProps = (
   });
 };
 
+const buildAdminReviewedInteractionTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<AdminReviewedInteractionProps, string> => {
+  const metadataResult = parseAdminReviewedInteractionOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    return err(`Invalid reviewed interaction metadata: ${metadataResult.error}`);
+  }
+
+  const metadata = metadataResult.value;
+  const reviewedAtDate = new Date(metadata.reviewedAt);
+  const copyrightYear = Number.isNaN(reviewedAtDate.getTime())
+    ? outbox.createdAt.getUTCFullYear()
+    : reviewedAtDate.getUTCFullYear();
+  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
+
+  return ok({
+    templateType: 'admin_reviewed_user_interaction',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl,
+    platformBaseUrl,
+    copyrightYear,
+    campaignKey: metadata.campaignKey,
+    entityCui: metadata.entityCui,
+    entityName: metadata.entityName,
+    interactionId: metadata.interactionId,
+    interactionLabel: metadata.interactionLabel,
+    reviewStatus: metadata.reviewStatus,
+    reviewedAt: metadata.reviewedAt,
+    ...(metadata.feedbackText !== undefined ? { feedbackText: metadata.feedbackText } : {}),
+    ...(metadata.nextStepLinks !== undefined && metadata.nextStepLinks.length > 0
+      ? { nextStepLinks: metadata.nextStepLinks }
+      : {}),
+  });
+};
+
 const persistRenderedOutboxAndEnqueueSend = async (input: {
   deliveryRepo: DeliveryRepository;
   sendQueue: Queue<SendJobPayload>;
@@ -733,6 +773,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:welcome' &&
     outbox.notificationType !== 'funky:outbox:entity_subscription' &&
     outbox.notificationType !== 'funky:outbox:entity_update' &&
+    outbox.notificationType !== 'funky:outbox:admin_reviewed_interaction' &&
     outbox.notificationType !== 'funky:outbox:admin_failure' &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
@@ -952,6 +993,48 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update public debate admin failure outbox row',
       successLogMessage: 'Public debate admin failure composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === 'funky:outbox:admin_reviewed_interaction') {
+    const templatePropsResult = buildAdminReviewedInteractionTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Reviewed interaction compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Reviewed interaction render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update reviewed interaction outbox row',
+      successLogMessage: 'Reviewed interaction notification composed and send job enqueued',
     });
   }
 

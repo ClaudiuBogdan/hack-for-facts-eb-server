@@ -442,4 +442,80 @@ describe('campaign notification outbox audit repo', () => {
       await userDb.destroy();
     }
   });
+
+  it('fails closed when reviewed-interaction metadata is malformed', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+    startedContainers.push(container);
+
+    const connectionString = container.getConnectionUri();
+
+    await withPgClient(connectionString, async (client) => {
+      await client.query(USER_SCHEMA);
+
+      await client.query(`
+        INSERT INTO notificationsoutbox (
+          id,
+          user_id,
+          to_email,
+          notification_type,
+          reference_id,
+          scope_key,
+          delivery_key,
+          status,
+          template_name,
+          template_version,
+          attempt_count,
+          metadata,
+          created_at
+        )
+        VALUES (
+          '55555555-5555-5555-5555-555555555555',
+          'user-1',
+          'user1@example.com',
+          'funky:outbox:admin_reviewed_interaction',
+          'notif-1',
+          'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          'reviewed_interaction:funky:user-1:funky:interaction:budget_document:record-1:2026-04-13T12:00:00.000Z:rejected',
+          'pending',
+          'admin_reviewed_user_interaction',
+          '1.0.0',
+          0,
+          jsonb_build_object(
+            'campaignKey', 'funky',
+            'familyId', 'admin_reviewed_interaction',
+            'entityCui', '12345678'
+          ),
+          '2026-04-13T12:00:00.000Z'::timestamptz
+        )
+      `);
+    });
+
+    const userDb = createKyselyClient<UserDatabase>(connectionString);
+
+    try {
+      const repo = makeCampaignNotificationOutboxAuditRepo({
+        db: userDb,
+        logger: createPinoLogger({ level: 'silent' }),
+      });
+
+      const result = await repo.listCampaignNotificationAudit({
+        campaignKey: 'funky',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        limit: 10,
+      });
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.type).toBe('DatabaseError');
+        expect(result.error.message).toContain('Failed to list campaign notification audit');
+      }
+    } finally {
+      await userDb.destroy();
+    }
+  });
 });

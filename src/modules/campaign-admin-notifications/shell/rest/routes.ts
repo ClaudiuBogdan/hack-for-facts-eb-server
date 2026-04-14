@@ -19,6 +19,7 @@ import {
   CampaignNotificationTemplateIdParamsSchema,
   CampaignNotificationTemplateListResponseSchema,
   CampaignNotificationTemplatePreviewResponseSchema,
+  CampaignNotificationTriggerBulkExecutionResponseSchema,
   CampaignNotificationTriggerExecutionResponseSchema,
   CampaignNotificationTriggerListResponseSchema,
   ErrorResponseSchema,
@@ -27,6 +28,7 @@ import {
   type CampaignNotificationTemplateIdParams,
 } from './schemas.js';
 import { getHttpStatusForError } from '../../core/errors.js';
+import { executeCampaignNotificationTriggerBulk } from '../../core/usecases/execute-campaign-notification-trigger-bulk.js';
 import { executeCampaignNotificationTrigger } from '../../core/usecases/execute-campaign-notification-trigger.js';
 import { getCampaignNotificationTemplatePreview } from '../../core/usecases/get-campaign-notification-template-preview.js';
 import { listCampaignNotificationAudit } from '../../core/usecases/list-campaign-notification-audit.js';
@@ -411,6 +413,72 @@ export const makeCampaignAdminNotificationRoutes = (
       async (request, reply) => {
         const access = getCampaignAdminNotificationAccess(request);
         const result = await executeCampaignNotificationTrigger(
+          {
+            triggerRegistry: deps.triggerRegistry,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+            triggerId: request.params.triggerId,
+            actorUserId: access.userId,
+            payload: request.body,
+          }
+        );
+
+        if (result.isErr()) {
+          const statusCode = getHttpStatusForError(result.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
+          });
+        }
+
+        const definition = deps.triggerRegistry.get(
+          access.config.campaignKey,
+          request.params.triggerId
+        );
+        if (definition === null) {
+          return reply.status(404).send({
+            ok: false,
+            error: 'NotFoundError',
+            message: `Campaign notification trigger "${request.params.triggerId}" was not found.`,
+            retryable: false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: {
+            triggerId: definition.triggerId,
+            campaignKey: definition.campaignKey,
+            templateId: definition.templateId,
+            result: result.value,
+          },
+        });
+      }
+    );
+
+    fastify.post<{ Params: TriggerParams; Body: unknown }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/triggers/:triggerId/bulk',
+      {
+        schema: {
+          params: TriggerParamsSchema,
+          body: Type.Unknown(),
+          response: {
+            200: CampaignNotificationTriggerBulkExecutionResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            409: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+        const result = await executeCampaignNotificationTriggerBulk(
           {
             triggerRegistry: deps.triggerRegistry,
           },

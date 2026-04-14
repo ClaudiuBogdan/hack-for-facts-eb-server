@@ -148,6 +148,15 @@ const main = async (): Promise<void> => {
       findActiveByTypeAndEntity() {
         return Promise.resolve(ok([]));
       },
+      findEligibleByUserTypeAndEntity() {
+        return Promise.resolve(
+          ok({
+            isEligible: false,
+            reason: 'missing_preference' as const,
+            notification: null,
+          })
+        );
+      },
       deactivate() {
         return Promise.resolve(ok(undefined));
       },
@@ -192,6 +201,15 @@ const main = async (): Promise<void> => {
       },
       findActiveByTypeAndEntity() {
         return Promise.resolve(ok([]));
+      },
+      findEligibleByUserTypeAndEntity() {
+        return Promise.resolve(
+          ok({
+            isEligible: false,
+            reason: 'missing_preference' as const,
+            notification: null,
+          })
+        );
       },
       deactivate() {
         return Promise.resolve(ok(undefined));

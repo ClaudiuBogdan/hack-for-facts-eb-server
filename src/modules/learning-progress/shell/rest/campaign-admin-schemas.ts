@@ -581,6 +581,13 @@ export const CampaignAdminSubmitReviewsBodySchema = Type.Object(
       minItems: 1,
       maxItems: 100,
     }),
+    send_notification: Type.Optional(
+      Type.Boolean({
+        default: false,
+        description:
+          'When true, allow notification side effects after saving the admin review. Defaults to false.',
+      })
+    ),
   },
   { additionalProperties: false }
 );

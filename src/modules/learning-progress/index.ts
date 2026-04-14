@@ -28,7 +28,9 @@ export type {
   SyncEventsRequest,
   LearningProgressRecordRow,
   ReviewDecision,
+  ReviewSideEffectPlan,
   ApprovedReviewSideEffectPlan,
+  PrepareReviewSideEffectsInput,
   ReviewActorMetadata,
   GetRecordsOptions,
   CampaignAdminCampaignKey,
@@ -98,6 +100,12 @@ export {
 export { validateRecordKeyPrefix } from './core/namespace.js';
 
 export {
+  buildCampaignAdminInteractionStepLink,
+  buildCampaignProvocariStepPath,
+  extractInteractionEntityCui,
+} from './core/campaign-admin-step-links.js';
+
+export {
   getProgress,
   type GetProgressDeps,
   type GetProgressInput,
@@ -109,6 +117,17 @@ export {
   type SyncEventsInput,
   type SyncEventsOutput,
 } from './core/usecases/sync-events.js';
+
+export {
+  REVIEWED_INTERACTION_SOURCE_INTERACTION_IDS,
+  hasStartedLatestEntityInteraction,
+  listReviewedInteractionCandidates,
+  loadLatestEntityInteractionRow,
+  loadReviewedInteractionCandidateByIdentity,
+  type ReviewedInteractionCandidateIdentity,
+  type ListReviewedInteractionCandidatesInput,
+  type LoadLatestEntityInteractionRowInput,
+} from './core/usecases/reviewed-interaction-source.js';
 
 export {
   submitInteractionReviews,

@@ -3022,6 +3022,87 @@ export const makeFakeExtendedNotificationsRepo = (
       );
     },
 
+    findEligibleByUserTypeAndEntity: async (
+      userId: string,
+      notificationType: NotificationType,
+      entityCui: string
+    ) => {
+      if (simulateDbError) return createDbError();
+
+      const notification =
+        [...store.values()].find(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === notificationType &&
+            candidate.entityCui === entityCui
+        ) ?? null;
+
+      if (notification === null) {
+        return ok({
+          isEligible: false,
+          reason: 'missing_preference',
+          notification: null,
+        });
+      }
+
+      if (!notification.isActive) {
+        return ok({
+          isEligible: false,
+          reason: 'inactive_preference',
+          notification,
+        });
+      }
+
+      if (
+        globallyUnsubscribedUsers.has(userId) ||
+        [...store.values()].some((candidate) => {
+          if (candidate.userId !== userId || candidate.notificationType !== 'global_unsubscribe') {
+            return false;
+          }
+
+          if (!candidate.isActive) {
+            return true;
+          }
+
+          const config = candidate.config as Record<string, unknown> | null;
+          if (config !== null && typeof config === 'object') {
+            const channels = config['channels'] as Record<string, unknown> | undefined;
+            return channels?.['email'] === false;
+          }
+
+          return false;
+        })
+      ) {
+        return ok({
+          isEligible: false,
+          reason: 'global_unsubscribe',
+          notification,
+        });
+      }
+
+      if (
+        notificationType === 'funky:notification:entity_updates' &&
+        [...store.values()].some(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === 'funky:notification:global' &&
+            !candidate.isActive
+        )
+      ) {
+        return ok({
+          isEligible: false,
+          reason: 'campaign_disabled',
+          notification,
+        });
+      }
+
+      return ok({
+        isEligible: true,
+        reason: 'eligible',
+        notification,
+      });
+    },
+
     findActiveByType: async (notificationType: NotificationType) => {
       if (simulateDbError) return createDbError();
 

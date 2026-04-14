@@ -67,11 +67,27 @@ export interface PublicDebateAdminFailureProjection {
   readonly phase: string | null;
 }
 
+export interface AdminReviewedInteractionProjection {
+  readonly kind: 'admin_reviewed_interaction';
+  readonly userId: string | null;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly recordKey: string;
+  readonly interactionId: string;
+  readonly interactionLabel: string | null;
+  readonly reviewStatus: 'approved' | 'rejected';
+  readonly reviewedAt: string;
+  readonly hasFeedbackText: boolean;
+  readonly nextStepCount: number;
+  readonly triggerSource: CampaignNotificationTriggerSource | null;
+}
+
 export type CampaignNotificationProjection =
   | PublicDebateCampaignWelcomeProjection
   | PublicDebateEntitySubscriptionProjection
   | PublicDebateEntityUpdateProjection
-  | PublicDebateAdminFailureProjection;
+  | PublicDebateAdminFailureProjection
+  | AdminReviewedInteractionProjection;
 
 export interface CampaignNotificationAuditItem {
   readonly outboxId: string;
@@ -132,22 +148,69 @@ export interface CampaignNotificationFieldDescriptor {
   readonly required: boolean;
 }
 
+export interface CampaignNotificationTriggerCapabilities {
+  readonly supportsSingleExecution: boolean;
+  readonly supportsBulkExecution: boolean;
+  readonly supportsDryRun: boolean;
+  readonly defaultLimit?: number;
+  readonly maxLimit?: number;
+  readonly bulkInputFields?: readonly CampaignNotificationFieldDescriptor[];
+}
+
 export interface CampaignNotificationTriggerDescriptor {
   readonly triggerId: string;
   readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly familyId?: string;
   readonly templateId: string;
   readonly description: string;
   readonly inputFields: readonly CampaignNotificationFieldDescriptor[];
   readonly targetKind: string;
+  readonly capabilities?: CampaignNotificationTriggerCapabilities;
 }
 
-export interface CampaignNotificationTriggerExecutionResult {
+export interface CampaignNotificationTriggerExecutionLegacyResult {
   readonly status: 'queued' | 'skipped' | 'partial';
   readonly reason?: string;
   readonly createdOutboxIds: readonly string[];
   readonly reusedOutboxIds: readonly string[];
   readonly queuedOutboxIds: readonly string[];
   readonly enqueueFailedOutboxIds: readonly string[];
+}
+
+export interface CampaignNotificationFamilySingleExecutionResult {
+  readonly kind: 'family_single';
+  readonly familyId: string;
+  readonly status: 'queued' | 'skipped' | 'partial' | 'delegated';
+  readonly reason: string;
+  readonly delegateTarget?: string;
+  readonly createdOutboxIds: readonly string[];
+  readonly reusedOutboxIds: readonly string[];
+  readonly queuedOutboxIds: readonly string[];
+  readonly enqueueFailedOutboxIds: readonly string[];
+}
+
+export type CampaignNotificationTriggerExecutionResult =
+  | CampaignNotificationTriggerExecutionLegacyResult
+  | CampaignNotificationFamilySingleExecutionResult;
+
+export interface CampaignNotificationTriggerBulkExecutionResult {
+  readonly kind: 'family_bulk';
+  readonly familyId: string;
+  readonly dryRun: boolean;
+  readonly watermark: string;
+  readonly limit: number;
+  readonly hasMoreCandidates: boolean;
+  readonly candidateCount: number;
+  readonly plannedCount: number;
+  readonly eligibleCount: number;
+  readonly queuedCount: number;
+  readonly reusedCount: number;
+  readonly skippedCount: number;
+  readonly delegatedCount: number;
+  readonly ineligibleCount: number;
+  readonly notReplayableCount: number;
+  readonly staleCount: number;
+  readonly enqueueFailedCount: number;
 }
 
 export interface CampaignNotificationTemplateDescriptor {
