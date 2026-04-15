@@ -674,6 +674,7 @@ const createTestApp = async (options?: {
   permissionAllowed?: boolean;
   entityRepo?: EntityRepository;
   entityProfileRepo?: EntityProfileRepository;
+  platformBaseUrl?: string;
   prepareReviewSideEffects?: (
     input: PrepareReviewSideEffectsInput
   ) => ReturnType<typeof prepareApprovedPublicDebateReviewSideEffects>;
@@ -712,6 +713,7 @@ const createTestApp = async (options?: {
         makeTestEntityProfileRepo({ '12345678': 'contact@primarie.ro' }),
       enabledCampaignKeys: ['funky'],
       permissionAuthorizer,
+      platformBaseUrl: options?.platformBaseUrl ?? 'https://transparenta.test',
       ...(options?.prepareReviewSideEffects !== undefined
         ? { prepareReviewSideEffects: options.prepareReviewSideEffects }
         : {}),
@@ -3006,6 +3008,205 @@ describe('Campaign Admin User Interactions REST API', () => {
       reviewedAt: storedRow?.record.updatedAt,
       reviewedByUserId: setup.testAuth.userIds.user1,
       reviewSource: 'campaign_admin_api',
+    });
+  });
+  it('exports user-interactions csv with derived review status semantics and spreadsheet-safe cells', async () => {
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            'user-1',
+            [
+              makeRow(
+                'user-1',
+                createDebateRequestRecord({
+                  entityCui: '12345678',
+                  institutionEmail: '=HYPERLINK("https://bad.test")',
+                  submissionPath: 'request_platform',
+                  organizationName: 'Asociatia Test',
+                }),
+                '1'
+              ),
+              makeRow(
+                'user-1',
+                createDebateRequestRecord({
+                  entityCui: '87654321',
+                  submissionPath: 'send_yourself',
+                  institutionEmail: 'self-send@test.ro',
+                  updatedAt: '2026-04-10T11:00:00.000Z',
+                }),
+                '2'
+              ),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/export?reviewStatus=pending',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'accept-language': 'en-US,en;q=0.9',
+        origin: 'http://localhost:3001',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+    expect(response.headers['content-disposition']).toContain(
+      'funky-campaign-admin-user-interactions-export-'
+    );
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3001');
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+    expect(response.headers['cache-control']).toContain('no-store');
+    expect(response.headers['surrogate-control']).toBe('no-store');
+    expect(response.headers['cdn-cache-control']).toContain('no-store');
+    expect(response.headers.vary).toContain('Origin');
+    expect(response.headers.vary).toContain('Authorization');
+    expect(response.headers.vary).toContain('Accept-Language');
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(2);
+    expect(csvLines[0]).toContain('User Interaction ID,User ID,Record Key');
+    expect(csvBody).toContain(`'=HYPERLINK(""https://bad.test"")`);
+    expect(csvBody).toContain('https://transparenta.test/primarie/12345678');
+    expect(csvBody).toContain(
+      'https://transparenta.test/primarie/12345678/buget/provocari/civic-campaign/civic-monitor-and-request/04-debate-request'
+    );
+    expect(csvBody).not.toContain('87654321');
+  });
+
+  it('does not reject reviewStatus exports when only raw rows exceed 5000', async () => {
+    const baseRepo = makeFakeLearningProgressRepo();
+    const oversizedNonReviewableRepo: LearningProgressRepository = {
+      ...baseRepo,
+      async listCampaignAdminInteractionRows(input) {
+        const pageIndex =
+          input.cursor === undefined
+            ? 0
+            : Number.parseInt(input.cursor.recordKey.replace('cursor-', ''), 10);
+        const rowCount = pageIndex < 10 ? input.limit : 1;
+        const record = createDebateRequestRecord({
+          entityCui: '12345678',
+          submissionPath: 'send_yourself',
+        });
+
+        return ok({
+          rows: Array.from({ length: rowCount }, (_, index) => ({
+            userId: 'user-1',
+            recordKey: `record-${String(pageIndex)}-${String(index)}`,
+            campaignKey: input.campaignKey,
+            record: {
+              ...record,
+              key: `record-${String(pageIndex)}-${String(index)}`,
+            },
+            auditEvents: [],
+            createdAt: record.updatedAt,
+            updatedAt: record.updatedAt,
+            threadSummary: null,
+          })),
+          hasMore: pageIndex < 10,
+          nextCursor:
+            pageIndex < 10
+              ? {
+                  updatedAt: record.updatedAt,
+                  userId: 'user-1',
+                  recordKey: `cursor-${String(pageIndex + 1)}`,
+                }
+              : null,
+        });
+      },
+    };
+
+    const setup = await createTestApp({
+      learningProgressRepo: oversizedNonReviewableRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/export?reviewStatus=pending',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(1);
+    expect(csvLines[0]).toContain('User Interaction ID,User ID,Record Key');
+  });
+
+  it('returns 400 when the user-interactions export matches more than 5000 rows', async () => {
+    const baseRepo = makeFakeLearningProgressRepo();
+    const oversizedRepo: LearningProgressRepository = {
+      ...baseRepo,
+      async listCampaignAdminInteractionRows(input) {
+        const pageIndex =
+          input.cursor === undefined
+            ? 0
+            : Number.parseInt(input.cursor.recordKey.replace('cursor-', ''), 10);
+        const rowCount = pageIndex < 10 ? input.limit : 1;
+        const record = createDebateRequestRecord({
+          entityCui: '12345678',
+          submissionPath: 'request_platform',
+        });
+
+        return ok({
+          rows: Array.from({ length: rowCount }, (_, index) => ({
+            userId: 'user-1',
+            recordKey: `record-${String(pageIndex)}-${String(index)}`,
+            campaignKey: input.campaignKey,
+            record: {
+              ...record,
+              key: `record-${String(pageIndex)}-${String(index)}`,
+            },
+            auditEvents: [],
+            createdAt: record.updatedAt,
+            updatedAt: record.updatedAt,
+            threadSummary: null,
+          })),
+          hasMore: pageIndex < 10,
+          nextCursor:
+            pageIndex < 10
+              ? {
+                  updatedAt: record.updatedAt,
+                  userId: 'user-1',
+                  recordKey: `cursor-${String(pageIndex + 1)}`,
+                }
+              : null,
+        });
+      },
+    };
+
+    const setup = await createTestApp({
+      learningProgressRepo: oversizedRepo,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/user-interactions/export',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'InvalidEventError',
+      message:
+        'Campaign interaction export matched too many rows. Narrow the filters to 5000 rows or fewer.',
+      retryable: false,
     });
   });
 });
