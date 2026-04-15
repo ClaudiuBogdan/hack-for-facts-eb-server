@@ -494,7 +494,7 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(9);
+    expect(templates).toHaveLength(10);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('welcome');
@@ -505,6 +505,7 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(names).toContain('public_debate_admin_failure');
     expect(names).toContain('public_debate_entity_subscription');
     expect(names).toContain('public_debate_entity_update');
+    expect(names).toContain('weekly_progress_digest');
   });
 
   it('getTemplate() returns metadata for a specific template', () => {
