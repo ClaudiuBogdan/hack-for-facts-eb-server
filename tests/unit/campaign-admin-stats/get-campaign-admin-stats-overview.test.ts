@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createDatabaseError,
+  getCampaignAdminStatsInteractionsByType,
   getCampaignAdminStatsOverview,
+  getCampaignAdminStatsTopEntities,
 } from '@/modules/campaign-admin-stats/index.js';
 
 describe('getCampaignAdminStatsOverview', () => {
@@ -64,6 +66,8 @@ describe('getCampaignAdminStatsOverview', () => {
           },
         })
       ),
+      getInteractionsByType: vi.fn(),
+      getTopEntities: vi.fn(),
     };
 
     const result = await getCampaignAdminStatsOverview(
@@ -85,6 +89,8 @@ describe('getCampaignAdminStatsOverview', () => {
     const readerError = createDatabaseError('boom');
     const reader = {
       getOverview: vi.fn(async () => err(readerError)),
+      getInteractionsByType: vi.fn(),
+      getTopEntities: vi.fn(),
     };
 
     const result = await getCampaignAdminStatsOverview(
@@ -97,5 +103,81 @@ describe('getCampaignAdminStatsOverview', () => {
     );
 
     expect(result).toEqual(err(readerError));
+  });
+
+  it('delegates interactions-by-type to the stats reader', async () => {
+    const reader = {
+      getOverview: vi.fn(),
+      getInteractionsByType: vi.fn(async () =>
+        ok({
+          items: [
+            {
+              interactionId: 'funky:interaction:city_hall_website',
+              label: 'City hall website',
+              total: 3,
+              pending: 1,
+              approved: 1,
+              rejected: 0,
+              notReviewed: 1,
+            },
+          ],
+        })
+      ),
+      getTopEntities: vi.fn(),
+    };
+
+    const result = await getCampaignAdminStatsInteractionsByType(
+      {
+        reader,
+      },
+      {
+        campaignKey: 'funky',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(reader.getInteractionsByType).toHaveBeenCalledWith({
+      campaignKey: 'funky',
+    });
+  });
+
+  it('delegates top-entities to the stats reader', async () => {
+    const reader = {
+      getOverview: vi.fn(),
+      getInteractionsByType: vi.fn(),
+      getTopEntities: vi.fn(async () =>
+        ok({
+          sortBy: 'interactionCount' as const,
+          limit: 10,
+          items: [
+            {
+              entityCui: '11111111',
+              entityName: 'Entity One',
+              interactionCount: 5,
+              userCount: 2,
+              pendingReviewCount: 1,
+            },
+          ],
+        })
+      ),
+    };
+
+    const result = await getCampaignAdminStatsTopEntities(
+      {
+        reader,
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'interactionCount',
+        limit: 10,
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(reader.getTopEntities).toHaveBeenCalledWith({
+      campaignKey: 'funky',
+      sortBy: 'interactionCount',
+      limit: 10,
+    });
   });
 });

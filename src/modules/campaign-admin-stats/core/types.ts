@@ -2,6 +2,11 @@ import type { CampaignAdminCampaignKey } from '@/modules/learning-progress/index
 
 export type CampaignAdminStatsCampaignKey = CampaignAdminCampaignKey;
 
+export type CampaignAdminStatsTopEntitiesSortBy =
+  | 'interactionCount'
+  | 'userCount'
+  | 'pendingReviewCount';
+
 export interface CampaignAdminStatsOverviewCoverage {
   readonly hasClientTelemetry: boolean;
   readonly hasNotificationAttribution: boolean;
@@ -74,4 +79,42 @@ export interface CampaignAdminStatsOverview {
 
 export interface GetCampaignAdminStatsOverviewInput {
   readonly campaignKey: CampaignAdminStatsCampaignKey;
+}
+
+export interface CampaignAdminStatsInteractionsByTypeItem {
+  readonly interactionId: string;
+  readonly label: string | null;
+  readonly total: number;
+  readonly pending: number;
+  readonly approved: number;
+  readonly rejected: number;
+  readonly notReviewed: number;
+}
+
+export interface CampaignAdminStatsInteractionsByType {
+  readonly items: readonly CampaignAdminStatsInteractionsByTypeItem[];
+}
+
+export interface GetCampaignAdminStatsInteractionsByTypeInput {
+  readonly campaignKey: CampaignAdminStatsCampaignKey;
+}
+
+export interface CampaignAdminStatsTopEntityItem {
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly interactionCount: number;
+  readonly userCount: number;
+  readonly pendingReviewCount: number;
+}
+
+export interface CampaignAdminStatsTopEntities {
+  readonly sortBy: CampaignAdminStatsTopEntitiesSortBy;
+  readonly limit: number;
+  readonly items: readonly CampaignAdminStatsTopEntityItem[];
+}
+
+export interface GetCampaignAdminStatsTopEntitiesInput {
+  readonly campaignKey: CampaignAdminStatsCampaignKey;
+  readonly sortBy: CampaignAdminStatsTopEntitiesSortBy;
+  readonly limit: number;
 }

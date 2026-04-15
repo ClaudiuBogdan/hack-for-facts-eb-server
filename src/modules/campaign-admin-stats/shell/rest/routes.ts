@@ -11,16 +11,25 @@ import {
 } from '@/modules/learning-progress/index.js';
 
 import {
+  CampaignAdminStatsInteractionsByTypeSchema,
+  CampaignAdminStatsInteractionsByTypeResponseSchema,
   CampaignAdminStatsOverviewSchema,
   CampaignAdminStatsOverviewResponseSchema,
+  CampaignAdminStatsTopEntitiesSchema,
+  CampaignAdminStatsTopEntitiesQuerySchema,
+  CampaignAdminStatsTopEntitiesResponseSchema,
   CampaignKeyParamsSchema,
   ErrorResponseSchema,
+  type CampaignAdminStatsTopEntitiesQuery,
   type CampaignKeyParams,
 } from './schemas.js';
 import { getHttpStatusForError } from '../../core/errors.js';
+import { getCampaignAdminStatsInteractionsByType } from '../../core/usecases/get-campaign-admin-stats-interactions-by-type.js';
 import { getCampaignAdminStatsOverview } from '../../core/usecases/get-campaign-admin-stats-overview.js';
+import { getCampaignAdminStatsTopEntities } from '../../core/usecases/get-campaign-admin-stats-top-entities.js';
 
 import type { CampaignAdminStatsReader } from '../../core/ports.js';
+import type { TSchema } from '@sinclair/typebox';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 interface CampaignAdminStatsRouteConfig {
@@ -93,6 +102,15 @@ function makeCampaignAdminStatsAuthHook(input: {
   });
 }
 
+function sanitizeResponseOrThrow(schema: TSchema, value: unknown, errorMessage: string) {
+  const sanitizedValue = Value.Clean(schema, structuredClone(value));
+  if (!Value.Check(schema, sanitizedValue)) {
+    throw new Error(errorMessage);
+  }
+
+  return sanitizedValue;
+}
+
 export interface MakeCampaignAdminStatsRoutesDeps {
   readonly enabledCampaignKeys: readonly CampaignAdminCampaignKey[];
   readonly permissionAuthorizer: CampaignAdminPermissionAuthorizer;
@@ -157,17 +175,115 @@ export const makeCampaignAdminStatsRoutes = (
           });
         }
 
-        const sanitizedOverview = Value.Clean(
+        const sanitizedOverview = sanitizeResponseOrThrow(
           CampaignAdminStatsOverviewSchema,
-          structuredClone(result.value)
+          result.value,
+          'Campaign admin stats overview response violates schema'
         );
-        if (!Value.Check(CampaignAdminStatsOverviewSchema, sanitizedOverview)) {
-          throw new Error('Campaign admin stats overview response violates schema');
-        }
 
         return reply.status(200).send({
           ok: true,
           data: sanitizedOverview,
+        });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams }>(
+      '/api/v1/admin/campaigns/:campaignKey/stats/interactions/by-type',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          response: {
+            200: CampaignAdminStatsInteractionsByTypeResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminStatsAccess(request);
+        const result = await getCampaignAdminStatsInteractionsByType(
+          {
+            reader: deps.reader,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+          }
+        );
+
+        if (result.isErr()) {
+          const status = getHttpStatusForError(result.error);
+          return reply.status(status).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: false,
+          });
+        }
+
+        const sanitizedInteractions = sanitizeResponseOrThrow(
+          CampaignAdminStatsInteractionsByTypeSchema,
+          result.value,
+          'Campaign admin stats interactions-by-type response violates schema'
+        );
+
+        return reply.status(200).send({
+          ok: true,
+          data: sanitizedInteractions,
+        });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams; Querystring: CampaignAdminStatsTopEntitiesQuery }>(
+      '/api/v1/admin/campaigns/:campaignKey/stats/entities/top',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          querystring: CampaignAdminStatsTopEntitiesQuerySchema,
+          response: {
+            200: CampaignAdminStatsTopEntitiesResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminStatsAccess(request);
+        const result = await getCampaignAdminStatsTopEntities(
+          {
+            reader: deps.reader,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+            sortBy: request.query.sortBy,
+            limit: request.query.limit ?? 10,
+          }
+        );
+
+        if (result.isErr()) {
+          const status = getHttpStatusForError(result.error);
+          return reply.status(status).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: false,
+          });
+        }
+
+        const sanitizedTopEntities = sanitizeResponseOrThrow(
+          CampaignAdminStatsTopEntitiesSchema,
+          result.value,
+          'Campaign admin stats top entities response violates schema'
+        );
+
+        return reply.status(200).send({
+          ok: true,
+          data: sanitizedTopEntities,
         });
       }
     );
