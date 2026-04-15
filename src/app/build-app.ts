@@ -1203,6 +1203,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       );
     }
     const tokenSigner = makeUnsubscribeTokenSigner(unsubscribeSecret);
+    const weeklyProgressDigestPostSendReconciler = createWeeklyProgressDigestPostSendReconciler({
+      learningProgressRepo,
+      logger: repoLogger,
+    });
 
     // Register notification routes
     await app.register(
@@ -1316,11 +1320,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
                   : config.server.isDevelopment
                     ? 'development'
                     : 'test',
-                weeklyProgressDigestPostSendReconciler:
-                  createWeeklyProgressDigestPostSendReconciler({
-                    learningProgressRepo,
-                    logger: repoLogger,
-                  }),
+                weeklyProgressDigestPostSendReconciler,
                 maxSendRps: config.email.maxRps,
               },
             }
@@ -1898,6 +1898,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           deliveryRepo,
           notificationsRepo,
           logger: repoLogger,
+          weeklyProgressDigestPostSendReconciler,
         })
       );
 

@@ -6,8 +6,6 @@ import {
   type EmailRenderer,
   type ShellTemplateRegistry,
 } from '@/modules/email-templates/index.js';
-import { registration as weeklyProgressDigestRegistration } from '@/modules/email-templates/shell/registry/registrations/weekly-progress-digest.js';
-import { renderTemplateRegistration } from '@/modules/email-templates/shell/renderer/render-template-registration.js';
 
 import {
   createDatabaseError,
@@ -23,7 +21,6 @@ import type {
   CampaignNotificationTemplateDescriptor,
   CampaignNotificationTemplatePreview,
 } from '../../core/types.js';
-import type { AnyShellTemplateRegistration } from '@/modules/email-templates/shell/registry/types.js';
 import type { Logger } from 'pino';
 
 interface TemplatePreviewServiceDeps {
@@ -61,16 +58,6 @@ const toTemplateDescriptor = (
     description: registration.description,
     requiredFields: listSchemaFields(registration.payloadSchema, { requiredOnly: true }),
   };
-};
-
-const getPreviewOnlyRegistration = (
-  templateId: string
-): AnyShellTemplateRegistration | undefined => {
-  if (templateId === weeklyProgressDigestRegistration.id) {
-    return weeklyProgressDigestRegistration;
-  }
-
-  return undefined;
 };
 
 export const makeCampaignNotificationTemplatePreviewService = (
@@ -112,8 +99,7 @@ export const makeCampaignNotificationTemplatePreviewService = (
         );
       }
 
-      const registration =
-        registry.getShell(input.templateId) ?? getPreviewOnlyRegistration(input.templateId);
+      const registration = registry.getShell(input.templateId);
       if (registration === undefined) {
         return err(createNotFoundError(`Template "${input.templateId}" was not found.`));
       }
@@ -121,10 +107,7 @@ export const makeCampaignNotificationTemplatePreviewService = (
       const previewProps = buildPreviewProps(
         registration.exampleProps as unknown as Record<string, unknown>
       ) as never;
-      const renderResult =
-        registry.getShell(input.templateId) !== undefined
-          ? await renderer.render(previewProps)
-          : await renderTemplateRegistration(registration, previewProps);
+      const renderResult = await renderer.render(previewProps);
       if (renderResult.isErr()) {
         log.error(
           { error: renderResult.error, templateId: input.templateId },

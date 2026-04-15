@@ -1,8 +1,10 @@
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
+import { getWeeklyDigestCursor } from '@/modules/learning-progress/index.js';
 import {
   buildAnafForexebugDigestScopeKey,
+  createWeeklyProgressDigestPostSendReconciler,
   makeResendWebhookDeliverySideEffect,
 } from '@/modules/notification-delivery/index.js';
 
@@ -10,6 +12,7 @@ import {
   createTestDeliveryRecord,
   createTestNotification,
   makeFakeDeliveryRepo,
+  makeFakeLearningProgressRepo,
   makeFakeNotificationsRepo,
 } from '../../fixtures/fakes.js';
 
@@ -127,6 +130,271 @@ describe('makeResendWebhookDeliverySideEffect', () => {
     expect(delivery.isOk()).toBe(true);
     if (delivery.isOk()) {
       expect(delivery.value?.status).toBe('delivered');
+    }
+  });
+
+  it('repairs the weekly digest cursor from a delivered webhook', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'digest-delivery-1',
+          userId: 'user-1',
+          notificationType: 'funky:outbox:weekly_progress_digest',
+          referenceId: 'notif-global-1',
+          scopeKey: 'digest:weekly_progress:funky:2026-W16',
+          deliveryKey: 'digest:weekly_progress:funky:user-1:2026-W16',
+          status: 'sent',
+          sentAt: new Date('2026-04-15T09:05:00.000Z'),
+          metadata: {
+            digestType: 'weekly_progress_digest',
+            campaignKey: 'funky',
+            userId: 'user-1',
+            weekKey: '2026-W16',
+            periodLabel: '7 aprilie - 13 aprilie',
+            watermarkAt: '2026-04-15T09:00:00.000Z',
+            summary: {
+              totalItemCount: 1,
+              visibleItemCount: 1,
+              hiddenItemCount: 0,
+              actionNowCount: 1,
+              approvedCount: 0,
+              rejectedCount: 1,
+              pendingCount: 0,
+              draftCount: 0,
+              failedCount: 0,
+            },
+            items: [
+              {
+                itemKey: 'item-1',
+                interactionId: 'funky:interaction:budget_document',
+                interactionLabel: 'Documentul de buget',
+                entityName: 'Municipiul Exemplu',
+                statusLabel: 'Mai are nevoie de o corectură',
+                statusTone: 'danger',
+                title: 'Documentul de buget trebuie corectat',
+                description: 'Am găsit o problemă care te împiedică să mergi mai departe.',
+                updatedAt: '2026-04-15T08:00:00.000Z',
+                feedbackSnippet: 'Fișierul trimis nu conține proiectul complet.',
+                actionLabel: 'Corectează documentul',
+                actionUrl: 'https://transparenta.eu/cta/document',
+              },
+            ],
+            primaryCta: {
+              label: 'Corectează documentul',
+              url: 'https://transparenta.eu/cta/document',
+            },
+            secondaryCtas: [],
+            allUpdatesUrl: null,
+          },
+        }),
+      ],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo: makeFakeNotificationsRepo(),
+      logger: testLogger,
+      weeklyProgressDigestPostSendReconciler: createWeeklyProgressDigestPostSendReconciler({
+        learningProgressRepo,
+        logger: testLogger,
+      }),
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.delivered', [{ name: 'delivery_id', value: 'digest-delivery-1' }]),
+      storedEvent: {
+        id: 'stored-digest-delivered',
+        svixId: 'svix-digest-delivered',
+        eventType: 'email.delivered',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt: new Date('2026-04-15T09:06:00.000Z'),
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const cursor = await getWeeklyDigestCursor(
+      { repo: learningProgressRepo },
+      { userId: 'user-1' }
+    );
+    expect(cursor.isOk()).toBe(true);
+    if (cursor.isOk()) {
+      expect(cursor.value).toEqual({
+        campaignKey: 'funky',
+        lastSentAt: '2026-04-15T09:06:00.000Z',
+        watermarkAt: '2026-04-15T09:00:00.000Z',
+        weekKey: '2026-W16',
+        outboxId: 'digest-delivery-1',
+      });
+    }
+  });
+
+  it('backfills sentAt and repairs the cursor when delivered arrives before sent', async () => {
+    const learningProgressRepo = makeFakeLearningProgressRepo();
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'digest-delivery-out-of-order',
+          userId: 'user-1',
+          notificationType: 'funky:outbox:weekly_progress_digest',
+          referenceId: 'notif-global-1',
+          scopeKey: 'digest:weekly_progress:funky:2026-W16',
+          deliveryKey: 'digest:weekly_progress:funky:user-1:2026-W16',
+          status: 'sending',
+          sentAt: null,
+          metadata: {
+            digestType: 'weekly_progress_digest',
+            campaignKey: 'funky',
+            userId: 'user-1',
+            weekKey: '2026-W16',
+            periodLabel: '7 aprilie - 13 aprilie',
+            watermarkAt: '2026-04-15T09:00:00.000Z',
+            summary: {
+              totalItemCount: 1,
+              visibleItemCount: 1,
+              hiddenItemCount: 0,
+              actionNowCount: 1,
+              approvedCount: 0,
+              rejectedCount: 1,
+              pendingCount: 0,
+              draftCount: 0,
+              failedCount: 0,
+            },
+            items: [
+              {
+                itemKey: 'item-1',
+                interactionId: 'funky:interaction:budget_document',
+                interactionLabel: 'Documentul de buget',
+                entityName: 'Municipiul Exemplu',
+                statusLabel: 'Mai are nevoie de o corectură',
+                statusTone: 'danger',
+                title: 'Documentul de buget trebuie corectat',
+                description: 'Am găsit o problemă care te împiedică să mergi mai departe.',
+                updatedAt: '2026-04-15T08:00:00.000Z',
+                feedbackSnippet: 'Fișierul trimis nu conține proiectul complet.',
+                actionLabel: 'Corectează documentul',
+                actionUrl: 'https://transparenta.eu/cta/document',
+              },
+            ],
+            primaryCta: {
+              label: 'Corectează documentul',
+              url: 'https://transparenta.eu/cta/document',
+            },
+            secondaryCtas: [],
+            allUpdatesUrl: null,
+          },
+        }),
+      ],
+    });
+    const sideEffect = makeResendWebhookDeliverySideEffect({
+      deliveryRepo,
+      notificationsRepo: makeFakeNotificationsRepo(),
+      logger: testLogger,
+      weeklyProgressDigestPostSendReconciler: createWeeklyProgressDigestPostSendReconciler({
+        learningProgressRepo,
+        logger: testLogger,
+      }),
+    });
+    const emailCreatedAt = new Date('2026-04-15T09:06:00.000Z');
+
+    await sideEffect.handle({
+      event: createEvent('email.delivered', [
+        { name: 'delivery_id', value: 'digest-delivery-out-of-order' },
+      ]),
+      storedEvent: {
+        id: 'stored-digest-out-of-order-delivered',
+        svixId: 'svix-digest-out-of-order-delivered',
+        eventType: 'email.delivered',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt,
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    await sideEffect.handle({
+      event: createEvent('email.sent', [
+        { name: 'delivery_id', value: 'digest-delivery-out-of-order' },
+      ]),
+      storedEvent: {
+        id: 'stored-digest-out-of-order-sent',
+        svixId: 'svix-digest-out-of-order-sent',
+        eventType: 'email.sent',
+        webhookReceivedAt: new Date(),
+        eventCreatedAt: new Date(),
+        emailId: 'email-1',
+        fromAddress: 'noreply@transparenta.eu',
+        toAddresses: ['user@example.com'],
+        subject: 'Subject',
+        emailCreatedAt,
+        broadcastId: null,
+        templateId: null,
+        tags: null,
+        bounceType: null,
+        bounceSubType: null,
+        bounceMessage: null,
+        bounceDiagnosticCode: null,
+        clickIpAddress: null,
+        clickLink: null,
+        clickTimestamp: null,
+        clickUserAgent: null,
+        threadKey: null,
+        metadata: {},
+      },
+    });
+
+    const delivery = await deliveryRepo.findById('digest-delivery-out-of-order');
+    expect(delivery.isOk()).toBe(true);
+    if (delivery.isOk()) {
+      expect(delivery.value?.status).toBe('delivered');
+      expect(delivery.value?.sentAt?.toISOString()).toBe('2026-04-15T09:06:00.000Z');
+    }
+
+    const cursor = await getWeeklyDigestCursor(
+      { repo: learningProgressRepo },
+      { userId: 'user-1' }
+    );
+    expect(cursor.isOk()).toBe(true);
+    if (cursor.isOk()) {
+      expect(cursor.value).toEqual({
+        campaignKey: 'funky',
+        lastSentAt: '2026-04-15T09:06:00.000Z',
+        watermarkAt: '2026-04-15T09:00:00.000Z',
+        weekKey: '2026-W16',
+        outboxId: 'digest-delivery-out-of-order',
+      });
     }
   });
 
