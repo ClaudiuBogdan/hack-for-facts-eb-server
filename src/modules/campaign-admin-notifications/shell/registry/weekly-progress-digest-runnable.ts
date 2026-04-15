@@ -1198,6 +1198,7 @@ export interface WeeklyProgressDigestRunnableDeps {
   composeJobScheduler: ComposeJobScheduler;
   entityRepo: EntityRepository;
   platformBaseUrl: string;
+  now?: () => Date;
 }
 
 export const makeWeeklyProgressDigestRunnableDefinition = (
@@ -1242,9 +1243,10 @@ export const makeWeeklyProgressDigestRunnableDefinition = (
         );
       }
 
-      const weekKey = buildWeekKey(new Date());
-      const watermark = new Date().toISOString();
-      const periodLabel = buildPeriodLabel(new Date(watermark));
+      const currentInstant = (deps.now ?? (() => new Date()))();
+      const weekKey = buildWeekKey(currentInstant);
+      const watermark = currentInstant.toISOString();
+      const periodLabel = buildPeriodLabel(currentInstant);
       const candidateUserIds =
         selectors.userId !== undefined
           ? [selectors.userId]

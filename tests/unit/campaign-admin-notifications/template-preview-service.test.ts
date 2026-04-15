@@ -51,4 +51,22 @@ describe('Campaign notification template preview service', () => {
       );
     }
   });
+
+  it('renders the weekly progress digest preview', async () => {
+    const service = makeCampaignNotificationTemplatePreviewService({ logger });
+
+    const result = await service.getTemplatePreview({
+      campaignKey: 'funky',
+      templateId: 'weekly_progress_digest',
+    });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.html).toContain('example.invalid');
+      expect(result.value.exampleSubject).not.toHaveLength(0);
+      expect(result.value.requiredFields).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'weekKey', required: true })])
+      );
+    }
+  });
 });

@@ -1,4 +1,12 @@
-import type { DeliveryRepository } from '../../core/ports.js';
+import {
+  FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
+  parseWeeklyProgressDigestOutboxMetadata,
+} from '../../core/weekly-progress-digest.js';
+
+import type {
+  DeliveryRepository,
+  WeeklyProgressDigestPostSendReconciler,
+} from '../../core/ports.js';
 import type { NotificationsRepository } from '@/modules/notifications/index.js';
 import type {
   ResendEmailWebhookEvent,
@@ -27,6 +35,7 @@ export interface ResendWebhookDeliverySideEffectDeps {
   deliveryRepo: DeliveryRepository;
   notificationsRepo: NotificationsRepository;
   logger: Logger;
+  weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
 }
 
 const deactivateNotification = async (
@@ -87,10 +96,66 @@ const getSourceNotificationIds = async (
   return sourceNotificationIds.filter((value): value is string => typeof value === 'string');
 };
 
+const reconcileWeeklyProgressDigestDelivery = async (input: {
+  deliveryId: string;
+  deliveryRepo: DeliveryRepository;
+  weeklyProgressDigestPostSendReconciler: WeeklyProgressDigestPostSendReconciler | undefined;
+  resendInput: ResendWebhookSideEffectInput;
+  log: Logger;
+}): Promise<void> => {
+  if (input.weeklyProgressDigestPostSendReconciler === undefined) {
+    return;
+  }
+
+  const outboxResult = await input.deliveryRepo.findById(input.deliveryId);
+  if (outboxResult.isErr()) {
+    input.log.error(
+      { error: outboxResult.error, deliveryId: input.deliveryId },
+      'Failed to load delivery for weekly progress digest webhook reconciliation'
+    );
+    return;
+  }
+
+  const outbox = outboxResult.value;
+  if (outbox === null) {
+    input.log.debug(
+      { deliveryId: input.deliveryId },
+      'Skipping weekly progress digest webhook reconciliation because delivery is missing'
+    );
+    return;
+  }
+
+  if (outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE) {
+    return;
+  }
+
+  const metadataResult = parseWeeklyProgressDigestOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    input.log.error(
+      { deliveryId: input.deliveryId, error: metadataResult.error },
+      'Invalid weekly progress digest metadata during webhook reconciliation'
+    );
+    return;
+  }
+
+  const reconcileResult = await input.weeklyProgressDigestPostSendReconciler.reconcile({
+    outboxId: outbox.id,
+    userId: outbox.userId,
+    sentAt: outbox.sentAt ?? input.resendInput.storedEvent.emailCreatedAt,
+    metadata: metadataResult.value,
+  });
+  if (reconcileResult.isErr()) {
+    input.log.error(
+      { deliveryId: input.deliveryId, error: reconcileResult.error },
+      'Failed to reconcile weekly progress digest cursor from resend webhook'
+    );
+  }
+};
+
 export const makeResendWebhookDeliverySideEffect = (
   deps: ResendWebhookDeliverySideEffectDeps
 ): ResendWebhookSideEffect => {
-  const { deliveryRepo, notificationsRepo, logger } = deps;
+  const { deliveryRepo, notificationsRepo, logger, weeklyProgressDigestPostSendReconciler } = deps;
   const log = logger.child({ component: 'ResendWebhookDeliverySideEffect' });
 
   return {
@@ -112,13 +177,23 @@ export const makeResendWebhookDeliverySideEffect = (
 
       switch (input.event.type) {
         case 'email.sent': {
+          const sentAt = input.storedEvent.emailCreatedAt;
           const result = await deliveryRepo.updateStatusIfStillSending(deliveryId, 'sent', {
             resendEmailId: input.event.data.email_id,
+            sentAt,
           });
 
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to reconcile sent delivery');
           }
+
+          await reconcileWeeklyProgressDigestDelivery({
+            deliveryId,
+            deliveryRepo,
+            weeklyProgressDigestPostSendReconciler,
+            resendInput: input,
+            log,
+          });
           return;
         }
 
@@ -126,11 +201,23 @@ export const makeResendWebhookDeliverySideEffect = (
           const result = await deliveryRepo.updateStatusIfCurrentIn(
             deliveryId,
             ['sending', 'sent', 'webhook_timeout'],
-            'delivered'
+            'delivered',
+            {
+              resendEmailId: input.event.data.email_id,
+              sentAt: input.storedEvent.emailCreatedAt,
+            }
           );
           if (result.isErr()) {
             log.error({ error: result.error, deliveryId }, 'Failed to mark delivery delivered');
           }
+
+          await reconcileWeeklyProgressDigestDelivery({
+            deliveryId,
+            deliveryRepo,
+            weeklyProgressDigestPostSendReconciler,
+            resendInput: input,
+            log,
+          });
           return;
         }
 

@@ -128,4 +128,80 @@ describe('weekly progress digest runnable', () => {
       ]);
     }
   });
+
+  it('captures a single instant for week key, watermark, and period label', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'funky:interaction:budget_document::entity:12345678',
+      interactionId: 'funky:interaction:budget_document',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'entity', entityCui: '12345678' },
+      phase: 'draft',
+      updatedAt: '2026-04-15T08:00:00.000Z',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            documentUrl: 'https://example.invalid/budget.pdf',
+          },
+        },
+      },
+    });
+    const now = vi.fn(() => new Date('2026-04-19T20:59:59.999Z'));
+    const definition = makeWeeklyProgressDigestRunnableDefinition({
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([['user-1', [makeRow('user-1', record, '1')]]]),
+      }),
+      extendedNotificationsRepo: makeFakeExtendedNotificationsRepo({
+        notifications: [
+          createTestNotification({
+            id: 'notif-global-1',
+            userId: 'user-1',
+            entityCui: null,
+            notificationType: 'funky:notification:global',
+            isActive: true,
+          }),
+        ],
+      }),
+      deliveryRepo: makeFakeDeliveryRepo(),
+      composeJobScheduler: {
+        enqueue: vi.fn(async () => ok(undefined)),
+      },
+      entityRepo: {
+        getById: vi.fn(async () =>
+          ok({
+            name: 'Municipiul Exemplu',
+          })
+        ),
+      } as never,
+      platformBaseUrl: 'https://transparenta.eu',
+      now,
+    });
+
+    const result = await definition.dryRun({
+      actorUserId: 'admin-1',
+      selectors: { userId: 'user-1' },
+      filters: {},
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(now).toHaveBeenCalledTimes(1);
+    if (result.isOk()) {
+      expect(result.value.watermark).toBe('2026-04-19T20:59:59.999Z');
+      expect(result.value.rows).toHaveLength(1);
+      expect(result.value.rows[0]).toEqual(
+        expect.objectContaining({
+          executionData: {
+            kind: 'weekly_progress_digest',
+            notificationInput: expect.objectContaining({
+              weekKey: '2026-W16',
+              periodLabel: '13 aprilie - 19 aprilie',
+              watermarkAt: '2026-04-19T20:59:59.999Z',
+            }),
+          },
+        })
+      );
+    }
+  });
 });
