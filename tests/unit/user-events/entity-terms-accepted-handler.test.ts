@@ -9,6 +9,7 @@ import {
   createTestInteractiveRecord,
   createTestNotification,
   makeFakeDeliveryRepo,
+  makeFakeExtendedNotificationsRepo,
   makeFakeLearningProgressRepo,
   makeFakeNotificationsRepo,
 } from '../../fixtures/fakes.js';
@@ -152,11 +153,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       ],
     });
     const deliveryRepo = makeFakeDeliveryRepo();
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo();
     const jobs: ComposeJobPayload[] = [];
 
     const handler = makeEntityTermsAcceptedUserEventHandler({
       learningProgressRepo,
       notificationsRepo,
+      extendedNotificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(jobs),
       entityRepo: makeEntityRepo({ '12345678': 'Primaria Test' }),
@@ -232,11 +235,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         }),
       ],
     });
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo();
     const jobs: ComposeJobPayload[] = [];
 
     const handler = makeEntityTermsAcceptedUserEventHandler({
       learningProgressRepo,
       notificationsRepo,
+      extendedNotificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(jobs),
       entityRepo: makeEntityRepo({
@@ -310,11 +315,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
         }),
       ],
     });
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo();
     const jobs: ComposeJobPayload[] = [];
 
     const handler = makeEntityTermsAcceptedUserEventHandler({
       learningProgressRepo,
       notificationsRepo,
+      extendedNotificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(jobs),
       entityRepo: makeEntityRepo({ '12345678': 'Primaria Test' }),
@@ -364,11 +371,13 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       ],
     });
     const deliveryRepo = makeFakeDeliveryRepo();
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo();
     const jobs: ComposeJobPayload[] = [];
 
     const handler = makeEntityTermsAcceptedUserEventHandler({
       learningProgressRepo,
       notificationsRepo,
+      extendedNotificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(jobs),
       entityRepo: makeEntityRepo({ '12345678': 'Primaria Test' }),
@@ -390,5 +399,65 @@ describe('makeEntityTermsAcceptedUserEventHandler', () => {
       expect(welcome.value).toBeNull();
     }
     expect(jobs).toHaveLength(0);
+  });
+
+  it('does not materialize campaign emails when the user is globally unsubscribed', async () => {
+    const record = createAcceptedEntityTermsRecord();
+    const learningProgressRepo: LearningProgressRepository = makeFakeLearningProgressRepo({
+      initialRecords: new Map([['user-1', [makeLearningRow('user-1', record)]]]),
+    });
+    const notificationsRepo = makeFakeNotificationsRepo({
+      notifications: [
+        createTestNotification({
+          id: 'notification-global-1',
+          userId: 'user-1',
+          notificationType: 'funky:notification:global',
+          entityCui: null,
+        }),
+        createTestNotification({
+          id: 'notification-entity-1',
+          userId: 'user-1',
+          notificationType: 'funky:notification:entity_updates',
+          entityCui: '12345678',
+        }),
+      ],
+    });
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo({
+      globallyUnsubscribedUsers: new Set(['user-1']),
+    });
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const jobs: ComposeJobPayload[] = [];
+
+    const handler = makeEntityTermsAcceptedUserEventHandler({
+      learningProgressRepo,
+      notificationsRepo,
+      extendedNotificationsRepo,
+      deliveryRepo,
+      composeJobScheduler: makeComposeJobScheduler(jobs),
+      entityRepo: makeEntityRepo({ '12345678': 'Primaria Test' }),
+      logger: pinoLogger({ level: 'silent' }),
+    });
+
+    await handler.handle({
+      source: 'learning_progress',
+      userId: 'user-1',
+      eventId: 'event-5',
+      eventType: 'interactive.updated',
+      occurredAt: record.updatedAt,
+      recordKey: record.key,
+    });
+
+    const welcome = await deliveryRepo.findByDeliveryKey('funky:outbox:welcome:user-1');
+    const entitySubscription = await deliveryRepo.findByDeliveryKey(
+      'funky:outbox:entity_subscription:user-1:12345678'
+    );
+
+    expect(welcome.isOk()).toBe(true);
+    expect(entitySubscription.isOk()).toBe(true);
+    if (welcome.isOk() && entitySubscription.isOk()) {
+      expect(welcome.value).toBeNull();
+      expect(entitySubscription.value).toBeNull();
+    }
+    expect(jobs).toEqual([]);
   });
 });

@@ -14,6 +14,12 @@ import {
   CampaignNotificationListQuerySchema,
   CampaignNotificationListResponseSchema,
   CampaignNotificationMetaResponseSchema,
+  CampaignNotificationPlanIdParamsSchema,
+  CampaignNotificationRunnableIdParamsSchema,
+  CampaignNotificationRunnablePlanReadQuerySchema,
+  CampaignNotificationRunnablePlanResponseSchema,
+  CampaignNotificationRunnablePlanSendResponseSchema,
+  CampaignNotificationRunnableTemplateListResponseSchema,
   CampaignNotificationSortBySchema,
   CampaignNotificationSortOrderSchema,
   CampaignNotificationTemplateIdParamsSchema,
@@ -25,17 +31,26 @@ import {
   ErrorResponseSchema,
   type CampaignKeyParams,
   type CampaignNotificationListQuery,
+  type CampaignNotificationPlanIdParams,
+  type CampaignNotificationRunnableIdParams,
+  type CampaignNotificationRunnablePlanReadQuery,
   type CampaignNotificationTemplateIdParams,
 } from './schemas.js';
 import { getHttpStatusForError } from '../../core/errors.js';
+import { createCampaignNotificationRunnablePlan } from '../../core/usecases/create-campaign-notification-runnable-plan.js';
 import { executeCampaignNotificationTriggerBulk } from '../../core/usecases/execute-campaign-notification-trigger-bulk.js';
 import { executeCampaignNotificationTrigger } from '../../core/usecases/execute-campaign-notification-trigger.js';
+import { getCampaignNotificationRunnablePlan } from '../../core/usecases/get-campaign-notification-runnable-plan.js';
 import { getCampaignNotificationTemplatePreview } from '../../core/usecases/get-campaign-notification-template-preview.js';
 import { listCampaignNotificationAudit } from '../../core/usecases/list-campaign-notification-audit.js';
+import { listCampaignNotificationRunnableTemplates } from '../../core/usecases/list-campaign-notification-runnable-templates.js';
 import { listCampaignNotificationTemplates } from '../../core/usecases/list-campaign-notification-templates.js';
+import { sendCampaignNotificationRunnablePlan } from '../../core/usecases/send-campaign-notification-runnable-plan.js';
 
 import type {
   CampaignNotificationAuditRepository,
+  CampaignNotificationRunnablePlanRepository,
+  CampaignNotificationRunnableTemplateRegistry,
   CampaignNotificationTemplatePreviewService,
   CampaignNotificationTriggerRegistry,
 } from '../../core/ports.js';
@@ -200,6 +215,8 @@ export interface MakeCampaignAdminNotificationRoutesDeps {
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   auditRepository: CampaignNotificationAuditRepository;
   triggerRegistry: CampaignNotificationTriggerRegistry;
+  runnableTemplateRegistry: CampaignNotificationRunnableTemplateRegistry;
+  planRepository: CampaignNotificationRunnablePlanRepository;
   templatePreviewService: CampaignNotificationTemplatePreviewService;
 }
 
@@ -567,6 +584,86 @@ export const makeCampaignAdminNotificationRoutes = (
       }
     );
 
+    fastify.get<{ Params: CampaignKeyParams }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/runnable-templates',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          response: {
+            200: CampaignNotificationRunnableTemplateListResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+
+        return reply.status(200).send({
+          ok: true,
+          data: {
+            items: listCampaignNotificationRunnableTemplates(
+              {
+                runnableTemplateRegistry: deps.runnableTemplateRegistry,
+              },
+              access.config.campaignKey
+            ),
+          },
+        });
+      }
+    );
+
+    fastify.post<{ Params: CampaignNotificationRunnableIdParams; Body: unknown }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/runnable-templates/:runnableId/dry-run',
+      {
+        schema: {
+          params: CampaignNotificationRunnableIdParamsSchema,
+          body: Type.Unknown(),
+          response: {
+            200: CampaignNotificationRunnablePlanResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            409: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+        const result = await createCampaignNotificationRunnablePlan(
+          {
+            runnableTemplateRegistry: deps.runnableTemplateRegistry,
+            planRepository: deps.planRepository,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+            runnableId: request.params.runnableId,
+            actorUserId: access.userId,
+            payload: request.body,
+          }
+        );
+
+        if (result.isErr()) {
+          const statusCode = getHttpStatusForError(result.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: result.value,
+        });
+      }
+    );
+
     fastify.get<{ Params: CampaignNotificationTemplateIdParams }>(
       '/api/v1/admin/campaigns/:campaignKey/notifications/templates/:templateId/preview',
       {
@@ -590,6 +687,105 @@ export const makeCampaignAdminNotificationRoutes = (
           {
             campaignKey: access.config.campaignKey,
             templateId: request.params.templateId,
+          }
+        );
+
+        if (result.isErr()) {
+          const statusCode = getHttpStatusForError(result.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: result.value,
+        });
+      }
+    );
+
+    fastify.get<{
+      Params: CampaignNotificationPlanIdParams;
+      Querystring: CampaignNotificationRunnablePlanReadQuery;
+    }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/plans/:planId',
+      {
+        schema: {
+          params: CampaignNotificationPlanIdParamsSchema,
+          querystring: CampaignNotificationRunnablePlanReadQuerySchema,
+          response: {
+            200: CampaignNotificationRunnablePlanResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            409: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+        const result = await getCampaignNotificationRunnablePlan(
+          {
+            planRepository: deps.planRepository,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+            planId: request.params.planId,
+            actorUserId: access.userId,
+            ...(request.query.cursor !== undefined ? { cursor: request.query.cursor } : {}),
+            ...(request.query.limit !== undefined ? { limit: request.query.limit } : {}),
+          }
+        );
+
+        if (result.isErr()) {
+          const statusCode = getHttpStatusForError(result.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: result.error.type,
+            message: result.error.message,
+            retryable: 'retryable' in result.error ? result.error.retryable : false,
+          });
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: result.value,
+        });
+      }
+    );
+
+    fastify.post<{ Params: CampaignNotificationPlanIdParams }>(
+      '/api/v1/admin/campaigns/:campaignKey/notifications/plans/:planId/send',
+      {
+        schema: {
+          params: CampaignNotificationPlanIdParamsSchema,
+          response: {
+            200: CampaignNotificationRunnablePlanSendResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            409: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminNotificationAccess(request);
+        const result = await sendCampaignNotificationRunnablePlan(
+          {
+            planRepository: deps.planRepository,
+            runnableTemplateRegistry: deps.runnableTemplateRegistry,
+          },
+          {
+            campaignKey: access.config.campaignKey,
+            planId: request.params.planId,
+            actorUserId: access.userId,
           }
         );
 

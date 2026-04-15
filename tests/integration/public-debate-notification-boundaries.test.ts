@@ -105,6 +105,7 @@ describe('public debate notification boundaries', () => {
       const handler = makeEntityTermsAcceptedUserEventHandler({
         learningProgressRepo,
         notificationsRepo: harness.notificationsRepo,
+        extendedNotificationsRepo: harness.extendedNotificationsRepo,
         deliveryRepo: harness.deliveryRepo,
         composeJobScheduler: {
           enqueue: async () => ok(undefined),

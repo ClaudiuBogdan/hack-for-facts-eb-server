@@ -5,7 +5,11 @@ import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 
 import { createValidationError, type DeliveryError } from '../errors.js';
 
-import type { ComposeJobScheduler, DeliveryRepository } from '../ports.js';
+import type {
+  ComposeJobScheduler,
+  DeliveryRepository,
+  ExtendedNotificationsRepository,
+} from '../ports.js';
 import type { DeliveryRecord } from '../types.js';
 
 export interface PublicDebateTermsAcceptedEvent {
@@ -27,6 +31,7 @@ export interface PublicDebateTermsAcceptedEvent {
 }
 
 export interface EnqueuePublicDebateTermsAcceptedNotificationsDeps {
+  notificationsRepo: Pick<ExtendedNotificationsRepository, 'isUserGloballyUnsubscribed'>;
   deliveryRepo: DeliveryRepository;
   composeJobScheduler: ComposeJobScheduler;
 }
@@ -34,6 +39,7 @@ export interface EnqueuePublicDebateTermsAcceptedNotificationsDeps {
 export interface EnqueuePublicDebateTermsAcceptedNotificationsResult {
   status:
     | 'skipped_scope_inactive'
+    | 'skipped_global_unsubscribe'
     | 'welcome_created'
     | 'welcome_reused'
     | 'entity_subscription_created'
@@ -266,6 +272,22 @@ export const enqueuePublicDebateTermsAcceptedNotifications = async (
   if (!input.globalPreferenceActive || !input.entitySubscriptionActive) {
     return ok({
       status: 'skipped_scope_inactive',
+      outbox: null,
+      created: false,
+      requeued: false,
+    });
+  }
+
+  const globalUnsubscribeResult = await deps.notificationsRepo.isUserGloballyUnsubscribed(
+    input.userId
+  );
+  if (globalUnsubscribeResult.isErr()) {
+    return err(globalUnsubscribeResult.error);
+  }
+
+  if (globalUnsubscribeResult.value) {
+    return ok({
+      status: 'skipped_global_unsubscribe',
       outbox: null,
       created: false,
       requeued: false,
