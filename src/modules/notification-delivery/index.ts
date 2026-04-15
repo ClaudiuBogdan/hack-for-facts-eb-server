@@ -29,6 +29,10 @@ export type {
   AdminReviewedInteractionNextStepLink,
   AdminReviewedInteractionOutboxMetadata,
 } from './core/reviewed-interaction.js';
+export type {
+  WeeklyProgressDigestSnapshot,
+  WeeklyProgressDigestOutboxMetadata,
+} from './core/weekly-progress-digest.js';
 
 export {
   TERMINAL_STATUSES,
@@ -49,6 +53,17 @@ export {
   AdminReviewedInteractionOutboxMetadataSchema,
   parseAdminReviewedInteractionOutboxMetadata,
 } from './core/reviewed-interaction.js';
+export {
+  WEEKLY_PROGRESS_DIGEST_TEMPLATE_ID,
+  WEEKLY_PROGRESS_DIGEST_FAMILY_ID,
+  FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
+  WEEKLY_PROGRESS_DIGEST_SCOPE_PREFIX,
+  WeeklyProgressDigestSnapshotSchema,
+  WeeklyProgressDigestOutboxMetadataSchema,
+  parseWeeklyProgressDigestOutboxMetadata,
+  buildWeeklyProgressDigestScopeKey,
+  buildWeeklyProgressDigestDeliveryKey,
+} from './core/weekly-progress-digest.js';
 
 // Core errors
 export type {
@@ -109,6 +124,8 @@ export type {
   AlertData,
   TargetedNotificationEligibility,
   TargetedNotificationEligibilityReason,
+  UserScopedNotificationEligibility,
+  WeeklyProgressDigestPostSendReconciler,
 } from './core/ports.js';
 
 // Shell - Repositories
@@ -199,6 +216,13 @@ export {
   type AdminReviewedInteractionExecutionReason,
 } from './core/usecases/enqueue-admin-reviewed-interaction-notification.js';
 export {
+  enqueueWeeklyProgressDigestNotification,
+  type EnqueueWeeklyProgressDigestNotificationDeps,
+  type WeeklyProgressDigestNotificationInput,
+  type EnqueueWeeklyProgressDigestNotificationResult,
+  type WeeklyProgressDigestExecutionReason,
+} from './core/usecases/enqueue-weekly-progress-digest-notification.js';
+export {
   buildPublicDebateEntityUpdateDeliveryKey,
   buildPublicDebateEntityUpdateScopeKey,
   type PublicDebateEntityUpdateKeyInput,
@@ -208,6 +232,7 @@ export {
   buildAdminReviewedInteractionScopeKey,
   type AdminReviewedInteractionKeyInput,
 } from './core/usecases/admin-reviewed-interaction-keys.js';
+export { createWeeklyProgressDigestPostSendReconciler } from './shell/queue/workers/weekly-progress-digest-post-send-reconciler.js';
 export {
   enqueuePublicDebateTermsAcceptedNotifications,
   type EnqueuePublicDebateTermsAcceptedNotificationsDeps,

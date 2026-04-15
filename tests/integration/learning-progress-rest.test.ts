@@ -1304,10 +1304,35 @@ describe('Learning Progress REST API', () => {
     expect(storedRecord?.record.review).toBeUndefined();
   });
 
-  it('accepts progress.reset and clears stored rows', async () => {
+  it('accepts progress.reset and preserves internal rows', async () => {
     const record = createTestInteractiveRecord({ key: 'quiz-1::global' });
+    const internalRecord = createTestInteractiveRecord({
+      key: 'internal:funky:weekly_digest',
+      interactionId: 'internal:funky:weekly_digest',
+      lessonId: 'internal',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'global' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            campaignKey: 'funky',
+            lastSentAt: null,
+            watermarkAt: null,
+            weekKey: null,
+            outboxId: null,
+          },
+        },
+      },
+      updatedAt: '2024-01-15T10:01:00.000Z',
+    });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set(testAuth.userIds.user1, [makeRow(testAuth.userIds.user1, record, '1')]);
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, record, '1'),
+      makeRow(testAuth.userIds.user1, internalRecord, '2'),
+    ]);
     const repo = makeFakeLearningProgressRepo({ initialRecords });
     app = await createTestApp({ learningProgressRepo: repo });
 
@@ -1326,9 +1351,82 @@ describe('Learning Progress REST API', () => {
 
     expect(response.statusCode).toBe(200);
 
-    const records = await repo.getRecords(testAuth.userIds.user1);
-    expect(records.isOk()).toBe(true);
-    expect(records._unsafeUnwrap()).toEqual([]);
+    const publicRecords = await repo.getRecords(testAuth.userIds.user1);
+    expect(publicRecords.isOk()).toBe(true);
+    expect(publicRecords._unsafeUnwrap()).toEqual([]);
+
+    const internalRecords = await repo.getRecords(testAuth.userIds.user1, {
+      includeInternal: true,
+    });
+    expect(internalRecords.isOk()).toBe(true);
+    expect(internalRecords._unsafeUnwrap()).toEqual([
+      expect.objectContaining({
+        recordKey: 'internal:funky:weekly_digest',
+      }),
+    ]);
+  });
+
+  it('does not expose internal rows through GET progress', async () => {
+    const publicRecord = createTestInteractiveRecord({ key: 'quiz-1::global' });
+    const internalRecord = createTestInteractiveRecord({
+      key: 'internal:funky:weekly_digest',
+      interactionId: 'internal:funky:weekly_digest',
+      lessonId: 'internal',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'global' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            campaignKey: 'funky',
+            lastSentAt: null,
+            watermarkAt: null,
+            weekKey: null,
+            outboxId: null,
+          },
+        },
+      },
+      updatedAt: '2024-01-15T10:01:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, publicRecord, '1'),
+      makeRow(testAuth.userIds.user1, internalRecord, '2'),
+    ]);
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/learning/progress?since=0',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: expect.objectContaining({
+          snapshot: {
+            version: 1,
+            lastUpdated: publicRecord.updatedAt,
+            recordsByKey: {
+              [publicRecord.key]: publicRecord,
+            },
+          },
+          cursor: '1',
+          events: [
+            expect.objectContaining({
+              eventId: 'server:1:quiz-1::global',
+            }),
+          ],
+        }),
+      })
+    );
   });
 
   it('returns 400 for non-numeric since cursor', async () => {

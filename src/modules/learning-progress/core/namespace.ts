@@ -1,6 +1,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { createInvalidEventError, type LearningProgressError } from './errors.js';
+import { isInternalRecordKey } from './internal-records.js';
 
 interface NamespaceParams {
   readonly eventId?: string;
@@ -22,6 +23,12 @@ export function validateRecordKeyPrefix(
         `recordKeyPrefix must be at least ${String(RECORD_KEY_PREFIX_MIN_LENGTH)} characters long.`,
         params.eventId
       )
+    );
+  }
+
+  if (isInternalRecordKey(recordKeyPrefix)) {
+    return err(
+      createInvalidEventError('recordKeyPrefix cannot target internal records.', params.eventId)
     );
   }
 

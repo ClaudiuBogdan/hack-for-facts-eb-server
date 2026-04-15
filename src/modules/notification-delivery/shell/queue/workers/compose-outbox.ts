@@ -15,6 +15,8 @@ import {
   mapTriggeredConditionsToTemplateFields,
   toDecimalString,
 } from './compose-helpers.js';
+import { registration as weeklyProgressDigestRegistration } from '../../../../email-templates/shell/registry/registrations/weekly-progress-digest.js';
+import { renderTemplateRegistration } from '../../../../email-templates/shell/renderer/render-template-registration.js';
 import { getErrorMessage, isRetryableError, type DeliveryError } from '../../../core/errors.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
@@ -26,6 +28,10 @@ import {
   type NotificationOutboxRecord,
   type SendJobPayload,
 } from '../../../core/types.js';
+import {
+  FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
+  parseWeeklyProgressDigestOutboxMetadata,
+} from '../../../core/weekly-progress-digest.js';
 import { enqueueSendJob } from '../send-job-options.js';
 
 import type { EmailRenderer } from '../../../../email-templates/core/ports.js';
@@ -34,6 +40,7 @@ import type {
   AnafForexebugDigestProps,
   AnafForexebugDigestSection,
   EmailTemplateProps,
+  WeeklyProgressDigestProps,
   PublicDebateAdminFailureProps,
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
@@ -447,6 +454,40 @@ const buildAdminReviewedInteractionTemplateProps = (
   });
 };
 
+const buildWeeklyProgressDigestTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<WeeklyProgressDigestProps, string> => {
+  const metadataResult = parseWeeklyProgressDigestOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    return err(`Invalid weekly progress digest metadata: ${metadataResult.error}`);
+  }
+
+  const metadata = metadataResult.value;
+  const watermarkDate = new Date(metadata.watermarkAt);
+  const copyrightYear = Number.isNaN(watermarkDate.getTime())
+    ? outbox.createdAt.getUTCFullYear()
+    : watermarkDate.getUTCFullYear();
+
+  return ok({
+    templateType: 'weekly_progress_digest',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl: buildCampaignPreferencesUrl(platformBaseUrl),
+    platformBaseUrl,
+    copyrightYear,
+    campaignKey: metadata.campaignKey,
+    weekKey: metadata.weekKey,
+    periodLabel: metadata.periodLabel,
+    summary: metadata.summary,
+    items: metadata.items,
+    primaryCta: metadata.primaryCta,
+    secondaryCtas: metadata.secondaryCtas,
+    ...(metadata.allUpdatesUrl !== undefined ? { allUpdatesUrl: metadata.allUpdatesUrl } : {}),
+  });
+};
+
 const persistRenderedOutboxAndEnqueueSend = async (input: {
   deliveryRepo: DeliveryRepository;
   sendQueue: Queue<SendJobPayload>;
@@ -775,6 +816,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:entity_update' &&
     outbox.notificationType !== 'funky:outbox:admin_reviewed_interaction' &&
     outbox.notificationType !== 'funky:outbox:admin_failure' &&
+    outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
     return failOutboxPermanently(
@@ -1035,6 +1077,51 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update reviewed interaction outbox row',
       successLogMessage: 'Reviewed interaction notification composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE) {
+    const templatePropsResult = buildWeeklyProgressDigestTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        templatePropsResult.error,
+        log,
+        'Weekly progress digest compose failed permanently'
+      );
+    }
+
+    const renderResult = await renderTemplateRegistration(
+      weeklyProgressDigestRegistration,
+      templatePropsResult.value
+    );
+    if (renderResult.isErr()) {
+      return failOutboxPermanently(
+        deliveryRepo,
+        outbox.id,
+        runId,
+        formatTemplateError(renderResult.error),
+        log,
+        'Weekly progress digest render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update weekly progress digest outbox row',
+      successLogMessage: 'Weekly progress digest composed and send job enqueued',
     });
   }
 

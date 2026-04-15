@@ -82,12 +82,22 @@ export interface AdminReviewedInteractionProjection {
   readonly triggerSource: CampaignNotificationTriggerSource | null;
 }
 
+export interface WeeklyProgressDigestProjection {
+  readonly kind: 'weekly_progress_digest';
+  readonly userId: string | null;
+  readonly weekKey: string;
+  readonly totalItemCount: number | null;
+  readonly actionNowCount: number | null;
+  readonly triggerSource: CampaignNotificationTriggerSource | null;
+}
+
 export type CampaignNotificationProjection =
   | PublicDebateCampaignWelcomeProjection
   | PublicDebateEntitySubscriptionProjection
   | PublicDebateEntityUpdateProjection
   | PublicDebateAdminFailureProjection
-  | AdminReviewedInteractionProjection;
+  | AdminReviewedInteractionProjection
+  | WeeklyProgressDigestProjection;
 
 export interface CampaignNotificationAuditItem {
   readonly outboxId: string;

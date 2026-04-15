@@ -220,6 +220,7 @@ export interface ReviewActorMetadata {
 
 export interface GetRecordsOptions {
   readonly recordKeyPrefix?: string;
+  readonly includeInternal?: boolean;
 }
 
 export type CampaignAdminCampaignKey = 'funky';

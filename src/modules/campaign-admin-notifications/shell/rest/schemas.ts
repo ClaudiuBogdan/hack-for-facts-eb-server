@@ -174,12 +174,25 @@ const AdminReviewedInteractionProjectionSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const WeeklyProgressDigestProjectionSchema = Type.Object(
+  {
+    kind: Type.Literal('weekly_progress_digest'),
+    userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    weekKey: Type.String({ minLength: 1 }),
+    totalItemCount: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+    actionNowCount: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+    triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignNotificationProjectionSchema = Type.Union([
   PublicDebateCampaignWelcomeProjectionSchema,
   PublicDebateEntitySubscriptionProjectionSchema,
   PublicDebateEntityUpdateProjectionSchema,
   PublicDebateAdminFailureProjectionSchema,
   AdminReviewedInteractionProjectionSchema,
+  WeeklyProgressDigestProjectionSchema,
 ]);
 
 export const CampaignNotificationListItemSchema = Type.Object(

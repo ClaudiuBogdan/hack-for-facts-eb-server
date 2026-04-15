@@ -14,6 +14,7 @@ import { createDatabaseError, type DeliveryError } from '../../core/errors.js';
 import {
   type ExtendedNotificationsRepository,
   type TargetedNotificationEligibility,
+  type UserScopedNotificationEligibility,
 } from '../../core/ports.js';
 
 import type { UserDbClient } from '@/infra/database/client.js';
@@ -172,6 +173,27 @@ export const makeExtendedNotificationsRepo = (
       .where('user_id', '=', userId)
       .where('notification_type', '=', notificationType)
       .where('entity_cui', '=', entityCui)
+      .orderBy('updated_at', 'desc')
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+
+    if (row === undefined) {
+      return null;
+    }
+
+    return mapRow(row as unknown as QueryRow);
+  };
+
+  const loadMatchingUserScopedNotification = async (
+    userId: string,
+    notificationType: NotificationType
+  ): Promise<Notification | null> => {
+    const row = await db
+      .selectFrom('notifications')
+      .select([...ALL_COLUMNS])
+      .where('user_id', '=', userId)
+      .where('notification_type', '=', notificationType)
+      .where('entity_cui', 'is', null)
       .orderBy('updated_at', 'desc')
       .orderBy('id', 'desc')
       .executeTakeFirst();
@@ -371,6 +393,56 @@ export const makeExtendedNotificationsRepo = (
           'Failed to evaluate targeted notification eligibility'
         );
         return err(createDatabaseError('Failed to evaluate targeted notification eligibility'));
+      }
+    },
+
+    async findEligibleByUserType(
+      userId: string,
+      notificationType: NotificationType
+    ): Promise<Result<UserScopedNotificationEligibility, DeliveryError>> {
+      try {
+        const notification = await loadMatchingUserScopedNotification(userId, notificationType);
+
+        if (notification === null) {
+          return ok({
+            isEligible: false,
+            reason: 'missing_preference',
+            notification: null,
+          });
+        }
+
+        if (!notification.isActive) {
+          return ok({
+            isEligible: false,
+            reason: 'inactive_preference',
+            notification,
+          });
+        }
+
+        const globalUnsubscribeResult = await loadGloballyUnsubscribedUsers([userId]);
+        if (globalUnsubscribeResult.isErr()) {
+          return err(globalUnsubscribeResult.error);
+        }
+
+        if (globalUnsubscribeResult.value.has(userId)) {
+          return ok({
+            isEligible: false,
+            reason: 'global_unsubscribe',
+            notification,
+          });
+        }
+
+        return ok({
+          isEligible: true,
+          reason: 'eligible',
+          notification,
+        });
+      } catch (error) {
+        log.error(
+          { err: error, userId, notificationType },
+          'Failed to evaluate user-scoped notification eligibility'
+        );
+        return err(createDatabaseError('Failed to evaluate user-scoped notification eligibility'));
       }
     },
 

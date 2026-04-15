@@ -98,6 +98,13 @@ export {
 } from './core/reducer.js';
 
 export { validateRecordKeyPrefix } from './core/namespace.js';
+export {
+  INTERNAL_NAMESPACE_PREFIX,
+  INTERNAL_FUNKY_WEEKLY_DIGEST_KEY,
+  INTERNAL_FUNKY_WEEKLY_DIGEST_INTERACTION_ID,
+  isInternalRecordKey,
+  isInternalInteractionId,
+} from './core/internal-records.js';
 
 export {
   buildCampaignAdminInteractionStepLink,
@@ -117,6 +124,12 @@ export {
   type SyncEventsInput,
   type SyncEventsOutput,
 } from './core/usecases/sync-events.js';
+export {
+  WeeklyDigestCursorPayloadSchema,
+  getWeeklyDigestCursor,
+  upsertWeeklyDigestCursor,
+  type WeeklyDigestCursorPayload,
+} from './core/usecases/weekly-digest-cursor.js';
 
 export {
   REVIEWED_INTERACTION_SOURCE_INTERACTION_IDS,

@@ -1,4 +1,5 @@
 import { makeAdminReviewedInteractionRunnableDefinition } from './admin-reviewed-interaction-runnable.js';
+import { makeWeeklyProgressDigestRunnableDefinition } from './weekly-progress-digest-runnable.js';
 
 import type { ReviewedInteractionTriggerDeps } from './admin-reviewed-interaction-trigger.js';
 import type {
@@ -12,6 +13,7 @@ export const makeCampaignNotificationRunnableTemplateRegistry = (
 ): CampaignNotificationRunnableTemplateRegistry => {
   const definitions = [
     makeAdminReviewedInteractionRunnableDefinition(deps),
+    makeWeeklyProgressDigestRunnableDefinition(deps),
   ] as const satisfies readonly CampaignNotificationRunnableTemplateDefinition[];
   const byCampaign = new Map<
     CampaignNotificationAdminCampaignKey,

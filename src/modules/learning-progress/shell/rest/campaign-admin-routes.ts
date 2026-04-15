@@ -64,6 +64,7 @@ import {
   getHttpStatusForError,
   type LearningProgressError,
 } from '../../core/errors.js';
+import { isInternalRecordKey } from '../../core/internal-records.js';
 import { validateRecordKeyPrefix } from '../../core/namespace.js';
 import { submitInteractionReviews } from '../../core/usecases/submit-interaction-reviews.js';
 
@@ -1727,6 +1728,15 @@ export const makeCampaignAdminUserInteractionRoutes = (
               retryable: false,
             });
           }
+        }
+
+        if (request.query.recordKey !== undefined && isInternalRecordKey(request.query.recordKey)) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'InvalidEventError',
+            message: 'recordKey cannot target internal records.',
+            retryable: false,
+          });
         }
 
         const decodedCursor =

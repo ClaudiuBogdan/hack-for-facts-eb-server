@@ -10,6 +10,10 @@ import {
   FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX,
 } from '@/common/campaign-keys.js';
 import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
+import {
+  INTERNAL_NAMESPACE_PREFIX,
+  isInternalRecordKey,
+} from '@/modules/learning-progress/core/internal-records.js';
 import { jsonValuesAreEqual } from '@/modules/learning-progress/core/json-equality.js';
 import {
   USER_VISIBLE_NOTIFICATION_TYPES,
@@ -1735,6 +1739,10 @@ export const makeFakeLearningProgressRepo = (
         return ok(
           [...userStore.values()]
             .filter((row) => {
+              if (options?.includeInternal !== true && isInternalRecordKey(row.recordKey)) {
+                return false;
+              }
+
               if (options?.recordKeyPrefix === undefined) {
                 return true;
               }
@@ -2358,7 +2366,22 @@ export const makeFakeLearningProgressRepo = (
           return createDbError();
         }
 
-        currentStore.delete(userId);
+        const userStore = currentStore.get(userId);
+        if (userStore === undefined) {
+          return ok(undefined);
+        }
+
+        const nextUserStore = new Map(
+          [...userStore.entries()].filter(([recordKey]) =>
+            recordKey.startsWith(INTERNAL_NAMESPACE_PREFIX)
+          )
+        );
+
+        if (nextUserStore.size === 0) {
+          currentStore.delete(userId);
+        } else {
+          currentStore.set(userId, nextUserStore);
+        }
         return ok(undefined);
       },
 
@@ -3093,6 +3116,67 @@ export const makeFakeExtendedNotificationsRepo = (
         return ok({
           isEligible: false,
           reason: 'campaign_disabled',
+          notification,
+        });
+      }
+
+      return ok({
+        isEligible: true,
+        reason: 'eligible',
+        notification,
+      });
+    },
+
+    findEligibleByUserType: async (userId: string, notificationType: NotificationType) => {
+      if (simulateDbError) return createDbError();
+
+      const notification =
+        [...store.values()].find(
+          (candidate) =>
+            candidate.userId === userId &&
+            candidate.notificationType === notificationType &&
+            candidate.entityCui === null
+        ) ?? null;
+
+      if (notification === null) {
+        return ok({
+          isEligible: false,
+          reason: 'missing_preference',
+          notification: null,
+        });
+      }
+
+      if (!notification.isActive) {
+        return ok({
+          isEligible: false,
+          reason: 'inactive_preference',
+          notification,
+        });
+      }
+
+      if (
+        globallyUnsubscribedUsers.has(userId) ||
+        [...store.values()].some((candidate) => {
+          if (candidate.userId !== userId || candidate.notificationType !== 'global_unsubscribe') {
+            return false;
+          }
+
+          if (!candidate.isActive) {
+            return true;
+          }
+
+          const config = candidate.config as Record<string, unknown> | null;
+          if (config !== null && typeof config === 'object') {
+            const channels = config['channels'] as Record<string, unknown> | undefined;
+            return channels?.['email'] === false;
+          }
+
+          return false;
+        })
+      ) {
+        return ok({
+          isEligible: false,
+          reason: 'global_unsubscribe',
           notification,
         });
       }

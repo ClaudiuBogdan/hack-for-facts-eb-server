@@ -57,6 +57,21 @@ describe('learning progress recordKeyPrefix validation', () => {
       })
     );
   });
+
+  it('rejects internal recordKeyPrefix values', () => {
+    const result = validateRecordKeyPrefix('internal:funky:weekly_digest', {
+      eventId: 'event-internal-prefix',
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-internal-prefix',
+        message: 'recordKeyPrefix cannot target internal records.',
+      })
+    );
+  });
 });
 
 describe('syncEvents raw key preservation', () => {

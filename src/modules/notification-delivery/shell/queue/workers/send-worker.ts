@@ -5,20 +5,30 @@
  */
 
 import { Worker } from 'bullmq';
+import { err, ok } from 'neverthrow';
 
-import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
+} from '@/common/campaign-keys.js';
 import { hashResendTagValue, sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import { MAX_RETRY_ATTEMPTS, type SendJobPayload } from '../../../core/types.js';
+import {
+  FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
+  parseWeeklyProgressDigestOutboxMetadata,
+  type WeeklyProgressDigestOutboxMetadata,
+} from '../../../core/weekly-progress-digest.js';
 
 import type {
   DeliveryRepository,
   UserEmailFetcher,
   EmailSenderPort,
   ExtendedNotificationsRepository,
+  WeeklyProgressDigestPostSendReconciler,
 } from '../../../core/ports.js';
 import type { UnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import type { Redis } from 'ioredis';
@@ -42,6 +52,7 @@ export interface SendWorkerDeps {
   apiBaseUrl: string;
   environment: string;
   bullmqPrefix: string;
+  weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
   /** Rate limit: max requests per second (default: 2 for Resend) */
   maxRps?: number;
   concurrency?: number;
@@ -81,17 +92,38 @@ const isTransientError = (error: unknown): boolean => {
   return false;
 };
 
+const resolveWeeklyProgressDigestEligibility = async (
+  notificationsRepo: ExtendedNotificationsRepository,
+  userId: string
+) => {
+  if (notificationsRepo.findEligibleByUserType !== undefined) {
+    return notificationsRepo.findEligibleByUserType(userId, FUNKY_NOTIFICATION_GLOBAL_TYPE);
+  }
+
+  const activeResult = await notificationsRepo.findActiveByType(FUNKY_NOTIFICATION_GLOBAL_TYPE);
+  if (activeResult.isErr()) {
+    return err(activeResult.error);
+  }
+
+  const notification = activeResult.value.find((candidate) => candidate.userId === userId) ?? null;
+
+  return ok({
+    isEligible: notification !== null,
+    reason: notification === null ? 'missing_preference' : 'eligible',
+    notification,
+  });
+};
+
 export const processSendJob = async (
-  deps: Pick<
-    SendWorkerDeps,
-    | 'deliveryRepo'
-    | 'notificationsRepo'
-    | 'userEmailFetcher'
-    | 'emailSender'
-    | 'tokenSigner'
-    | 'apiBaseUrl'
-    | 'environment'
-  > & {
+  deps: {
+    deliveryRepo: DeliveryRepository;
+    notificationsRepo: ExtendedNotificationsRepository;
+    userEmailFetcher: UserEmailFetcher;
+    emailSender: EmailSenderPort;
+    tokenSigner: UnsubscribeTokenSigner;
+    apiBaseUrl: string;
+    environment: string;
+    weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
     log: Logger;
   },
   payload: SendJobPayload
@@ -104,6 +136,7 @@ export const processSendJob = async (
     tokenSigner,
     apiBaseUrl,
     environment,
+    weeklyProgressDigestPostSendReconciler,
     log,
   } = deps;
   const { outboxId } = payload;
@@ -197,6 +230,59 @@ export const processSendJob = async (
           reason: eligibilityResult.value.reason,
         },
         'Reviewed interaction no longer eligible at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+  }
+
+  let weeklyProgressDigestMetadata: WeeklyProgressDigestOutboxMetadata | null = null;
+
+  if (delivery.notificationType === FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE) {
+    const metadataResult = parseWeeklyProgressDigestOutboxMetadata(delivery.metadata);
+    if (metadataResult.isErr()) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: `Invalid weekly progress digest metadata: ${metadataResult.error}`,
+      });
+      return {
+        outboxId,
+        status: 'failed_permanent',
+        error: `Invalid weekly progress digest metadata: ${metadataResult.error}`,
+      };
+    }
+
+    weeklyProgressDigestMetadata = metadataResult.value;
+    const eligibilityResult = await resolveWeeklyProgressDigestEligibility(
+      notificationsRepo,
+      delivery.userId
+    );
+    if (eligibilityResult.isErr()) {
+      const errorMessage = `Failed to re-check weekly digest eligibility: ${getErrorMessage(
+        eligibilityResult.error
+      )}`;
+      const retryable = isRetryableError(eligibilityResult.error);
+
+      await deliveryRepo.updateStatusIfStillSending(
+        outboxId,
+        retryable ? 'failed_transient' : 'failed_permanent',
+        { lastError: errorMessage }
+      );
+
+      if (retryable) {
+        throw new Error(errorMessage);
+      }
+
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    if (!eligibilityResult.value.isEligible) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          reason: eligibilityResult.value.reason,
+        },
+        'Weekly progress digest no longer eligible at send time, skipping'
       );
       await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
       return { outboxId, status: 'skipped_unsubscribed' };
@@ -347,14 +433,35 @@ export const processSendJob = async (
     return { outboxId, status: 'failed_permanent', error: errorMessage };
   }
 
+  const sentAt = new Date();
   const updateResult = await deliveryRepo.updateStatusIfStillSending(outboxId, 'sent', {
     toEmail: userEmail,
     resendEmailId: sendResult.value.emailId,
-    sentAt: new Date(),
+    sentAt,
   });
 
   if (updateResult.isErr()) {
     log.error({ error: updateResult.error, outboxId }, 'Failed to update outbox status');
+  }
+
+  if (
+    weeklyProgressDigestMetadata !== null &&
+    weeklyProgressDigestPostSendReconciler !== undefined &&
+    updateResult.isOk() &&
+    updateResult.value
+  ) {
+    const reconcileResult = await weeklyProgressDigestPostSendReconciler.reconcile({
+      outboxId,
+      userId: delivery.userId,
+      sentAt,
+      metadata: weeklyProgressDigestMetadata,
+    });
+    if (reconcileResult.isErr()) {
+      log.error(
+        { outboxId, error: reconcileResult.error },
+        'Failed to reconcile weekly progress digest cursor after send'
+      );
+    }
   }
 
   log.info({ outboxId, resendEmailId: sendResult.value.emailId }, 'Email sent successfully');
@@ -392,6 +499,7 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
     apiBaseUrl,
     environment,
     bullmqPrefix,
+    weeklyProgressDigestPostSendReconciler,
     maxRps = 2,
     concurrency = 5,
   } = deps;
@@ -410,6 +518,9 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
           tokenSigner,
           apiBaseUrl,
           environment,
+          ...(weeklyProgressDigestPostSendReconciler !== undefined
+            ? { weeklyProgressDigestPostSendReconciler }
+            : {}),
           log,
         },
         job.data

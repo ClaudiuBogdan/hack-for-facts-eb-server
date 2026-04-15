@@ -297,6 +297,53 @@ export interface AdminReviewedInteractionProps extends BaseTemplateProps {
   nextStepLinks?: AdminReviewedInteractionNextStepLink[];
 }
 
+export type WeeklyProgressDigestStatusTone = 'danger' | 'warning' | 'success';
+
+export interface WeeklyProgressDigestSummary {
+  totalItemCount: number;
+  visibleItemCount: number;
+  hiddenItemCount: number;
+  actionNowCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  pendingCount: number;
+  draftCount: number;
+  failedCount: number;
+}
+
+export interface WeeklyProgressDigestItem {
+  itemKey: string;
+  interactionId: string;
+  interactionLabel: string;
+  entityName: string;
+  statusLabel: string;
+  statusTone: WeeklyProgressDigestStatusTone;
+  title: string;
+  description: string;
+  updatedAt: string;
+  reviewedAt?: string;
+  feedbackSnippet?: string;
+  actionLabel: string;
+  actionUrl: string;
+}
+
+export interface WeeklyProgressDigestCta {
+  label: string;
+  url: string;
+}
+
+export interface WeeklyProgressDigestProps extends BaseTemplateProps {
+  templateType: 'weekly_progress_digest';
+  campaignKey: 'funky';
+  weekKey: string;
+  periodLabel: string;
+  summary: WeeklyProgressDigestSummary;
+  items: WeeklyProgressDigestItem[];
+  primaryCta: WeeklyProgressDigestCta;
+  secondaryCtas: WeeklyProgressDigestCta[];
+  allUpdatesUrl?: string | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle Template Props
 // ─────────────────────────────────────────────────────────────────────────────

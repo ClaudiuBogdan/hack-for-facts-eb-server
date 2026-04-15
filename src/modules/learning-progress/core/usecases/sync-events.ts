@@ -9,6 +9,7 @@ import {
   createTooManyEventsError,
   type LearningProgressError,
 } from '../errors.js';
+import { isInternalInteractionId, isInternalRecordKey } from '../internal-records.js';
 import {
   MAX_EVENTS_PER_REQUEST,
   type InteractiveAuditEvent,
@@ -256,6 +257,12 @@ function validatePublicInteractiveRecord(
   record: InteractiveStateRecord,
   eventId: string
 ): Result<void, LearningProgressError> {
+  if (isInternalRecordKey(record.key) || isInternalInteractionId(record.interactionId)) {
+    return err(
+      createInvalidEventError('Public progress sync cannot set internal records.', eventId)
+    );
+  }
+
   if (record.phase === 'idle' || record.phase === 'draft') {
     if (record.result !== null) {
       return err(

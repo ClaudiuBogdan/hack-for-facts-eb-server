@@ -15,6 +15,11 @@ export type {
   WelcomeEmailProps,
   PublicDebateEntityUpdateProps,
   AdminReviewedInteractionProps,
+  WeeklyProgressDigestStatusTone,
+  WeeklyProgressDigestSummary,
+  WeeklyProgressDigestItem,
+  WeeklyProgressDigestCta,
+  WeeklyProgressDigestProps,
   AnafForexebugDigestSection,
   AnafForexebugDigestProps,
   EmailTemplateProps,
@@ -37,12 +42,17 @@ export {
   WelcomePayloadSchema,
   PublicDebateEntityUpdatePayloadSchema,
   AdminReviewedInteractionPayloadSchema,
+  WeeklyProgressDigestSummarySchema,
+  WeeklyProgressDigestItemSchema,
+  WeeklyProgressDigestCtaSchema,
+  WeeklyProgressDigestPayloadSchema,
   AnafForexebugDigestPayloadSchema,
 } from './core/schemas.js';
 export type {
   WelcomePayload,
   PublicDebateEntityUpdatePayload,
   AdminReviewedInteractionPayload,
+  WeeklyProgressDigestPayload,
   AnafForexebugDigestPayload,
 } from './core/schemas.js';
 
