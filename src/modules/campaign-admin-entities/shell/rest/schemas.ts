@@ -168,6 +168,7 @@ export const CampaignAdminEntitiesListResponseSchema = Type.Object(
         items: Type.Array(CampaignAdminEntityListItemSchema),
         page: Type.Object(
           {
+            totalCount: Type.Integer({ minimum: 0 }),
             hasMore: Type.Boolean(),
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             sortBy: CampaignAdminEntitiesSortBySchema,

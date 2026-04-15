@@ -113,6 +113,7 @@ export const toCampaignNotificationRunnablePlanView = (input: {
     summary: input.plan.summary,
     rows: input.rows.map((row) => row.preview),
     page: {
+      totalCount: input.plan.summary.totalRowCount,
       nextCursor: input.nextCursor,
       hasMore: input.hasMore,
     },

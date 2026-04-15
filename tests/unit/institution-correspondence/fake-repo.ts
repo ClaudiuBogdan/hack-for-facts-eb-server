@@ -460,7 +460,7 @@ export const makeInMemoryCorrespondenceRepo = (
     },
 
     async listPendingReplies(input) {
-      const items = threads
+      const matchingItems = threads
         .filter((thread) => thread.phase === 'reply_received_unreviewed')
         .map((thread) => {
           const reply =
@@ -470,11 +470,12 @@ export const makeInMemoryCorrespondenceRepo = (
 
           return reply !== null ? { thread, reply } : null;
         })
-        .filter((item): item is NonNullable<typeof item> => item !== null)
-        .slice(input.offset, input.offset + input.limit + 1);
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+      const items = matchingItems.slice(input.offset, input.offset + input.limit + 1);
 
       return ok({
         items: items.slice(0, input.limit),
+        totalCount: matchingItems.length,
         hasMore: items.length > input.limit,
         limit: input.limit,
         offset: input.offset,

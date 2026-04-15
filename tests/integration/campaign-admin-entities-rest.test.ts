@@ -13,6 +13,7 @@ import {
 } from '@/modules/campaign-admin-entities/index.js';
 
 interface CampaignAdminEntitiesResponsePage {
+  readonly totalCount: number;
   readonly hasMore: boolean;
   readonly nextCursor: string | null;
   readonly sortBy: string;
@@ -55,6 +56,7 @@ const makeRepository = (implementation?: {
         implementation?.list?.(input) ??
         ok({
           items: [],
+          totalCount: 0,
           nextCursor: null,
           hasMore: false,
         })
@@ -256,6 +258,7 @@ describe('campaign admin entities routes', () => {
               latestNotificationStatus: 'failed_transient',
             },
           ],
+          totalCount: 1,
           nextCursor: null,
           hasMore: false,
         }),
@@ -312,6 +315,7 @@ describe('campaign admin entities routes', () => {
       list: async () =>
         ok({
           items: [],
+          totalCount: 0,
           nextCursor: null,
           hasMore: false,
         }),
@@ -378,6 +382,7 @@ describe('campaign admin entities routes', () => {
       data: {
         items: [],
         page: {
+          totalCount: 0,
           hasMore: false,
           nextCursor: null,
           sortBy: 'latestInteractionAt',
@@ -624,6 +629,7 @@ describe('campaign admin entities routes', () => {
               latestNotificationStatus: 'failed_transient',
             },
           ],
+          totalCount: 2,
           hasMore: true,
           nextCursor: {
             sortBy: input.sortBy,

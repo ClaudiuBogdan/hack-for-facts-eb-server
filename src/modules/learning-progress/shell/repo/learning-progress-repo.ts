@@ -786,6 +786,17 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                   on latest_rows.user_id = base_users.user_id
                 left join latest_terms_rows
                   on latest_terms_rows.user_id = base_users.user_id
+              ),
+              filtered_aggregated_user_rows as (
+                select *
+                from aggregated_user_rows
+                where aggregated_user_rows.latest_updated_at is not null
+              ),
+              counted_user_rows as (
+                select
+                  filtered_aggregated_user_rows.*,
+                  count(*) over ()::int as total_count
+                from filtered_aggregated_user_rows
               )
               select
                 aggregated_user_rows.user_id,
@@ -793,9 +804,10 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                 aggregated_user_rows.pending_review_count,
                 aggregated_user_rows.latest_updated_at,
                 aggregated_user_rows.latest_interaction_id,
-                aggregated_user_rows.latest_entity_cui
-              from aggregated_user_rows
-              where aggregated_user_rows.latest_updated_at is not null
+                aggregated_user_rows.latest_entity_cui,
+                aggregated_user_rows.total_count
+              from counted_user_rows as aggregated_user_rows
+              where true
                 ${cursorFilterSql}
               ${orderBySql}
               limit ${input.limit + 1}
@@ -897,6 +909,17 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                   on latest_interaction_rows.user_id = base_users.user_id
                 left join latest_terms_rows
                   on latest_terms_rows.user_id = base_users.user_id
+              ),
+              filtered_aggregated_user_rows as (
+                select *
+                from aggregated_user_rows
+                where aggregated_user_rows.latest_updated_at is not null
+              ),
+              counted_user_rows as (
+                select
+                  filtered_aggregated_user_rows.*,
+                  count(*) over ()::int as total_count
+                from filtered_aggregated_user_rows
               )
               select
                 aggregated_user_rows.user_id,
@@ -904,9 +927,10 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
                 aggregated_user_rows.pending_review_count,
                 aggregated_user_rows.latest_updated_at,
                 aggregated_user_rows.latest_interaction_id,
-                aggregated_user_rows.latest_entity_cui
-              from aggregated_user_rows
-              where aggregated_user_rows.latest_updated_at is not null
+                aggregated_user_rows.latest_entity_cui,
+                aggregated_user_rows.total_count
+              from counted_user_rows as aggregated_user_rows
+              where true
                 ${cursorFilterSql}
               ${orderBySql}
               limit ${input.limit + 1}
@@ -914,6 +938,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
       const hasMore = result.rows.length > input.limit;
       const pageRows = result.rows.slice(0, input.limit);
+      const totalCount = pageRows[0]?.total_count ?? 0;
       const items = pageRows.map(
         (row): CampaignAdminUserRow => ({
           userId: row.user_id,
@@ -928,6 +953,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
       return ok({
         items,
+        totalCount,
         hasMore,
         nextCursor:
           hasMore && lastItem !== undefined
@@ -1353,6 +1379,7 @@ interface CampaignAdminUserAggregateQueryRow {
   latest_updated_at: Date | string;
   latest_interaction_id: string | null;
   latest_entity_cui: string | null;
+  total_count: number;
 }
 
 interface CampaignAdminUserMetaCountsQueryRow {

@@ -34,6 +34,7 @@ describe('listPendingReplies', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.items).toHaveLength(1);
+      expect(result.value.totalCount).toBe(1);
       expect(result.value.items[0]?.thread.id).toBe('thread-1');
       expect(result.value.items[0]?.reply.id).toBe('entry-new');
       expect(result.value.hasMore).toBe(false);

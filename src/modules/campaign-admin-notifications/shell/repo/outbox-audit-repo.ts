@@ -80,6 +80,10 @@ interface MetaCountsRow {
   reply_received_count: string | number | bigint;
 }
 
+interface CountRow {
+  total_count: string | number | bigint;
+}
+
 const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_WELCOME_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
@@ -96,9 +100,9 @@ const FAILED_DELIVERY_STATUSES = [
 ] as const;
 const MAX_SAFE_INTEGER_AS_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 
-const parseMetaCountValue = (
+const parseCountValue = (
   value: string | number | bigint,
-  fieldName: keyof MetaCountsRow
+  fieldName: string
 ): Result<number, CampaignAdminNotificationError> => {
   if (typeof value === 'number') {
     if (Number.isSafeInteger(value) && value >= 0) {
@@ -374,85 +378,104 @@ export const makeCampaignNotificationOutboxAuditRepo = (
       }
 
       try {
-        let query = deps.db
+        let filteredQuery = deps.db
           .selectFrom('notificationsoutbox as outbox')
-          .select([
-            'outbox.id as id',
-            'outbox.user_id as userId',
-            'outbox.notification_type as notificationType',
-            'outbox.template_name as templateName',
-            'outbox.template_version as templateVersion',
-            'outbox.status as status',
-            'outbox.attempt_count as attemptCount',
-            'outbox.created_at as createdAt',
-            'outbox.sent_at as sentAt',
-            'outbox.last_attempt_at as lastAttemptAt',
-            'outbox.last_error as lastError',
-            'outbox.metadata as metadata',
-            sql<string | null>`outbox.metadata->>'entityCui'`.as('entityCui'),
-            sql<string | null>`outbox.metadata->>'entityName'`.as('entityName'),
-            sql<string | null>`outbox.metadata->>'acceptedTermsAt'`.as('acceptedTermsAt'),
-            sql<
-              number | null
-            >`jsonb_array_length(coalesce(outbox.metadata->'selectedEntities', '[]'::jsonb))`.as(
-              'selectedEntitiesCount'
-            ),
-            sql<string | null>`outbox.metadata->>'threadId'`.as('threadId'),
-            sql<string | null>`outbox.metadata->>'threadKey'`.as('threadKey'),
-            sql<string | null>`outbox.metadata->>'eventType'`.as('eventType'),
-            sql<string | null>`outbox.metadata->>'phase'`.as('phase'),
-            sql<string | null>`outbox.metadata->>'replyEntryId'`.as('replyEntryId'),
-            sql<string | null>`outbox.metadata->>'basedOnEntryId'`.as('basedOnEntryId'),
-            sql<string | null>`outbox.metadata->>'resolutionCode'`.as('resolutionCode'),
-            sql<string | null>`outbox.metadata->>'recordKey'`.as('recordKey'),
-            sql<string | null>`outbox.metadata->>'interactionId'`.as('interactionId'),
-            sql<string | null>`outbox.metadata->>'interactionLabel'`.as('interactionLabel'),
-            sql<'approved' | 'rejected' | null>`outbox.metadata->>'reviewStatus'`.as(
-              'reviewStatus'
-            ),
-            sql<string | null>`outbox.metadata->>'reviewedAt'`.as('reviewedAt'),
-            sql<string | null>`outbox.metadata->>'feedbackText'`.as('feedbackText'),
-            sql<
-              number | null
-            >`jsonb_array_length(coalesce(outbox.metadata->'nextStepLinks', '[]'::jsonb))`.as(
-              'nextStepCount'
-            ),
-            buildTriggerSourceExpression().as('triggerSource'),
-          ])
           .where('outbox.notification_type', 'in', [...FUNKY_AUDIT_NOTIFICATION_TYPES])
           .where(sql<boolean>`outbox.metadata->>'campaignKey' = ${input.campaignKey}`);
 
         if (input.notificationType !== undefined) {
-          query = query.where('outbox.notification_type', '=', input.notificationType);
+          filteredQuery = filteredQuery.where(
+            'outbox.notification_type',
+            '=',
+            input.notificationType
+          );
         }
 
         if (input.templateId !== undefined) {
-          query = query.where('outbox.template_name', '=', input.templateId);
+          filteredQuery = filteredQuery.where('outbox.template_name', '=', input.templateId);
         }
 
         if (input.userId !== undefined) {
-          query = query.where('outbox.user_id', '=', input.userId);
+          filteredQuery = filteredQuery.where('outbox.user_id', '=', input.userId);
         }
 
         if (input.status !== undefined) {
-          query = query.where(sql<boolean>`outbox.status = ${input.status}`);
+          filteredQuery = filteredQuery.where(sql<boolean>`outbox.status = ${input.status}`);
         }
 
         if (input.eventType !== undefined) {
-          query = query.where(sql<boolean>`outbox.metadata->>'eventType' = ${input.eventType}`);
+          filteredQuery = filteredQuery.where(
+            sql<boolean>`outbox.metadata->>'eventType' = ${input.eventType}`
+          );
         }
 
         if (input.entityCui !== undefined) {
-          query = query.where(sql<boolean>`outbox.metadata->>'entityCui' = ${input.entityCui}`);
+          filteredQuery = filteredQuery.where(
+            sql<boolean>`outbox.metadata->>'entityCui' = ${input.entityCui}`
+          );
         }
 
         if (input.threadId !== undefined) {
-          query = query.where(sql<boolean>`outbox.metadata->>'threadId' = ${input.threadId}`);
+          filteredQuery = filteredQuery.where(
+            sql<boolean>`outbox.metadata->>'threadId' = ${input.threadId}`
+          );
         }
 
         if (input.source !== undefined) {
-          query = query.where(sql<boolean>`${buildTriggerSourceExpression()} = ${input.source}`);
+          filteredQuery = filteredQuery.where(
+            sql<boolean>`${buildTriggerSourceExpression()} = ${input.source}`
+          );
         }
+
+        const countRow = (await filteredQuery
+          .select((eb) => eb.fn.countAll().as('total_count'))
+          .executeTakeFirst()) as CountRow | undefined;
+        const totalCountResult = parseCountValue(countRow?.total_count ?? 0, 'total_count');
+        if (totalCountResult.isErr()) {
+          return err(totalCountResult.error);
+        }
+
+        let query = filteredQuery.select([
+          'outbox.id as id',
+          'outbox.user_id as userId',
+          'outbox.notification_type as notificationType',
+          'outbox.template_name as templateName',
+          'outbox.template_version as templateVersion',
+          'outbox.status as status',
+          'outbox.attempt_count as attemptCount',
+          'outbox.created_at as createdAt',
+          'outbox.sent_at as sentAt',
+          'outbox.last_attempt_at as lastAttemptAt',
+          'outbox.last_error as lastError',
+          'outbox.metadata as metadata',
+          sql<string | null>`outbox.metadata->>'entityCui'`.as('entityCui'),
+          sql<string | null>`outbox.metadata->>'entityName'`.as('entityName'),
+          sql<string | null>`outbox.metadata->>'acceptedTermsAt'`.as('acceptedTermsAt'),
+          sql<
+            number | null
+          >`jsonb_array_length(coalesce(outbox.metadata->'selectedEntities', '[]'::jsonb))`.as(
+            'selectedEntitiesCount'
+          ),
+          sql<string | null>`outbox.metadata->>'threadId'`.as('threadId'),
+          sql<string | null>`outbox.metadata->>'threadKey'`.as('threadKey'),
+          sql<string | null>`outbox.metadata->>'eventType'`.as('eventType'),
+          sql<string | null>`outbox.metadata->>'phase'`.as('phase'),
+          sql<string | null>`outbox.metadata->>'replyEntryId'`.as('replyEntryId'),
+          sql<string | null>`outbox.metadata->>'basedOnEntryId'`.as('basedOnEntryId'),
+          sql<string | null>`outbox.metadata->>'resolutionCode'`.as('resolutionCode'),
+          sql<string | null>`outbox.metadata->>'recordKey'`.as('recordKey'),
+          sql<string | null>`outbox.metadata->>'interactionId'`.as('interactionId'),
+          sql<string | null>`outbox.metadata->>'interactionLabel'`.as('interactionLabel'),
+          sql<'approved' | 'rejected' | null>`outbox.metadata->>'reviewStatus'`.as('reviewStatus'),
+          sql<string | null>`outbox.metadata->>'reviewedAt'`.as('reviewedAt'),
+          sql<string | null>`outbox.metadata->>'feedbackText'`.as('feedbackText'),
+          sql<
+            number | null
+          >`jsonb_array_length(coalesce(outbox.metadata->'nextStepLinks', '[]'::jsonb))`.as(
+            'nextStepCount'
+          ),
+          buildTriggerSourceExpression().as('triggerSource'),
+        ]);
 
         if (input.cursor !== undefined) {
           query = applyCursor(query, input.sortBy, input.sortOrder, input.cursor);
@@ -483,6 +506,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
 
         return ok({
           items,
+          totalCount: totalCountResult.value,
           nextCursor:
             hasMore && lastRow !== undefined
               ? {
@@ -530,7 +554,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
           reply_received_count: 0,
         };
 
-        const pendingDeliveryCount = parseMetaCountValue(
+        const pendingDeliveryCount = parseCountValue(
           counts.pending_delivery_count,
           'pending_delivery_count'
         );
@@ -542,7 +566,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
           return err(pendingDeliveryCount.error);
         }
 
-        const failedDeliveryCount = parseMetaCountValue(
+        const failedDeliveryCount = parseCountValue(
           counts.failed_delivery_count,
           'failed_delivery_count'
         );
@@ -554,7 +578,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
           return err(failedDeliveryCount.error);
         }
 
-        const replyReceivedCount = parseMetaCountValue(
+        const replyReceivedCount = parseCountValue(
           counts.reply_received_count,
           'reply_received_count'
         );

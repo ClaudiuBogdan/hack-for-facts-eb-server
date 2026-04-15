@@ -391,6 +391,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '44444444',
         },
       ]);
+      expect(firstPage.value.totalCount).toBe(4);
       expect(firstPage.value.hasMore).toBe(true);
       expect(firstPage.value.nextCursor).toEqual({
         sortBy: 'interactionCount',
@@ -450,6 +451,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '66666666',
         },
       ]);
+      expect(secondPage.value.totalCount).toBe(4);
       expect(secondPage.value.hasMore).toBe(false);
       expect(secondPage.value.nextCursor).toBeNull();
 
@@ -496,6 +498,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '55555555',
         },
       ]);
+      expect(filtered.value.totalCount).toBe(1);
     } finally {
       await userDb.destroy();
       await database.stop();
@@ -823,6 +826,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '11111111',
         },
       ]);
+      expect(firstPage.value.totalCount).toBe(3);
       expect(firstPage.value.hasMore).toBe(true);
       expect(firstPage.value.nextCursor).toEqual({
         sortBy: 'latestUpdatedAt',
@@ -872,6 +876,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '11111111',
         },
       ]);
+      expect(secondPage.value.totalCount).toBe(3);
       expect(secondPage.value.hasMore).toBe(false);
       expect(secondPage.value.nextCursor).toBeNull();
 
@@ -948,6 +953,7 @@ describe('Learning progress repo campaign-admin users', () => {
       }
 
       expect(outboxOnly.value.items).toEqual([]);
+      expect(outboxOnly.value.totalCount).toBe(0);
       expect(outboxOnly.value.hasMore).toBe(false);
       expect(outboxOnly.value.nextCursor).toBeNull();
     } finally {
@@ -1093,6 +1099,7 @@ describe('Learning progress repo campaign-admin users', () => {
           latestEntityCui: '12345678',
         },
       ]);
+      expect(listResult.value.totalCount).toBe(2);
 
       const metaCounts = await repo.getCampaignAdminUsersMetaCounts({
         campaignKey: 'funky',

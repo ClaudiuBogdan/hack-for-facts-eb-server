@@ -340,6 +340,7 @@ export const makeCampaignAdminNotificationRoutes = (
           data: {
             items: result.value.items,
             page: {
+              totalCount: result.value.totalCount,
               nextCursor:
                 result.value.nextCursor === null ? null : encodeCursor(result.value.nextCursor),
               hasMore: result.value.hasMore,

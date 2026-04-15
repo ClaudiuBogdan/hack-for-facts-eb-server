@@ -1216,6 +1216,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 2,
           hasMore: false,
           nextCursor: null,
         },
@@ -1287,13 +1288,14 @@ describe('Campaign Admin User Interactions REST API', () => {
       ok: boolean;
       data: {
         items: Record<string, unknown>[];
-        page: { limit: number; hasMore: boolean; nextCursor: string | null };
+        page: { limit: number; totalCount: number; hasMore: boolean; nextCursor: string | null };
       };
     }>();
 
     expect(body.ok).toBe(true);
     expect(body.data.page).toEqual({
       limit: 50,
+      totalCount: 7,
       hasMore: false,
       nextCursor: null,
     });
@@ -1428,6 +1430,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },
@@ -1492,6 +1495,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },
@@ -1541,6 +1545,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },
@@ -1612,7 +1617,7 @@ describe('Campaign Admin User Interactions REST API', () => {
       ok: boolean;
       data: {
         items: Record<string, unknown>[];
-        page: { limit: number; hasMore: boolean; nextCursor: string | null };
+        page: { limit: number; totalCount: number; hasMore: boolean; nextCursor: string | null };
       };
     }>();
 
@@ -1670,6 +1675,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 1,
+          totalCount: 2,
           hasMore: false,
           nextCursor: null,
         },
@@ -1850,6 +1856,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         items: { organizationName: string | null }[];
         page: {
           limit: number;
+          totalCount: number;
           hasMore: boolean;
           nextCursor: string | null;
           sortBy?: string;
@@ -1868,6 +1875,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 1,
+          totalCount: 3,
           hasMore: true,
           nextCursor: expect.any(String),
           sortBy: 'organizationName',
@@ -1902,6 +1910,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 1,
+          totalCount: 3,
           hasMore: true,
           nextCursor: expect.any(String),
           sortBy: 'organizationName',
@@ -1967,6 +1976,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },
@@ -2085,6 +2095,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },
@@ -2190,6 +2201,7 @@ describe('Campaign Admin User Interactions REST API', () => {
         ],
         page: {
           limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
         },

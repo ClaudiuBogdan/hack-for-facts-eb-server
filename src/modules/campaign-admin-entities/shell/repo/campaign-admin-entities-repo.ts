@@ -64,6 +64,7 @@ interface EntityAggregateRow {
   latest_notification_at: unknown;
   latest_notification_type: string | null;
   latest_notification_status: string | null;
+  total_count: number | string;
 }
 
 interface MetaRow {
@@ -823,6 +824,47 @@ class KyselyCampaignAdminEntitiesRepo implements CampaignAdminEntitiesRepository
               : {}),
             ...(input.interactionId !== undefined ? { interactionId: input.interactionId } : {}),
           })}
+          ,
+          filtered_entity_rows as (
+            select *
+            from aggregated_entity_rows
+            where true
+              ${buildEntityListFiltersSql({
+                ...(input.interactionId !== undefined
+                  ? { interactionId: input.interactionId }
+                  : {}),
+                ...(input.hasPendingReviews !== undefined
+                  ? { hasPendingReviews: input.hasPendingReviews }
+                  : {}),
+                ...(input.hasSubscribers !== undefined
+                  ? { hasSubscribers: input.hasSubscribers }
+                  : {}),
+                ...(input.hasNotificationActivity !== undefined
+                  ? { hasNotificationActivity: input.hasNotificationActivity }
+                  : {}),
+                ...(input.hasFailedNotifications !== undefined
+                  ? { hasFailedNotifications: input.hasFailedNotifications }
+                  : {}),
+                ...(validationResult.value.updatedAtFrom !== undefined
+                  ? { updatedAtFrom: validationResult.value.updatedAtFrom }
+                  : {}),
+                ...(validationResult.value.updatedAtTo !== undefined
+                  ? { updatedAtTo: validationResult.value.updatedAtTo }
+                  : {}),
+                ...(input.latestNotificationType !== undefined
+                  ? { latestNotificationType: input.latestNotificationType }
+                  : {}),
+                ...(input.latestNotificationStatus !== undefined
+                  ? { latestNotificationStatus: input.latestNotificationStatus }
+                  : {}),
+              })}
+          ),
+          counted_entity_rows as (
+            select
+              filtered_entity_rows.*,
+              count(*) over ()::int as total_count
+            from filtered_entity_rows
+          )
           select
             entity_cui,
             user_count,
@@ -835,36 +877,10 @@ class KyselyCampaignAdminEntitiesRepo implements CampaignAdminEntitiesRepository
             latest_interaction_id,
             latest_notification_at,
             latest_notification_type,
-            latest_notification_status
-          from aggregated_entity_rows
+            latest_notification_status,
+            total_count
+          from counted_entity_rows
           where true
-            ${buildEntityListFiltersSql({
-              ...(input.interactionId !== undefined ? { interactionId: input.interactionId } : {}),
-              ...(input.hasPendingReviews !== undefined
-                ? { hasPendingReviews: input.hasPendingReviews }
-                : {}),
-              ...(input.hasSubscribers !== undefined
-                ? { hasSubscribers: input.hasSubscribers }
-                : {}),
-              ...(input.hasNotificationActivity !== undefined
-                ? { hasNotificationActivity: input.hasNotificationActivity }
-                : {}),
-              ...(input.hasFailedNotifications !== undefined
-                ? { hasFailedNotifications: input.hasFailedNotifications }
-                : {}),
-              ...(validationResult.value.updatedAtFrom !== undefined
-                ? { updatedAtFrom: validationResult.value.updatedAtFrom }
-                : {}),
-              ...(validationResult.value.updatedAtTo !== undefined
-                ? { updatedAtTo: validationResult.value.updatedAtTo }
-                : {}),
-              ...(input.latestNotificationType !== undefined
-                ? { latestNotificationType: input.latestNotificationType }
-                : {}),
-              ...(input.latestNotificationStatus !== undefined
-                ? { latestNotificationStatus: input.latestNotificationStatus }
-                : {}),
-            })}
             ${cursorFilterSqlResult.value}
           ${buildOrderBySql(input.sortBy, input.sortOrder)}
           limit ${input.limit + 1}
@@ -872,6 +888,7 @@ class KyselyCampaignAdminEntitiesRepo implements CampaignAdminEntitiesRepository
 
         const hasMore = result.rows.length > input.limit;
         const pageRows = result.rows.slice(0, input.limit);
+        const totalCount = parseCount(pageRows[0]?.total_count);
         const entityNameMap = await loadEntityNameMap({
           entityCuis: pageRows.map((row) => row.entity_cui),
           entityRepo: this.entityRepo,
@@ -887,6 +904,7 @@ class KyselyCampaignAdminEntitiesRepo implements CampaignAdminEntitiesRepository
 
         return ok({
           items,
+          totalCount,
           hasMore,
           nextCursor:
             hasMore && lastItem !== undefined

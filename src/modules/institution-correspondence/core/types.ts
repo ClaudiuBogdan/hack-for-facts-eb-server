@@ -179,6 +179,7 @@ export interface PendingReplyItem {
 
 export interface PendingReplyPage {
   items: PendingReplyItem[];
+  totalCount: number;
   hasMore: boolean;
   limit: number;
   offset: number;

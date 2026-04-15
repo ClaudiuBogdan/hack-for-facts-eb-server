@@ -471,10 +471,23 @@ export const makeInstitutionCorrespondenceRepo = (
 
     async listPendingReplies(input) {
       try {
+        const hasInboundReplySql = sql<boolean>`exists (
+          select 1
+          from jsonb_array_elements(institutionemailthreads.record->'correspondence') as correspondence_entry
+          where correspondence_entry->>'direction' = 'inbound'
+        )`;
+        const countRow = (await db
+          .selectFrom('institutionemailthreads')
+          .select((eb) => eb.fn.countAll().as('total_count'))
+          .where('phase', '=', REVIEWABLE_PHASE)
+          .where(hasInboundReplySql)
+          .executeTakeFirst()) as { total_count?: number | string | bigint } | undefined;
+        const totalCount = Number(countRow?.total_count ?? 0);
         const rows = await db
           .selectFrom('institutionemailthreads')
           .selectAll()
           .where('phase', '=', REVIEWABLE_PHASE)
+          .where(hasInboundReplySql)
           .orderBy('last_reply_at', 'desc')
           .limit(input.limit + 1)
           .offset(input.offset)
@@ -490,6 +503,7 @@ export const makeInstitutionCorrespondenceRepo = (
 
         return ok({
           items: mapped.slice(0, input.limit),
+          totalCount,
           hasMore: mapped.length > input.limit,
           limit: input.limit,
           offset: input.offset,

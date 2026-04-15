@@ -401,6 +401,7 @@ export interface ListCampaignAdminUsersInput {
 
 export interface ListCampaignAdminUsersOutput {
   readonly items: readonly CampaignAdminUserRow[];
+  readonly totalCount: number;
   readonly hasMore: boolean;
   readonly nextCursor: CampaignAdminUserListCursor | null;
 }
