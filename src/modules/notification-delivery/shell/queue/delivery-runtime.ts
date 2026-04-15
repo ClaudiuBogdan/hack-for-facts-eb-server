@@ -17,6 +17,7 @@ import type {
   EmailSenderPort,
   ExtendedNotificationsRepository,
   UserEmailFetcher,
+  WeeklyProgressDigestPostSendReconciler,
 } from '../../core/ports.js';
 import type {
   CollectJobPayload,
@@ -40,6 +41,7 @@ export interface NotificationDeliveryWorkerDeps {
   platformBaseUrl: string;
   apiBaseUrl: string;
   environment: string;
+  weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
   maxSendRps?: number;
 }
 
@@ -160,6 +162,12 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           logger,
           apiBaseUrl: workerDeps.apiBaseUrl,
           environment: workerDeps.environment,
+          ...(workerDeps.weeklyProgressDigestPostSendReconciler !== undefined
+            ? {
+                weeklyProgressDigestPostSendReconciler:
+                  workerDeps.weeklyProgressDigestPostSendReconciler,
+              }
+            : {}),
           bullmqPrefix,
           concurrency,
           ...(workerDeps.maxSendRps !== undefined ? { maxRps: workerDeps.maxSendRps } : {}),

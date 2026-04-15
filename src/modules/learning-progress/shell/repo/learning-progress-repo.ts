@@ -8,6 +8,7 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX } from '@/common/campaign-keys.js';
+import { INTERNAL_NAMESPACE_PREFIX } from '@/modules/learning-progress/core/internal-records.js';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
 import { jsonValuesAreEqual } from '../../core/json-equality.js';
@@ -400,6 +401,12 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         .selectFrom(USER_INTERACTIONS_TABLE)
         .select(LEARNING_PROGRESS_ROW_COLUMNS)
         .where('user_id', '=', userId);
+
+      if (options?.includeInternal !== true) {
+        query = query.where(
+          sql<boolean>`record_key NOT LIKE ${`${escapeLikePattern(INTERNAL_NAMESPACE_PREFIX)}%`} ESCAPE '\\'`
+        );
+      }
 
       if (options?.recordKeyPrefix !== undefined) {
         query = query.where(
@@ -1156,7 +1163,13 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
   async resetProgress(userId: string): Promise<Result<void, LearningProgressError>> {
     try {
-      await this.db.deleteFrom(USER_INTERACTIONS_TABLE).where('user_id', '=', userId).execute();
+      await this.db
+        .deleteFrom(USER_INTERACTIONS_TABLE)
+        .where('user_id', '=', userId)
+        .where(
+          sql<boolean>`record_key NOT LIKE ${`${escapeLikePattern(INTERNAL_NAMESPACE_PREFIX)}%`} ESCAPE '\\'`
+        )
+        .execute();
       return ok(undefined);
     } catch (error) {
       this.log.error({ err: error, userId }, 'Failed to reset learning progress');

@@ -12,6 +12,7 @@ import type {
   ResendWebhookEvent,
   ComposeJobPayload,
 } from './types.js';
+import type { WeeklyProgressDigestOutboxMetadata } from './weekly-progress-digest.js';
 import type { Notification, NotificationType } from '@/modules/notifications/core/types.js';
 import type { Decimal } from 'decimal.js';
 import type { Result } from 'neverthrow';
@@ -241,6 +242,16 @@ export interface ExtendedNotificationsRepository {
   ): Promise<Result<TargetedNotificationEligibility, DeliveryError>>;
 
   /**
+   * Evaluates whether one user is currently eligible for a user-scoped
+   * notification type such as the Funky weekly digest. Optional during rollout
+   * so older test doubles can continue compiling.
+   */
+  findEligibleByUserType?(
+    userId: string,
+    notificationType: NotificationType
+  ): Promise<Result<UserScopedNotificationEligibility, DeliveryError>>;
+
+  /**
    * Finds active notifications for a specific type across all entities/users.
    * Used for recovery scans.
    */
@@ -273,6 +284,21 @@ export interface TargetedNotificationEligibility {
   isEligible: boolean;
   reason: TargetedNotificationEligibilityReason;
   notification: Notification | null;
+}
+
+export interface UserScopedNotificationEligibility {
+  isEligible: boolean;
+  reason: TargetedNotificationEligibilityReason;
+  notification: Notification | null;
+}
+
+export interface WeeklyProgressDigestPostSendReconciler {
+  reconcile(input: {
+    outboxId: string;
+    userId: string;
+    sentAt: Date;
+    metadata: WeeklyProgressDigestOutboxMetadata;
+  }): Promise<Result<void, DeliveryError>>;
 }
 
 /**

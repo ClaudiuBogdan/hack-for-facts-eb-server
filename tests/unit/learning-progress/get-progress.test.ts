@@ -64,6 +64,79 @@ describe('getProgress', () => {
     });
   });
 
+  it('excludes internal rows from public snapshots, deltas, and cursor calculation', async () => {
+    const publicRecord = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      updatedAt: '2024-01-15T10:00:00.000Z',
+    });
+    const internalRecord = createTestInteractiveRecord({
+      key: 'internal:funky:weekly_digest',
+      interactionId: 'internal:funky:weekly_digest',
+      lessonId: 'internal',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'global' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            campaignKey: 'funky',
+            lastSentAt: null,
+            watermarkAt: null,
+            weekKey: null,
+            outboxId: null,
+          },
+        },
+      },
+      updatedAt: '2024-01-15T11:00:00.000Z',
+    });
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: publicRecord.key,
+        record: publicRecord,
+        auditEvents: [],
+        updatedSeq: '5',
+        createdAt: publicRecord.updatedAt,
+        updatedAt: publicRecord.updatedAt,
+      },
+      {
+        userId: 'user-1',
+        recordKey: internalRecord.key,
+        record: internalRecord,
+        auditEvents: [],
+        updatedSeq: '9',
+        createdAt: internalRecord.updatedAt,
+        updatedAt: internalRecord.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    const result = await getProgress({ repo }, { userId: 'user-1', since: '0' });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({
+      snapshot: {
+        version: 1,
+        recordsByKey: {
+          [publicRecord.key]: publicRecord,
+        },
+        lastUpdated: '2024-01-15T10:00:00.000Z',
+      },
+      events: [
+        expect.objectContaining({
+          eventId: 'server:5:quiz-1::global',
+          payload: {
+            record: publicRecord,
+          },
+        }),
+      ],
+      cursor: '5',
+    });
+  });
+
   it('returns changed rows as synthetic interactive.updated deltas', async () => {
     const recordA = createTestInteractiveRecord({
       key: 'quiz-1::global',

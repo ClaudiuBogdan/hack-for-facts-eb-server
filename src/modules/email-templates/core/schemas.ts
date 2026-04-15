@@ -156,6 +156,58 @@ export const AdminReviewedInteractionPayloadSchema = Type.Object({
 
 export type AdminReviewedInteractionPayload = Static<typeof AdminReviewedInteractionPayloadSchema>;
 
+export const WeeklyProgressDigestStatusToneSchema = Type.Union([
+  Type.Literal('danger'),
+  Type.Literal('warning'),
+  Type.Literal('success'),
+]);
+
+export const WeeklyProgressDigestSummarySchema = Type.Object({
+  totalItemCount: Type.Integer({ minimum: 0 }),
+  visibleItemCount: Type.Integer({ minimum: 0 }),
+  hiddenItemCount: Type.Integer({ minimum: 0 }),
+  actionNowCount: Type.Integer({ minimum: 0 }),
+  approvedCount: Type.Integer({ minimum: 0 }),
+  rejectedCount: Type.Integer({ minimum: 0 }),
+  pendingCount: Type.Integer({ minimum: 0 }),
+  draftCount: Type.Integer({ minimum: 0 }),
+  failedCount: Type.Integer({ minimum: 0 }),
+});
+
+export const WeeklyProgressDigestItemSchema = Type.Object({
+  itemKey: Type.String({ minLength: 1 }),
+  interactionId: Type.String({ minLength: 1 }),
+  interactionLabel: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  statusLabel: Type.String({ minLength: 1 }),
+  statusTone: WeeklyProgressDigestStatusToneSchema,
+  title: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  updatedAt: Type.String({ minLength: 1 }),
+  reviewedAt: Type.Optional(Type.String({ minLength: 1 })),
+  feedbackSnippet: Type.Optional(Type.String({ minLength: 1 })),
+  actionLabel: Type.String({ minLength: 1 }),
+  actionUrl: Type.String({ minLength: 1 }),
+});
+
+export const WeeklyProgressDigestCtaSchema = Type.Object({
+  label: Type.String({ minLength: 1 }),
+  url: Type.String({ minLength: 1 }),
+});
+
+export const WeeklyProgressDigestPayloadSchema = Type.Object({
+  campaignKey: Type.Literal('funky'),
+  weekKey: Type.String({ minLength: 1 }),
+  periodLabel: Type.String({ minLength: 1 }),
+  summary: WeeklyProgressDigestSummarySchema,
+  items: Type.Array(WeeklyProgressDigestItemSchema),
+  primaryCta: WeeklyProgressDigestCtaSchema,
+  secondaryCtas: Type.Array(WeeklyProgressDigestCtaSchema, { maxItems: 2 }),
+  allUpdatesUrl: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+});
+
+export type WeeklyProgressDigestPayload = Static<typeof WeeklyProgressDigestPayloadSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alert Series Template
 // ─────────────────────────────────────────────────────────────────────────────

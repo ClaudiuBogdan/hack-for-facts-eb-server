@@ -413,6 +413,60 @@ describe('syncEvents', () => {
     });
   });
 
+  it('quarantines public sync attempts to author internal records without failing the request', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const record = createTestInteractiveRecord({
+      key: 'internal:funky:weekly_digest',
+      interactionId: 'internal:funky:weekly_digest',
+      lessonId: 'internal',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'global' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            campaignKey: 'funky',
+            lastSentAt: null,
+            watermarkAt: null,
+            weekKey: null,
+            outboxId: null,
+          },
+        },
+      },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: '2026-04-15T10:00:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-internal',
+            payload: {
+              record,
+            },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expectSyncEventsSuccess(result._unsafeUnwrap(), {
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-internal',
+          errorType: 'InvalidEventError',
+          message: 'Public progress sync cannot set internal records.',
+        },
+      ],
+      appliedEvents: [],
+    });
+  });
+
   it('preserves stored review metadata on newer public updates after review', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
@@ -854,10 +908,35 @@ describe('syncEvents', () => {
     expect(storedRecords._unsafeUnwrap()[0]?.record).toEqual(newerRecord);
   });
 
-  it('resets all rows for a user on progress.reset', async () => {
+  it('preserves internal rows for a user on progress.reset', async () => {
     const record = createTestInteractiveRecord({ key: 'system:learning-onboarding' });
+    const internalRecord = createTestInteractiveRecord({
+      key: 'internal:funky:weekly_digest',
+      interactionId: 'internal:funky:weekly_digest',
+      lessonId: 'internal',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'global' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            campaignKey: 'funky',
+            lastSentAt: null,
+            watermarkAt: null,
+            weekKey: null,
+            outboxId: null,
+          },
+        },
+      },
+      updatedAt: '2024-01-15T10:01:00.000Z',
+    });
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
-    initialRecords.set('user-1', [makeRow('user-1', record, '1')]);
+    initialRecords.set('user-1', [
+      makeRow('user-1', record, '1'),
+      makeRow('user-1', internalRecord, '2'),
+    ]);
 
     const repo = makeFakeLearningProgressRepo({ initialRecords });
 
@@ -875,9 +954,17 @@ describe('syncEvents', () => {
       newEventsCount: 1,
     });
 
-    const storedRecords = await repo.getRecords('user-1');
-    expect(storedRecords.isOk()).toBe(true);
-    expect(storedRecords._unsafeUnwrap()).toEqual([]);
+    const publicRecords = await repo.getRecords('user-1');
+    expect(publicRecords.isOk()).toBe(true);
+    expect(publicRecords._unsafeUnwrap()).toEqual([]);
+
+    const internalRecords = await repo.getRecords('user-1', { includeInternal: true });
+    expect(internalRecords.isOk()).toBe(true);
+    expect(internalRecords._unsafeUnwrap()).toEqual([
+      expect.objectContaining({
+        recordKey: 'internal:funky:weekly_digest',
+      }),
+    ]);
   });
 
   it('rolls back earlier writes when a later event in the batch fails', async () => {

@@ -239,6 +239,7 @@ import {
   makeResendWebhookDeliverySideEffect,
   makeTriggerRoutes,
   startNotificationDeliveryRuntime,
+  createWeeklyProgressDigestPostSendReconciler,
   type NotificationDeliveryRuntime,
   type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
@@ -1315,6 +1316,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
                   : config.server.isDevelopment
                     ? 'development'
                     : 'test',
+                weeklyProgressDigestPostSendReconciler:
+                  createWeeklyProgressDigestPostSendReconciler({
+                    learningProgressRepo,
+                    logger: repoLogger,
+                  }),
                 maxSendRps: config.email.maxRps,
               },
             }

@@ -7,6 +7,7 @@ import {
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
+  FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
   FUNKY_OUTBOX_WELCOME_TYPE,
 } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
@@ -71,6 +72,9 @@ interface QueryRow {
   reviewedAt: string | null;
   feedbackText: string | null;
   nextStepCount: number | null;
+  weekKey: string | null;
+  totalItemCount: number | null;
+  actionNowCount: number | null;
   metadata: unknown;
 }
 
@@ -90,6 +94,7 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
+  FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
 ] as const;
 const FUNKY_AUDIT_NOTIFICATION_TYPE_SET = new Set<string>(FUNKY_AUDIT_NOTIFICATION_TYPES);
 const PENDING_DELIVERY_STATUSES = ['pending', 'composing', 'sending'] as const;
@@ -268,6 +273,17 @@ const mapProjection = (row: QueryRow): CampaignNotificationProjection => {
       reviewedAt: metadata.reviewedAt,
       hasFeedbackText: metadata.feedbackText !== undefined && metadata.feedbackText.trim() !== '',
       nextStepCount: metadata.nextStepLinks?.length ?? 0,
+      triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
+    };
+  }
+
+  if (row.notificationType === FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE) {
+    return {
+      kind: 'weekly_progress_digest',
+      userId: row.userId,
+      weekKey: row.weekKey ?? '',
+      totalItemCount: row.totalItemCount,
+      actionNowCount: row.actionNowCount,
       triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
     };
   }
@@ -473,6 +489,13 @@ export const makeCampaignNotificationOutboxAuditRepo = (
             number | null
           >`jsonb_array_length(coalesce(outbox.metadata->'nextStepLinks', '[]'::jsonb))`.as(
             'nextStepCount'
+          ),
+          sql<string | null>`outbox.metadata->>'weekKey'`.as('weekKey'),
+          sql<number | null>`(outbox.metadata->'summary'->>'totalItemCount')::int`.as(
+            'totalItemCount'
+          ),
+          sql<number | null>`(outbox.metadata->'summary'->>'actionNowCount')::int`.as(
+            'actionNowCount'
           ),
           buildTriggerSourceExpression().as('triggerSource'),
         ]);
