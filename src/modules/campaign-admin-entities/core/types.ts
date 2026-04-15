@@ -109,6 +109,7 @@ export interface ListCampaignAdminEntitiesInput {
 
 export interface ListCampaignAdminEntitiesOutput {
   readonly items: readonly CampaignAdminEntityRow[];
+  readonly totalCount: number;
   readonly hasMore: boolean;
   readonly nextCursor: CampaignAdminEntityListCursor | null;
 }

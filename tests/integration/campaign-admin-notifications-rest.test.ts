@@ -151,7 +151,10 @@ const makeAuditRepository = (implementation?: {
   const repository: CampaignNotificationAuditRepository = {
     async listCampaignNotificationAudit(input) {
       calls.push(input);
-      return implementation?.list?.(input) ?? ok({ items: [], nextCursor: null, hasMore: false });
+      return (
+        implementation?.list?.(input) ??
+        ok({ items: [], totalCount: 0, nextCursor: null, hasMore: false })
+      );
     },
     async getCampaignNotificationMetaCounts() {
       metaCalls.push(1);
@@ -789,6 +792,7 @@ describe('campaign admin notifications routes', () => {
       list: async (input) =>
         ok({
           items: [],
+          totalCount: 2,
           hasMore: true,
           nextCursor: {
             sortBy: input.sortBy,
@@ -812,8 +816,9 @@ describe('campaign admin notifications routes', () => {
 
     expect(response.statusCode).toBe(200);
     const body: {
-      data: { page: { nextCursor: string | null } };
+      data: { page: { totalCount: number; nextCursor: string | null } };
     } = response.json();
+    expect(body.data.page.totalCount).toBe(2);
     const nextCursor = body.data.page.nextCursor;
     expect(nextCursor).not.toBeNull();
     if (nextCursor === null) {
@@ -1494,10 +1499,11 @@ describe('campaign admin notifications routes', () => {
     const firstPage: {
       data: {
         rows: { userId: string }[];
-        page: { hasMore: boolean; nextCursor: string | null };
+        page: { totalCount: number; hasMore: boolean; nextCursor: string | null };
       };
     } = firstPageResponse.json();
     expect(firstPage.data.rows).toHaveLength(1);
+    expect(firstPage.data.page.totalCount).toBe(2);
     expect(firstPage.data.page.hasMore).toBe(true);
     expect(firstPage.data.page.nextCursor).toEqual(expect.any(String));
 
@@ -1513,11 +1519,12 @@ describe('campaign admin notifications routes', () => {
     const secondPage: {
       data: {
         rows: { userId: string }[];
-        page: { hasMore: boolean; nextCursor: string | null };
+        page: { totalCount: number; hasMore: boolean; nextCursor: string | null };
       };
     } = secondPageResponse.json();
     expect(secondPage.data.rows).toHaveLength(1);
     expect(secondPage.data.rows[0]?.userId).not.toBe(firstPage.data.rows[0]?.userId);
+    expect(secondPage.data.page.totalCount).toBe(2);
     expect(secondPage.data.page.hasMore).toBe(false);
     expect(secondPage.data.page.nextCursor).toBeNull();
 

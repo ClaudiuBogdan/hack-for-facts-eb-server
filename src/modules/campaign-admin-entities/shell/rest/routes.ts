@@ -493,6 +493,7 @@ export const makeCampaignAdminEntitiesRoutes = (
           data: {
             items: result.value.items,
             page: {
+              totalCount: result.value.totalCount,
               hasMore: result.value.hasMore,
               nextCursor:
                 result.value.nextCursor !== null ? encodeCursor(result.value.nextCursor) : null,

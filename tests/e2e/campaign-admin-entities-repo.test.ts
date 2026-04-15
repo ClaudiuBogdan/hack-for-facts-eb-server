@@ -825,6 +825,7 @@ describe('campaign-admin entities repo', () => {
       }
 
       expect(queryFiltered.value.items.map((item) => item.entityCui)).toEqual(['33333333']);
+      expect(queryFiltered.value.totalCount).toBe(1);
     } finally {
       await userDb.destroy();
     }
@@ -868,6 +869,7 @@ describe('campaign-admin entities repo', () => {
       }
 
       expect(firstPage.value.items.map((item) => item.entityCui)).toEqual(['11111111', '44444444']);
+      expect(firstPage.value.totalCount).toBe(5);
       expect(firstPage.value.hasMore).toBe(true);
       expect(firstPage.value.nextCursor).toEqual({
         sortBy: 'notificationOutboxCount',
@@ -895,6 +897,7 @@ describe('campaign-admin entities repo', () => {
         '22222222',
         '33333333',
       ]);
+      expect(secondPage.value.totalCount).toBe(5);
 
       const allEntityCuis = await listAllPages({
         repo,

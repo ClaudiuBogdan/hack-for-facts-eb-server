@@ -253,6 +253,7 @@ describe('campaign notification outbox audit repo', () => {
       }
 
       expect(firstPage.value.items).toHaveLength(2);
+      expect(firstPage.value.totalCount).toBe(4);
       expect(firstPage.value.hasMore).toBe(true);
       expect(firstPage.value.nextCursor).not.toBeNull();
       expect(firstPage.value.nextCursor).toEqual({
@@ -305,6 +306,7 @@ describe('campaign notification outbox audit repo', () => {
 
       expect(secondPage.isOk()).toBe(true);
       if (secondPage.isOk()) {
+        expect(secondPage.value.totalCount).toBe(4);
         expect(listIds(secondPage.value.items)).toEqual([
           '22222222-2222-2222-2222-222222222222',
           '11111111-1111-1111-1111-111111111111',

@@ -2063,6 +2063,7 @@ export const makeFakeLearningProgressRepo = (
 
         return ok({
           items,
+          totalCount: users.length,
           hasMore: pageRows.length > input.limit,
           nextCursor:
             pageRows.length > input.limit && lastItem !== undefined

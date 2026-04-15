@@ -1684,6 +1684,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
           data: {
             items,
             page: {
+              totalCount: usersResult.value.totalCount,
               hasMore: usersResult.value.hasMore,
               nextCursor:
                 usersResult.value.nextCursor !== null
@@ -1760,6 +1761,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
               items: [],
               page: {
                 limit,
+                totalCount: 0,
                 hasMore: false,
                 nextCursor: null,
                 ...(requestedSort !== null
@@ -1858,6 +1860,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
         }
 
         const items = sortedItems.slice(pageStartIndex, pageStartIndex + limit);
+        const totalCount = sortedItems.length;
         const hasMore = pageStartIndex + limit < sortedItems.length;
 
         return reply.status(200).send({
@@ -1866,6 +1869,7 @@ export const makeCampaignAdminUserInteractionRoutes = (
             items,
             page: {
               limit,
+              totalCount,
               hasMore,
               nextCursor: buildNextCursor({
                 items,

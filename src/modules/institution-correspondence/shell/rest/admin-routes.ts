@@ -78,6 +78,7 @@ export const makeInstitutionCorrespondenceAdminRoutes = (
             page: {
               limit: result.value.limit,
               offset: result.value.offset,
+              totalCount: result.value.totalCount,
               hasMore: result.value.hasMore,
             },
           },

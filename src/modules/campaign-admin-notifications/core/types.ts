@@ -132,6 +132,7 @@ export interface ListCampaignNotificationAuditInput {
 
 export interface ListCampaignNotificationAuditOutput {
   readonly items: readonly CampaignNotificationAuditItem[];
+  readonly totalCount: number;
   readonly nextCursor: CampaignNotificationAuditCursor | null;
   readonly hasMore: boolean;
 }
@@ -300,6 +301,7 @@ export interface CampaignNotificationStoredPlan {
 }
 
 export interface CampaignNotificationRunnablePlanPage {
+  readonly totalCount: number;
   readonly nextCursor: string | null;
   readonly hasMore: boolean;
 }

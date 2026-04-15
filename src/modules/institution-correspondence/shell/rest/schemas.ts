@@ -143,6 +143,7 @@ export const PendingRepliesResponseSchema = Type.Object(
           {
             limit: Type.Number(),
             offset: Type.Number(),
+            totalCount: Type.Number({ minimum: 0 }),
             hasMore: Type.Boolean(),
           },
           { additionalProperties: false }

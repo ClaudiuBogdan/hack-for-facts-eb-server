@@ -15,6 +15,7 @@ import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fi
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
 interface CampaignAdminUsersResponsePage {
+  readonly totalCount: number;
   readonly hasMore: boolean;
   readonly nextCursor: string | null;
   readonly sortBy?: string;
@@ -518,6 +519,7 @@ describe('Campaign Admin Users REST API', () => {
       data: {
         items: [],
         page: {
+          totalCount: 0,
           hasMore: false,
           nextCursor: null,
           sortBy: 'latestUpdatedAt',
@@ -638,6 +640,7 @@ describe('Campaign Admin Users REST API', () => {
 
     expect(body.ok).toBe(true);
     expect(body.data.page).toEqual({
+      totalCount: 1,
       hasMore: false,
       nextCursor: null,
       sortBy: 'latestUpdatedAt',
@@ -782,6 +785,7 @@ describe('Campaign Admin Users REST API', () => {
           },
         ],
         page: {
+          totalCount: 2,
           hasMore: false,
           nextCursor: null,
           sortBy: 'latestUpdatedAt',
@@ -822,6 +826,7 @@ describe('Campaign Admin Users REST API', () => {
             latestEntityCui: '12345678',
           },
         ],
+        totalCount: 1,
         hasMore: false,
         nextCursor: null,
       })
@@ -866,6 +871,7 @@ describe('Campaign Admin Users REST API', () => {
           },
         ],
         page: {
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
           sortBy: 'latestUpdatedAt',

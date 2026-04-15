@@ -480,6 +480,7 @@ export const CampaignAdminListResponseSchema = Type.Object(
         page: Type.Object(
           {
             limit: Type.Number({ minimum: 1, maximum: 100 }),
+            totalCount: Type.Number({ minimum: 0 }),
             hasMore: Type.Boolean(),
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             sortBy: Type.Optional(CampaignAdminSortBySchema),
@@ -515,6 +516,7 @@ export const CampaignAdminUserListResponseSchema = Type.Object(
         items: Type.Array(CampaignAdminUserListItemSchema),
         page: Type.Object(
           {
+            totalCount: Type.Number({ minimum: 0 }),
             hasMore: Type.Boolean(),
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             sortBy: CampaignAdminUserSortBySchema,

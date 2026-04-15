@@ -208,6 +208,7 @@ export const CampaignNotificationListResponseSchema = Type.Object(
         items: Type.Array(CampaignNotificationListItemSchema),
         page: Type.Object(
           {
+            totalCount: Type.Number({ minimum: 0 }),
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             hasMore: Type.Boolean(),
           },
@@ -540,6 +541,7 @@ export const CampaignNotificationRunnablePlanResponseSchema = Type.Object(
         rows: Type.Array(CampaignNotificationRunnablePlanRowSchema),
         page: Type.Object(
           {
+            totalCount: Type.Number({ minimum: 0 }),
             nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
             hasMore: Type.Boolean(),
           },
