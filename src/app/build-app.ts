@@ -98,6 +98,10 @@ import {
   makeCampaignNotificationTriggerRegistry,
 } from '../modules/campaign-admin-notifications/index.js';
 import {
+  makeCampaignAdminStatsReader,
+  makeCampaignAdminStatsRoutes,
+} from '../modules/campaign-admin-stats/index.js';
+import {
   makeCampaignSubscriptionStatsReader,
   makeCampaignSubscriptionStatsRoutes,
 } from '../modules/campaign-subscription-stats/index.js';
@@ -1960,6 +1964,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       });
       const campaignAdminEnabledKeys =
         enabledCampaignAdminKeys as readonly import('../modules/learning-progress/index.js').CampaignAdminCampaignKey[];
+      const campaignAdminEntitiesRepository = makeCampaignAdminEntitiesRepo({
+        db: userDb,
+        entityRepo,
+        logger: repoLogger,
+      });
 
       await app.register(
         makeCampaignAdminUserInteractionRoutes({
@@ -1976,9 +1985,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         makeCampaignAdminEntitiesRoutes({
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
-          entitiesRepository: makeCampaignAdminEntitiesRepo({
-            db: userDb,
-            entityRepo,
+          entitiesRepository: campaignAdminEntitiesRepository,
+        })
+      );
+
+      await app.register(
+        makeCampaignAdminStatsRoutes({
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
+          reader: makeCampaignAdminStatsReader({
+            userDb,
+            learningProgressRepo,
+            entitiesRepository: campaignAdminEntitiesRepository,
             logger: repoLogger,
           }),
         })
