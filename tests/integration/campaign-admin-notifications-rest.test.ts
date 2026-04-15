@@ -1145,7 +1145,7 @@ describe('campaign admin notifications routes', () => {
     expect(response.json()).toEqual({
       ok: true,
       data: {
-        items: [
+        items: expect.arrayContaining([
           expect.objectContaining({
             runnableId: 'admin_reviewed_user_interaction',
             templateId: 'admin_reviewed_user_interaction',
@@ -1160,7 +1160,15 @@ describe('campaign admin notifications routes', () => {
               expect.objectContaining({ name: 'interactionId' }),
             ]),
           }),
-        ],
+          expect.objectContaining({
+            runnableId: 'weekly_progress_digest',
+            templateId: 'weekly_progress_digest',
+            dryRunRequired: true,
+            targetKind: 'user',
+            selectors: expect.arrayContaining([expect.objectContaining({ name: 'userId' })]),
+            filters: [],
+          }),
+        ]),
       },
     });
 
