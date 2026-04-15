@@ -722,6 +722,92 @@ describe('Campaign admin stats repo', () => {
               '2026-04-10T12:10:00.000Z'
             )
         `);
+
+        await client.query(`
+          INSERT INTO notifications (id, user_id, entity_cui, notification_type, is_active, config, hash)
+          VALUES
+            (
+              '00000000-0000-0000-0000-000000000301',
+              'user-9',
+              NULL,
+              'funky:notification:global',
+              TRUE,
+              NULL,
+              'hash-global-user-9'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000302',
+              'user-9',
+              '11111111',
+              'funky:notification:entity_updates',
+              TRUE,
+              NULL,
+              'hash-entity-user-9'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000303',
+              'user-10',
+              NULL,
+              'funky:notification:global',
+              TRUE,
+              NULL,
+              'hash-global-user-10'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000304',
+              'user-10',
+              '33333333',
+              'funky:notification:entity_updates',
+              TRUE,
+              NULL,
+              'hash-entity-user-10'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000305',
+              'user-11',
+              NULL,
+              'funky:notification:global',
+              TRUE,
+              NULL,
+              'hash-global-user-11'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000306',
+              'user-11',
+              '44444444',
+              'funky:notification:entity_updates',
+              TRUE,
+              NULL,
+              'hash-entity-user-11'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000307',
+              'user-12',
+              NULL,
+              'funky:notification:global',
+              TRUE,
+              NULL,
+              'hash-global-user-12'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000308',
+              'user-12',
+              '11111111',
+              'funky:notification:entity_updates',
+              TRUE,
+              NULL,
+              'hash-entity-user-12'
+            ),
+            (
+              '00000000-0000-0000-0000-000000000309',
+              'user-12',
+              NULL,
+              'global_unsubscribe',
+              FALSE,
+              '{"channels":{"email":false}}'::jsonb,
+              'hash-unsubscribe-user-12'
+            )
+        `);
       });
 
       const reader = makeCampaignAdminStatsReader({
@@ -732,6 +818,7 @@ describe('Campaign admin stats repo', () => {
           '11111111': 'Entity One',
           '22222222': 'Entity Two',
           '33333333': '   ',
+          '44444444': 'Entity Four',
         }),
         logger: pinoLogger({ level: 'silent' }),
       });
@@ -744,7 +831,7 @@ describe('Campaign admin stats repo', () => {
       const byUserCount = await reader.getTopEntities({
         campaignKey: 'funky',
         sortBy: 'userCount',
-        limit: 3,
+        limit: 4,
       });
       const byPendingReviewCount = await reader.getTopEntities({
         campaignKey: 'funky',
@@ -774,7 +861,7 @@ describe('Campaign admin stats repo', () => {
             entityCui: '11111111',
             entityName: 'Entity One',
             interactionCount: 3,
-            userCount: 2,
+            userCount: 3,
             pendingReviewCount: 1,
           },
         ],
@@ -782,7 +869,7 @@ describe('Campaign admin stats repo', () => {
 
       expect(byUserCount.value).toEqual({
         sortBy: 'userCount',
-        limit: 3,
+        limit: 4,
         items: [
           {
             entityCui: '22222222',
@@ -795,15 +882,22 @@ describe('Campaign admin stats repo', () => {
             entityCui: '11111111',
             entityName: 'Entity One',
             interactionCount: 3,
-            userCount: 2,
+            userCount: 3,
             pendingReviewCount: 1,
           },
           {
             entityCui: '33333333',
             entityName: null,
             interactionCount: 2,
-            userCount: 2,
+            userCount: 3,
             pendingReviewCount: 2,
+          },
+          {
+            entityCui: '44444444',
+            entityName: 'Entity Four',
+            interactionCount: 0,
+            userCount: 1,
+            pendingReviewCount: 0,
           },
         ],
       });
@@ -816,14 +910,14 @@ describe('Campaign admin stats repo', () => {
             entityCui: '33333333',
             entityName: null,
             interactionCount: 2,
-            userCount: 2,
+            userCount: 3,
             pendingReviewCount: 2,
           },
           {
             entityCui: '11111111',
             entityName: 'Entity One',
             interactionCount: 3,
-            userCount: 2,
+            userCount: 3,
             pendingReviewCount: 1,
           },
           {

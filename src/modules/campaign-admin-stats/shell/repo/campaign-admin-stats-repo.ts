@@ -3,6 +3,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   FUNKY_CAMPAIGN_KEY,
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
@@ -54,6 +56,7 @@ const FAILED_DELIVERY_STATUSES = [
   'failed_transient',
   'failed_permanent',
 ] as const;
+const GLOBAL_UNSUBSCRIBE_TYPE = 'global_unsubscribe' as const;
 
 interface NotificationOverviewCountsRow {
   pending_delivery_count: string | number | bigint | null;
@@ -415,7 +418,22 @@ class CampaignAdminStatsRepo implements CampaignAdminStatsReader {
         await setStatementTimeout(trx, QUERY_TIMEOUT_MS);
 
         return sql<TopEntityRow>`
-          with interaction_rows as (
+          with active_global_users as (
+            select distinct n.user_id
+            from notifications as n
+            where n.notification_type = ${FUNKY_NOTIFICATION_GLOBAL_TYPE}
+              and n.is_active = true
+          ),
+          globally_unsubscribed_users as (
+            select distinct n.user_id
+            from notifications as n
+            where n.notification_type = ${GLOBAL_UNSUBSCRIBE_TYPE}
+              and (
+                n.is_active = false
+                or n.config->'channels'->>'email' = 'false'
+              )
+          ),
+          interaction_rows as (
             select
               user_id,
               nullif(btrim(record->'scope'->>'entityCui'), '') as entity_cui,
@@ -428,14 +446,60 @@ class CampaignAdminStatsRepo implements CampaignAdminStatsReader {
             where record->'scope'->>'type' = 'entity'
               and nullif(btrim(record->'scope'->>'entityCui'), '') is not null
               and (${visibleInteractionsSql})
+          ),
+          interaction_users as (
+            select distinct entity_cui, user_id
+            from interaction_rows
+          ),
+          subscriber_rows as (
+            select distinct
+              nullif(btrim(entity_subscriptions.entity_cui), '') as entity_cui,
+              entity_subscriptions.user_id
+            from notifications as entity_subscriptions
+            inner join active_global_users
+              on active_global_users.user_id = entity_subscriptions.user_id
+            left join globally_unsubscribed_users
+              on globally_unsubscribed_users.user_id = entity_subscriptions.user_id
+            where entity_subscriptions.notification_type = ${FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE}
+              and entity_subscriptions.is_active = true
+              and nullif(btrim(entity_subscriptions.entity_cui), '') is not null
+              and globally_unsubscribed_users.user_id is null
+          ),
+          interaction_aggregate as (
+            select
+              entity_cui,
+              count(*)::int as interaction_count,
+              count(*) filter (where review_status = 'pending')::int as pending_review_count
+            from interaction_rows
+            group by entity_cui
+          ),
+          combined_users as (
+            select entity_cui, user_id from interaction_users
+            union
+            select entity_cui, user_id from subscriber_rows
+          ),
+          user_count_aggregate as (
+            select
+              entity_cui,
+              count(*)::int as user_count
+            from combined_users
+            group by entity_cui
+          ),
+          base_entities as (
+            select entity_cui from interaction_aggregate
+            union
+            select entity_cui from user_count_aggregate
           )
           select
-            entity_cui,
-            count(*)::int as interaction_count,
-            count(distinct user_id)::int as user_count,
-            count(*) filter (where review_status = 'pending')::int as pending_review_count
-          from interaction_rows
-          group by entity_cui
+            base_entities.entity_cui,
+            coalesce(interaction_aggregate.interaction_count, 0)::int as interaction_count,
+            coalesce(user_count_aggregate.user_count, 0)::int as user_count,
+            coalesce(interaction_aggregate.pending_review_count, 0)::int as pending_review_count
+          from base_entities
+          left join interaction_aggregate
+            on interaction_aggregate.entity_cui = base_entities.entity_cui
+          left join user_count_aggregate
+            on user_count_aggregate.entity_cui = base_entities.entity_cui
           ${buildTopEntitiesOrderBySql(input.sortBy)}
           limit ${input.limit}
         `.execute(trx);
