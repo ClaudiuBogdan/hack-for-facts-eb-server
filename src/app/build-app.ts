@@ -1984,6 +1984,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           entityProfileRepo,
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
+          platformBaseUrl: config.notifications.platformBaseUrl,
           prepareReviewSideEffects: prepareLearningProgressReviewSideEffects,
         })
       );
@@ -1993,6 +1994,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
           entitiesRepository: campaignAdminEntitiesRepository,
+          platformBaseUrl: config.notifications.platformBaseUrl,
         })
       );
 

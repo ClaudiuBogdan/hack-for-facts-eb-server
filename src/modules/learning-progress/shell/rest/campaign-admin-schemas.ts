@@ -102,6 +102,67 @@ export const CampaignAdminListQuerySchema = Type.Object(
 
 export type CampaignAdminListQuery = Static<typeof CampaignAdminListQuerySchema>;
 
+export const CampaignAdminExportQuerySchema = Type.Object(
+  {
+    phase: Type.Optional(
+      Type.Union([
+        Type.Literal('idle'),
+        Type.Literal('draft'),
+        Type.Literal('pending'),
+        Type.Literal('resolved'),
+        Type.Literal('failed'),
+      ])
+    ),
+    reviewStatus: Type.Optional(
+      Type.Union([Type.Literal('pending'), Type.Literal('approved'), Type.Literal('rejected')])
+    ),
+    interactionId: Type.Optional(Type.String({ minLength: 1 })),
+    lessonId: Type.Optional(Type.String({ minLength: 1 })),
+    entityCui: Type.Optional(Type.String({ minLength: 1 })),
+    scopeType: Type.Optional(Type.Union([Type.Literal('global'), Type.Literal('entity')])),
+    payloadKind: Type.Optional(
+      Type.Union([
+        Type.Literal('choice'),
+        Type.Literal('text'),
+        Type.Literal('url'),
+        Type.Literal('number'),
+        Type.Literal('json'),
+      ])
+    ),
+    submissionPath: Type.Optional(
+      Type.Union([
+        Type.Literal('request_platform'),
+        Type.Literal('send_yourself'),
+        Type.Literal('send_email'),
+        Type.Literal('download_text'),
+      ])
+    ),
+    userId: Type.Optional(Type.String({ minLength: 1 })),
+    recordKey: Type.Optional(Type.String({ minLength: 1 })),
+    recordKeyPrefix: Type.Optional(Type.String({ minLength: 16 })),
+    submittedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
+    submittedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
+    updatedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
+    updatedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
+    hasInstitutionThread: Type.Optional(Type.Boolean()),
+    threadPhase: Type.Optional(
+      Type.Union([
+        Type.Literal('sending'),
+        Type.Literal('awaiting_reply'),
+        Type.Literal('reply_received_unreviewed'),
+        Type.Literal('manual_follow_up_needed'),
+        Type.Literal('resolved_positive'),
+        Type.Literal('resolved_negative'),
+        Type.Literal('closed_no_response'),
+        Type.Literal('failed'),
+      ])
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export type CampaignAdminExportQuery = Static<typeof CampaignAdminExportQuerySchema>;
+
 export const CampaignAdminUserSortBySchema = Type.Union([
   Type.Literal('userId'),
   Type.Literal('latestUpdatedAt'),

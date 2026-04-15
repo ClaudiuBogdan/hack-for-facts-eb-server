@@ -118,6 +118,26 @@ export const CampaignAdminEntitiesListQuerySchema = Type.Object(
 
 export type CampaignAdminEntitiesListQuery = Static<typeof CampaignAdminEntitiesListQuerySchema>;
 
+export const CampaignAdminEntitiesExportQuerySchema = Type.Object(
+  {
+    query: Type.Optional(Type.String()),
+    interactionId: Type.Optional(Type.String({ minLength: 1 })),
+    hasPendingReviews: Type.Optional(Type.Boolean()),
+    hasSubscribers: Type.Optional(Type.Boolean()),
+    hasNotificationActivity: Type.Optional(Type.Boolean()),
+    hasFailedNotifications: Type.Optional(Type.Boolean()),
+    latestNotificationType: Type.Optional(CampaignAdminEntitiesNotificationTypeSchema),
+    latestNotificationStatus: Type.Optional(CampaignAdminEntitiesNotificationStatusSchema),
+    sortBy: Type.Optional(CampaignAdminEntitiesSortBySchema),
+    sortOrder: Type.Optional(CampaignAdminEntitiesSortOrderSchema),
+  },
+  { additionalProperties: false }
+);
+
+export type CampaignAdminEntitiesExportQuery = Static<
+  typeof CampaignAdminEntitiesExportQuerySchema
+>;
+
 export const CampaignAdminEntityDetailQuerySchema = Type.Object(
   {},
   { additionalProperties: false }

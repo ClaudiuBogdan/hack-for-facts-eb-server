@@ -163,7 +163,18 @@ export async function registerCors(fastify: FastifyInstance, config: AppConfig):
       'mcp-session-id',
       'last-event-id',
     ],
-    exposedHeaders: ['content-length', 'mcp-session-id', 'Mcp-Session-Id'],
+    exposedHeaders: [
+      'content-length',
+      'content-type',
+      'content-disposition',
+      'cache-control',
+      'pragma',
+      'expires',
+      'surrogate-control',
+      'cdn-cache-control',
+      'mcp-session-id',
+      'Mcp-Session-Id',
+    ],
     credentials: true,
   });
 }

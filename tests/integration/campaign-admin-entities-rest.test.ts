@@ -83,6 +83,7 @@ const makeRepository = (implementation?: {
 async function createTestApp(options?: {
   permissionAllowed?: boolean;
   entitiesRepository?: CampaignAdminEntitiesRepository;
+  platformBaseUrl?: string;
 }) {
   const testAuth = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -109,6 +110,7 @@ async function createTestApp(options?: {
       enabledCampaignKeys: ['funky'],
       permissionAuthorizer,
       entitiesRepository: options?.entitiesRepository ?? makeRepository().repository,
+      platformBaseUrl: options?.platformBaseUrl ?? 'https://transparenta.test',
     })
   );
 
@@ -777,5 +779,120 @@ describe('campaign admin entities routes', () => {
         ]),
       }),
     });
+  });
+
+  it('exports entities csv with paging, labels, and spreadsheet-safe cells', async () => {
+    const firstCursor = {
+      sortBy: 'userCount' as const,
+      sortOrder: 'asc' as const,
+      entityCui: '12345678',
+      value: 4,
+    };
+    const repository = makeRepository({
+      list: async (input) => {
+        if (input.cursor === undefined) {
+          return ok({
+            items: [
+              {
+                entityCui: '12345678',
+                entityName: '+Oras Test',
+                userCount: 4,
+                interactionCount: 5,
+                pendingReviewCount: 1,
+                notificationSubscriberCount: 2,
+                notificationOutboxCount: 3,
+                failedNotificationCount: 1,
+                hasPendingReviews: true,
+                hasSubscribers: true,
+                hasNotificationActivity: true,
+                hasFailedNotifications: true,
+                latestInteractionAt: '2026-04-10T10:00:00.000Z',
+                latestInteractionId: 'funky:interaction:public_debate_request',
+                latestNotificationAt: '2026-04-10T11:00:00.000Z',
+                latestNotificationType: 'funky:outbox:entity_update',
+                latestNotificationStatus: 'failed_permanent',
+              },
+            ],
+            totalCount: 2,
+            hasMore: true,
+            nextCursor: firstCursor,
+          });
+        }
+
+        return ok({
+          items: [
+            {
+              entityCui: '87654321',
+              entityName: null,
+              userCount: 7,
+              interactionCount: 0,
+              pendingReviewCount: 0,
+              notificationSubscriberCount: 0,
+              notificationOutboxCount: 0,
+              failedNotificationCount: 0,
+              hasPendingReviews: false,
+              hasSubscribers: false,
+              hasNotificationActivity: false,
+              hasFailedNotifications: false,
+              latestInteractionAt: null,
+              latestInteractionId: null,
+              latestNotificationAt: null,
+              latestNotificationType: null,
+              latestNotificationStatus: null,
+            },
+          ],
+          totalCount: 2,
+          hasMore: false,
+          nextCursor: null,
+        });
+      },
+    });
+    const setup = await createTestApp({
+      entitiesRepository: repository.repository,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entities/export?sortBy=userCount&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'accept-language': 'en-US,en;q=0.9',
+        origin: 'http://localhost:3001',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+    expect(response.headers['content-disposition']).toContain(
+      'funky-campaign-admin-entities-export-'
+    );
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3001');
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+    expect(response.headers['cache-control']).toContain('no-store');
+    expect(response.headers['surrogate-control']).toBe('no-store');
+    expect(response.headers['cdn-cache-control']).toContain('no-store');
+    expect(response.headers.vary).toContain('Origin');
+    expect(response.headers.vary).toContain('Authorization');
+    expect(response.headers.vary).toContain('Accept-Language');
+    expect(repository.listCalls).toHaveLength(2);
+    expect(repository.listCalls[0]).toMatchObject({
+      sortBy: 'userCount',
+      sortOrder: 'asc',
+      limit: 250,
+    });
+    expect(repository.listCalls[1]?.cursor).toEqual(firstCursor);
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(3);
+    expect(csvLines[0]).toContain('Entity Name,Entity CUI,Users');
+    expect(csvBody).toContain("'+Oras Test");
+    expect(csvBody).toContain('Entity update');
+    expect(csvBody).toContain('Permanent failure');
+    expect(csvBody).toContain('https://transparenta.test/primarie/12345678');
+    expect(csvBody).toContain('87654321,87654321');
+    expect(csvBody).toContain('Unavailable');
   });
 });

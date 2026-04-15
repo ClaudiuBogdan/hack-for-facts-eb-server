@@ -12,11 +12,27 @@ import {
   parseDebateRequestPayloadValue,
   parseParticipationReportPayloadValue,
 } from '@/common/campaign-user-interactions.js';
+import { buildCampaignEntityUrl } from '@/common/utils/build-campaign-entity-url.js';
 import {
   makeCampaignAdminAuthorizationHook,
   resolveCampaignAdminPermissionAccess,
   type CampaignAdminPermissionAuthorizer,
 } from '@/modules/campaign-admin/index.js';
+import {
+  CSV_UTF8_BOM,
+  buildCsvAttachmentFilename,
+  detectCampaignAdminExportLocale,
+  setCsvDownloadHeaders,
+  toAbsoluteUrl,
+  toCsvRow,
+  writeToResponseStream,
+} from '@/modules/campaign-admin/shell/rest/csv.js';
+import {
+  getInteractionTypeLabel,
+  getReviewStatusLabel,
+  getRiskFlagLabel,
+  getThreadStatusLabel,
+} from '@/modules/campaign-admin/shell/rest/export-labels.js';
 import {
   EMAIL_REGEX,
   getHttpStatusForError as getCorrespondenceHttpStatusForError,
@@ -26,6 +42,7 @@ import {
 
 import {
   CampaignAdminCursorSchema,
+  CampaignAdminExportQuerySchema,
   CampaignAdminMetaResponseSchema,
   CampaignAdminInteractionListItemSchema,
   CampaignAdminListQuerySchema,
@@ -40,6 +57,7 @@ import {
   CampaignKeyParamsSchema,
   ErrorResponseSchema,
   type CampaignAdminListQuery,
+  type CampaignAdminExportQuery,
   type CampaignAdminUserCursor,
   type CampaignAdminUserListQuery,
   type CampaignAdminSubmitReviewsBody,
@@ -119,6 +137,7 @@ declare module 'fastify' {
 const DEFAULT_PAGE_LIMIT = 50;
 const INTERNAL_ROW_FETCH_LIMIT = 500;
 const MAX_CAMPAIGN_ADMIN_LIST_ROWS = 5000;
+const EXPORT_BATCH_LIMIT = 250;
 const ALLOWED_CAMPAIGN_ADMIN_USER_QUERY_KEYS = new Set<string>([
   'query',
   'entityCui',
@@ -138,6 +157,7 @@ export interface MakeCampaignAdminUserInteractionRoutesDeps {
   entityProfileRepo: EntityProfileRepository;
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   enabledCampaignKeys: readonly CampaignAdminCampaignKey[];
+  platformBaseUrl?: string;
   prepareReviewSideEffects?: (
     input: PrepareReviewSideEffectsInput
   ) => Promise<
@@ -1175,6 +1195,96 @@ async function formatCampaignAdminUserRows(input: {
   }));
 }
 
+function buildCampaignAdminSelectionKey(userId: string, recordKey: string): string {
+  return `${userId}::${recordKey}`;
+}
+
+function getCampaignAdminPrimaryValueForExport(
+  item: CampaignAdminInteractionListItem
+): string | null {
+  if (item.institutionEmail !== null) {
+    return item.institutionEmail;
+  }
+
+  if (item.websiteUrl !== null) {
+    return item.websiteUrl;
+  }
+
+  switch (item.payloadSummary?.kind) {
+    case 'budget_document':
+      return item.payloadSummary.documentUrl;
+    case 'budget_publication_date':
+      return item.payloadSummary.publicationDate ?? item.payloadSummary.sources[0]?.url ?? null;
+    case 'budget_status':
+      return item.payloadSummary.isPublished;
+    case 'city_hall_contact':
+      return item.payloadSummary.email ?? item.payloadSummary.phone;
+    case 'participation_report':
+      return item.payloadSummary.observations ?? item.payloadSummary.debateTookPlace;
+    case 'contestation':
+      return item.payloadSummary.contestedItem ?? item.payloadSummary.institutionEmail;
+    default:
+      return null;
+  }
+}
+
+const CAMPAIGN_ADMIN_INTERACTION_EXPORT_HEADERS = [
+  'User Interaction ID',
+  'User ID',
+  'Record Key',
+  'Entity Name',
+  'Entity CUI',
+  'Interaction Type',
+  'Interaction ID',
+  'Entity Link',
+  'Interaction Element Link',
+  'Submitted Value',
+  'Decision',
+  'Send Notification',
+  'Review Feedback',
+  'Current review status',
+  'Association',
+  'Updated',
+  'Thread status',
+  'Risk flags',
+  'Reviewed by',
+] as const;
+
+function toCampaignAdminInteractionExportRow(input: {
+  item: CampaignAdminInteractionListItem;
+  platformBaseUrl: string;
+  locale: ReturnType<typeof detectCampaignAdminExportLocale>;
+}): string {
+  const { item, platformBaseUrl, locale } = input;
+  const entityLink =
+    item.entityCui === null
+      ? ''
+      : toAbsoluteUrl(platformBaseUrl, buildCampaignEntityUrl('', item.entityCui));
+  const interactionElementLink = toAbsoluteUrl(platformBaseUrl, item.interactionElementLink);
+
+  return toCsvRow([
+    buildCampaignAdminSelectionKey(item.userId, item.recordKey),
+    item.userId,
+    item.recordKey,
+    item.entityName,
+    item.entityCui,
+    getInteractionTypeLabel(locale, item.interactionId),
+    item.interactionId,
+    entityLink,
+    interactionElementLink,
+    getCampaignAdminPrimaryValueForExport(item),
+    '',
+    '',
+    '',
+    getReviewStatusLabel(locale, item.reviewStatus),
+    item.organizationName,
+    item.updatedAt,
+    getThreadStatusLabel(locale, item.threadPhase),
+    item.riskFlags.map((flag) => getRiskFlagLabel(locale, flag)).join('; '),
+    item.reviewedByUserId,
+  ]);
+}
+
 function filterItemsByReviewStatus(
   items: readonly CampaignAdminInteractionListItem[],
   reviewStatus: CampaignAdminInteractionListItem['reviewStatus'] | undefined
@@ -1184,6 +1294,39 @@ function filterItemsByReviewStatus(
   }
 
   return items.filter((item) => item.reviewStatus === reviewStatus);
+}
+
+function countCampaignAdminInteractionRowsForExport(input: {
+  rows: readonly CampaignAdminInteractionRow[];
+  config: CampaignAuditConfig;
+  reviewStatus: CampaignAdminExportQuery['reviewStatus'];
+}): number {
+  if (input.reviewStatus === undefined) {
+    return input.rows.length;
+  }
+
+  const configByInteractionId = new Map(
+    input.config.interactions.map((interaction) => [interaction.interactionId, interaction])
+  );
+
+  let matchedRows = 0;
+
+  for (const row of input.rows) {
+    const interactionConfig = configByInteractionId.get(row.record.interactionId) ?? null;
+    const reviewStatus = getReviewStatus(
+      row,
+      isInteractionRowReviewable({
+        row,
+        interactionConfig,
+      })
+    );
+
+    if (reviewStatus === input.reviewStatus) {
+      matchedRows += 1;
+    }
+  }
+
+  return matchedRows;
 }
 
 async function loadAllCampaignAdminInteractionRows(input: {
@@ -1215,6 +1358,47 @@ async function loadAllCampaignAdminInteractionRows(input: {
 
     if (!result.value.hasMore || result.value.nextCursor === null) {
       return ok(rows);
+    }
+
+    cursor = result.value.nextCursor;
+  }
+}
+
+async function ensureCampaignAdminExportRowCountWithinLimit(input: {
+  repo: LearningProgressRepository;
+  query: Omit<ListCampaignAdminInteractionRowsInput, 'cursor' | 'limit'>;
+  config: CampaignAuditConfig;
+  reviewStatus: CampaignAdminExportQuery['reviewStatus'];
+}): Promise<Result<void, LearningProgressError>> {
+  let totalRows = 0;
+  let cursor: CampaignAdminListCursor | undefined;
+
+  for (;;) {
+    const result = await input.repo.listCampaignAdminInteractionRows({
+      ...input.query,
+      limit: INTERNAL_ROW_FETCH_LIMIT,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+
+    if (result.isErr()) {
+      return err(result.error);
+    }
+
+    totalRows += countCampaignAdminInteractionRowsForExport({
+      rows: result.value.rows,
+      config: input.config,
+      reviewStatus: input.reviewStatus,
+    });
+    if (totalRows > MAX_CAMPAIGN_ADMIN_LIST_ROWS) {
+      return err(
+        createInvalidEventError(
+          `Campaign interaction export matched too many rows. Narrow the filters to ${String(MAX_CAMPAIGN_ADMIN_LIST_ROWS)} rows or fewer.`
+        )
+      );
+    }
+
+    if (!result.value.hasMore || result.value.nextCursor === null) {
+      return ok(undefined);
     }
 
     cursor = result.value.nextCursor;
@@ -1895,6 +2079,236 @@ export const makeCampaignAdminUserInteractionRoutes = (
             },
           },
         });
+      }
+    );
+
+    fastify.get<{ Params: CampaignKeyParams; Querystring: CampaignAdminExportQuery }>(
+      '/api/v1/admin/campaigns/:campaignKey/user-interactions/export',
+      {
+        schema: {
+          params: CampaignKeyParamsSchema,
+          querystring: CampaignAdminExportQuerySchema,
+          response: {
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = getCampaignAdminAccess(request);
+
+        if (request.query.recordKeyPrefix !== undefined) {
+          const prefixResult = validateRecordKeyPrefix(request.query.recordKeyPrefix);
+          if (prefixResult.isErr()) {
+            return reply.status(400).send({
+              ok: false,
+              error: prefixResult.error.type,
+              message: prefixResult.error.message,
+              retryable: false,
+            });
+          }
+        }
+
+        if (request.query.recordKey !== undefined && isInternalRecordKey(request.query.recordKey)) {
+          return reply.status(400).send({
+            ok: false,
+            error: 'InvalidEventError',
+            message: 'recordKey cannot target internal records.',
+            retryable: false,
+          });
+        }
+
+        const requiresInstitutionThreadSummary =
+          request.query.hasInstitutionThread !== undefined ||
+          request.query.threadPhase !== undefined;
+        const selectedInteractions = selectCampaignAdminAuditVisibleInteractions({
+          config: access.config,
+          ...(request.query.interactionId !== undefined
+            ? { interactionId: request.query.interactionId }
+            : {}),
+          requiresInstitutionThreadSummary,
+        });
+        const locale = detectCampaignAdminExportLocale(request.headers['accept-language']);
+        const exportFilename = buildCsvAttachmentFilename(
+          `${access.config.campaignKey}-campaign-admin-user-interactions-export`
+        );
+
+        if (selectedInteractions.length === 0) {
+          reply.hijack();
+          setCsvDownloadHeaders({
+            response: reply.raw,
+            filename: exportFilename,
+            origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
+          });
+          reply.raw.write(CSV_UTF8_BOM);
+          reply.raw.write(toCsvRow(CAMPAIGN_ADMIN_INTERACTION_EXPORT_HEADERS));
+          reply.raw.write('\n');
+          reply.raw.end();
+          return reply;
+        }
+
+        const listQuery: Omit<ListCampaignAdminInteractionRowsInput, 'cursor' | 'limit'> = {
+          campaignKey: access.config.campaignKey,
+          interactions: buildCampaignInteractionFilters({
+            interactions: selectedInteractions,
+            kind: requiresInstitutionThreadSummary ? 'thread_summary' : 'visible',
+          }),
+          ...(request.query.phase !== undefined ? { phase: request.query.phase } : {}),
+          ...(request.query.lessonId !== undefined ? { lessonId: request.query.lessonId } : {}),
+          ...(request.query.entityCui !== undefined ? { entityCui: request.query.entityCui } : {}),
+          ...(request.query.scopeType !== undefined ? { scopeType: request.query.scopeType } : {}),
+          ...(request.query.payloadKind !== undefined
+            ? { payloadKind: request.query.payloadKind }
+            : {}),
+          ...(request.query.submissionPath !== undefined
+            ? { submissionPath: request.query.submissionPath }
+            : {}),
+          ...(request.query.userId !== undefined ? { userId: request.query.userId } : {}),
+          ...(request.query.recordKey !== undefined ? { recordKey: request.query.recordKey } : {}),
+          ...(request.query.recordKeyPrefix !== undefined
+            ? { recordKeyPrefix: request.query.recordKeyPrefix }
+            : {}),
+          ...(request.query.submittedAtFrom !== undefined
+            ? { submittedAtFrom: request.query.submittedAtFrom }
+            : {}),
+          ...(request.query.submittedAtTo !== undefined
+            ? { submittedAtTo: request.query.submittedAtTo }
+            : {}),
+          ...(request.query.updatedAtFrom !== undefined
+            ? { updatedAtFrom: request.query.updatedAtFrom }
+            : {}),
+          ...(request.query.updatedAtTo !== undefined
+            ? { updatedAtTo: request.query.updatedAtTo }
+            : {}),
+          ...(request.query.hasInstitutionThread !== undefined
+            ? { hasInstitutionThread: request.query.hasInstitutionThread }
+            : {}),
+          ...(request.query.threadPhase !== undefined
+            ? { threadPhase: request.query.threadPhase }
+            : {}),
+        };
+
+        const fetchBatch = async (cursor?: CampaignAdminListCursor) => {
+          return deps.learningProgressRepo.listCampaignAdminInteractionRows({
+            ...listQuery,
+            limit: EXPORT_BATCH_LIMIT,
+            ...(cursor !== undefined ? { cursor } : {}),
+          });
+        };
+
+        const exportLimitResult = await ensureCampaignAdminExportRowCountWithinLimit({
+          repo: deps.learningProgressRepo,
+          query: listQuery,
+          config: access.config,
+          reviewStatus: request.query.reviewStatus,
+        });
+        if (exportLimitResult.isErr()) {
+          const statusCode = getHttpStatusForError(exportLimitResult.error);
+          return reply.status(statusCode as 400 | 500).send({
+            ok: false,
+            error: exportLimitResult.error.type,
+            message: exportLimitResult.error.message,
+            retryable:
+              'retryable' in exportLimitResult.error ? exportLimitResult.error.retryable : false,
+          });
+        }
+
+        const firstBatchResult = await fetchBatch();
+        if (firstBatchResult.isErr()) {
+          const statusCode = getHttpStatusForError(firstBatchResult.error);
+          return reply.status(statusCode as 400 | 500).send({
+            ok: false,
+            error: firstBatchResult.error.type,
+            message: firstBatchResult.error.message,
+            retryable:
+              'retryable' in firstBatchResult.error ? firstBatchResult.error.retryable : false,
+          });
+        }
+
+        const firstBatchItems = filterItemsByReviewStatus(
+          await formatCampaignAdminInteractionRows({
+            rows: firstBatchResult.value.rows,
+            config: access.config,
+            entityRepo: deps.entityRepo,
+            entityProfileRepo: deps.entityProfileRepo,
+            log: request.log,
+          }),
+          request.query.reviewStatus
+        );
+
+        reply.hijack();
+        setCsvDownloadHeaders({
+          response: reply.raw,
+          filename: exportFilename,
+          origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
+        });
+
+        try {
+          await writeToResponseStream(reply.raw, CSV_UTF8_BOM);
+          await writeToResponseStream(
+            reply.raw,
+            `${toCsvRow(CAMPAIGN_ADMIN_INTERACTION_EXPORT_HEADERS)}\n`
+          );
+
+          for (const item of firstBatchItems) {
+            await writeToResponseStream(
+              reply.raw,
+              `${toCampaignAdminInteractionExportRow({
+                item,
+                platformBaseUrl: deps.platformBaseUrl ?? '',
+                locale,
+              })}\n`
+            );
+          }
+
+          let hasMore = firstBatchResult.value.hasMore;
+          let cursor = firstBatchResult.value.nextCursor ?? undefined;
+
+          while (hasMore && cursor !== undefined) {
+            const nextBatchResult = await fetchBatch(cursor);
+            if (nextBatchResult.isErr()) {
+              throw new Error(nextBatchResult.error.message);
+            }
+
+            const nextBatchItems = filterItemsByReviewStatus(
+              await formatCampaignAdminInteractionRows({
+                rows: nextBatchResult.value.rows,
+                config: access.config,
+                entityRepo: deps.entityRepo,
+                entityProfileRepo: deps.entityProfileRepo,
+                log: request.log,
+              }),
+              request.query.reviewStatus
+            );
+
+            for (const item of nextBatchItems) {
+              await writeToResponseStream(
+                reply.raw,
+                `${toCampaignAdminInteractionExportRow({
+                  item,
+                  platformBaseUrl: deps.platformBaseUrl ?? '',
+                  locale,
+                })}\n`
+              );
+            }
+
+            hasMore = nextBatchResult.value.hasMore;
+            cursor = nextBatchResult.value.nextCursor ?? undefined;
+          }
+
+          reply.raw.end();
+        } catch (error) {
+          request.log.error(
+            { err: error, campaignKey: access.config.campaignKey },
+            'Failed while streaming campaign-admin user-interactions export'
+          );
+          reply.raw.destroy(error instanceof Error ? error : new Error('CSV stream failed'));
+        }
+
+        return reply;
       }
     );
 
