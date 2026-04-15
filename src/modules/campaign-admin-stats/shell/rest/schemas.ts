@@ -21,6 +21,24 @@ export type CampaignKeyParams = Static<typeof CampaignKeyParamsSchema>;
 
 const NonNegativeIntegerSchema = Type.Integer({ minimum: 0 });
 
+export const CampaignAdminStatsTopEntitiesSortBySchema = Type.Union([
+  Type.Literal('interactionCount'),
+  Type.Literal('userCount'),
+  Type.Literal('pendingReviewCount'),
+]);
+
+export const CampaignAdminStatsTopEntitiesQuerySchema = Type.Object(
+  {
+    sortBy: CampaignAdminStatsTopEntitiesSortBySchema,
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, default: 10 })),
+  },
+  { additionalProperties: false }
+);
+
+export type CampaignAdminStatsTopEntitiesQuery = Static<
+  typeof CampaignAdminStatsTopEntitiesQuerySchema
+>;
+
 const CoverageSchema = Type.Object(
   {
     hasClientTelemetry: Type.Boolean(),
@@ -107,6 +125,46 @@ const NotificationsSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const InteractionsByTypeItemSchema = Type.Object(
+  {
+    interactionId: Type.String({ minLength: 1 }),
+    label: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    total: NonNegativeIntegerSchema,
+    pending: NonNegativeIntegerSchema,
+    approved: NonNegativeIntegerSchema,
+    rejected: NonNegativeIntegerSchema,
+    notReviewed: NonNegativeIntegerSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminStatsInteractionsByTypeSchema = Type.Object(
+  {
+    items: Type.Array(InteractionsByTypeItemSchema),
+  },
+  { additionalProperties: false }
+);
+
+const TopEntityItemSchema = Type.Object(
+  {
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    interactionCount: NonNegativeIntegerSchema,
+    userCount: NonNegativeIntegerSchema,
+    pendingReviewCount: NonNegativeIntegerSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminStatsTopEntitiesSchema = Type.Object(
+  {
+    sortBy: CampaignAdminStatsTopEntitiesSortBySchema,
+    limit: Type.Integer({ minimum: 1, maximum: 25 }),
+    items: Type.Array(TopEntityItemSchema),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignAdminStatsOverviewSchema = Type.Object(
   {
     coverage: CoverageSchema,
@@ -122,6 +180,22 @@ export const CampaignAdminStatsOverviewResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
     data: CampaignAdminStatsOverviewSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminStatsInteractionsByTypeResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: CampaignAdminStatsInteractionsByTypeSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignAdminStatsTopEntitiesResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: CampaignAdminStatsTopEntitiesSchema,
   },
   { additionalProperties: false }
 );

@@ -26,11 +26,17 @@ import {
 import type { CampaignAdminStatsReader } from '../../core/ports.js';
 import type {
   CampaignAdminStatsCampaignKey,
+  CampaignAdminStatsInteractionsByType,
+  CampaignAdminStatsTopEntities,
+  CampaignAdminStatsTopEntitiesSortBy,
   CampaignAdminStatsOverview,
+  GetCampaignAdminStatsInteractionsByTypeInput,
   GetCampaignAdminStatsOverviewInput,
+  GetCampaignAdminStatsTopEntitiesInput,
 } from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { CampaignAdminEntitiesRepository } from '@/modules/campaign-admin-entities/index.js';
+import type { EntityRepository } from '@/modules/entity/index.js';
 import type { Logger } from 'pino';
 
 const QUERY_TIMEOUT_MS = 10_000;
@@ -58,6 +64,27 @@ interface NotificationOverviewCountsRow {
   suppressed_count: string | number | bigint | null;
 }
 
+interface InteractionsByTypeRow {
+  interaction_id: string;
+  total: string | number | bigint | null;
+  pending: string | number | bigint | null;
+  approved: string | number | bigint | null;
+  rejected: string | number | bigint | null;
+  not_reviewed: string | number | bigint | null;
+}
+
+interface TopEntityRow {
+  entity_cui: string;
+  interaction_count: string | number | bigint | null;
+  user_count: string | number | bigint | null;
+  pending_review_count: string | number | bigint | null;
+}
+
+const toNullableTrimmedString = (value: string | null | undefined): string | null => {
+  const trimmedValue = value?.trim();
+  return trimmedValue === undefined || trimmedValue === '' ? null : trimmedValue;
+};
+
 const parseCount = (value: string | number | bigint | null | undefined): number => {
   if (typeof value === 'number') {
     return Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -81,11 +108,13 @@ const buildInteractionFilters = (campaignKey: CampaignAdminStatsCampaignKey) => 
     return null;
   }
 
+  const visibleInteractionConfigs = selectCampaignAdminAuditVisibleInteractions({
+    config,
+    requiresInstitutionThreadSummary: false,
+  });
+
   const visibleInteractions = buildCampaignInteractionFilters({
-    interactions: selectCampaignAdminAuditVisibleInteractions({
-      config,
-      requiresInstitutionThreadSummary: false,
-    }),
+    interactions: visibleInteractionConfigs,
     kind: 'visible',
   });
   const reviewableInteractions = buildCampaignInteractionFilters({
@@ -101,11 +130,73 @@ const buildInteractionFilters = (campaignKey: CampaignAdminStatsCampaignKey) => 
   });
 
   return {
+    visibleInteractionConfigs,
     visibleInteractions,
     reviewableInteractions,
     threadSummaryInteractions,
   };
 };
+
+function buildCampaignAdminInteractionFiltersSql(
+  interactions: readonly {
+    interactionId: string;
+    submissionPath?: string;
+  }[]
+) {
+  if (interactions.length === 0) {
+    return sql<boolean>`false`;
+  }
+
+  return sql.join(
+    interactions.map((interaction) =>
+      interaction.submissionPath === undefined
+        ? sql<boolean>`record->>'interactionId' = ${interaction.interactionId}`
+        : sql<boolean>`
+            record->>'interactionId' = ${interaction.interactionId}
+            and record->'value'->'json'->'value'->>'submissionPath' = ${interaction.submissionPath}
+          `
+    ),
+    sql<boolean>` or `
+  );
+}
+
+async function loadEntityNameMap(input: {
+  readonly entityRepo: EntityRepository;
+  readonly entityCuis: readonly string[];
+  readonly logger: Logger;
+}): Promise<Map<string, string | null>> {
+  if (input.entityCuis.length === 0) {
+    return new Map();
+  }
+
+  const entitiesResult = await input.entityRepo.getByIds([...input.entityCuis]);
+  if (entitiesResult.isErr()) {
+    input.logger.warn(
+      { error: entitiesResult.error, entityCuis: input.entityCuis },
+      'Failed to load entity names for campaign admin stats top entities'
+    );
+    return new Map();
+  }
+
+  return new Map(
+    input.entityCuis.map((entityCui) => [
+      entityCui,
+      toNullableTrimmedString(entitiesResult.value.get(entityCui)?.name ?? null),
+    ])
+  );
+}
+
+function buildTopEntitiesOrderBySql(sortBy: CampaignAdminStatsTopEntitiesSortBy) {
+  switch (sortBy) {
+    case 'userCount':
+      return sql`order by user_count desc, entity_cui asc`;
+    case 'pendingReviewCount':
+      return sql`order by pending_review_count desc, entity_cui asc`;
+    case 'interactionCount':
+    default:
+      return sql`order by interaction_count desc, entity_cui asc`;
+  }
+}
 
 class CampaignAdminStatsRepo implements CampaignAdminStatsReader {
   private readonly log: Logger;
@@ -114,6 +205,7 @@ class CampaignAdminStatsRepo implements CampaignAdminStatsReader {
     private readonly userDb: UserDbClient,
     private readonly learningProgressRepo: LearningProgressRepository,
     private readonly entitiesRepository: CampaignAdminEntitiesRepository,
+    private readonly entityRepo: EntityRepository,
     logger: Logger
   ) {
     this.log = logger.child({ repo: 'CampaignAdminStatsRepo' });
@@ -223,6 +315,155 @@ class CampaignAdminStatsRepo implements CampaignAdminStatsReader {
     }
   }
 
+  async getInteractionsByType(
+    input: GetCampaignAdminStatsInteractionsByTypeInput
+  ): Promise<Result<CampaignAdminStatsInteractionsByType, CampaignAdminStatsError>> {
+    if (!SUPPORTED_CAMPAIGN_KEYS.has(input.campaignKey)) {
+      return err(createCampaignNotFoundError(input.campaignKey));
+    }
+
+    const filters = buildInteractionFilters(input.campaignKey);
+    if (filters === null) {
+      return err(createCampaignNotFoundError(input.campaignKey));
+    }
+
+    const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      filters.visibleInteractions
+    );
+    const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      filters.reviewableInteractions
+    );
+    const labelByInteractionId = new Map(
+      filters.visibleInteractionConfigs.map((interaction) => [
+        interaction.interactionId,
+        interaction.label,
+      ])
+    );
+
+    try {
+      const result = await this.userDb.transaction().execute(async (trx) => {
+        await setStatementTimeout(trx, QUERY_TIMEOUT_MS);
+
+        return sql<InteractionsByTypeRow>`
+          with interaction_rows as (
+            select
+              record->>'interactionId' as interaction_id,
+              case
+                when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+                when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+                else null
+              end as review_status
+            from userinteractions
+            where (${visibleInteractionsSql})
+          )
+          select
+            interaction_id,
+            count(*)::int as total,
+            count(*) filter (where review_status = 'pending')::int as pending,
+            count(*) filter (where review_status = 'approved')::int as approved,
+            count(*) filter (where review_status = 'rejected')::int as rejected,
+            count(*) filter (where review_status is null)::int as not_reviewed
+          from interaction_rows
+          group by interaction_id
+          order by total desc, interaction_id asc
+        `.execute(trx);
+      });
+
+      return ok({
+        items: result.rows.map((row) => ({
+          interactionId: row.interaction_id,
+          label: labelByInteractionId.get(row.interaction_id) ?? null,
+          total: parseCount(row.total),
+          pending: parseCount(row.pending),
+          approved: parseCount(row.approved),
+          rejected: parseCount(row.rejected),
+          notReviewed: parseCount(row.not_reviewed),
+        })),
+      });
+    } catch (error) {
+      this.log.error(
+        { err: error, input },
+        'Failed to load campaign admin stats interactions by type'
+      );
+      return err(
+        createDatabaseError('Failed to load campaign admin stats interactions by type', error)
+      );
+    }
+  }
+
+  async getTopEntities(
+    input: GetCampaignAdminStatsTopEntitiesInput
+  ): Promise<Result<CampaignAdminStatsTopEntities, CampaignAdminStatsError>> {
+    if (!SUPPORTED_CAMPAIGN_KEYS.has(input.campaignKey)) {
+      return err(createCampaignNotFoundError(input.campaignKey));
+    }
+
+    const filters = buildInteractionFilters(input.campaignKey);
+    if (filters === null) {
+      return err(createCampaignNotFoundError(input.campaignKey));
+    }
+
+    const visibleInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      filters.visibleInteractions
+    );
+    const reviewableInteractionsSql = buildCampaignAdminInteractionFiltersSql(
+      filters.reviewableInteractions
+    );
+
+    try {
+      const result = await this.userDb.transaction().execute(async (trx) => {
+        await setStatementTimeout(trx, QUERY_TIMEOUT_MS);
+
+        return sql<TopEntityRow>`
+          with interaction_rows as (
+            select
+              user_id,
+              nullif(btrim(record->'scope'->>'entityCui'), '') as entity_cui,
+              case
+                when (${reviewableInteractionsSql}) and record->'review'->>'status' is not null then record->'review'->>'status'
+                when (${reviewableInteractionsSql}) and record->>'phase' = 'pending' then 'pending'
+                else null
+              end as review_status
+            from userinteractions
+            where record->'scope'->>'type' = 'entity'
+              and nullif(btrim(record->'scope'->>'entityCui'), '') is not null
+              and (${visibleInteractionsSql})
+          )
+          select
+            entity_cui,
+            count(*)::int as interaction_count,
+            count(distinct user_id)::int as user_count,
+            count(*) filter (where review_status = 'pending')::int as pending_review_count
+          from interaction_rows
+          group by entity_cui
+          ${buildTopEntitiesOrderBySql(input.sortBy)}
+          limit ${input.limit}
+        `.execute(trx);
+      });
+
+      const entityNameMap = await loadEntityNameMap({
+        entityRepo: this.entityRepo,
+        entityCuis: result.rows.map((row) => row.entity_cui),
+        logger: this.log,
+      });
+
+      return ok({
+        sortBy: input.sortBy,
+        limit: input.limit,
+        items: result.rows.map((row) => ({
+          entityCui: row.entity_cui,
+          entityName: entityNameMap.get(row.entity_cui) ?? null,
+          interactionCount: parseCount(row.interaction_count),
+          userCount: parseCount(row.user_count),
+          pendingReviewCount: parseCount(row.pending_review_count),
+        })),
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to load campaign admin stats top entities');
+      return err(createDatabaseError('Failed to load campaign admin stats top entities', error));
+    }
+  }
+
   private async getNotificationOverviewCounts(
     campaignKey: CampaignAdminStatsCampaignKey
   ): Promise<Result<CampaignAdminStatsOverview['notifications'], CampaignAdminStatsError>> {
@@ -303,6 +544,7 @@ export interface CampaignAdminStatsRepoOptions {
   readonly userDb: UserDbClient;
   readonly learningProgressRepo: LearningProgressRepository;
   readonly entitiesRepository: CampaignAdminEntitiesRepository;
+  readonly entityRepo: EntityRepository;
   readonly logger: Logger;
 }
 
@@ -313,6 +555,7 @@ export const makeCampaignAdminStatsReader = (
     options.userDb,
     options.learningProgressRepo,
     options.entitiesRepository,
+    options.entityRepo,
     options.logger
   );
 };

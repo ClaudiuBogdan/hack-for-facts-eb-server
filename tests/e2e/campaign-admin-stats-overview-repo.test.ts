@@ -8,6 +8,11 @@ import pg from 'pg';
 import pinoLogger from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  CITY_HALL_WEBSITE_INTERACTION_ID,
+  CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS,
+  DEBATE_REQUEST_INTERACTION_ID,
+} from '@/common/campaign-user-interactions.js';
 import { makeCampaignAdminStatsReader } from '@/modules/campaign-admin-stats/index.js';
 
 import { dockerAvailable } from './setup.js';
@@ -15,6 +20,7 @@ import { makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { CampaignAdminEntitiesRepository } from '@/modules/campaign-admin-entities/index.js';
+import type { EntityRepository } from '@/modules/entity/index.js';
 
 const { Pool } = pg;
 
@@ -80,7 +86,37 @@ function makeEntitiesRepository(): CampaignAdminEntitiesRepository {
   };
 }
 
-describe('Campaign admin stats overview repo', () => {
+function makeEntityRepo(nameByCui: Record<string, string>): EntityRepository {
+  return {
+    getById: vi.fn(async (cui: string) =>
+      ok(
+        nameByCui[cui] === undefined
+          ? null
+          : ({
+              cui,
+              name: nameByCui[cui],
+            } as never)
+      )
+    ),
+    getByIds: vi.fn(async (cuis: string[]) =>
+      ok(
+        new Map(
+          cuis.flatMap((cui) =>
+            nameByCui[cui] === undefined
+              ? []
+              : [[cui, { cui, name: nameByCui[cui] } as never] as const]
+          )
+        )
+      )
+    ),
+    getAll: vi.fn(),
+    getChildren: vi.fn(),
+    getParents: vi.fn(),
+    getCountyEntity: vi.fn(),
+  } as unknown as EntityRepository;
+}
+
+describe('Campaign admin stats repo', () => {
   it('aggregates safe notification engagement counts by outbox delivery', async () => {
     if (!dockerAvailable) {
       return;
@@ -336,6 +372,7 @@ describe('Campaign admin stats overview repo', () => {
         userDb,
         learningProgressRepo,
         entitiesRepository: makeEntitiesRepository(),
+        entityRepo: makeEntityRepo({}),
         logger: pinoLogger({ level: 'silent' }),
       });
       const result = await reader.getOverview({
@@ -369,6 +406,434 @@ describe('Campaign admin stats overview repo', () => {
         openedCount: 2,
         clickedCount: 1,
         suppressedCount: 1,
+      });
+    } finally {
+      await userDb.destroy();
+      await database.stop();
+    }
+  });
+
+  it('returns ranked interaction aggregates by type', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const database = await startTestDatabase();
+    const userDb = createKyselyClient<UserDatabase>(database.connectionString);
+
+    try {
+      await withPgClient(database.connectionString, async (client) => {
+        await client.query(USER_SCHEMA);
+
+        await client.query(`
+          INSERT INTO userinteractions (user_id, record_key, record, audit_events, updated_seq, created_at, updated_at)
+          VALUES
+            (
+              'user-1',
+              'row-1',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                scope: { type: 'entity', entityCui: '11111111' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              1,
+              '2026-04-10T10:00:00.000Z',
+              '2026-04-10T10:00:00.000Z'
+            ),
+            (
+              'user-2',
+              'row-2',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'pending',
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              2,
+              '2026-04-10T11:00:00.000Z',
+              '2026-04-10T11:00:00.000Z'
+            ),
+            (
+              'user-3',
+              'row-3',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'resolved',
+                scope: { type: 'entity', entityCui: '33333333' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              3,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            ),
+            (
+              'user-4',
+              'row-4',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '11111111' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              4,
+              '2026-04-10T13:00:00.000Z',
+              '2026-04-10T13:00:00.000Z'
+            ),
+            (
+              'user-5',
+              'row-5',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'failed',
+                review: { status: 'rejected' },
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              5,
+              '2026-04-10T14:00:00.000Z',
+              '2026-04-10T14:00:00.000Z'
+            ),
+            (
+              'user-6',
+              'row-6',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'pending',
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '33333333' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              6,
+              '2026-04-10T15:00:00.000Z',
+              '2026-04-10T15:00:00.000Z'
+            ),
+            (
+              'user-7',
+              'row-7',
+              '${JSON.stringify({
+                interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
+                phase: 'resolved',
+                scope: { type: 'global' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              7,
+              '2026-04-10T16:00:00.000Z',
+              '2026-04-10T16:00:00.000Z'
+            )
+        `);
+      });
+
+      const reader = makeCampaignAdminStatsReader({
+        userDb,
+        learningProgressRepo: makeFakeLearningProgressRepo(),
+        entitiesRepository: makeEntitiesRepository(),
+        entityRepo: makeEntityRepo({}),
+        logger: pinoLogger({ level: 'silent' }),
+      });
+      const result = await reader.getInteractionsByType({
+        campaignKey: 'funky',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isErr()) {
+        return;
+      }
+
+      expect(result.value).toEqual({
+        items: [
+          {
+            interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+            label: 'City hall website',
+            total: 3,
+            pending: 1,
+            approved: 1,
+            rejected: 0,
+            notReviewed: 1,
+          },
+          {
+            interactionId: DEBATE_REQUEST_INTERACTION_ID,
+            label: 'Public debate request',
+            total: 3,
+            pending: 1,
+            approved: 1,
+            rejected: 1,
+            notReviewed: 0,
+          },
+          {
+            interactionId: CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0],
+            label: 'Quiz: Module structure',
+            total: 1,
+            pending: 0,
+            approved: 0,
+            rejected: 0,
+            notReviewed: 1,
+          },
+        ],
+      });
+    } finally {
+      await userDb.destroy();
+      await database.stop();
+    }
+  });
+
+  it('returns top entities ranked by the requested metric', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const database = await startTestDatabase();
+    const userDb = createKyselyClient<UserDatabase>(database.connectionString);
+
+    try {
+      await withPgClient(database.connectionString, async (client) => {
+        await client.query(USER_SCHEMA);
+
+        await client.query(`
+          INSERT INTO userinteractions (user_id, record_key, record, audit_events, updated_seq, created_at, updated_at)
+          VALUES
+            (
+              'user-1',
+              'entity-111-row-1',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                scope: { type: 'entity', entityCui: '11111111' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              1,
+              '2026-04-10T10:00:00.000Z',
+              '2026-04-10T10:00:00.000Z'
+            ),
+            (
+              'user-1',
+              'entity-111-row-2',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '11111111' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              2,
+              '2026-04-10T10:10:00.000Z',
+              '2026-04-10T10:10:00.000Z'
+            ),
+            (
+              'user-2',
+              'entity-111-row-3',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'pending',
+                scope: { type: 'entity', entityCui: '11111111' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              3,
+              '2026-04-10T10:20:00.000Z',
+              '2026-04-10T10:20:00.000Z'
+            ),
+            (
+              'user-3',
+              'entity-222-row-1',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              4,
+              '2026-04-10T11:00:00.000Z',
+              '2026-04-10T11:00:00.000Z'
+            ),
+            (
+              'user-4',
+              'entity-222-row-2',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'resolved',
+                review: { status: 'approved' },
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              5,
+              '2026-04-10T11:10:00.000Z',
+              '2026-04-10T11:10:00.000Z'
+            ),
+            (
+              'user-5',
+              'entity-222-row-3',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'failed',
+                review: { status: 'rejected' },
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              6,
+              '2026-04-10T11:20:00.000Z',
+              '2026-04-10T11:20:00.000Z'
+            ),
+            (
+              'user-6',
+              'entity-222-row-4',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'pending',
+                scope: { type: 'entity', entityCui: '22222222' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              7,
+              '2026-04-10T11:30:00.000Z',
+              '2026-04-10T11:30:00.000Z'
+            ),
+            (
+              'user-7',
+              'entity-333-row-1',
+              '${JSON.stringify({
+                interactionId: CITY_HALL_WEBSITE_INTERACTION_ID,
+                phase: 'pending',
+                scope: { type: 'entity', entityCui: '33333333' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              8,
+              '2026-04-10T12:00:00.000Z',
+              '2026-04-10T12:00:00.000Z'
+            ),
+            (
+              'user-8',
+              'entity-333-row-2',
+              '${JSON.stringify({
+                interactionId: DEBATE_REQUEST_INTERACTION_ID,
+                phase: 'pending',
+                value: { kind: 'json', json: { value: { submissionPath: 'request_platform' } } },
+                scope: { type: 'entity', entityCui: '33333333' },
+              })}'::jsonb,
+              '[]'::jsonb,
+              9,
+              '2026-04-10T12:10:00.000Z',
+              '2026-04-10T12:10:00.000Z'
+            )
+        `);
+      });
+
+      const reader = makeCampaignAdminStatsReader({
+        userDb,
+        learningProgressRepo: makeFakeLearningProgressRepo(),
+        entitiesRepository: makeEntitiesRepository(),
+        entityRepo: makeEntityRepo({
+          '11111111': 'Entity One',
+          '22222222': 'Entity Two',
+          '33333333': '   ',
+        }),
+        logger: pinoLogger({ level: 'silent' }),
+      });
+
+      const byInteractionCount = await reader.getTopEntities({
+        campaignKey: 'funky',
+        sortBy: 'interactionCount',
+        limit: 2,
+      });
+      const byUserCount = await reader.getTopEntities({
+        campaignKey: 'funky',
+        sortBy: 'userCount',
+        limit: 3,
+      });
+      const byPendingReviewCount = await reader.getTopEntities({
+        campaignKey: 'funky',
+        sortBy: 'pendingReviewCount',
+        limit: 3,
+      });
+
+      expect(byInteractionCount.isOk()).toBe(true);
+      expect(byUserCount.isOk()).toBe(true);
+      expect(byPendingReviewCount.isOk()).toBe(true);
+      if (byInteractionCount.isErr() || byUserCount.isErr() || byPendingReviewCount.isErr()) {
+        return;
+      }
+
+      expect(byInteractionCount.value).toEqual({
+        sortBy: 'interactionCount',
+        limit: 2,
+        items: [
+          {
+            entityCui: '22222222',
+            entityName: 'Entity Two',
+            interactionCount: 4,
+            userCount: 4,
+            pendingReviewCount: 1,
+          },
+          {
+            entityCui: '11111111',
+            entityName: 'Entity One',
+            interactionCount: 3,
+            userCount: 2,
+            pendingReviewCount: 1,
+          },
+        ],
+      });
+
+      expect(byUserCount.value).toEqual({
+        sortBy: 'userCount',
+        limit: 3,
+        items: [
+          {
+            entityCui: '22222222',
+            entityName: 'Entity Two',
+            interactionCount: 4,
+            userCount: 4,
+            pendingReviewCount: 1,
+          },
+          {
+            entityCui: '11111111',
+            entityName: 'Entity One',
+            interactionCount: 3,
+            userCount: 2,
+            pendingReviewCount: 1,
+          },
+          {
+            entityCui: '33333333',
+            entityName: null,
+            interactionCount: 2,
+            userCount: 2,
+            pendingReviewCount: 2,
+          },
+        ],
+      });
+
+      expect(byPendingReviewCount.value).toEqual({
+        sortBy: 'pendingReviewCount',
+        limit: 3,
+        items: [
+          {
+            entityCui: '33333333',
+            entityName: null,
+            interactionCount: 2,
+            userCount: 2,
+            pendingReviewCount: 2,
+          },
+          {
+            entityCui: '11111111',
+            entityName: 'Entity One',
+            interactionCount: 3,
+            userCount: 2,
+            pendingReviewCount: 1,
+          },
+          {
+            entityCui: '22222222',
+            entityName: 'Entity Two',
+            interactionCount: 4,
+            userCount: 4,
+            pendingReviewCount: 1,
+          },
+        ],
       });
     } finally {
       await userDb.destroy();

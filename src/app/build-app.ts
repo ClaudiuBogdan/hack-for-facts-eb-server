@@ -1997,6 +1997,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             userDb,
             learningProgressRepo,
             entitiesRepository: campaignAdminEntitiesRepository,
+            entityRepo,
             logger: repoLogger,
           }),
         })
