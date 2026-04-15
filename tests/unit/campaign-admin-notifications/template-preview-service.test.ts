@@ -19,6 +19,7 @@ describe('Campaign notification template preview service', () => {
         'public_debate_entity_subscription',
         'public_debate_entity_update',
         'public_debate_admin_failure',
+        'weekly_progress_digest',
       ]);
       expect(
         result.value.find((item) => item.templateId === 'admin_reviewed_user_interaction')

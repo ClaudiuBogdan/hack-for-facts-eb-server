@@ -37,7 +37,7 @@ describe('Template Registry', () => {
 
   it('discovers all registration files', () => {
     const all = registry.getAll();
-    expect(all).toHaveLength(9);
+    expect(all).toHaveLength(10);
     const ids = all.map((r) => r.id);
     expect(ids).toEqual([
       'admin_reviewed_user_interaction',
@@ -48,6 +48,7 @@ describe('Template Registry', () => {
       'public_debate_campaign_welcome',
       'public_debate_entity_subscription',
       'public_debate_entity_update',
+      'weekly_progress_digest',
       'welcome',
     ]);
   });
@@ -74,6 +75,7 @@ describe('Template Registry', () => {
     expect(registry.has('public_debate_campaign_welcome')).toBe(true);
     expect(registry.has('public_debate_entity_subscription')).toBe(true);
     expect(registry.has('public_debate_entity_update')).toBe(true);
+    expect(registry.has('weekly_progress_digest')).toBe(true);
     expect(registry.has('nonexistent')).toBe(false);
   });
 

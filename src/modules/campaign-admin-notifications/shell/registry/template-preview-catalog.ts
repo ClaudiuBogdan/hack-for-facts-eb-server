@@ -9,5 +9,6 @@ export const CAMPAIGN_NOTIFICATION_TEMPLATE_PREVIEW_CATALOG: Readonly<
     'public_debate_entity_subscription',
     'public_debate_entity_update',
     'public_debate_admin_failure',
+    'weekly_progress_digest',
   ],
 };
