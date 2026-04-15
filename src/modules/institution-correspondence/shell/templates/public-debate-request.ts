@@ -19,7 +19,7 @@ export const makePublicDebateTemplateRenderer = (): CorrespondenceTemplateRender
       const bodyLines = [
         'Domnule Primar,',
         '',
-        'Subscrisa, Funky Citizens, având sediul în Str. Brăilița nr. 7, Sector 3 București, înregistrată în Registrul Asociațiilor și Fundațiilor cu nr. 65 / 22.05.2012, cu CIF RO30339344, prin Elena Calistru, în calitate de Președinte.',
+        'Subscrisa, Funky Citizens, înregistrată în Registrul Asociațiilor și Fundațiilor cu nr. 65 / 22.05.2012, cu CIF RO30339344, prin Elena Calistru, în calitate de Președinte.',
         '',
         'În temeiul art. 7 alin. (9) din Legea nr. 52/2003 și al art. 8 lit. b) și art. 39 alin. (3) din Legea nr. 273/2006,',
         '',

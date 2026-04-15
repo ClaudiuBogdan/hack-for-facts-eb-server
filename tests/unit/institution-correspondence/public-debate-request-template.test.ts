@@ -19,6 +19,7 @@ describe('makePublicDebateTemplateRenderer', () => {
     expect(rendered.text.startsWith('Domnule Primar,')).toBe(true);
     expect(rendered.text).not.toContain('Cerere dezbatere buget local\n\nDomnule Primar,');
     expect(rendered.text).toContain('Subscrisa, Funky Citizens');
+    expect(rendered.text).not.toContain('având sediul în Str. Brăilița nr. 7, Sector 3 București');
     expect(rendered.text).toContain('CERERE DE ORGANIZARE A UNEI DEZBATERI');
     expect(rendered.text).toContain('cu privire la proiectul de buget local pentru anul 2026');
     expect(rendered.text).toContain(
@@ -29,5 +30,6 @@ describe('makePublicDebateTemplateRenderer', () => {
     expect(rendered.html).toContain('style="margin:0; line-height:1.5;"');
     expect(rendered.html).toContain('style="height:10px; line-height:10px;"');
     expect(rendered.html).toContain('Subscrisa, Funky Citizens');
+    expect(rendered.html).not.toContain('având sediul în Str. Brăilița nr. 7, Sector 3 București');
   });
 });
