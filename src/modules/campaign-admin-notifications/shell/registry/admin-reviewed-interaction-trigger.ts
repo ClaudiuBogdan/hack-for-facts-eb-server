@@ -52,7 +52,7 @@ import type {
 } from '../../core/ports.js';
 import type { EntityRepository } from '@/modules/entity/index.js';
 
-interface ReviewedInteractionTriggerDeps {
+export interface ReviewedInteractionTriggerDeps {
   learningProgressRepo: LearningProgressRepository;
   extendedNotificationsRepo: ExtendedNotificationsRepository;
   deliveryRepo: DeliveryRepository;
@@ -103,12 +103,12 @@ const ReviewedInteractionBulkTriggerSchema = Type.Object(
   { additionalProperties: false }
 );
 
-interface ReviewedInteractionCandidateIdentity {
+export interface ReviewedInteractionCandidateIdentity {
   readonly userId: string;
   readonly recordKey: string;
 }
 
-interface ReviewedInteractionBulkFilters {
+export interface ReviewedInteractionBulkFilters {
   readonly reviewStatus?: 'approved' | 'rejected';
   readonly interactionId?: string;
   readonly interactionIds?: readonly string[];
@@ -121,7 +121,7 @@ interface ReviewedInteractionBulkFilters {
   readonly submittedAtTo?: string;
 }
 
-interface ReviewedInteractionEnrichment {
+export interface ReviewedInteractionEnrichment {
   readonly interactionConfig: CampaignAdminInteractionConfig | null;
   readonly interactionLabel: string;
   readonly entityCui: string | null;
@@ -129,7 +129,7 @@ interface ReviewedInteractionEnrichment {
   readonly nextStepLinks: readonly AdminReviewedInteractionNextStepLink[];
 }
 
-interface ReviewedInteractionQueuedPlan {
+export interface ReviewedInteractionQueuedPlan {
   readonly notificationInput: {
     readonly userId: string;
     readonly entityCui: string;
@@ -252,7 +252,7 @@ const buildPublicDebateStartLink = (input: {
   };
 };
 
-const createAdminReviewedInteractionFamily = (
+export const createAdminReviewedInteractionFamily = (
   deps: ReviewedInteractionTriggerDeps
 ): CampaignNotificationFamilyDefinition<
   ReviewedInteractionCandidateIdentity,

@@ -166,7 +166,7 @@ const AdminReviewedInteractionProjectionSchema = Type.Object(
     interactionId: Type.String({ minLength: 1 }),
     interactionLabel: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     reviewStatus: Type.Union([Type.Literal('approved'), Type.Literal('rejected')]),
-    reviewedAt: Type.String({ format: 'date-time' }),
+    reviewedAt: Type.String({ minLength: 1 }),
     hasFeedbackText: Type.Boolean(),
     nextStepCount: Type.Number({ minimum: 0 }),
     triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
@@ -451,4 +451,162 @@ export const CampaignNotificationTemplatePreviewResponseSchema = Type.Object(
 
 export type CampaignNotificationTemplateDescriptor = Static<
   typeof CampaignNotificationTemplateDescriptorSchema
+>;
+
+export const CampaignNotificationRunnableTemplateDescriptorSchema = Type.Object(
+  {
+    runnableId: Type.String({ minLength: 1 }),
+    campaignKey: Type.String({ minLength: 1 }),
+    templateId: Type.String({ minLength: 1 }),
+    templateVersion: Type.String({ minLength: 1 }),
+    description: Type.String({ minLength: 1 }),
+    targetKind: Type.String({ minLength: 1 }),
+    selectors: Type.Array(CampaignNotificationTemplateFieldSchema),
+    filters: Type.Array(CampaignNotificationTemplateFieldSchema),
+    dryRunRequired: Type.Boolean(),
+    maxPlanRowCount: Type.Number({ minimum: 1 }),
+    defaultPageSize: Type.Number({ minimum: 1 }),
+    maxPageSize: Type.Number({ minimum: 1 }),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnableTemplateListResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        items: Type.Array(CampaignNotificationRunnableTemplateDescriptorSchema),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnablePlanSummarySchema = Type.Object(
+  {
+    totalRowCount: Type.Number({ minimum: 0 }),
+    willSendCount: Type.Number({ minimum: 0 }),
+    alreadySentCount: Type.Number({ minimum: 0 }),
+    alreadyPendingCount: Type.Number({ minimum: 0 }),
+    ineligibleCount: Type.Number({ minimum: 0 }),
+    missingDataCount: Type.Number({ minimum: 0 }),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnablePlanRowSchema = Type.Object(
+  {
+    rowKey: Type.String({ minLength: 1 }),
+    userId: Type.String({ minLength: 1 }),
+    entityCui: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    recordKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    interactionId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    interactionLabel: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    reviewStatus: Type.Union([Type.Literal('approved'), Type.Literal('rejected'), Type.Null()]),
+    reviewedAt: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    status: Type.Union([
+      Type.Literal('will_send'),
+      Type.Literal('already_sent'),
+      Type.Literal('already_pending'),
+      Type.Literal('ineligible'),
+      Type.Literal('missing_data'),
+    ]),
+    reasonCode: Type.String({ minLength: 1 }),
+    statusMessage: Type.String({ minLength: 1 }),
+    hasExistingDelivery: Type.Boolean(),
+    existingDeliveryStatus: Type.Union([
+      CampaignNotificationStatusSchema,
+      Type.String(),
+      Type.Null(),
+    ]),
+    sendMode: Type.Union([Type.Literal('create'), Type.Literal('reuse_claimable'), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnablePlanResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        planId: Type.String({ minLength: 1 }),
+        runnableId: Type.String({ minLength: 1 }),
+        templateId: Type.String({ minLength: 1 }),
+        watermark: Type.String({ minLength: 1 }),
+        summary: CampaignNotificationRunnablePlanSummarySchema,
+        rows: Type.Array(CampaignNotificationRunnablePlanRowSchema),
+        page: Type.Object(
+          {
+            nextCursor: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+            hasMore: Type.Boolean(),
+          },
+          { additionalProperties: false }
+        ),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnablePlanSendResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: Type.Object(
+      {
+        planId: Type.String({ minLength: 1 }),
+        runnableId: Type.String({ minLength: 1 }),
+        templateId: Type.String({ minLength: 1 }),
+        evaluatedCount: Type.Number({ minimum: 0 }),
+        queuedCount: Type.Number({ minimum: 0 }),
+        alreadySentCount: Type.Number({ minimum: 0 }),
+        alreadyPendingCount: Type.Number({ minimum: 0 }),
+        ineligibleCount: Type.Number({ minimum: 0 }),
+        missingDataCount: Type.Number({ minimum: 0 }),
+        enqueueFailedCount: Type.Number({ minimum: 0 }),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnableIdParamsSchema = Type.Object(
+  {
+    campaignKey: Type.String({ minLength: 1 }),
+    runnableId: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationPlanIdParamsSchema = Type.Object(
+  {
+    campaignKey: Type.String({ minLength: 1 }),
+    planId: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignNotificationRunnablePlanReadQuerySchema = Type.Object(
+  {
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
+    limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
+  },
+  { additionalProperties: false }
+);
+
+export type CampaignNotificationRunnableTemplateDescriptor = Static<
+  typeof CampaignNotificationRunnableTemplateDescriptorSchema
+>;
+export type CampaignNotificationRunnableIdParams = Static<
+  typeof CampaignNotificationRunnableIdParamsSchema
+>;
+export type CampaignNotificationPlanIdParams = Static<
+  typeof CampaignNotificationPlanIdParamsSchema
+>;
+export type CampaignNotificationRunnablePlanReadQuery = Static<
+  typeof CampaignNotificationRunnablePlanReadQuerySchema
 >;

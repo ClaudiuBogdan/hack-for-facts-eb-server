@@ -92,6 +92,8 @@ import {
   makeAdminReviewedInteractionTriggerDefinition,
   makeCampaignAdminNotificationRoutes,
   makeCampaignNotificationOutboxAuditRepo,
+  makeCampaignNotificationRunnablePlanRepo,
+  makeCampaignNotificationRunnableTemplateRegistry,
   makeCampaignNotificationTemplatePreviewService,
   makeCampaignNotificationTriggerRegistry,
 } from '../modules/campaign-admin-notifications/index.js';
@@ -1392,6 +1394,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         makeEntityTermsAcceptedUserEventHandler({
           learningProgressRepo,
           notificationsRepo,
+          extendedNotificationsRepo,
           deliveryRepo,
           composeJobScheduler: notificationDeliveryRuntime.composeJobScheduler,
           entityRepo,
@@ -1998,6 +2001,18 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             entityRepo,
             correspondenceRepo,
             platformBaseUrl: config.notifications.platformBaseUrl,
+          }),
+          runnableTemplateRegistry: makeCampaignNotificationRunnableTemplateRegistry({
+            learningProgressRepo,
+            extendedNotificationsRepo,
+            deliveryRepo,
+            composeJobScheduler: publicDebateComposeJobScheduler,
+            entityRepo,
+            platformBaseUrl: config.notifications.platformBaseUrl,
+          }),
+          planRepository: makeCampaignNotificationRunnablePlanRepo({
+            db: userDb,
+            logger: repoLogger,
           }),
           templatePreviewService: makeCampaignNotificationTemplatePreviewService({
             logger: repoLogger,

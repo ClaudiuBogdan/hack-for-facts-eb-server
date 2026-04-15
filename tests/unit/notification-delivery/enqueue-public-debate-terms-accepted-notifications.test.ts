@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 
 import { enqueuePublicDebateTermsAcceptedNotifications } from '@/modules/notification-delivery/index.js';
 
-import { createTestDeliveryRecord, makeFakeDeliveryRepo } from '../../fixtures/fakes.js';
+import {
+  createTestDeliveryRecord,
+  makeFakeDeliveryRepo,
+  makeFakeExtendedNotificationsRepo,
+} from '../../fixtures/fakes.js';
 
 import type { DeliveryError } from '@/modules/notification-delivery/core/errors.js';
 import type {
@@ -40,15 +44,16 @@ const makeInput = (
 describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
   it('deduplicates the first public debate welcome email per user', async () => {
     const deliveryRepo = makeFakeDeliveryRepo();
+    const notificationsRepo = makeFakeExtendedNotificationsRepo();
     const queuedJobs: ComposeJobPayload[] = [];
     const composeJobScheduler = makeComposeJobScheduler(queuedJobs);
 
     const first = await enqueuePublicDebateTermsAcceptedNotifications(
-      { deliveryRepo, composeJobScheduler },
+      { notificationsRepo, deliveryRepo, composeJobScheduler },
       makeInput()
     );
     const second = await enqueuePublicDebateTermsAcceptedNotifications(
-      { deliveryRepo, composeJobScheduler },
+      { notificationsRepo, deliveryRepo, composeJobScheduler },
       makeInput({ runId: 'run-2', sourceEventId: 'event-2' })
     );
 
@@ -107,11 +112,12 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       },
     });
     const deliveryRepo = makeFakeDeliveryRepo({ deliveries: [existingWelcome] });
+    const notificationsRepo = makeFakeExtendedNotificationsRepo();
     const queuedJobs: ComposeJobPayload[] = [];
     const composeJobScheduler = makeComposeJobScheduler(queuedJobs);
 
     const first = await enqueuePublicDebateTermsAcceptedNotifications(
-      { deliveryRepo, composeJobScheduler },
+      { notificationsRepo, deliveryRepo, composeJobScheduler },
       makeInput({
         entityCui: '87654321',
         entityName: 'A Doua Entitate',
@@ -120,7 +126,7 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       })
     );
     const second = await enqueuePublicDebateTermsAcceptedNotifications(
-      { deliveryRepo, composeJobScheduler },
+      { notificationsRepo, deliveryRepo, composeJobScheduler },
       makeInput({
         runId: 'run-2',
         sourceEventId: 'event-2',
@@ -176,10 +182,12 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       },
     });
     const deliveryRepo = makeFakeDeliveryRepo({ deliveries: [existingWelcome] });
+    const notificationsRepo = makeFakeExtendedNotificationsRepo();
     const queuedJobs: ComposeJobPayload[] = [];
 
     const result = await enqueuePublicDebateTermsAcceptedNotifications(
       {
+        notificationsRepo,
         deliveryRepo,
         composeJobScheduler: makeComposeJobScheduler(queuedJobs),
       },
@@ -263,9 +271,11 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
       },
     };
     const queuedJobs: ComposeJobPayload[] = [];
+    const notificationsRepo = makeFakeExtendedNotificationsRepo();
 
     const result = await enqueuePublicDebateTermsAcceptedNotifications(
       {
+        notificationsRepo,
         deliveryRepo,
         composeJobScheduler: makeComposeJobScheduler(queuedJobs),
       },
@@ -290,5 +300,43 @@ describe('enqueuePublicDebateTermsAcceptedNotifications', () => {
         outboxId: 'outbox-entity-pending',
       },
     ]);
+  });
+
+  it('skips campaign welcome and entity subscription emails for globally unsubscribed users', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const notificationsRepo = makeFakeExtendedNotificationsRepo({
+      globallyUnsubscribedUsers: new Set(['user-1']),
+    });
+    const queuedJobs: ComposeJobPayload[] = [];
+
+    const result = await enqueuePublicDebateTermsAcceptedNotifications(
+      {
+        notificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: makeComposeJobScheduler(queuedJobs),
+      },
+      makeInput()
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.status).toBe('skipped_global_unsubscribe');
+      expect(result.value.outbox).toBeNull();
+      expect(result.value.created).toBe(false);
+      expect(result.value.requeued).toBe(false);
+    }
+
+    const welcome = await deliveryRepo.findByDeliveryKey('funky:outbox:welcome:user-1');
+    const entitySubscription = await deliveryRepo.findByDeliveryKey(
+      'funky:outbox:entity_subscription:user-1:12345678'
+    );
+
+    expect(welcome.isOk()).toBe(true);
+    expect(entitySubscription.isOk()).toBe(true);
+    if (welcome.isOk() && entitySubscription.isOk()) {
+      expect(welcome.value).toBeNull();
+      expect(entitySubscription.value).toBeNull();
+    }
+    expect(queuedJobs).toEqual([]);
   });
 });

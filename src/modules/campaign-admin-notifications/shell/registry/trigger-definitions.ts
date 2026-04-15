@@ -243,6 +243,17 @@ const toTermsAcceptedExecutionResult = (
     };
   }
 
+  if (result.status === 'skipped_global_unsubscribe') {
+    return {
+      status: 'skipped',
+      reason: 'global_unsubscribe',
+      createdOutboxIds: [],
+      reusedOutboxIds: [],
+      queuedOutboxIds: [],
+      enqueueFailedOutboxIds: [],
+    };
+  }
+
   const outboxId = result.outbox?.id;
   const createdOutboxIds = result.created && outboxId !== undefined ? [outboxId] : [];
   const reusedOutboxIds = !result.created && outboxId !== undefined ? [outboxId] : [];
@@ -450,6 +461,7 @@ export const makeCampaignNotificationTriggerRegistry = (
         const runId = buildRunId('public_debate_campaign_welcome');
         const enqueueResult = await enqueuePublicDebateTermsAcceptedNotifications(
           {
+            notificationsRepo: deps.extendedNotificationsRepo,
             deliveryRepo: deps.deliveryRepo,
             composeJobScheduler: deps.composeJobScheduler,
           },
@@ -511,6 +523,7 @@ export const makeCampaignNotificationTriggerRegistry = (
         const runId = buildRunId('public_debate_entity_subscription');
         const enqueueResult = await enqueuePublicDebateTermsAcceptedNotifications(
           {
+            notificationsRepo: deps.extendedNotificationsRepo,
             deliveryRepo: deps.deliveryRepo,
             composeJobScheduler: deps.composeJobScheduler,
           },

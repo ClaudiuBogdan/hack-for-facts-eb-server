@@ -14,6 +14,12 @@ export type {
   CampaignNotificationFieldDescriptor,
   CampaignNotificationTriggerDescriptor,
   CampaignNotificationTriggerCapabilities,
+  CampaignNotificationRunnableTemplateDescriptor,
+  CampaignNotificationRunnablePlanRow,
+  CampaignNotificationRunnablePlanSummary,
+  CampaignNotificationStoredPlan,
+  CampaignNotificationRunnablePlanView,
+  CampaignNotificationRunnablePlanSendResult,
   CampaignNotificationTriggerExecutionResult,
   CampaignNotificationTriggerBulkExecutionResult,
   CampaignNotificationFamilySingleExecutionResult,
@@ -43,16 +49,24 @@ export type {
   CampaignNotificationTriggerBulkExecutionInput,
   CampaignNotificationTriggerDefinition,
   CampaignNotificationTriggerRegistry,
+  CampaignNotificationRunnablePlanCreationInput,
+  CampaignNotificationRunnablePlanRepository,
+  CampaignNotificationRunnableTemplateDefinition,
+  CampaignNotificationRunnableTemplateRegistry,
   CampaignNotificationTemplatePreviewService,
 } from './core/ports.js';
 
 export { listCampaignNotificationAudit } from './core/usecases/list-campaign-notification-audit.js';
+export { createCampaignNotificationRunnablePlan } from './core/usecases/create-campaign-notification-runnable-plan.js';
 export { executeCampaignNotificationTrigger } from './core/usecases/execute-campaign-notification-trigger.js';
 export { executeCampaignNotificationTriggerBulk } from './core/usecases/execute-campaign-notification-trigger-bulk.js';
+export { getCampaignNotificationRunnablePlan } from './core/usecases/get-campaign-notification-runnable-plan.js';
 export { listCampaignNotificationTemplates } from './core/usecases/list-campaign-notification-templates.js';
+export { listCampaignNotificationRunnableTemplates } from './core/usecases/list-campaign-notification-runnable-templates.js';
 export { getCampaignNotificationTemplatePreview } from './core/usecases/get-campaign-notification-template-preview.js';
 export { runCampaignNotificationFamilySingle } from './core/usecases/run-campaign-notification-family-single.js';
 export { runCampaignNotificationFamilyBulk } from './core/usecases/run-campaign-notification-family-bulk.js';
+export { sendCampaignNotificationRunnablePlan } from './core/usecases/send-campaign-notification-runnable-plan.js';
 export type {
   CampaignNotificationFamilyContext,
   CampaignNotificationFamilyPlan,
@@ -71,7 +85,9 @@ export {
 } from './core/reviewed-interaction.js';
 
 export { makeCampaignNotificationOutboxAuditRepo } from './shell/repo/outbox-audit-repo.js';
+export { makeCampaignNotificationRunnablePlanRepo } from './shell/repo/runnable-plan-repo.js';
 export { makeCampaignNotificationTemplatePreviewService } from './shell/preview/template-preview-service.js';
+export { makeCampaignNotificationRunnableTemplateRegistry } from './shell/registry/runnable-template-definitions.js';
 export { makeCampaignNotificationTriggerRegistry } from './shell/registry/trigger-definitions.js';
 export { makeAdminReviewedInteractionTriggerDefinition } from './shell/registry/admin-reviewed-interaction-trigger.js';
 export {
@@ -85,12 +101,21 @@ export {
   CampaignNotificationMetaResponseSchema,
   CampaignNotificationTriggerListResponseSchema,
   CampaignNotificationTriggerExecutionResponseSchema,
+  CampaignNotificationRunnableTemplateListResponseSchema,
+  CampaignNotificationRunnablePlanResponseSchema,
+  CampaignNotificationRunnablePlanSendResponseSchema,
   CampaignNotificationTemplateListResponseSchema,
   CampaignNotificationTemplatePreviewResponseSchema,
+  CampaignNotificationRunnableIdParamsSchema,
+  CampaignNotificationPlanIdParamsSchema,
+  CampaignNotificationRunnablePlanReadQuerySchema,
   CampaignNotificationTriggerBulkRequestSchema,
   CampaignNotificationTriggerBulkExecutionResponseSchema,
   ErrorResponseSchema,
   type CampaignKeyParams,
   type CampaignNotificationListQuery,
+  type CampaignNotificationRunnableIdParams,
+  type CampaignNotificationPlanIdParams,
+  type CampaignNotificationRunnablePlanReadQuery,
   type CampaignNotificationTemplateIdParams,
 } from './shell/rest/schemas.js';

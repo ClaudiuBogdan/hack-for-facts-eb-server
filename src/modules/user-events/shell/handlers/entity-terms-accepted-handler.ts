@@ -12,6 +12,7 @@ import {
   enqueuePublicDebateTermsAcceptedNotifications,
   type ComposeJobScheduler,
   type DeliveryRepository,
+  type ExtendedNotificationsRepository,
   getErrorMessage,
 } from '@/modules/notification-delivery/index.js';
 
@@ -87,6 +88,7 @@ const loadSelectedEntityNames = async (
 export interface EntityTermsAcceptedUserEventHandlerDeps {
   learningProgressRepo: LearningProgressRepository;
   notificationsRepo: NotificationsRepository;
+  extendedNotificationsRepo: Pick<ExtendedNotificationsRepository, 'isUserGloballyUnsubscribed'>;
   deliveryRepo: DeliveryRepository;
   composeJobScheduler: ComposeJobScheduler;
   entityRepo: EntityRepository;
@@ -227,6 +229,7 @@ export const makeEntityTermsAcceptedUserEventHandler = (
 
       const enqueueResult = await enqueuePublicDebateTermsAcceptedNotifications(
         {
+          notificationsRepo: deps.extendedNotificationsRepo,
           deliveryRepo: deps.deliveryRepo,
           composeJobScheduler: deps.composeJobScheduler,
         },

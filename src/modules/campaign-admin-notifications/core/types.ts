@@ -226,3 +226,103 @@ export interface CampaignNotificationTemplatePreview extends CampaignNotificatio
   readonly html: string;
   readonly text: string;
 }
+
+export interface CampaignNotificationRunnableTemplateDescriptor {
+  readonly runnableId: string;
+  readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly templateId: string;
+  readonly templateVersion: string;
+  readonly description: string;
+  readonly targetKind: string;
+  readonly selectors: readonly CampaignNotificationFieldDescriptor[];
+  readonly filters: readonly CampaignNotificationFieldDescriptor[];
+  readonly dryRunRequired: boolean;
+  readonly maxPlanRowCount: number;
+  readonly defaultPageSize: number;
+  readonly maxPageSize: number;
+}
+
+export type CampaignNotificationRunnablePlanRowStatus =
+  | 'will_send'
+  | 'already_sent'
+  | 'already_pending'
+  | 'ineligible'
+  | 'missing_data';
+
+export type CampaignNotificationRunnablePlanSendMode = 'create' | 'reuse_claimable';
+
+export interface CampaignNotificationRunnablePlanRow {
+  readonly rowKey: string;
+  readonly userId: string;
+  readonly entityCui: string | null;
+  readonly entityName: string | null;
+  readonly recordKey: string | null;
+  readonly interactionId: string | null;
+  readonly interactionLabel: string | null;
+  readonly reviewStatus: 'approved' | 'rejected' | null;
+  readonly reviewedAt: string | null;
+  readonly status: CampaignNotificationRunnablePlanRowStatus;
+  readonly reasonCode: string;
+  readonly statusMessage: string;
+  readonly hasExistingDelivery: boolean;
+  readonly existingDeliveryStatus: string | null;
+  readonly sendMode: CampaignNotificationRunnablePlanSendMode | null;
+}
+
+export interface CampaignNotificationRunnablePlanSummary {
+  readonly totalRowCount: number;
+  readonly willSendCount: number;
+  readonly alreadySentCount: number;
+  readonly alreadyPendingCount: number;
+  readonly ineligibleCount: number;
+  readonly missingDataCount: number;
+}
+
+export interface CampaignNotificationStoredPlanRow {
+  readonly preview: CampaignNotificationRunnablePlanRow;
+  readonly executionData: Record<string, unknown> | null;
+}
+
+export interface CampaignNotificationStoredPlan {
+  readonly planId: string;
+  readonly actorUserId: string;
+  readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly runnableId: string;
+  readonly templateId: string;
+  readonly templateVersion: string;
+  readonly payloadHash: string;
+  readonly watermark: string;
+  readonly summary: CampaignNotificationRunnablePlanSummary;
+  readonly rows: readonly CampaignNotificationStoredPlanRow[];
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+}
+
+export interface CampaignNotificationRunnablePlanPage {
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+}
+
+export interface CampaignNotificationRunnablePlanView {
+  readonly planId: string;
+  readonly runnableId: string;
+  readonly templateId: string;
+  readonly watermark: string;
+  readonly summary: CampaignNotificationRunnablePlanSummary;
+  readonly rows: readonly CampaignNotificationRunnablePlanRow[];
+  readonly page: CampaignNotificationRunnablePlanPage;
+}
+
+export interface CampaignNotificationRunnablePlanSendResult {
+  readonly planId: string;
+  readonly runnableId: string;
+  readonly templateId: string;
+  readonly evaluatedCount: number;
+  readonly queuedCount: number;
+  readonly alreadySentCount: number;
+  readonly alreadyPendingCount: number;
+  readonly ineligibleCount: number;
+  readonly missingDataCount: number;
+  readonly enqueueFailedCount: number;
+}

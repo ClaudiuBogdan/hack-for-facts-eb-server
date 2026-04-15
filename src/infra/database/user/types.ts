@@ -57,6 +57,22 @@ export interface NotificationOutbox {
   created_at: Generated<Timestamp>;
 }
 
+export interface CampaignNotificationRunPlans {
+  id: Generated<string>;
+  actor_user_id: string;
+  campaign_key: string;
+  runnable_id: string;
+  template_id: string;
+  template_version: string;
+  payload_hash: string;
+  watermark: string;
+  summary_json: JSONColumnType<Record<string, unknown>>;
+  rows_json: JSONColumnType<Record<string, unknown>[]>;
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  consumed_at: Timestamp | null;
+}
+
 export interface VPublicDebateCampaignUserTotal {
   campaign_key: string;
   total_users: string;
@@ -294,6 +310,7 @@ export interface UserDatabase {
   shortlinks: ShortLinks;
   notifications: Notifications;
   notificationsoutbox: NotificationOutbox;
+  campaignnotificationrunplans: CampaignNotificationRunPlans;
   v_public_debate_campaign_user_total: VPublicDebateCampaignUserTotal;
   v_public_debate_uat_user_counts: VPublicDebateUatUserCounts;
   userinteractions: UserInteractionsTable;

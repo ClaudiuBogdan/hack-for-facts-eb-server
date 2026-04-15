@@ -4,6 +4,10 @@ import type {
   CampaignNotificationFieldDescriptor,
   CampaignNotificationTriggerCapabilities,
   CampaignNotificationMetaCounts,
+  CampaignNotificationRunnablePlanSummary,
+  CampaignNotificationRunnableTemplateDescriptor,
+  CampaignNotificationStoredPlan,
+  CampaignNotificationStoredPlanRow,
   CampaignNotificationTemplateDescriptor,
   CampaignNotificationTemplatePreview,
   CampaignNotificationTriggerBulkExecutionResult,
@@ -80,4 +84,91 @@ export interface CampaignNotificationTemplatePreviewService {
     campaignKey: CampaignNotificationAdminCampaignKey;
     templateId: string;
   }): Promise<Result<CampaignNotificationTemplatePreview, CampaignAdminNotificationError>>;
+}
+
+export interface CampaignNotificationRunnablePlanCreationInput {
+  readonly actorUserId: string;
+  readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly runnableId: string;
+  readonly templateId: string;
+  readonly templateVersion: string;
+  readonly payloadHash: string;
+  readonly watermark: string;
+  readonly summary: CampaignNotificationRunnablePlanSummary;
+  readonly rows: readonly CampaignNotificationStoredPlanRow[];
+  readonly expiresAt: string;
+}
+
+export interface CampaignNotificationRunnablePlanRepository {
+  createPlan(
+    input: CampaignNotificationRunnablePlanCreationInput
+  ): Promise<Result<CampaignNotificationStoredPlan, CampaignAdminNotificationError>>;
+
+  findPlanById(
+    planId: string
+  ): Promise<Result<CampaignNotificationStoredPlan | null, CampaignAdminNotificationError>>;
+
+  consumePlan(input: {
+    readonly planId: string;
+    readonly now: string;
+  }): Promise<Result<boolean, CampaignAdminNotificationError>>;
+
+  releasePlan(input: {
+    readonly planId: string;
+  }): Promise<Result<boolean, CampaignAdminNotificationError>>;
+}
+
+export interface CampaignNotificationRunnableTemplateDefinition {
+  readonly runnableId: string;
+  readonly campaignKey: CampaignNotificationAdminCampaignKey;
+  readonly templateId: string;
+  readonly templateVersion: string;
+  readonly description: string;
+  readonly selectorSchema: TSchema;
+  readonly filterSchema: TSchema;
+  readonly selectors: readonly CampaignNotificationFieldDescriptor[];
+  readonly filters: readonly CampaignNotificationFieldDescriptor[];
+  readonly targetKind: string;
+  readonly dryRunRequired: boolean;
+  readonly maxPlanRowCount: number;
+  readonly defaultPageSize: number;
+  readonly maxPageSize: number;
+  dryRun(input: {
+    readonly actorUserId: string;
+    readonly selectors: unknown;
+    readonly filters: unknown;
+  }): Promise<
+    Result<
+      {
+        readonly watermark: string;
+        readonly summary: CampaignNotificationRunnablePlanSummary;
+        readonly rows: readonly CampaignNotificationStoredPlanRow[];
+      },
+      CampaignAdminNotificationError
+    >
+  >;
+  executeStoredRow(input: {
+    readonly actorUserId: string;
+    readonly row: CampaignNotificationStoredPlanRow;
+  }): Promise<
+    Result<
+      | { readonly outcome: 'queued' }
+      | { readonly outcome: 'already_sent' }
+      | { readonly outcome: 'already_pending' }
+      | { readonly outcome: 'ineligible' }
+      | { readonly outcome: 'missing_data' }
+      | { readonly outcome: 'enqueue_failed' },
+      CampaignAdminNotificationError
+    >
+  >;
+}
+
+export interface CampaignNotificationRunnableTemplateRegistry {
+  list(
+    campaignKey: CampaignNotificationAdminCampaignKey
+  ): readonly CampaignNotificationRunnableTemplateDescriptor[];
+  get(
+    campaignKey: CampaignNotificationAdminCampaignKey,
+    runnableId: string
+  ): CampaignNotificationRunnableTemplateDefinition | null;
 }

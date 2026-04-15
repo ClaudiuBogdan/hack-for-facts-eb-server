@@ -24,6 +24,7 @@ import {
   createTestInteractiveUpdatedEvent,
   createTestProgressResetEvent,
   makeFakeDeliveryRepo,
+  makeFakeExtendedNotificationsRepo,
   makeFakeLearningProgressRepo,
   makeFakeNotificationsRepo,
 } from '../fixtures/fakes.js';
@@ -425,12 +426,14 @@ describe('Learning Progress REST API', () => {
     const userId = testAuth.userIds.user1;
     const learningProgressRepo = makeFakeLearningProgressRepo();
     const notificationsRepo = makeFakeNotificationsRepo();
+    const extendedNotificationsRepo = makeFakeExtendedNotificationsRepo();
     const deliveryRepo = makeFakeDeliveryRepo();
     const queuedJobs: ComposeJobPayload[] = [];
 
     const queuedHandler = makeEntityTermsAcceptedUserEventHandler({
       learningProgressRepo,
       notificationsRepo,
+      extendedNotificationsRepo,
       deliveryRepo,
       composeJobScheduler: makeComposeJobScheduler(queuedJobs),
       entityRepo: makeEntityRepo({

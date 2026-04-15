@@ -1,17 +1,24 @@
+import { randomUUID } from 'node:crypto';
+
 import fastifyLib from 'fastify';
-import { fromThrowable, ok } from 'neverthrow';
+import { err, fromThrowable, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 import {
+  createDatabaseError,
   makeCampaignAdminNotificationRoutes,
   makeCampaignNotificationOutboxAuditRepo,
+  makeCampaignNotificationRunnableTemplateRegistry,
   makeCampaignNotificationTemplatePreviewService,
   makeCampaignNotificationTriggerRegistry,
   type CampaignNotificationAuditRepository,
   type CampaignNotificationAuditCursor,
   type CampaignNotificationMetaCounts,
+  type CampaignNotificationRunnablePlanCreationInput,
+  type CampaignNotificationRunnablePlanRepository,
+  type CampaignNotificationStoredPlan,
   type ListCampaignNotificationAuditInput,
 } from '@/modules/campaign-admin-notifications/index.js';
 import { buildAdminReviewedInteractionDeliveryKey } from '@/modules/notification-delivery/index.js';
@@ -87,6 +94,38 @@ const createReviewedBudgetDocumentRecord = (
     submittedAt: '2026-04-11T10:00:00.000Z',
   });
 
+const createApprovedPublicDebateRequestRecord = (
+  entityCui = '12345678',
+  reviewedAt = '2026-04-12T15:30:00.000Z'
+) =>
+  createTestInteractiveRecord({
+    key: `test:${entityCui}:public-debate-request-reviewed`,
+    interactionId: 'funky:interaction:public_debate_request',
+    lessonId: 'lesson-public-debate',
+    kind: 'custom',
+    completionRule: { type: 'resolved' },
+    scope: { type: 'entity', entityCui },
+    phase: 'resolved',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          submissionPath: 'platform_send',
+          subject: 'Solicitare dezbatere publica',
+        },
+      },
+    },
+    review: {
+      status: 'approved',
+      reviewedAt,
+      feedbackText: 'Aprobat pentru trimitere.',
+      reviewedByUserId: 'admin-user',
+      reviewSource: 'campaign_admin_api',
+    },
+    updatedAt: reviewedAt,
+    submittedAt: '2026-04-11T12:00:00.000Z',
+  });
+
 const encodeCursor = (cursor: CampaignNotificationAuditCursor): string =>
   Buffer.from(JSON.stringify(cursor), 'utf-8').toString('base64url');
 
@@ -128,6 +167,66 @@ const makeAuditRepository = (implementation?: {
   };
 
   return { repository, calls, metaCalls };
+};
+
+const makeInMemoryRunnablePlanRepository = (): CampaignNotificationRunnablePlanRepository => {
+  const plans = new Map<string, CampaignNotificationStoredPlan>();
+
+  return {
+    async createPlan(input: CampaignNotificationRunnablePlanCreationInput) {
+      const createdAt = new Date().toISOString();
+      const plan: CampaignNotificationStoredPlan = {
+        planId: randomUUID(),
+        actorUserId: input.actorUserId,
+        campaignKey: input.campaignKey,
+        runnableId: input.runnableId,
+        templateId: input.templateId,
+        templateVersion: input.templateVersion,
+        payloadHash: input.payloadHash,
+        watermark: input.watermark,
+        summary: input.summary,
+        rows: input.rows,
+        createdAt,
+        expiresAt: input.expiresAt,
+        consumedAt: null,
+      };
+      plans.set(plan.planId, plan);
+      return ok(plan);
+    },
+    async findPlanById(planId: string) {
+      return ok(plans.get(planId) ?? null);
+    },
+    async consumePlan(input) {
+      const plan = plans.get(input.planId);
+      if (plan?.consumedAt !== null) {
+        return ok(false);
+      }
+
+      if (Date.parse(plan.expiresAt) <= Date.parse(input.now)) {
+        return ok(false);
+      }
+
+      plans.set(input.planId, {
+        ...plan,
+        consumedAt: input.now,
+      });
+
+      return ok(true);
+    },
+    async releasePlan(input) {
+      const plan = plans.get(input.planId);
+      if (plan?.consumedAt === null || plan === undefined) {
+        return ok(false);
+      }
+
+      plans.set(input.planId, {
+        ...plan,
+        consumedAt: null,
+      });
+
+      return ok(true);
+    },
+  };
 };
 
 const createAggregateExpression = () => {
@@ -176,6 +275,7 @@ const createTestApp = async (options?: {
   permissionAllowed?: boolean;
   learningProgressRepo?: ReturnType<typeof makeFakeLearningProgressRepo>;
   auditRepository?: CampaignNotificationAuditRepository;
+  planRepository?: CampaignNotificationRunnablePlanRepository;
   harness?: ReturnType<typeof createPublicDebateNotificationHarness>;
 }) => {
   const testAuth = createTestAuthProvider();
@@ -226,6 +326,7 @@ const createTestApp = async (options?: {
       ]),
     });
   const auditRepository = options?.auditRepository ?? makeAuditRepository().repository;
+  const planRepository = options?.planRepository ?? makeInMemoryRunnablePlanRepository();
 
   await app.register(
     makeCampaignAdminNotificationRoutes({
@@ -242,6 +343,15 @@ const createTestApp = async (options?: {
         correspondenceRepo: harness.correspondenceRepo,
         platformBaseUrl: 'https://transparenta.eu',
       }),
+      runnableTemplateRegistry: makeCampaignNotificationRunnableTemplateRegistry({
+        learningProgressRepo,
+        extendedNotificationsRepo: harness.extendedNotificationsRepo,
+        deliveryRepo: harness.deliveryRepo,
+        composeJobScheduler: harness.composeJobScheduler as never,
+        entityRepo: harness.entityRepo,
+        platformBaseUrl: 'https://transparenta.eu',
+      }),
+      planRepository,
       templatePreviewService: makeCampaignNotificationTemplatePreviewService({
         logger,
       }),
@@ -1010,6 +1120,1014 @@ describe('campaign admin notifications routes', () => {
     expect(outbox.isOk()).toBe(true);
     if (outbox.isOk()) {
       expect(outbox.value).toBeNull();
+    }
+
+    await setup.app.close();
+  });
+
+  it('lists runnable templates separately from preview templates', async () => {
+    const setup = await createTestApp();
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          expect.objectContaining({
+            runnableId: 'admin_reviewed_user_interaction',
+            templateId: 'admin_reviewed_user_interaction',
+            dryRunRequired: true,
+            selectors: expect.arrayContaining([
+              expect.objectContaining({ name: 'userId' }),
+              expect.objectContaining({ name: 'entityCui' }),
+              expect.objectContaining({ name: 'recordKey' }),
+            ]),
+            filters: expect.arrayContaining([
+              expect.objectContaining({ name: 'reviewStatus' }),
+              expect.objectContaining({ name: 'interactionId' }),
+            ]),
+          }),
+        ],
+      },
+    });
+
+    await setup.app.close();
+  });
+
+  it('returns 401 for runnable templates when unauthenticated', async () => {
+    const setup = await createTestApp();
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates',
+    });
+
+    expect(response.statusCode).toBe(401);
+
+    await setup.app.close();
+  });
+
+  it('returns 403 for runnable dry-run when permission is denied', async () => {
+    const setup = await createTestApp({
+      permissionAllowed: false,
+    });
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(403);
+
+    await setup.app.close();
+  });
+
+  it('returns 404 for an unknown runnable template id', async () => {
+    const setup = await createTestApp();
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/unknown-runnable/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'NotFoundError',
+      message: 'Campaign notification runnable "unknown-runnable" was not found.',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('returns 500 when dry-run plan persistence fails', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({
+      learningProgressRepo,
+      planRepository: {
+        async createPlan() {
+          return err(createDatabaseError('Failed to create campaign notification run plan.'));
+        },
+        async findPlanById() {
+          return ok(null);
+        },
+        async consumePlan() {
+          return ok(false);
+        },
+        async releasePlan() {
+          return ok(false);
+        },
+      },
+    });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'Failed to create campaign notification run plan.',
+      retryable: true,
+    });
+
+    await setup.app.close();
+  });
+
+  it('creates a stored dry-run plan with safe rows and excludes delegated approved public debate requests', async () => {
+    const reviewedBudgetRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const delegatedRecord = createApprovedPublicDebateRequestRecord(
+      '12345678',
+      '2026-04-12T16:30:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedBudgetRecord.key,
+              record: reviewedBudgetRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedBudgetRecord.updatedAt,
+              updatedAt: reviewedBudgetRecord.updatedAt,
+            },
+          ],
+        ],
+        [
+          'user-2',
+          [
+            {
+              userId: 'user-2',
+              recordKey: delegatedRecord.key,
+              record: delegatedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: delegatedRecord.updatedAt,
+              updatedAt: delegatedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body: {
+      data: {
+        planId: string;
+        summary: { totalRowCount: number; willSendCount: number };
+        rows: Record<string, unknown>[];
+      };
+    } = response.json();
+    expect(body.data.planId).toEqual(expect.any(String));
+    expect(body.data.summary).toEqual(
+      expect.objectContaining({
+        totalRowCount: 1,
+        willSendCount: 1,
+      })
+    );
+    expect(body.data.rows).toHaveLength(1);
+    expect(body.data.rows[0]).toEqual(
+      expect.objectContaining({
+        interactionId: 'funky:interaction:budget_document',
+        status: 'will_send',
+        sendMode: 'create',
+      })
+    );
+    expect(body.data.rows[0]).not.toHaveProperty('feedbackText');
+    expect(body.data.rows[0]).not.toHaveProperty('nextStepLinks');
+    expect(body.data.rows[0]).not.toHaveProperty('deliveryKey');
+    expect(body.data.rows[0]).not.toHaveProperty('executionData');
+
+    await setup.app.close();
+  });
+
+  it('rejects an invalid dry-run payload shape', async () => {
+    const setup = await createTestApp();
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: [],
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      ok: false,
+      error: 'ValidationError',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('pages stored dry-run plans with an opaque cursor', async () => {
+    const firstRecord = createReviewedBudgetDocumentRecord('12345678', '2026-04-12T16:00:00.000Z');
+    const secondRecord = createReviewedBudgetDocumentRecord('12345679', '2026-04-12T16:30:00.000Z');
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: firstRecord.key,
+              record: firstRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: firstRecord.updatedAt,
+              updatedAt: firstRecord.updatedAt,
+            },
+          ],
+        ],
+        [
+          'user-2',
+          [
+            {
+              userId: 'user-2',
+              recordKey: secondRecord.key,
+              record: secondRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: secondRecord.updatedAt,
+              updatedAt: secondRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptions = await Promise.all([
+      ensurePublicDebateAutoSubscriptions(
+        {
+          notificationsRepo: setup.harness.notificationsRepo,
+          hasher: sha256Hasher,
+        },
+        {
+          userId: 'user-1',
+          entityCui: '12345678',
+        }
+      ),
+      ensurePublicDebateAutoSubscriptions(
+        {
+          notificationsRepo: setup.harness.notificationsRepo,
+          hasher: sha256Hasher,
+        },
+        {
+          userId: 'user-2',
+          entityCui: '12345679',
+        }
+      ),
+    ]);
+    expect(subscriptions.every((result) => result.isOk())).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const firstPageResponse = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}?limit=1`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(firstPageResponse.statusCode).toBe(200);
+    const firstPage: {
+      data: {
+        rows: { userId: string }[];
+        page: { hasMore: boolean; nextCursor: string | null };
+      };
+    } = firstPageResponse.json();
+    expect(firstPage.data.rows).toHaveLength(1);
+    expect(firstPage.data.page.hasMore).toBe(true);
+    expect(firstPage.data.page.nextCursor).toEqual(expect.any(String));
+
+    const secondPageResponse = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}?limit=1&cursor=${firstPage.data.page.nextCursor!}`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(secondPageResponse.statusCode).toBe(200);
+    const secondPage: {
+      data: {
+        rows: { userId: string }[];
+        page: { hasMore: boolean; nextCursor: string | null };
+      };
+    } = secondPageResponse.json();
+    expect(secondPage.data.rows).toHaveLength(1);
+    expect(secondPage.data.rows[0]?.userId).not.toBe(firstPage.data.rows[0]?.userId);
+    expect(secondPage.data.page.hasMore).toBe(false);
+    expect(secondPage.data.page.nextCursor).toBeNull();
+
+    await setup.app.close();
+  });
+
+  it('rejects an invalid stored-plan cursor', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}?cursor=invalid`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign notification plan cursor.',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('rejects plan reads by a different actor', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user2}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign notification plan.',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('returns 500 when loading a stored plan fails', async () => {
+    const setup = await createTestApp({
+      planRepository: {
+        async createPlan() {
+          throw new Error('not used');
+        },
+        async findPlanById() {
+          return err(createDatabaseError('Failed to load campaign notification run plan.'));
+        },
+        async consumePlan() {
+          return ok(false);
+        },
+        async releasePlan() {
+          return ok(false);
+        },
+      },
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications/plans/plan-1',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'Failed to load campaign notification run plan.',
+      retryable: true,
+    });
+
+    await setup.app.close();
+  });
+
+  it('rejects plan sends by a different actor', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}/send`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user2}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign notification plan.',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('returns 500 when consuming a stored plan fails during send', async () => {
+    const setup = await createTestApp({
+      planRepository: {
+        async createPlan() {
+          throw new Error('not used');
+        },
+        async findPlanById() {
+          return ok({
+            planId: 'plan-1',
+            actorUserId: setup.testAuth.userIds.user1,
+            campaignKey: 'funky',
+            runnableId: 'admin_reviewed_user_interaction',
+            templateId: 'admin_reviewed_user_interaction',
+            templateVersion: '1.0.0',
+            payloadHash: 'hash',
+            watermark: '2026-04-14T20:00:00.000Z',
+            summary: {
+              totalRowCount: 0,
+              willSendCount: 0,
+              alreadySentCount: 0,
+              alreadyPendingCount: 0,
+              ineligibleCount: 0,
+              missingDataCount: 0,
+            },
+            rows: [],
+            createdAt: '2026-04-14T20:00:00.000Z',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+            consumedAt: null,
+          } satisfies CampaignNotificationStoredPlan);
+        },
+        async consumePlan() {
+          return err(createDatabaseError('Failed to consume campaign notification run plan.'));
+        },
+        async releasePlan() {
+          return ok(false);
+        },
+      },
+    });
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/plans/plan-1/send',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'Failed to consume campaign notification run plan.',
+      retryable: true,
+    });
+
+    await setup.app.close();
+  });
+
+  it('sends a stored reviewed-interaction plan once and rejects reuse of the consumed plan', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const sendResponse = await setup.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}/send`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(sendResponse.statusCode).toBe(200);
+    expect(sendResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        planId: dryRunBody.data.planId,
+        queuedCount: 1,
+        evaluatedCount: 1,
+      }),
+    });
+
+    const outbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+      buildAdminReviewedInteractionDeliveryKey({
+        campaignKey: 'funky',
+        userId: 'user-1',
+        interactionId: 'funky:interaction:budget_document',
+        recordKey: reviewedRecord.key,
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? reviewedRecord.updatedAt,
+        reviewStatus: 'rejected',
+      })
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.notificationType).toBe('funky:outbox:admin_reviewed_interaction');
+    }
+
+    const secondSendResponse = await setup.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}/send`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(secondSendResponse.statusCode).toBe(400);
+    expect(secondSendResponse.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign notification plan.',
+      retryable: false,
+    });
+
+    await setup.app.close();
+  });
+
+  it('sends the stored dry-run payload even if entity metadata changes before send', async () => {
+    const entityNames = {
+      '12345678': 'Municipiul Exemplu',
+    };
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const harness = createPublicDebateNotificationHarness({ entityNames });
+    const setup = await createTestApp({ learningProgressRepo, harness });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string; rows: { entityName: string | null }[] };
+    } = dryRunResponse.json();
+    expect(dryRunBody.data.rows[0]?.entityName).toBe('Municipiul Exemplu');
+
+    entityNames['12345678'] = 'Municipiul Schimbat';
+
+    const sendResponse = await setup.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}/send`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(sendResponse.statusCode).toBe(200);
+    expect(sendResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        planId: dryRunBody.data.planId,
+        queuedCount: 1,
+      }),
+    });
+
+    const outbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+      buildAdminReviewedInteractionDeliveryKey({
+        campaignKey: 'funky',
+        userId: 'user-1',
+        interactionId: 'funky:interaction:budget_document',
+        recordKey: reviewedRecord.key,
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? reviewedRecord.updatedAt,
+        reviewStatus: 'rejected',
+      })
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata['entityName']).toBe('Municipiul Exemplu');
+    }
+
+    await setup.app.close();
+  });
+
+  it('revalidates the reviewed interaction before send and skips stale stored rows', async () => {
+    const reviewedRecord = createReviewedBudgetDocumentRecord(
+      '12345678',
+      '2026-04-12T16:00:00.000Z'
+    );
+    const learningProgressRepo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          'user-1',
+          [
+            {
+              userId: 'user-1',
+              recordKey: reviewedRecord.key,
+              record: reviewedRecord,
+              auditEvents: [],
+              updatedSeq: '1',
+              createdAt: reviewedRecord.updatedAt,
+              updatedAt: reviewedRecord.updatedAt,
+            },
+          ],
+        ],
+      ]),
+    });
+    const setup = await createTestApp({ learningProgressRepo });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+
+    const dryRunResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/runnable-templates/admin_reviewed_user_interaction/dry-run',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {},
+    });
+    expect(dryRunResponse.statusCode).toBe(200);
+
+    const dryRunBody: {
+      data: { planId: string };
+    } = dryRunResponse.json();
+
+    const updatedRecord = {
+      ...reviewedRecord,
+      phase: 'resolved' as const,
+      review: {
+        ...reviewedRecord.review!,
+        status: 'approved' as const,
+        reviewedAt: '2026-04-12T17:00:00.000Z',
+      },
+      updatedAt: '2026-04-12T17:00:00.000Z',
+    };
+    const upsertResult = await learningProgressRepo.upsertInteractiveRecord({
+      userId: 'user-1',
+      eventId: 'event-reviewed-update',
+      clientId: 'test-client',
+      occurredAt: updatedRecord.updatedAt,
+      record: updatedRecord,
+      auditEvents: [],
+    });
+    expect(upsertResult.isOk()).toBe(true);
+
+    const sendResponse = await setup.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/campaigns/funky/notifications/plans/${dryRunBody.data.planId}/send`,
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(sendResponse.statusCode).toBe(200);
+    expect(sendResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        planId: dryRunBody.data.planId,
+        queuedCount: 0,
+        missingDataCount: 1,
+        evaluatedCount: 1,
+      }),
+    });
+
+    const originalOutbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+      buildAdminReviewedInteractionDeliveryKey({
+        campaignKey: 'funky',
+        userId: 'user-1',
+        interactionId: 'funky:interaction:budget_document',
+        recordKey: reviewedRecord.key,
+        reviewedAt: reviewedRecord.review?.reviewedAt ?? reviewedRecord.updatedAt,
+        reviewStatus: 'rejected',
+      })
+    );
+    expect(originalOutbox.isOk()).toBe(true);
+    if (originalOutbox.isOk()) {
+      expect(originalOutbox.value).toBeNull();
     }
 
     await setup.app.close();
