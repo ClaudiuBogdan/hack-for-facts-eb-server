@@ -37,8 +37,6 @@ The implementation must reduce duplicate admin work without:
   - applies approval through `updateInteractionReview(...)`
 - add a post-sync hook that invokes the use case after committed public sync
   writes
-- add a reconciliation entrypoint that can re-run the same use case for pending
-  rows missed by the post-sync hook
 - add structured summary logs needed to operate the feature safely
 - add unit, integration, and e2e coverage
 
@@ -102,7 +100,6 @@ The implementation must reduce duplicate admin work without:
   any other downstream side effects in v1.
 - Any ambiguity, parser failure, repo failure, or race must fail open and leave
   the row pending.
-- The reconciliation entrypoint must be idempotent and safe to run repeatedly.
 
 ## Proposed Design
 
@@ -265,34 +262,26 @@ Rules:
 - log and continue on any failure
 - emit structured summary logs with counts by outcome and skip reason
 
-### 6. Add Reconciliation Entrypoint
+### 6. Keep Auto-Review Reuse Event-Driven Only
 
 Files:
 
-- simplest safe option:
-  - new script under `scripts/`, for example:
-    `reconcile-auto-review-reuse.ts`
-- optional helper function under `src/modules/learning-progress/` if shared by
-  the hook and script
+- no new operator-facing script or runnable
+- optional internal helper under `src/modules/learning-progress/` only if
+  needed by the post-sync hook implementation
 
 Changes:
 
-- add a `package.json` script entry for the reconciliation command
-- enumerate pending allowlisted rows in bounded batches
-- reuse `listCampaignAdminInteractionRows(...)` with:
-  - `phase = pending`
-  - allowlisted interactions only
-  - existing cursor pagination
-  - bounded `limit`
-- invoke the same core use case for each candidate
-- print a final summary with counts only
-- exit non-zero on unrecovered failures
+- keep auto-review reuse strictly event-driven from the post-sync hook
+- do not introduce a backfill or operator-triggered reconciliation path in v1
+- document that missed rows are not repaired by a script or manual command as
+  part of this design
 
 Design choice:
 
-- v1 should use a script, not a new queue or cron subsystem
-- the script is simpler, auditable, and enough to satisfy the mandatory
-  reconciliation requirement from the spec
+- v1 should not add a script, queue, or cron subsystem for reconciliation
+- the feature only auto-approves when fresh sync events provide the triggering
+  context
 
 ### 7. Keep Side Effects Explicitly Disabled
 
@@ -354,10 +343,6 @@ Add integration coverage for:
   - a pending allowlisted submission becomes approved after the hook when a
     matching `campaign_admin_api` precedent exists
   - hook failure does not fail the public sync request
-- script-level reconciliation:
-  - pending rows missed by the hook can be approved by the reconciliation
-    script
-  - repeated reconciliation runs are idempotent
 - notification regression:
   - `auto_review_reuse_match` rows are excluded from admin-reviewed interaction
     notification behavior
@@ -404,7 +389,6 @@ Notes:
 - The allowlist lives on existing interaction config, not in a separate
   registry.
 - The post-sync hook is registered and emits structured summary logs.
-- The reconciliation script exists, runs safely, and is idempotent.
 - Unit, integration, and e2e coverage exists for the main happy path and the
   main fail-open paths.
 
@@ -417,7 +401,6 @@ Notes:
 - `pnpm lint` passes
 - `pnpm test:unit` passes for the touched suites
 - targeted integration and e2e tests for this feature pass
-- any new script has a clear usage contract in code comments or adjacent docs
 - logging does not expose raw payloads or free text
 - no unexpected behavior change is introduced for:
   - normal learning-progress sync
@@ -433,13 +416,12 @@ Notes:
 3. Add repo method plus fake repo support and real-db tests.
 4. Add core use case and unit tests.
 5. Add post-sync hook wiring and integration tests.
-6. Add reconciliation script and integration coverage.
-7. Run focused unit, integration, and e2e tests.
+6. Run focused unit, integration, and e2e tests.
 
 ## Risks And Mitigations
 
 - Risk: hook failures silently leave rows pending.
-  Mitigation: mandatory reconciliation path and structured summary logs.
+  Mitigation: structured summary logs and manual campaign-admin review fallback.
 - Risk: incorrect normalization causes false approvals.
   Mitigation: allowlist only low-risk interaction types, exact matching, and
   fail-open on invalid data.

@@ -128,8 +128,6 @@ export async function autoResolvePendingInteractionFromReviewedMatch(
 
     const lockResult = await transactionalRepo.acquireAutoReviewReuseTransactionLock({
       recordKey: initialRow.recordKey,
-      interactionId: initialRow.record.interactionId,
-      entityCui: initialRow.record.scope.entityCui,
     });
     if (lockResult.isErr()) {
       return err(lockResult.error);

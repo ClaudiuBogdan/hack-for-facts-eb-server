@@ -1797,6 +1797,211 @@ describe('compose worker helpers', () => {
     expect(jobs).toHaveLength(1);
   });
 
+  it('drops stale compose results after the outbox is reset and reclaimed for recompose', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-welcome-recompose-race',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-race',
+          metadata: {
+            source: 'clerk_webhook.user_created',
+            sourceEventId: 'evt-race',
+            registeredAt: '2026-03-28T12:00:00.000Z',
+          },
+        }),
+      ],
+    });
+
+    const emailRenderer = {
+      async render(props: {
+        templateType: string;
+        preferencesUrl?: string;
+        selectedEntities?: string[];
+        entityName?: string;
+        ctaUrl?: string;
+      }) {
+        const currentOutbox = await deliveryRepo.findById('outbox-welcome-recompose-race');
+        expect(currentOutbox.isOk()).toBe(true);
+        if (currentOutbox.isOk()) {
+          expect(currentOutbox.value?.status).toBe('composing');
+        }
+
+        const refreshResult = await deliveryRepo.refreshMetadataForRecomposeIfReplayable(
+          'outbox-welcome-recompose-race',
+          {
+            source: 'clerk_webhook.user_created',
+            sourceEventId: 'evt-race',
+            registeredAt: '2026-03-28T12:00:00.000Z',
+            recipientRole: 'subscriber',
+          }
+        );
+        expect(refreshResult.isOk()).toBe(true);
+
+        const reclaimResult = await deliveryRepo.claimForCompose('outbox-welcome-recompose-race');
+        expect(reclaimResult.isOk()).toBe(true);
+        if (reclaimResult.isOk()) {
+          expect(reclaimResult.value?.status).toBe('composing');
+        }
+
+        return ok({
+          subject:
+            props.templateType === 'welcome' ? 'Bun venit pe Transparenta.eu' : 'Subscription',
+          html: `<p>${props.templateType}</p>`,
+          text: props.templateType,
+          templateName: props.templateType,
+          templateVersion: '1.0.0',
+        });
+      },
+      getTemplates() {
+        return [];
+      },
+      getTemplate() {
+        return undefined;
+      },
+    };
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer,
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-recompose-race',
+        kind: 'outbox',
+        outboxId: 'outbox-welcome-recompose-race',
+      }
+    );
+
+    expect(result).toEqual({
+      runId: 'run-recompose-race',
+      outboxId: 'outbox-welcome-recompose-race',
+      status: 'skipped_status',
+    });
+    expect(jobs).toEqual([]);
+
+    const outbox = await deliveryRepo.findById('outbox-welcome-recompose-race');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
+        })
+      );
+      expect(outbox.value?.renderedSubject).toBeNull();
+      expect(outbox.value?.renderedHtml).toBeNull();
+      expect(outbox.value?.renderedText).toBeNull();
+      expect(outbox.value?.status).toBe('composing');
+    }
+  });
+
+  it('does not permanently fail a replacement row when the old compose claim loses ownership', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-welcome-fail-race',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-fail-race',
+          metadata: {
+            source: 'clerk_webhook.user_created',
+            sourceEventId: 'evt-fail-race',
+            registeredAt: '2026-03-28T12:00:00.000Z',
+          },
+        }),
+      ],
+    });
+
+    const emailRenderer = {
+      async render(props: {
+        templateType: string;
+        preferencesUrl?: string;
+        selectedEntities?: string[];
+        entityName?: string;
+        ctaUrl?: string;
+      }) {
+        const refreshResult = await deliveryRepo.refreshMetadataForRecomposeIfReplayable(
+          'outbox-welcome-fail-race',
+          {
+            source: 'clerk_webhook.user_created',
+            sourceEventId: 'evt-fail-race',
+            registeredAt: '2026-03-28T12:00:00.000Z',
+            recipientRole: 'subscriber',
+          }
+        );
+        expect(refreshResult.isOk()).toBe(true);
+
+        const reclaimResult = await deliveryRepo.claimForCompose('outbox-welcome-fail-race');
+        expect(reclaimResult.isOk()).toBe(true);
+        if (reclaimResult.isOk()) {
+          expect(reclaimResult.value?.status).toBe('composing');
+        }
+
+        void props;
+        return err({
+          type: 'RENDER_ERROR' as const,
+          message: 'replacement row should survive stale failure',
+        });
+      },
+      getTemplates() {
+        return [];
+      },
+      getTemplate() {
+        return undefined;
+      },
+    };
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer,
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-fail-race',
+        kind: 'outbox',
+        outboxId: 'outbox-welcome-fail-race',
+      }
+    );
+
+    expect(result).toEqual({
+      runId: 'run-fail-race',
+      outboxId: 'outbox-welcome-fail-race',
+      status: 'skipped_status',
+    });
+    expect(jobs).toEqual([]);
+
+    const outbox = await deliveryRepo.findById('outbox-welcome-fail-race');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.status).toBe('composing');
+      expect(outbox.value?.lastError).toBeNull();
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
+        })
+      );
+    }
+  });
+
   it('re-enqueues send when a duplicate subscription outbox already has rendered content', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     const notification = createTestNotification({

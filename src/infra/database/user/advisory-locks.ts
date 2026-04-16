@@ -33,27 +33,17 @@ export async function acquireAdvancedMapDatasetTransactionLocks(
   }
 }
 
-function normalizeLearningProgressAutoReviewReuseIdentity(input: {
-  recordKey: string;
-  interactionId: string;
-  entityCui: string;
-}): string {
-  return [input.recordKey.trim(), input.interactionId.trim(), input.entityCui.trim()].join(
-    '\u0000'
-  );
+function normalizeLearningProgressAutoReviewReuseIdentity(input: { recordKey: string }): string {
+  return input.recordKey.trim();
 }
 
 export async function acquireLearningProgressAutoReviewReuseTransactionLock(
   db: UserDbConnection,
-  input: {
-    recordKey: string;
-    interactionId: string;
-    entityCui: string;
-  }
+  input: { recordKey: string }
 ): Promise<void> {
-  // Exact-key/entity auto-review reuse is serialized with human reviews using
-  // transaction-scoped advisory locks so precedent lookup and review writes
-  // observe a single authoritative ordering without widening isolation.
+  // Auto-review reuse is serialized per logical record key so pending syncs,
+  // human reviews, and auto-approvals observe a single authoritative ordering
+  // even if the row's entity-scoped identity changes before the locked reread.
   const normalizedIdentity = normalizeLearningProgressAutoReviewReuseIdentity(input);
 
   await sql`

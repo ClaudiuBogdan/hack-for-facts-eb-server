@@ -126,6 +126,109 @@ describe('processSendJob', () => {
     }
   });
 
+  it('refetches the current user email after a replay reset clears a stale snapshot', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-replayed-email',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-replayed',
+          status: 'failed_transient',
+          toEmail: 'stale@example.com',
+          renderedSubject: 'Welcome',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          attemptCount: 3,
+          resendEmailId: 'resend-old',
+        }),
+      ],
+    });
+
+    const refreshResult = await deliveryRepo.refreshMetadataForRecomposeIfReplayable(
+      'outbox-replayed-email',
+      {
+        eventType: 'thread_started',
+        recipientRole: 'subscriber',
+      }
+    );
+    expect(refreshResult.isOk()).toBe(true);
+    if (refreshResult.isErr()) {
+      return;
+    }
+    expect(refreshResult.value?.toEmail).toBeNull();
+
+    const composeClaimResult = await deliveryRepo.claimForCompose('outbox-replayed-email');
+    expect(composeClaimResult.isOk()).toBe(true);
+    if (composeClaimResult.isErr() || composeClaimResult.value === null) {
+      return;
+    }
+
+    const renderResult = await deliveryRepo.updateRenderedContent('outbox-replayed-email', {
+      renderedSubject: 'Welcome',
+      renderedHtml: '<p>Hello</p>',
+      renderedText: 'Hello',
+      contentHash: 'content-hash',
+      templateName: 'transactional_welcome',
+      templateVersion: '1.0.0',
+      expectedComposeClaimId: composeClaimResult.value.metadata['__composeClaimId'] as string,
+    });
+    expect(renderResult.isOk()).toBe(true);
+    if (renderResult.isErr()) {
+      return;
+    }
+    expect(renderResult.value).toBe(true);
+
+    const releaseResult = await deliveryRepo.updateStatusIfCurrentIn(
+      'outbox-replayed-email',
+      ['composing'],
+      'pending'
+    );
+    expect(releaseResult.isOk()).toBe(true);
+    if (releaseResult.isErr()) {
+      return;
+    }
+    expect(releaseResult.value).toBe(true);
+
+    const getEmail = vi.fn(async () => ok('current@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const tokenSigner = makeFakeTokenSigner();
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner,
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-replayed-email' }
+    );
+
+    expect(result.status).toBe('sent');
+    expect(getEmail).toHaveBeenCalledWith('user-1');
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'current@example.com',
+      })
+    );
+
+    const stored = await deliveryRepo.findById('outbox-replayed-email');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('sent');
+      expect(stored.value?.toEmail).toBe('current@example.com');
+      expect(stored.value?.attemptCount).toBe(1);
+    }
+  });
+
   it('marks delivery as failed_permanent on non-retryable user email lookup errors', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [

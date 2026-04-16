@@ -452,8 +452,6 @@ export async function syncEvents(
         if (shouldAcquireAutoReviewReuseTransactionLock(event.payload.record)) {
           const lockResult = await transactionalRepo.acquireAutoReviewReuseTransactionLock({
             recordKey: event.payload.record.key,
-            interactionId: event.payload.record.interactionId,
-            entityCui: event.payload.record.scope.entityCui,
           });
           if (lockResult.isErr()) {
             return err(lockResult.error);

@@ -125,6 +125,7 @@ describe('autoResolvePendingInteractionFromReviewedMatch', () => {
     const pendingRow = createPendingWebsiteRecord();
     const precedentRow = createReviewedWebsiteRecord();
     const callOrder: string[] = [];
+    const lockInputs: { recordKey: string }[] = [];
     const repo = makeFakeLearningProgressRepo({
       initialRecords: new Map([
         [pendingRow.userId, [pendingRow]],
@@ -133,8 +134,9 @@ describe('autoResolvePendingInteractionFromReviewedMatch', () => {
       onGetRecord() {
         callOrder.push('get_record');
       },
-      onAcquireAutoReviewReuseTransactionLock() {
+      onAcquireAutoReviewReuseTransactionLock(input) {
         callOrder.push('lock');
+        lockInputs.push(input);
       },
       onGetRecordForUpdate() {
         callOrder.push('get_record_for_update');
@@ -158,6 +160,10 @@ describe('autoResolvePendingInteractionFromReviewedMatch', () => {
       'lock',
       'get_record_for_update',
       'precedent_lookup',
+    ]);
+    expect(lockInputs).toEqual([
+      { recordKey: pendingRow.recordKey },
+      { recordKey: pendingRow.recordKey },
     ]);
   });
 

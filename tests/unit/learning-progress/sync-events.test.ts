@@ -400,9 +400,11 @@ describe('syncEvents', () => {
       submittedAt: '2026-03-23T19:27:40.527Z',
     });
     const callOrder: string[] = [];
+    const lockInputs: { recordKey: string }[] = [];
     const repo = makeFakeLearningProgressRepo({
-      onAcquireAutoReviewReuseTransactionLock() {
+      onAcquireAutoReviewReuseTransactionLock(input) {
         callOrder.push('lock');
+        lockInputs.push(input);
       },
       onGetRecordForUpdate() {
         callOrder.push('get_record_for_update');
@@ -425,6 +427,7 @@ describe('syncEvents', () => {
 
     expect(result.isOk()).toBe(true);
     expect(callOrder.slice(0, 2)).toEqual(['lock', 'get_record_for_update']);
+    expect(lockInputs).toEqual([{ recordKey: record.key }]);
   });
 
   it('does not acquire the auto-review reuse lock for non-allowlisted pending records', async () => {

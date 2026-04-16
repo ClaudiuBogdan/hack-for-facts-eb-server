@@ -807,4 +807,120 @@ describe('institution correspondence repo campaign-admin threads', () => {
       await database.stop();
     }
   });
+
+  it('keeps sending threads out of campaign-admin scope on the real repo path', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const database = await startTestDatabase();
+    const userDb = createKyselyClient<UserDatabase>(database.connectionString);
+    const repo = makeInstitutionCorrespondenceRepo({
+      db: userDb,
+      logger: pinoLogger({ enabled: false }),
+    });
+
+    try {
+      await withPgClient(database.connectionString, async (client) => {
+        await client.query(USER_SCHEMA);
+
+        await client.query(`
+          INSERT INTO institutionemailthreads (
+            id,
+            entity_cui,
+            campaign_key,
+            thread_key,
+            phase,
+            last_email_at,
+            last_reply_at,
+            next_action_at,
+            closed_at,
+            record,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            '35000000-0000-0000-0000-000000000001',
+            '93500001',
+            'funky',
+            'sending-thread-1',
+            'sending',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            '{
+              "version":1,
+              "campaign":"funky",
+              "campaignKey":"funky",
+              "ownerUserId":"owner-sending",
+              "subject":"Sending thread",
+              "submissionPath":"platform_send",
+              "institutionEmail":"sending@scope.test",
+              "ngoIdentity":"funky_citizens",
+              "requesterOrganizationName":null,
+              "budgetPublicationDate":null,
+              "consentCapturedAt":null,
+              "contestationDeadlineAt":null,
+              "captureAddress":"contact@test",
+              "correspondence":[],
+              "latestReview":null,
+              "metadata":{}
+            }'::jsonb,
+            '2026-04-11T09:00:00.000Z'::timestamptz,
+            '2026-04-11T09:00:00.000Z'::timestamptz
+          );
+        `);
+      });
+
+      const foundResult = await repo.findCampaignAdminThreadById({
+        campaignKey: 'funky',
+        threadId: '35000000-0000-0000-0000-000000000001',
+      });
+
+      expect(foundResult.isOk()).toBe(true);
+      if (foundResult.isErr()) {
+        return;
+      }
+
+      expect(foundResult.value).toBeNull();
+
+      const listResult = await repo.listCampaignAdminThreads({
+        campaignKey: 'funky',
+        limit: 10,
+      });
+
+      expect(listResult.isOk()).toBe(true);
+      if (listResult.isErr()) {
+        return;
+      }
+
+      expect(listResult.value.items.map((thread) => thread.id)).not.toContain(
+        '35000000-0000-0000-0000-000000000001'
+      );
+
+      const appendResult = await appendCampaignAdminThreadResponse(
+        { repo },
+        {
+          campaignKey: 'funky',
+          threadId: '35000000-0000-0000-0000-000000000001',
+          actorUserId: 'admin-user-sending',
+          expectedUpdatedAt: new Date('2026-04-11T09:00:00.000Z'),
+          responseDate: new Date('2026-04-11T10:00:00.000Z'),
+          messageContent: 'Should stay out of scope.',
+          responseStatus: 'registration_number_received',
+        }
+      );
+
+      expect(appendResult.isErr()).toBe(true);
+      if (appendResult.isOk()) {
+        return;
+      }
+
+      expect(appendResult.error.type).toBe('CorrespondenceNotFoundError');
+    } finally {
+      await userDb.destroy();
+      await database.stop();
+    }
+  });
 });

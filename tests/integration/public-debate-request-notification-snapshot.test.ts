@@ -184,6 +184,115 @@ describe('public debate request notification snapshots', () => {
     }
   });
 
+  it('resets rendered replayable thread_started outboxes before recompose', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-1',
+          entityCui: '12345678',
+          phase: 'awaiting_reply',
+          lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+          record: createThreadAggregateRecord({
+            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+      entityNames: {
+        '12345678': 'Oras Test',
+      },
+    });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: {
+          sha256(value: string) {
+            return value;
+          },
+        },
+      },
+      {
+        userId: 'user-2',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+    if (subscriptionResult.isErr()) {
+      throw new Error(
+        `Expected auto-subscription setup to succeed: ${subscriptionResult.error.message}`
+      );
+    }
+
+    const notification = subscriptionResult.value.entitySubscription;
+    const seededOutbox = await harness.deliveryRepo.create({
+      userId: 'user-2',
+      notificationType: 'funky:outbox:entity_update',
+      referenceId: notification.id,
+      scopeKey: 'funky:delivery:thread_started_thread-1',
+      deliveryKey: `user-2:${notification.id}:funky:delivery:thread_started_thread-1`,
+      renderedSubject: 'Old requester copy',
+      renderedHtml: '<p>Old requester copy</p>',
+      renderedText: 'Old requester copy',
+      contentHash: 'old-hash',
+      templateName: 'public_debate_entity_update',
+      templateVersion: '1.0.0',
+      metadata: {
+        campaignKey: 'funky',
+        eventType: 'thread_started',
+        entityCui: '12345678',
+        entityName: 'Oras Test',
+        threadId: 'thread-1',
+        threadKey: 'thread-key-1',
+        phase: 'awaiting_reply',
+        institutionEmail: 'contact@primarie.ro',
+        subject: 'Cerere dezbatere buget local - Oras Test',
+        occurredAt: '2026-04-03T16:43:04.930Z',
+        recipientRole: 'requester',
+      },
+    });
+    expect(seededOutbox.isOk()).toBe(true);
+    if (seededOutbox.isErr()) {
+      throw new Error('Expected seeded outbox creation to succeed');
+    }
+
+    const statusResult = await harness.deliveryRepo.updateStatus(seededOutbox.value.id, {
+      status: 'failed_transient',
+      lastError: 'Temporary send failure',
+    });
+    expect(statusResult.isOk()).toBe(true);
+
+    const result = await harness.requestPlatformSend({
+      ownerUserId: 'user-2',
+      entityCui: '12345678',
+      institutionEmail: 'contact@primarie.ro',
+    });
+
+    expect(result.isOk()).toBe(true);
+
+    const outbox = await harness.deliveryRepo.findByDeliveryKey(
+      `user-2:${notification.id}:funky:delivery:thread_started_thread-1`
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.status).toBe('pending');
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
+        })
+      );
+      expect(outbox.value?.renderedSubject).toBeNull();
+      expect(outbox.value?.renderedHtml).toBeNull();
+      expect(outbox.value?.renderedText).toBeNull();
+      expect(outbox.value?.contentHash).toBeNull();
+      expect(outbox.value?.templateName).toBeNull();
+      expect(outbox.value?.templateVersion).toBeNull();
+    }
+  });
+
   it('publishes late-subscriber snapshots for ownerless platform threads', async () => {
     const harness = createPublicDebateNotificationHarness({
       threads: [

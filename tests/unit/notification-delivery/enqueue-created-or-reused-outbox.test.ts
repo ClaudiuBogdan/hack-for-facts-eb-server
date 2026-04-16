@@ -103,11 +103,15 @@ describe('enqueueCreatedOrReusedOutbox', () => {
           eventType: 'thread_started',
           recipientRole: 'subscriber',
         });
+        expect(outbox.value?.status).toBe('pending');
+        expect(outbox.value?.renderedSubject).toBeNull();
+        expect(outbox.value?.renderedHtml).toBeNull();
+        expect(outbox.value?.renderedText).toBeNull();
       }
     }
   });
 
-  it('does not refresh metadata on reused outbox rows that are already rendered', async () => {
+  it('resets rendered replayable outbox rows back to pending for recompose', async () => {
     const existingOutbox = createTestDeliveryRecord({
       id: 'delivery-rendered',
       userId: createInput.userId,
@@ -144,7 +148,62 @@ describe('enqueueCreatedOrReusedOutbox', () => {
       const outbox = await deliveryRepo.findById(result.value.outboxId);
       expect(outbox.isOk()).toBe(true);
       if (outbox.isOk()) {
-        expect(outbox.value?.metadata).toEqual(createInput.metadata);
+        expect(outbox.value?.metadata).toEqual({
+          eventType: 'thread_started',
+          recipientRole: 'subscriber',
+        });
+        expect(outbox.value?.status).toBe('pending');
+        expect(outbox.value?.renderedSubject).toBeNull();
+        expect(outbox.value?.renderedHtml).toBeNull();
+        expect(outbox.value?.renderedText).toBeNull();
+        expect(outbox.value?.contentHash).toBeNull();
+        expect(outbox.value?.templateName).toBeNull();
+        expect(outbox.value?.templateVersion).toBeNull();
+      }
+    }
+  });
+
+  it('resets failed_transient rendered rows back to pending for recompose', async () => {
+    const existingOutbox = createTestDeliveryRecord({
+      id: 'delivery-failed-transient',
+      userId: createInput.userId,
+      notificationType: createInput.notificationType,
+      referenceId: createInput.referenceId,
+      scopeKey: createInput.scopeKey,
+      deliveryKey: createInput.deliveryKey,
+      status: 'failed_transient',
+      renderedSubject: 'Already rendered',
+      renderedHtml: '<p>Already rendered</p>',
+      renderedText: 'Already rendered',
+      metadata: createInput.metadata,
+    });
+    const deliveryRepo = makeFakeDeliveryRepo({ deliveries: [existingOutbox] });
+
+    const result = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
+      },
+      {
+        runId: 'run-refresh-failed-transient',
+        deliveryKey: createInput.deliveryKey,
+        createInput,
+        reusedOutboxMetadataRefresh: {
+          eventType: 'thread_started',
+          recipientRole: 'subscriber',
+        },
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const outbox = await deliveryRepo.findById(result.value.outboxId);
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.status).toBe('pending');
+        expect(outbox.value?.renderedSubject).toBeNull();
+        expect(outbox.value?.renderedHtml).toBeNull();
+        expect(outbox.value?.renderedText).toBeNull();
       }
     }
   });

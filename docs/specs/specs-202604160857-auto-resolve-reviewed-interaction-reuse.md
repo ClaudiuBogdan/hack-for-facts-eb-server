@@ -78,15 +78,8 @@ fall back to manual review, not fail the user submission.
 - The hook processes only newly applied `interactive.updated` events whose
   current stored row is still `phase = pending`.
 - The hook is fail-open. Errors are logged and the row remains pending.
-- Add a secondary reconciliation entrypoint that reuses the same core use case
-  for already-pending rows.
-- The feature is not complete unless that reconciliation path is implemented
-  and operated. The post-sync hook alone is insufficient because hook failures
-  are currently logged and dropped.
-- The reconciliation path must be idempotent and safe to run repeatedly over
-  the same pending rows.
-- The implementation must emit structured summary logs for each hook run and
-  reconciliation run, including counts by:
+- The implementation must emit structured summary logs for each hook run,
+  including counts by:
   - attempts
   - failures
   - auto-approved rows
