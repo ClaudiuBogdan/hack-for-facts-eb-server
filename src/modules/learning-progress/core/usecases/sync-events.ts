@@ -4,12 +4,16 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
+
+import { getCampaignAutoReviewReuseInteractionConfig } from '../campaign-admin-config.js';
 import {
   createInvalidEventError,
   createTooManyEventsError,
   type LearningProgressError,
 } from '../errors.js';
 import { isInternalInteractionId, isInternalRecordKey } from '../internal-records.js';
+import { jsonValuesAreEqual } from '../json-equality.js';
 import {
   MAX_EVENTS_PER_REQUEST,
   type InteractiveAuditEvent,
@@ -184,6 +188,58 @@ function shouldClearStoredReview(params: {
   return compareTimestampInstants(incomingRecord.updatedAt, storedRow.record.updatedAt) > 0;
 }
 
+function retryToPendingPreservesReviewedIdentity(params: {
+  incomingRecord: InteractiveStateRecord;
+  storedRow: LearningProgressRecordRow;
+}): boolean {
+  const { incomingRecord, storedRow } = params;
+  const storedRecord = storedRow.record;
+
+  if (
+    incomingRecord.interactionId !== storedRecord.interactionId ||
+    incomingRecord.scope.type !== storedRecord.scope.type
+  ) {
+    return false;
+  }
+
+  if (incomingRecord.scope.type === 'entity') {
+    return (
+      storedRecord.scope.type === 'entity' &&
+      incomingRecord.scope.entityCui === storedRecord.scope.entityCui
+    );
+  }
+
+  return true;
+}
+
+function reviewedRecordClientFieldsMatch(params: {
+  incomingRecord: InteractiveStateRecord;
+  storedRow: LearningProgressRecordRow;
+  storedSourceUrl: string | undefined;
+}): boolean {
+  const { incomingRecord, storedRow, storedSourceUrl } = params;
+
+  return jsonValuesAreEqual(
+    incomingRecord,
+    withSourceUrl(stripReview(storedRow.record), storedSourceUrl)
+  );
+}
+
+function shouldAcquireAutoReviewReuseTransactionLock(
+  record: InteractiveStateRecord
+): record is InteractiveStateRecord & {
+  phase: 'pending';
+  scope: { type: 'entity'; entityCui: string };
+} {
+  if (record.phase !== 'pending' || record.scope.type !== 'entity') {
+    return false;
+  }
+
+  return (
+    getCampaignAutoReviewReuseInteractionConfig(FUNKY_CAMPAIGN_KEY, record.interactionId) !== null
+  );
+}
+
 export function normalizePublicInteractiveRecord(params: {
   incomingRecord: InteractiveStateRecord;
   storedRow: LearningProgressRecordRow | null;
@@ -237,6 +293,15 @@ export function normalizePublicInteractiveRecord(params: {
   }
 
   if (shouldClearStoredReview({ incomingRecord: normalizedRecord, storedRow })) {
+    if (!retryToPendingPreservesReviewedIdentity({ incomingRecord: normalizedRecord, storedRow })) {
+      return err(
+        createInvalidEventError(
+          'Public progress sync cannot change reviewed interaction identity when retrying to pending.',
+          eventId
+        )
+      );
+    }
+
     return ok(normalizedRecord);
   }
 
@@ -245,6 +310,21 @@ export function normalizePublicInteractiveRecord(params: {
       ...normalizedRecord,
       review: null,
     });
+  }
+
+  if (
+    !reviewedRecordClientFieldsMatch({
+      incomingRecord: normalizedRecord,
+      storedRow,
+      storedSourceUrl,
+    })
+  ) {
+    return err(
+      createInvalidEventError(
+        'Public progress sync cannot modify reviewed records unless they re-enter pending.',
+        eventId
+      )
+    );
   }
 
   return ok({
@@ -369,6 +449,17 @@ export async function syncEvents(
       }
 
       if (isInteractiveUpdatedEvent(event)) {
+        if (shouldAcquireAutoReviewReuseTransactionLock(event.payload.record)) {
+          const lockResult = await transactionalRepo.acquireAutoReviewReuseTransactionLock({
+            recordKey: event.payload.record.key,
+            interactionId: event.payload.record.interactionId,
+            entityCui: event.payload.record.scope.entityCui,
+          });
+          if (lockResult.isErr()) {
+            return err(lockResult.error);
+          }
+        }
+
         const existingRowResult = await transactionalRepo.getRecordForUpdate(
           userId,
           event.payload.record.key

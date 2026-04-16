@@ -291,6 +291,7 @@ const PendingReasonSchema = Type.Union([
 const ReviewSourceSchema = Type.Union([
   Type.Literal('campaign_admin_api'),
   Type.Literal('learning_progress_admin_api'),
+  Type.Literal('auto_review_reuse_match'),
   Type.Literal('user_event_worker'),
 ]);
 

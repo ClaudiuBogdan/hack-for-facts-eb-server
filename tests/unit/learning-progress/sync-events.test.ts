@@ -168,7 +168,7 @@ describe('normalizePublicInteractiveRecord', () => {
     );
   });
 
-  it('preserves stored review metadata on ordinary public updates', () => {
+  it('rejects client-authored changes to reviewed rows unless they retry back to pending', () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       kind: 'custom',
@@ -217,11 +217,15 @@ describe('normalizePublicInteractiveRecord', () => {
       eventId: 'event-preserve',
     });
 
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap()).toEqual({
-      ...updatedRecord,
-      review: reviewedRecord.review,
-    });
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-preserve',
+        message:
+          'Public progress sync cannot modify reviewed records unless they re-enter pending.',
+      })
+    );
   });
 
   it('clears stored review metadata on newer retries back to pending', () => {
@@ -259,6 +263,52 @@ describe('normalizePublicInteractiveRecord', () => {
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap().review).toBeUndefined();
+  });
+
+  it('rejects identity-changing retries back to pending for reviewed rows', () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'entity', entityCui: '4305857' },
+      phase: 'resolved',
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+    const retryRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: 'funky:interaction:budget_document',
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: { type: 'entity', entityCui: '9999999' },
+      completionRule: reviewedRecord.completionRule,
+      phase: 'pending',
+      value: reviewedRecord.value,
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+      submittedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const result = normalizePublicInteractiveRecord({
+      incomingRecord: retryRecord,
+      storedRow: makeRow('user-1', reviewedRecord, '1'),
+      eventId: 'event-retry-identity-change',
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual(
+      expect.objectContaining({
+        type: 'InvalidEventError',
+        eventId: 'event-retry-identity-change',
+        message:
+          'Public progress sync cannot change reviewed interaction identity when retrying to pending.',
+      })
+    );
   });
 
   it('rejects attempts to modify stored review metadata', () => {
@@ -326,6 +376,89 @@ describe('syncEvents', () => {
       failedEvents: [],
       appliedEvents: [],
     });
+  });
+
+  it('acquires the auto-review reuse lock before reading allowlisted entity pending retries', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      scope: { type: 'entity', entityCui: '4305857' },
+      completionRule: { type: 'resolved' },
+      phase: 'pending',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://example.com',
+            submittedAt: '2026-03-23T19:27:40.526Z',
+          },
+        },
+      },
+      updatedAt: '2026-03-23T19:27:40.527Z',
+      submittedAt: '2026-03-23T19:27:40.527Z',
+    });
+    const callOrder: string[] = [];
+    const repo = makeFakeLearningProgressRepo({
+      onAcquireAutoReviewReuseTransactionLock() {
+        callOrder.push('lock');
+      },
+      onGetRecordForUpdate() {
+        callOrder.push('get_record_for_update');
+      },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-lock-before-read',
+            payload: { record },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(callOrder.slice(0, 2)).toEqual(['lock', 'get_record_for_update']);
+  });
+
+  it('does not acquire the auto-review reuse lock for non-allowlisted pending records', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'quiz-1::global',
+      interactionId: 'quiz-1',
+      phase: 'pending',
+      scope: { type: 'global' },
+      updatedAt: '2026-03-23T19:27:40.527Z',
+      submittedAt: '2026-03-23T19:27:40.527Z',
+    });
+    const acquiredLocks: string[] = [];
+    const repo = makeFakeLearningProgressRepo({
+      onAcquireAutoReviewReuseTransactionLock() {
+        acquiredLocks.push('lock');
+      },
+    });
+
+    const result = await syncEvents(
+      { repo },
+      {
+        userId: 'user-1',
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-no-lock',
+            payload: { record },
+          }),
+        ],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(acquiredLocks).toEqual([]);
   });
 
   it('stores a new interactive record update', async () => {
@@ -467,7 +600,7 @@ describe('syncEvents', () => {
     });
   });
 
-  it('preserves stored review metadata on newer public updates after review', async () => {
+  it('rejects newer client-authored changes to reviewed rows until they retry back to pending', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       interactionId: 'funky:interaction:city_hall_website',
@@ -534,12 +667,21 @@ describe('syncEvents', () => {
 
     expect(result.isOk()).toBe(true);
     expectSyncEventsSuccess(result._unsafeUnwrap(), {
-      newEventsCount: 1,
+      newEventsCount: 0,
+      failedEvents: [
+        {
+          eventId: 'event-resubmit',
+          errorType: 'InvalidEventError',
+          message:
+            'Public progress sync cannot modify reviewed records unless they re-enter pending.',
+        },
+      ],
+      appliedEvents: [],
     });
 
     const storedRecord = (await repo.getRecords('user-1'))._unsafeUnwrap()[0];
-    expect(storedRecord?.record.value).toEqual(resubmittedRecord.value);
-    expect(storedRecord?.record.updatedAt).toBe(resubmittedRecord.updatedAt);
+    expect(storedRecord?.record.value).toEqual(reviewedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(reviewedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
   });
 

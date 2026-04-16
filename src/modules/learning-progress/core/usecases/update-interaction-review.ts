@@ -214,6 +214,27 @@ export async function updateInteractionReview(
   }
 
   return deps.repo.withTransaction(async (transactionalRepo) => {
+    const initialRecordResult = await transactionalRepo.getRecord(input.userId, input.recordKey);
+    if (initialRecordResult.isErr()) {
+      return err(initialRecordResult.error);
+    }
+
+    const initialRow = initialRecordResult.value;
+    if (initialRow === null) {
+      return err(createNotFoundError(`Interaction record "${input.recordKey}" was not found.`));
+    }
+
+    if (initialRow.record.scope.type === 'entity') {
+      const lockResult = await transactionalRepo.acquireAutoReviewReuseTransactionLock({
+        recordKey: initialRow.recordKey,
+        interactionId: initialRow.record.interactionId,
+        entityCui: initialRow.record.scope.entityCui,
+      });
+      if (lockResult.isErr()) {
+        return err(lockResult.error);
+      }
+    }
+
     const recordResult = await transactionalRepo.getRecordForUpdate(input.userId, input.recordKey);
     if (recordResult.isErr()) {
       return err(recordResult.error);

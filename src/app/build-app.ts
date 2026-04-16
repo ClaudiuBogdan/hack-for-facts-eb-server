@@ -204,6 +204,7 @@ import {
   type ReviewSideEffectPlan,
   type SyncEventsInput,
 } from '../modules/learning-progress/index.js';
+import { createLearningProgressAutoReviewReuseHook } from '../modules/learning-progress/shell/auto-review-reuse-hook.js';
 import { createLearningProgressPostSyncHookRunner } from '../modules/learning-progress/shell/post-sync-hooks.js';
 import {
   createMcpServer,
@@ -1193,6 +1194,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           input: PrepareReviewSideEffectsInput
         ) => Promise<Result<ReviewSideEffectPlan | null, LearningProgressError>>)
       | undefined;
+
+    learningProgressSyncHooks.push({
+      name: 'auto-review-reuse',
+      run: createLearningProgressAutoReviewReuseHook({
+        repo: learningProgressRepo,
+        logger: repoLogger,
+      }),
+    });
     let correspondenceRepo: InstitutionCorrespondenceRepository | undefined;
 
     const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();

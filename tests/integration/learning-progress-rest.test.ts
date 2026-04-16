@@ -10,6 +10,7 @@ import {
 } from '@/modules/auth/index.js';
 import { createDatabaseError } from '@/modules/learning-progress/core/errors.js';
 import { syncEvents } from '@/modules/learning-progress/index.js';
+import { createLearningProgressAutoReviewReuseHook } from '@/modules/learning-progress/shell/auto-review-reuse-hook.js';
 import { makeLearningProgressRoutes } from '@/modules/learning-progress/shell/rest/routes.js';
 import { sha256Hasher } from '@/modules/notifications/index.js';
 import {
@@ -54,6 +55,70 @@ function makeRow(
     createdAt: record.updatedAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function createPendingWebsiteReviewRecord(input?: {
+  websiteUrl?: string;
+  updatedAt?: string;
+}): LearningProgressRecordRow['record'] {
+  const updatedAt = input?.updatedAt ?? '2026-04-16T10:00:00.000Z';
+
+  return createTestInteractiveRecord({
+    key: 'funky:interaction:city_hall_website::entity:12345678',
+    interactionId: 'funky:interaction:city_hall_website',
+    lessonId: 'civic-monitor-and-request',
+    kind: 'custom',
+    scope: { type: 'entity', entityCui: '12345678' },
+    completionRule: { type: 'resolved' },
+    phase: 'pending',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          websiteUrl: input?.websiteUrl ?? ' https://primarie.test ',
+          submittedAt: updatedAt,
+        },
+      },
+    },
+    result: null,
+    updatedAt,
+    submittedAt: updatedAt,
+  });
+}
+
+function createApprovedWebsiteReviewRecord(input?: {
+  userId?: string;
+  websiteUrl?: string;
+  updatedAt?: string;
+}): LearningProgressRecordRow {
+  const updatedAt = input?.updatedAt ?? '2026-04-16T09:00:00.000Z';
+  const record = createTestInteractiveRecord({
+    key: 'funky:interaction:city_hall_website::entity:12345678',
+    interactionId: 'funky:interaction:city_hall_website',
+    lessonId: 'civic-monitor-and-request',
+    kind: 'custom',
+    scope: { type: 'entity', entityCui: '12345678' },
+    completionRule: { type: 'resolved' },
+    phase: 'resolved',
+    value: {
+      kind: 'json',
+      json: {
+        value: {
+          websiteUrl: input?.websiteUrl ?? 'https://primarie.test',
+          submittedAt: updatedAt,
+        },
+      },
+    },
+    review: {
+      status: 'approved',
+      reviewedAt: updatedAt,
+      reviewSource: 'campaign_admin_api',
+    },
+    updatedAt,
+    submittedAt: updatedAt,
+  });
+
+  return makeRow(input?.userId ?? 'reviewer-1', record, '2');
 }
 
 function createStoredSourceUrlRecord(): LearningProgressRecordRow['record'] {
@@ -755,6 +820,145 @@ describe('Learning Progress REST API', () => {
     }
   });
 
+  it('keeps pending allowlisted submissions pending when no reviewed precedent exists', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const hook = createLearningProgressAutoReviewReuseHook({
+      repo,
+      logger: pinoLogger({ level: 'silent' }),
+    });
+    const record = createPendingWebsiteReviewRecord();
+
+    app = await createTestApp({
+      learningProgressRepo: repo,
+      onSyncEventsApplied: hook,
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'pending-without-precedent',
+            occurredAt: record.updatedAt,
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const stored = await repo.getRecord(testAuth.userIds.user1, record.key);
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.record.phase).toBe('pending');
+        expect(stored.value?.record.review).toBeUndefined();
+      }
+    });
+  });
+
+  it('auto-approves matching allowlisted submissions through the post-sync hook', async () => {
+    const pendingRecord = createPendingWebsiteReviewRecord();
+    const approvedRow = createApprovedWebsiteReviewRecord();
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([[approvedRow.userId, [approvedRow]]]),
+    });
+    const hook = createLearningProgressAutoReviewReuseHook({
+      repo,
+      logger: pinoLogger({ level: 'silent' }),
+    });
+
+    app = await createTestApp({
+      learningProgressRepo: repo,
+      onSyncEventsApplied: hook,
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: pendingRecord.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'pending-with-precedent',
+            occurredAt: pendingRecord.updatedAt,
+            payload: { record: pendingRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const stored = await repo.getRecord(testAuth.userIds.user1, pendingRecord.key);
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.record.phase).toBe('resolved');
+        expect(stored.value?.record.review).toEqual({
+          status: 'approved',
+          reviewedAt: stored.value?.record.updatedAt,
+          reviewedByUserId: 'system:audit:auto_review_reuse',
+          reviewSource: 'auto_review_reuse_match',
+        });
+      }
+    });
+  });
+
+  it('returns 200 when the auto-review reuse hook fails after sync', async () => {
+    const writeRepo = makeFakeLearningProgressRepo();
+    const failingHook = createLearningProgressAutoReviewReuseHook({
+      repo: makeFakeLearningProgressRepo({ simulateDbError: true }),
+      logger: pinoLogger({ level: 'silent' }),
+    });
+    const record = createPendingWebsiteReviewRecord();
+
+    app = await createTestApp({
+      learningProgressRepo: writeRepo,
+      onSyncEventsApplied: failingHook,
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: record.updatedAt,
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'pending-hook-failure',
+            occurredAt: record.updatedAt,
+            payload: { record },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    await vi.waitFor(async () => {
+      const stored = await writeRepo.getRecord(testAuth.userIds.user1, record.key);
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.record.phase).toBe('pending');
+      }
+    });
+  });
+
   it('rejects client-authored record.review for unreviewed rows', async () => {
     const repo = makeFakeLearningProgressRepo();
     app = await createTestApp({ learningProgressRepo: repo });
@@ -1129,7 +1333,7 @@ describe('Learning Progress REST API', () => {
     });
   });
 
-  it('preserves stored review metadata on ordinary public updates after review', async () => {
+  it('rejects client-authored changes to reviewed rows until they retry back to pending', async () => {
     const reviewedRecord = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',
       interactionId: 'funky:interaction:city_hall_website',
@@ -1200,19 +1404,24 @@ describe('Learning Progress REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(
-      expect.objectContaining({
-        ok: true,
-        data: {
-          newEventsCount: 1,
-          failedEvents: [],
-        },
-      })
-    );
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-resubmit',
+            errorType: 'InvalidEventError',
+            message:
+              'Public progress sync cannot modify reviewed records unless they re-enter pending.',
+          },
+        ],
+      },
+    });
 
     const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
-    expect(storedRecord?.record.value).toEqual(updatedRecord.value);
-    expect(storedRecord?.record.updatedAt).toBe(updatedRecord.updatedAt);
+    expect(storedRecord?.record.value).toEqual(reviewedRecord.value);
+    expect(storedRecord?.record.updatedAt).toBe(reviewedRecord.updatedAt);
     expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
   });
 
@@ -1302,6 +1511,101 @@ describe('Learning Progress REST API', () => {
     expect(storedRecord?.record.value).toEqual(retriedRecord.value);
     expect(storedRecord?.record.updatedAt).toBe(retriedRecord.updatedAt);
     expect(storedRecord?.record.review).toBeUndefined();
+  });
+
+  it('rejects identity-changing retries back to pending for reviewed rows', async () => {
+    const reviewedRecord = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
+      lessonId: 'civic-monitor-and-request',
+      kind: 'custom',
+      completionRule: { type: 'resolved' },
+      scope: { type: 'entity', entityCui: '4305857' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://old.example.com',
+          },
+        },
+      },
+      review: {
+        status: 'approved',
+        reviewedAt: '2026-03-23T19:30:00.000Z',
+        feedbackText: 'Approved by review.',
+      },
+      updatedAt: '2026-03-23T19:30:00.000Z',
+    });
+
+    const retriedRecord = createTestInteractiveRecord({
+      key: reviewedRecord.key,
+      interactionId: 'funky:interaction:budget_document',
+      lessonId: reviewedRecord.lessonId,
+      kind: reviewedRecord.kind,
+      scope: { type: 'entity', entityCui: '9999999' },
+      completionRule: reviewedRecord.completionRule,
+      phase: 'pending',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            websiteUrl: 'https://new.example.com',
+          },
+        },
+      },
+      result: reviewedRecord.result,
+      updatedAt: '2026-03-23T19:45:00.000Z',
+      submittedAt: '2026-03-23T19:45:00.000Z',
+    });
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set(testAuth.userIds.user1, [
+      makeRow(testAuth.userIds.user1, reviewedRecord, '1'),
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({ initialRecords });
+    app = await createTestApp({ learningProgressRepo: repo });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/learning/progress',
+      headers: {
+        authorization: `Bearer ${testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        clientUpdatedAt: '2026-03-23T19:45:00.000Z',
+        events: [
+          createTestInteractiveUpdatedEvent({
+            eventId: 'event-retry-identity-change',
+            payload: { record: retriedRecord },
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        newEventsCount: 0,
+        failedEvents: [
+          {
+            eventId: 'event-retry-identity-change',
+            errorType: 'InvalidEventError',
+            message:
+              'Public progress sync cannot change reviewed interaction identity when retrying to pending.',
+          },
+        ],
+      },
+    });
+
+    const storedRecord = (await repo.getRecords(testAuth.userIds.user1))._unsafeUnwrap()[0];
+    expect(storedRecord?.record.interactionId).toBe(reviewedRecord.interactionId);
+    expect(storedRecord?.record.scope).toEqual(reviewedRecord.scope);
+    expect(storedRecord?.record.review).toEqual(reviewedRecord.review);
+    expect(storedRecord?.record.updatedAt).toBe(reviewedRecord.updatedAt);
   });
 
   it('accepts progress.reset and preserves internal rows', async () => {

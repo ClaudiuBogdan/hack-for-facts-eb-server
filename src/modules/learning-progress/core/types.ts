@@ -38,6 +38,7 @@ export type ReviewDecisionStatus = Exclude<InteractionReviewStatus, 'pending'>;
 export type InteractionReviewSource =
   | 'campaign_admin_api'
   | 'learning_progress_admin_api'
+  | 'auto_review_reuse_match'
   | 'user_event_worker';
 
 export interface InteractionReview {
