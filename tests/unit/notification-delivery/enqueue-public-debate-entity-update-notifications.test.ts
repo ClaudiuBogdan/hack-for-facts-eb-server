@@ -49,6 +49,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -82,6 +83,14 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
           threadId: 'thread-1',
           threadKey: 'thread-key-1',
           phase: 'awaiting_reply',
+          recipientRole: 'requester',
+        })
+      );
+    }
+    if (outbox2.isOk()) {
+      expect(outbox2.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
         })
       );
     }
@@ -114,6 +123,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -132,6 +142,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -190,6 +201,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -249,6 +261,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -310,6 +323,14 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       expect(result.value.queuedOutboxIds).toEqual([]);
       expect(result.value.skippedTerminalOutboxIds).toEqual([]);
     }
+
+    const outbox = await deliveryRepo.findByDeliveryKey(
+      'user-1:notif-1:funky:delivery:reply_thread-1_reply-1'
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata).not.toHaveProperty('recipientRole');
+    }
   });
 
   it('excludes users whose public debate campaign preference is disabled', async () => {
@@ -345,6 +366,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
@@ -357,6 +379,59 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       expect(result.value.createdOutboxIds).toEqual([]);
       expect(result.value.reusedOutboxIds).toEqual([]);
       expect(result.value.skippedTerminalOutboxIds).toEqual([]);
+    }
+  });
+
+  it('treats ownerless thread_started notifications as subscriber updates', async () => {
+    const notificationsRepo = makeFakeExtendedNotificationsRepo({
+      notifications: [
+        createTestNotification({
+          id: 'notif-1',
+          userId: 'user-1',
+          notificationType: 'funky:notification:entity_updates',
+          entityCui: '12345678',
+        }),
+      ],
+    });
+    const deliveryRepo = makeFakeDeliveryRepo();
+
+    const result = await enqueuePublicDebateEntityUpdateNotifications(
+      {
+        notificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
+      },
+      {
+        runId: 'run-unknown-owner',
+        eventType: 'thread_started',
+        entityCui: '12345678',
+        threadId: 'thread-1',
+        threadKey: 'thread-key-1',
+        phase: 'awaiting_reply',
+        requesterUserId: null,
+        institutionEmail: 'contact@primarie.ro',
+        subject: 'Solicitare organizare dezbatere publica',
+        occurredAt: '2026-03-31T10:00:00.000Z',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.notificationIds).toEqual(['notif-1']);
+      expect(result.value.createdOutboxIds).toHaveLength(1);
+      expect(result.value.queuedOutboxIds).toHaveLength(1);
+    }
+
+    const outbox = await deliveryRepo.findByDeliveryKey(
+      'user-1:notif-1:funky:delivery:thread_started_thread-1'
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
+        })
+      );
     }
   });
 });

@@ -11,6 +11,7 @@ import { registration as newsletterEntityRegistration } from './registrations/ne
 import { registration as publicDebateAdminFailureRegistration } from './registrations/public-debate-admin-failure.js';
 import { registration as publicDebateCampaignWelcomeRegistration } from './registrations/public-debate-campaign-welcome.js';
 import { registration as publicDebateEntitySubscriptionRegistration } from './registrations/public-debate-entity-subscription.js';
+import { registration as publicDebateEntityUpdateThreadStartedSubscriberRegistration } from './registrations/public-debate-entity-update-thread-started-subscriber.js';
 import { registration as publicDebateEntityUpdateRegistration } from './registrations/public-debate-entity-update.js';
 import { registration as weeklyProgressDigestRegistration } from './registrations/weekly-progress-digest.js';
 import { registration as welcomeRegistration } from './registrations/welcome.js';
@@ -119,6 +120,10 @@ const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
   {
     label: 'public-debate-entity-update',
     registration: publicDebateEntityUpdateRegistration,
+  },
+  {
+    label: 'public-debate-entity-update-thread-started-subscriber',
+    registration: publicDebateEntityUpdateThreadStartedSubscriberRegistration,
   },
   {
     label: 'weekly-progress-digest',

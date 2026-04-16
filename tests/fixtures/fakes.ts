@@ -2801,6 +2801,35 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       return ok(delivery ?? null);
     },
 
+    refreshMetadataIfClaimableForCompose: async (
+      deliveryId: string,
+      metadata: Record<string, unknown>
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined) return ok(null);
+
+      if (delivery.status !== 'pending') {
+        return ok(null);
+      }
+
+      if (
+        delivery.renderedSubject !== null &&
+        delivery.renderedHtml !== null &&
+        delivery.renderedText !== null
+      ) {
+        return ok(null);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        metadata,
+      };
+      store.set(deliveryId, updated);
+      return ok(updated);
+    },
+
     claimForSending: async (
       deliveryId: string
     ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {

@@ -45,6 +45,7 @@ import type {
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
+  PublicDebateEntityUpdateThreadStartedSubscriberProps,
   WelcomeEmailProps,
 } from '../../../../email-templates/core/types.js';
 import type { Notification } from '../../../../notifications/core/types.js';
@@ -271,15 +272,67 @@ const buildPublicDebateEntityUpdateTemplateProps = (
   outbox: NotificationOutboxRecord,
   platformBaseUrl: string,
   unsubscribeUrl: string
-): Result<PublicDebateEntityUpdateProps, string> => {
+): Result<
+  PublicDebateEntityUpdateProps | PublicDebateEntityUpdateThreadStartedSubscriberProps,
+  string
+> => {
   const eventType =
     typeof outbox.metadata['eventType'] === 'string' ? outbox.metadata['eventType'] : null;
-  const campaignKey =
-    typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
   const entityCui =
     typeof outbox.metadata['entityCui'] === 'string' ? outbox.metadata['entityCui'] : null;
   const entityName =
     typeof outbox.metadata['entityName'] === 'string' ? outbox.metadata['entityName'] : null;
+  const occurredAt =
+    typeof outbox.metadata['occurredAt'] === 'string' ? outbox.metadata['occurredAt'] : null;
+  const recipientRole =
+    typeof outbox.metadata['recipientRole'] === 'string' ? outbox.metadata['recipientRole'] : null;
+
+  if (
+    eventType !== 'thread_started' &&
+    eventType !== 'thread_failed' &&
+    eventType !== 'reply_received' &&
+    eventType !== 'reply_reviewed'
+  ) {
+    return err('Invalid public debate update metadata: eventType is missing or invalid');
+  }
+
+  if (entityCui === null)
+    return err('Invalid public debate update metadata: entityCui is required');
+  if (occurredAt === null)
+    return err('Invalid public debate update metadata: occurredAt is required');
+
+  const occurredAtDate = new Date(occurredAt);
+  const copyrightYear = Number.isNaN(occurredAtDate.getTime())
+    ? new Date().getUTCFullYear()
+    : occurredAtDate.getUTCFullYear();
+  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
+
+  if (eventType === 'thread_started') {
+    if (recipientRole === 'subscriber') {
+      return ok({
+        templateType: 'public_debate_entity_update_thread_started_subscriber',
+        lang: 'ro',
+        unsubscribeUrl,
+        preferencesUrl,
+        platformBaseUrl,
+        copyrightYear,
+        entityCui,
+        ...(entityName !== null && entityName.trim() !== '' ? { entityName } : {}),
+        occurredAt,
+        ctaUrl: buildCampaignEntityUrl(platformBaseUrl, entityCui),
+      });
+    }
+
+    // Legacy outbox rows predate recipientRole and should keep the shared template path.
+    if (recipientRole !== null && recipientRole !== 'requester') {
+      return err(
+        'Invalid public debate update metadata: recipientRole is invalid for thread_started'
+      );
+    }
+  }
+
+  const campaignKey =
+    typeof outbox.metadata['campaignKey'] === 'string' ? outbox.metadata['campaignKey'] : null;
   const threadId =
     typeof outbox.metadata['threadId'] === 'string' ? outbox.metadata['threadId'] : null;
   const threadKey =
@@ -291,22 +344,9 @@ const buildPublicDebateEntityUpdateTemplateProps = (
       : null;
   const subjectLine =
     typeof outbox.metadata['subject'] === 'string' ? outbox.metadata['subject'] : null;
-  const occurredAt =
-    typeof outbox.metadata['occurredAt'] === 'string' ? outbox.metadata['occurredAt'] : null;
-
-  if (
-    eventType !== 'thread_started' &&
-    eventType !== 'thread_failed' &&
-    eventType !== 'reply_received' &&
-    eventType !== 'reply_reviewed'
-  ) {
-    return err('Invalid public debate update metadata: eventType is missing or invalid');
-  }
 
   if (campaignKey === null)
     return err('Invalid public debate update metadata: campaignKey is required');
-  if (entityCui === null)
-    return err('Invalid public debate update metadata: entityCui is required');
   if (threadId === null) return err('Invalid public debate update metadata: threadId is required');
   if (threadKey === null)
     return err('Invalid public debate update metadata: threadKey is required');
@@ -316,17 +356,10 @@ const buildPublicDebateEntityUpdateTemplateProps = (
   }
   if (subjectLine === null)
     return err('Invalid public debate update metadata: subject is required');
-  if (occurredAt === null)
-    return err('Invalid public debate update metadata: occurredAt is required');
 
-  const occurredAtDate = new Date(occurredAt);
-  const copyrightYear = Number.isNaN(occurredAtDate.getTime())
-    ? new Date().getUTCFullYear()
-    : occurredAtDate.getUTCFullYear();
   const replyTextPreview = outbox.metadata['replyTextPreview'];
   const resolutionCode = outbox.metadata['resolutionCode'];
   const reviewNotes = outbox.metadata['reviewNotes'];
-  const preferencesUrl = buildCampaignPreferencesUrl(platformBaseUrl);
 
   return ok({
     templateType: 'public_debate_entity_update',

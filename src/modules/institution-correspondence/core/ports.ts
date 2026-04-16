@@ -138,8 +138,7 @@ export interface PublicDebateEntitySubscriptionService {
   ): Promise<Result<void, InstitutionCorrespondenceError>>;
 }
 
-export interface PublicDebateEntityUpdateNotification {
-  eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
+interface PublicDebateEntityUpdateNotificationBase {
   thread: ThreadRecord;
   occurredAt: Date;
   failureMessage?: string | null;
@@ -148,6 +147,15 @@ export interface PublicDebateEntityUpdateNotification {
   resolutionCode?: ResolutionCode;
   reviewNotes?: string | null;
 }
+
+export type PublicDebateEntityUpdateNotification =
+  | (PublicDebateEntityUpdateNotificationBase & {
+      eventType: 'thread_started';
+      requesterUserId: string | null;
+    })
+  | (PublicDebateEntityUpdateNotificationBase & {
+      eventType: 'thread_failed' | 'reply_received' | 'reply_reviewed';
+    });
 
 export type PublicDebateEntityUpdatePublishStatus = 'queued' | 'partial' | 'none' | 'failed';
 

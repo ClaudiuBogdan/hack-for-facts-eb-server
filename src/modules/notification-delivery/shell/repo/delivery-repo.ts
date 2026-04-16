@@ -174,6 +174,39 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       }
     },
 
+    async refreshMetadataIfClaimableForCompose(
+      outboxId: string,
+      metadata: Record<string, unknown>
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug({ outboxId }, 'Refreshing metadata on claimable outbox row');
+
+      try {
+        const result = await sql<Record<string, unknown>>`
+          UPDATE notificationsoutbox
+          SET metadata = ${JSON.stringify(metadata)}
+          WHERE id = ${outboxId}
+            AND status = 'pending'
+            AND (
+              rendered_subject IS NULL
+              OR rendered_html IS NULL
+              OR rendered_text IS NULL
+            )
+          RETURNING *
+        `.execute(db);
+
+        const row = result.rows[0];
+        if (row === undefined) {
+          log.debug({ outboxId }, 'Outbox row metadata not refreshed because row is not claimable');
+          return ok(null);
+        }
+
+        return ok(mapRow(row));
+      } catch (error) {
+        log.error({ error, outboxId }, 'Failed to refresh outbox metadata');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
     async updateRenderedContent(
       outboxId: string,
       input: UpdateRenderedContentInput

@@ -352,45 +352,56 @@ const buildThreadEventDefinition = (
     }
 
     const notification = snapshot.notification;
+    const sharedEnqueueInput = {
+      runId: buildRunId(input.triggerId),
+      triggerSource: 'campaign_admin' as const,
+      triggeredByUserId: executionInput.actorUserId,
+      entityCui: thread.entityCui,
+      entityName: entityNameResult.value,
+      threadId: thread.id,
+      threadKey: thread.threadKey,
+      phase: thread.phase,
+      institutionEmail: thread.record.institutionEmail,
+      subject: thread.record.subject,
+      occurredAt: notification.occurredAt.toISOString(),
+      reusedOutboxComposeStrategy: 'skip_terminal_compose' as const,
+      ...(notification.reply !== undefined ? { replyEntryId: notification.reply.id } : {}),
+      ...(notification.reply?.textBody !== undefined && notification.reply.textBody !== null
+        ? {
+            replyTextPreview:
+              notification.reply.textBody.length > 400
+                ? `${notification.reply.textBody.slice(0, 397)}...`
+                : notification.reply.textBody,
+          }
+        : {}),
+      ...(notification.basedOnEntryId !== undefined
+        ? { basedOnEntryId: notification.basedOnEntryId }
+        : {}),
+      ...(notification.resolutionCode !== undefined
+        ? { resolutionCode: notification.resolutionCode }
+        : {}),
+      ...(notification.reviewNotes !== undefined ? { reviewNotes: notification.reviewNotes } : {}),
+    };
+
+    const enqueueInput =
+      notification.eventType === 'thread_started'
+        ? {
+            ...sharedEnqueueInput,
+            eventType: notification.eventType,
+            requesterUserId: notification.requesterUserId,
+          }
+        : {
+            ...sharedEnqueueInput,
+            eventType: notification.eventType,
+          };
+
     const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
       {
         notificationsRepo: deps.extendedNotificationsRepo,
         deliveryRepo: deps.deliveryRepo,
         composeJobScheduler: deps.composeJobScheduler,
       },
-      {
-        runId: buildRunId(input.triggerId),
-        triggerSource: 'campaign_admin',
-        triggeredByUserId: executionInput.actorUserId,
-        eventType: notification.eventType,
-        entityCui: thread.entityCui,
-        entityName: entityNameResult.value,
-        threadId: thread.id,
-        threadKey: thread.threadKey,
-        phase: thread.phase,
-        institutionEmail: thread.record.institutionEmail,
-        subject: thread.record.subject,
-        occurredAt: notification.occurredAt.toISOString(),
-        reusedOutboxComposeStrategy: 'skip_terminal_compose',
-        ...(notification.reply !== undefined ? { replyEntryId: notification.reply.id } : {}),
-        ...(notification.reply?.textBody !== undefined && notification.reply.textBody !== null
-          ? {
-              replyTextPreview:
-                notification.reply.textBody.length > 400
-                  ? `${notification.reply.textBody.slice(0, 397)}...`
-                  : notification.reply.textBody,
-            }
-          : {}),
-        ...(notification.basedOnEntryId !== undefined
-          ? { basedOnEntryId: notification.basedOnEntryId }
-          : {}),
-        ...(notification.resolutionCode !== undefined
-          ? { resolutionCode: notification.resolutionCode }
-          : {}),
-        ...(notification.reviewNotes !== undefined
-          ? { reviewNotes: notification.reviewNotes }
-          : {}),
-      }
+      enqueueInput
     );
     if (enqueueResult.isErr()) {
       return err(createDatabaseError('Failed to enqueue public debate entity updates.'));

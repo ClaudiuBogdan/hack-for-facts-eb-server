@@ -25,6 +25,7 @@ export interface EnqueueCreatedOrReusedOutboxInput {
   deliveryKey: string;
   createInput: CreateDeliveryInput;
   reusedOutboxComposeStrategy?: ReusedOutboxComposeStrategy;
+  reusedOutboxMetadataRefresh?: Record<string, unknown>;
 }
 
 export interface EnqueueCreatedOrReusedOutboxResult {
@@ -114,9 +115,22 @@ export const enqueueCreatedOrReusedOutbox = async (
       );
     }
 
-    return ok(
-      await maybeEnqueueCompose(deps.composeJobScheduler, input, duplicateResult.value, 'reused')
-    );
+    let reusedOutbox = duplicateResult.value;
+    if (input.reusedOutboxMetadataRefresh !== undefined) {
+      const refreshResult = await deps.deliveryRepo.refreshMetadataIfClaimableForCompose(
+        reusedOutbox.id,
+        input.reusedOutboxMetadataRefresh
+      );
+      if (refreshResult.isErr()) {
+        return err(refreshResult.error);
+      }
+
+      if (refreshResult.value !== null) {
+        reusedOutbox = refreshResult.value;
+      }
+    }
+
+    return ok(await maybeEnqueueCompose(deps.composeJobScheduler, input, reusedOutbox, 'reused'));
   }
 
   return ok(

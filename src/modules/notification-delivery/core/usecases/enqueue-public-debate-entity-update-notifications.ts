@@ -24,7 +24,9 @@ export type PublicDebateEntityUpdateEventType =
   | 'reply_received'
   | 'reply_reviewed';
 
-export interface PublicDebateEntityUpdateNotificationInput {
+export type PublicDebateThreadStartedRecipientRole = 'requester' | 'subscriber';
+
+interface PublicDebateEntityUpdateNotificationInputBase {
   runId: string;
   eventType: PublicDebateEntityUpdateEventType;
   triggerSource?: string;
@@ -35,6 +37,7 @@ export interface PublicDebateEntityUpdateNotificationInput {
   threadId: string;
   threadKey: string;
   phase: string;
+  ownerUserId?: string | null;
   institutionEmail: string;
   subject: string;
   occurredAt: string;
@@ -44,6 +47,21 @@ export interface PublicDebateEntityUpdateNotificationInput {
   resolutionCode?: string | null;
   reviewNotes?: string | null;
 }
+
+type ThreadStartedPublicDebateEntityUpdateNotificationInput =
+  PublicDebateEntityUpdateNotificationInputBase & {
+    eventType: 'thread_started';
+    requesterUserId: string | null;
+  };
+
+type NonThreadStartedPublicDebateEntityUpdateNotificationInput =
+  PublicDebateEntityUpdateNotificationInputBase & {
+    eventType: 'thread_failed' | 'reply_received' | 'reply_reviewed';
+  };
+
+export type PublicDebateEntityUpdateNotificationInput =
+  | ThreadStartedPublicDebateEntityUpdateNotificationInput
+  | NonThreadStartedPublicDebateEntityUpdateNotificationInput;
 
 export interface EnqueuePublicDebateEntityUpdateNotificationsDeps {
   notificationsRepo: ExtendedNotificationsRepository;
@@ -60,8 +78,31 @@ export interface EnqueuePublicDebateEntityUpdateNotificationsResult {
   enqueueFailedOutboxIds: string[];
 }
 
+const THREAD_STARTED_RECIPIENT_ROLE_METADATA_KEY = 'recipientRole';
+
+const normalizeUserId = (userId: string | null | undefined): string | null => {
+  if (userId === undefined || userId === null) {
+    return null;
+  }
+
+  const trimmedUserId = userId.trim();
+  return trimmedUserId === '' ? null : trimmedUserId;
+};
+
+const buildThreadStartedRecipientRole = (
+  requesterUserId: string | null,
+  recipientUserId: string
+): PublicDebateThreadStartedRecipientRole => {
+  if (requesterUserId === null) {
+    return 'subscriber';
+  }
+
+  return recipientUserId === requesterUserId ? 'requester' : 'subscriber';
+};
+
 const buildMetadata = (
-  input: PublicDebateEntityUpdateNotificationInput
+  input: PublicDebateEntityUpdateNotificationInput,
+  recipientRole?: PublicDebateThreadStartedRecipientRole
 ): Record<string, unknown> => ({
   runId: input.runId,
   campaignKey: PUBLIC_DEBATE_CAMPAIGN_KEY,
@@ -81,6 +122,9 @@ const buildMetadata = (
   ...(input.replyTextPreview !== undefined ? { replyTextPreview: input.replyTextPreview } : {}),
   ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
   ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
+  ...(input.eventType === 'thread_started' && recipientRole !== undefined
+    ? { [THREAD_STARTED_RECIPIENT_ROLE_METADATA_KEY]: recipientRole }
+    : {}),
 });
 
 export const enqueuePublicDebateEntityUpdateNotifications = async (
@@ -88,6 +132,8 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
   input: PublicDebateEntityUpdateNotificationInput
 ): Promise<Result<EnqueuePublicDebateEntityUpdateNotificationsResult, DeliveryError>> => {
   const reusedOutboxComposeStrategy = input.reusedOutboxComposeStrategy ?? 'always_enqueue_compose';
+  const requesterUserId =
+    input.eventType === 'thread_started' ? normalizeUserId(input.requesterUserId) : null;
   const scopeKey = buildPublicDebateEntityUpdateScopeKey({
     eventType: input.eventType,
     threadId: input.threadId,
@@ -110,6 +156,11 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
   const enqueueFailedOutboxIds: string[] = [];
 
   for (const notification of notificationsResult.value) {
+    const recipientRole =
+      input.eventType === 'thread_started'
+        ? buildThreadStartedRecipientRole(requesterUserId, notification.userId)
+        : undefined;
+    const metadata = buildMetadata(input, recipientRole);
     const deliveryKey = buildPublicDebateEntityUpdateDeliveryKey({
       userId: notification.userId,
       notificationId: notification.id,
@@ -130,8 +181,9 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
           referenceId: notification.id,
           scopeKey,
           deliveryKey,
-          metadata: buildMetadata(input),
+          metadata,
         },
+        ...(input.eventType === 'thread_started' ? { reusedOutboxMetadataRefresh: metadata } : {}),
       }
     );
 

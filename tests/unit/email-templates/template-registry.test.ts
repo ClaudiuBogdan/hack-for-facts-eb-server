@@ -1,7 +1,10 @@
 import { Value } from '@sinclair/typebox/value';
 import { describe, expect, it } from 'vitest';
 
-import { WelcomePayloadSchema } from '@/modules/email-templates/core/schemas.js';
+import {
+  PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema,
+  WelcomePayloadSchema,
+} from '@/modules/email-templates/core/schemas.js';
 import {
   indexRegistrations,
   makeTemplateRegistry,
@@ -37,7 +40,7 @@ describe('Template Registry', () => {
 
   it('discovers all registration files', () => {
     const all = registry.getAll();
-    expect(all).toHaveLength(10);
+    expect(all).toHaveLength(11);
     const ids = all.map((r) => r.id);
     expect(ids).toEqual([
       'admin_reviewed_user_interaction',
@@ -48,6 +51,7 @@ describe('Template Registry', () => {
       'public_debate_campaign_welcome',
       'public_debate_entity_subscription',
       'public_debate_entity_update',
+      'public_debate_entity_update_thread_started_subscriber',
       'weekly_progress_digest',
       'welcome',
     ]);
@@ -75,6 +79,7 @@ describe('Template Registry', () => {
     expect(registry.has('public_debate_campaign_welcome')).toBe(true);
     expect(registry.has('public_debate_entity_subscription')).toBe(true);
     expect(registry.has('public_debate_entity_update')).toBe(true);
+    expect(registry.has('public_debate_entity_update_thread_started_subscriber')).toBe(true);
     expect(registry.has('weekly_progress_digest')).toBe(true);
     expect(registry.has('nonexistent')).toBe(false);
   });
@@ -127,5 +132,27 @@ describe('WelcomePayloadSchema validation', () => {
   it('rejects empty registeredAt', () => {
     const payload = { registeredAt: '' };
     expect(Value.Check(WelcomePayloadSchema, payload)).toBe(false);
+  });
+
+  it('accepts valid subscriber public debate thread-started payload', () => {
+    const payload = {
+      entityCui: '12345678',
+      entityName: 'Municipiul Exemplu',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+      ctaUrl: 'https://transparenta.eu/primarie/12345678',
+    };
+    expect(Value.Check(PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema, payload)).toBe(
+      true
+    );
+  });
+
+  it('rejects subscriber public debate thread-started payload without CTA URL', () => {
+    const payload = {
+      entityCui: '12345678',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+    };
+    expect(Value.Check(PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema, payload)).toBe(
+      false
+    );
   });
 });

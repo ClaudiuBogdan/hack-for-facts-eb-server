@@ -172,6 +172,7 @@ export const reconcilePlatformSendSuccess = async (
       eventType: 'thread_started',
       thread,
       occurredAt: input.observedAt,
+      requesterUserId: thread.record.ownerUserId,
     });
 
     if (publishedThreadStarted) {

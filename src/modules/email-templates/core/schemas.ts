@@ -112,6 +112,17 @@ export const PublicDebateEntityUpdatePayloadSchema = Type.Object({
 
 export type PublicDebateEntityUpdatePayload = Static<typeof PublicDebateEntityUpdatePayloadSchema>;
 
+export const PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema = Type.Object({
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.Optional(Type.String({ minLength: 1 })),
+  occurredAt: Type.String({ minLength: 1 }),
+  ctaUrl: Type.String({ minLength: 1 }),
+});
+
+export type PublicDebateEntityUpdateThreadStartedSubscriberPayload = Static<
+  typeof PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema
+>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public Debate Admin Failure Template
 // ─────────────────────────────────────────────────────────────────────────────

@@ -72,6 +72,83 @@ describe('enqueueCreatedOrReusedOutbox', () => {
     expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes metadata on reused unrendered outbox rows before compose', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const initialCreateResult = await deliveryRepo.create(createInput);
+    expect(initialCreateResult.isOk()).toBe(true);
+    const composeJobScheduler = createComposeJobScheduler();
+
+    const result = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo,
+        composeJobScheduler,
+      },
+      {
+        runId: 'run-refresh',
+        deliveryKey: createInput.deliveryKey,
+        createInput,
+        reusedOutboxMetadataRefresh: {
+          eventType: 'thread_started',
+          recipientRole: 'subscriber',
+        },
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const outbox = await deliveryRepo.findById(result.value.outboxId);
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.metadata).toEqual({
+          eventType: 'thread_started',
+          recipientRole: 'subscriber',
+        });
+      }
+    }
+  });
+
+  it('does not refresh metadata on reused outbox rows that are already rendered', async () => {
+    const existingOutbox = createTestDeliveryRecord({
+      id: 'delivery-rendered',
+      userId: createInput.userId,
+      notificationType: createInput.notificationType,
+      referenceId: createInput.referenceId,
+      scopeKey: createInput.scopeKey,
+      deliveryKey: createInput.deliveryKey,
+      status: 'pending',
+      renderedSubject: 'Already rendered',
+      renderedHtml: '<p>Already rendered</p>',
+      renderedText: 'Already rendered',
+      metadata: createInput.metadata,
+    });
+    const deliveryRepo = makeFakeDeliveryRepo({ deliveries: [existingOutbox] });
+
+    const result = await enqueueCreatedOrReusedOutbox(
+      {
+        deliveryRepo,
+        composeJobScheduler: createComposeJobScheduler(),
+      },
+      {
+        runId: 'run-refresh-rendered',
+        deliveryKey: createInput.deliveryKey,
+        createInput,
+        reusedOutboxMetadataRefresh: {
+          eventType: 'thread_started',
+          recipientRole: 'subscriber',
+        },
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const outbox = await deliveryRepo.findById(result.value.outboxId);
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.metadata).toEqual(createInput.metadata);
+      }
+    }
+  });
+
   it('skips compose requeue when a reused outbox row is already terminal and the caller opts in', async () => {
     const existingOutbox = createTestDeliveryRecord({
       id: 'delivery-terminal',
