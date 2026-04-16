@@ -1,15 +1,21 @@
 import { Value } from '@sinclair/typebox/value';
-import { sql } from 'kysely';
+import { sql, type SelectQueryBuilder } from 'kysely';
 import { err, ok } from 'neverthrow';
 
 import { deserialize } from '@/infra/cache/serialization.js';
 
+import {
+  isCampaignAdminThreadInScope,
+  projectCampaignAdminThread,
+} from '../../core/admin-workflow.js';
 import {
   createConflictError,
   createDatabaseError,
   createNotFoundError,
 } from '../../core/errors.js';
 import {
+  type CampaignAdminThreadPage,
+  type ListCampaignAdminThreadsInput,
   CorrespondenceThreadRecordSchema,
   REVIEWABLE_PHASE,
   type CorrespondenceThreadRecord,
@@ -24,6 +30,7 @@ import type {
   LockedThreadMutation,
 } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
+import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
 export interface InstitutionCorrespondenceRepoConfig {
@@ -76,7 +83,7 @@ const mapThreadRow = (row: Record<string, unknown>): ThreadRecord => {
   return {
     id: row['id'] as string,
     entityCui: row['entity_cui'] as string,
-    campaignKey: (row['campaign_key'] as string | null) ?? record.campaignKey,
+    campaignKey: (row['campaign_key'] as string | null) ?? record.campaignKey ?? record.campaign,
     threadKey: row['thread_key'] as string,
     phase: row['phase'] as ThreadRecord['phase'],
     lastEmailAt: row['last_email_at'] !== null ? toDate(row['last_email_at']) : null,
@@ -93,6 +100,121 @@ const getLatestInboundReply = (thread: ThreadRecord) =>
   [...thread.record.correspondence]
     .filter((entry) => entry.direction === 'inbound')
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))[0] ?? null;
+
+const hasInboundReplySql = sql<boolean>`exists (
+  select 1
+  from jsonb_array_elements(institutionemailthreads.record->'correspondence') as correspondence_entry
+  where correspondence_entry->>'direction' = 'inbound'
+)`;
+
+type InstitutionThreadSelectQuery<TSelection> = SelectQueryBuilder<
+  UserDatabase,
+  'institutionemailthreads',
+  TSelection
+>;
+
+const applyCampaignAdminThreadScope = <TSelection>(
+  query: InstitutionThreadSelectQuery<TSelection>,
+  campaignKey: string
+): InstitutionThreadSelectQuery<TSelection> =>
+  query
+    .where(
+      sql<boolean>`coalesce(
+        institutionemailthreads.campaign_key,
+        institutionemailthreads.record->>'campaignKey',
+        institutionemailthreads.record->>'campaign'
+      ) = ${campaignKey}`
+    )
+    .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
+    .where('phase', '!=', 'failed');
+
+const applyCampaignAdminThreadListFilters = <TSelection>(
+  query: InstitutionThreadSelectQuery<TSelection>,
+  input: ListCampaignAdminThreadsInput
+): InstitutionThreadSelectQuery<TSelection> => {
+  let nextQuery = applyCampaignAdminThreadScope(query, input.campaignKey);
+
+  if (input.entityCui !== undefined) {
+    nextQuery = nextQuery.where('entity_cui', '=', input.entityCui);
+  }
+
+  if (input.updatedAtFrom !== undefined) {
+    nextQuery = nextQuery.where(
+      sql<boolean>`institutionemailthreads.updated_at >= ${input.updatedAtFrom}`
+    );
+  }
+
+  if (input.updatedAtTo !== undefined) {
+    nextQuery = nextQuery.where(
+      sql<boolean>`institutionemailthreads.updated_at <= ${input.updatedAtTo}`
+    );
+  }
+
+  if (input.query !== undefined) {
+    const likeValue = `%${input.query.toLowerCase()}%`;
+    nextQuery = nextQuery.where(
+      sql<boolean>`(
+        institutionemailthreads.entity_cui ilike ${likeValue}
+        or lower(institutionemailthreads.record->>'institutionEmail') like ${likeValue}
+      )`
+    );
+  }
+
+  return nextQuery;
+};
+
+const matchesCampaignAdminThreadListFilters = (
+  thread: ThreadRecord,
+  input: ListCampaignAdminThreadsInput
+): boolean => {
+  if (!isCampaignAdminThreadInScope(thread)) {
+    return false;
+  }
+
+  const projectedThread = projectCampaignAdminThread(thread);
+
+  if (input.stateGroup !== undefined) {
+    const isOpen =
+      projectedThread.threadState === 'started' || projectedThread.threadState === 'pending';
+    if (input.stateGroup === 'open' && !isOpen) {
+      return false;
+    }
+
+    if (input.stateGroup === 'closed' && projectedThread.threadState !== 'resolved') {
+      return false;
+    }
+  }
+
+  if (input.threadState !== undefined && projectedThread.threadState !== input.threadState) {
+    return false;
+  }
+
+  if (
+    input.responseStatus !== undefined &&
+    projectedThread.currentResponseStatus !== input.responseStatus
+  ) {
+    return false;
+  }
+
+  const latestResponseAt =
+    projectedThread.latestResponseAt !== null ? new Date(projectedThread.latestResponseAt) : null;
+
+  if (
+    input.latestResponseAtFrom !== undefined &&
+    (latestResponseAt === null || latestResponseAt < input.latestResponseAtFrom)
+  ) {
+    return false;
+  }
+
+  if (
+    input.latestResponseAtTo !== undefined &&
+    (latestResponseAt === null || latestResponseAt > input.latestResponseAtTo)
+  ) {
+    return false;
+  }
+
+  return true;
+};
 
 export const makeInstitutionCorrespondenceRepo = (
   config: InstitutionCorrespondenceRepoConfig
@@ -231,6 +353,80 @@ export const makeInstitutionCorrespondenceRepo = (
             'Failed to load latest platform-send correspondence thread by entity',
             error
           )
+        );
+      }
+    },
+
+    async findCampaignAdminThreadById(input) {
+      try {
+        const result = await applyCampaignAdminThreadScope(
+          db.selectFrom('institutionemailthreads').selectAll().where('id', '=', input.threadId),
+          input.campaignKey
+        ).executeTakeFirst();
+
+        return ok(result !== undefined ? mapThreadRow(result as Record<string, unknown>) : null);
+      } catch (error) {
+        log.error({ error, input }, 'Failed to load campaign-admin correspondence thread');
+        return err(
+          createDatabaseError('Failed to load campaign-admin correspondence thread', error)
+        );
+      }
+    },
+
+    async listCampaignAdminThreads(input) {
+      try {
+        const rows = await applyCampaignAdminThreadListFilters(
+          db.selectFrom('institutionemailthreads').selectAll(),
+          input
+        )
+          .orderBy('updated_at', 'desc')
+          .orderBy('id', 'asc')
+          .execute();
+
+        const filteredRows = rows
+          .map((row) => mapThreadRow(row as Record<string, unknown>))
+          .filter((thread) => matchesCampaignAdminThreadListFilters(thread, input));
+
+        const cursorFilteredRows =
+          input.cursor === undefined
+            ? filteredRows
+            : filteredRows.filter((thread) => {
+                const cursor = input.cursor;
+                if (cursor === undefined) {
+                  return true;
+                }
+
+                const cursorUpdatedAt = new Date(cursor.updatedAt).getTime();
+                const threadUpdatedAt = thread.updatedAt.getTime();
+
+                return (
+                  threadUpdatedAt < cursorUpdatedAt ||
+                  (threadUpdatedAt === cursorUpdatedAt && thread.id > cursor.id)
+                );
+              });
+
+        const items = cursorFilteredRows.slice(0, input.limit + 1);
+        const pageItems = items.slice(0, input.limit);
+        const nextCursorThread =
+          items.length > input.limit ? pageItems[pageItems.length - 1] : undefined;
+
+        return ok({
+          items: pageItems,
+          totalCount: filteredRows.length,
+          hasMore: items.length > input.limit,
+          nextCursor:
+            nextCursorThread !== undefined
+              ? {
+                  updatedAt: nextCursorThread.updatedAt.toISOString(),
+                  id: nextCursorThread.id,
+                }
+              : null,
+          limit: input.limit,
+        } satisfies CampaignAdminThreadPage);
+      } catch (error) {
+        log.error({ error, input }, 'Failed to list campaign-admin correspondence threads');
+        return err(
+          createDatabaseError('Failed to list campaign-admin correspondence threads', error)
         );
       }
     },
@@ -407,6 +603,66 @@ export const makeInstitutionCorrespondenceRepo = (
       }
     },
 
+    async mutateCampaignAdminThread(input, mutator) {
+      try {
+        return await db.transaction().execute(async (trx) => {
+          const current = await applyCampaignAdminThreadScope(
+            trx.selectFrom('institutionemailthreads').selectAll().where('id', '=', input.threadId),
+            input.campaignKey
+          )
+            .forUpdate()
+            .executeTakeFirst();
+
+          if (current === undefined) {
+            return err(createNotFoundError(`Thread "${input.threadId}" was not found.`));
+          }
+
+          const thread = mapThreadRow(current as Record<string, unknown>);
+          if (thread.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+            return err(
+              createConflictError(
+                'This thread has changed since it was loaded. Refresh it and retry the action.'
+              )
+            );
+          }
+
+          const nextStateResult = mutator(thread);
+          if (nextStateResult.isErr()) {
+            return err(nextStateResult.error);
+          }
+
+          const nextState = nextStateResult.value;
+          const updated = await trx
+            .updateTable('institutionemailthreads')
+            .set({
+              ...(nextState.phase !== undefined ? { phase: nextState.phase } : {}),
+              ...(nextState.lastEmailAt !== undefined
+                ? { last_email_at: nextState.lastEmailAt }
+                : {}),
+              ...(nextState.lastReplyAt !== undefined
+                ? { last_reply_at: nextState.lastReplyAt }
+                : {}),
+              ...(nextState.nextActionAt !== undefined
+                ? { next_action_at: nextState.nextActionAt }
+                : {}),
+              ...(nextState.closedAt !== undefined ? { closed_at: nextState.closedAt } : {}),
+              record: nextState.record,
+              updated_at: sql`now()`,
+            })
+            .where('id', '=', input.threadId)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+          return ok(mapThreadRow(updated as Record<string, unknown>));
+        });
+      } catch (error) {
+        log.error({ error, input }, 'Failed to mutate campaign-admin correspondence thread');
+        return err(
+          createDatabaseError('Failed to mutate campaign-admin correspondence thread', error)
+        );
+      }
+    },
+
     async attachMessageIdToCorrespondenceByResendEmail(threadKey, resendEmailId, messageId) {
       try {
         return await db.transaction().execute(async (trx) => {
@@ -471,11 +727,6 @@ export const makeInstitutionCorrespondenceRepo = (
 
     async listPendingReplies(input) {
       try {
-        const hasInboundReplySql = sql<boolean>`exists (
-          select 1
-          from jsonb_array_elements(institutionemailthreads.record->'correspondence') as correspondence_entry
-          where correspondence_entry->>'direction' = 'inbound'
-        )`;
         const countRow = (await db
           .selectFrom('institutionemailthreads')
           .select((eb) => eb.fn.countAll().as('total_count'))

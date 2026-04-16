@@ -1,7 +1,10 @@
 import type { InstitutionCorrespondenceError } from './errors.js';
 import type {
+  CampaignAdminThreadLookupInput,
+  CampaignAdminThreadPage,
   CorrespondenceEntry,
   CorrespondenceThreadRecord,
+  ListCampaignAdminThreadsInput,
   ListPendingRepliesInput,
   PendingReplyPage,
   ResolutionCode,
@@ -70,6 +73,12 @@ export interface InstitutionCorrespondenceRepository {
     entityCui: string;
     campaign: string;
   }): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
+  findCampaignAdminThreadById(
+    input: CampaignAdminThreadLookupInput
+  ): Promise<Result<ThreadRecord | null, InstitutionCorrespondenceError>>;
+  listCampaignAdminThreads(
+    input: ListCampaignAdminThreadsInput
+  ): Promise<Result<CampaignAdminThreadPage, InstitutionCorrespondenceError>>;
   listPlatformSendThreadsPendingSuccessConfirmation(
     olderThanMinutes: number
   ): Promise<Result<ThreadRecord[], InstitutionCorrespondenceError>>;
@@ -82,6 +91,14 @@ export interface InstitutionCorrespondenceRepository {
   ): Promise<Result<ThreadRecord, InstitutionCorrespondenceError>>;
   mutateThread(
     threadId: string,
+    mutator: (thread: ThreadRecord) => Result<LockedThreadMutation, InstitutionCorrespondenceError>
+  ): Promise<Result<ThreadRecord, InstitutionCorrespondenceError>>;
+  mutateCampaignAdminThread(
+    input: {
+      threadId: string;
+      campaignKey: string;
+      expectedUpdatedAt: Date;
+    },
     mutator: (thread: ThreadRecord) => Result<LockedThreadMutation, InstitutionCorrespondenceError>
   ): Promise<Result<ThreadRecord, InstitutionCorrespondenceError>>;
   attachMessageIdToCorrespondenceByResendEmail(

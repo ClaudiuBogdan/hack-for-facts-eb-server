@@ -342,16 +342,6 @@ describe('Configuration', () => {
       expect(config.learningProgress.campaignAdminEnabledCampaigns).toEqual(['funky', 'other']);
     });
 
-    it('enables institution correspondence admin config when the API key is set', () => {
-      const apiKey = 'i'.repeat(32);
-      const config = createConfig(
-        parseEnv({ ...requiredEnv, INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: apiKey })
-      );
-
-      expect(config.institutionCorrespondence.adminApiKey).toBe(apiKey);
-      expect(config.institutionCorrespondence.adminRoutesEnabled).toBe(true);
-    });
-
     it('normalizes special rate limit header names and exposes the service key', () => {
       const config = createConfig(
         parseEnv({

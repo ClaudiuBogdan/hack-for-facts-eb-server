@@ -152,10 +152,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     learningProgress: {
       campaignAdminEnabledCampaigns: [],
     },
-    institutionCorrespondence: {
-      adminApiKey: undefined,
-      adminRoutesEnabled: false,
-    },
     telemetry: {
       endpoint: undefined,
       headers: undefined,
@@ -183,10 +179,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     jobs: { ...defaults.jobs, ...overrides.jobs },
     notifications: { ...defaults.notifications, ...overrides.notifications },
     learningProgress: { ...defaults.learningProgress, ...overrides.learningProgress },
-    institutionCorrespondence: {
-      ...defaults.institutionCorrespondence,
-      ...overrides.institutionCorrespondence,
-    },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
 };

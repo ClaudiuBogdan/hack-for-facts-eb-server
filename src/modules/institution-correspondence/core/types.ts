@@ -5,37 +5,60 @@ import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 export const PUBLIC_DEBATE_REQUEST_TYPE = PUBLIC_DEBATE_CAMPAIGN_KEY;
 export const FUNKY_CITIZENS_NGO_IDENTITY = 'funky_citizens' as const;
 
-export type InstitutionRequestType = typeof PUBLIC_DEBATE_REQUEST_TYPE;
-export type SubmissionPath = 'platform_send' | 'self_send_cc';
-
-export type ThreadPhase =
-  | 'sending'
-  | 'awaiting_reply'
-  | 'reply_received_unreviewed'
-  | 'manual_follow_up_needed'
-  | 'resolved_positive'
-  | 'resolved_negative'
-  | 'closed_no_response'
-  | 'failed';
-
-export type ResolutionCode =
-  | 'debate_announced'
-  | 'already_scheduled'
-  | 'request_refused'
-  | 'wrong_contact'
-  | 'auto_reply'
-  | 'not_actionable'
-  | 'other';
-
-export type MessageDirection = 'outbound' | 'inbound';
-export type MessageSource = 'platform_send' | 'self_send_cc' | 'institution_reply';
-
 const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 const IsoDateTimeStringSchema = Type.String({
   minLength: 1,
   pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})$',
 });
+
+export const SubmissionPathSchema = Type.Union([
+  Type.Literal('platform_send'),
+  Type.Literal('self_send_cc'),
+]);
+
+export type InstitutionRequestType = typeof PUBLIC_DEBATE_REQUEST_TYPE;
+export type SubmissionPath = Static<typeof SubmissionPathSchema>;
+
+export const ThreadPhaseSchema = Type.Union([
+  Type.Literal('sending'),
+  Type.Literal('awaiting_reply'),
+  Type.Literal('reply_received_unreviewed'),
+  Type.Literal('manual_follow_up_needed'),
+  Type.Literal('resolved_positive'),
+  Type.Literal('resolved_negative'),
+  Type.Literal('closed_no_response'),
+  Type.Literal('failed'),
+]);
+
+export type ThreadPhase = Static<typeof ThreadPhaseSchema>;
+
+export const ResolutionCodeSchema = Type.Union([
+  Type.Literal('debate_announced'),
+  Type.Literal('already_scheduled'),
+  Type.Literal('request_refused'),
+  Type.Literal('wrong_contact'),
+  Type.Literal('auto_reply'),
+  Type.Literal('not_actionable'),
+  Type.Literal('other'),
+]);
+
+export type ResolutionCode = Static<typeof ResolutionCodeSchema>;
+
+export const MessageDirectionSchema = Type.Union([
+  Type.Literal('outbound'),
+  Type.Literal('inbound'),
+]);
+
+export type MessageDirection = Static<typeof MessageDirectionSchema>;
+
+export const MessageSourceSchema = Type.Union([
+  Type.Literal('platform_send'),
+  Type.Literal('self_send_cc'),
+  Type.Literal('institution_reply'),
+]);
+
+export type MessageSource = Static<typeof MessageSourceSchema>;
 
 export const CorrespondenceAttachmentMetadataSchema = Type.Object(
   {
@@ -56,12 +79,8 @@ export const CorrespondenceEntrySchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     campaignKey: NullableStringSchema,
-    direction: Type.Union([Type.Literal('outbound'), Type.Literal('inbound')]),
-    source: Type.Union([
-      Type.Literal('platform_send'),
-      Type.Literal('self_send_cc'),
-      Type.Literal('institution_reply'),
-    ]),
+    direction: MessageDirectionSchema,
+    source: MessageSourceSchema,
     resendEmailId: NullableStringSchema,
     messageId: NullableStringSchema,
     fromAddress: Type.String({ minLength: 1 }),
@@ -84,15 +103,7 @@ export type CorrespondenceEntry = Static<typeof CorrespondenceEntrySchema>;
 export const ThreadReviewSchema = Type.Object(
   {
     basedOnEntryId: Type.String({ minLength: 1 }),
-    resolutionCode: Type.Union([
-      Type.Literal('debate_announced'),
-      Type.Literal('already_scheduled'),
-      Type.Literal('request_refused'),
-      Type.Literal('wrong_contact'),
-      Type.Literal('auto_reply'),
-      Type.Literal('not_actionable'),
-      Type.Literal('other'),
-    ]),
+    resolutionCode: ResolutionCodeSchema,
     notes: NullableStringSchema,
     reviewedAt: IsoDateTimeStringSchema,
   },
@@ -101,6 +112,54 @@ export const ThreadReviewSchema = Type.Object(
 
 export type ThreadReview = Static<typeof ThreadReviewSchema>;
 
+export const CampaignAdminThreadStateSchema = Type.Union([
+  Type.Literal('started'),
+  Type.Literal('pending'),
+  Type.Literal('resolved'),
+]);
+
+export type CampaignAdminThreadState = Static<typeof CampaignAdminThreadStateSchema>;
+
+export const CampaignAdminThreadStateGroupSchema = Type.Union([
+  Type.Literal('open'),
+  Type.Literal('closed'),
+]);
+
+export type CampaignAdminThreadStateGroup = Static<typeof CampaignAdminThreadStateGroupSchema>;
+
+export const CampaignAdminResponseStatusSchema = Type.Union([
+  Type.Literal('registration_number_received'),
+  Type.Literal('request_confirmed'),
+  Type.Literal('request_denied'),
+]);
+
+export type CampaignAdminResponseStatus = Static<typeof CampaignAdminResponseStatusSchema>;
+
+export const AdminResponseEventSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1 }),
+    responseDate: IsoDateTimeStringSchema,
+    messageContent: Type.String({ minLength: 1 }),
+    responseStatus: CampaignAdminResponseStatusSchema,
+    actorUserId: Type.String({ minLength: 1 }),
+    createdAt: IsoDateTimeStringSchema,
+    source: Type.Literal('campaign_admin_api'),
+  },
+  { additionalProperties: false }
+);
+
+export type AdminResponseEvent = Static<typeof AdminResponseEventSchema>;
+
+export const AdminWorkflowSchema = Type.Object(
+  {
+    currentResponseStatus: Type.Union([CampaignAdminResponseStatusSchema, Type.Null()]),
+    responseEvents: Type.Array(AdminResponseEventSchema),
+  },
+  { additionalProperties: false }
+);
+
+export type AdminWorkflow = Static<typeof AdminWorkflowSchema>;
+
 export const CorrespondenceThreadRecordSchema = Type.Object(
   {
     version: Type.Literal(1),
@@ -108,7 +167,7 @@ export const CorrespondenceThreadRecordSchema = Type.Object(
     campaignKey: NullableStringSchema,
     ownerUserId: NullableStringSchema,
     subject: Type.String({ minLength: 1 }),
-    submissionPath: Type.Union([Type.Literal('platform_send'), Type.Literal('self_send_cc')]),
+    submissionPath: SubmissionPathSchema,
     institutionEmail: Type.String({ minLength: 1 }),
     ngoIdentity: Type.String({ minLength: 1 }),
     requesterOrganizationName: NullableStringSchema,
@@ -118,6 +177,7 @@ export const CorrespondenceThreadRecordSchema = Type.Object(
     captureAddress: NullableStringSchema,
     correspondence: Type.Array(CorrespondenceEntrySchema),
     latestReview: Type.Union([ThreadReviewSchema, Type.Null()]),
+    adminWorkflow: Type.Optional(AdminWorkflowSchema),
     metadata: UnknownRecordSchema,
   },
   { additionalProperties: false }
@@ -201,6 +261,54 @@ export interface ReviewReplyInput {
 export interface ReviewReplyOutput {
   thread: ThreadRecord;
   reply: CorrespondenceEntry;
+}
+
+export interface CampaignAdminThreadListCursor {
+  updatedAt: string;
+  id: string;
+}
+
+export interface CampaignAdminThreadPage {
+  items: ThreadRecord[];
+  totalCount: number;
+  hasMore: boolean;
+  nextCursor: CampaignAdminThreadListCursor | null;
+  limit: number;
+}
+
+export interface ListCampaignAdminThreadsInput {
+  campaignKey: string;
+  stateGroup?: CampaignAdminThreadStateGroup;
+  threadState?: CampaignAdminThreadState;
+  responseStatus?: CampaignAdminResponseStatus;
+  query?: string;
+  entityCui?: string;
+  updatedAtFrom?: Date;
+  updatedAtTo?: Date;
+  latestResponseAtFrom?: Date;
+  latestResponseAtTo?: Date;
+  cursor?: CampaignAdminThreadListCursor;
+  limit: number;
+}
+
+export interface CampaignAdminThreadLookupInput {
+  campaignKey: string;
+  threadId: string;
+}
+
+export interface AppendCampaignAdminThreadResponseInput {
+  campaignKey: string;
+  threadId: string;
+  actorUserId: string;
+  expectedUpdatedAt: Date;
+  responseDate: Date;
+  messageContent: string;
+  responseStatus: CampaignAdminResponseStatus;
+}
+
+export interface AppendCampaignAdminThreadResponseOutput {
+  thread: ThreadRecord;
+  createdResponseEventId: string;
 }
 
 export interface UnmatchedInboundMetadata {

@@ -5,6 +5,7 @@ import { ensurePublicDebateAutoSubscriptions } from '@/modules/notifications/ind
 
 import { createPublicDebateNotificationHarness } from '../fixtures/public-debate-notification-harness.js';
 import {
+  createAdminResponseEvent,
   createCorrespondenceEntry,
   createThreadAggregateRecord,
   createThreadRecord,
@@ -313,6 +314,64 @@ describe('public debate request notification snapshots', () => {
         );
       }
     }
+  });
+
+  it('skips late-subscriber snapshots for stale awaiting_reply rows resolved only through adminWorkflow', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-admin-resolved',
+          entityCui: '12345678',
+          phase: 'awaiting_reply',
+          lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+          closedAt: new Date('2026-04-04T10:00:00.000Z'),
+          record: createThreadAggregateRecord({
+            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+            adminWorkflow: {
+              currentResponseStatus: 'request_confirmed',
+              responseEvents: [
+                createAdminResponseEvent({
+                  id: 'admin-response-1',
+                  responseStatus: 'request_confirmed',
+                  responseDate: '2026-04-04T10:00:00.000Z',
+                  createdAt: '2026-04-04T10:01:00.000Z',
+                }),
+              ],
+            },
+          }),
+        }),
+      ],
+      entityNames: {
+        '12345678': 'Oras Test',
+      },
+    });
+
+    const result = await harness.requestPlatformSend({
+      ownerUserId: 'user-1',
+      entityCui: '12345678',
+      institutionEmail: 'contact@primarie.ro',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(harness.send).not.toHaveBeenCalled();
+    expect(harness.snapshotResults).toHaveLength(1);
+
+    const snapshot = harness.snapshotResults[0];
+    expect(snapshot).toBeDefined();
+    if (snapshot === undefined) {
+      throw new Error('Expected snapshot result to be present');
+    }
+    expect(snapshot.isOk()).toBe(true);
+    if (snapshot.isOk()) {
+      expect(snapshot.value.status).toBe('skipped_phase');
+      expect(snapshot.value.eventType).toBeUndefined();
+      expect(snapshot.value.publishResult).toBeUndefined();
+    }
+    expect(harness.composeJobScheduler.enqueue).not.toHaveBeenCalled();
   });
 
   it('skips snapshot publishing when the latest platform thread is still sending', async () => {

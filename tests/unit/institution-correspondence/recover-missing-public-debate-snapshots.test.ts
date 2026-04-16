@@ -14,6 +14,7 @@ import {
 } from '@/modules/notifications/index.js';
 
 import {
+  createAdminResponseEvent,
   createThreadAggregateRecord,
   createThreadRecord,
   makeInMemoryCorrespondenceRepo,
@@ -450,6 +451,77 @@ describe('recoverMissingPublicDebateSnapshots', () => {
       expect(result.value.derivedCount).toBe(0);
       expect(result.value.skippedCount).toBe(2);
       expect(result.value.skippedEntityCuis).toEqual(['12345678', '87654321']);
+    }
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('skips backfill for terminal admin responses that only exist in adminWorkflow', async () => {
+    const notificationsRepo = makeFakeExtendedNotificationsRepo({
+      notifications: [
+        createTestNotification({
+          id: 'notification-1',
+          userId: 'user-1',
+          entityCui: '12345678',
+          notificationType: 'funky:notification:entity_updates',
+        }),
+      ],
+    });
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread-admin-resolved',
+          entityCui: '12345678',
+          phase: 'resolved_positive',
+          lastEmailAt: new Date('2026-04-05T08:00:00.000Z'),
+          closedAt: new Date('2026-04-05T09:00:00.000Z'),
+          record: createThreadAggregateRecord({
+            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            institutionEmail: 'contact@primarie.ro',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            adminWorkflow: {
+              currentResponseStatus: 'request_confirmed',
+              responseEvents: [
+                createAdminResponseEvent({
+                  id: 'admin-response-1',
+                  responseStatus: 'request_confirmed',
+                  responseDate: '2026-04-05T09:00:00.000Z',
+                  createdAt: '2026-04-05T09:01:00.000Z',
+                }),
+              ],
+            },
+          }),
+        }),
+      ],
+    });
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const publish = vi.fn(async () =>
+      ok({
+        status: 'queued' as const,
+        notificationIds: ['unexpected'],
+        createdOutboxIds: ['unexpected'],
+        reusedOutboxIds: [],
+        queuedOutboxIds: ['unexpected'],
+        enqueueFailedOutboxIds: [],
+      })
+    );
+
+    const result = await recoverMissingPublicDebateSnapshots({
+      repo,
+      notificationsRepo,
+      deliveryRepo,
+      updatePublisher: {
+        publish,
+      },
+    });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.derivedCount).toBe(0);
+      expect(result.value.skippedCount).toBe(1);
+      expect(result.value.skippedEntityCuis).toEqual(['12345678']);
+      expect(result.value.publishedCount).toBe(0);
     }
     expect(publish).not.toHaveBeenCalled();
   });

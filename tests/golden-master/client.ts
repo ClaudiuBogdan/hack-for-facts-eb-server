@@ -274,10 +274,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
       learningProgress: {
         campaignAdminEnabledCampaigns: [],
       },
-      institutionCorrespondence: {
-        adminApiKey: undefined,
-        adminRoutesEnabled: false,
-      },
       telemetry: {
         endpoint: undefined,
         headers: undefined,

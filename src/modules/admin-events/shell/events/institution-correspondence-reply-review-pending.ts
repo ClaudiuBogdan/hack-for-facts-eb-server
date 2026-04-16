@@ -8,7 +8,6 @@ import {
   type CorrespondenceEntry,
   type InstitutionCorrespondenceError,
   type InstitutionCorrespondenceRepository,
-  type ResolutionCode,
   type ThreadRecord,
 } from '@/modules/institution-correspondence/index.js';
 
@@ -227,7 +226,7 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
         {
           threadId: input.payload.threadId,
           basedOnEntryId: input.payload.basedOnEntryId,
-          resolutionCode: input.outcome.resolutionCode as ResolutionCode,
+          resolutionCode: input.outcome.resolutionCode,
           reviewNotes: input.outcome.reviewNotes ?? null,
         }
       );
