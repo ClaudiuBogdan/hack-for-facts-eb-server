@@ -6,6 +6,7 @@ import type { UserDbClient } from '../client.js';
 type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
 
 const ADVANCED_MAP_DATASET_LOCK_NAMESPACE = 20_260_409;
+const LEARNING_PROGRESS_AUTO_REVIEW_REUSE_LOCK_NAMESPACE = 20_260_416;
 
 function normalizeDatasetIds(datasetIds: readonly string[]): string[] {
   return Array.from(
@@ -30,4 +31,35 @@ export async function acquireAdvancedMapDatasetTransactionLocks(
       )
     `.execute(db);
   }
+}
+
+function normalizeLearningProgressAutoReviewReuseIdentity(input: {
+  recordKey: string;
+  interactionId: string;
+  entityCui: string;
+}): string {
+  return [input.recordKey.trim(), input.interactionId.trim(), input.entityCui.trim()].join(
+    '\u0000'
+  );
+}
+
+export async function acquireLearningProgressAutoReviewReuseTransactionLock(
+  db: UserDbConnection,
+  input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }
+): Promise<void> {
+  // Exact-key/entity auto-review reuse is serialized with human reviews using
+  // transaction-scoped advisory locks so precedent lookup and review writes
+  // observe a single authoritative ordering without widening isolation.
+  const normalizedIdentity = normalizeLearningProgressAutoReviewReuseIdentity(input);
+
+  await sql`
+    select pg_advisory_xact_lock(
+      ${LEARNING_PROGRESS_AUTO_REVIEW_REUSE_LOCK_NAMESPACE},
+      hashtext(${normalizedIdentity})
+    )
+  `.execute(db);
 }

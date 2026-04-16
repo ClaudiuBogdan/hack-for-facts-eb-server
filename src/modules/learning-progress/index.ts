@@ -141,6 +141,19 @@ export {
   type ListReviewedInteractionCandidatesInput,
   type LoadLatestEntityInteractionRowInput,
 } from './core/usecases/reviewed-interaction-source.js';
+export {
+  autoResolvePendingInteractionFromReviewedMatch,
+  type AutoResolvePendingInteractionFromReviewedMatchDeps,
+  type AutoResolvePendingInteractionFromReviewedMatchInput,
+  type AutoResolvePendingInteractionFromReviewedMatchOutput,
+  type AutoReviewReuseSkipReason,
+} from './core/usecases/auto-resolve-pending-interaction-from-reviewed-match.js';
+export {
+  reconcileAutoReviewReuse,
+  type ReconcileAutoReviewReuseDeps,
+  type ReconcileAutoReviewReuseInput,
+  type ReconcileAutoReviewReuseSummary,
+} from './core/usecases/reconcile-auto-review-reuse.js';
 
 export {
   submitInteractionReviews,
@@ -181,6 +194,7 @@ export type {
 
 export {
   CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
+  buildCampaignAutoReviewReuseFilters,
   getCampaignAdminReviewConfig,
   getCampaignAdminInteractionConfig,
   selectCampaignAdminAuditVisibleInteractions,

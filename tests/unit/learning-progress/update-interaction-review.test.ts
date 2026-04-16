@@ -7,6 +7,108 @@ import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../..
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
 
 describe('updateInteractionReview', () => {
+  it('reads, locks, then re-reads for update on entity-scoped reviews', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'funky:interaction:city_hall_website::entity:4305857',
+      interactionId: 'funky:interaction:city_hall_website',
+      phase: 'pending',
+      scope: { type: 'entity', entityCui: '4305857' },
+      updatedAt: '2026-03-23T19:27:40.527Z',
+      submittedAt: '2026-03-23T19:27:40.527Z',
+    });
+    const callOrder: string[] = [];
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords,
+      onGetRecord() {
+        callOrder.push('get_record');
+      },
+      onAcquireAutoReviewReuseTransactionLock() {
+        callOrder.push('lock');
+      },
+      onGetRecordForUpdate() {
+        callOrder.push('get_record_for_update');
+      },
+    });
+
+    const result = await updateInteractionReview(
+      { repo },
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        expectedUpdatedAt: record.updatedAt,
+        status: 'approved',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(callOrder.slice(0, 3)).toEqual(['get_record', 'lock', 'get_record_for_update']);
+  });
+
+  it('keeps the advisory lock boundary narrow by skipping global-scoped reviews', async () => {
+    const record = createTestInteractiveRecord({
+      key: 'lesson:introduction::global',
+      interactionId: 'lesson:introduction',
+      phase: 'pending',
+      scope: { type: 'global' },
+      updatedAt: '2026-03-23T19:27:40.527Z',
+      submittedAt: '2026-03-23T19:27:40.527Z',
+    });
+    const callOrder: string[] = [];
+
+    const initialRecords = new Map<string, LearningProgressRecordRow[]>();
+    initialRecords.set('user-1', [
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        record,
+        auditEvents: [],
+        updatedSeq: '1',
+        createdAt: record.updatedAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords,
+      onGetRecord() {
+        callOrder.push('get_record');
+      },
+      onAcquireAutoReviewReuseTransactionLock() {
+        callOrder.push('lock');
+      },
+      onGetRecordForUpdate() {
+        callOrder.push('get_record_for_update');
+      },
+    });
+
+    const result = await updateInteractionReview(
+      { repo },
+      {
+        userId: 'user-1',
+        recordKey: record.key,
+        expectedUpdatedAt: record.updatedAt,
+        status: 'approved',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(callOrder).toEqual(['get_record', 'get_record_for_update']);
+  });
+
   it('approves a pending record, updates sync timestamps, and appends an audit event', async () => {
     const record = createTestInteractiveRecord({
       key: 'funky:interaction:city_hall_website::entity:4305857',

@@ -43,6 +43,7 @@ export interface CampaignAdminInteractionConfig {
   readonly adminAuditVisible: boolean;
   readonly reviewable: boolean;
   readonly reviewableSubmissionPaths?: readonly CampaignAdminSubmissionPath[];
+  readonly autoReviewReuseEnabled: boolean;
   readonly supportsInstitutionThreadSummary: boolean;
 }
 
@@ -59,14 +60,19 @@ export interface CampaignAdminAvailableInteractionType {
 }
 
 function createCampaignInteractionConfig(
-  input: Omit<CampaignAdminInteractionConfig, 'campaignKey' | 'adminAuditVisible'> & {
+  input: Omit<
+    CampaignAdminInteractionConfig,
+    'campaignKey' | 'adminAuditVisible' | 'autoReviewReuseEnabled'
+  > & {
     readonly campaignKey?: CampaignAdminCampaignKey;
     readonly adminAuditVisible?: boolean;
+    readonly autoReviewReuseEnabled?: boolean;
   }
 ): CampaignAdminInteractionConfig {
   return {
     campaignKey: input.campaignKey ?? FUNKY_CAMPAIGN_KEY,
     adminAuditVisible: input.adminAuditVisible ?? true,
+    autoReviewReuseEnabled: input.autoReviewReuseEnabled ?? false,
     ...input,
   };
 }
@@ -235,6 +241,7 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           stepSlug: '03-budget-status-2026',
         },
         reviewable: true,
+        autoReviewReuseEnabled: true,
         supportsInstitutionThreadSummary: false,
       }),
       createCampaignInteractionConfig({
@@ -247,6 +254,7 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           stepSlug: '03-budget-status-2026',
         },
         reviewable: true,
+        autoReviewReuseEnabled: true,
         supportsInstitutionThreadSummary: false,
       }),
       createCampaignInteractionConfig({
@@ -259,6 +267,7 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           stepSlug: '03-budget-status-2026',
         },
         reviewable: true,
+        autoReviewReuseEnabled: true,
         supportsInstitutionThreadSummary: false,
       }),
       createCampaignInteractionConfig({
@@ -271,6 +280,7 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           stepSlug: '03-budget-status-2026',
         },
         reviewable: true,
+        autoReviewReuseEnabled: true,
         supportsInstitutionThreadSummary: false,
       }),
       createCampaignInteractionConfig({
@@ -283,6 +293,7 @@ const CAMPAIGN_REVIEW_CONFIGS: Readonly<Record<CampaignAdminCampaignKey, Campaig
           stepSlug: '04-debate-request',
         },
         reviewable: true,
+        autoReviewReuseEnabled: true,
         supportsInstitutionThreadSummary: false,
       }),
       createCampaignInteractionConfig({
@@ -330,6 +341,19 @@ export function getCampaignAdminInteractionConfig(
   return (
     config.interactions.find((interaction) => interaction.interactionId === interactionId) ?? null
   );
+}
+
+export function getCampaignAutoReviewReuseInteractionConfig(
+  campaignKey: string,
+  interactionId: string
+): CampaignAdminInteractionConfig | null {
+  const campaignConfig = getCampaignAdminReviewConfig(campaignKey);
+  if (campaignConfig === null) {
+    return null;
+  }
+
+  const interactionConfig = getCampaignAdminInteractionConfig(campaignConfig, interactionId);
+  return interactionConfig?.autoReviewReuseEnabled === true ? interactionConfig : null;
 }
 
 export function selectCampaignAdminAuditVisibleInteractions(input: {
@@ -401,4 +425,21 @@ export function listCampaignAdminAvailableInteractionTypes(
       label: interaction.label,
       reviewable: interaction.reviewable,
     }));
+}
+
+export function buildCampaignAutoReviewReuseFilters(
+  config: CampaignAuditConfig
+): readonly CampaignAdminInteractionFilter[] {
+  return config.interactions.flatMap((interaction) => {
+    if (!interaction.autoReviewReuseEnabled) {
+      return [];
+    }
+
+    return interaction.reviewableSubmissionPaths === undefined
+      ? [{ interactionId: interaction.interactionId }]
+      : interaction.reviewableSubmissionPaths.map((submissionPath) => ({
+          interactionId: interaction.interactionId,
+          submissionPath,
+        }));
+  });
 }

@@ -127,7 +127,11 @@ export interface LearningProgressRecordValueRow {
     reviewedAt: string | null;
     feedbackText?: string | null;
     reviewedByUserId?: string;
-    reviewSource?: 'campaign_admin_api' | 'learning_progress_admin_api' | 'user_event_worker';
+    reviewSource?:
+      | 'campaign_admin_api'
+      | 'learning_progress_admin_api'
+      | 'auto_review_reuse_match'
+      | 'user_event_worker';
   } | null;
   sourceUrl?: string;
   updatedAt: string;
@@ -163,7 +167,11 @@ export type LearningProgressAuditEventRow =
       actor: 'system' | 'admin';
       actorUserId?: string;
       actorPermission?: string;
-      actorSource?: 'campaign_admin_api' | 'learning_progress_admin_api' | 'user_event_worker';
+      actorSource?:
+        | 'campaign_admin_api'
+        | 'learning_progress_admin_api'
+        | 'auto_review_reuse_match'
+        | 'user_event_worker';
       phase: 'resolved' | 'failed';
       result: {
         outcome: 'correct' | 'incorrect' | null;

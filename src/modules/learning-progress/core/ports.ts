@@ -35,6 +35,18 @@ export interface LearningProgressRepository {
     recordKey: string
   ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>>;
 
+  acquireAutoReviewReuseTransactionLock(input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }): Promise<Result<void, LearningProgressError>>;
+
+  findLatestCampaignAdminReviewedExactKeyMatches(input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>>;
+
   listCampaignAdminInteractionRows(
     input: ListCampaignAdminInteractionRowsInput
   ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>>;

@@ -8,6 +8,7 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX } from '@/common/campaign-keys.js';
+import { acquireLearningProgressAutoReviewReuseTransactionLock } from '@/infra/database/user/advisory-locks.js';
 import { INTERNAL_NAMESPACE_PREFIX } from '@/modules/learning-progress/core/internal-records.js';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
@@ -459,6 +460,86 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     recordKey: string
   ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> {
     return this.getRecordInternal(userId, recordKey, true);
+  }
+
+  async acquireAutoReviewReuseTransactionLock(input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }): Promise<Result<void, LearningProgressError>> {
+    try {
+      await acquireLearningProgressAutoReviewReuseTransactionLock(this.db, input);
+      return ok(undefined);
+    } catch (error) {
+      this.log.error(
+        {
+          err: error,
+          recordKey: input.recordKey,
+          interactionId: input.interactionId,
+          entityCui: input.entityCui,
+        },
+        'Failed to acquire learning progress auto-review reuse transaction lock'
+      );
+      return err(
+        createDatabaseError(
+          'Failed to acquire learning progress auto-review reuse transaction lock',
+          error
+        )
+      );
+    }
+  }
+
+  async findLatestCampaignAdminReviewedExactKeyMatches(input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> {
+    try {
+      const rows = await this.db
+        .with('matching_rows', (db) =>
+          db
+            .selectFrom(USER_INTERACTIONS_TABLE)
+            .select(LEARNING_PROGRESS_ROW_COLUMNS)
+            .where('record_key', '=', input.recordKey)
+            .where(sql<boolean>`record->>'interactionId' = ${input.interactionId}`)
+            .where(sql<boolean>`record->'scope'->>'type' = 'entity'`)
+            .where(sql<boolean>`record->'scope'->>'entityCui' = ${input.entityCui}`)
+            .where(sql<boolean>`record->>'phase' in ('resolved', 'failed')`)
+            .where(sql<boolean>`record->'review'->>'reviewSource' = ${'campaign_admin_api'}`)
+            .where(sql<boolean>`record->'review'->>'status' in ('approved', 'rejected')`)
+        )
+        .with('latest_precedence_group', (db) =>
+          db.selectFrom('matching_rows').select('updated_at').orderBy('updated_at', 'desc').limit(1)
+        )
+        .selectFrom('matching_rows')
+        .innerJoin(
+          'latest_precedence_group',
+          'latest_precedence_group.updated_at',
+          'matching_rows.updated_at'
+        )
+        .selectAll('matching_rows')
+        .orderBy('matching_rows.user_id', 'asc')
+        .orderBy('matching_rows.record_key', 'asc')
+        .execute();
+
+      return ok(rows.map((row) => this.mapRow(row as unknown as QueryRow)));
+    } catch (error) {
+      this.log.error(
+        {
+          err: error,
+          recordKey: input.recordKey,
+          interactionId: input.interactionId,
+          entityCui: input.entityCui,
+        },
+        'Failed to load latest campaign-admin reviewed exact-key matches'
+      );
+      return err(
+        createDatabaseError(
+          'Failed to load latest campaign-admin reviewed exact-key matches',
+          error
+        )
+      );
+    }
   }
 
   async listCampaignAdminInteractionRows(

@@ -1354,6 +1354,22 @@ interface FakeLearningProgressRepoOptions {
   failOnUpsertAttempt?: number;
   /** Fail when a specific reset attempt is reached (1-based) */
   failOnResetAttempt?: number;
+  /** Observe advisory lock acquisition in tests */
+  onAcquireAutoReviewReuseTransactionLock?: (input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }) => void;
+  /** Observe plain record reads in tests */
+  onGetRecord?: (input: { userId: string; recordKey: string }) => void;
+  /** Observe record locking reads in tests */
+  onGetRecordForUpdate?: (input: { userId: string; recordKey: string }) => void;
+  /** Observe precedent lookups in tests */
+  onFindLatestCampaignAdminReviewedExactKeyMatches?: (input: {
+    recordKey: string;
+    interactionId: string;
+    entityCui: string;
+  }) => void;
 }
 
 /**
@@ -1369,6 +1385,11 @@ export const makeFakeLearningProgressRepo = (
   const simulateDbError = options.simulateDbError ?? false;
   const failOnUpsertAttempt = options.failOnUpsertAttempt;
   const failOnResetAttempt = options.failOnResetAttempt;
+  const onAcquireAutoReviewReuseTransactionLock = options.onAcquireAutoReviewReuseTransactionLock;
+  const onGetRecord = options.onGetRecord;
+  const onGetRecordForUpdate = options.onGetRecordForUpdate;
+  const onFindLatestCampaignAdminReviewedExactKeyMatches =
+    options.onFindLatestCampaignAdminReviewedExactKeyMatches;
   let nextSeq = 1n;
   let upsertAttempts = 0;
   let resetAttempts = 0;
@@ -1765,6 +1786,7 @@ export const makeFakeLearningProgressRepo = (
       ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
+        onGetRecord?.({ userId, recordKey });
         const userStore = currentStore.get(userId);
         return ok(userStore?.get(recordKey) ?? null);
       },
@@ -1775,8 +1797,64 @@ export const makeFakeLearningProgressRepo = (
       ): Promise<Result<LearningProgressRecordRow | null, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
+        onGetRecordForUpdate?.({ userId, recordKey });
         const userStore = currentStore.get(userId);
         return ok(userStore?.get(recordKey) ?? null);
+      },
+
+      acquireAutoReviewReuseTransactionLock: async ({
+        recordKey,
+        interactionId,
+        entityCui,
+      }): Promise<Result<void, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        onAcquireAutoReviewReuseTransactionLock?.({
+          recordKey,
+          interactionId,
+          entityCui,
+        });
+        return ok(undefined);
+      },
+
+      findLatestCampaignAdminReviewedExactKeyMatches: async ({
+        recordKey,
+        interactionId,
+        entityCui,
+      }): Promise<Result<readonly LearningProgressRecordRow[], LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        onFindLatestCampaignAdminReviewedExactKeyMatches?.({
+          recordKey,
+          interactionId,
+          entityCui,
+        });
+
+        const matchingRows = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) => {
+            const review = row.record.review;
+
+            return (
+              row.recordKey === recordKey &&
+              row.record.interactionId === interactionId &&
+              row.record.scope.type === 'entity' &&
+              row.record.scope.entityCui === entityCui &&
+              (row.record.phase === 'resolved' || row.record.phase === 'failed') &&
+              review?.reviewSource === 'campaign_admin_api' &&
+              (review.status === 'approved' || review.status === 'rejected')
+            );
+          })
+          .sort(compareReviewRows);
+
+        const latestRow = matchingRows[0];
+        if (latestRow === undefined) {
+          return ok([]);
+        }
+
+        return ok(
+          matchingRows.filter((row) => compareTimestamps(row.updatedAt, latestRow.updatedAt) === 0)
+        );
       },
 
       listCampaignAdminInteractionRows: async (
