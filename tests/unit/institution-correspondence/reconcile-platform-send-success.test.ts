@@ -83,6 +83,7 @@ describe('reconcilePlatformSendSuccess', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'thread_started',
+        requesterUserId: 'user-1',
       })
     );
   });

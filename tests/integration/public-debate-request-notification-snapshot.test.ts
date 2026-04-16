@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PUBLIC_DEBATE_REQUEST_TYPE } from '@/modules/institution-correspondence/index.js';
+import { ensurePublicDebateAutoSubscriptions } from '@/modules/notifications/index.js';
 
 import { createPublicDebateNotificationHarness } from '../fixtures/public-debate-notification-harness.js';
 import {
@@ -33,12 +34,12 @@ describe('public debate request notification snapshots', () => {
     });
 
     const firstResult = await harness.requestPlatformSend({
-      ownerUserId: 'user-1',
+      ownerUserId: 'user-2',
       entityCui: '12345678',
       institutionEmail: 'contact@primarie.ro',
     });
     const secondResult = await harness.requestPlatformSend({
-      ownerUserId: 'user-1',
+      ownerUserId: 'user-2',
       entityCui: '12345678',
       institutionEmail: 'contact@primarie.ro',
     });
@@ -83,6 +84,7 @@ describe('public debate request notification snapshots', () => {
             eventType: 'thread_started',
             threadId: 'thread-1',
             entityName: 'Oras Test',
+            recipientRole: 'subscriber',
           })
         );
       }
@@ -91,6 +93,153 @@ describe('public debate request notification snapshots', () => {
       expect(secondSnapshot.value.status).toBe('published');
       expect(secondSnapshot.value.publishResult?.createdOutboxIds).toEqual([]);
       expect(secondSnapshot.value.publishResult?.reusedOutboxIds).toHaveLength(1);
+    }
+  });
+
+  it('refreshes reused unrendered thread_started outboxes to the subscriber path', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-1',
+          entityCui: '12345678',
+          phase: 'awaiting_reply',
+          lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+          record: createThreadAggregateRecord({
+            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+      entityNames: {
+        '12345678': 'Oras Test',
+      },
+    });
+
+    const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: {
+          sha256(value: string) {
+            return value;
+          },
+        },
+      },
+      {
+        userId: 'user-2',
+        entityCui: '12345678',
+      }
+    );
+    expect(subscriptionResult.isOk()).toBe(true);
+    if (subscriptionResult.isErr()) {
+      throw new Error(
+        `Expected auto-subscription setup to succeed: ${subscriptionResult.error.message}`
+      );
+    }
+
+    const notification = subscriptionResult.value.entitySubscription;
+    const seededOutbox = await harness.deliveryRepo.create({
+      userId: 'user-2',
+      notificationType: 'funky:outbox:entity_update',
+      referenceId: notification.id,
+      scopeKey: 'funky:delivery:thread_started_thread-1',
+      deliveryKey: `user-2:${notification.id}:funky:delivery:thread_started_thread-1`,
+      metadata: {
+        campaignKey: 'funky',
+        eventType: 'thread_started',
+        entityCui: '12345678',
+        entityName: 'Oras Test',
+        threadId: 'thread-1',
+        threadKey: 'thread-key-1',
+        phase: 'awaiting_reply',
+        institutionEmail: 'contact@primarie.ro',
+        subject: 'Cerere dezbatere buget local - Oras Test',
+        occurredAt: '2026-04-03T16:43:04.930Z',
+      },
+    });
+    expect(seededOutbox.isOk()).toBe(true);
+
+    const result = await harness.requestPlatformSend({
+      ownerUserId: 'user-2',
+      entityCui: '12345678',
+      institutionEmail: 'contact@primarie.ro',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(harness.snapshotResults).toHaveLength(1);
+
+    const outbox = await harness.deliveryRepo.findByDeliveryKey(
+      `user-2:${notification.id}:funky:delivery:thread_started_thread-1`
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          recipientRole: 'subscriber',
+        })
+      );
+    }
+  });
+
+  it('publishes late-subscriber snapshots for ownerless platform threads', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-ownerless',
+          entityCui: '12345678',
+          phase: 'awaiting_reply',
+          lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+          record: createThreadAggregateRecord({
+            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+            campaignKey: 'funky',
+            ownerUserId: null,
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+      entityNames: {
+        '12345678': 'Oras Test',
+      },
+    });
+
+    const result = await harness.requestPlatformSend({
+      ownerUserId: 'user-2',
+      entityCui: '12345678',
+      institutionEmail: 'contact@primarie.ro',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(harness.send).not.toHaveBeenCalled();
+    expect(harness.snapshotResults).toHaveLength(1);
+
+    const snapshot = harness.snapshotResults[0];
+    expect(snapshot).toBeDefined();
+    if (snapshot === undefined) {
+      throw new Error('Expected snapshot result to be present');
+    }
+    expect(snapshot.isOk()).toBe(true);
+    if (snapshot.isOk()) {
+      expect(snapshot.value.status).toBe('published');
+      expect(snapshot.value.eventType).toBe('thread_started');
+      expect(snapshot.value.publishResult?.createdOutboxIds).toHaveLength(1);
+
+      const outbox = await harness.findOutboxById(
+        snapshot.value.publishResult?.createdOutboxIds[0] ?? ''
+      );
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.metadata).toEqual(
+          expect.objectContaining({
+            eventType: 'thread_started',
+            threadId: 'thread-ownerless',
+            recipientRole: 'subscriber',
+          })
+        );
+      }
     }
   });
 

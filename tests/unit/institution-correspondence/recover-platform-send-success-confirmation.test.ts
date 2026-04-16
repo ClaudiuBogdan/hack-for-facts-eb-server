@@ -86,6 +86,7 @@ describe('recoverPlatformSendSuccessConfirmation', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         occurredAt: successInput.observedAt,
+        requesterUserId: 'user-1',
       })
     );
     expect(publish).not.toHaveBeenCalledWith(
@@ -157,6 +158,7 @@ describe('recoverPlatformSendSuccessConfirmation', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         occurredAt: successInput.observedAt,
+        requesterUserId: 'user-1',
       })
     );
   });

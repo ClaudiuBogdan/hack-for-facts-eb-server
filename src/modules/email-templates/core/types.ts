@@ -260,6 +260,17 @@ export interface PublicDebateEntityUpdateProps extends BaseTemplateProps {
 }
 
 /**
+ * Props for subscriber public debate thread-started notifications.
+ */
+export interface PublicDebateEntityUpdateThreadStartedSubscriberProps extends BaseTemplateProps {
+  templateType: 'public_debate_entity_update_thread_started_subscriber';
+  entityCui: string;
+  entityName?: string;
+  occurredAt: string;
+  ctaUrl: string;
+}
+
+/**
  * Props for admin-only public debate failure alerts.
  */
 export interface PublicDebateAdminFailureProps extends BaseTemplateProps {

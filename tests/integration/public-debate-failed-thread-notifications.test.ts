@@ -84,6 +84,7 @@ describe('public debate failed-thread notifications', () => {
         expect(entityUpdateOutbox.isOk()).toBe(true);
         if (entityUpdateOutbox.isOk()) {
           expect(entityUpdateOutbox.value?.notificationType).toBe('funky:outbox:entity_update');
+          expect(entityUpdateOutbox.value?.metadata).not.toHaveProperty('recipientRole');
         }
       }
     }
@@ -140,6 +141,7 @@ describe('public debate failed-thread notifications', () => {
         expect(entityUpdateOutbox.isOk()).toBe(true);
         if (entityUpdateOutbox.isOk()) {
           expect(entityUpdateOutbox.value?.notificationType).toBe('funky:outbox:entity_update');
+          expect(entityUpdateOutbox.value?.metadata).not.toHaveProperty('recipientRole');
         }
       }
     }

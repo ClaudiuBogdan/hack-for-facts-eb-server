@@ -24,14 +24,14 @@ const COPY_BY_LANG: Record<SupportedLanguage, Record<PublicDebateEntityUpdatePro
   {
     ro: {
       thread_started: {
-        preview: 'Noutăți despre dezbaterea bugetului local.',
+        preview: 'Solicitarea ta pentru dezbatere publică a fost trimisă către Primărie.',
         updateHeading: 'Cererea a fost trimisă',
         updateLead:
           'Cererea pentru organizarea dezbaterii publice a fost trimisă către Primărie.',
         subjectLabel: 'Subiect',
-        institutionLabel: 'Email Primărie',
+        institutionLabel: 'Adresa de email a Primăriei',
         entityLabel: 'Localitate',
-        occurredAtLabel: 'Moment',
+        occurredAtLabel: 'Trimis la',
         resolutionLabel: 'Rezoluție',
         notesLabel: 'Note',
         replyPreviewLabel: 'Extras răspuns',
@@ -78,14 +78,14 @@ const COPY_BY_LANG: Record<SupportedLanguage, Record<PublicDebateEntityUpdatePro
     },
     en: {
       thread_started: {
-        preview: 'Updates about the local budget debate.',
+        preview: 'Your public debate request was sent to the city hall.',
         updateHeading: 'Request sent',
         updateLead:
           'The public debate request was sent to the city hall.',
         subjectLabel: 'Subject',
-        institutionLabel: 'City hall email',
+        institutionLabel: 'City hall email address',
         entityLabel: 'Locality',
-        occurredAtLabel: 'Time',
+        occurredAtLabel: 'Sent at',
         resolutionLabel: 'Resolution',
         notesLabel: 'Notes',
         replyPreviewLabel: 'Reply excerpt',
@@ -264,14 +264,14 @@ export const PublicDebateEntityUpdateEmail = (
     Record<PublicDebateEntityUpdateProps['eventType'], string>
   > = {
     ro: {
-      thread_started: `Cererea ta pentru organizarea unei dezbateri publice în ${entityName} a fost trimisă către Primărie. Mai jos poți vedea toate actualizările.`,
+      thread_started: `Cererea ta pentru organizarea unei dezbateri publice în ${entityName} a fost trimisă către Primărie. Mai jos găsești detaliile trimiterii. Vei primi în continuare pe email actualizările despre această solicitare.`,
       thread_failed: `A apărut o problemă la trimiterea cererii pentru organizarea unei dezbateri publice în ${entityName}. Mai jos poți vedea detaliile și următoarele actualizări.`,
       reply_received: `Primăria din ${entityName} a trimis un răspuns. Mai jos poți vedea toate actualizările.`,
       reply_reviewed: `Răspunsul primit de la Primăria din ${entityName} a fost revizuit. Mai jos poți vedea toate actualizările.`,
     },
     en: {
-      thread_started: `Your request to organize a public debate in ${entityName} was sent to the city hall. You can see all updates below.`,
-      thread_failed: `There was a problem sending your request to organize a public debate in ${entityName}. You can see the details and the next updates below.`,
+      thread_started: `Your request to organize a public debate in ${entityName} was sent to the city hall. Below you can find the send details. You will continue receiving updates about this request by email.`,
+      thread_failed: `There was a problem sending the public debate request for ${entityName}. You can see the details and the next updates below.`,
       reply_received: `The city hall in ${entityName} sent a reply. You can see all updates below.`,
       reply_reviewed: `The reply received from the city hall in ${entityName} was reviewed. You can see all updates below.`,
     },

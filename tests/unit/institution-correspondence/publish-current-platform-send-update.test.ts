@@ -59,6 +59,7 @@ describe('publishCurrentPlatformSendUpdate', () => {
       expect.objectContaining({
         eventType: 'thread_started',
         occurredAt: new Date('2026-04-03T16:43:04.930Z'),
+        requesterUserId: 'user-1',
         thread: expect.objectContaining({
           id: 'thread-1',
           entityCui: '12345678',

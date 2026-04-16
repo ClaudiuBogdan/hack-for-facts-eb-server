@@ -516,6 +516,7 @@ describe('makePublicDebateNotificationOrchestrator', () => {
       eventType: 'thread_started',
       thread,
       occurredAt: new Date('2026-04-05T08:00:00.000Z'),
+      requesterUserId: thread.record.ownerUserId,
     });
 
     expect(result.isOk()).toBe(true);
@@ -528,6 +529,11 @@ describe('makePublicDebateNotificationOrchestrator', () => {
       expect(createdOutbox.isOk()).toBe(true);
       if (createdOutbox.isOk()) {
         expect(createdOutbox.value?.notificationType).toBe('funky:outbox:entity_update');
+        expect(createdOutbox.value?.metadata).toEqual(
+          expect.objectContaining({
+            recipientRole: 'requester',
+          })
+        );
       }
     }
 
@@ -641,12 +647,12 @@ describe('makePublicDebateNotificationOrchestrator', () => {
       logger: pinoLogger({ level: 'silent' }),
     });
 
-    const result = await orchestrator.subscriptionService.ensureSubscribed('user-1', '12345678');
+    const result = await orchestrator.subscriptionService.ensureSubscribed('user-2', '12345678');
 
     expect(result.isOk()).toBe(true);
 
     const entitySubscriptionResult = await notificationsRepo.findByUserTypeAndEntity(
-      'user-1',
+      'user-2',
       'funky:notification:entity_updates',
       '12345678'
     );
@@ -656,11 +662,16 @@ describe('makePublicDebateNotificationOrchestrator', () => {
       expect(entitySubscription).not.toBeNull();
       if (entitySubscription !== null) {
         const outboxResult = await deliveryRepo.findByDeliveryKey(
-          `user-1:${entitySubscription.id}:funky:delivery:thread_started_thread-1`
+          `user-2:${entitySubscription.id}:funky:delivery:thread_started_thread-1`
         );
         expect(outboxResult.isOk()).toBe(true);
         if (outboxResult.isOk()) {
           expect(outboxResult.value?.notificationType).toBe('funky:outbox:entity_update');
+          expect(outboxResult.value?.metadata).toEqual(
+            expect.objectContaining({
+              recipientRole: 'subscriber',
+            })
+          );
         }
       }
     }

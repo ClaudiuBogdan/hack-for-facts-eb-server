@@ -702,6 +702,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
             eventType: 'thread_started',
             thread: createThreadResult.value,
             occurredAt: receivedEmail.createdAt,
+            requesterUserId: selfSendContextMatch.context.userId,
           });
 
           return;

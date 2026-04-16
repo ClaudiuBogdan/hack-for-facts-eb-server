@@ -199,6 +199,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
       expect.objectContaining({
         eventType: 'thread_started',
         occurredAt: emailCreatedAt,
+        requesterUserId: 'user-1',
       })
     );
   });

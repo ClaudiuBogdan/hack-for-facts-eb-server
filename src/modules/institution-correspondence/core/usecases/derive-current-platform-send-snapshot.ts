@@ -45,6 +45,7 @@ export const deriveCurrentPlatformSendSnapshot = (
           eventType: 'thread_started',
           thread,
           occurredAt: thread.lastEmailAt ?? thread.updatedAt,
+          requesterUserId: thread.record.ownerUserId,
         },
       };
 

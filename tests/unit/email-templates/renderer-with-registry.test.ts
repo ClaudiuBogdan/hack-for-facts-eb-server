@@ -13,6 +13,7 @@ import type {
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
+  PublicDebateEntityUpdateThreadStartedSubscriberProps,
 } from '@/modules/email-templates/core/types.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
@@ -193,6 +194,80 @@ describe('EmailRenderer (registry-backed)', () => {
       'Cererea ta pentru organizarea unei dezbateri publice în Municipiul Exemplu a fost trimisă către Primărie.'
     );
     expect(rendered.html).toContain('Trimiterea a eșuat');
+  });
+
+  it('renders requester public debate thread-started copy with send details and follow-up guidance', async () => {
+    const props: PublicDebateEntityUpdateProps = {
+      templateType: 'public_debate_entity_update',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      eventType: 'thread_started',
+      campaignKey: 'funky',
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      threadId: 'thread-1',
+      threadKey: 'thread-key-1',
+      phase: 'awaiting_reply',
+      institutionEmail: 'contact@primarie.ro',
+      subjectLine: 'Solicitare organizare dezbatere publica - buget local 2026',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'Cererea a fost trimisă: Municipiul Exemplu - „Cu ochii pe bugetele locale 2026”'
+    );
+    expect(rendered.text).toContain(
+      'Mai jos găsești detaliile trimiterii. Vei primi în continuare pe email actualizările despre această solicitare.'
+    );
+    expect(rendered.text).not.toContain('Mai jos poți vedea toate actualizările.');
+    expect(rendered.text).toContain('Adresa de email a Primăriei');
+    expect(rendered.text).toContain('Trimis la');
+    expect(rendered.templateName).toBe('public_debate_entity_update');
+  });
+
+  it('renders subscriber public debate thread-started template successfully', async () => {
+    const props: PublicDebateEntityUpdateThreadStartedSubscriberProps = {
+      templateType: 'public_debate_entity_update_thread_started_subscriber',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      occurredAt: '2026-04-03T10:00:00.000Z',
+      ctaUrl: 'https://transparenta.eu/primarie/87654321',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'Există deja o cerere trimisă către Primărie: Municipiul Exemplu - „Cu ochii pe bugetele locale 2026”'
+    );
+    expect(rendered.text).toContain(
+      'o cerere de organizare a dezbaterii publice a fost deja trimisă către Primărie și este în așteptarea unui răspuns'
+    );
+    expect(rendered.text).toContain(
+      'Primești această informare pentru că urmărești actualizările despre această localitate'
+    );
+    expect(rendered.text).toContain('Mesajul nu confirmă o cerere trimisă de tine');
+    expect(rendered.text).toContain(
+      'Nu trimite o altă cerere către Primărie pentru aceeași localitate'
+    );
+    expect(rendered.text).toContain('Trimis la');
+    expect(rendered.text).not.toContain('Cererea ta');
+    expect(rendered.text).not.toContain('contact@primarie.ro');
+    expect(rendered.html).toContain('https://transparenta.eu/primarie/87654321');
+    expect(rendered.templateName).toBe('public_debate_entity_update_thread_started_subscriber');
   });
 
   it('renders public_debate_admin_failure template successfully', async () => {
@@ -494,7 +569,7 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(10);
+    expect(templates).toHaveLength(11);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('welcome');
@@ -505,6 +580,7 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(names).toContain('public_debate_admin_failure');
     expect(names).toContain('public_debate_entity_subscription');
     expect(names).toContain('public_debate_entity_update');
+    expect(names).toContain('public_debate_entity_update_thread_started_subscriber');
     expect(names).toContain('weekly_progress_digest');
   });
 

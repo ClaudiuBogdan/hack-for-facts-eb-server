@@ -80,6 +80,33 @@ describe('recoverMissingPublicDebateSnapshots', () => {
       deliveryRepo,
       updatePublisher: {
         async publish(input) {
+          const sharedEnqueueInput = {
+            runId: `snapshot-${input.thread.id}`,
+            entityCui: input.thread.entityCui,
+            entityName: 'Oras Test',
+            threadId: input.thread.id,
+            threadKey: input.thread.threadKey,
+            phase: input.thread.phase,
+            institutionEmail: input.thread.record.institutionEmail,
+            subject: input.thread.record.subject,
+            occurredAt: input.occurredAt.toISOString(),
+            ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
+            ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
+            ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
+            ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
+          };
+          const enqueueInput =
+            input.eventType === 'thread_started'
+              ? {
+                  ...sharedEnqueueInput,
+                  eventType: input.eventType,
+                  requesterUserId: input.requesterUserId,
+                }
+              : {
+                  ...sharedEnqueueInput,
+                  eventType: input.eventType,
+                };
+
           const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
             {
               notificationsRepo,
@@ -88,26 +115,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
                 enqueue: async () => ok(undefined),
               },
             },
-            {
-              runId: `snapshot-${input.thread.id}`,
-              eventType: input.eventType,
-              entityCui: input.thread.entityCui,
-              entityName: 'Oras Test',
-              threadId: input.thread.id,
-              threadKey: input.thread.threadKey,
-              phase: input.thread.phase,
-              institutionEmail: input.thread.record.institutionEmail,
-              subject: input.thread.record.subject,
-              occurredAt: input.occurredAt.toISOString(),
-              ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
-              ...(input.basedOnEntryId !== undefined
-                ? { basedOnEntryId: input.basedOnEntryId }
-                : {}),
-              ...(input.resolutionCode !== undefined
-                ? { resolutionCode: input.resolutionCode }
-                : {}),
-              ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
-            }
+            enqueueInput
           );
 
           if (enqueueResult.isErr()) {
@@ -184,6 +192,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-thread-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Cerere dezbatere buget local - Oras Test',
         occurredAt: '2026-04-05T08:00:00.000Z',
@@ -285,6 +294,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
         threadId: 'thread-1',
         threadKey: 'thread-key-thread-1',
         phase: 'awaiting_reply',
+        requesterUserId: 'user-1',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Cerere dezbatere buget local - Oras Test',
         occurredAt: '2026-04-05T08:00:00.000Z',
@@ -297,6 +307,33 @@ describe('recoverMissingPublicDebateSnapshots', () => {
     }
 
     const publish = vi.fn(async (input: PublicDebateEntityUpdateNotification) => {
+      const sharedEnqueueInput = {
+        runId: `snapshot-retry-${input.thread.id}`,
+        entityCui: input.thread.entityCui,
+        entityName: 'Oras Test',
+        threadId: input.thread.id,
+        threadKey: input.thread.threadKey,
+        phase: input.thread.phase,
+        institutionEmail: input.thread.record.institutionEmail,
+        subject: input.thread.record.subject,
+        occurredAt: input.occurredAt.toISOString(),
+        ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
+        ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
+        ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
+        ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
+      };
+      const enqueueInput =
+        input.eventType === 'thread_started'
+          ? {
+              ...sharedEnqueueInput,
+              eventType: input.eventType,
+              requesterUserId: input.requesterUserId,
+            }
+          : {
+              ...sharedEnqueueInput,
+              eventType: input.eventType,
+            };
+
       const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
         {
           notificationsRepo,
@@ -305,22 +342,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
             enqueue: async () => ok(undefined),
           },
         },
-        {
-          runId: `snapshot-retry-${input.thread.id}`,
-          eventType: input.eventType,
-          entityCui: input.thread.entityCui,
-          entityName: 'Oras Test',
-          threadId: input.thread.id,
-          threadKey: input.thread.threadKey,
-          phase: input.thread.phase,
-          institutionEmail: input.thread.record.institutionEmail,
-          subject: input.thread.record.subject,
-          occurredAt: input.occurredAt.toISOString(),
-          ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
-          ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
-          ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-          ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
-        }
+        enqueueInput
       );
 
       if (enqueueResult.isErr()) {

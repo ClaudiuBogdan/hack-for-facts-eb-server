@@ -109,31 +109,42 @@ const publishEntityUpdate = async (
   },
   input: PublicDebateEntityUpdateNotification
 ) => {
+  const sharedEnqueueInput = {
+    runId: `public-debate-${buildRunIdParts(input).join('-')}`,
+    entityCui: input.thread.entityCui,
+    entityName: deps.entityName,
+    threadId: input.thread.id,
+    threadKey: input.thread.threadKey,
+    phase: input.thread.phase,
+    institutionEmail: input.thread.record.institutionEmail,
+    subject: input.thread.record.subject,
+    occurredAt: input.occurredAt.toISOString(),
+    ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
+    ...(input.reply !== undefined ? { replyTextPreview: buildReplyTextPreview(input.reply) } : {}),
+    ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
+    ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
+    ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
+  };
+
+  const enqueueInput =
+    input.eventType === 'thread_started'
+      ? {
+          ...sharedEnqueueInput,
+          eventType: input.eventType,
+          requesterUserId: input.requesterUserId,
+        }
+      : {
+          ...sharedEnqueueInput,
+          eventType: input.eventType,
+        };
+
   const enqueueResult = await enqueuePublicDebateEntityUpdateNotifications(
     {
       notificationsRepo: deps.extendedNotificationsRepo,
       deliveryRepo: deps.deliveryRepo,
       composeJobScheduler: deps.composeJobScheduler,
     },
-    {
-      runId: `public-debate-${buildRunIdParts(input).join('-')}`,
-      eventType: input.eventType,
-      entityCui: input.thread.entityCui,
-      entityName: deps.entityName,
-      threadId: input.thread.id,
-      threadKey: input.thread.threadKey,
-      phase: input.thread.phase,
-      institutionEmail: input.thread.record.institutionEmail,
-      subject: input.thread.record.subject,
-      occurredAt: input.occurredAt.toISOString(),
-      ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
-      ...(input.reply !== undefined
-        ? { replyTextPreview: buildReplyTextPreview(input.reply) }
-        : {}),
-      ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
-      ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-      ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
-    }
+    enqueueInput
   );
 
   if (enqueueResult.isErr()) {

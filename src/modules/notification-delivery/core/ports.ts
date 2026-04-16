@@ -91,6 +91,18 @@ export interface NotificationOutboxRepository {
   ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
+   * Replaces metadata only when the outbox row is still pending and missing
+   * rendered content, so compose can safely use refreshed metadata on reuse.
+   *
+   * Returns the updated row when metadata was refreshed, or null when the row
+   * is no longer claimable for compose.
+   */
+  refreshMetadataIfClaimableForCompose(
+    outboxId: string,
+    metadata: Record<string, unknown>
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
+
+  /**
    * Updates rendered content on an existing outbox row.
    */
   updateRenderedContent(
