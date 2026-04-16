@@ -52,6 +52,7 @@ export interface UpdateRenderedContentInput {
   contentHash: string;
   templateName: string;
   templateVersion: string;
+  expectedComposeClaimId?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -64,6 +65,7 @@ export interface UpdateDeliveryStatusInput {
   resendEmailId?: string;
   lastError?: string;
   sentAt?: Date;
+  expectedComposeClaimId?: string;
 }
 
 /**
@@ -91,24 +93,28 @@ export interface NotificationOutboxRepository {
   ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
-   * Replaces metadata only when the outbox row is still pending and missing
-   * rendered content, so compose can safely use refreshed metadata on reuse.
+   * Replaces metadata and resets replayable rows back into a compose-needed
+   * state so reused outbox rows cannot send stale rendered content.
    *
-   * Returns the updated row when metadata was refreshed, or null when the row
-   * is no longer claimable for compose.
+   * Returns the updated row when the row was refreshed for recompose, or null
+   * when the row is no longer safe to replay in place.
    */
-  refreshMetadataIfClaimableForCompose(
+  refreshMetadataForRecomposeIfReplayable(
     outboxId: string,
     metadata: Record<string, unknown>
   ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
-   * Updates rendered content on an existing outbox row.
+   * Updates rendered content on an existing outbox row only if it still holds
+   * the composing claim for the current worker.
+   *
+   * Returns true when content was persisted, or false when the row was reset
+   * concurrently and the stale render should be dropped.
    */
   updateRenderedContent(
     outboxId: string,
     input: UpdateRenderedContentInput
-  ): Promise<Result<void, DeliveryError>>;
+  ): Promise<Result<boolean, DeliveryError>>;
 
   /**
    * Atomic claim for compose.

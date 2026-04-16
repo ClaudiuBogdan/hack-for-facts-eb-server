@@ -464,8 +464,6 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
 
   async acquireAutoReviewReuseTransactionLock(input: {
     recordKey: string;
-    interactionId: string;
-    entityCui: string;
   }): Promise<Result<void, LearningProgressError>> {
     try {
       await acquireLearningProgressAutoReviewReuseTransactionLock(this.db, input);
@@ -475,8 +473,6 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         {
           err: error,
           recordKey: input.recordKey,
-          interactionId: input.interactionId,
-          entityCui: input.entityCui,
         },
         'Failed to acquire learning progress auto-review reuse transaction lock'
       );

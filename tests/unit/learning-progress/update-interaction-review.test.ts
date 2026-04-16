@@ -17,6 +17,7 @@ describe('updateInteractionReview', () => {
       submittedAt: '2026-03-23T19:27:40.527Z',
     });
     const callOrder: string[] = [];
+    const lockInputs: { recordKey: string }[] = [];
 
     const initialRecords = new Map<string, LearningProgressRecordRow[]>();
     initialRecords.set('user-1', [
@@ -36,8 +37,9 @@ describe('updateInteractionReview', () => {
       onGetRecord() {
         callOrder.push('get_record');
       },
-      onAcquireAutoReviewReuseTransactionLock() {
+      onAcquireAutoReviewReuseTransactionLock(input) {
         callOrder.push('lock');
+        lockInputs.push(input);
       },
       onGetRecordForUpdate() {
         callOrder.push('get_record_for_update');
@@ -56,6 +58,7 @@ describe('updateInteractionReview', () => {
 
     expect(result.isOk()).toBe(true);
     expect(callOrder.slice(0, 3)).toEqual(['get_record', 'lock', 'get_record_for_update']);
+    expect(lockInputs).toEqual([{ recordKey: record.key }]);
   });
 
   it('keeps the advisory lock boundary narrow by skipping global-scoped reviews', async () => {

@@ -4,6 +4,8 @@
  * Kysely-based implementation with atomic claim pattern.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
@@ -36,6 +38,8 @@ export interface DeliveryRepoConfig {
   db: UserDbClient;
   logger: Logger;
 }
+
+const COMPOSE_CLAIM_METADATA_KEY = '__composeClaimId';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -174,29 +178,40 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       }
     },
 
-    async refreshMetadataIfClaimableForCompose(
+    async refreshMetadataForRecomposeIfReplayable(
       outboxId: string,
       metadata: Record<string, unknown>
     ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
-      log.debug({ outboxId }, 'Refreshing metadata on claimable outbox row');
+      log.debug({ outboxId }, 'Refreshing metadata on replayable outbox row');
 
       try {
         const result = await sql<Record<string, unknown>>`
           UPDATE notificationsoutbox
-          SET metadata = ${JSON.stringify(metadata)}
+          SET metadata = ${JSON.stringify(metadata)},
+              status = 'pending',
+              to_email = NULL,
+              rendered_subject = NULL,
+              rendered_html = NULL,
+              rendered_text = NULL,
+              content_hash = NULL,
+              template_name = NULL,
+              template_version = NULL,
+              resend_email_id = NULL,
+              last_error = NULL,
+              attempt_count = 0,
+              last_attempt_at = NULL,
+              sent_at = NULL
           WHERE id = ${outboxId}
-            AND status = 'pending'
-            AND (
-              rendered_subject IS NULL
-              OR rendered_html IS NULL
-              OR rendered_text IS NULL
-            )
+            AND status IN ('pending', 'failed_transient', 'composing')
           RETURNING *
         `.execute(db);
 
         const row = result.rows[0];
         if (row === undefined) {
-          log.debug({ outboxId }, 'Outbox row metadata not refreshed because row is not claimable');
+          log.debug(
+            { outboxId },
+            'Outbox row metadata not refreshed because row is not replayable'
+          );
           return ok(null);
         }
 
@@ -210,11 +225,12 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
     async updateRenderedContent(
       outboxId: string,
       input: UpdateRenderedContentInput
-    ): Promise<Result<void, DeliveryError>> {
+    ): Promise<Result<boolean, DeliveryError>> {
       log.debug({ outboxId }, 'Updating rendered content on outbox row');
 
       try {
-        await db
+        const expectedComposeClaimId = input.expectedComposeClaimId;
+        const result = await db
           .updateTable('notificationsoutbox')
           .set({
             rendered_subject: input.renderedSubject,
@@ -226,9 +242,15 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
             ...(input.metadata !== undefined ? { metadata: JSON.stringify(input.metadata) } : {}),
           })
           .where('id', '=', outboxId)
-          .execute();
+          .where('status', '=', 'composing')
+          .$if(expectedComposeClaimId !== undefined, (query) =>
+            query.where(
+              sql<boolean>`notificationsoutbox.metadata->>${COMPOSE_CLAIM_METADATA_KEY} = ${expectedComposeClaimId}`
+            )
+          )
+          .executeTakeFirst();
 
-        return ok(undefined);
+        return ok(Number(result.numUpdatedRows) > 0);
       } catch (error) {
         log.error({ error, outboxId }, 'Failed to update rendered content');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
@@ -241,10 +263,17 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       log.debug({ outboxId }, 'Claiming outbox row for compose');
 
       try {
+        const composeClaimId = randomUUID();
         const result = await sql<Record<string, unknown>>`
           UPDATE notificationsoutbox
           SET status = 'composing',
-              last_attempt_at = NOW()
+              last_attempt_at = NOW(),
+              metadata = jsonb_set(
+                COALESCE(notificationsoutbox.metadata, '{}'::jsonb),
+                '{__composeClaimId}'::text[],
+                to_jsonb(${composeClaimId}::text),
+                true
+              )
           WHERE id = ${outboxId}
             AND status = 'pending'
             AND (
@@ -317,6 +346,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       }
 
       try {
+        const expectedComposeClaimId = input?.expectedComposeClaimId;
         const result = await db
           .updateTable('notificationsoutbox')
           .set({
@@ -328,6 +358,11 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
           })
           .where('id', '=', outboxId)
           .where('status', 'in', [...allowedStatuses])
+          .$if(expectedComposeClaimId !== undefined, (query) =>
+            query.where(
+              sql<boolean>`notificationsoutbox.metadata->>${COMPOSE_CLAIM_METADATA_KEY} = ${expectedComposeClaimId}`
+            )
+          )
           .executeTakeFirst();
 
         return ok(result.numUpdatedRows > 0n);

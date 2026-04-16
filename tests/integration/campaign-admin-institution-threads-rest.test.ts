@@ -230,6 +230,16 @@ async function createTestApp(options?: {
           submissionPath: 'platform_send',
         }),
       }),
+      createThreadRecord({
+        id: '77777777-7777-7777-7777-777777777777',
+        entityCui: '88888888',
+        campaignKey: 'funky',
+        phase: 'sending',
+        record: createThreadAggregateRecord({
+          campaignKey: 'funky',
+          submissionPath: 'platform_send',
+        }),
+      }),
     ],
   });
 
@@ -445,6 +455,33 @@ describe('campaign admin institution threads routes', () => {
     });
 
     expect(failedResponse.statusCode).toBe(404);
+
+    const sendingResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/77777777-7777-7777-7777-777777777777',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(sendingResponse.statusCode).toBe(404);
+
+    const sendingAppendResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/77777777-7777-7777-7777-777777777777/responses',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        expectedUpdatedAt: '2026-03-24T12:00:00.000Z',
+        responseDate: '2026-03-24T12:30:00.000Z',
+        messageContent: 'Should stay out of scope.',
+        responseStatus: 'registration_number_received',
+      },
+    });
+
+    expect(sendingAppendResponse.statusCode).toBe(404);
 
     const oldRouteResponse = await app.inject({
       method: 'GET',

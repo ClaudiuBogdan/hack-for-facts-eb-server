@@ -68,6 +68,43 @@ describe('appendCampaignAdminThreadResponse', () => {
     ]);
   });
 
+  it('treats sending threads as out of scope for campaign-admin responses', async () => {
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: '11111111-1111-1111-1111-111111111113',
+          campaignKey: 'funky',
+          phase: 'sending',
+          updatedAt: new Date('2026-03-24T12:00:00.000Z'),
+          record: createThreadAggregateRecord({
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+          }),
+        }),
+      ],
+    });
+
+    const result = await appendCampaignAdminThreadResponse(
+      { repo },
+      {
+        campaignKey: 'funky',
+        threadId: '11111111-1111-1111-1111-111111111113',
+        actorUserId: 'admin-user-1',
+        expectedUpdatedAt: new Date('2026-03-24T12:00:00.000Z'),
+        responseDate: new Date('2026-03-24T12:30:00.000Z'),
+        messageContent: 'Should stay out of scope.',
+        responseStatus: 'registration_number_received',
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    if (result.isOk()) {
+      return;
+    }
+
+    expect(result.error.type).toBe('CorrespondenceNotFoundError');
+  });
+
   it('keeps registration-number updates from mutating low-level compatibility fields', async () => {
     const reviewedReply = createCorrespondenceEntry({
       id: 'reply-0',

@@ -126,7 +126,7 @@ const applyCampaignAdminThreadScope = <TSelection>(
       ) = ${campaignKey}`
     )
     .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
-    .where('phase', '!=', 'failed');
+    .where('phase', 'not in', ['failed', 'sending']);
 
 const applyCampaignAdminThreadListFilters = <TSelection>(
   query: InstitutionThreadSelectQuery<TSelection>,

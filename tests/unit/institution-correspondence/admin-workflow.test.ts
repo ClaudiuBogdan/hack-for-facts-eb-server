@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isCampaignAdminThreadInScope,
   projectCampaignAdminThread,
   readAdminResponseEvents,
 } from '@/modules/institution-correspondence/index.js';
@@ -13,6 +14,13 @@ import {
 
 describe('campaign admin thread projection', () => {
   it('falls back to low-level phases when no admin response events exist', () => {
+    const sendingThread = createThreadRecord({
+      phase: 'sending',
+      record: createThreadAggregateRecord({
+        campaignKey: 'funky',
+        submissionPath: 'platform_send',
+      }),
+    });
     const startedThread = createThreadRecord({
       phase: 'awaiting_reply',
       record: createThreadAggregateRecord({
@@ -41,6 +49,8 @@ describe('campaign admin thread projection', () => {
       latestResponseAt: null,
       responseEventCount: 0,
     });
+    expect(isCampaignAdminThreadInScope(sendingThread)).toBe(false);
+    expect(isCampaignAdminThreadInScope(startedThread)).toBe(true);
     expect(projectCampaignAdminThread(pendingThread)).toMatchObject({
       threadState: 'pending',
     });

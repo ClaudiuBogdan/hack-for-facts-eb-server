@@ -58,6 +58,15 @@ import type { UnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 
+const COMPOSE_CLAIM_METADATA_KEY = '__composeClaimId';
+
+const getComposeClaimId = (
+  outbox: Pick<NotificationOutboxRecord, 'metadata'>
+): string | undefined =>
+  typeof outbox.metadata[COMPOSE_CLAIM_METADATA_KEY] === 'string'
+    ? outbox.metadata[COMPOSE_CLAIM_METADATA_KEY]
+    : undefined;
+
 export interface ComposeExistingOutboxDeps {
   sendQueue: Queue<SendJobPayload>;
   deliveryRepo: DeliveryRepository;
@@ -75,19 +84,23 @@ const failOutboxPermanently = async (
   outboxId: string,
   runId: string,
   errorMessage: string,
+  expectedComposeClaimId: string | undefined,
   log: Logger,
   logMessage: string
 ): Promise<{
   runId: string;
   outboxId: string;
-  status: 'failed_permanent';
-  error: string;
+  status: 'failed_permanent' | 'skipped_status';
+  error?: string;
 }> => {
   const updateResult = await deliveryRepo.updateStatusIfCurrentIn(
     outboxId,
-    ['composing', 'pending'],
+    ['composing'],
     'failed_permanent',
-    { lastError: errorMessage }
+    {
+      lastError: errorMessage,
+      ...(expectedComposeClaimId !== undefined ? { expectedComposeClaimId } : {}),
+    }
   );
 
   if (updateResult.isErr()) {
@@ -96,6 +109,18 @@ const failOutboxPermanently = async (
       'Failed to persist permanent compose failure'
     );
     throw new Error(getErrorMessage(updateResult.error));
+  }
+
+  if (!updateResult.value) {
+    log.info(
+      { outboxId },
+      'Dropped stale compose failure because the compose claim was superseded'
+    );
+    return {
+      runId,
+      outboxId,
+      status: 'skipped_status',
+    };
   }
 
   log.warn({ outboxId, error: errorMessage }, logMessage);
@@ -112,13 +137,17 @@ const releaseComposeClaim = async (
   deliveryRepo: DeliveryRepository,
   outboxId: string,
   lastError: string | undefined,
+  expectedComposeClaimId: string | undefined,
   log: Logger
 ): Promise<void> => {
   const updateResult = await deliveryRepo.updateStatusIfCurrentIn(
     outboxId,
     ['composing'],
     'pending',
-    lastError !== undefined ? { lastError } : undefined
+    {
+      ...(lastError !== undefined ? { lastError } : {}),
+      ...(expectedComposeClaimId !== undefined ? { expectedComposeClaimId } : {}),
+    }
   );
 
   if (updateResult.isErr()) {
@@ -539,8 +568,9 @@ const persistRenderedOutboxAndEnqueueSend = async (input: {
 }): Promise<{
   runId: string;
   outboxId: string;
-  status: 'composed';
+  status: 'composed' | 'skipped_status';
 }> => {
+  const composeClaimId = getComposeClaimId(input.outbox);
   const contentHash = hashContent(input.rendered.html, input.rendered.text);
   const updateResult = await input.deliveryRepo.updateRenderedContent(input.outbox.id, {
     renderedSubject: input.rendered.subject,
@@ -549,6 +579,7 @@ const persistRenderedOutboxAndEnqueueSend = async (input: {
     contentHash,
     templateName: input.rendered.templateName,
     templateVersion: input.rendered.templateVersion,
+    ...(composeClaimId !== undefined ? { expectedComposeClaimId: composeClaimId } : {}),
   });
 
   if (updateResult.isErr()) {
@@ -556,6 +587,7 @@ const persistRenderedOutboxAndEnqueueSend = async (input: {
       input.deliveryRepo,
       input.outbox.id,
       getErrorMessage(updateResult.error),
+      composeClaimId,
       input.log
     );
     input.log.error(
@@ -565,7 +597,29 @@ const persistRenderedOutboxAndEnqueueSend = async (input: {
     throw new Error(getErrorMessage(updateResult.error));
   }
 
-  await releaseComposeClaim(input.deliveryRepo, input.outbox.id, undefined, input.log);
+  if (!updateResult.value) {
+    input.log.info(
+      {
+        runId: input.runId,
+        outboxId: input.outbox.id,
+        notificationType: input.outbox.notificationType,
+      },
+      'Dropped stale compose result because outbox was reset for recompose'
+    );
+    return {
+      runId: input.runId,
+      outboxId: input.outbox.id,
+      status: 'skipped_status',
+    };
+  }
+
+  await releaseComposeClaim(
+    input.deliveryRepo,
+    input.outbox.id,
+    undefined,
+    composeClaimId,
+    input.log
+  );
   await enqueueSendJob(input.sendQueue, input.outbox.id);
 
   input.log.info(
@@ -841,6 +895,16 @@ export const composeExistingOutbox = async (
   }
 
   const outbox = claimResult.value;
+  const failCurrentOutboxPermanently = (errorMessage: string, logMessage: string) =>
+    failOutboxPermanently(
+      deliveryRepo,
+      outbox.id,
+      runId,
+      errorMessage,
+      getComposeClaimId(outbox),
+      log,
+      logMessage
+    );
 
   if (
     outbox.notificationType !== 'transactional_welcome' &&
@@ -852,12 +916,8 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
-    return failOutboxPermanently(
-      deliveryRepo,
-      outbox.id,
-      runId,
+    return failCurrentOutboxPermanently(
       `Unsupported outbox notification type: ${outbox.notificationType}`,
-      log,
       'Outbox compose path received an unsupported notification type'
     );
   }
@@ -869,24 +929,16 @@ export const composeExistingOutbox = async (
     const templateProps = buildWelcomeTemplateProps(outbox, platformBaseUrl, unsubscribeUrl);
 
     if (templateProps === null) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         'Invalid welcome outbox metadata: registeredAt is required',
-        log,
         'Welcome outbox compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templateProps);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Welcome outbox compose failed permanently'
       );
     }
@@ -911,24 +963,16 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Public debate campaign welcome compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Public debate campaign welcome render failed permanently'
       );
     }
@@ -953,24 +997,16 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Public debate entity subscription compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Public debate entity subscription render failed permanently'
       );
     }
@@ -995,24 +1031,16 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Public debate update compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Public debate update render failed permanently'
       );
     }
@@ -1037,24 +1065,16 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Public debate admin failure compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Public debate admin failure render failed permanently'
       );
     }
@@ -1079,24 +1099,16 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Reviewed interaction compose failed permanently'
       );
     }
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Reviewed interaction render failed permanently'
       );
     }
@@ -1121,12 +1133,8 @@ export const composeExistingOutbox = async (
     );
 
     if (templatePropsResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         templatePropsResult.error,
-        log,
         'Weekly progress digest compose failed permanently'
       );
     }
@@ -1136,12 +1144,8 @@ export const composeExistingOutbox = async (
       templatePropsResult.value
     );
     if (renderResult.isErr()) {
-      return failOutboxPermanently(
-        deliveryRepo,
-        outbox.id,
-        runId,
+      return failCurrentOutboxPermanently(
         formatTemplateError(renderResult.error),
-        log,
         'Weekly progress digest render failed permanently'
       );
     }
@@ -1169,7 +1173,13 @@ export const composeExistingOutbox = async (
 
   if (templatePropsResult.isErr()) {
     if (templatePropsResult.error.retryable) {
-      await releaseComposeClaim(deliveryRepo, outbox.id, templatePropsResult.error.message, log);
+      await releaseComposeClaim(
+        deliveryRepo,
+        outbox.id,
+        templatePropsResult.error.message,
+        getComposeClaimId(outbox),
+        log
+      );
       log.warn(
         { outboxId, error: templatePropsResult.error.message },
         'Retryable bundle notification compose failure'
@@ -1177,24 +1187,16 @@ export const composeExistingOutbox = async (
       throw new Error(templatePropsResult.error.message);
     }
 
-    return failOutboxPermanently(
-      deliveryRepo,
-      outbox.id,
-      runId,
+    return failCurrentOutboxPermanently(
       templatePropsResult.error.message,
-      log,
       'Bundle notification compose failed permanently'
     );
   }
 
   const renderResult = await emailRenderer.render(templatePropsResult.value);
   if (renderResult.isErr()) {
-    return failOutboxPermanently(
-      deliveryRepo,
-      outbox.id,
-      runId,
+    return failCurrentOutboxPermanently(
       formatTemplateError(renderResult.error),
-      log,
       'Bundle notification render failed permanently'
     );
   }

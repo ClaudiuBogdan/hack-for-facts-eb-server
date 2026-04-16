@@ -2,6 +2,8 @@
  * Test fakes and mocks
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
@@ -113,6 +115,8 @@ import type { Kysely } from 'kysely';
  * Creates minimal fake datasets for normalization.
  * These are required for the NormalizationService to initialize.
  */
+const COMPOSE_CLAIM_METADATA_KEY = '__composeClaimId';
+
 const createMinimalNormalizationDatasets = (): Record<string, Dataset> => {
   // Sample years for testing
   const years = [2020, 2021, 2022, 2023, 2024];
@@ -1355,11 +1359,7 @@ interface FakeLearningProgressRepoOptions {
   /** Fail when a specific reset attempt is reached (1-based) */
   failOnResetAttempt?: number;
   /** Observe advisory lock acquisition in tests */
-  onAcquireAutoReviewReuseTransactionLock?: (input: {
-    recordKey: string;
-    interactionId: string;
-    entityCui: string;
-  }) => void;
+  onAcquireAutoReviewReuseTransactionLock?: (input: { recordKey: string }) => void;
   /** Observe plain record reads in tests */
   onGetRecord?: (input: { userId: string; recordKey: string }) => void;
   /** Observe record locking reads in tests */
@@ -1804,15 +1804,11 @@ export const makeFakeLearningProgressRepo = (
 
       acquireAutoReviewReuseTransactionLock: async ({
         recordKey,
-        interactionId,
-        entityCui,
       }): Promise<Result<void, LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
         onAcquireAutoReviewReuseTransactionLock?.({
           recordKey,
-          interactionId,
-          entityCui,
         });
         return ok(undefined);
       },
@@ -2734,12 +2730,21 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
     updateRenderedContent: async (
       outboxId: string,
       input: UpdateRenderedContentInput
-    ): Promise<Result<void, DeliveryError>> => {
+    ): Promise<Result<boolean, DeliveryError>> => {
       if (simulateDbError) return createDbError();
 
       const delivery = store.get(outboxId);
       if (delivery === undefined) {
-        return ok(undefined);
+        return ok(false);
+      }
+
+      if (input.expectedComposeClaimId !== undefined) {
+        if (
+          delivery.status !== 'composing' ||
+          delivery.metadata[COMPOSE_CLAIM_METADATA_KEY] !== input.expectedComposeClaimId
+        ) {
+          return ok(false);
+        }
       }
 
       const updated: DeliveryRecord = {
@@ -2753,7 +2758,7 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       };
       store.set(outboxId, updated);
-      return ok(undefined);
+      return ok(true);
     },
 
     claimForCompose: async (
@@ -2780,6 +2785,10 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
         ...delivery,
         status: 'composing',
         lastAttemptAt: new Date(),
+        metadata: {
+          ...delivery.metadata,
+          [COMPOSE_CLAIM_METADATA_KEY]: randomUUID(),
+        },
       };
       store.set(deliveryId, updated);
       return ok(updated);
@@ -2801,7 +2810,7 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       return ok(delivery ?? null);
     },
 
-    refreshMetadataIfClaimableForCompose: async (
+    refreshMetadataForRecomposeIfReplayable: async (
       deliveryId: string,
       metadata: Record<string, unknown>
     ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
@@ -2810,20 +2819,29 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       const delivery = store.get(deliveryId);
       if (delivery === undefined) return ok(null);
 
-      if (delivery.status !== 'pending') {
-        return ok(null);
-      }
-
       if (
-        delivery.renderedSubject !== null &&
-        delivery.renderedHtml !== null &&
-        delivery.renderedText !== null
+        delivery.status !== 'pending' &&
+        delivery.status !== 'failed_transient' &&
+        delivery.status !== 'composing'
       ) {
         return ok(null);
       }
 
       const updated: DeliveryRecord = {
         ...delivery,
+        status: 'pending',
+        toEmail: null,
+        renderedSubject: null,
+        renderedHtml: null,
+        renderedText: null,
+        contentHash: null,
+        templateName: null,
+        templateVersion: null,
+        resendEmailId: null,
+        lastError: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        sentAt: null,
         metadata,
       };
       store.set(deliveryId, updated);
@@ -2894,6 +2912,13 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
 
       const delivery = store.get(deliveryId);
       if (delivery === undefined || !allowedStatuses.includes(delivery.status)) {
+        return ok(false);
+      }
+
+      if (
+        input?.expectedComposeClaimId !== undefined &&
+        delivery.metadata[COMPOSE_CLAIM_METADATA_KEY] !== input.expectedComposeClaimId
+      ) {
         return ok(false);
       }
 

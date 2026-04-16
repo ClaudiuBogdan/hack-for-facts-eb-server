@@ -111,5 +111,9 @@ export function projectCampaignAdminThread(thread: ThreadRecord): CampaignAdminT
 }
 
 export function isCampaignAdminThreadInScope(thread: ThreadRecord): boolean {
-  return thread.record.submissionPath === 'platform_send' && thread.phase !== 'failed';
+  return (
+    thread.record.submissionPath === 'platform_send' &&
+    thread.phase !== 'failed' &&
+    thread.phase !== 'sending'
+  );
 }

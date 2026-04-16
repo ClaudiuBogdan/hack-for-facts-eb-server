@@ -37,8 +37,6 @@ export interface LearningProgressRepository {
 
   acquireAutoReviewReuseTransactionLock(input: {
     recordKey: string;
-    interactionId: string;
-    entityCui: string;
   }): Promise<Result<void, LearningProgressError>>;
 
   findLatestCampaignAdminReviewedExactKeyMatches(input: {

@@ -117,7 +117,7 @@ export const enqueueCreatedOrReusedOutbox = async (
 
     let reusedOutbox = duplicateResult.value;
     if (input.reusedOutboxMetadataRefresh !== undefined) {
-      const refreshResult = await deps.deliveryRepo.refreshMetadataIfClaimableForCompose(
+      const refreshResult = await deps.deliveryRepo.refreshMetadataForRecomposeIfReplayable(
         reusedOutbox.id,
         input.reusedOutboxMetadataRefresh
       );

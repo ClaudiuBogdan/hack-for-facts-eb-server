@@ -148,6 +148,183 @@ describe('DeliveryRepository (fake)', () => {
     });
   });
 
+  describe('refreshMetadataForRecomposeIfReplayable', () => {
+    it('refreshes metadata and clears rendered content for pending rows', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-pending',
+        status: 'pending',
+        renderedSubject: 'Old subject',
+        renderedHtml: '<p>Old</p>',
+        renderedText: 'Old',
+        contentHash: 'hash-1',
+        templateName: 'public_debate_entity_update',
+        templateVersion: '1.0.0',
+        metadata: { recipientRole: 'requester' },
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshMetadataForRecomposeIfReplayable(existing.id, {
+        recipientRole: 'subscriber',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).not.toBeNull();
+        expect(result.value?.status).toBe('pending');
+        expect(result.value?.metadata).toEqual({ recipientRole: 'subscriber' });
+        expect(result.value?.renderedSubject).toBeNull();
+        expect(result.value?.renderedHtml).toBeNull();
+        expect(result.value?.renderedText).toBeNull();
+        expect(result.value?.contentHash).toBeNull();
+        expect(result.value?.templateName).toBeNull();
+        expect(result.value?.templateVersion).toBeNull();
+      }
+    });
+
+    it('refreshes failed_transient rows and resets them back to pending', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-failed',
+        status: 'failed_transient',
+        toEmail: 'stale@example.com',
+        renderedSubject: 'Old subject',
+        renderedHtml: '<p>Old</p>',
+        renderedText: 'Old',
+        resendEmailId: 'resend-old',
+        attemptCount: 3,
+        lastAttemptAt: new Date('2025-01-15T11:30:00.000Z'),
+        sentAt: new Date('2025-01-15T11:31:00.000Z'),
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshMetadataForRecomposeIfReplayable(existing.id, {
+        recipientRole: 'subscriber',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value?.status).toBe('pending');
+        expect(result.value?.toEmail).toBeNull();
+        expect(result.value?.renderedSubject).toBeNull();
+        expect(result.value?.resendEmailId).toBeNull();
+        expect(result.value?.attemptCount).toBe(0);
+        expect(result.value?.lastAttemptAt).toBeNull();
+        expect(result.value?.sentAt).toBeNull();
+      }
+    });
+
+    it('refreshes composing rows and clears stale render state', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-composing',
+        status: 'composing',
+        toEmail: 'stale@example.com',
+        renderedSubject: 'Old subject',
+        renderedHtml: '<p>Old</p>',
+        renderedText: 'Old',
+        lastError: 'temporary failure',
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshMetadataForRecomposeIfReplayable(existing.id, {
+        recipientRole: 'subscriber',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value?.status).toBe('pending');
+        expect(result.value?.toEmail).toBeNull();
+        expect(result.value?.renderedSubject).toBeNull();
+        expect(result.value?.renderedHtml).toBeNull();
+        expect(result.value?.renderedText).toBeNull();
+        expect(result.value?.lastError).toBeNull();
+      }
+    });
+
+    it('returns null for terminal rows', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-delivered',
+        status: 'delivered',
+        renderedSubject: 'Sent subject',
+        renderedHtml: '<p>Sent</p>',
+        renderedText: 'Sent',
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshMetadataForRecomposeIfReplayable(existing.id, {
+        recipientRole: 'subscriber',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBeNull();
+      }
+    });
+
+    it('drops stale rendered updates when the compose claim changes', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-compose-claim',
+        status: 'composing',
+        metadata: {
+          __composeClaimId: 'claim-1',
+        },
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.updateRenderedContent(existing.id, {
+        renderedSubject: 'New subject',
+        renderedHtml: '<p>New</p>',
+        renderedText: 'New',
+        contentHash: 'hash-1',
+        templateName: 'welcome',
+        templateVersion: '1.0.0',
+        expectedComposeClaimId: 'claim-2',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBe(false);
+      }
+    });
+
+    it('requires the expected compose claim when updating status conditionally', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-compose-status-claim',
+        status: 'composing',
+        metadata: {
+          __composeClaimId: 'claim-1',
+        },
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const mismatchResult = await repo.updateStatusIfCurrentIn(
+        existing.id,
+        ['composing'],
+        'pending',
+        {
+          expectedComposeClaimId: 'claim-2',
+        }
+      );
+
+      expect(mismatchResult.isOk()).toBe(true);
+      if (mismatchResult.isOk()) {
+        expect(mismatchResult.value).toBe(false);
+      }
+
+      const matchResult = await repo.updateStatusIfCurrentIn(
+        existing.id,
+        ['composing'],
+        'pending',
+        {
+          expectedComposeClaimId: 'claim-1',
+        }
+      );
+
+      expect(matchResult.isOk()).toBe(true);
+      if (matchResult.isOk()) {
+        expect(matchResult.value).toBe(true);
+      }
+    });
+  });
+
   describe('claimForSending (atomic claim)', () => {
     it('claims pending delivery and transitions to sending', async () => {
       const pending = createTestDeliveryRecord({
