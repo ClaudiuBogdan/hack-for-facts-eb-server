@@ -1,3 +1,5 @@
+import { getLatestAdminResponseEvent } from '../admin-workflow.js';
+
 import type { PublicDebateEntityUpdateNotification } from '../ports.js';
 import type { ThreadRecord } from '../types.js';
 
@@ -33,6 +35,14 @@ export const deriveCurrentPlatformSendSnapshot = (
 ): DerivedCurrentPlatformSendSnapshotResult => {
   if (thread === null) {
     return { status: 'no_thread' };
+  }
+
+  const latestAdminResponseEvent = getLatestAdminResponseEvent(thread.record);
+  if (
+    latestAdminResponseEvent?.responseStatus === 'request_confirmed' ||
+    latestAdminResponseEvent?.responseStatus === 'request_denied'
+  ) {
+    return { status: 'skipped_phase', thread };
   }
 
   switch (thread.phase) {

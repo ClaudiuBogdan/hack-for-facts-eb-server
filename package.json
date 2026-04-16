@@ -47,7 +47,7 @@
     "admin-events:export": "tsx scripts/admin-events-export.ts",
     "admin-events:apply": "tsx scripts/admin-events-apply.ts",
     "admin-events:reconcile": "tsx scripts/admin-events-reconcile.ts",
-    "ci": "pnpm typecheck && pnpm lint && pnpm deps:check && pnpm test && pnpm run deps:check && pnpm build",
+    "ci": "pnpm typecheck && pnpm lint && pnpm deps:check && pnpm test && pnpm test:e2e && pnpm run deps:check && pnpm build",
     "prepare": "husky",
     "clean": "rm -rf dist coverage deps-graph.svg"
   },

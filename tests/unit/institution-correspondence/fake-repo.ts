@@ -1,6 +1,11 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import {
+  isCampaignAdminThreadInScope,
+  projectCampaignAdminThread,
+  type CampaignAdminThreadPage,
+  type CampaignAdminResponseStatus,
+  type AdminResponseEvent,
   createConflictError,
   createNotFoundError,
   hasPlatformSendSuccessConfirmation,
@@ -9,6 +14,7 @@ import {
   type CorrespondenceThreadRecord,
   type CreateThreadInput,
   type InstitutionCorrespondenceRepository,
+  type ListCampaignAdminThreadsInput,
   type LockedThreadMutation,
   type PendingReplyPage,
   type ReconcilePlatformSendSuccessInput,
@@ -69,7 +75,22 @@ export const createThreadAggregateRecord = (
   captureAddress: overrides.captureAddress ?? 'debate@transparenta.test',
   correspondence: overrides.correspondence ?? [],
   latestReview: overrides.latestReview ?? null,
+  ...(overrides.adminWorkflow !== undefined ? { adminWorkflow: overrides.adminWorkflow } : {}),
   metadata: overrides.metadata ?? {},
+});
+
+export const createAdminResponseEvent = (
+  overrides: Partial<AdminResponseEvent> & {
+    responseStatus?: CampaignAdminResponseStatus;
+  } = {}
+): AdminResponseEvent => ({
+  id: overrides.id ?? `response-${String(nextEntryId++)}`,
+  responseDate: overrides.responseDate ?? now().toISOString(),
+  messageContent: overrides.messageContent ?? 'Manual response',
+  responseStatus: overrides.responseStatus ?? 'registration_number_received',
+  actorUserId: overrides.actorUserId ?? 'admin-user-1',
+  createdAt: overrides.createdAt ?? now().toISOString(),
+  source: 'campaign_admin_api',
 });
 
 export const createThreadRecord = (overrides: Partial<ThreadRecord> = {}): ThreadRecord => {
@@ -201,6 +222,125 @@ const syncThreadRecord = (thread: ThreadRecord): ThreadRecord => ({
   campaignKey: thread.campaignKey ?? thread.record.campaignKey,
 });
 
+const isCampaignAdminScopedThread = (thread: ThreadRecord, campaignKey: string): boolean => {
+  const normalizedCampaignKey =
+    thread.campaignKey ?? thread.record.campaignKey ?? thread.record.campaign;
+  return normalizedCampaignKey === campaignKey && isCampaignAdminThreadInScope(thread);
+};
+
+const listCampaignAdminThreadsInMemory = (
+  threads: readonly ThreadRecord[],
+  input: ListCampaignAdminThreadsInput
+): CampaignAdminThreadPage => {
+  const filtered = threads
+    .filter((thread) => isCampaignAdminScopedThread(thread, input.campaignKey))
+    .filter((thread) =>
+      input.entityCui !== undefined ? thread.entityCui === input.entityCui : true
+    )
+    .filter((thread) =>
+      input.updatedAtFrom !== undefined ? thread.updatedAt >= input.updatedAtFrom : true
+    )
+    .filter((thread) =>
+      input.updatedAtTo !== undefined ? thread.updatedAt <= input.updatedAtTo : true
+    )
+    .filter((thread) => {
+      if (input.query === undefined) {
+        return true;
+      }
+
+      const normalizedQuery = input.query.toLowerCase();
+      return (
+        thread.entityCui.toLowerCase().includes(normalizedQuery) ||
+        thread.record.institutionEmail.toLowerCase().includes(normalizedQuery)
+      );
+    })
+    .filter((thread) => {
+      const projectedThread = projectCampaignAdminThread(thread);
+      if (input.stateGroup !== undefined) {
+        const isOpen =
+          projectedThread.threadState === 'started' || projectedThread.threadState === 'pending';
+
+        if (input.stateGroup === 'open' && !isOpen) {
+          return false;
+        }
+
+        if (input.stateGroup === 'closed' && projectedThread.threadState !== 'resolved') {
+          return false;
+        }
+      }
+
+      if (input.threadState !== undefined && projectedThread.threadState !== input.threadState) {
+        return false;
+      }
+
+      if (
+        input.responseStatus !== undefined &&
+        projectedThread.currentResponseStatus !== input.responseStatus
+      ) {
+        return false;
+      }
+
+      const latestResponseAt =
+        projectedThread.latestResponseAt !== null
+          ? new Date(projectedThread.latestResponseAt)
+          : null;
+
+      if (
+        input.latestResponseAtFrom !== undefined &&
+        (latestResponseAt === null || latestResponseAt < input.latestResponseAtFrom)
+      ) {
+        return false;
+      }
+
+      if (
+        input.latestResponseAtTo !== undefined &&
+        (latestResponseAt === null || latestResponseAt > input.latestResponseAtTo)
+      ) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      const updatedAtDifference = right.updatedAt.getTime() - left.updatedAt.getTime();
+      if (updatedAtDifference !== 0) {
+        return updatedAtDifference;
+      }
+
+      return left.id.localeCompare(right.id);
+    });
+
+  const cursorFiltered =
+    input.cursor === undefined
+      ? filtered
+      : filtered.filter((thread) => {
+          const cursorUpdatedAt = new Date(input.cursor!.updatedAt).getTime();
+          const threadUpdatedAt = thread.updatedAt.getTime();
+          return (
+            threadUpdatedAt < cursorUpdatedAt ||
+            (threadUpdatedAt === cursorUpdatedAt && thread.id > input.cursor!.id)
+          );
+        });
+
+  const items = cursorFiltered.slice(0, input.limit + 1);
+  const pageItems = items.slice(0, input.limit);
+  const nextCursorThread = items.length > input.limit ? pageItems[pageItems.length - 1] : undefined;
+
+  return {
+    items: pageItems,
+    totalCount: filtered.length,
+    hasMore: items.length > input.limit,
+    nextCursor:
+      nextCursorThread !== undefined
+        ? {
+            updatedAt: nextCursorThread.updatedAt.toISOString(),
+            id: nextCursorThread.id,
+          }
+        : null,
+    limit: input.limit,
+  };
+};
+
 export interface InMemoryCorrespondenceRepo extends InstitutionCorrespondenceRepository {
   snapshotThreads(): ThreadRecord[];
 }
@@ -326,6 +466,19 @@ export const makeInMemoryCorrespondenceRepo = (
       );
     },
 
+    async findCampaignAdminThreadById(input) {
+      return ok(
+        threads.find(
+          (thread) =>
+            thread.id === input.threadId && isCampaignAdminScopedThread(thread, input.campaignKey)
+        ) ?? null
+      );
+    },
+
+    async listCampaignAdminThreads(input) {
+      return ok(listCampaignAdminThreadsInMemory(threads, input));
+    },
+
     async listPlatformSendThreadsPendingSuccessConfirmation() {
       return ok(
         threads.filter(
@@ -403,6 +556,44 @@ export const makeInMemoryCorrespondenceRepo = (
       const nextStateResult:
         | Result<LockedThreadMutation, ReturnType<typeof createNotFoundError>>
         | Result<LockedThreadMutation, any> = mutator(current);
+      if (nextStateResult.isErr()) {
+        return err(nextStateResult.error);
+      }
+
+      const nextState = nextStateResult.value;
+      const next = syncThreadRecord({
+        ...current,
+        ...(nextState.phase !== undefined ? { phase: nextState.phase } : {}),
+        ...(nextState.lastEmailAt !== undefined ? { lastEmailAt: nextState.lastEmailAt } : {}),
+        ...(nextState.lastReplyAt !== undefined ? { lastReplyAt: nextState.lastReplyAt } : {}),
+        ...(nextState.nextActionAt !== undefined ? { nextActionAt: nextState.nextActionAt } : {}),
+        ...(nextState.closedAt !== undefined ? { closedAt: nextState.closedAt } : {}),
+        record: nextState.record,
+        updatedAt: now(),
+      });
+      threads[index] = next;
+      return ok(next);
+    },
+
+    async mutateCampaignAdminThread(input, mutator) {
+      const index = threads.findIndex(
+        (thread) =>
+          thread.id === input.threadId && isCampaignAdminScopedThread(thread, input.campaignKey)
+      );
+      if (index === -1) {
+        return err(createNotFoundError(`Thread "${input.threadId}" was not found.`));
+      }
+
+      const current = threads[index]!;
+      if (current.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+        return err(
+          createConflictError(
+            'This thread has changed since it was loaded. Refresh it and retry the action.'
+          )
+        );
+      }
+
+      const nextStateResult = mutator(current);
       if (nextStateResult.isErr()) {
         return err(nextStateResult.error);
       }

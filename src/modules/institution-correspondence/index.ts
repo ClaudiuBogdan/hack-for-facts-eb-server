@@ -1,4 +1,15 @@
 export type {
+  AdminResponseEvent,
+  AdminWorkflow,
+  CampaignAdminThreadListCursor,
+  CampaignAdminThreadState,
+  CampaignAdminThreadStateGroup,
+  CampaignAdminResponseStatus,
+  CampaignAdminThreadPage,
+  ListCampaignAdminThreadsInput,
+  CampaignAdminThreadLookupInput,
+  AppendCampaignAdminThreadResponseInput,
+  AppendCampaignAdminThreadResponseOutput,
   InstitutionRequestType,
   SubmissionPath,
   ThreadPhase,
@@ -26,10 +37,33 @@ export {
   FUNKY_CITIZENS_NGO_IDENTITY,
   RESOLUTION_TO_PHASE,
   REVIEWABLE_PHASE,
+  SubmissionPathSchema,
+  ThreadPhaseSchema,
+  CampaignAdminThreadStateSchema,
+  CampaignAdminThreadStateGroupSchema,
+  CampaignAdminResponseStatusSchema,
+  ResolutionCodeSchema,
+  MessageDirectionSchema,
+  MessageSourceSchema,
+  CorrespondenceAttachmentMetadataSchema,
   CorrespondenceEntrySchema,
   ThreadReviewSchema,
+  AdminResponseEventSchema,
+  AdminWorkflowSchema,
   CorrespondenceThreadRecordSchema,
 } from './core/types.js';
+
+export {
+  appendAdminResponseEvent,
+  deriveCampaignAdminThreadStateFromLowLevelPhase,
+  deriveCampaignAdminThreadStateFromResponseStatus,
+  getLatestAdminResponseEvent,
+  isCampaignAdminThreadInScope,
+  projectCampaignAdminThread,
+  readAdminResponseEvents,
+  readAdminWorkflow,
+  type CampaignAdminThreadProjection,
+} from './core/admin-workflow.js';
 
 export type {
   InstitutionCorrespondenceError,
@@ -113,6 +147,18 @@ export {
 } from './core/usecases/list-pending-replies.js';
 export { reviewReply, type ReviewReplyDeps } from './core/usecases/review-reply.js';
 export { getThread, type GetThreadDeps } from './core/usecases/get-thread.js';
+export {
+  listCampaignAdminThreads,
+  type ListCampaignAdminThreadsDeps,
+} from './core/usecases/list-campaign-admin-threads.js';
+export {
+  getCampaignAdminThread,
+  type GetCampaignAdminThreadDeps,
+} from './core/usecases/get-campaign-admin-thread.js';
+export {
+  appendCampaignAdminThreadResponse,
+  type AppendCampaignAdminThreadResponseDeps,
+} from './core/usecases/append-campaign-admin-thread-response.js';
 
 export {
   EMAIL_REGEX,
@@ -174,15 +220,9 @@ export {
 } from './shell/public-debate-notification-orchestrator.js';
 
 export {
-  makeInstitutionCorrespondenceAdminRoutes,
-  type InstitutionCorrespondenceAdminRoutesDeps,
-} from './shell/rest/admin-routes.js';
-
-export {
-  makeInstitutionCorrespondenceAdminAuthHook,
-  INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY_HEADER,
-  type InstitutionCorrespondenceAdminAuthConfig,
-} from './shell/rest/admin-auth.js';
+  makeCampaignAdminInstitutionThreadRoutes,
+  type MakeCampaignAdminInstitutionThreadRoutesDeps,
+} from './shell/rest/campaign-admin-routes.js';
 
 export {
   makeInstitutionCorrespondenceResendSideEffect,

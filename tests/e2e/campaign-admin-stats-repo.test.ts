@@ -322,4 +322,194 @@ describe('Learning progress repo campaign-admin stats', () => {
       await database.stop();
     }
   });
+
+  it('counts terminal admin-response threads in resolved buckets instead of open ones', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const database = await startTestDatabase();
+    const userDb = createKyselyClient<UserDatabase>(database.connectionString);
+
+    try {
+      await withPgClient(database.connectionString, async (client) => {
+        await client.query(USER_SCHEMA);
+
+        await client.query(`
+          INSERT INTO userinteractions (
+            user_id,
+            record_key,
+            record,
+            audit_events,
+            updated_seq,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            'user-terminal-stats',
+            'funky:interaction:public_debate_request::entity:99999991',
+            '{
+              "key":"funky:interaction:public_debate_request::entity:99999991",
+              "interactionId":"funky:interaction:public_debate_request",
+              "lessonId":"civic-monitor-and-request",
+              "kind":"custom",
+              "scope":{"type":"entity","entityCui":"99999991"},
+              "completionRule":{"type":"resolved"},
+              "phase":"pending",
+              "value":{
+                "kind":"json",
+                "json":{
+                  "value":{
+                    "primariaEmail":"stats@primarie.test",
+                    "submissionPath":"request_platform",
+                    "submittedAt":"2026-04-15T10:00:00.000Z"
+                  }
+                }
+              },
+              "result":null,
+              "updatedAt":"2026-04-15T10:00:00.000Z",
+              "submittedAt":"2026-04-15T10:00:00.000Z"
+            }'::jsonb,
+            '[]'::jsonb,
+            1,
+            '2026-04-15T10:00:00.000Z',
+            '2026-04-15T10:00:00.000Z'
+          )
+        `);
+
+        await client.query(`
+          INSERT INTO institutionemailthreads (
+            id,
+            entity_cui,
+            campaign_key,
+            thread_key,
+            phase,
+            last_email_at,
+            last_reply_at,
+            next_action_at,
+            closed_at,
+            record,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            '00000000-0000-0000-0000-000000000201',
+            '99999991',
+            'funky',
+            'stats-thread-terminal',
+            'resolved_positive',
+            '2026-04-15T10:00:00.000Z'::timestamptz,
+            '2026-04-15T11:00:00.000Z'::timestamptz,
+            NULL,
+            '2026-04-15T11:00:00.000Z'::timestamptz,
+            '{
+              "version":1,
+              "campaign":"funky",
+              "campaignKey":"funky",
+              "ownerUserId":"user-terminal-stats",
+              "subject":"Terminal stats thread",
+              "submissionPath":"platform_send",
+              "institutionEmail":"stats@primarie.test",
+              "ngoIdentity":"funky_citizens",
+              "requesterOrganizationName":null,
+              "budgetPublicationDate":null,
+              "consentCapturedAt":null,
+              "contestationDeadlineAt":null,
+              "captureAddress":"contact@test",
+              "correspondence":[],
+              "latestReview":null,
+              "adminWorkflow":{
+                "currentResponseStatus":"request_confirmed",
+                "responseEvents":[
+                  {
+                    "id":"stats-admin-response-1",
+                    "responseDate":"2026-04-15T11:00:00.000Z",
+                    "messageContent":"Confirmed",
+                    "responseStatus":"request_confirmed",
+                    "actorUserId":"admin-stats",
+                    "createdAt":"2026-04-15T11:01:00.000Z",
+                    "source":"campaign_admin_api"
+                  }
+                ]
+              },
+              "metadata":{"interactionKey":"funky:interaction:public_debate_request::entity:99999991"}
+            }'::jsonb,
+            '2026-04-15T10:00:00.000Z'::timestamptz,
+            '2026-04-15T11:01:00.000Z'::timestamptz
+          )
+        `);
+      });
+
+      const repo = makeLearningProgressRepo({
+        db: userDb,
+        logger: pinoLogger({ level: 'silent' }),
+      });
+      const result = await repo.getCampaignAdminStats({
+        campaignKey: 'funky',
+        interactions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+          },
+        ],
+        reviewableInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+        ],
+        threadSummaryInteractions: [
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+        ],
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isErr()) {
+        return;
+      }
+
+      expect(result.value.stats).toEqual({
+        total: 1,
+        withInstitutionThread: 1,
+        reviewStatusCounts: {
+          pending: 1,
+          approved: 0,
+          rejected: 0,
+          notReviewed: 0,
+        },
+        phaseCounts: {
+          idle: 0,
+          draft: 0,
+          pending: 1,
+          resolved: 0,
+          failed: 0,
+        },
+        threadPhaseCounts: {
+          sending: 0,
+          awaiting_reply: 0,
+          reply_received_unreviewed: 0,
+          manual_follow_up_needed: 0,
+          resolved_positive: 1,
+          resolved_negative: 0,
+          closed_no_response: 0,
+          failed: 0,
+          none: 0,
+        },
+      });
+      expect(result.value.riskFlagCandidates).toEqual([
+        {
+          interactionId: 'funky:interaction:public_debate_request',
+          entityCui: '99999991',
+          institutionEmail: 'stats@primarie.test',
+          threadPhase: 'resolved_positive',
+          count: 1,
+        },
+      ]);
+    } finally {
+      await userDb.destroy();
+      await database.stop();
+    }
+  });
 });

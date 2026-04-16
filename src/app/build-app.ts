@@ -176,7 +176,7 @@ import {
 import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
 import {
   createDatabaseError as createCorrespondenceDatabaseError,
-  makeInstitutionCorrespondenceAdminRoutes,
+  makeCampaignAdminInstitutionThreadRoutes,
   makePublicDebateNotificationOrchestrator,
   makeInstitutionCorrespondenceRepo,
   makeInstitutionCorrespondenceResendSideEffect,
@@ -188,6 +188,7 @@ import {
   type CorrespondenceRecoveryRuntimeFactory,
   type InstitutionCorrespondenceRepository,
   type InstitutionCorrespondenceError,
+  type PublicDebateEntityUpdatePublisher,
   type PublicDebateSelfSendApprovalService,
 } from '../modules/institution-correspondence/index.js';
 import {
@@ -342,7 +343,6 @@ export interface AppOptions {
 }
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
-const INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX = '/api/v1/admin/institution-correspondence';
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
@@ -402,10 +402,6 @@ function isHealthRoute(url: string): boolean {
   return HEALTH_ROUTE_PATHS.has(getRequestPath(url));
 }
 
-function isInstitutionCorrespondenceAdminRoute(url: string): boolean {
-  return getRequestPath(url).startsWith(INSTITUTION_CORRESPONDENCE_ADMIN_ROUTE_PREFIX);
-}
-
 function isNotificationAdminRoute(url: string): boolean {
   return getRequestPath(url).startsWith(NOTIFICATION_ADMIN_ROUTE_PREFIX);
 }
@@ -430,7 +426,7 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     return true;
   }
 
-  if (isInstitutionCorrespondenceAdminRoute(path) || isNotificationAdminRoute(path)) {
+  if (isNotificationAdminRoute(path)) {
     return true;
   }
 
@@ -1203,6 +1199,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }),
     });
     let correspondenceRepo: InstitutionCorrespondenceRepository | undefined;
+    let publicDebateUpdatePublisher: PublicDebateEntityUpdatePublisher | undefined;
 
     const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
 
@@ -1624,7 +1621,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         campaignAuditCcRecipients,
         logger: repoLogger,
       });
-      const publicDebateUpdatePublisher = publicDebateNotificationOrchestrator.updatePublisher;
+      publicDebateUpdatePublisher = publicDebateNotificationOrchestrator.updatePublisher;
       const publicDebateSubscriptionService =
         publicDebateNotificationOrchestrator.subscriptionService;
       const adminReviewedInteractionTrigger = makeAdminReviewedInteractionTriggerDefinition({
@@ -1666,7 +1663,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             platformBaseUrl: config.notifications.platformBaseUrl,
             captureAddress: correspondenceInboxAddress,
             subscriptionService: publicDebateSubscriptionService,
-            updatePublisher: publicDebateUpdatePublisher,
+            ...(publicDebateUpdatePublisher !== undefined
+              ? { updatePublisher: publicDebateUpdatePublisher }
+              : {}),
           },
           input
         );
@@ -1771,19 +1770,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         adminEventRegistry = makeDefaultAdminEventRegistry({
           institutionCorrespondenceRepo: correspondenceRepoInstance,
         });
-      }
-
-      if (
-        config.institutionCorrespondence.adminRoutesEnabled &&
-        config.institutionCorrespondence.adminApiKey !== undefined
-      ) {
-        await app.register(
-          makeInstitutionCorrespondenceAdminRoutes({
-            repo: correspondenceRepoInstance,
-            apiKey: config.institutionCorrespondence.adminApiKey,
-            updatePublisher: publicDebateUpdatePublisher,
-          })
-        );
       }
 
       const pendingReplyAdminEventHook =
@@ -2004,6 +1990,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
           entitiesRepository: campaignAdminEntitiesRepository,
           platformBaseUrl: config.notifications.platformBaseUrl,
+        })
+      );
+
+      await app.register(
+        makeCampaignAdminInstitutionThreadRoutes({
+          repo: correspondenceRepo,
+          entityRepo,
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
         })
       );
 

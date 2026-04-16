@@ -131,9 +131,6 @@ export const EnvSchema = Type.Object({
   // Learning Progress Campaign Admin API
   ENABLED_ADMIN_CAMPAIGNS: Type.Optional(Type.String()),
 
-  // Institution Correspondence
-  INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-
   // OpenTelemetry / SigNoz
   /** OTLP endpoint for SigNoz (Cloud: https://ingest.eu.signoz.cloud:443, Self-hosted: http://localhost:4318) */
   OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String()),
@@ -283,7 +280,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     UNSUBSCRIBE_HMAC_SECRET: env['UNSUBSCRIBE_HMAC_SECRET'],
     // Learning Progress Campaign Admin API
     ENABLED_ADMIN_CAMPAIGNS: env['ENABLED_ADMIN_CAMPAIGNS'],
-    INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY: env['INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY'],
     // OpenTelemetry / SigNoz
     OTEL_EXPORTER_OTLP_ENDPOINT: env['OTEL_EXPORTER_OTLP_ENDPOINT'],
     OTEL_EXPORTER_OTLP_HEADERS: env['OTEL_EXPORTER_OTLP_HEADERS'],
@@ -470,12 +466,6 @@ export const createConfig = (env: Env) => ({
           .filter(Boolean) ?? []
       ),
     ],
-  },
-  institutionCorrespondence: {
-    /** API key for institution correspondence admin routes */
-    adminApiKey: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY,
-    /** Whether admin review routes are enabled */
-    adminRoutesEnabled: env.INSTITUTION_CORRESPONDENCE_ADMIN_API_KEY !== undefined,
   },
   telemetry: {
     /** OTLP endpoint for SigNoz */
