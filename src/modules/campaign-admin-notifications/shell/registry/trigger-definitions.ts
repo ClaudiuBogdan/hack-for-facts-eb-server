@@ -10,8 +10,11 @@ import {
 import {
   deriveCurrentPlatformSendSnapshot,
   type InstitutionCorrespondenceRepository,
+  type CampaignAdminThreadNotificationService,
+  type ThreadRecord,
 } from '@/modules/institution-correspondence/index.js';
 import {
+  PUBLIC_DEBATE_ADMIN_RESPONSE_FAMILY_ID,
   enqueuePublicDebateEntityUpdateNotifications,
   enqueuePublicDebateTermsAcceptedNotifications,
   type ComposeJobScheduler,
@@ -46,6 +49,7 @@ interface TriggerRegistryDeps {
   composeJobScheduler: ComposeJobScheduler;
   entityRepo: EntityRepository;
   correspondenceRepo: InstitutionCorrespondenceRepository;
+  campaignAdminThreadNotificationService: CampaignAdminThreadNotificationService;
   platformBaseUrl: string;
 }
 
@@ -70,6 +74,47 @@ const buildRunId = (triggerId: string): string => {
 
 const buildTermsAcceptedSourceEventId = (triggerId: string, runId: string): string => {
   return `campaign-admin:${triggerId}:${runId}`;
+};
+
+const loadThreadTriggerThread = async (
+  deps: Pick<TriggerRegistryDeps, 'correspondenceRepo'>,
+  input: {
+    threadId: string;
+    eventType: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
+  }
+): Promise<Result<ThreadRecord | null, CampaignAdminNotificationError>> => {
+  if (input.eventType !== 'thread_failed') {
+    const threadResult = await deps.correspondenceRepo.findCampaignAdminThreadById({
+      campaignKey: FUNKY_CAMPAIGN_KEY,
+      threadId: input.threadId,
+    });
+    if (threadResult.isErr()) {
+      return err(createDatabaseError('Failed to load public debate thread.'));
+    }
+
+    return ok(threadResult.value);
+  }
+
+  // Failed platform-send threads are hidden from the shared admin-thread scope,
+  // but the manual thread_failed trigger needs to target them specifically.
+  const threadResult = await deps.correspondenceRepo.findThreadById(input.threadId);
+  if (threadResult.isErr()) {
+    return err(createDatabaseError('Failed to load public debate thread.'));
+  }
+
+  const thread = threadResult.value;
+  const threadCampaignKey =
+    thread?.campaignKey ?? thread?.record.campaignKey ?? thread?.record.campaign;
+  if (
+    thread === null ||
+    threadCampaignKey !== FUNKY_CAMPAIGN_KEY ||
+    thread.record.submissionPath !== 'platform_send' ||
+    thread.phase !== 'failed'
+  ) {
+    return ok(null);
+  }
+
+  return ok(thread);
 };
 
 const loadEntityName = async (
@@ -303,9 +348,17 @@ const buildThreadEventDefinition = (
   targetKind: 'thread',
   async execute(executionInput) {
     const payload = executionInput.payload as { threadId: string };
-    const threadResult = await deps.correspondenceRepo.findThreadById(payload.threadId.trim());
+    const threadResult = await loadThreadTriggerThread(
+      {
+        correspondenceRepo: deps.correspondenceRepo,
+      },
+      {
+        threadId: payload.threadId.trim(),
+        eventType: input.eventType,
+      }
+    );
     if (threadResult.isErr()) {
-      return err(createDatabaseError('Failed to load public debate thread.'));
+      return err(threadResult.error);
     }
 
     const thread = threadResult.value;
@@ -321,8 +374,9 @@ const buildThreadEventDefinition = (
     }
 
     if (
-      thread.campaignKey !== FUNKY_CAMPAIGN_KEY ||
-      thread.record.submissionPath !== 'platform_send'
+      input.eventType !== 'thread_failed' &&
+      (thread.campaignKey !== FUNKY_CAMPAIGN_KEY ||
+        thread.record.submissionPath !== 'platform_send')
     ) {
       return ok({
         status: 'skipped',
@@ -435,6 +489,65 @@ const buildThreadEventDefinition = (
       reusedOutboxIds: enqueueResult.value.reusedOutboxIds,
       queuedOutboxIds: enqueueResult.value.queuedOutboxIds,
       enqueueFailedOutboxIds: enqueueResult.value.enqueueFailedOutboxIds,
+    });
+  },
+});
+
+const buildAdminResponseTriggerDefinition = (
+  deps: TriggerRegistryDeps
+): CampaignNotificationTriggerDefinition => ({
+  triggerId: 'public_debate_admin_response.latest',
+  campaignKey: FUNKY_CAMPAIGN_KEY,
+  familyId: PUBLIC_DEBATE_ADMIN_RESPONSE_FAMILY_ID,
+  templateId: 'public_debate_admin_response_requester',
+  description:
+    'Manually enqueue the latest admin response notification for a public debate thread.',
+  inputSchema: ThreadTriggerSchema,
+  inputFields: listSchemaFields(ThreadTriggerSchema),
+  targetKind: 'thread',
+  async execute(executionInput) {
+    const payload = executionInput.payload as { threadId: string };
+    const threadResult = await deps.correspondenceRepo.findCampaignAdminThreadById({
+      campaignKey: FUNKY_CAMPAIGN_KEY,
+      threadId: payload.threadId.trim(),
+    });
+    if (threadResult.isErr()) {
+      return err(createDatabaseError('Failed to load public debate thread.'));
+    }
+
+    const thread = threadResult.value;
+    if (thread === null) {
+      return ok({
+        status: 'skipped',
+        reason: 'thread_not_found',
+        createdOutboxIds: [],
+        reusedOutboxIds: [],
+        queuedOutboxIds: [],
+        enqueueFailedOutboxIds: [],
+      });
+    }
+
+    const execution = await deps.campaignAdminThreadNotificationService.notifyLatestResponse({
+      thread,
+      actorUserId: executionInput.actorUserId,
+      triggerSource: 'campaign_admin',
+      reusedOutboxComposeStrategy: 'skip_terminal_compose',
+    });
+
+    return ok({
+      status: execution.status,
+      ...(execution.reason !== undefined
+        ? {
+            reason:
+              execution.reason === 'admin_response_not_found'
+                ? 'no_admin_response_exists'
+                : execution.reason,
+          }
+        : {}),
+      createdOutboxIds: execution.createdOutboxIds,
+      reusedOutboxIds: execution.reusedOutboxIds,
+      queuedOutboxIds: execution.queuedOutboxIds,
+      enqueueFailedOutboxIds: execution.enqueueFailedOutboxIds,
     });
   },
 });
@@ -586,6 +699,7 @@ export const makeCampaignNotificationTriggerRegistry = (
       triggerId: 'public_debate_entity_update.reply_reviewed',
       eventType: 'reply_reviewed',
     }),
+    buildAdminResponseTriggerDefinition(deps),
     makeAdminReviewedInteractionTriggerDefinition({
       learningProgressRepo: deps.learningProgressRepo,
       extendedNotificationsRepo: deps.extendedNotificationsRepo,

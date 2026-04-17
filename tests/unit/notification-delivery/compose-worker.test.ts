@@ -568,6 +568,120 @@ describe('compose worker helpers', () => {
     }
   });
 
+  it('composes requester admin-response emails with the requester template', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-public-debate-admin-response-requester',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notif-1',
+          scopeKey: 'funky:delivery:admin_response_thread-1_response-1',
+          deliveryKey: 'user-1:notif-1:funky:delivery:admin_response_thread-1_response-1',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Test',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'registration_number_received',
+            responseDate: '2026-04-16T10:00:00.000Z',
+            messageContent: 'Am înregistrat solicitarea.',
+            recipientRole: 'requester',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-public-debate-admin-response-requester',
+        kind: 'outbox',
+        outboxId: 'outbox-public-debate-admin-response-requester',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_admin_response_requester');
+    expect(jobs).toHaveLength(1);
+  });
+
+  it('composes subscriber admin-response emails with the subscriber template', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-public-debate-admin-response-subscriber',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notif-2',
+          scopeKey: 'funky:delivery:admin_response_thread-1_response-1',
+          deliveryKey: 'user-2:notif-2:funky:delivery:admin_response_thread-1_response-1',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Test',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'request_confirmed',
+            responseDate: '2026-04-16T10:00:00.000Z',
+            messageContent: 'Solicitarea a fost confirmată.',
+            recipientRole: 'subscriber',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-public-debate-admin-response-subscriber',
+        kind: 'outbox',
+        outboxId: 'outbox-public-debate-admin-response-subscriber',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_admin_response_subscriber');
+    expect(jobs).toHaveLength(1);
+  });
+
   it('composes admin-only public debate failure emails from outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedTemplateType: string | undefined;
@@ -756,6 +870,136 @@ describe('compose worker helpers', () => {
     expect(outbox.isOk()).toBe(true);
     if (outbox.isOk()) {
       expect(outbox.value?.status).toBe('failed_permanent');
+    }
+  });
+
+  it('composes requester admin-response emails from outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-admin-response-requester-1',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notif-admin-response-1',
+          scopeKey: 'funky:delivery:admin_response_thread-1_response-1',
+          deliveryKey:
+            'user-1:notif-admin-response-1:funky:delivery:admin_response_thread-1_response-1',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'registration_number_received',
+            responseDate: '2026-04-16T10:00:00.000Z',
+            messageContent: 'Am înregistrat solicitarea.',
+            recipientRole: 'requester',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-admin-response-requester-1',
+        kind: 'outbox',
+        outboxId: 'outbox-admin-response-requester-1',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_admin_response_requester');
+    expect(jobs).toHaveLength(1);
+
+    const outbox = await deliveryRepo.findById('outbox-admin-response-requester-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('public_debate_admin_response_requester');
+      expect(outbox.value?.renderedHtml).toContain('public_debate_admin_response_requester');
+    }
+  });
+
+  it('composes subscriber admin-response emails from outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-admin-response-subscriber-1',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notif-admin-response-2',
+          scopeKey: 'funky:delivery:admin_response_thread-1_response-1',
+          deliveryKey:
+            'user-2:notif-admin-response-2:funky:delivery:admin_response_thread-1_response-1',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'request_confirmed',
+            responseDate: '2026-04-16T11:00:00.000Z',
+            messageContent: 'Solicitarea a fost confirmată.',
+            recipientRole: 'subscriber',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-admin-response-subscriber-1',
+        kind: 'outbox',
+        outboxId: 'outbox-admin-response-subscriber-1',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_admin_response_subscriber');
+    expect(jobs).toHaveLength(1);
+
+    const outbox = await deliveryRepo.findById('outbox-admin-response-subscriber-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('public_debate_admin_response_subscriber');
+      expect(outbox.value?.renderedHtml).toContain('public_debate_admin_response_subscriber');
     }
   });
 

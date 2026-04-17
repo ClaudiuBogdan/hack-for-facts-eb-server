@@ -105,6 +105,16 @@ export const CampaignAdminThreadCorrespondenceEntrySchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignAdminInstitutionThreadNotificationAudienceSchema = Type.Object(
+  {
+    requesterCount: Type.Integer({ minimum: 0 }),
+    subscriberCount: Type.Integer({ minimum: 0 }),
+    eligibleRequesterCount: Type.Integer({ minimum: 0 }),
+    eligibleSubscriberCount: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignAdminInstitutionThreadListItemSchema = Type.Object(
   {
     id: Type.String({ format: 'uuid' }),
@@ -121,6 +131,7 @@ export const CampaignAdminInstitutionThreadListItemSchema = Type.Object(
     updatedAt: Type.String({ format: 'date-time' }),
     latestResponseAt: NullableDateTimeSchema,
     responseEventCount: Type.Integer({ minimum: 0 }),
+    notificationAudience: CampaignAdminInstitutionThreadNotificationAudienceSchema,
   },
   { additionalProperties: false }
 );
@@ -176,6 +187,7 @@ export const CampaignAdminInstitutionThreadResponseBodySchema = Type.Object(
     responseDate: Type.String({ format: 'date-time' }),
     messageContent: Type.String({ minLength: 1 }),
     responseStatus: CampaignAdminResponseStatusSchema,
+    sendNotification: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false }
 );
@@ -191,6 +203,36 @@ export const CampaignAdminInstitutionThreadResponseCreateResponseSchema = Type.O
       {
         ...CampaignAdminInstitutionThreadDetailSchema.properties,
         createdResponseEventId: Type.String({ minLength: 1 }),
+        notificationExecution: Type.Optional(
+          Type.Object(
+            {
+              requested: Type.Literal(true),
+              status: Type.Union([
+                Type.Literal('queued'),
+                Type.Literal('skipped'),
+                Type.Literal('partial'),
+              ]),
+              reason: Type.Optional(
+                Type.Union([
+                  Type.Literal('no_subscribers'),
+                  Type.Literal('no_eligible_recipients'),
+                  Type.Literal('already_processed'),
+                  Type.Literal('enqueue_failed'),
+                  Type.Literal('admin_response_not_found'),
+                ])
+              ),
+              requesterCount: Type.Integer({ minimum: 0 }),
+              subscriberCount: Type.Integer({ minimum: 0 }),
+              eligibleRequesterCount: Type.Integer({ minimum: 0 }),
+              eligibleSubscriberCount: Type.Integer({ minimum: 0 }),
+              createdOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+              reusedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+              queuedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+              enqueueFailedOutboxIds: Type.Array(Type.String({ minLength: 1 })),
+            },
+            { additionalProperties: false }
+          )
+        ),
       },
       { additionalProperties: false }
     ),

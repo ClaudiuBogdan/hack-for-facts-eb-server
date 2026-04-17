@@ -1,6 +1,7 @@
 import { projectCampaignAdminThread } from '../../core/admin-workflow.js';
 
 import type { AdminResponseEvent, CorrespondenceEntry, ThreadRecord } from '../../core/types.js';
+import type { PublicDebateEntityAudienceSummary } from '@/modules/notification-delivery/index.js';
 
 const resolveCampaignKey = (thread: ThreadRecord): string =>
   thread.campaignKey ?? thread.record.campaignKey ?? thread.record.campaign;
@@ -29,6 +30,7 @@ export const formatCampaignAdminCorrespondenceEntry = (entry: CorrespondenceEntr
 export const formatCampaignAdminThreadListItem = (input: {
   thread: ThreadRecord;
   entityName: string | null;
+  notificationAudience: PublicDebateEntityAudienceSummary;
 }) => {
   const projectedThread = projectCampaignAdminThread(input.thread);
 
@@ -47,12 +49,14 @@ export const formatCampaignAdminThreadListItem = (input: {
     updatedAt: input.thread.updatedAt.toISOString(),
     latestResponseAt: projectedThread.latestResponseAt,
     responseEventCount: projectedThread.responseEventCount,
+    notificationAudience: input.notificationAudience,
   };
 };
 
 export const formatCampaignAdminThreadDetail = (input: {
   thread: ThreadRecord;
   entityName: string | null;
+  notificationAudience: PublicDebateEntityAudienceSummary;
 }) => {
   const projectedThread = projectCampaignAdminThread(input.thread);
 

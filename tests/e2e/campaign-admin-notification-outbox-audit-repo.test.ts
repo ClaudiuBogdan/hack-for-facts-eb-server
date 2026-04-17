@@ -520,4 +520,106 @@ describe('campaign notification outbox audit repo', () => {
       await userDb.destroy();
     }
   });
+
+  it('projects public debate admin-response audit rows with responseEventId and recipientRole', async () => {
+    if (!dockerAvailable) {
+      return;
+    }
+
+    const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+    startedContainers.push(container);
+
+    const connectionString = container.getConnectionUri();
+
+    await withPgClient(connectionString, async (client) => {
+      await client.query(USER_SCHEMA);
+
+      await client.query(`
+        INSERT INTO notificationsoutbox (
+          id,
+          user_id,
+          to_email,
+          notification_type,
+          reference_id,
+          scope_key,
+          delivery_key,
+          status,
+          template_name,
+          template_version,
+          attempt_count,
+          metadata,
+          created_at
+        )
+        VALUES (
+          '66666666-6666-6666-6666-666666666666',
+          'user-1',
+          'user1@example.com',
+          'funky:outbox:admin_response',
+          'notif-1',
+          'funky:delivery:admin_response_thread-1_response-1',
+          'user-1:notif-1:funky:delivery:admin_response_thread-1_response-1',
+          'pending',
+          'public_debate_admin_response_requester',
+          '1.0.0',
+          0,
+          jsonb_build_object(
+            'campaignKey', 'funky',
+            'familyId', 'public_debate_admin_response',
+            'eventType', 'admin_response_added',
+            'entityCui', '12345678',
+            'entityName', 'Municipiul Exemplu',
+            'threadId', 'thread-1',
+            'threadKey', 'thread-key-1',
+            'responseEventId', 'response-1',
+            'responseStatus', 'registration_number_received',
+            'responseDate', '2026-04-16T10:00:00.000Z',
+            'messageContent', 'Am înregistrat solicitarea.',
+            'recipientRole', 'requester',
+            'triggerSource', 'campaign_admin'
+          ),
+          '2026-04-16T10:00:00.000Z'::timestamptz
+        )
+      `);
+    });
+
+    const userDb = createKyselyClient<UserDatabase>(connectionString);
+
+    try {
+      const repo = makeCampaignNotificationOutboxAuditRepo({
+        db: userDb,
+        logger: createPinoLogger({ level: 'silent' }),
+      });
+
+      const result = await repo.listCampaignNotificationAudit({
+        campaignKey: 'funky',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        limit: 10,
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.items).toEqual([
+          expect.objectContaining({
+            notificationType: 'funky:outbox:admin_response',
+            projection: {
+              kind: 'public_debate_admin_response',
+              userId: 'user-1',
+              entityCui: '12345678',
+              entityName: 'Municipiul Exemplu',
+              threadId: 'thread-1',
+              threadKey: 'thread-key-1',
+              responseEventId: 'response-1',
+              responseStatus: 'registration_number_received',
+              recipientRole: 'requester',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              triggerSource: 'campaign_admin',
+            },
+          }),
+        ]);
+      }
+    } finally {
+      await userDb.destroy();
+    }
+  });
 });

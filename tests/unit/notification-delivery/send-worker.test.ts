@@ -563,6 +563,162 @@ describe('processSendJob', () => {
     }
   });
 
+  it('skips admin-response deliveries when the campaign entity preference is disabled after enqueue', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-admin-response-optout',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notification-1',
+          renderedSubject: 'Admin response',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'request_confirmed',
+            responseDate: '2026-04-16T10:00:00.000Z',
+            messageContent: 'Solicitarea a fost confirmată.',
+            recipientRole: 'subscriber',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '12345678',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-global',
+              userId: 'user-1',
+              entityCui: null,
+              notificationType: 'funky:notification:global',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-admin-response-optout' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-admin-response-optout',
+      status: 'skipped_unsubscribed',
+    });
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-admin-response-optout');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
+  it('skips admin-response delivery when entity updates were disabled after enqueue', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-admin-response-optout',
+          notificationType: 'funky:outbox:admin_response',
+          referenceId: 'notification-1',
+          scopeKey: 'funky:delivery:admin_response_thread-1_response-1',
+          deliveryKey: 'user-1:notification-1:funky:delivery:admin_response_thread-1_response-1',
+          renderedSubject: 'Admin response',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_admin_response',
+            eventType: 'admin_response_added',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            threadId: 'thread-1',
+            threadKey: 'thread-key-1',
+            responseEventId: 'response-1',
+            responseStatus: 'registration_number_received',
+            responseDate: '2026-04-16T10:00:00.000Z',
+            messageContent: 'Am înregistrat solicitarea.',
+            recipientRole: 'requester',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '12345678',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-global',
+              userId: 'user-1',
+              entityCui: null,
+              notificationType: 'funky:notification:global',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-admin-response-optout' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-admin-response-optout',
+      status: 'skipped_unsubscribed',
+    });
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-admin-response-optout');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
   it('hashes the scope_key provider tag for reviewed-interaction deliveries', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [

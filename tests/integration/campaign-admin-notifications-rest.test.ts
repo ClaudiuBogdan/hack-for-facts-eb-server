@@ -13,6 +13,7 @@ import {
   makeCampaignNotificationRunnableTemplateRegistry,
   makeCampaignNotificationTemplatePreviewService,
   makeCampaignNotificationTriggerRegistry,
+  type CampaignNotificationAuditItem,
   type CampaignNotificationAuditRepository,
   type CampaignNotificationAuditCursor,
   type CampaignNotificationMetaCounts,
@@ -21,7 +22,11 @@ import {
   type CampaignNotificationStoredPlan,
   type ListCampaignNotificationAuditInput,
 } from '@/modules/campaign-admin-notifications/index.js';
-import { buildAdminReviewedInteractionDeliveryKey } from '@/modules/notification-delivery/index.js';
+import {
+  buildAdminReviewedInteractionDeliveryKey,
+  buildPublicDebateEntityUpdateDeliveryKey,
+  buildPublicDebateEntityUpdateScopeKey,
+} from '@/modules/notification-delivery/index.js';
 import {
   ensurePublicDebateAutoSubscriptions,
   sha256Hasher,
@@ -30,6 +35,7 @@ import {
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 import { createPublicDebateNotificationHarness } from '../fixtures/public-debate-notification-harness.js';
 import {
+  createAdminResponseEvent,
   createThreadAggregateRecord,
   createThreadRecord,
 } from '../unit/institution-correspondence/fake-repo.js';
@@ -344,6 +350,7 @@ const createTestApp = async (options?: {
         composeJobScheduler: harness.composeJobScheduler as never,
         entityRepo: harness.entityRepo,
         correspondenceRepo: harness.correspondenceRepo,
+        campaignAdminThreadNotificationService: harness.threadNotificationService,
         platformBaseUrl: 'https://transparenta.eu',
       }),
       runnableTemplateRegistry: makeCampaignNotificationRunnableTemplateRegistry({
@@ -703,6 +710,98 @@ describe('campaign admin notifications routes', () => {
     await setup.app.close();
   });
 
+  it('accepts campaign_admin_api as a source filter for notification audit rows', async () => {
+    const audit = makeAuditRepository();
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications?source=campaign_admin_api',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(audit.calls).toEqual([
+      expect.objectContaining({
+        campaignKey: 'funky',
+        source: 'campaign_admin_api',
+      }),
+    ]);
+
+    await setup.app.close();
+  });
+
+  it('returns admin-response audit rows with campaign_admin_api triggerSource', async () => {
+    const auditItem: CampaignNotificationAuditItem = {
+      outboxId: 'outbox-admin-response-1',
+      campaignKey: 'funky',
+      notificationType: 'funky:outbox:admin_response',
+      templateId: 'public_debate_admin_response_requester',
+      templateName: 'public_debate_admin_response_requester',
+      templateVersion: '1.0.0',
+      status: 'sent',
+      createdAt: '2026-04-16T10:00:00.000Z',
+      sentAt: '2026-04-16T10:05:00.000Z',
+      attemptCount: 1,
+      safeError: {
+        category: null,
+        code: null,
+      },
+      projection: {
+        kind: 'public_debate_admin_response',
+        userId: 'user-1',
+        entityCui: '12345678',
+        entityName: 'Municipiul Exemplu',
+        threadId: 'thread-1',
+        threadKey: 'thread-key-1',
+        responseEventId: 'response-1',
+        responseStatus: 'registration_number_received',
+        recipientRole: 'requester',
+        responseDate: '2026-04-16T10:00:00.000Z',
+        triggerSource: 'campaign_admin_api',
+      },
+    };
+    const audit = makeAuditRepository({
+      list: async () =>
+        ok({
+          items: [auditItem],
+          totalCount: 1,
+          nextCursor: null,
+          hasMore: false,
+        }),
+    });
+    const setup = await createTestApp({
+      auditRepository: audit.repository,
+    });
+
+    const response = await setup.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/notifications',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [auditItem],
+        page: {
+          totalCount: 1,
+          nextCursor: null,
+          hasMore: false,
+        },
+      },
+    });
+
+    await setup.app.close();
+  });
+
   it.each([
     ['createdAt', 'asc'],
     ['createdAt', 'desc'],
@@ -939,6 +1038,10 @@ describe('campaign admin notifications routes', () => {
             description: expect.stringContaining('does not trigger this endpoint by default'),
           }),
           expect.objectContaining({ triggerId: 'public_debate_campaign_welcome' }),
+          expect.objectContaining({
+            triggerId: 'public_debate_admin_response.latest',
+            familyId: 'public_debate_admin_response',
+          }),
           expect.objectContaining({ triggerId: 'public_debate_entity_subscription' }),
           expect.objectContaining({ triggerId: 'public_debate_entity_update.thread_started' }),
           expect.objectContaining({ triggerId: 'public_debate_entity_update.thread_failed' }),
@@ -2341,6 +2444,501 @@ describe('campaign admin notifications routes', () => {
         result: expect.objectContaining({
           status: 'skipped',
           reason: 'phase_mismatch',
+        }),
+      }),
+    });
+
+    await setup.app.close();
+  });
+
+  it('queues the thread_failed trigger for failed platform-send threads outside admin-thread scope', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-failed-manual',
+          entityCui: '12345678',
+          phase: 'failed',
+          record: createThreadAggregateRecord({
+            campaign: 'funky',
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+      entityNames: {
+        '12345678': 'Municipiul Exemplu',
+      },
+    });
+    const setup = await createTestApp({ harness });
+    const entitySubscriptionResult = await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: setup.harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: setup.testAuth.userIds.user1,
+        entityCui: '12345678',
+      }
+    );
+    expect(entitySubscriptionResult.isOk()).toBe(true);
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_entity_update.thread_failed',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-failed-manual',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        triggerId: 'public_debate_entity_update.thread_failed',
+        result: expect.objectContaining({
+          status: 'queued',
+          createdOutboxIds: expect.any(Array),
+          queuedOutboxIds: expect.any(Array),
+        }),
+      }),
+    });
+
+    if (entitySubscriptionResult.isOk()) {
+      const outbox = await setup.harness.deliveryRepo.findByDeliveryKey(
+        buildPublicDebateEntityUpdateDeliveryKey({
+          userId: setup.testAuth.userIds.user1,
+          notificationId: entitySubscriptionResult.value.entitySubscription.id,
+          scopeKey: buildPublicDebateEntityUpdateScopeKey({
+            eventType: 'thread_failed',
+            threadId: 'thread-failed-manual',
+          }),
+        })
+      );
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.notificationType).toBe('funky:outbox:entity_update');
+        expect(outbox.value?.metadata).toEqual(
+          expect.objectContaining({
+            triggerSource: 'campaign_admin',
+            triggeredByUserId: setup.testAuth.userIds.user1,
+            eventType: 'thread_failed',
+            threadId: 'thread-failed-manual',
+            phase: 'failed',
+          })
+        );
+      }
+    }
+
+    await setup.app.close();
+  });
+
+  it('skips the latest admin-response trigger when the thread has no admin response yet', async () => {
+    const harness = createPublicDebateNotificationHarness({
+      threads: [
+        createThreadRecord({
+          id: 'thread-admin-response-none',
+          entityCui: '12345678',
+          phase: 'awaiting_reply',
+          record: createThreadAggregateRecord({
+            campaign: 'funky',
+            campaignKey: 'funky',
+            submissionPath: 'platform_send',
+            subject: 'Cerere dezbatere buget local - Oras Test',
+            institutionEmail: 'contact@primarie.ro',
+          }),
+        }),
+      ],
+    });
+    const setup = await createTestApp({ harness });
+
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-none',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'no_admin_response_exists',
+        }),
+      }),
+    });
+
+    await setup.app.close();
+  });
+
+  it('dedupes the latest admin-response trigger against an already processed immediate send', async () => {
+    const thread = createThreadRecord({
+      id: 'thread-admin-response-1',
+      entityCui: '12345678',
+      phase: 'awaiting_reply',
+      record: createThreadAggregateRecord({
+        campaign: 'funky',
+        campaignKey: 'funky',
+        ownerUserId: 'user-1',
+        submissionPath: 'platform_send',
+        subject: 'Cerere dezbatere buget local - Oras Test',
+        institutionEmail: 'contact@primarie.ro',
+        adminWorkflow: {
+          currentResponseStatus: 'registration_number_received',
+          responseEvents: [
+            createAdminResponseEvent({
+              id: 'admin-response-1',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              responseStatus: 'registration_number_received',
+              messageContent: 'Am înregistrat solicitarea.',
+            }),
+          ],
+        },
+      }),
+    });
+    const harness = createPublicDebateNotificationHarness({
+      threads: [thread],
+      entityNames: {
+        '12345678': 'Municipiul Exemplu',
+      },
+    });
+    await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-2',
+        entityCui: '12345678',
+      }
+    );
+
+    const immediateExecution = await harness.threadNotificationService.notifyResponseById({
+      thread,
+      responseEventId: 'admin-response-1',
+      actorUserId: 'admin-user',
+      triggerSource: 'campaign_admin_api',
+    });
+    expect(immediateExecution.status).toBe('queued');
+    for (const outboxId of immediateExecution.queuedOutboxIds) {
+      await harness.deliveryRepo.updateStatus(outboxId, {
+        status: 'delivered',
+        sentAt: new Date('2026-04-16T10:05:00.000Z'),
+      });
+    }
+
+    const setup = await createTestApp({ harness });
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'already_processed',
+          createdOutboxIds: [],
+          queuedOutboxIds: [],
+        }),
+      }),
+    });
+
+    await setup.app.close();
+  });
+
+  it('allows a later admin response event to be sent even after an earlier one was processed', async () => {
+    const firstResponse = createAdminResponseEvent({
+      id: 'admin-response-1',
+      responseDate: '2026-04-16T10:00:00.000Z',
+      responseStatus: 'registration_number_received',
+      messageContent: 'Am înregistrat solicitarea.',
+    });
+    const secondResponse = createAdminResponseEvent({
+      id: 'admin-response-2',
+      responseDate: '2026-04-16T11:00:00.000Z',
+      responseStatus: 'request_confirmed',
+      messageContent: 'Solicitarea a fost confirmată.',
+    });
+    const thread = createThreadRecord({
+      id: 'thread-admin-response-2',
+      entityCui: '12345678',
+      phase: 'resolved_positive',
+      record: createThreadAggregateRecord({
+        campaign: 'funky',
+        campaignKey: 'funky',
+        ownerUserId: 'user-1',
+        submissionPath: 'platform_send',
+        subject: 'Cerere dezbatere buget local - Oras Test',
+        institutionEmail: 'contact@primarie.ro',
+        adminWorkflow: {
+          currentResponseStatus: 'request_confirmed',
+          responseEvents: [firstResponse, secondResponse],
+        },
+      }),
+    });
+    const harness = createPublicDebateNotificationHarness({
+      threads: [thread],
+      entityNames: {
+        '12345678': 'Municipiul Exemplu',
+      },
+    });
+    await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-1',
+        entityCui: '12345678',
+      }
+    );
+    await ensurePublicDebateAutoSubscriptions(
+      {
+        notificationsRepo: harness.notificationsRepo,
+        hasher: sha256Hasher,
+      },
+      {
+        userId: 'user-2',
+        entityCui: '12345678',
+      }
+    );
+
+    const firstExecution = await harness.threadNotificationService.notifyResponseById({
+      thread,
+      responseEventId: 'admin-response-1',
+      actorUserId: 'admin-user',
+      triggerSource: 'campaign_admin_api',
+    });
+    expect(firstExecution.status).toBe('queued');
+    for (const outboxId of firstExecution.queuedOutboxIds) {
+      await harness.deliveryRepo.updateStatus(outboxId, {
+        status: 'delivered',
+        sentAt: new Date('2026-04-16T10:05:00.000Z'),
+      });
+    }
+
+    const setup = await createTestApp({ harness });
+    const response = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-2',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'queued',
+        }),
+      }),
+    });
+
+    await setup.app.close();
+  });
+
+  it('hides failed, sending, and out-of-scope threads from the latest admin-response trigger using the same admin-thread scope', async () => {
+    const failedThread = createThreadRecord({
+      id: 'thread-admin-response-failed',
+      entityCui: '12345678',
+      phase: 'failed',
+      record: createThreadAggregateRecord({
+        campaign: 'funky',
+        campaignKey: 'funky',
+        submissionPath: 'platform_send',
+        adminWorkflow: {
+          currentResponseStatus: 'registration_number_received',
+          responseEvents: [
+            createAdminResponseEvent({
+              id: 'admin-response-failed-1',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              responseStatus: 'registration_number_received',
+              messageContent: 'Should stay out of scope.',
+            }),
+          ],
+        },
+      }),
+    });
+    const sendingThread = createThreadRecord({
+      id: 'thread-admin-response-sending',
+      entityCui: '12345678',
+      phase: 'sending',
+      record: createThreadAggregateRecord({
+        campaign: 'funky',
+        campaignKey: 'funky',
+        submissionPath: 'platform_send',
+        adminWorkflow: {
+          currentResponseStatus: 'registration_number_received',
+          responseEvents: [
+            createAdminResponseEvent({
+              id: 'admin-response-sending-1',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              responseStatus: 'registration_number_received',
+              messageContent: 'Should stay out of scope.',
+            }),
+          ],
+        },
+      }),
+    });
+    const selfSendThread = createThreadRecord({
+      id: 'thread-admin-response-self-send',
+      entityCui: '12345678',
+      phase: 'awaiting_reply',
+      record: createThreadAggregateRecord({
+        campaign: 'funky',
+        campaignKey: 'funky',
+        submissionPath: 'self_send_cc',
+        adminWorkflow: {
+          currentResponseStatus: 'registration_number_received',
+          responseEvents: [
+            createAdminResponseEvent({
+              id: 'admin-response-self-send-1',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              responseStatus: 'registration_number_received',
+              messageContent: 'Should stay out of scope.',
+            }),
+          ],
+        },
+      }),
+    });
+    const otherCampaignThread = createThreadRecord({
+      id: 'thread-admin-response-other-campaign',
+      entityCui: '12345678',
+      phase: 'awaiting_reply',
+      record: createThreadAggregateRecord({
+        campaign: 'other-campaign',
+        campaignKey: 'other-campaign',
+        submissionPath: 'platform_send',
+        adminWorkflow: {
+          currentResponseStatus: 'registration_number_received',
+          responseEvents: [
+            createAdminResponseEvent({
+              id: 'admin-response-other-campaign-1',
+              responseDate: '2026-04-16T10:00:00.000Z',
+              responseStatus: 'registration_number_received',
+              messageContent: 'Should stay out of scope.',
+            }),
+          ],
+        },
+      }),
+    });
+    const harness = createPublicDebateNotificationHarness({
+      threads: [failedThread, sendingThread, selfSendThread, otherCampaignThread],
+    });
+    const setup = await createTestApp({ harness });
+
+    const failedResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-failed',
+      },
+    });
+    const sendingResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-sending',
+      },
+    });
+    const selfSendResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-self-send',
+      },
+    });
+    const otherCampaignResponse = await setup.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_admin_response.latest',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        threadId: 'thread-admin-response-other-campaign',
+      },
+    });
+
+    expect(failedResponse.statusCode).toBe(200);
+    expect(failedResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'thread_not_found',
+        }),
+      }),
+    });
+    expect(sendingResponse.statusCode).toBe(200);
+    expect(sendingResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'thread_not_found',
+        }),
+      }),
+    });
+    expect(selfSendResponse.statusCode).toBe(200);
+    expect(selfSendResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'thread_not_found',
+        }),
+      }),
+    });
+    expect(otherCampaignResponse.statusCode).toBe(200);
+    expect(otherCampaignResponse.json()).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        result: expect.objectContaining({
+          status: 'skipped',
+          reason: 'thread_not_found',
         }),
       }),
     });

@@ -6,6 +6,7 @@ import { vi } from 'vitest';
 
 import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
 import {
+  makeCampaignAdminThreadNotificationService,
   makePublicDebateNotificationOrchestrator,
   PUBLIC_DEBATE_REQUEST_TYPE,
   createDatabaseError as createCorrespondenceDatabaseError,
@@ -15,6 +16,12 @@ import {
   type SendPlatformRequestInput,
   type ThreadRecord,
 } from '@/modules/institution-correspondence/index.js';
+import {
+  buildPublicDebateEntityAudienceSummaryKey,
+  type DeliveryRepository,
+  type ExtendedNotificationsRepository,
+  type PublicDebateEntityAudienceSummaryReader,
+} from '@/modules/notification-delivery/index.js';
 import {
   ensurePublicDebateAutoSubscriptions,
   sha256Hasher,
@@ -28,10 +35,6 @@ import { makeFakeDeliveryRepo } from './fakes.js';
 import { makeInMemoryCorrespondenceRepo } from '../unit/institution-correspondence/fake-repo.js';
 
 import type { EntityRepository } from '@/modules/entity/index.js';
-import type {
-  DeliveryRepository,
-  ExtendedNotificationsRepository,
-} from '@/modules/notification-delivery/index.js';
 
 const DEFAULT_ENTITY_NAME = 'Oras Test';
 
@@ -97,6 +100,7 @@ const makeTestEntityRepo = (entityNames: Record<string, string>): EntityReposito
 const createSharedNotificationsRepo = (): {
   notificationsRepo: NotificationsRepository;
   extendedNotificationsRepo: ExtendedNotificationsRepository;
+  audienceSummaryReader: PublicDebateEntityAudienceSummaryReader;
 } => {
   const store = new Map<string, Notification>();
 
@@ -371,9 +375,88 @@ const createSharedNotificationsRepo = (): {
     },
   } satisfies ExtendedNotificationsRepository;
 
+  const audienceSummaryReader = {
+    async summarize(inputs) {
+      const summaries = new Map<
+        string,
+        {
+          requesterCount: number;
+          subscriberCount: number;
+          eligibleRequesterCount: number;
+          eligibleSubscriberCount: number;
+        }
+      >();
+
+      for (const input of inputs) {
+        const rawUsers = [...store.values()]
+          .filter(
+            (notification) =>
+              notification.notificationType === FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE &&
+              notification.entityCui === input.entityCui &&
+              notification.isActive
+          )
+          .map((notification) => notification.userId);
+        const requesterUserId =
+          input.requesterUserId === null || input.requesterUserId.trim() === ''
+            ? null
+            : input.requesterUserId.trim();
+        const eligibleUsers = rawUsers.filter((userId) => {
+          const globallyUnsubscribed = [...store.values()].some((candidate) => {
+            if (
+              candidate.userId !== userId ||
+              candidate.notificationType !== 'global_unsubscribe'
+            ) {
+              return false;
+            }
+
+            if (!candidate.isActive) {
+              return true;
+            }
+
+            const channels = (candidate.config as Record<string, unknown> | null)?.['channels'] as
+              | Record<string, unknown>
+              | undefined;
+            return channels?.['email'] === false;
+          });
+
+          if (globallyUnsubscribed) {
+            return false;
+          }
+
+          return ![...store.values()].some(
+            (candidate) =>
+              candidate.userId === userId &&
+              candidate.notificationType === 'funky:notification:global' &&
+              !candidate.isActive
+          );
+        });
+        const requesterCount =
+          requesterUserId !== null && rawUsers.includes(requesterUserId) ? 1 : 0;
+        const eligibleRequesterCount =
+          requesterUserId !== null && eligibleUsers.includes(requesterUserId) ? 1 : 0;
+
+        summaries.set(
+          buildPublicDebateEntityAudienceSummaryKey({
+            entityCui: input.entityCui,
+            requesterUserId,
+          }),
+          {
+            requesterCount,
+            subscriberCount: rawUsers.length - requesterCount,
+            eligibleRequesterCount,
+            eligibleSubscriberCount: eligibleUsers.length - eligibleRequesterCount,
+          }
+        );
+      }
+
+      return ok(summaries);
+    },
+  } satisfies PublicDebateEntityAudienceSummaryReader;
+
   return {
     notificationsRepo,
     extendedNotificationsRepo,
+    audienceSummaryReader,
   };
 };
 
@@ -381,11 +464,13 @@ export interface PublicDebateNotificationHarness {
   correspondenceRepo: ReturnType<typeof makeInMemoryCorrespondenceRepo>;
   notificationsRepo: NotificationsRepository;
   extendedNotificationsRepo: ExtendedNotificationsRepository;
+  audienceSummaryReader: PublicDebateEntityAudienceSummaryReader;
   deliveryRepo: DeliveryRepository;
   composeJobScheduler: {
     enqueue: ReturnType<typeof vi.fn>;
   };
   entityRepo: EntityRepository;
+  threadNotificationService: ReturnType<typeof makeCampaignAdminThreadNotificationService>;
   updatePublisher: ReturnType<typeof makePublicDebateNotificationOrchestrator>['updatePublisher'];
   subscriptionService: PublicDebateEntitySubscriptionService;
   send: ReturnType<typeof vi.fn>;
@@ -406,7 +491,8 @@ export const createPublicDebateNotificationHarness = (
   const correspondenceRepo = makeInMemoryCorrespondenceRepo({
     ...(input.threads !== undefined ? { threads: input.threads } : {}),
   });
-  const { notificationsRepo, extendedNotificationsRepo } = createSharedNotificationsRepo();
+  const { notificationsRepo, extendedNotificationsRepo, audienceSummaryReader } =
+    createSharedNotificationsRepo();
   const deliveryRepo = makeFakeDeliveryRepo();
   const composeJobScheduler = {
     enqueue: vi.fn(async () => ok(undefined)),
@@ -424,6 +510,14 @@ export const createPublicDebateNotificationHarness = (
     logger: pinoLogger({ level: 'silent' }),
   }).updatePublisher;
   const snapshotResults: Awaited<ReturnType<typeof publishCurrentPlatformSendUpdate>>[] = [];
+  const threadNotificationService = makeCampaignAdminThreadNotificationService({
+    entityRepo,
+    audienceSummaryReader,
+    extendedNotificationsRepo,
+    deliveryRepo,
+    composeJobScheduler,
+    logger: pinoLogger({ level: 'silent' }),
+  });
   const subscriptionService: PublicDebateEntitySubscriptionService = {
     async ensureSubscribed(userId: string, entityCui: string) {
       const subscriptionResult = await ensurePublicDebateAutoSubscriptions(
@@ -475,9 +569,11 @@ export const createPublicDebateNotificationHarness = (
     correspondenceRepo,
     notificationsRepo,
     extendedNotificationsRepo,
+    audienceSummaryReader,
     deliveryRepo,
     composeJobScheduler,
     entityRepo,
+    threadNotificationService,
     updatePublisher,
     subscriptionService,
     send,

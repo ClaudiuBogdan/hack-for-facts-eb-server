@@ -30,6 +30,12 @@ export type {
   AdminReviewedInteractionOutboxMetadata,
 } from './core/reviewed-interaction.js';
 export type {
+  PublicDebateAdminResponseOutboxMetadata,
+  PublicDebateAdminResponseRecipientRole,
+  PublicDebateAdminResponseStatus,
+  PublicDebateEntityAudienceSummary,
+} from './core/admin-response.js';
+export type {
   WeeklyProgressDigestSnapshot,
   WeeklyProgressDigestOutboxMetadata,
 } from './core/weekly-progress-digest.js';
@@ -47,6 +53,15 @@ export {
   STUCK_SENDING_THRESHOLD_MINUTES,
 } from './core/types.js';
 
+export {
+  PUBLIC_DEBATE_ADMIN_RESPONSE_EVENT_TYPE,
+  PUBLIC_DEBATE_ADMIN_RESPONSE_FAMILY_ID,
+  PublicDebateAdminResponseOutboxMetadataSchema,
+  PublicDebateAdminResponseRecipientRoleSchema,
+  PublicDebateAdminResponseStatusSchema,
+  buildPublicDebateEntityAudienceSummaryKey,
+  parsePublicDebateAdminResponseOutboxMetadata,
+} from './core/admin-response.js';
 export {
   ADMIN_REVIEWED_INTERACTION_FAMILY_ID,
   AdminReviewedInteractionNextStepLinkSchema,
@@ -110,6 +125,7 @@ export type {
   UpdateRenderedContentInput,
   UpdateDeliveryStatusInput,
   ExtendedNotificationsRepository,
+  PublicDebateEntityAudienceSummaryReader,
   ComposeJobScheduler,
   UserEmailFetcher,
   EmailSenderPort,
@@ -134,6 +150,10 @@ export type { DeliveryRepoConfig } from './shell/repo/delivery-repo.js';
 
 export { makeExtendedNotificationsRepo } from './shell/repo/extended-notifications-repo.js';
 export type { ExtendedNotificationsRepoOptions } from './shell/repo/extended-notifications-repo.js';
+export {
+  makePublicDebateEntityAudienceSummaryReader,
+  type PublicDebateEntityAudienceSummaryReaderConfig,
+} from './shell/repo/public-debate-entity-audience-summary-reader.js';
 export {
   makeBudgetDataFetcher,
   type BudgetDataFetcherConfig,
@@ -201,6 +221,12 @@ export {
   type PublicDebateAdminFailureNotificationInput,
 } from './core/usecases/enqueue-public-debate-admin-failure-notifications.js';
 export {
+  enqueuePublicDebateAdminResponseNotifications,
+  type EnqueuePublicDebateAdminResponseNotificationsDeps,
+  type EnqueuePublicDebateAdminResponseNotificationsResult,
+  type PublicDebateAdminResponseNotificationInput,
+} from './core/usecases/enqueue-public-debate-admin-response-notifications.js';
+export {
   enqueuePublicDebateEntityUpdateNotifications,
   type EnqueuePublicDebateEntityUpdateNotificationsDeps,
   type EnqueuePublicDebateEntityUpdateNotificationsResult,
@@ -222,6 +248,11 @@ export {
   type EnqueueWeeklyProgressDigestNotificationResult,
   type WeeklyProgressDigestExecutionReason,
 } from './core/usecases/enqueue-weekly-progress-digest-notification.js';
+export {
+  buildPublicDebateAdminResponseDeliveryKey,
+  buildPublicDebateAdminResponseScopeKey,
+  type PublicDebateAdminResponseKeyInput,
+} from './core/usecases/public-debate-admin-response-keys.js';
 export {
   buildPublicDebateEntityUpdateDeliveryKey,
   buildPublicDebateEntityUpdateScopeKey,

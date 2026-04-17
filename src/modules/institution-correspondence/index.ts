@@ -218,6 +218,14 @@ export {
   type MakePublicDebateNotificationOrchestratorDeps,
   type PublicDebateNotificationOrchestrator,
 } from './shell/public-debate-notification-orchestrator.js';
+export {
+  makeCampaignAdminThreadNotificationService,
+  type CampaignAdminThreadNotificationExecution,
+  type CampaignAdminThreadNotificationExecutionReason,
+  type CampaignAdminThreadNotificationExecutionStatus,
+  type CampaignAdminThreadNotificationService,
+  type MakeCampaignAdminThreadNotificationServiceDeps,
+} from './shell/campaign-admin-thread-notification-service.js';
 
 export {
   makeCampaignAdminInstitutionThreadRoutes,

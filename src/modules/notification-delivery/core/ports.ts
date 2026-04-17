@@ -4,6 +4,7 @@
  * Repository and adapter contracts for the delivery pipeline.
  */
 
+import type { PublicDebateEntityAudienceSummary } from './admin-response.js';
 import type { DeliveryError } from './errors.js';
 import type {
   NotificationOutboxRecord,
@@ -289,6 +290,15 @@ export interface ExtendedNotificationsRepository {
    * - config.channels.email is false (email channel disabled)
    */
   isUserGloballyUnsubscribed(userId: string): Promise<Result<boolean, DeliveryError>>;
+}
+
+export interface PublicDebateEntityAudienceSummaryReader {
+  summarize(
+    inputs: readonly {
+      entityCui: string;
+      requesterUserId: string | null;
+    }[]
+  ): Promise<Result<Map<string, PublicDebateEntityAudienceSummary>, DeliveryError>>;
 }
 
 export type TargetedNotificationEligibilityReason =

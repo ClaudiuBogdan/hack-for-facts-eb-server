@@ -15,6 +15,8 @@ describe('Campaign notification template preview service', () => {
     if (result.isOk()) {
       expect(result.value.map((item) => item.templateId)).toEqual([
         'admin_reviewed_user_interaction',
+        'public_debate_admin_response_requester',
+        'public_debate_admin_response_subscriber',
         'public_debate_campaign_welcome',
         'public_debate_entity_subscription',
         'public_debate_entity_update',
