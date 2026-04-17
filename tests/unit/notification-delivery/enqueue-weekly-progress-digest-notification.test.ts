@@ -155,6 +155,60 @@ describe('enqueueWeeklyProgressDigestNotification', () => {
     }
   });
 
+  it('skips no_items and creates no outbox row', async () => {
+    const notification = createTestNotification({
+      id: 'notif-global-1',
+      userId: 'user-1',
+      entityCui: null,
+      notificationType: 'funky:notification:global',
+    });
+    const composeJobScheduler = createComposeJobScheduler();
+    const deliveryRepo = makeFakeDeliveryRepo();
+
+    const result = await enqueueWeeklyProgressDigestNotification(
+      {
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [notification],
+        }),
+        deliveryRepo,
+        composeJobScheduler,
+      },
+      {
+        ...baseInput,
+        summary: {
+          totalItemCount: 0,
+          visibleItemCount: 0,
+          hiddenItemCount: 0,
+          actionNowCount: 0,
+          approvedCount: 0,
+          rejectedCount: 0,
+          pendingCount: 0,
+          draftCount: 0,
+          failedCount: 0,
+        },
+        items: [],
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.status).toBe('skipped');
+      expect(result.value.reason).toBe('no_items');
+    }
+    expect(composeJobScheduler.enqueue).not.toHaveBeenCalled();
+
+    const outbox = await deliveryRepo.findByDeliveryKey(
+      buildWeeklyProgressDigestDeliveryKey({
+        userId: baseInput.userId,
+        weekKey: baseInput.weekKey,
+      })
+    );
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value).toBeNull();
+    }
+  });
+
   it('skips when no eligible campaign-global preference exists', async () => {
     const result = await enqueueWeeklyProgressDigestNotification(
       {
@@ -281,6 +335,89 @@ describe('enqueueWeeklyProgressDigestNotification', () => {
       expect(result.value.outboxId).toBe(existingOutbox.id);
       expect(result.value.source).toBe('reused');
       expect(result.value.outboxStatus).toBe('pending');
+    }
+  });
+
+  it('creates a fresh outbox for a later week rerun after a previous week send', async () => {
+    const notification = createTestNotification({
+      id: 'notif-global-1',
+      userId: 'user-1',
+      entityCui: null,
+      notificationType: 'funky:notification:global',
+      isActive: true,
+    });
+    const previousWeekKey = '2026-W15';
+    const previousWeekDeliveryKey = buildWeeklyProgressDigestDeliveryKey({
+      userId: baseInput.userId,
+      weekKey: previousWeekKey,
+    });
+    const existingOutbox = createTestDeliveryRecord({
+      id: 'outbox-previous-week',
+      userId: 'user-1',
+      notificationType: 'funky:outbox:weekly_progress_digest',
+      referenceId: notification.id,
+      scopeKey: 'digest:weekly_progress:funky:2026-W15',
+      deliveryKey: previousWeekDeliveryKey,
+      status: 'delivered',
+      metadata: {
+        digestType: 'weekly_progress_digest',
+        campaignKey: 'funky',
+        userId: 'user-1',
+        weekKey: previousWeekKey,
+        periodLabel: '31 martie - 6 aprilie',
+        watermarkAt: '2026-04-06T20:59:59.999Z',
+        summary: baseInput.summary,
+        items: baseInput.items,
+        primaryCta: baseInput.primaryCta,
+        secondaryCtas: baseInput.secondaryCtas,
+        allUpdatesUrl: baseInput.allUpdatesUrl,
+      },
+    });
+    const composeJobScheduler = createComposeJobScheduler();
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [existingOutbox],
+    });
+
+    const result = await enqueueWeeklyProgressDigestNotification(
+      {
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [notification],
+        }),
+        deliveryRepo,
+        composeJobScheduler,
+      },
+      baseInput
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.status).toBe('queued');
+      expect(result.value.reason).toBe('eligible_now');
+      expect(result.value.source).toBe('created');
+    }
+    expect(composeJobScheduler.enqueue).toHaveBeenCalledTimes(1);
+
+    const currentWeekOutbox = await deliveryRepo.findByDeliveryKey(
+      buildWeeklyProgressDigestDeliveryKey({
+        userId: baseInput.userId,
+        weekKey: baseInput.weekKey,
+      })
+    );
+    expect(currentWeekOutbox.isOk()).toBe(true);
+    if (currentWeekOutbox.isOk()) {
+      expect(currentWeekOutbox.value?.id).not.toBe(existingOutbox.id);
+      expect(currentWeekOutbox.value?.metadata).toEqual(
+        expect.objectContaining({
+          weekKey: baseInput.weekKey,
+        })
+      );
+    }
+
+    const previousWeekOutbox = await deliveryRepo.findByDeliveryKey(previousWeekDeliveryKey);
+    expect(previousWeekOutbox.isOk()).toBe(true);
+    if (previousWeekOutbox.isOk()) {
+      expect(previousWeekOutbox.value?.id).toBe(existingOutbox.id);
+      expect(previousWeekOutbox.value?.status).toBe('delivered');
     }
   });
 });

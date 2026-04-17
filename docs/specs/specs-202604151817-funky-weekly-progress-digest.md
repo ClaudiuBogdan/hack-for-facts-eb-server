@@ -357,6 +357,8 @@ The digest exposes:
 - up to two secondary next steps
 
 Each link must be absolute and render-safe.
+Digest CTAs must use canonical server-built URLs and must not preserve
+client-authored query strings or fragments unless separately allowlisted.
 Secondary CTAs must never duplicate the primary CTA URL.
 
 ### Template Design

@@ -94,6 +94,6 @@ export const registration = defineTemplate({
         url: 'https://transparenta.eu/primarie/12345678/provocari/buget/participare',
       },
     ],
-    allUpdatesUrl: 'https://transparenta.eu/provocare/notificari',
+    allUpdatesUrl: null,
   } as WeeklyProgressDigestProps,
 });
