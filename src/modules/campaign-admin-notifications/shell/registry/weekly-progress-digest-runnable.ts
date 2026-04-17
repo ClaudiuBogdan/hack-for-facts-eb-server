@@ -361,6 +361,18 @@ const buildStepLink = (
   row: CampaignAdminInteractionRow,
   interactionConfig: CampaignAdminInteractionConfig | null
 ): string | null => {
+  const entityCui = getEntityCui(row);
+  if (entityCui !== null) {
+    const canonicalEntityStepUrl = buildStepLinkFromConfig({
+      platformBaseUrl,
+      entityCui,
+      interactionConfig,
+    });
+    if (canonicalEntityStepUrl !== null) {
+      return canonicalEntityStepUrl;
+    }
+  }
+
   const path = buildCampaignAdminInteractionStepLink({
     record: row.record,
     interactionConfig,
@@ -370,7 +382,10 @@ const buildStepLink = (
   }
 
   try {
-    return new URL(path, platformBaseUrl).toString();
+    const url = new URL(path, platformBaseUrl);
+    url.search = '';
+    url.hash = '';
+    return url.toString();
   } catch {
     return null;
   }

@@ -371,6 +371,109 @@ describe('compose worker helpers', () => {
     }
   });
 
+  it('composes weekly progress digest emails from stored outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-weekly-progress-digest-1',
+          userId: 'user-1',
+          notificationType: 'funky:outbox:weekly_progress_digest',
+          referenceId: 'notif-global-1',
+          scopeKey: 'digest:weekly_progress:funky:2026-W16',
+          deliveryKey: 'digest:weekly_progress:funky:user-1:2026-W16',
+          metadata: {
+            digestType: 'weekly_progress_digest',
+            campaignKey: 'funky',
+            userId: 'user-1',
+            weekKey: '2026-W16',
+            periodLabel: '13 aprilie - 19 aprilie',
+            watermarkAt: '2026-04-19T20:59:59.999Z',
+            summary: {
+              totalItemCount: 1,
+              visibleItemCount: 1,
+              hiddenItemCount: 0,
+              actionNowCount: 1,
+              approvedCount: 0,
+              rejectedCount: 1,
+              pendingCount: 0,
+              draftCount: 0,
+              failedCount: 0,
+            },
+            items: [
+              {
+                itemKey: 'item-1',
+                interactionId: 'funky:interaction:budget_document',
+                interactionLabel: 'Documentul de buget',
+                entityName: 'Municipiul Exemplu',
+                statusLabel: 'Mai are nevoie de o corectura',
+                statusTone: 'danger',
+                title: 'Documentul de buget trebuie corectat',
+                description: 'Revino in provocare si corecteaza documentul.',
+                updatedAt: '2026-04-15T08:00:00.000Z',
+                feedbackSnippet: 'Fisierul trimis nu contine proiectul complet.',
+                actionLabel: 'Corecteaza documentul',
+                actionUrl:
+                  'https://transparenta.eu/primarie/12345678/buget/provocari/civic-monitor-and-request/budget-document/upload-budget-document',
+              },
+            ],
+            primaryCta: {
+              label: 'Corecteaza documentul',
+              url: 'https://transparenta.eu/primarie/12345678/buget/provocari/civic-monitor-and-request/budget-document/upload-budget-document',
+            },
+            secondaryCtas: [
+              {
+                label: 'Vezi primaria',
+                url: 'https://transparenta.eu/primarie/12345678',
+              },
+            ],
+            allUpdatesUrl: null,
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer(),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-weekly-progress-digest-1',
+        kind: 'outbox',
+        outboxId: 'outbox-weekly-progress-digest-1',
+      }
+    );
+
+    expect(result).toEqual({
+      runId: 'run-weekly-progress-digest-1',
+      outboxId: 'outbox-weekly-progress-digest-1',
+      status: 'composed',
+    });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-weekly-progress-digest-1' });
+
+    const outbox = await deliveryRepo.findById('outbox-weekly-progress-digest-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('weekly_progress_digest');
+      expect(outbox.value?.renderedSubject).toBe('Ai un pas important de facut saptamana asta');
+      expect(outbox.value?.renderedHtml).toContain(
+        'https://transparenta.eu/primarie/12345678/buget/provocari/civic-monitor-and-request/budget-document/upload-budget-document'
+      );
+      expect(outbox.value?.renderedHtml).toContain('https://transparenta.eu/primarie/12345678');
+      expect(outbox.value?.renderedHtml).not.toContain('Vezi toate actualizarile');
+      expect(outbox.value?.renderedText).toContain('Corecteaza documentul');
+    }
+  });
+
   it('composes requester thread_started public debate emails with the shared update template', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedTemplateType: string | undefined;
