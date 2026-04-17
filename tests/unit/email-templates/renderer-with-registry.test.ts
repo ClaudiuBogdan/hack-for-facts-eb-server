@@ -10,6 +10,8 @@ import type {
   AnafForexebugDigestProps,
   NewsletterEntityProps,
   PublicDebateAdminFailureProps,
+  PublicDebateAdminResponseRequesterProps,
+  PublicDebateAdminResponseSubscriberProps,
   PublicDebateCampaignWelcomeProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
@@ -298,6 +300,60 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.templateName).toBe('public_debate_admin_failure');
   });
 
+  it('renders requester admin-response template successfully', async () => {
+    const props: PublicDebateAdminResponseRequesterProps = {
+      templateType: 'public_debate_admin_response_requester',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      responseStatus: 'registration_number_received',
+      responseDate: '2026-04-03T10:00:00.000Z',
+      messageContent: 'Am înregistrat solicitarea și revenim cu detalii.',
+      ctaUrl: 'https://transparenta.eu/primarie/87654321',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Răspuns adăugat la solicitarea ta: Municipiul Exemplu');
+    expect(rendered.text).toContain('Un administrator a adăugat un răspuns la solicitarea ta');
+    expect(rendered.text).toContain('Număr de înregistrare primit');
+    expect(rendered.text).toContain('Am înregistrat solicitarea și revenim cu detalii.');
+    expect(rendered.templateName).toBe('public_debate_admin_response_requester');
+  });
+
+  it('renders subscriber admin-response template successfully', async () => {
+    const props: PublicDebateAdminResponseSubscriberProps = {
+      templateType: 'public_debate_admin_response_subscriber',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      responseStatus: 'request_confirmed',
+      responseDate: '2026-04-03T10:00:00.000Z',
+      messageContent: 'Solicitarea a fost confirmată de primărie.',
+      ctaUrl: 'https://transparenta.eu/primarie/87654321',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe('Actualizare pentru localitatea urmărită: Municipiul Exemplu');
+    expect(rendered.text).toContain('Primești acest email pentru că urmărești această localitate');
+    expect(rendered.text).toContain('Cerere confirmată');
+    expect(rendered.text).toContain('Solicitarea a fost confirmată de primărie.');
+    expect(rendered.templateName).toBe('public_debate_admin_response_subscriber');
+  });
+
   it('renders anaf_forexebug_digest template successfully', async () => {
     const props: AnafForexebugDigestProps = {
       templateType: 'anaf_forexebug_digest',
@@ -569,7 +625,7 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(11);
+    expect(templates).toHaveLength(13);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('welcome');
@@ -578,6 +634,8 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(names).toContain('anaf_forexebug_digest');
     expect(names).toContain('public_debate_campaign_welcome');
     expect(names).toContain('public_debate_admin_failure');
+    expect(names).toContain('public_debate_admin_response_requester');
+    expect(names).toContain('public_debate_admin_response_subscriber');
     expect(names).toContain('public_debate_entity_subscription');
     expect(names).toContain('public_debate_entity_update');
     expect(names).toContain('public_debate_entity_update_thread_started_subscriber');

@@ -35,6 +35,7 @@ import { listCampaignAdminThreads } from '../../core/usecases/list-campaign-admi
 
 import type { InstitutionCorrespondenceRepository } from '../../core/ports.js';
 import type { CampaignAdminThreadStateGroup } from '../../core/types.js';
+import type { CampaignAdminThreadNotificationService } from '../campaign-admin-thread-notification-service.js';
 import type { EntityRepository } from '@/modules/entity/index.js';
 import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fastify';
 
@@ -231,6 +232,7 @@ function getRetryableFlag(error: InstitutionCorrespondenceError): boolean {
 export interface MakeCampaignAdminInstitutionThreadRoutesDeps {
   repo: InstitutionCorrespondenceRepository;
   entityRepo: EntityRepository;
+  notificationService: CampaignAdminThreadNotificationService;
   permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   enabledCampaignKeys: readonly string[];
 }
@@ -365,6 +367,19 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
           });
         }
 
+        const audienceSummaryResult = await deps.notificationService.summarizeAudiences(
+          result.value.items
+        );
+        if (audienceSummaryResult.isErr()) {
+          const statusCode = getHttpStatusForError(audienceSummaryResult.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: audienceSummaryResult.error.type,
+            message: audienceSummaryResult.error.message,
+            retryable: getRetryableFlag(audienceSummaryResult.error),
+          });
+        }
+
         const entityNameMap = await loadEntityNameMapForEntityCuis({
           entityCuis: [...new Set(result.value.items.map((thread) => thread.entityCui))],
           entityRepo: deps.entityRepo,
@@ -379,6 +394,12 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
               formatCampaignAdminThreadListItem({
                 thread,
                 entityName: entityNameMap.get(thread.entityCui) ?? null,
+                notificationAudience: audienceSummaryResult.value.get(thread.id) ?? {
+                  requesterCount: 0,
+                  subscriberCount: 0,
+                  eligibleRequesterCount: 0,
+                  eligibleSubscriberCount: 0,
+                },
               })
             ),
             page: {
@@ -431,6 +452,19 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
           });
         }
 
+        const audienceSummaryResult = await deps.notificationService.summarizeAudiences([
+          result.value,
+        ]);
+        if (audienceSummaryResult.isErr()) {
+          const statusCode = getHttpStatusForError(audienceSummaryResult.error);
+          return reply.status(statusCode).send({
+            ok: false,
+            error: audienceSummaryResult.error.type,
+            message: audienceSummaryResult.error.message,
+            retryable: getRetryableFlag(audienceSummaryResult.error),
+          });
+        }
+
         const entityNameMap = await loadEntityNameMapForEntityCuis({
           entityCuis: [result.value.entityCui],
           entityRepo: deps.entityRepo,
@@ -443,6 +477,12 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
           data: formatCampaignAdminThreadDetail({
             thread: result.value,
             entityName: entityNameMap.get(result.value.entityCui) ?? null,
+            notificationAudience: audienceSummaryResult.value.get(result.value.id) ?? {
+              requesterCount: 0,
+              subscriberCount: 0,
+              eligibleRequesterCount: 0,
+              eligibleSubscriberCount: 0,
+            },
           }),
         });
       }
@@ -470,6 +510,7 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
       },
       async (request, reply) => {
         const access = getCampaignAdminInstitutionThreadsAccess(request);
+        const sendNotification = request.body.sendNotification ?? false;
         const result = await appendCampaignAdminThreadResponse(
           {
             repo: deps.repo,
@@ -495,6 +536,20 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
           });
         }
 
+        const audienceSummaryResult = await deps.notificationService.summarizeAudiences([
+          result.value.thread,
+        ]);
+        if (audienceSummaryResult.isErr()) {
+          fastify.log.warn(
+            {
+              error: audienceSummaryResult.error,
+              threadId: result.value.thread.id,
+              campaignKey: access.config.campaignKey,
+            },
+            'Failed to load notification audience summary after campaign-admin thread response append'
+          );
+        }
+
         const entityNameMap = await loadEntityNameMapForEntityCuis({
           entityCuis: [result.value.thread.entityCui],
           entityRepo: deps.entityRepo,
@@ -503,14 +558,34 @@ export const makeCampaignAdminInstitutionThreadRoutes = (
             'Failed to load entity name for campaign-admin institution thread response',
         });
 
+        const notificationAudience = (audienceSummaryResult.isOk()
+          ? audienceSummaryResult.value.get(result.value.thread.id)
+          : null) ?? {
+          requesterCount: 0,
+          subscriberCount: 0,
+          eligibleRequesterCount: 0,
+          eligibleSubscriberCount: 0,
+        };
+
+        const notificationExecution = sendNotification
+          ? await deps.notificationService.notifyResponseById({
+              thread: result.value.thread,
+              responseEventId: result.value.createdResponseEventId,
+              actorUserId: access.userId,
+              triggerSource: 'campaign_admin_api',
+            })
+          : undefined;
+
         return reply.status(200).send({
           ok: true,
           data: {
             ...formatCampaignAdminThreadDetail({
               thread: result.value.thread,
               entityName: entityNameMap.get(result.value.thread.entityCui) ?? null,
+              notificationAudience,
             }),
             createdResponseEventId: result.value.createdResponseEventId,
+            ...(notificationExecution !== undefined ? { notificationExecution } : {}),
           },
         });
       }

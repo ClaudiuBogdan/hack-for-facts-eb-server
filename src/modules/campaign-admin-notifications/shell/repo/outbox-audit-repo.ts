@@ -3,6 +3,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   FUNKY_CAMPAIGN_KEY,
+  FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
@@ -11,7 +12,10 @@ import {
   FUNKY_OUTBOX_WELCOME_TYPE,
 } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
-import { parseAdminReviewedInteractionOutboxMetadata } from '@/modules/notification-delivery/index.js';
+import {
+  parseAdminReviewedInteractionOutboxMetadata,
+  parsePublicDebateAdminResponseOutboxMetadata,
+} from '@/modules/notification-delivery/index.js';
 
 import {
   createDatabaseError,
@@ -92,6 +96,7 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_WELCOME_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
+  FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
@@ -250,6 +255,28 @@ const mapProjection = (row: QueryRow): CampaignNotificationProjection => {
       replyEntryId: row.replyEntryId,
       basedOnEntryId: row.basedOnEntryId,
       resolutionCode: row.resolutionCode,
+      triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
+    };
+  }
+
+  if (row.notificationType === FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE) {
+    const metadataResult = parsePublicDebateAdminResponseOutboxMetadata(row.metadata);
+    if (metadataResult.isErr()) {
+      throw new Error(`Invalid admin response audit metadata: ${metadataResult.error}`);
+    }
+
+    const metadata = metadataResult.value;
+    return {
+      kind: 'public_debate_admin_response',
+      userId: row.userId,
+      entityCui: metadata.entityCui,
+      entityName: metadata.entityName,
+      threadId: metadata.threadId,
+      threadKey: metadata.threadKey,
+      responseEventId: metadata.responseEventId,
+      responseStatus: metadata.responseStatus,
+      recipientRole: metadata.recipientRole,
+      responseDate: metadata.responseDate,
       triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
     };
   }

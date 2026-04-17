@@ -41,6 +41,7 @@ export const CampaignNotificationEventTypeSchema = Type.Union([
 ]);
 
 export const CampaignNotificationTriggerSourceSchema = Type.Union([
+  Type.Literal('campaign_admin_api'),
   Type.Literal('campaign_admin'),
   Type.Literal('user_event_worker'),
   Type.Literal('system'),
@@ -145,6 +146,23 @@ const PublicDebateEntityUpdateProjectionSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const PublicDebateAdminResponseProjectionSchema = Type.Object(
+  {
+    kind: Type.Literal('public_debate_admin_response'),
+    userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    threadId: Type.String({ minLength: 1 }),
+    threadKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    responseEventId: Type.String({ minLength: 1 }),
+    responseStatus: Type.String({ minLength: 1 }),
+    recipientRole: Type.Union([Type.Literal('requester'), Type.Literal('subscriber')]),
+    responseDate: Type.String({ minLength: 1 }),
+    triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 const PublicDebateAdminFailureProjectionSchema = Type.Object(
   {
     kind: Type.Literal('public_debate_admin_failure'),
@@ -190,6 +208,7 @@ export const CampaignNotificationProjectionSchema = Type.Union([
   PublicDebateCampaignWelcomeProjectionSchema,
   PublicDebateEntitySubscriptionProjectionSchema,
   PublicDebateEntityUpdateProjectionSchema,
+  PublicDebateAdminResponseProjectionSchema,
   PublicDebateAdminFailureProjectionSchema,
   AdminReviewedInteractionProjectionSchema,
   WeeklyProgressDigestProjectionSchema,

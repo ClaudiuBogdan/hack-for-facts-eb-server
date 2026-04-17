@@ -176,6 +176,7 @@ import {
 import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
 import {
   createDatabaseError as createCorrespondenceDatabaseError,
+  makeCampaignAdminThreadNotificationService,
   makeCampaignAdminInstitutionThreadRoutes,
   makePublicDebateNotificationOrchestrator,
   makeInstitutionCorrespondenceRepo,
@@ -186,6 +187,7 @@ import {
   startCorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntimeFactory,
+  type CampaignAdminThreadNotificationService,
   type InstitutionCorrespondenceRepository,
   type InstitutionCorrespondenceError,
   type PublicDebateEntityUpdatePublisher,
@@ -237,6 +239,7 @@ import {
   makeClerkUserEmailFetcher,
   makeDeliveryRepo,
   makeExtendedNotificationsRepo,
+  makePublicDebateEntityAudienceSummaryReader,
   makeResendEmailSender,
   makeResendWebhookDeliverySideEffect,
   makeTriggerRoutes,
@@ -1144,6 +1147,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       db: userDb,
       logger: repoLogger,
     });
+    const publicDebateEntityAudienceSummaryReader = makePublicDebateEntityAudienceSummaryReader({
+      db: userDb,
+      logger: repoLogger,
+    });
     const deliveriesRepo = makeDeliveriesRepo({ db: userDb, logger: repoLogger });
     const deliveryRepo = makeDeliveryRepo({ db: userDb, logger: repoLogger });
     const learningProgressRepo = makeLearningProgressRepo({ db: userDb, logger: repoLogger });
@@ -1200,6 +1207,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     });
     let correspondenceRepo: InstitutionCorrespondenceRepository | undefined;
     let publicDebateUpdatePublisher: PublicDebateEntityUpdatePublisher | undefined;
+    let campaignAdminThreadNotificationService: CampaignAdminThreadNotificationService | undefined;
 
     const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
 
@@ -1621,6 +1629,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         campaignAuditCcRecipients,
         logger: repoLogger,
       });
+      campaignAdminThreadNotificationService = makeCampaignAdminThreadNotificationService({
+        entityRepo,
+        audienceSummaryReader: publicDebateEntityAudienceSummaryReader,
+        extendedNotificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: publicDebateComposeJobScheduler,
+        logger: repoLogger,
+      });
       publicDebateUpdatePublisher = publicDebateNotificationOrchestrator.updatePublisher;
       const publicDebateSubscriptionService =
         publicDebateNotificationOrchestrator.subscriptionService;
@@ -1960,6 +1976,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         );
       }
 
+      if (campaignAdminThreadNotificationService === undefined) {
+        throw new Error(
+          'Campaign admin routes require thread notification service wiring when the campaign admin API is enabled.'
+        );
+      }
+
       const campaignAdminPermissionAuthorizer = makeClerkCampaignAdminPermissionAuthorizer({
         secretKey: campaignAdminClerkSecret,
         logger: repoLogger,
@@ -1997,6 +2019,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         makeCampaignAdminInstitutionThreadRoutes({
           repo: correspondenceRepo,
           entityRepo,
+          notificationService: campaignAdminThreadNotificationService,
           enabledCampaignKeys: campaignAdminEnabledKeys,
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
         })
@@ -2032,6 +2055,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             composeJobScheduler: publicDebateComposeJobScheduler,
             entityRepo,
             correspondenceRepo,
+            campaignAdminThreadNotificationService,
             platformBaseUrl: config.notifications.platformBaseUrl,
           }),
           runnableTemplateRegistry: makeCampaignNotificationRunnableTemplateRegistry({

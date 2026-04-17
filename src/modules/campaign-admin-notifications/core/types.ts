@@ -1,6 +1,7 @@
 export type CampaignNotificationAdminCampaignKey = 'funky';
 
 export type CampaignNotificationTriggerSource =
+  | 'campaign_admin_api'
   | 'campaign_admin'
   | 'user_event_worker'
   | 'system'
@@ -59,6 +60,20 @@ export interface PublicDebateEntityUpdateProjection {
   readonly triggerSource: CampaignNotificationTriggerSource | null;
 }
 
+export interface PublicDebateAdminResponseProjection {
+  readonly kind: 'public_debate_admin_response';
+  readonly userId: string | null;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly threadId: string;
+  readonly threadKey: string | null;
+  readonly responseEventId: string;
+  readonly responseStatus: string;
+  readonly recipientRole: 'requester' | 'subscriber';
+  readonly responseDate: string;
+  readonly triggerSource: CampaignNotificationTriggerSource | null;
+}
+
 export interface PublicDebateAdminFailureProjection {
   readonly kind: 'public_debate_admin_failure';
   readonly entityCui: string;
@@ -95,6 +110,7 @@ export type CampaignNotificationProjection =
   | PublicDebateCampaignWelcomeProjection
   | PublicDebateEntitySubscriptionProjection
   | PublicDebateEntityUpdateProjection
+  | PublicDebateAdminResponseProjection
   | PublicDebateAdminFailureProjection
   | AdminReviewedInteractionProjection
   | WeeklyProgressDigestProjection;

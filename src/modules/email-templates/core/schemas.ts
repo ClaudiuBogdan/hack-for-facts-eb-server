@@ -123,6 +123,33 @@ export type PublicDebateEntityUpdateThreadStartedSubscriberPayload = Static<
   typeof PublicDebateEntityUpdateThreadStartedSubscriberPayloadSchema
 >;
 
+const PublicDebateAdminResponsePayloadBaseSchema = Type.Object({
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  responseStatus: Type.Union([
+    Type.Literal('registration_number_received'),
+    Type.Literal('request_confirmed'),
+    Type.Literal('request_denied'),
+  ]),
+  responseDate: Type.String({ minLength: 1 }),
+  messageContent: Type.String({ minLength: 1 }),
+  ctaUrl: Type.String({ minLength: 1 }),
+});
+
+export const PublicDebateAdminResponseRequesterPayloadSchema =
+  PublicDebateAdminResponsePayloadBaseSchema;
+
+export type PublicDebateAdminResponseRequesterPayload = Static<
+  typeof PublicDebateAdminResponseRequesterPayloadSchema
+>;
+
+export const PublicDebateAdminResponseSubscriberPayloadSchema =
+  PublicDebateAdminResponsePayloadBaseSchema;
+
+export type PublicDebateAdminResponseSubscriberPayload = Static<
+  typeof PublicDebateAdminResponseSubscriberPayloadSchema
+>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public Debate Admin Failure Template
 // ─────────────────────────────────────────────────────────────────────────────

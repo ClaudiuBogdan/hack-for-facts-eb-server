@@ -14,6 +14,7 @@ import {
 import { hashResendTagValue, sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
+import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import { MAX_RETRY_ATTEMPTS, type SendJobPayload } from '../../../core/types.js';
@@ -230,6 +231,57 @@ export const processSendJob = async (
           reason: eligibilityResult.value.reason,
         },
         'Reviewed interaction no longer eligible at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+  }
+
+  if (delivery.notificationType === 'funky:outbox:admin_response') {
+    const metadataResult = parsePublicDebateAdminResponseOutboxMetadata(delivery.metadata);
+    if (metadataResult.isErr()) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: `Invalid admin response metadata: ${metadataResult.error}`,
+      });
+      return {
+        outboxId,
+        status: 'failed_permanent',
+        error: `Invalid admin response metadata: ${metadataResult.error}`,
+      };
+    }
+
+    const eligibilityResult = await notificationsRepo.findEligibleByUserTypeAndEntity(
+      delivery.userId,
+      FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+      metadataResult.value.entityCui
+    );
+    if (eligibilityResult.isErr()) {
+      const errorMessage = `Failed to re-check admin response eligibility: ${getErrorMessage(
+        eligibilityResult.error
+      )}`;
+      const retryable = isRetryableError(eligibilityResult.error);
+
+      await deliveryRepo.updateStatusIfStillSending(
+        outboxId,
+        retryable ? 'failed_transient' : 'failed_permanent',
+        { lastError: errorMessage }
+      );
+
+      if (retryable) {
+        throw new Error(errorMessage);
+      }
+
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    if (!eligibilityResult.value.isEligible) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          reason: eligibilityResult.value.reason,
+        },
+        'Admin response no longer eligible at send time, skipping'
       );
       await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
       return { outboxId, status: 'skipped_unsubscribed' };

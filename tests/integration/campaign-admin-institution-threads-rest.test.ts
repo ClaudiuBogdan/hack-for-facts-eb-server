@@ -8,7 +8,10 @@ import {
   createDatabaseError as createEntityDatabaseError,
   type EntityRepository,
 } from '@/modules/entity/index.js';
-import { makeCampaignAdminInstitutionThreadRoutes } from '@/modules/institution-correspondence/index.js';
+import {
+  makeCampaignAdminInstitutionThreadRoutes,
+  type CampaignAdminThreadNotificationService,
+} from '@/modules/institution-correspondence/index.js';
 
 import {
   createAdminResponseEvent,
@@ -100,9 +103,79 @@ function makeEntityRepoStub(options?: {
   } satisfies EntityRepository;
 }
 
+function makeNotificationServiceStub(
+  overrides: Partial<CampaignAdminThreadNotificationService> = {}
+): CampaignAdminThreadNotificationService {
+  return {
+    summarizeAudiences: vi.fn(async (threads: readonly { id: string }[]) =>
+      ok(
+        new Map<
+          string,
+          {
+            requesterCount: number;
+            subscriberCount: number;
+            eligibleRequesterCount: number;
+            eligibleSubscriberCount: number;
+          }
+        >(
+          threads.map((thread) => [
+            thread.id,
+            thread.id === '11111111-1111-1111-1111-111111111111'
+              ? {
+                  requesterCount: 1,
+                  subscriberCount: 2,
+                  eligibleRequesterCount: 1,
+                  eligibleSubscriberCount: 1,
+                }
+              : thread.id === '22222222-2222-2222-2222-222222222222'
+                ? {
+                    requesterCount: 0,
+                    subscriberCount: 3,
+                    eligibleRequesterCount: 0,
+                    eligibleSubscriberCount: 2,
+                  }
+                : {
+                    requesterCount: 0,
+                    subscriberCount: 0,
+                    eligibleRequesterCount: 0,
+                    eligibleSubscriberCount: 0,
+                  },
+          ])
+        )
+      )
+    ),
+    notifyResponseById: vi.fn(async () => ({
+      requested: true as const,
+      status: 'queued' as const,
+      requesterCount: 1,
+      subscriberCount: 2,
+      eligibleRequesterCount: 1,
+      eligibleSubscriberCount: 1,
+      createdOutboxIds: ['outbox-admin-response-1'],
+      reusedOutboxIds: [],
+      queuedOutboxIds: ['outbox-admin-response-1'],
+      enqueueFailedOutboxIds: [],
+    })),
+    notifyLatestResponse: vi.fn(async () => ({
+      requested: true as const,
+      status: 'queued' as const,
+      requesterCount: 1,
+      subscriberCount: 2,
+      eligibleRequesterCount: 1,
+      eligibleSubscriberCount: 1,
+      createdOutboxIds: ['outbox-admin-response-latest'],
+      reusedOutboxIds: [],
+      queuedOutboxIds: ['outbox-admin-response-latest'],
+      enqueueFailedOutboxIds: [],
+    })),
+    ...overrides,
+  };
+}
+
 async function createTestApp(options?: {
   permissionAllowed?: boolean;
   entityRepo?: EntityRepository;
+  notificationService?: CampaignAdminThreadNotificationService;
 }) {
   const testAuth = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -255,6 +328,7 @@ async function createTestApp(options?: {
             '55555555': 'Comuna Gamma',
           },
         }),
+      notificationService: options?.notificationService ?? makeNotificationServiceStub(),
       permissionAuthorizer,
       enabledCampaignKeys: ['funky'],
     })
@@ -369,6 +443,12 @@ describe('campaign admin institution threads routes', () => {
             threadState: 'pending',
             currentResponseStatus: null,
             responseEventCount: 0,
+            notificationAudience: {
+              requesterCount: 0,
+              subscriberCount: 3,
+              eligibleRequesterCount: 0,
+              eligibleSubscriberCount: 2,
+            },
           }),
         ],
         page: expect.objectContaining({
@@ -419,6 +499,12 @@ describe('campaign admin institution threads routes', () => {
         id: '22222222-2222-2222-2222-222222222222',
         entityName: null,
         threadState: 'pending',
+        notificationAudience: {
+          requesterCount: 0,
+          subscriberCount: 3,
+          eligibleRequesterCount: 0,
+          eligibleSubscriberCount: 2,
+        },
         responseEvents: [],
         correspondence: [
           expect.not.objectContaining({
@@ -518,11 +604,23 @@ describe('campaign admin institution threads routes', () => {
       updatedAt: string;
       threadState: string;
       currentResponseStatus: string | null;
+      notificationAudience: {
+        requesterCount: number;
+        subscriberCount: number;
+        eligibleRequesterCount: number;
+        eligibleSubscriberCount: number;
+      };
       createdResponseEventId: string;
       responseEvents: { id: string; messageContent: string }[];
     };
     expect(appendData.threadState).toBe('pending');
     expect(appendData.currentResponseStatus).toBe('registration_number_received');
+    expect(appendData.notificationAudience).toEqual({
+      requesterCount: 1,
+      subscriberCount: 2,
+      eligibleRequesterCount: 1,
+      eligibleSubscriberCount: 1,
+    });
     expect(appendData.createdResponseEventId).toBeTruthy();
     expect(appendData.responseEvents).toEqual([
       expect.objectContaining({
@@ -564,5 +662,151 @@ describe('campaign admin institution threads routes', () => {
     });
 
     expect(resolvedWrite.statusCode).toBe(409);
+  });
+
+  it('does not enqueue admin-response notifications when sendNotification is omitted or false', async () => {
+    const notificationService = makeNotificationServiceStub();
+    const setup = await createTestApp({ notificationService });
+    app = setup.app;
+
+    const omittedResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/11111111-1111-1111-1111-111111111111/responses',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        expectedUpdatedAt: '2026-03-24T12:00:00.000Z',
+        responseDate: '2026-03-24T12:30:00.000Z',
+        messageContent: 'Saved only.',
+        responseStatus: 'registration_number_received',
+      },
+    });
+
+    expect(omittedResponse.statusCode).toBe(200);
+    expect(omittedResponse.json().data.notificationExecution).toBeUndefined();
+    expect(notificationService.notifyResponseById).not.toHaveBeenCalled();
+
+    const falseResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/22222222-2222-2222-2222-222222222222/responses',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        expectedUpdatedAt: '2026-03-24T13:00:00.000Z',
+        responseDate: '2026-03-24T13:30:00.000Z',
+        messageContent: 'Still save only.',
+        responseStatus: 'request_confirmed',
+        sendNotification: false,
+      },
+    });
+
+    expect(falseResponse.statusCode).toBe(200);
+    expect(falseResponse.json().data.notificationExecution).toBeUndefined();
+    expect(notificationService.notifyResponseById).not.toHaveBeenCalled();
+  });
+
+  it('returns notificationExecution when sendNotification is true', async () => {
+    const notificationService = makeNotificationServiceStub({
+      notifyResponseById: vi.fn(async () => ({
+        requested: true as const,
+        status: 'queued' as const,
+        requesterCount: 1,
+        subscriberCount: 4,
+        eligibleRequesterCount: 1,
+        eligibleSubscriberCount: 3,
+        createdOutboxIds: ['outbox-queued-1'],
+        reusedOutboxIds: [],
+        queuedOutboxIds: ['outbox-queued-1'],
+        enqueueFailedOutboxIds: [],
+      })),
+    });
+    const setup = await createTestApp({ notificationService });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/11111111-1111-1111-1111-111111111111/responses',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        expectedUpdatedAt: '2026-03-24T12:00:00.000Z',
+        responseDate: '2026-03-24T12:30:00.000Z',
+        messageContent: 'Send this update.',
+        responseStatus: 'registration_number_received',
+        sendNotification: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.notificationExecution).toEqual({
+      requested: true,
+      status: 'queued',
+      requesterCount: 1,
+      subscriberCount: 4,
+      eligibleRequesterCount: 1,
+      eligibleSubscriberCount: 3,
+      createdOutboxIds: ['outbox-queued-1'],
+      reusedOutboxIds: [],
+      queuedOutboxIds: ['outbox-queued-1'],
+      enqueueFailedOutboxIds: [],
+    });
+    expect(notificationService.notifyResponseById).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns skipped notificationExecution when no recipients are eligible', async () => {
+    const notificationService = makeNotificationServiceStub({
+      notifyResponseById: vi.fn(async () => ({
+        requested: true as const,
+        status: 'skipped' as const,
+        reason: 'no_eligible_recipients' as const,
+        requesterCount: 1,
+        subscriberCount: 2,
+        eligibleRequesterCount: 0,
+        eligibleSubscriberCount: 0,
+        createdOutboxIds: [],
+        reusedOutboxIds: [],
+        queuedOutboxIds: [],
+        enqueueFailedOutboxIds: [],
+      })),
+    });
+    const setup = await createTestApp({ notificationService });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/campaigns/funky/institution-threads/11111111-1111-1111-1111-111111111111/responses',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        expectedUpdatedAt: '2026-03-24T12:00:00.000Z',
+        responseDate: '2026-03-24T12:30:00.000Z',
+        messageContent: 'No recipients left.',
+        responseStatus: 'registration_number_received',
+        sendNotification: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.notificationExecution).toEqual({
+      requested: true,
+      status: 'skipped',
+      reason: 'no_eligible_recipients',
+      requesterCount: 1,
+      subscriberCount: 2,
+      eligibleRequesterCount: 0,
+      eligibleSubscriberCount: 0,
+      createdOutboxIds: [],
+      reusedOutboxIds: [],
+      queuedOutboxIds: [],
+      enqueueFailedOutboxIds: [],
+    });
   });
 });

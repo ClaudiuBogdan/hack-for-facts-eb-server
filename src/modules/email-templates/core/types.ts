@@ -270,6 +270,23 @@ export interface PublicDebateEntityUpdateThreadStartedSubscriberProps extends Ba
   ctaUrl: string;
 }
 
+interface PublicDebateAdminResponseBaseProps extends BaseTemplateProps {
+  entityCui: string;
+  entityName: string;
+  responseStatus: 'registration_number_received' | 'request_confirmed' | 'request_denied';
+  responseDate: string;
+  messageContent: string;
+  ctaUrl: string;
+}
+
+export interface PublicDebateAdminResponseRequesterProps extends PublicDebateAdminResponseBaseProps {
+  templateType: 'public_debate_admin_response_requester';
+}
+
+export interface PublicDebateAdminResponseSubscriberProps extends PublicDebateAdminResponseBaseProps {
+  templateType: 'public_debate_admin_response_subscriber';
+}
+
 /**
  * Props for admin-only public debate failure alerts.
  */

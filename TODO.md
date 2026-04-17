@@ -1,5 +1,7 @@
 # TODOs
 
+- Create a custom email for budget calendar for the institutions that have a publication date for the budget.
+
 - Don't send failed institution send email to user. Send to admin only.
 - Send confirmation email when email is sent to institution.
 - Database migration in prod. Backup data first.

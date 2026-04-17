@@ -17,6 +17,7 @@ import {
 } from './compose-helpers.js';
 import { registration as weeklyProgressDigestRegistration } from '../../../../email-templates/shell/registry/registrations/weekly-progress-digest.js';
 import { renderTemplateRegistration } from '../../../../email-templates/shell/renderer/render-template-registration.js';
+import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
 import { getErrorMessage, isRetryableError, type DeliveryError } from '../../../core/errors.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
@@ -43,6 +44,8 @@ import type {
   WeeklyProgressDigestProps,
   PublicDebateAdminFailureProps,
   PublicDebateCampaignWelcomeProps,
+  PublicDebateAdminResponseRequesterProps,
+  PublicDebateAdminResponseSubscriberProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
   PublicDebateEntityUpdateThreadStartedSubscriberProps,
@@ -412,6 +415,51 @@ const buildPublicDebateEntityUpdateTemplateProps = (
       : {}),
     ...(typeof resolutionCode === 'string' || resolutionCode === null ? { resolutionCode } : {}),
     ...(typeof reviewNotes === 'string' || reviewNotes === null ? { reviewNotes } : {}),
+  });
+};
+
+const buildPublicDebateAdminResponseTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<
+  PublicDebateAdminResponseRequesterProps | PublicDebateAdminResponseSubscriberProps,
+  string
+> => {
+  const metadataResult = parsePublicDebateAdminResponseOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    return err(`Invalid admin response metadata: ${metadataResult.error}`);
+  }
+
+  const metadata = metadataResult.value;
+  const responseDate = new Date(metadata.responseDate);
+  const copyrightYear = Number.isNaN(responseDate.getTime())
+    ? outbox.createdAt.getUTCFullYear()
+    : responseDate.getUTCFullYear();
+  const sharedProps = {
+    lang: 'ro' as const,
+    unsubscribeUrl,
+    preferencesUrl: buildCampaignPreferencesUrl(platformBaseUrl),
+    platformBaseUrl,
+    copyrightYear,
+    entityCui: metadata.entityCui,
+    entityName: metadata.entityName,
+    responseStatus: metadata.responseStatus,
+    responseDate: metadata.responseDate,
+    messageContent: metadata.messageContent,
+    ctaUrl: buildCampaignEntityUrl(platformBaseUrl, metadata.entityCui),
+  };
+
+  if (metadata.recipientRole === 'requester') {
+    return ok({
+      templateType: 'public_debate_admin_response_requester',
+      ...sharedProps,
+    });
+  }
+
+  return ok({
+    templateType: 'public_debate_admin_response_subscriber',
+    ...sharedProps,
   });
 };
 
@@ -911,6 +959,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:welcome' &&
     outbox.notificationType !== 'funky:outbox:entity_subscription' &&
     outbox.notificationType !== 'funky:outbox:entity_update' &&
+    outbox.notificationType !== 'funky:outbox:admin_response' &&
     outbox.notificationType !== 'funky:outbox:admin_reviewed_interaction' &&
     outbox.notificationType !== 'funky:outbox:admin_failure' &&
     outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE &&
@@ -1054,6 +1103,40 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update public debate outbox row',
       successLogMessage: 'Public debate notification composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === 'funky:outbox:admin_response') {
+    const templatePropsResult = buildPublicDebateAdminResponseTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        templatePropsResult.error,
+        'Public debate admin response compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        formatTemplateError(renderResult.error),
+        'Public debate admin response render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate admin response outbox row',
+      successLogMessage: 'Public debate admin response composed and send job enqueued',
     });
   }
 
