@@ -4,11 +4,15 @@
 
 import type { LearningProgressError } from './errors.js';
 import type {
+  CampaignEntityConfigRecordCursor,
+  CampaignEntityConfigRecordSortBy,
+  CampaignEntityConfigRecordSortOrder,
   CampaignAdminUsersMetaCounts,
   GetCampaignAdminStatsInput,
   GetCampaignAdminStatsOutput,
   GetCampaignAdminUsersMetaCountsInput,
   GetRecordsOptions,
+  ListCampaignEntityConfigRowsOutput,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
   ListCampaignAdminUsersInput,
@@ -39,6 +43,11 @@ export interface LearningProgressRepository {
     recordKey: string;
   }): Promise<Result<void, LearningProgressError>>;
 
+  acquireCampaignEntityConfigTransactionLock(input: {
+    campaignKey: string;
+    entityCui: string;
+  }): Promise<Result<void, LearningProgressError>>;
+
   findLatestCampaignAdminReviewedExactKeyMatches(input: {
     recordKey: string;
     interactionId: string;
@@ -48,6 +57,18 @@ export interface LearningProgressRepository {
   listCampaignAdminInteractionRows(
     input: ListCampaignAdminInteractionRowsInput
   ): Promise<Result<ListCampaignAdminInteractionRowsOutput, LearningProgressError>>;
+
+  listCampaignEntityConfigRows(input: {
+    userId: string;
+    recordKeyPrefix: string;
+    entityCui?: string;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+    sortBy: CampaignEntityConfigRecordSortBy;
+    sortOrder: CampaignEntityConfigRecordSortOrder;
+    limit: number;
+    cursor?: CampaignEntityConfigRecordCursor;
+  }): Promise<Result<ListCampaignEntityConfigRowsOutput, LearningProgressError>>;
 
   listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput
@@ -67,7 +88,7 @@ export interface LearningProgressRepository {
 
   resetProgress(userId: string): Promise<Result<void, LearningProgressError>>;
 
-  withTransaction<T>(
-    callback: (repo: LearningProgressRepository) => Promise<Result<T, LearningProgressError>>
-  ): Promise<Result<T, LearningProgressError>>;
+  withTransaction<T, TError = LearningProgressError>(
+    callback: (repo: LearningProgressRepository) => Promise<Result<T, TError>>
+  ): Promise<Result<T, TError | LearningProgressError>>;
 }

@@ -224,6 +224,14 @@ export interface GetRecordsOptions {
   readonly includeInternal?: boolean;
 }
 
+export type CampaignEntityConfigRecordSortBy = 'updatedAt' | 'entityCui';
+export type CampaignEntityConfigRecordSortOrder = 'asc' | 'desc';
+
+export interface CampaignEntityConfigRecordCursor {
+  readonly updatedAt: string | null;
+  readonly entityCui: string;
+}
+
 export type CampaignAdminCampaignKey = 'funky';
 export type CampaignAdminSortOrder = 'asc' | 'desc';
 
@@ -376,6 +384,28 @@ export interface ListCampaignAdminInteractionRowsOutput {
   readonly hasMore: boolean;
   readonly nextCursor: CampaignAdminListCursor | null;
 }
+
+export interface ListCampaignEntityConfigRowsInput {
+  readonly userId: string;
+  readonly recordKeyPrefix: string;
+  readonly entityCui?: string;
+  readonly updatedAtFrom?: string;
+  readonly updatedAtTo?: string;
+  readonly sortBy: CampaignEntityConfigRecordSortBy;
+  readonly sortOrder: CampaignEntityConfigRecordSortOrder;
+  readonly limit: number;
+  readonly cursor?: CampaignEntityConfigRecordCursor;
+}
+
+export interface CampaignEntityConfigRowsPage {
+  readonly rows: readonly LearningProgressRecordRow[];
+  readonly totalCount: number;
+  readonly hasMore: boolean;
+}
+
+export type ListCampaignEntityConfigRowsOutput =
+  | CampaignEntityConfigRowsPage
+  | readonly LearningProgressRecordRow[];
 
 export interface GetCampaignAdminStatsInput {
   readonly campaignKey: CampaignAdminCampaignKey;

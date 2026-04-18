@@ -7,6 +7,7 @@ type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
 
 const ADVANCED_MAP_DATASET_LOCK_NAMESPACE = 20_260_409;
 const LEARNING_PROGRESS_AUTO_REVIEW_REUSE_LOCK_NAMESPACE = 20_260_416;
+const CAMPAIGN_ENTITY_CONFIG_LOCK_NAMESPACE = 20_260_418;
 
 function normalizeDatasetIds(datasetIds: readonly string[]): string[] {
   return Array.from(
@@ -49,6 +50,27 @@ export async function acquireLearningProgressAutoReviewReuseTransactionLock(
   await sql`
     select pg_advisory_xact_lock(
       ${LEARNING_PROGRESS_AUTO_REVIEW_REUSE_LOCK_NAMESPACE},
+      hashtext(${normalizedIdentity})
+    )
+  `.execute(db);
+}
+
+function normalizeCampaignEntityConfigIdentity(input: {
+  campaignKey: string;
+  entityCui: string;
+}): string {
+  return `${input.campaignKey.trim()}::${input.entityCui.trim()}`;
+}
+
+export async function acquireCampaignEntityConfigTransactionLock(
+  db: UserDbConnection,
+  input: { campaignKey: string; entityCui: string }
+): Promise<void> {
+  const normalizedIdentity = normalizeCampaignEntityConfigIdentity(input);
+
+  await sql`
+    select pg_advisory_xact_lock(
+      ${CAMPAIGN_ENTITY_CONFIG_LOCK_NAMESPACE},
       hashtext(${normalizedIdentity})
     )
   `.execute(db);

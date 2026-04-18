@@ -101,6 +101,7 @@ import {
   makeCampaignAdminStatsReader,
   makeCampaignAdminStatsRoutes,
 } from '../modules/campaign-admin-stats/index.js';
+import { makeCampaignEntityConfigRoutes } from '../modules/campaign-entity-config/index.js';
 import {
   makeCampaignSubscriptionStatsReader,
   makeCampaignSubscriptionStatsRoutes,
@@ -2012,6 +2013,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           permissionAuthorizer: campaignAdminPermissionAuthorizer,
           entitiesRepository: campaignAdminEntitiesRepository,
           platformBaseUrl: config.notifications.platformBaseUrl,
+        })
+      );
+
+      await app.register(
+        makeCampaignEntityConfigRoutes({
+          learningProgressRepo,
+          entityRepo,
+          enabledCampaignKeys: campaignAdminEnabledKeys,
+          permissionAuthorizer: campaignAdminPermissionAuthorizer,
         })
       );
 

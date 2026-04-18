@@ -8,7 +8,10 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX } from '@/common/campaign-keys.js';
-import { acquireLearningProgressAutoReviewReuseTransactionLock } from '@/infra/database/user/advisory-locks.js';
+import {
+  acquireCampaignEntityConfigTransactionLock,
+  acquireLearningProgressAutoReviewReuseTransactionLock,
+} from '@/infra/database/user/advisory-locks.js';
 import { INTERNAL_NAMESPACE_PREFIX } from '@/modules/learning-progress/core/internal-records.js';
 
 import { createDatabaseError, type LearningProgressError } from '../../core/errors.js';
@@ -16,6 +19,8 @@ import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
+  CampaignEntityConfigRecordSortBy,
+  CampaignEntityConfigRecordSortOrder,
   CampaignAdminCampaignKey,
   CampaignAdminPhaseCounts,
   CampaignAdminReviewStatusCounts,
@@ -32,6 +37,8 @@ import type {
   GetCampaignAdminUsersMetaCountsInput,
   GetRecordsOptions,
   InteractiveStateRecord,
+  ListCampaignEntityConfigRowsInput,
+  ListCampaignEntityConfigRowsOutput,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
   ListCampaignAdminUsersInput,
@@ -356,6 +363,24 @@ function compareTimestamps(leftTimestamp: string, rightTimestamp: string): numbe
   return 0;
 }
 
+function buildCampaignEntityConfigRecordKey(recordKeyPrefix: string, entityCui: string): string {
+  return `${recordKeyPrefix}${entityCui}`;
+}
+
+function getCampaignEntityConfigOrderBy(
+  sortBy: CampaignEntityConfigRecordSortBy,
+  sortOrder: CampaignEntityConfigRecordSortOrder
+) {
+  if (sortBy === 'entityCui') {
+    return [{ column: 'record_key' as const, direction: sortOrder }];
+  }
+
+  return [
+    { column: 'updated_at' as const, direction: sortOrder },
+    { column: 'record_key' as const, direction: 'asc' as const },
+  ];
+}
+
 function mapCampaignAdminThreadSummary(
   row: CampaignAdminQueryRow
 ): CampaignAdminInstitutionThreadSummary | null {
@@ -374,9 +399,9 @@ function mapCampaignAdminThreadSummary(
 }
 
 class LearningProgressTransactionRollbackError extends Error {
-  readonly failure: LearningProgressError;
+  readonly failure: unknown;
 
-  constructor(failure: LearningProgressError) {
+  constructor(failure: unknown) {
     super('Learning progress transaction rolled back');
     this.failure = failure;
   }
@@ -481,6 +506,28 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
           'Failed to acquire learning progress auto-review reuse transaction lock',
           error
         )
+      );
+    }
+  }
+
+  async acquireCampaignEntityConfigTransactionLock(input: {
+    campaignKey: string;
+    entityCui: string;
+  }): Promise<Result<void, LearningProgressError>> {
+    try {
+      await acquireCampaignEntityConfigTransactionLock(this.db, input);
+      return ok(undefined);
+    } catch (error) {
+      this.log.error(
+        {
+          err: error,
+          campaignKey: input.campaignKey,
+          entityCui: input.entityCui,
+        },
+        'Failed to acquire campaign entity config transaction lock'
+      );
+      return err(
+        createDatabaseError('Failed to acquire campaign entity config transaction lock', error)
       );
     }
   }
@@ -737,6 +784,100 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
           error
         )
       );
+    }
+  }
+
+  async listCampaignEntityConfigRows(
+    input: ListCampaignEntityConfigRowsInput
+  ): Promise<Result<ListCampaignEntityConfigRowsOutput, LearningProgressError>> {
+    try {
+      const prefixedRecordKeyPattern = `${escapeLikePattern(input.recordKeyPrefix)}%`;
+      const exactRecordKey =
+        input.entityCui !== undefined
+          ? buildCampaignEntityConfigRecordKey(input.recordKeyPrefix, input.entityCui)
+          : undefined;
+
+      let filteredQuery = this.db
+        .selectFrom(USER_INTERACTIONS_TABLE)
+        .where('user_id', '=', input.userId)
+        .where(sql<boolean>`record_key LIKE ${prefixedRecordKeyPattern} ESCAPE '\\'`);
+
+      if (exactRecordKey !== undefined) {
+        filteredQuery = filteredQuery.where('record_key', '=', exactRecordKey);
+      }
+
+      if (input.updatedAtFrom !== undefined) {
+        filteredQuery = filteredQuery.where(
+          sql<boolean>`updated_at >= ${input.updatedAtFrom}::timestamptz`
+        );
+      }
+
+      if (input.updatedAtTo !== undefined) {
+        filteredQuery = filteredQuery.where(
+          sql<boolean>`updated_at <= ${input.updatedAtTo}::timestamptz`
+        );
+      }
+
+      const totalCountRow = await filteredQuery
+        .select(sql<number>`count(*)::int`.as('total_count'))
+        .executeTakeFirst();
+      const totalCount = totalCountRow?.total_count ?? 0;
+
+      let pageQuery = filteredQuery.select(LEARNING_PROGRESS_ROW_COLUMNS);
+
+      if (input.cursor !== undefined) {
+        const cursorRecordKey = buildCampaignEntityConfigRecordKey(
+          input.recordKeyPrefix,
+          input.cursor.entityCui
+        );
+
+        if (input.sortBy === 'entityCui') {
+          pageQuery = pageQuery.where(
+            input.sortOrder === 'asc'
+              ? sql<boolean>`record_key > ${cursorRecordKey}`
+              : sql<boolean>`record_key < ${cursorRecordKey}`
+          );
+        } else {
+          const cursorUpdatedAt = input.cursor.updatedAt;
+          if (cursorUpdatedAt === null) {
+            throw new Error('Campaign entity config updatedAt cursor is required');
+          }
+
+          pageQuery = pageQuery.where(
+            input.sortOrder === 'asc'
+              ? sql<boolean>`
+                  updated_at > ${cursorUpdatedAt}::timestamptz
+                  or (
+                    updated_at = ${cursorUpdatedAt}::timestamptz
+                    and record_key > ${cursorRecordKey}
+                  )
+                `
+              : sql<boolean>`
+                  updated_at < ${cursorUpdatedAt}::timestamptz
+                  or (
+                    updated_at = ${cursorUpdatedAt}::timestamptz
+                    and record_key > ${cursorRecordKey}
+                  )
+                `
+          );
+        }
+      }
+
+      const orderBy = getCampaignEntityConfigOrderBy(input.sortBy, input.sortOrder);
+      for (const item of orderBy) {
+        pageQuery = pageQuery.orderBy(item.column, item.direction);
+      }
+
+      const rows = await pageQuery.limit(input.limit + 1).execute();
+
+      return ok({
+        rows: rows.slice(0, input.limit).map((row) => this.mapRow(row as unknown as QueryRow)),
+        totalCount,
+        hasMore: rows.length > input.limit,
+      });
+    } catch (error) {
+      this.log.error({ err: error, input }, 'Failed to list campaign entity config rows');
+      return err(createDatabaseError('Failed to list campaign entity config rows', error));
     }
   }
 
@@ -1254,9 +1395,9 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
   }
 
-  async withTransaction<T>(
-    callback: (repo: LearningProgressRepository) => Promise<Result<T, LearningProgressError>>
-  ): Promise<Result<T, LearningProgressError>> {
+  async withTransaction<T, TError = LearningProgressError>(
+    callback: (repo: LearningProgressRepository) => Promise<Result<T, TError>>
+  ): Promise<Result<T, TError | LearningProgressError>> {
     if (this.transactionScoped) {
       return callback(this);
     }
@@ -1280,7 +1421,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       return ok(value);
     } catch (error) {
       if (error instanceof LearningProgressTransactionRollbackError) {
-        return err(error.failure);
+        return err(error.failure as TError);
       }
 
       this.log.error({ err: error }, 'Failed to execute learning progress transaction');

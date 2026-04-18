@@ -61,6 +61,9 @@ import type {
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
+  CampaignEntityConfigRecordCursor,
+  CampaignEntityConfigRecordSortBy,
+  CampaignEntityConfigRecordSortOrder,
   CampaignAdminCampaignKey,
   CampaignAdminPhaseCounts,
   CampaignAdminInteractionRow,
@@ -79,6 +82,8 @@ import type {
   GetRecordsOptions,
   InteractiveAuditEvent,
   InteractiveStateRecord,
+  ListCampaignEntityConfigRowsInput,
+  ListCampaignEntityConfigRowsOutput,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
   ListCampaignAdminUsersInput,
@@ -1360,6 +1365,11 @@ interface FakeLearningProgressRepoOptions {
   failOnResetAttempt?: number;
   /** Observe advisory lock acquisition in tests */
   onAcquireAutoReviewReuseTransactionLock?: (input: { recordKey: string }) => void;
+  /** Observe campaign entity config advisory lock acquisition in tests */
+  onAcquireCampaignEntityConfigTransactionLock?: (input: {
+    campaignKey: string;
+    entityCui: string;
+  }) => void;
   /** Observe plain record reads in tests */
   onGetRecord?: (input: { userId: string; recordKey: string }) => void;
   /** Observe record locking reads in tests */
@@ -1386,6 +1396,8 @@ export const makeFakeLearningProgressRepo = (
   const failOnUpsertAttempt = options.failOnUpsertAttempt;
   const failOnResetAttempt = options.failOnResetAttempt;
   const onAcquireAutoReviewReuseTransactionLock = options.onAcquireAutoReviewReuseTransactionLock;
+  const onAcquireCampaignEntityConfigTransactionLock =
+    options.onAcquireCampaignEntityConfigTransactionLock;
   const onGetRecord = options.onGetRecord;
   const onGetRecordForUpdate = options.onGetRecordForUpdate;
   const onFindLatestCampaignAdminReviewedExactKeyMatches =
@@ -1633,6 +1645,58 @@ export const makeFakeLearningProgressRepo = (
     return compareCampaignAdminUsers(row, cursorRow, sortBy, sortOrder) > 0;
   };
 
+  const buildCampaignEntityConfigRecordKey = (
+    recordKeyPrefix: string,
+    entityCui: string
+  ): string => {
+    return `${recordKeyPrefix}${entityCui}`;
+  };
+
+  const compareCampaignEntityConfigRows = (
+    leftRow: LearningProgressRecordRow,
+    rightRow: LearningProgressRecordRow,
+    sortBy: CampaignEntityConfigRecordSortBy,
+    sortOrder: CampaignEntityConfigRecordSortOrder
+  ): number => {
+    if (sortBy === 'entityCui') {
+      return sortOrder === 'asc'
+        ? leftRow.recordKey.localeCompare(rightRow.recordKey)
+        : rightRow.recordKey.localeCompare(leftRow.recordKey);
+    }
+
+    const updatedAtComparison = compareTimestamps(leftRow.updatedAt, rightRow.updatedAt);
+    if (updatedAtComparison !== 0) {
+      return sortOrder === 'asc' ? updatedAtComparison : -updatedAtComparison;
+    }
+
+    return leftRow.recordKey.localeCompare(rightRow.recordKey);
+  };
+
+  const isCampaignEntityConfigRowAfterCursor = (
+    row: LearningProgressRecordRow,
+    cursor: CampaignEntityConfigRecordCursor,
+    sortBy: CampaignEntityConfigRecordSortBy,
+    sortOrder: CampaignEntityConfigRecordSortOrder,
+    recordKeyPrefix: string
+  ): boolean => {
+    const cursorRecordKey = buildCampaignEntityConfigRecordKey(recordKeyPrefix, cursor.entityCui);
+
+    if (sortBy === 'entityCui') {
+      return sortOrder === 'asc'
+        ? row.recordKey > cursorRecordKey
+        : row.recordKey < cursorRecordKey;
+    }
+
+    if (cursor.updatedAt === null) {
+      return false;
+    }
+
+    return (
+      compareTimestamps(row.updatedAt, cursor.updatedAt) === (sortOrder === 'asc' ? 1 : -1) ||
+      (compareTimestamps(row.updatedAt, cursor.updatedAt) === 0 && row.recordKey > cursorRecordKey)
+    );
+  };
+
   const getInstitutionEmail = (record: InteractiveStateRecord): string | null => {
     if (record.value?.kind !== 'json') {
       return null;
@@ -1809,6 +1873,19 @@ export const makeFakeLearningProgressRepo = (
 
         onAcquireAutoReviewReuseTransactionLock?.({
           recordKey,
+        });
+        return ok(undefined);
+      },
+
+      acquireCampaignEntityConfigTransactionLock: async ({
+        campaignKey,
+        entityCui,
+      }): Promise<Result<void, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        onAcquireCampaignEntityConfigTransactionLock?.({
+          campaignKey,
+          entityCui,
         });
         return ok(undefined);
       },
@@ -2006,6 +2083,75 @@ export const makeFakeLearningProgressRepo = (
                   recordKey: rows.at(-1)?.recordKey ?? '',
                 }
               : null,
+        });
+      },
+
+      listCampaignEntityConfigRows: async (
+        input: ListCampaignEntityConfigRowsInput
+      ): Promise<Result<ListCampaignEntityConfigRowsOutput, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const exactRecordKey =
+          input.entityCui !== undefined
+            ? buildCampaignEntityConfigRecordKey(input.recordKeyPrefix, input.entityCui)
+            : undefined;
+
+        const filteredRows = [...currentStore.values()]
+          .flatMap((userStore) => [...userStore.values()])
+          .filter((row) => {
+            if (row.userId !== input.userId) {
+              return false;
+            }
+
+            if (!row.recordKey.startsWith(input.recordKeyPrefix)) {
+              return false;
+            }
+
+            if (exactRecordKey !== undefined && row.recordKey !== exactRecordKey) {
+              return false;
+            }
+
+            if (
+              input.updatedAtFrom !== undefined &&
+              compareTimestamps(row.updatedAt, input.updatedAtFrom) < 0
+            ) {
+              return false;
+            }
+
+            if (
+              input.updatedAtTo !== undefined &&
+              compareTimestamps(row.updatedAt, input.updatedAtTo) > 0
+            ) {
+              return false;
+            }
+
+            return true;
+          });
+
+        const pagedRows = filteredRows
+          .filter((row) => {
+            if (input.cursor === undefined) {
+              return true;
+            }
+
+            return isCampaignEntityConfigRowAfterCursor(
+              row,
+              input.cursor,
+              input.sortBy,
+              input.sortOrder,
+              input.recordKeyPrefix
+            );
+          })
+          .sort((leftRow, rightRow) =>
+            compareCampaignEntityConfigRows(leftRow, rightRow, input.sortBy, input.sortOrder)
+          );
+
+        const pageRows = pagedRows.slice(0, input.limit + 1);
+
+        return ok({
+          rows: pageRows.slice(0, input.limit),
+          totalCount: filteredRows.length,
+          hasMore: pageRows.length > input.limit,
         });
       },
 
@@ -2459,9 +2605,9 @@ export const makeFakeLearningProgressRepo = (
         return ok(undefined);
       },
 
-      withTransaction: async <T>(
-        callback: (repo: LearningProgressRepository) => Promise<Result<T, LearningProgressError>>
-      ): Promise<Result<T, LearningProgressError>> => {
+      withTransaction: async <T, TError = LearningProgressError>(
+        callback: (repo: LearningProgressRepository) => Promise<Result<T, TError>>
+      ): Promise<Result<T, TError | LearningProgressError>> => {
         if (simulateDbError) return createDbError();
 
         if (transactionScoped) {
