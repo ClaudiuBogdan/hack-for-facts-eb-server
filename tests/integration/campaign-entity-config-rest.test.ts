@@ -1,0 +1,890 @@
+import fastifyLib, { type FastifyInstance } from 'fastify';
+import { ok } from 'neverthrow';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
+import {
+  buildCampaignEntityConfigRecordKey,
+  buildCampaignEntityConfigUserId,
+  compareCampaignEntityConfigDtos,
+  createCampaignEntityConfigRecord,
+} from '@/modules/campaign-entity-config/core/config-record.js';
+import { makeCampaignEntityConfigRoutes } from '@/modules/campaign-entity-config/index.js';
+
+import { makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
+
+import type { CampaignEntityConfigDto } from '@/modules/campaign-entity-config/core/types.js';
+import type {
+  EntityConnection,
+  Entity,
+  EntityFilter,
+  EntityRepository,
+} from '@/modules/entity/index.js';
+import type {
+  LearningProgressRecordRow,
+  LearningProgressRepository,
+} from '@/modules/learning-progress/index.js';
+
+function createEntity(input: { cui: string; name?: string }): Entity {
+  return {
+    cui: input.cui,
+    name: input.name ?? `Entity ${input.cui}`,
+    entity_type: null,
+    default_report_type: 'atv',
+    uat_id: null,
+    is_uat: false,
+    address: null,
+    last_updated: null,
+    main_creditor_1_cui: null,
+    main_creditor_2_cui: null,
+  } as unknown as Entity;
+}
+
+function makeEntityRepo(
+  entitiesInput: readonly (string | { cui: string; name?: string })[],
+  options?: {
+    onGetAll?: (input: { filter: EntityFilter; limit: number; offset: number }) => void;
+  }
+): EntityRepository {
+  const entities = entitiesInput
+    .map((entity) =>
+      typeof entity === 'string' ? createEntity({ cui: entity }) : createEntity(entity)
+    )
+    .sort((left, right) => left.cui.localeCompare(right.cui));
+
+  const getEntity = (cui: string): Entity | null =>
+    entities.find((entity) => entity.cui === cui) ?? null;
+
+  return {
+    async getById(cui) {
+      return ok(getEntity(cui));
+    },
+    async getByIds(cuis) {
+      return ok(
+        new Map(
+          cuis
+            .map((cui) => getEntity(cui))
+            .filter((entity): entity is Entity => entity !== null)
+            .map((entity) => [entity.cui, entity])
+        )
+      );
+    },
+    async getAll(filter: EntityFilter, limit: number, offset: number) {
+      options?.onGetAll?.({
+        filter,
+        limit,
+        offset,
+      });
+
+      let filteredEntities = entities;
+
+      if (filter.cui !== undefined) {
+        filteredEntities = filteredEntities.filter((entity) => entity.cui === filter.cui);
+      }
+
+      if (filter.search !== undefined && filter.search.trim() !== '') {
+        const normalizedQuery = filter.search.trim().toLocaleLowerCase('en');
+        filteredEntities = filteredEntities.filter(
+          (entity) =>
+            entity.cui.toLocaleLowerCase('en').includes(normalizedQuery) ||
+            entity.name.toLocaleLowerCase('en').includes(normalizedQuery)
+        );
+      }
+
+      const nodes = filteredEntities.slice(offset, offset + limit);
+      const connection: EntityConnection = {
+        nodes,
+        pageInfo: {
+          totalCount: filteredEntities.length,
+          hasNextPage: offset + limit < filteredEntities.length,
+          hasPreviousPage: offset > 0,
+        },
+      };
+
+      return ok(connection);
+    },
+    async getChildren() {
+      return ok([]);
+    },
+    async getParents() {
+      return ok([]);
+    },
+    async getCountyEntity() {
+      return ok(null);
+    },
+  };
+}
+
+function makeRow(input: {
+  entityCui: string;
+  values: {
+    budgetPublicationDate: string | null;
+    officialBudgetUrl: string | null;
+  };
+  actorUserId: string;
+  rowUpdatedAt: string;
+}): LearningProgressRecordRow {
+  const record = createCampaignEntityConfigRecord({
+    campaignKey: 'funky',
+    entityCui: input.entityCui,
+    values: input.values,
+    actorUserId: input.actorUserId,
+    recordUpdatedAt: input.rowUpdatedAt,
+  });
+
+  return {
+    userId: buildCampaignEntityConfigUserId('funky'),
+    recordKey: buildCampaignEntityConfigRecordKey(input.entityCui),
+    record,
+    auditEvents: [],
+    updatedSeq: '1',
+    createdAt: input.rowUpdatedAt,
+    updatedAt: input.rowUpdatedAt,
+  };
+}
+
+function makeInvalidRow(): LearningProgressRecordRow {
+  const row = makeRow({
+    entityCui: '12345678',
+    values: {
+      budgetPublicationDate: '2026-02-01',
+      officialBudgetUrl: 'https://example.com/budget.pdf',
+    },
+    actorUserId: 'admin-1',
+    rowUpdatedAt: '2026-04-18T10:00:00.000Z',
+  });
+
+  return {
+    ...row,
+    record: {
+      ...row.record,
+      interactionId: 'funky:interaction:budget_document',
+    },
+  };
+}
+
+function toCampaignEntityConfigSortDto(row: LearningProgressRecordRow): CampaignEntityConfigDto {
+  const entityCui = row.record.scope.type === 'entity' ? row.record.scope.entityCui : row.recordKey;
+
+  return {
+    campaignKey: 'funky',
+    entityCui,
+    isConfigured: true,
+    values: {
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+    },
+    updatedAt: row.record.updatedAt,
+    updatedByUserId: null,
+  };
+}
+
+function ensureCampaignEntityConfigListCapableRepo(
+  learningProgressRepo: LearningProgressRepository
+): LearningProgressRepository {
+  if (typeof learningProgressRepo.listCampaignEntityConfigRows === 'function') {
+    return learningProgressRepo;
+  }
+
+  return {
+    ...learningProgressRepo,
+    async listCampaignEntityConfigRows(input) {
+      const rowsResult = await learningProgressRepo.getRecords(input.userId, {
+        includeInternal: true,
+        recordKeyPrefix: input.recordKeyPrefix,
+      });
+      if (rowsResult.isErr()) {
+        return rowsResult;
+      }
+
+      const filteredRows = rowsResult.value.filter((row) => {
+        if (
+          input.entityCui !== undefined &&
+          row.recordKey !== buildCampaignEntityConfigRecordKey(input.entityCui)
+        ) {
+          return false;
+        }
+
+        if (
+          input.updatedAtFrom !== undefined &&
+          row.record.updatedAt.localeCompare(input.updatedAtFrom) < 0
+        ) {
+          return false;
+        }
+
+        if (
+          input.updatedAtTo !== undefined &&
+          row.record.updatedAt.localeCompare(input.updatedAtTo) > 0
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+      const sortedRows = [...filteredRows].sort((left, right) =>
+        compareCampaignEntityConfigDtos({
+          left: toCampaignEntityConfigSortDto(left),
+          right: toCampaignEntityConfigSortDto(right),
+          sortBy: input.sortBy,
+          sortOrder: input.sortOrder,
+        })
+      );
+      const cursorItem: CampaignEntityConfigDto | null =
+        input.cursor === undefined
+          ? null
+          : {
+              campaignKey: 'funky',
+              entityCui: input.cursor.entityCui,
+              isConfigured: true,
+              values: {
+                budgetPublicationDate: null,
+                officialBudgetUrl: null,
+              },
+              updatedAt: input.cursor.updatedAt,
+              updatedByUserId: null,
+            };
+      const pageStartIndex =
+        cursorItem === null
+          ? 0
+          : sortedRows.findIndex((row) => {
+              return (
+                compareCampaignEntityConfigDtos({
+                  left: toCampaignEntityConfigSortDto(row),
+                  right: cursorItem,
+                  sortBy: input.sortBy,
+                  sortOrder: input.sortOrder,
+                }) > 0
+              );
+            });
+      const effectivePageStartIndex = pageStartIndex === -1 ? sortedRows.length : pageStartIndex;
+
+      return ok({
+        rows: sortedRows.slice(effectivePageStartIndex, effectivePageStartIndex + input.limit),
+        totalCount: sortedRows.length,
+        hasMore: effectivePageStartIndex + input.limit < sortedRows.length,
+      });
+    },
+  };
+}
+
+async function createTestApp(options?: {
+  permissionAllowed?: boolean;
+  learningProgressRepo?: LearningProgressRepository;
+  entityRepo?: EntityRepository;
+}) {
+  const testAuth = createTestAuthProvider();
+  const app = fastifyLib({ logger: false });
+
+  app.setErrorHandler((err, _request, reply) => {
+    const error = err as { statusCode?: number; code?: string; name?: string; message?: string };
+    const statusCode = error.statusCode ?? 500;
+    void reply.status(statusCode).send({
+      ok: false,
+      error: error.code ?? error.name ?? 'Error',
+      message: error.message ?? 'An error occurred',
+      retryable: false,
+    });
+  });
+
+  app.addHook('preHandler', makeAuthMiddleware({ authProvider: testAuth.provider }));
+
+  const permissionAuthorizer = {
+    hasPermission: vi.fn(async () => options?.permissionAllowed ?? true),
+  };
+  const learningProgressRepo = ensureCampaignEntityConfigListCapableRepo(
+    options?.learningProgressRepo ?? makeFakeLearningProgressRepo()
+  );
+
+  await app.register(
+    makeCampaignEntityConfigRoutes({
+      learningProgressRepo,
+      entityRepo: options?.entityRepo ?? makeEntityRepo(['12345678']),
+      enabledCampaignKeys: ['funky'],
+      permissionAuthorizer,
+    })
+  );
+
+  await app.ready();
+  return { app, testAuth, permissionAuthorizer };
+}
+
+describe('campaign entity config routes', () => {
+  let app: FastifyInstance;
+
+  afterAll(async () => {
+    if (app != null) {
+      await app.close();
+    }
+  });
+
+  beforeEach(async () => {
+    if (app != null) {
+      await app.close();
+    }
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('returns 403 when permission is denied', async () => {
+    const setup = await createTestApp({
+      permissionAllowed: false,
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ForbiddenError',
+      message: 'You do not have permission to access this campaign entity config admin',
+      retryable: false,
+    });
+  });
+
+  it('returns 404 for unsupported campaigns', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/unknown/entity-config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('returns the default dto when the entity exists and no config row has been stored', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        campaignKey: 'funky',
+        entityCui: '12345678',
+        isConfigured: false,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+        },
+        updatedAt: null,
+        updatedByUserId: null,
+      },
+    });
+  });
+
+  it('returns 404 when the entity does not exist', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([]),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('returns 400 for all-null replacement writes', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: null,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'At least one campaign entity config value must be configured.',
+      retryable: false,
+    });
+  });
+
+  it('returns 409 for stale writes after a successful update', async () => {
+    const repo = makeFakeLearningProgressRepo();
+    const setup = await createTestApp({
+      learningProgressRepo: repo,
+    });
+    app = setup.app;
+
+    const firstResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: null,
+        values: {
+          budgetPublicationDate: '2026-02-01',
+          officialBudgetUrl: 'https://example.com/budget.pdf',
+        },
+      },
+    });
+
+    const firstBody = firstResponse.json();
+    expect(firstResponse.statusCode).toBe(200);
+
+    const staleResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+        values: {
+          budgetPublicationDate: '2026-02-02',
+          officialBudgetUrl: 'https://example.com/budget-v2.pdf',
+        },
+      },
+    });
+
+    expect(staleResponse.statusCode).toBe(409);
+
+    const secondResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: firstBody.data.updatedAt,
+        values: {
+          budgetPublicationDate: '2026-02-03',
+          officialBudgetUrl: 'https://example.com/budget-v3.pdf',
+        },
+      },
+    });
+
+    expect(secondResponse.statusCode).toBe(200);
+  });
+
+  it('lists configured rows only with the canonical dto shape', async () => {
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          {
+            campaignKey: 'funky',
+            entityCui: '12345678',
+            isConfigured: true,
+            values: {
+              budgetPublicationDate: '2026-02-01',
+              officialBudgetUrl: 'https://example.com/first.pdf',
+            },
+            updatedAt: '2026-04-18T12:00:00.000Z',
+            updatedByUserId: 'admin-1',
+          },
+          {
+            campaignKey: 'funky',
+            entityCui: '87654321',
+            isConfigured: true,
+            values: {
+              budgetPublicationDate: '2026-02-02',
+              officialBudgetUrl: 'https://example.com/second.pdf',
+            },
+            updatedAt: '2026-04-18T11:00:00.000Z',
+            updatedByUserId: 'admin-2',
+          },
+        ],
+        page: {
+          limit: 50,
+          totalCount: 2,
+          hasMore: false,
+          nextCursor: null,
+          sortBy: 'updatedAt',
+          sortOrder: 'desc',
+        },
+      },
+    });
+  });
+
+  it('returns 400 when a query filter is used on paginated listing', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '87654321', name: 'Beta Commune' },
+        { cui: '12345678', name: 'Alpha Town' },
+      ]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?query=alpha&sortBy=entityCui&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'FST_ERR_VALIDATION',
+      message: 'querystring/query must NOT have more than 0 characters',
+      retryable: false,
+    });
+  });
+
+  it('returns 400 for an invalid collection cursor', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?cursor=not-base64',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ValidationError',
+      message: 'Invalid campaign entity config cursor',
+      retryable: false,
+    });
+  });
+
+  it('returns 500 when a persisted config row is corrupted', async () => {
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([[buildCampaignEntityConfigUserId('funky'), [makeInvalidRow()]]]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'DatabaseError',
+      message: 'Invalid persisted campaign entity config row.',
+      retryable: false,
+    });
+  });
+
+  it('streams a csv export with config data for all entities, including unconfigured ones', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+        { cui: '99999999', name: '=Unconfigured Village' },
+      ]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config/export?sortBy=entityCui&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        origin: 'http://localhost:3001',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+    expect(response.headers['content-disposition']).toContain(
+      'funky-campaign-entity-config-export-'
+    );
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3001');
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(4);
+    expect(csvLines[0]).toContain('Campaign Key,Entity CUI,Entity Name,Configured');
+    expect(csvBody).toContain(
+      'funky,12345678,Alpha Town,true,2026-02-01,https://example.com/first.pdf'
+    );
+    expect(csvBody).toContain(
+      'funky,87654321,Beta Commune,true,2026-02-02,https://example.com/second.pdf'
+    );
+    expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,false,,,,");
+  });
+
+  it('streams entity export batches without materializing the full entity list first', async () => {
+    const getAllCalls: {
+      filter: EntityFilter;
+      limit: number;
+      offset: number;
+    }[] = [];
+    const entities = Array.from({ length: 1001 }, (_, index) => {
+      const cui = String(10000000 + index);
+
+      return {
+        cui,
+        name: `Entity ${cui}`,
+      };
+    });
+    const finalEntityCui = entities[1000]?.cui ?? '10001000';
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo(entities, {
+        onGetAll(input) {
+          getAllCalls.push(input);
+        },
+      }),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: finalEntityCui,
+                values: {
+                  budgetPublicationDate: '2026-03-01',
+                  officialBudgetUrl: 'https://example.com/final.pdf',
+                },
+                actorUserId: 'admin-final',
+                rowUpdatedAt: '2026-04-18T13:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config/export',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(getAllCalls).toEqual([
+      {
+        filter: {},
+        limit: 500,
+        offset: 0,
+      },
+      {
+        filter: {},
+        limit: 500,
+        offset: 500,
+      },
+      {
+        filter: {},
+        limit: 500,
+        offset: 1000,
+      },
+    ]);
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(1002);
+    expect(csvBody).toContain(
+      `funky,${finalEntityCui},Entity ${finalEntityCui},true,2026-03-01,https://example.com/final.pdf`
+    );
+  });
+
+  it('filters export rows by query while preserving entityCui-ordered streaming', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+        { cui: '99999999', name: 'Gamma Village' },
+      ]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config/export?query=ma',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(2);
+    expect(csvBody).toContain('funky,99999999,Gamma Village,false,,,,');
+    expect(csvBody).not.toContain('Alpha Town');
+    expect(csvBody).not.toContain('Beta Commune');
+  });
+});
