@@ -17,17 +17,22 @@ export interface CampaignEntityConfigDto {
   readonly updatedByUserId: string | null;
 }
 
+export interface CampaignEntityConfigListItem extends CampaignEntityConfigDto {
+  readonly usersCount: number;
+}
+
 export type CampaignEntityConfigSortBy =
   | 'updatedAt'
   | 'entityCui'
   | 'budgetPublicationDate'
-  | 'officialBudgetUrl';
+  | 'officialBudgetUrl'
+  | 'usersCount';
 export type CampaignEntityConfigSortOrder = 'asc' | 'desc';
 
 export interface CampaignEntityConfigListCursor {
   readonly sortBy: CampaignEntityConfigSortBy;
   readonly sortOrder: CampaignEntityConfigSortOrder;
-  readonly value: string | null;
+  readonly value: string | number | null;
   readonly entityCui: string;
 }
 
@@ -61,7 +66,7 @@ export interface ListCampaignEntityConfigsInput {
 }
 
 export interface ListCampaignEntityConfigsOutput {
-  readonly items: readonly CampaignEntityConfigDto[];
+  readonly items: readonly CampaignEntityConfigListItem[];
   readonly totalCount: number;
   readonly hasMore: boolean;
   readonly nextCursor: CampaignEntityConfigListCursor | null;

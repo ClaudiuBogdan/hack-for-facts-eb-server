@@ -236,18 +236,20 @@ export type CampaignEntityConfigCollectionSortBy =
   | 'updatedAt'
   | 'entityCui'
   | 'budgetPublicationDate'
-  | 'officialBudgetUrl';
+  | 'officialBudgetUrl'
+  | 'usersCount';
 export type CampaignEntityConfigCollectionSortOrder = 'asc' | 'desc';
 
 export interface CampaignEntityConfigCollectionCursor {
   readonly sortBy: CampaignEntityConfigCollectionSortBy;
   readonly sortOrder: CampaignEntityConfigCollectionSortOrder;
-  readonly value: string | null;
+  readonly value: string | number | null;
   readonly entityCui: string;
 }
 
 export interface CampaignEntityConfigCollectionRow {
   readonly entityCui: string;
+  readonly usersCount: number;
   readonly configuredRow: LearningProgressRecordRow | null;
 }
 

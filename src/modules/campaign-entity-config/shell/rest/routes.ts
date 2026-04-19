@@ -44,7 +44,7 @@ import { upsertCampaignEntityConfig } from '../../core/usecases/upsert-campaign-
 
 import type {
   CampaignEntityConfigCampaignKey,
-  CampaignEntityConfigDto,
+  CampaignEntityConfigListItem,
   CampaignEntityConfigListCursor,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
@@ -84,6 +84,7 @@ const CAMPAIGN_ENTITY_CONFIG_EXPORT_HEADERS = [
   'Campaign Key',
   'Entity CUI',
   'Entity Name',
+  'Users',
   'Configured',
   'Budget Publication Date',
   'Official Budget URL',
@@ -112,7 +113,7 @@ interface CampaignEntityConfigNormalizedSort {
 interface CampaignEntityConfigExportItem {
   readonly entityCui: string;
   readonly entityName: string | null;
-  readonly config: CampaignEntityConfigDto;
+  readonly config: CampaignEntityConfigListItem;
 }
 
 declare module 'fastify' {
@@ -258,7 +259,7 @@ function sendError(reply: FastifyReply, error: CampaignEntityConfigError) {
 }
 
 function toCampaignEntityConfigExportItem(
-  config: CampaignEntityConfigDto
+  config: CampaignEntityConfigListItem
 ): CampaignEntityConfigExportItem {
   return {
     entityCui: config.entityCui,
@@ -272,6 +273,7 @@ function toCampaignEntityConfigExportRow(item: CampaignEntityConfigExportItem): 
     item.config.campaignKey,
     item.entityCui,
     item.entityName,
+    item.config.usersCount,
     item.config.isConfigured,
     item.config.values.budgetPublicationDate,
     item.config.values.officialBudgetUrl,

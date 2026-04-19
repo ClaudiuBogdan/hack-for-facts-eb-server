@@ -1719,6 +1719,18 @@ export const makeFakeLearningProgressRepo = (
         : right.entityCui.localeCompare(left.entityCui);
     }
 
+    if (sortBy === 'usersCount') {
+      const comparison =
+        sortOrder === 'asc'
+          ? left.usersCount - right.usersCount
+          : right.usersCount - left.usersCount;
+      if (comparison !== 0) {
+        return comparison;
+      }
+
+      return left.entityCui.localeCompare(right.entityCui);
+    }
+
     const leftValues = getCampaignEntityConfigValuesFromRow(left.configuredRow);
     const rightValues = getCampaignEntityConfigValuesFromRow(right.configuredRow);
     const leftValue =
@@ -1753,25 +1765,34 @@ export const makeFakeLearningProgressRepo = (
     sortBy: CampaignEntityConfigCollectionSortBy,
     sortOrder: CampaignEntityConfigCollectionSortOrder
   ): boolean => {
-    const cursorValues =
-      sortBy === 'entityCui'
-        ? {
-            budgetPublicationDate: null,
-            officialBudgetUrl: null,
-            updatedAt: null,
-          }
-        : {
-            budgetPublicationDate: sortBy === 'budgetPublicationDate' ? cursor.value : null,
-            officialBudgetUrl: sortBy === 'officialBudgetUrl' ? cursor.value : null,
-            updatedAt: sortBy === 'updatedAt' ? cursor.value : null,
-          };
-    const rowValues = getCampaignEntityConfigValuesFromRow(row.configuredRow);
-
     if (sortBy === 'entityCui') {
       return sortOrder === 'asc'
         ? row.entityCui > cursor.entityCui
         : row.entityCui < cursor.entityCui;
     }
+
+    if (sortBy === 'usersCount') {
+      const cursorUsersCount = Number(cursor.value);
+      const comparison =
+        sortOrder === 'asc' ? row.usersCount - cursorUsersCount : cursorUsersCount - row.usersCount;
+
+      if (comparison !== 0) {
+        return comparison > 0;
+      }
+
+      return row.entityCui.localeCompare(cursor.entityCui) > 0;
+    }
+
+    const cursorValues = {
+      budgetPublicationDate:
+        sortBy === 'budgetPublicationDate' && typeof cursor.value === 'string'
+          ? cursor.value
+          : null,
+      officialBudgetUrl:
+        sortBy === 'officialBudgetUrl' && typeof cursor.value === 'string' ? cursor.value : null,
+      updatedAt: sortBy === 'updatedAt' && typeof cursor.value === 'string' ? cursor.value : null,
+    };
+    const rowValues = getCampaignEntityConfigValuesFromRow(row.configuredRow);
 
     const comparison =
       sortBy === 'updatedAt' && rowValues.updatedAt !== null && cursorValues.updatedAt !== null
@@ -2309,6 +2330,7 @@ export const makeFakeLearningProgressRepo = (
 
         const allRows = [...currentStore.values()].flatMap((userStore) => [...userStore.values()]);
         const configuredRowsByEntityCui = new Map<string, LearningProgressRecordRow>();
+        const usersCountByEntityCui = new Map<string, number>();
         const configUserId = `internal:campaign-config:${input.campaignKey}`;
 
         for (const row of allRows) {
@@ -2332,11 +2354,13 @@ export const makeFakeLearningProgressRepo = (
           const entityCui = getAcceptedTermsEntityCui(row);
           if (entityCui !== null) {
             entityCuis.add(entityCui);
+            usersCountByEntityCui.set(entityCui, (usersCountByEntityCui.get(entityCui) ?? 0) + 1);
           }
         }
 
         const collectionRows = [...entityCuis].map((entityCui) => ({
           entityCui,
+          usersCount: usersCountByEntityCui.get(entityCui) ?? 0,
           configuredRow: configuredRowsByEntityCui.get(entityCui) ?? null,
         }));
 

@@ -22,6 +22,7 @@ export const CampaignEntityConfigSortBySchema = Type.Union([
   Type.Literal('entityCui'),
   Type.Literal('budgetPublicationDate'),
   Type.Literal('officialBudgetUrl'),
+  Type.Literal('usersCount'),
 ]);
 
 export const CampaignEntityConfigSortOrderSchema = Type.Union([
@@ -31,7 +32,7 @@ export const CampaignEntityConfigSortOrderSchema = Type.Union([
 
 export const CampaignEntityConfigCursorSchema = Type.Object(
   {
-    value: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    value: Type.Union([Type.String({ minLength: 1 }), Type.Number(), Type.Null()]),
     entityCui: Type.String({ minLength: 1 }),
     sortBy: CampaignEntityConfigSortBySchema,
     sortOrder: CampaignEntityConfigSortOrderSchema,
@@ -94,6 +95,16 @@ export const CampaignEntityConfigDtoSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignEntityConfigListItemSchema = Type.Composite([
+  CampaignEntityConfigDtoSchema,
+  Type.Object(
+    {
+      usersCount: Type.Number({ minimum: 0 }),
+    },
+    { additionalProperties: false }
+  ),
+]);
+
 export const CampaignEntityConfigResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
@@ -107,7 +118,7 @@ export const CampaignEntityConfigListResponseSchema = Type.Object(
     ok: Type.Literal(true),
     data: Type.Object(
       {
-        items: Type.Array(CampaignEntityConfigDtoSchema),
+        items: Type.Array(CampaignEntityConfigListItemSchema),
         page: Type.Object(
           {
             limit: Type.Number({ minimum: 1 }),

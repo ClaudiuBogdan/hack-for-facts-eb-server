@@ -13,7 +13,7 @@ import { makeCampaignEntityConfigRoutes } from '@/modules/campaign-entity-config
 
 import { makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 
-import type { CampaignEntityConfigDto } from '@/modules/campaign-entity-config/core/types.js';
+import type { CampaignEntityConfigListItem } from '@/modules/campaign-entity-config/core/types.js';
 import type {
   EntityConnection,
   Entity,
@@ -205,13 +205,16 @@ function makeInvalidRow(): LearningProgressRecordRow {
   };
 }
 
-function toCampaignEntityConfigSortDto(row: LearningProgressRecordRow): CampaignEntityConfigDto {
+function toCampaignEntityConfigSortDto(
+  row: LearningProgressRecordRow
+): CampaignEntityConfigListItem {
   const entityCui = row.record.scope.type === 'entity' ? row.record.scope.entityCui : row.recordKey;
 
   return {
     campaignKey: 'funky',
     entityCui,
     entityName: null,
+    usersCount: 0,
     isConfigured: true,
     values: {
       budgetPublicationDate: null,
@@ -273,13 +276,14 @@ function ensureCampaignEntityConfigListCapableRepo(
           sortOrder: input.sortOrder,
         })
       );
-      const cursorItem: CampaignEntityConfigDto | null =
+      const cursorItem: CampaignEntityConfigListItem | null =
         input.cursor === undefined
           ? null
           : {
               campaignKey: 'funky',
               entityCui: input.cursor.entityCui,
               entityName: null,
+              usersCount: 0,
               isConfigured: true,
               values: {
                 budgetPublicationDate: null,
@@ -676,6 +680,7 @@ describe('campaign entity config routes', () => {
             campaignKey: 'funky',
             entityCui: '12345678',
             entityName: 'Alpha Town',
+            usersCount: 0,
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-01',
@@ -688,6 +693,7 @@ describe('campaign entity config routes', () => {
             campaignKey: 'funky',
             entityCui: '87654321',
             entityName: 'Beta Commune',
+            usersCount: 0,
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-02',
@@ -766,6 +772,7 @@ describe('campaign entity config routes', () => {
             campaignKey: 'funky',
             entityCui: '12345678',
             entityName: 'Alpha Town',
+            usersCount: 0,
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-01',
@@ -778,6 +785,7 @@ describe('campaign entity config routes', () => {
             campaignKey: 'funky',
             entityCui: '22222222',
             entityName: 'Beta Commune',
+            usersCount: 1,
             isConfigured: false,
             values: {
               budgetPublicationDate: null,
@@ -849,6 +857,7 @@ describe('campaign entity config routes', () => {
             campaignKey: 'funky',
             entityCui: '12345678',
             entityName: null,
+            usersCount: 0,
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-01',
@@ -1126,14 +1135,14 @@ describe('campaign entity config routes', () => {
     const csvLines = csvBody.trimEnd().split('\n');
 
     expect(csvLines).toHaveLength(4);
-    expect(csvLines[0]).toContain('Campaign Key,Entity CUI,Entity Name,Configured');
+    expect(csvLines[0]).toContain('Campaign Key,Entity CUI,Entity Name,Users,Configured');
     expect(csvBody).toContain(
-      'funky,12345678,Alpha Town,true,2026-02-01,https://example.com/first.pdf'
+      'funky,12345678,Alpha Town,0,true,2026-02-01,https://example.com/first.pdf'
     );
     expect(csvBody).toContain(
-      'funky,87654321,Beta Commune,true,2026-02-02,https://example.com/second.pdf'
+      'funky,87654321,Beta Commune,0,true,2026-02-02,https://example.com/second.pdf'
     );
-    expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,false,,,,");
+    expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,1,false,,,,");
     expect(csvBody).not.toContain('Ignored Borough');
   });
 
@@ -1205,9 +1214,9 @@ describe('campaign entity config routes', () => {
     const firstEntityCui = entities[0]?.cui ?? '10000000';
 
     expect(csvLines).toHaveLength(3);
-    expect(csvBody).toContain(`funky,${firstEntityCui},Entity ${firstEntityCui},false,,,,`);
+    expect(csvBody).toContain(`funky,${firstEntityCui},Entity ${firstEntityCui},1,false,,,,`);
     expect(csvBody).toContain(
-      `funky,${finalEntityCui},Entity ${finalEntityCui},true,2026-03-01,https://example.com/final.pdf`
+      `funky,${finalEntityCui},Entity ${finalEntityCui},0,true,2026-03-01,https://example.com/final.pdf`
     );
   });
 
@@ -1272,7 +1281,7 @@ describe('campaign entity config routes', () => {
     const csvLines = csvBody.trimEnd().split('\n');
 
     expect(csvLines).toHaveLength(2);
-    expect(csvBody).toContain('funky,99999999,Gamma Village,false,,,,');
+    expect(csvBody).toContain('funky,99999999,Gamma Village,1,false,,,,');
     expect(csvBody).not.toContain('Alpha Town');
     expect(csvBody).not.toContain('Beta Commune');
   });

@@ -175,6 +175,8 @@ function buildCampaignEntityConfigCollectionSortColumnSql(
       return sql.ref('collection_rows.budget_publication_date');
     case 'officialBudgetUrl':
       return sql.ref('collection_rows.official_budget_url');
+    case 'usersCount':
+      return sql.ref('collection_rows.users_count');
     case 'entityCui':
     default:
       return sql.ref('collection_rows.entity_cui');
@@ -190,6 +192,12 @@ function buildCampaignEntityConfigCollectionOrderBySql(
     return sortOrder === 'asc'
       ? sql`order by collection_rows.entity_cui asc`
       : sql`order by collection_rows.entity_cui desc`;
+  }
+
+  if (sortBy === 'usersCount') {
+    return sortOrder === 'asc'
+      ? sql`order by collection_rows.users_count asc, collection_rows.entity_cui asc`
+      : sql`order by collection_rows.users_count desc, collection_rows.entity_cui asc`;
   }
 
   return sortOrder === 'asc'
@@ -214,6 +222,30 @@ function buildCampaignEntityConfigCollectionCursorFilterSql(input: {
     return input.sortOrder === 'asc'
       ? sql`and collection_rows.entity_cui > ${cursorEntityCui}`
       : sql`and collection_rows.entity_cui < ${cursorEntityCui}`;
+  }
+
+  if (input.sortBy === 'usersCount') {
+    const numericCursorValue = Number(cursorValue);
+
+    return input.sortOrder === 'asc'
+      ? sql`
+          and (
+            collection_rows.users_count > ${numericCursorValue}
+            or (
+              collection_rows.users_count = ${numericCursorValue}
+              and collection_rows.entity_cui > ${cursorEntityCui}
+            )
+          )
+        `
+      : sql`
+          and (
+            collection_rows.users_count < ${numericCursorValue}
+            or (
+              collection_rows.users_count = ${numericCursorValue}
+              and collection_rows.entity_cui > ${cursorEntityCui}
+            )
+          )
+        `;
   }
 
   if (cursorValue === null) {
@@ -337,11 +369,13 @@ function buildCampaignEntityConfigCollectionCteSql(input: {
         and record_key like ${`${escapeLikePattern(configRecordKeyPrefix)}%`} escape '\\'
     ),
     terms_accepted_entities as (
-      select distinct
-        nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui
+      select
+        nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui,
+        count(distinct user_id)::int as users_count
       from userinteractions
       where record_key like ${`${escapeLikePattern(termsAcceptedRecordKeyPrefix)}%`} escape '\\'
         and nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') is not null
+      group by nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '')
     ),
     base_entities as (
       select entity_cui from configured_rows
@@ -358,11 +392,14 @@ function buildCampaignEntityConfigCollectionCteSql(input: {
         configured_rows.updated_seq as configured_updated_seq,
         configured_rows.created_at as configured_created_at,
         configured_rows.updated_at as config_updated_at,
+        coalesce(terms_accepted_entities.users_count, 0)::int as users_count,
         configured_rows.budget_publication_date,
         configured_rows.official_budget_url
       from base_entities
       left join configured_rows
         on configured_rows.entity_cui = base_entities.entity_cui
+      left join terms_accepted_entities
+        on terms_accepted_entities.entity_cui = base_entities.entity_cui
       where base_entities.entity_cui is not null
     )
   `;
@@ -1145,6 +1182,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
           collection_rows.configured_updated_seq,
           collection_rows.configured_created_at,
           collection_rows.config_updated_at,
+          collection_rows.users_count,
           collection_rows.budget_publication_date,
           collection_rows.official_budget_url,
           ${totalCount}::int as total_count
@@ -1748,12 +1786,14 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     ) {
       return {
         entityCui: row.entity_cui,
+        usersCount: parseCount(row.users_count),
         configuredRow: null,
       };
     }
 
     return {
       entityCui: row.entity_cui,
+      usersCount: parseCount(row.users_count),
       configuredRow: this.mapRow({
         user_id: row.configured_user_id,
         record_key: row.configured_record_key,
@@ -1937,6 +1977,7 @@ interface CampaignEntityConfigCollectionQueryRow {
   configured_updated_seq: string | null;
   configured_created_at: Date | string | null;
   config_updated_at: Date | string | null;
+  users_count: number | string;
   budget_publication_date: string | null;
   official_budget_url: string | null;
   total_count: number | string;
