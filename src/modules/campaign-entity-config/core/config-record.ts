@@ -142,6 +142,7 @@ function createDefaultValues(): CampaignEntityConfigValues {
 function buildConfigDto(input: {
   campaignKey: CampaignEntityConfigCampaignKey;
   entityCui: string;
+  entityName?: string | null;
   values: CampaignEntityConfigValues;
   updatedAt: string | null;
   updatedByUserId: string | null;
@@ -149,6 +150,7 @@ function buildConfigDto(input: {
   return {
     campaignKey: input.campaignKey,
     entityCui: input.entityCui,
+    entityName: input.entityName ?? null,
     isConfigured: hasConfiguredValue(input.values),
     values: input.values,
     updatedAt: input.updatedAt,
@@ -159,10 +161,12 @@ function buildConfigDto(input: {
 export function createDefaultCampaignEntityConfig(input: {
   campaignKey: CampaignEntityConfigCampaignKey;
   entityCui: string;
+  entityName?: string | null;
 }): CampaignEntityConfigDto {
   return buildConfigDto({
     campaignKey: input.campaignKey,
     entityCui: input.entityCui,
+    entityName: input.entityName ?? null,
     values: createDefaultValues(),
     updatedAt: null,
     updatedByUserId: null,
@@ -445,6 +449,7 @@ export function resolveCampaignEntityConfigPageStartIndex(input: {
   const cursorItem: CampaignEntityConfigDto = {
     campaignKey: 'funky',
     entityCui: cursor.entityCui,
+    entityName: null,
     isConfigured: true,
     values: {
       budgetPublicationDate: null,

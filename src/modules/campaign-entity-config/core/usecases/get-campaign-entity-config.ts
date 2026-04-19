@@ -7,10 +7,11 @@ import {
   parseCampaignEntityConfigRecord,
 } from '../config-record.js';
 import {
-  ensureEntityExists,
   mapLearningProgressError,
+  loadRequiredEntityByCui,
   normalizeEntityCui,
   type CampaignEntityConfigDeps,
+  withCampaignEntityConfigEntityName,
 } from './shared.js';
 
 import type { CampaignEntityConfigError } from '../errors.js';
@@ -28,9 +29,9 @@ export const getCampaignEntityConfig = async (
   }
 
   const entityCui = entityCuiResult.value;
-  const entityExistsResult = await ensureEntityExists(deps, entityCui);
-  if (entityExistsResult.isErr()) {
-    return err(entityExistsResult.error);
+  const entityResult = await loadRequiredEntityByCui(deps, entityCui);
+  if (entityResult.isErr()) {
+    return err(entityResult.error);
   }
 
   const rowResult = await deps.learningProgressRepo.getRecord(
@@ -43,10 +44,13 @@ export const getCampaignEntityConfig = async (
 
   if (rowResult.value === null) {
     return ok(
-      createDefaultCampaignEntityConfig({
-        campaignKey: input.campaignKey,
-        entityCui,
-      })
+      withCampaignEntityConfigEntityName(
+        createDefaultCampaignEntityConfig({
+          campaignKey: input.campaignKey,
+          entityCui,
+        }),
+        entityResult.value
+      )
     );
   }
 
@@ -59,5 +63,5 @@ export const getCampaignEntityConfig = async (
     return err(parsedRowResult.error);
   }
 
-  return ok(parsedRowResult.value.dto);
+  return ok(withCampaignEntityConfigEntityName(parsedRowResult.value.dto, entityResult.value));
 };

@@ -19,7 +19,7 @@ import type {
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
 } from '../types.js';
-import type { EntityError, EntityRepository } from '@/modules/entity/index.js';
+import type { Entity, EntityError, EntityRepository } from '@/modules/entity/index.js';
 import type {
   LearningProgressError,
   LearningProgressRecordRow,
@@ -29,6 +29,11 @@ import type {
 export interface CampaignEntityConfigDeps {
   readonly learningProgressRepo: LearningProgressRepository;
   readonly entityRepo: EntityRepository;
+}
+
+function normalizeEntityName(name: string): string | null {
+  const normalizedName = name.trim();
+  return normalizedName === '' ? null : normalizedName;
 }
 
 export function normalizeEntityCui(entityCui: string): Result<string, CampaignEntityConfigError> {
@@ -167,7 +172,7 @@ export async function loadConfiguredCampaignEntityConfigDtos(
 export async function loadEntityNameMapForEntityCuis(
   deps: Pick<CampaignEntityConfigDeps, 'entityRepo'>,
   entityCuis: readonly string[]
-): Promise<Result<Map<string, string>, CampaignEntityConfigError>> {
+): Promise<Result<Map<string, string | null>, CampaignEntityConfigError>> {
   if (entityCuis.length === 0) {
     return ok(new Map());
   }
@@ -181,23 +186,57 @@ export async function loadEntityNameMapForEntityCuis(
     new Map(
       [...entitiesResult.value.entries()].map(([entityCui, entity]) => [
         entityCui,
-        entity.name.trim(),
+        normalizeEntityName(entity.name),
       ])
     )
   );
+}
+
+export async function loadEntityByCui(
+  deps: Pick<CampaignEntityConfigDeps, 'entityRepo'>,
+  entityCui: string
+): Promise<Result<Entity | null, CampaignEntityConfigError>> {
+  const entityResult = await deps.entityRepo.getById(entityCui);
+  if (entityResult.isErr()) {
+    return err(mapEntityError(entityResult.error));
+  }
+
+  return ok(entityResult.value);
+}
+
+export async function loadRequiredEntityByCui(
+  deps: Pick<CampaignEntityConfigDeps, 'entityRepo'>,
+  entityCui: string
+): Promise<Result<Entity, CampaignEntityConfigError>> {
+  const entityResult = await loadEntityByCui(deps, entityCui);
+  if (entityResult.isErr()) {
+    return err(entityResult.error);
+  }
+
+  if (entityResult.value === null) {
+    return err(createNotFoundError(`Campaign entity config "${entityCui}" not found.`));
+  }
+
+  return ok(entityResult.value);
+}
+
+export function withCampaignEntityConfigEntityName(
+  dto: CampaignEntityConfigDto,
+  entity: Pick<Entity, 'name'> | null
+): CampaignEntityConfigDto {
+  return {
+    ...dto,
+    entityName: entity === null ? null : normalizeEntityName(entity.name),
+  };
 }
 
 export async function ensureEntityExists(
   deps: Pick<CampaignEntityConfigDeps, 'entityRepo'>,
   entityCui: string
 ): Promise<Result<void, CampaignEntityConfigError>> {
-  const entityResult = await deps.entityRepo.getById(entityCui);
+  const entityResult = await loadRequiredEntityByCui(deps, entityCui);
   if (entityResult.isErr()) {
-    return err(mapEntityError(entityResult.error));
-  }
-
-  if (entityResult.value === null) {
-    return err(createNotFoundError(`Campaign entity config "${entityCui}" not found.`));
+    return err(entityResult.error);
   }
 
   return ok(undefined);

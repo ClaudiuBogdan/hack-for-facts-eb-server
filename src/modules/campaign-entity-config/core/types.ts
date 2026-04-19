@@ -10,6 +10,7 @@ export interface CampaignEntityConfigValues {
 export interface CampaignEntityConfigDto {
   readonly campaignKey: CampaignEntityConfigCampaignKey;
   readonly entityCui: string;
+  readonly entityName: string | null;
   readonly isConfigured: boolean;
   readonly values: CampaignEntityConfigValues;
   readonly updatedAt: string | null;
