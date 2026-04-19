@@ -136,3 +136,4 @@ scripts/k8s-port-forward.sh
 .local/admin-events/
 
 .opencode/package-lock.json
+.codex

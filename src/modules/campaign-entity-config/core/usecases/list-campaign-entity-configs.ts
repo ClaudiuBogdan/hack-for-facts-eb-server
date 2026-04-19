@@ -8,6 +8,7 @@ import {
 import { createValidationError, type CampaignEntityConfigError } from '../errors.js';
 import {
   mapLearningProgressError,
+  loadEntityNameMapForEntityCuis,
   normalizeEntityCui,
   normalizeOptionalQuery,
   parseConfiguredCampaignEntityConfigRows,
@@ -131,12 +132,25 @@ export const listCampaignEntityConfigs = async (
     return err(itemsResult.error);
   }
 
+  const entityNameMapResult = await loadEntityNameMapForEntityCuis(
+    deps,
+    itemsResult.value.map((item) => item.entityCui)
+  );
+  const entityNameMap: ReadonlyMap<string, string | null> = entityNameMapResult.isOk()
+    ? entityNameMapResult.value
+    : new Map<string, string | null>();
+
+  const itemsWithEntityName = itemsResult.value.map((item) => ({
+    ...item,
+    entityName: entityNameMap.get(item.entityCui) ?? null,
+  }));
+
   return ok({
-    items: itemsResult.value,
+    items: itemsWithEntityName,
     totalCount: rowPage.totalCount,
     hasMore: rowPage.hasMore,
     nextCursor: buildNextCampaignEntityConfigCursor({
-      items: itemsResult.value,
+      items: itemsWithEntityName,
       hasMore: rowPage.hasMore,
       sortBy: input.sortBy,
       sortOrder: input.sortOrder,

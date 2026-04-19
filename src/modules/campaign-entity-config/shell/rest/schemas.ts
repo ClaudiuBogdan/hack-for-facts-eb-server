@@ -75,6 +75,7 @@ export const CampaignEntityConfigDtoSchema = Type.Object(
   {
     campaignKey: Type.Literal('funky'),
     entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     isConfigured: Type.Boolean(),
     values: CampaignEntityConfigValuesSchema,
     updatedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),

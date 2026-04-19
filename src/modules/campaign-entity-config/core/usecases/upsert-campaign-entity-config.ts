@@ -16,10 +16,11 @@ import {
   type CampaignEntityConfigError,
 } from '../errors.js';
 import {
-  ensureEntityExists,
+  loadRequiredEntityByCui,
   mapLearningProgressError,
   normalizeEntityCui,
   type CampaignEntityConfigDeps,
+  withCampaignEntityConfigEntityName,
 } from './shared.js';
 
 import type { CampaignEntityConfigDto, UpsertCampaignEntityConfigInput } from '../types.js';
@@ -68,14 +69,14 @@ export const upsertCampaignEntityConfig = async (
     CampaignEntityConfigDto,
     CampaignEntityConfigError
   >(async (transactionalRepo) => {
-    const entityExistsResult = await ensureEntityExists(
+    const entityResult = await loadRequiredEntityByCui(
       {
         entityRepo: deps.entityRepo,
       },
       entityCui
     );
-    if (entityExistsResult.isErr()) {
-      return err(entityExistsResult.error);
+    if (entityResult.isErr()) {
+      return err(entityResult.error);
     }
 
     const lockResult = await transactionalRepo.acquireCampaignEntityConfigTransactionLock({
@@ -150,7 +151,9 @@ export const upsertCampaignEntityConfig = async (
         return err(parsedUpdatedRowResult.error);
       }
 
-      return ok(parsedUpdatedRowResult.value.dto);
+      return ok(
+        withCampaignEntityConfigEntityName(parsedUpdatedRowResult.value.dto, entityResult.value)
+      );
     }
 
     if (input.expectedUpdatedAt !== null) {
@@ -184,7 +187,9 @@ export const upsertCampaignEntityConfig = async (
       return err(parsedInsertedRowResult.error);
     }
 
-    return ok(parsedInsertedRowResult.value.dto);
+    return ok(
+      withCampaignEntityConfigEntityName(parsedInsertedRowResult.value.dto, entityResult.value)
+    );
   });
 
   if (transactionResult.isErr()) {

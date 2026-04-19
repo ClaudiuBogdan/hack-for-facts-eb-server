@@ -1,5 +1,5 @@
 import fastifyLib, { type FastifyInstance } from 'fastify';
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
@@ -43,6 +43,8 @@ function createEntity(input: { cui: string; name?: string }): Entity {
 function makeEntityRepo(
   entitiesInput: readonly (string | { cui: string; name?: string })[],
   options?: {
+    onGetById?: (cui: string) => void;
+    onGetByIds?: (cuis: readonly string[]) => void;
     onGetAll?: (input: { filter: EntityFilter; limit: number; offset: number }) => void;
   }
 ): EntityRepository {
@@ -57,9 +59,11 @@ function makeEntityRepo(
 
   return {
     async getById(cui) {
+      options?.onGetById?.(cui);
       return ok(getEntity(cui));
     },
     async getByIds(cuis) {
+      options?.onGetByIds?.(cuis);
       return ok(
         new Map(
           cuis
@@ -169,6 +173,7 @@ function toCampaignEntityConfigSortDto(row: LearningProgressRecordRow): Campaign
   return {
     campaignKey: 'funky',
     entityCui,
+    entityName: null,
     isConfigured: true,
     values: {
       budgetPublicationDate: null,
@@ -236,6 +241,7 @@ function ensureCampaignEntityConfigListCapableRepo(
           : {
               campaignKey: 'funky',
               entityCui: input.cursor.entityCui,
+              entityName: null,
               isConfigured: true,
               values: {
                 budgetPublicationDate: null,
@@ -375,7 +381,14 @@ describe('campaign entity config routes', () => {
   });
 
   it('returns the default dto when the entity exists and no config row has been stored', async () => {
-    const setup = await createTestApp();
+    const getByIdCalls: string[] = [];
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo(['12345678'], {
+        onGetById(cui) {
+          getByIdCalls.push(cui);
+        },
+      }),
+    });
     app = setup.app;
 
     const response = await app.inject({
@@ -392,6 +405,40 @@ describe('campaign entity config routes', () => {
       data: {
         campaignKey: 'funky',
         entityCui: '12345678',
+        entityName: 'Entity 12345678',
+        isConfigured: false,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+        },
+        updatedAt: null,
+        updatedByUserId: null,
+      },
+    });
+    expect(getByIdCalls).toEqual(['12345678']);
+  });
+
+  it('normalizes blank entity names on default detail responses', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: '   ' }]),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        campaignKey: 'funky',
+        entityCui: '12345678',
+        entityName: null,
         isConfigured: false,
         values: {
           budgetPublicationDate: null,
@@ -450,8 +497,14 @@ describe('campaign entity config routes', () => {
 
   it('returns 409 for stale writes after a successful update', async () => {
     const repo = makeFakeLearningProgressRepo();
+    const getByIdCalls: string[] = [];
     const setup = await createTestApp({
       learningProgressRepo: repo,
+      entityRepo: makeEntityRepo(['12345678'], {
+        onGetById(cui) {
+          getByIdCalls.push(cui);
+        },
+      }),
     });
     app = setup.app;
 
@@ -472,6 +525,12 @@ describe('campaign entity config routes', () => {
 
     const firstBody = firstResponse.json();
     expect(firstResponse.statusCode).toBe(200);
+    expect(firstBody).toMatchObject({
+      data: {
+        entityCui: '12345678',
+        entityName: 'Entity 12345678',
+      },
+    });
 
     const staleResponse = await app.inject({
       method: 'PUT',
@@ -505,11 +564,31 @@ describe('campaign entity config routes', () => {
       },
     });
 
+    const secondBody = secondResponse.json();
     expect(secondResponse.statusCode).toBe(200);
+    expect(secondBody).toMatchObject({
+      data: {
+        entityCui: '12345678',
+        entityName: 'Entity 12345678',
+      },
+    });
+    expect(getByIdCalls).toEqual(['12345678', '12345678', '12345678']);
   });
 
   it('lists configured rows only with the canonical dto shape', async () => {
+    const getByIdsCalls: string[][] = [];
     const setup = await createTestApp({
+      entityRepo: makeEntityRepo(
+        [
+          { cui: '12345678', name: 'Alpha Town' },
+          { cui: '87654321', name: 'Beta Commune' },
+        ],
+        {
+          onGetByIds(cuis) {
+            getByIdsCalls.push([...cuis]);
+          },
+        }
+      ),
       learningProgressRepo: makeFakeLearningProgressRepo({
         initialRecords: new Map([
           [
@@ -556,6 +635,7 @@ describe('campaign entity config routes', () => {
           {
             campaignKey: 'funky',
             entityCui: '12345678',
+            entityName: 'Alpha Town',
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-01',
@@ -567,6 +647,7 @@ describe('campaign entity config routes', () => {
           {
             campaignKey: 'funky',
             entityCui: '87654321',
+            entityName: 'Beta Commune',
             isConfigured: true,
             values: {
               budgetPublicationDate: '2026-02-02',
@@ -579,6 +660,80 @@ describe('campaign entity config routes', () => {
         page: {
           limit: 50,
           totalCount: 2,
+          hasMore: false,
+          nextCursor: null,
+          sortBy: 'updatedAt',
+          sortOrder: 'desc',
+        },
+      },
+    });
+    expect(getByIdsCalls).toHaveLength(1);
+    expect(getByIdsCalls[0]).toHaveLength(2);
+    expect(getByIdsCalls[0]).toEqual(expect.arrayContaining(['12345678', '87654321']));
+  });
+
+  it('returns config rows even when entity-name enrichment fails', async () => {
+    const setup = await createTestApp({
+      entityRepo: {
+        ...makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+        async getByIds() {
+          return err({
+            type: 'DatabaseError' as const,
+            message: 'Failed to load entity names',
+            retryable: true,
+          });
+        },
+      },
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          {
+            campaignKey: 'funky',
+            entityCui: '12345678',
+            entityName: null,
+            isConfigured: true,
+            values: {
+              budgetPublicationDate: '2026-02-01',
+              officialBudgetUrl: 'https://example.com/first.pdf',
+            },
+            updatedAt: '2026-04-18T12:00:00.000Z',
+            updatedByUserId: 'admin-1',
+          },
+        ],
+        page: {
+          limit: 50,
+          totalCount: 1,
           hasMore: false,
           nextCursor: null,
           sortBy: 'updatedAt',
