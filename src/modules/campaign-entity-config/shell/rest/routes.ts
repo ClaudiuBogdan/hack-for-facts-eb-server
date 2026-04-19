@@ -1,5 +1,4 @@
 import { Value } from '@sinclair/typebox/value';
-import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_CAMPAIGN_ADMIN_PERMISSION, FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import { deserialize } from '@/infra/cache/serialization.js';
@@ -32,14 +31,11 @@ import {
   type CampaignEntityConfigPutBody,
   type CampaignKeyParams,
 } from './schemas.js';
-import { createDefaultCampaignEntityConfig } from '../../core/config-record.js';
 import { getHttpStatusForError, type CampaignEntityConfigError } from '../../core/errors.js';
 import { getCampaignEntityConfig } from '../../core/usecases/get-campaign-entity-config.js';
 import { listCampaignEntityConfigs } from '../../core/usecases/list-campaign-entity-configs.js';
 import {
-  compareTimestampInstants,
-  loadConfiguredCampaignEntityConfigDtos,
-  mapEntityError,
+  matchesCampaignEntityConfigQuery,
   normalizeEntityCui,
   normalizeOptionalQuery,
   validateUpdatedAtRange,
@@ -53,15 +49,18 @@ import type {
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
 } from '../../core/types.js';
-import type { Entity, EntityRepository } from '@/modules/entity/index.js';
+import type { EntityRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/index.js';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 const DEFAULT_LIST_LIMIT = 50;
-const ENTITY_EXPORT_BATCH_LIMIT = 500;
 const ALLOWED_LIST_QUERY_KEYS = new Set<string>([
   'query',
   'entityCui',
+  'budgetPublicationDate',
+  'hasBudgetPublicationDate',
+  'officialBudgetUrl',
+  'hasOfficialBudgetUrl',
   'updatedAtFrom',
   'updatedAtTo',
   'sortBy',
@@ -72,6 +71,10 @@ const ALLOWED_LIST_QUERY_KEYS = new Set<string>([
 const ALLOWED_EXPORT_QUERY_KEYS = new Set<string>([
   'query',
   'entityCui',
+  'budgetPublicationDate',
+  'hasBudgetPublicationDate',
+  'officialBudgetUrl',
+  'hasOfficialBudgetUrl',
   'updatedAtFrom',
   'updatedAtTo',
   'sortBy',
@@ -108,7 +111,7 @@ interface CampaignEntityConfigNormalizedSort {
 
 interface CampaignEntityConfigExportItem {
   readonly entityCui: string;
-  readonly entityName: string;
+  readonly entityName: string | null;
   readonly config: CampaignEntityConfigDto;
 }
 
@@ -254,62 +257,13 @@ function sendError(reply: FastifyReply, error: CampaignEntityConfigError) {
   });
 }
 
-async function loadCampaignEntityConfigExportBatch(input: {
-  entityRepo: EntityRepository;
-  entityCui?: string;
-  offset: number;
-}): Promise<
-  Result<
-    {
-      readonly entities: readonly Entity[];
-      readonly hasNextPage: boolean;
-    },
-    CampaignEntityConfigError
-  >
-> {
-  const entitiesResult = await input.entityRepo.getAll(
-    {
-      ...(input.entityCui !== undefined ? { cui: input.entityCui } : {}),
-    },
-    ENTITY_EXPORT_BATCH_LIMIT,
-    input.offset
-  );
-  if (entitiesResult.isErr()) {
-    return err(mapEntityError(entitiesResult.error));
-  }
-
-  return ok({
-    entities: entitiesResult.value.nodes,
-    hasNextPage: entitiesResult.value.pageInfo.hasNextPage,
-  });
-}
-
-function matchesEntityExportQuery(input: { entity: Entity; query: string | undefined }): boolean {
-  if (input.query === undefined) {
-    return true;
-  }
-
-  const normalizedQuery = input.query.toLocaleLowerCase('en');
-  return (
-    input.entity.cui.toLocaleLowerCase('en').includes(normalizedQuery) ||
-    input.entity.name.toLocaleLowerCase('en').includes(normalizedQuery)
-  );
-}
-
-function toCampaignEntityConfigExportItem(input: {
-  campaignKey: CampaignEntityConfigCampaignKey;
-  entity: Entity;
-  configByEntityCui: ReadonlyMap<string, CampaignEntityConfigDto>;
-}): CampaignEntityConfigExportItem {
+function toCampaignEntityConfigExportItem(
+  config: CampaignEntityConfigDto
+): CampaignEntityConfigExportItem {
   return {
-    entityCui: input.entity.cui,
-    entityName: input.entity.name,
-    config:
-      input.configByEntityCui.get(input.entity.cui) ??
-      createDefaultCampaignEntityConfig({
-        campaignKey: input.campaignKey,
-        entityCui: input.entity.cui,
-      }),
+    entityCui: config.entityCui,
+    entityName: config.entityName,
+    config,
   };
 }
 
@@ -326,41 +280,10 @@ function toCampaignEntityConfigExportRow(item: CampaignEntityConfigExportItem): 
   ]);
 }
 
-function matchesUpdatedAtRange(
-  item: CampaignEntityConfigDto,
-  input: {
-    updatedAtFrom?: string;
-    updatedAtTo?: string;
-  }
-): boolean {
-  if (input.updatedAtFrom === undefined && input.updatedAtTo === undefined) {
-    return true;
-  }
-
-  if (item.updatedAt === null) {
-    return false;
-  }
-
-  if (
-    input.updatedAtFrom !== undefined &&
-    compareTimestampInstants(item.updatedAt, input.updatedAtFrom) < 0
-  ) {
-    return false;
-  }
-
-  if (
-    input.updatedAtTo !== undefined &&
-    compareTimestampInstants(item.updatedAt, input.updatedAtTo) > 0
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
 export interface MakeCampaignEntityConfigRoutesDeps {
   readonly learningProgressRepo: LearningProgressRepository;
   readonly entityRepo: EntityRepository;
+  readonly audienceReader?: unknown;
   readonly permissionAuthorizer: CampaignAdminPermissionAuthorizer;
   readonly enabledCampaignKeys: readonly CampaignEntityConfigCampaignKey[];
 }
@@ -521,6 +444,18 @@ export const makeCampaignEntityConfigRoutes = (
             ...(request.query.entityCui !== undefined
               ? { entityCui: request.query.entityCui }
               : {}),
+            ...(request.query.budgetPublicationDate !== undefined
+              ? { budgetPublicationDate: request.query.budgetPublicationDate }
+              : {}),
+            ...(request.query.hasBudgetPublicationDate !== undefined
+              ? { hasBudgetPublicationDate: request.query.hasBudgetPublicationDate }
+              : {}),
+            ...(request.query.officialBudgetUrl !== undefined
+              ? { officialBudgetUrl: request.query.officialBudgetUrl }
+              : {}),
+            ...(request.query.hasOfficialBudgetUrl !== undefined
+              ? { hasOfficialBudgetUrl: request.query.hasOfficialBudgetUrl }
+              : {}),
             ...(request.query.updatedAtFrom !== undefined
               ? { updatedAtFrom: request.query.updatedAtFrom }
               : {}),
@@ -619,36 +554,45 @@ export const makeCampaignEntityConfigRoutes = (
         const exportFilename = buildCsvAttachmentFilename(
           `${access.config.campaignKey}-campaign-entity-config-export`
         );
-        const configuredItemsResult = await loadConfiguredCampaignEntityConfigDtos(
-          {
-            learningProgressRepo: deps.learningProgressRepo,
-          },
-          access.config.campaignKey
-        );
-        if (configuredItemsResult.isErr()) {
-          return sendError(reply, configuredItemsResult.error);
-        }
 
-        const configByEntityCui = new Map(
-          configuredItemsResult.value.map((item) => [item.entityCui, item] as const)
-        );
-        const updatedAtFilters = {
-          ...(request.query.updatedAtFrom !== undefined
-            ? { updatedAtFrom: request.query.updatedAtFrom }
-            : {}),
-          ...(request.query.updatedAtTo !== undefined
-            ? { updatedAtTo: request.query.updatedAtTo }
-            : {}),
+        const loadExportPage = async (cursor?: CampaignEntityConfigListCursor) => {
+          return listCampaignEntityConfigs(
+            {
+              learningProgressRepo: deps.learningProgressRepo,
+              entityRepo: deps.entityRepo,
+            },
+            {
+              campaignKey: access.config.campaignKey,
+              ...(entityCui !== undefined ? { entityCui } : {}),
+              ...(request.query.budgetPublicationDate !== undefined
+                ? { budgetPublicationDate: request.query.budgetPublicationDate }
+                : {}),
+              ...(request.query.hasBudgetPublicationDate !== undefined
+                ? { hasBudgetPublicationDate: request.query.hasBudgetPublicationDate }
+                : {}),
+              ...(request.query.officialBudgetUrl !== undefined
+                ? { officialBudgetUrl: request.query.officialBudgetUrl }
+                : {}),
+              ...(request.query.hasOfficialBudgetUrl !== undefined
+                ? { hasOfficialBudgetUrl: request.query.hasOfficialBudgetUrl }
+                : {}),
+              ...(request.query.updatedAtFrom !== undefined
+                ? { updatedAtFrom: request.query.updatedAtFrom }
+                : {}),
+              ...(request.query.updatedAtTo !== undefined
+                ? { updatedAtTo: request.query.updatedAtTo }
+                : {}),
+              sortBy: 'entityCui',
+              sortOrder: 'asc',
+              limit: 500,
+              ...(cursor !== undefined ? { cursor } : {}),
+            }
+          );
         };
 
-        let offset = 0;
-        const firstBatchResult = await loadCampaignEntityConfigExportBatch({
-          entityRepo: deps.entityRepo,
-          ...(entityCui !== undefined ? { entityCui } : {}),
-          offset,
-        });
-        if (firstBatchResult.isErr()) {
-          return sendError(reply, firstBatchResult.error);
+        const firstPageResult = await loadExportPage();
+        if (firstPageResult.isErr()) {
+          return sendError(reply, firstPageResult.error);
         }
 
         reply.hijack();
@@ -665,44 +609,30 @@ export const makeCampaignEntityConfigRoutes = (
             `${toCsvRow(CAMPAIGN_ENTITY_CONFIG_EXPORT_HEADERS)}\n`
           );
 
-          let currentBatch = firstBatchResult.value;
+          let currentPage = firstPageResult.value;
 
           for (;;) {
-            for (const entity of currentBatch.entities) {
-              if (!matchesEntityExportQuery({ entity, query: normalizedQuery })) {
-                continue;
-              }
-
-              const exportItem = toCampaignEntityConfigExportItem({
-                campaignKey: access.config.campaignKey,
-                entity,
-                configByEntityCui,
-              });
-              if (!matchesUpdatedAtRange(exportItem.config, updatedAtFilters)) {
+            for (const item of currentPage.items) {
+              if (!matchesCampaignEntityConfigQuery({ item, query: normalizedQuery })) {
                 continue;
               }
 
               await writeToResponseStream(
                 reply.raw,
-                `${toCampaignEntityConfigExportRow(exportItem)}\n`
+                `${toCampaignEntityConfigExportRow(toCampaignEntityConfigExportItem(item))}\n`
               );
             }
 
-            if (!currentBatch.hasNextPage) {
+            if (!currentPage.hasMore || currentPage.nextCursor === null) {
               break;
             }
 
-            offset += ENTITY_EXPORT_BATCH_LIMIT;
-            const nextBatchResult = await loadCampaignEntityConfigExportBatch({
-              entityRepo: deps.entityRepo,
-              ...(entityCui !== undefined ? { entityCui } : {}),
-              offset,
-            });
-            if (nextBatchResult.isErr()) {
-              throw new Error(nextBatchResult.error.message);
+            const nextPageResult = await loadExportPage(currentPage.nextCursor);
+            if (nextPageResult.isErr()) {
+              throw new Error(nextPageResult.error.message);
             }
 
-            currentBatch = nextBatchResult.value;
+            currentPage = nextPageResult.value;
           }
 
           reply.raw.end();

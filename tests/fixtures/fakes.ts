@@ -61,6 +61,10 @@ import type {
 import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
+  CampaignEntityConfigCollectionCursor,
+  CampaignEntityConfigCollectionRow,
+  CampaignEntityConfigCollectionSortBy,
+  CampaignEntityConfigCollectionSortOrder,
   CampaignEntityConfigRecordCursor,
   CampaignEntityConfigRecordSortBy,
   CampaignEntityConfigRecordSortOrder,
@@ -83,6 +87,8 @@ import type {
   InteractiveAuditEvent,
   InteractiveStateRecord,
   ListCampaignEntityConfigRowsInput,
+  ListCampaignEntityConfigCollectionRowsInput,
+  ListCampaignEntityConfigCollectionRowsOutput,
   ListCampaignEntityConfigRowsOutput,
   ListCampaignAdminInteractionRowsInput,
   ListCampaignAdminInteractionRowsOutput,
@@ -1652,6 +1658,147 @@ export const makeFakeLearningProgressRepo = (
     return `${recordKeyPrefix}${entityCui}`;
   };
 
+  const getCampaignEntityConfigValuesFromRow = (
+    row: LearningProgressRecordRow | null
+  ): {
+    budgetPublicationDate: string | null;
+    officialBudgetUrl: string | null;
+    updatedAt: string | null;
+  } => {
+    if (row === null || row.record.value?.kind !== 'json') {
+      return {
+        budgetPublicationDate: null,
+        officialBudgetUrl: null,
+        updatedAt: null,
+      };
+    }
+
+    const value = row.record.value.json.value as {
+      values?: {
+        budgetPublicationDate?: string | null;
+        officialBudgetUrl?: string | null;
+      };
+    };
+
+    return {
+      budgetPublicationDate: value.values?.budgetPublicationDate ?? null,
+      officialBudgetUrl: value.values?.officialBudgetUrl ?? null,
+      updatedAt: row.updatedAt,
+    };
+  };
+
+  const compareNullableCampaignEntityConfigValue = (
+    left: string | null,
+    right: string | null,
+    sortOrder: CampaignEntityConfigCollectionSortOrder
+  ): number => {
+    if (left === null && right === null) {
+      return 0;
+    }
+
+    if (left === null) {
+      return sortOrder === 'asc' ? -1 : 1;
+    }
+
+    if (right === null) {
+      return sortOrder === 'asc' ? 1 : -1;
+    }
+
+    return sortOrder === 'asc' ? left.localeCompare(right) : right.localeCompare(left);
+  };
+
+  const compareCampaignEntityConfigCollectionRows = (
+    left: CampaignEntityConfigCollectionRow,
+    right: CampaignEntityConfigCollectionRow,
+    sortBy: CampaignEntityConfigCollectionSortBy,
+    sortOrder: CampaignEntityConfigCollectionSortOrder
+  ): number => {
+    if (sortBy === 'entityCui') {
+      return sortOrder === 'asc'
+        ? left.entityCui.localeCompare(right.entityCui)
+        : right.entityCui.localeCompare(left.entityCui);
+    }
+
+    const leftValues = getCampaignEntityConfigValuesFromRow(left.configuredRow);
+    const rightValues = getCampaignEntityConfigValuesFromRow(right.configuredRow);
+    const leftValue =
+      sortBy === 'updatedAt'
+        ? leftValues.updatedAt
+        : sortBy === 'budgetPublicationDate'
+          ? leftValues.budgetPublicationDate
+          : leftValues.officialBudgetUrl;
+    const rightValue =
+      sortBy === 'updatedAt'
+        ? rightValues.updatedAt
+        : sortBy === 'budgetPublicationDate'
+          ? rightValues.budgetPublicationDate
+          : rightValues.officialBudgetUrl;
+
+    const comparison =
+      sortBy === 'updatedAt' && leftValue !== null && rightValue !== null
+        ? sortOrder === 'asc'
+          ? compareTimestamps(leftValue, rightValue)
+          : compareTimestamps(rightValue, leftValue)
+        : compareNullableCampaignEntityConfigValue(leftValue, rightValue, sortOrder);
+    if (comparison !== 0) {
+      return comparison;
+    }
+
+    return left.entityCui.localeCompare(right.entityCui);
+  };
+
+  const isCampaignEntityConfigCollectionRowAfterCursor = (
+    row: CampaignEntityConfigCollectionRow,
+    cursor: CampaignEntityConfigCollectionCursor,
+    sortBy: CampaignEntityConfigCollectionSortBy,
+    sortOrder: CampaignEntityConfigCollectionSortOrder
+  ): boolean => {
+    const cursorValues =
+      sortBy === 'entityCui'
+        ? {
+            budgetPublicationDate: null,
+            officialBudgetUrl: null,
+            updatedAt: null,
+          }
+        : {
+            budgetPublicationDate: sortBy === 'budgetPublicationDate' ? cursor.value : null,
+            officialBudgetUrl: sortBy === 'officialBudgetUrl' ? cursor.value : null,
+            updatedAt: sortBy === 'updatedAt' ? cursor.value : null,
+          };
+    const rowValues = getCampaignEntityConfigValuesFromRow(row.configuredRow);
+
+    if (sortBy === 'entityCui') {
+      return sortOrder === 'asc'
+        ? row.entityCui > cursor.entityCui
+        : row.entityCui < cursor.entityCui;
+    }
+
+    const comparison =
+      sortBy === 'updatedAt' && rowValues.updatedAt !== null && cursorValues.updatedAt !== null
+        ? sortOrder === 'asc'
+          ? compareTimestamps(rowValues.updatedAt, cursorValues.updatedAt)
+          : compareTimestamps(cursorValues.updatedAt, rowValues.updatedAt)
+        : compareNullableCampaignEntityConfigValue(
+            sortBy === 'budgetPublicationDate'
+              ? rowValues.budgetPublicationDate
+              : sortBy === 'officialBudgetUrl'
+                ? rowValues.officialBudgetUrl
+                : rowValues.updatedAt,
+            sortBy === 'budgetPublicationDate'
+              ? cursorValues.budgetPublicationDate
+              : sortBy === 'officialBudgetUrl'
+                ? cursorValues.officialBudgetUrl
+                : cursorValues.updatedAt,
+            sortOrder
+          );
+
+    if (comparison !== 0) {
+      return comparison > 0;
+    }
+
+    return row.entityCui.localeCompare(cursor.entityCui) > 0;
+  };
+
   const compareCampaignEntityConfigRows = (
     leftRow: LearningProgressRecordRow,
     rightRow: LearningProgressRecordRow,
@@ -2146,6 +2293,126 @@ export const makeFakeLearningProgressRepo = (
             compareCampaignEntityConfigRows(leftRow, rightRow, input.sortBy, input.sortOrder)
           );
 
+        const pageRows = pagedRows.slice(0, input.limit + 1);
+
+        return ok({
+          rows: pageRows.slice(0, input.limit),
+          totalCount: filteredRows.length,
+          hasMore: pageRows.length > input.limit,
+        });
+      },
+
+      listCampaignEntityConfigCollectionRows: async (
+        input: ListCampaignEntityConfigCollectionRowsInput
+      ): Promise<Result<ListCampaignEntityConfigCollectionRowsOutput, LearningProgressError>> => {
+        if (simulateDbError) return createDbError();
+
+        const allRows = [...currentStore.values()].flatMap((userStore) => [...userStore.values()]);
+        const configuredRowsByEntityCui = new Map<string, LearningProgressRecordRow>();
+        const configUserId = `internal:campaign-config:${input.campaignKey}`;
+
+        for (const row of allRows) {
+          if (
+            row.userId !== configUserId ||
+            !row.recordKey.startsWith('internal:entity-config::')
+          ) {
+            continue;
+          }
+
+          const entityCui = row.recordKey.replace('internal:entity-config::', '');
+          configuredRowsByEntityCui.set(entityCui, row);
+        }
+
+        const entityCuis = new Set<string>(configuredRowsByEntityCui.keys());
+        for (const row of allRows) {
+          if (!isCampaignTermsAcceptedRow(row, input.campaignKey, input.entityCui)) {
+            continue;
+          }
+
+          const entityCui = getAcceptedTermsEntityCui(row);
+          if (entityCui !== null) {
+            entityCuis.add(entityCui);
+          }
+        }
+
+        const collectionRows = [...entityCuis].map((entityCui) => ({
+          entityCui,
+          configuredRow: configuredRowsByEntityCui.get(entityCui) ?? null,
+        }));
+
+        const filteredRows = collectionRows.filter((row) => {
+          if (input.entityCui !== undefined && row.entityCui !== input.entityCui) {
+            return false;
+          }
+
+          const values = getCampaignEntityConfigValuesFromRow(row.configuredRow);
+
+          if (
+            input.budgetPublicationDate !== undefined &&
+            values.budgetPublicationDate !== input.budgetPublicationDate
+          ) {
+            return false;
+          }
+
+          if (
+            input.hasBudgetPublicationDate !== undefined &&
+            (values.budgetPublicationDate !== null) !== input.hasBudgetPublicationDate
+          ) {
+            return false;
+          }
+
+          if (
+            input.officialBudgetUrl !== undefined &&
+            !(
+              values.officialBudgetUrl
+                ?.toLowerCase()
+                .includes(input.officialBudgetUrl.toLowerCase()) ?? false
+            )
+          ) {
+            return false;
+          }
+
+          if (
+            input.hasOfficialBudgetUrl !== undefined &&
+            (values.officialBudgetUrl !== null) !== input.hasOfficialBudgetUrl
+          ) {
+            return false;
+          }
+
+          if (
+            input.updatedAtFrom !== undefined &&
+            (values.updatedAt === null ||
+              compareTimestamps(values.updatedAt, input.updatedAtFrom) < 0)
+          ) {
+            return false;
+          }
+
+          if (
+            input.updatedAtTo !== undefined &&
+            (values.updatedAt === null ||
+              compareTimestamps(values.updatedAt, input.updatedAtTo) > 0)
+          ) {
+            return false;
+          }
+
+          return true;
+        });
+
+        const sortedRows = [...filteredRows].sort((left, right) =>
+          compareCampaignEntityConfigCollectionRows(left, right, input.sortBy, input.sortOrder)
+        );
+        const pagedRows = sortedRows.filter((row) => {
+          if (input.cursor === undefined) {
+            return true;
+          }
+
+          return isCampaignEntityConfigCollectionRowAfterCursor(
+            row,
+            input.cursor,
+            input.sortBy,
+            input.sortOrder
+          );
+        });
         const pageRows = pagedRows.slice(0, input.limit + 1);
 
         return ok({

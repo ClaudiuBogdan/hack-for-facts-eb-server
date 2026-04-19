@@ -319,7 +319,85 @@ describe('campaign entity config record helpers', () => {
     expect(cursor).toEqual({
       sortBy: 'updatedAt',
       sortOrder: 'desc',
-      updatedAt: '2026-04-18T11:00:00.000Z',
+      value: '2026-04-18T11:00:00.000Z',
+      entityCui: '22222222',
+    });
+
+    const pageStartIndexResult = resolveCampaignEntityConfigPageStartIndex({
+      items,
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+      cursor: cursor ?? undefined,
+    });
+
+    expect(pageStartIndexResult.isOk()).toBe(true);
+    expect(pageStartIndexResult._unsafeUnwrap()).toBe(2);
+  });
+
+  it('carries null updatedAt cursors through the unconfigured tail of updatedAt sorts', () => {
+    const items = [
+      {
+        campaignKey: 'funky' as const,
+        entityCui: '11111111',
+        entityName: null,
+        isConfigured: true,
+        values: {
+          budgetPublicationDate: '2026-02-01',
+          officialBudgetUrl: 'https://example.com/1.pdf',
+        },
+        updatedAt: '2026-04-18T12:00:00.000Z',
+        updatedByUserId: 'admin-1',
+      },
+      {
+        campaignKey: 'funky' as const,
+        entityCui: '22222222',
+        entityName: null,
+        isConfigured: false,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+        },
+        updatedAt: null,
+        updatedByUserId: null,
+      },
+      {
+        campaignKey: 'funky' as const,
+        entityCui: '33333333',
+        entityName: null,
+        isConfigured: false,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+        },
+        updatedAt: null,
+        updatedByUserId: null,
+      },
+    ];
+
+    const cursor = buildNextCampaignEntityConfigCursor({
+      items: [
+        {
+          campaignKey: 'funky' as const,
+          entityCui: '22222222',
+          entityName: null,
+          isConfigured: false,
+          values: {
+            budgetPublicationDate: null,
+            officialBudgetUrl: null,
+          },
+          updatedAt: null,
+          updatedByUserId: null,
+        },
+      ],
+      hasMore: true,
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+    });
+
+    expect(cursor).toEqual({
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+      value: null,
       entityCui: '22222222',
     });
 

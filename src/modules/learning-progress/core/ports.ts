@@ -4,6 +4,10 @@
 
 import type { LearningProgressError } from './errors.js';
 import type {
+  CampaignEntityConfigCollectionCursor,
+  CampaignEntityConfigCollectionSortBy,
+  CampaignEntityConfigCollectionSortOrder,
+  ListCampaignEntityConfigCollectionRowsOutput,
   CampaignEntityConfigRecordCursor,
   CampaignEntityConfigRecordSortBy,
   CampaignEntityConfigRecordSortOrder,
@@ -69,6 +73,21 @@ export interface LearningProgressRepository {
     limit: number;
     cursor?: CampaignEntityConfigRecordCursor;
   }): Promise<Result<ListCampaignEntityConfigRowsOutput, LearningProgressError>>;
+
+  listCampaignEntityConfigCollectionRows(input: {
+    campaignKey: string;
+    entityCui?: string;
+    budgetPublicationDate?: string;
+    hasBudgetPublicationDate?: boolean;
+    officialBudgetUrl?: string;
+    hasOfficialBudgetUrl?: boolean;
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+    sortBy: CampaignEntityConfigCollectionSortBy;
+    sortOrder: CampaignEntityConfigCollectionSortOrder;
+    limit: number;
+    cursor?: CampaignEntityConfigCollectionCursor;
+  }): Promise<Result<ListCampaignEntityConfigCollectionRowsOutput, LearningProgressError>>;
 
   listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput

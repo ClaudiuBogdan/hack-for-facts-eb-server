@@ -388,14 +388,48 @@ function compareNullableUpdatedAt(left: string | null, right: string | null): nu
   }
 
   if (left === null) {
-    return 1;
-  }
-
-  if (right === null) {
     return -1;
   }
 
+  if (right === null) {
+    return 1;
+  }
+
   return compareTimestampInstants(left, right);
+}
+
+function compareNullableString(left: string | null, right: string | null): number {
+  if (left === null && right === null) {
+    return 0;
+  }
+
+  if (left === null) {
+    return -1;
+  }
+
+  if (right === null) {
+    return 1;
+  }
+
+  return left.localeCompare(right);
+}
+
+function getCampaignEntityConfigSortValue(
+  item: CampaignEntityConfigDto,
+  sortBy: CampaignEntityConfigSortBy
+): string | null {
+  switch (sortBy) {
+    case 'updatedAt':
+      return item.updatedAt;
+    case 'budgetPublicationDate':
+      return item.values.budgetPublicationDate;
+    case 'officialBudgetUrl':
+      return item.values.officialBudgetUrl;
+    case 'entityCui':
+      return item.entityCui;
+    default:
+      return item.entityCui;
+  }
 }
 
 export function compareCampaignEntityConfigDtos(input: {
@@ -409,19 +443,14 @@ export function compareCampaignEntityConfigDtos(input: {
     return input.sortOrder === 'asc' ? entityComparison : -entityComparison;
   }
 
-  const leftUpdatedAt = input.left.updatedAt;
-  const rightUpdatedAt = input.right.updatedAt;
-  if (leftUpdatedAt === null && rightUpdatedAt !== null) {
-    return 1;
-  }
-
-  if (leftUpdatedAt !== null && rightUpdatedAt === null) {
-    return -1;
-  }
-
-  const updatedAtComparison = compareNullableUpdatedAt(leftUpdatedAt, rightUpdatedAt);
-  if (updatedAtComparison !== 0) {
-    return input.sortOrder === 'asc' ? updatedAtComparison : -updatedAtComparison;
+  const leftValue = getCampaignEntityConfigSortValue(input.left, input.sortBy);
+  const rightValue = getCampaignEntityConfigSortValue(input.right, input.sortBy);
+  const valueComparison =
+    input.sortBy === 'updatedAt'
+      ? compareNullableUpdatedAt(leftValue, rightValue)
+      : compareNullableString(leftValue, rightValue);
+  if (valueComparison !== 0) {
+    return input.sortOrder === 'asc' ? valueComparison : -valueComparison;
   }
 
   return input.left.entityCui.localeCompare(input.right.entityCui);
@@ -442,20 +471,16 @@ export function resolveCampaignEntityConfigPageStartIndex(input: {
     return err(createValidationError('Invalid campaign entity config cursor.'));
   }
 
-  if (cursor.sortBy === 'updatedAt' && cursor.updatedAt === null) {
-    return err(createValidationError('Invalid campaign entity config cursor.'));
-  }
-
   const cursorItem: CampaignEntityConfigDto = {
     campaignKey: 'funky',
     entityCui: cursor.entityCui,
     entityName: null,
     isConfigured: true,
     values: {
-      budgetPublicationDate: null,
-      officialBudgetUrl: null,
+      budgetPublicationDate: cursor.sortBy === 'budgetPublicationDate' ? cursor.value : null,
+      officialBudgetUrl: cursor.sortBy === 'officialBudgetUrl' ? cursor.value : null,
     },
-    updatedAt: cursor.updatedAt,
+    updatedAt: cursor.sortBy === 'updatedAt' ? cursor.value : null,
     updatedByUserId: null,
   };
 
@@ -484,14 +509,14 @@ export function buildNextCampaignEntityConfigCursor(input: {
   }
 
   const lastItem = input.items.at(-1);
-  if (lastItem?.updatedAt == null) {
+  if (lastItem === undefined) {
     return null;
   }
 
   return {
     sortBy: input.sortBy,
     sortOrder: input.sortOrder,
-    updatedAt: lastItem.updatedAt,
+    value: getCampaignEntityConfigSortValue(lastItem, input.sortBy),
     entityCui: lastItem.entityCui,
   };
 }
