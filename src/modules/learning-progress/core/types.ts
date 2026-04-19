@@ -232,6 +232,46 @@ export interface CampaignEntityConfigRecordCursor {
   readonly entityCui: string;
 }
 
+export type CampaignEntityConfigCollectionSortBy =
+  | 'updatedAt'
+  | 'entityCui'
+  | 'budgetPublicationDate'
+  | 'officialBudgetUrl';
+export type CampaignEntityConfigCollectionSortOrder = 'asc' | 'desc';
+
+export interface CampaignEntityConfigCollectionCursor {
+  readonly sortBy: CampaignEntityConfigCollectionSortBy;
+  readonly sortOrder: CampaignEntityConfigCollectionSortOrder;
+  readonly value: string | null;
+  readonly entityCui: string;
+}
+
+export interface CampaignEntityConfigCollectionRow {
+  readonly entityCui: string;
+  readonly configuredRow: LearningProgressRecordRow | null;
+}
+
+export interface ListCampaignEntityConfigCollectionRowsInput {
+  readonly campaignKey: CampaignAdminCampaignKey;
+  readonly entityCui?: string;
+  readonly budgetPublicationDate?: string;
+  readonly hasBudgetPublicationDate?: boolean;
+  readonly officialBudgetUrl?: string;
+  readonly hasOfficialBudgetUrl?: boolean;
+  readonly updatedAtFrom?: string;
+  readonly updatedAtTo?: string;
+  readonly sortBy: CampaignEntityConfigCollectionSortBy;
+  readonly sortOrder: CampaignEntityConfigCollectionSortOrder;
+  readonly limit: number;
+  readonly cursor?: CampaignEntityConfigCollectionCursor;
+}
+
+export interface ListCampaignEntityConfigCollectionRowsOutput {
+  readonly rows: readonly CampaignEntityConfigCollectionRow[];
+  readonly totalCount: number;
+  readonly hasMore: boolean;
+}
+
 export type CampaignAdminCampaignKey = 'funky';
 export type CampaignAdminSortOrder = 'asc' | 'desc';
 

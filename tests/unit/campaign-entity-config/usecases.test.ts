@@ -135,6 +135,44 @@ function makeRow(input: {
   };
 }
 
+function makeAcceptedTermsRow(input: {
+  entityCui: string;
+  updatedAt: string;
+}): LearningProgressRecordRow {
+  return {
+    userId: 'user-accepted-1',
+    recordKey: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+    record: {
+      key: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+      interactionId: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+      lessonId: 'funky:progress:state',
+      kind: 'custom',
+      scope: { type: 'global' },
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            entityCui: input.entityCui,
+            acceptedTermsAt: input.updatedAt,
+          },
+        },
+      },
+      result: null,
+      updatedAt: input.updatedAt,
+    },
+    auditEvents: [],
+    updatedSeq: '1',
+    createdAt: input.updatedAt,
+    updatedAt: input.updatedAt,
+  };
+}
+
+function makeAudienceReader() {
+  return {};
+}
+
 describe('campaign entity config use cases', () => {
   it('returns a default unconfigured dto when the entity exists but no row is stored', async () => {
     const result = await getCampaignEntityConfig(
@@ -271,6 +309,15 @@ describe('campaign entity config use cases', () => {
             }),
           ],
         ],
+        [
+          'user-accepted-1',
+          [
+            makeAcceptedTermsRow({
+              entityCui: '33333333',
+              updatedAt: '2026-04-18T09:00:00.000Z',
+            }),
+          ],
+        ],
       ]),
     });
 
@@ -342,6 +389,15 @@ describe('campaign entity config use cases', () => {
             }),
           ],
         ],
+        [
+          'user-accepted-1',
+          [
+            makeAcceptedTermsRow({
+              entityCui: '33333333',
+              updatedAt: '2026-04-18T09:00:00.000Z',
+            }),
+          ],
+        ],
       ]),
     });
     const getByIdsCalls: string[][] = [];
@@ -362,6 +418,7 @@ describe('campaign entity config use cases', () => {
       {
         learningProgressRepo: repo,
         entityRepo,
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -382,12 +439,11 @@ describe('campaign entity config use cases', () => {
       nextCursor: {
         sortBy: 'updatedAt',
         sortOrder: 'desc',
-        updatedAt: '2026-04-18T11:00:00.000Z',
+        value: '2026-04-18T11:00:00.000Z',
         entityCui: '11111111',
       },
     });
     expect(getByIdsCalls).toHaveLength(1);
-    expect(getByIdsCalls[0]).toHaveLength(2);
     expect(getByIdsCalls[0]).toEqual(expect.arrayContaining(['33333333', '11111111']));
     const firstPageCursor = firstPageResult._unsafeUnwrap().nextCursor;
     getByIdsCalls.length = 0;
@@ -396,6 +452,7 @@ describe('campaign entity config use cases', () => {
       {
         learningProgressRepo: repo,
         entityRepo,
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -413,7 +470,243 @@ describe('campaign entity config use cases', () => {
       hasMore: false,
       nextCursor: null,
     });
-    expect(getByIdsCalls).toEqual([['22222222']]);
+    expect(getByIdsCalls).toHaveLength(1);
+    expect(getByIdsCalls[0]).toEqual(['22222222']);
+  });
+
+  it('returns the union of configured rows and subscriber-backed default rows', async () => {
+    const result = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: makeFakeLearningProgressRepo({
+          initialRecords: new Map([
+            [
+              buildCampaignEntityConfigUserId('funky'),
+              [
+                makeRow({
+                  entityCui: '11111111',
+                  values: {
+                    budgetPublicationDate: '2026-02-01',
+                    officialBudgetUrl: 'https://example.com/alpha.pdf',
+                  },
+                  actorUserId: 'admin-1',
+                  rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+                }),
+              ],
+            ],
+            [
+              'user-accepted-1',
+              [
+                makeAcceptedTermsRow({
+                  entityCui: '22222222',
+                  updatedAt: '2026-04-18T09:00:00.000Z',
+                }),
+              ],
+            ],
+          ]),
+        }),
+        entityRepo: makeEntityRepo([
+          { cui: '11111111', name: 'Alpha Town' },
+          { cui: '22222222', name: 'Beta Village' },
+        ]),
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'entityCui',
+        sortOrder: 'asc',
+        limit: 50,
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toMatchObject({
+      totalCount: 2,
+      hasMore: false,
+      nextCursor: null,
+      items: [
+        {
+          entityCui: '11111111',
+          entityName: 'Alpha Town',
+          isConfigured: true,
+          updatedByUserId: 'admin-1',
+        },
+        {
+          entityCui: '22222222',
+          entityName: 'Beta Village',
+          isConfigured: false,
+          values: {
+            budgetPublicationDate: null,
+            officialBudgetUrl: null,
+          },
+          updatedAt: null,
+          updatedByUserId: null,
+        },
+      ],
+    });
+  });
+
+  it('returns a subscriber-backed default row for exact entityCui lookups without a saved config', async () => {
+    const result = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: makeFakeLearningProgressRepo({
+          initialRecords: new Map([
+            [
+              'user-accepted-1',
+              [
+                makeAcceptedTermsRow({
+                  entityCui: '12345678',
+                  updatedAt: '2026-04-18T09:00:00.000Z',
+                }),
+              ],
+            ],
+          ]),
+        }),
+        entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        entityCui: '12345678',
+        sortBy: 'entityCui',
+        sortOrder: 'asc',
+        limit: 50,
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toMatchObject({
+      totalCount: 1,
+      hasMore: false,
+      nextCursor: null,
+      items: [
+        {
+          entityCui: '12345678',
+          entityName: 'Alpha Town',
+          isConfigured: false,
+          values: {
+            budgetPublicationDate: null,
+            officialBudgetUrl: null,
+          },
+          updatedAt: null,
+          updatedByUserId: null,
+        },
+      ],
+    });
+  });
+
+  it('paginates through subscriber-backed null updatedAt rows in updatedAt order', async () => {
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          buildCampaignEntityConfigUserId('funky'),
+          [
+            makeRow({
+              entityCui: '11111111',
+              values: {
+                budgetPublicationDate: '2026-02-01',
+                officialBudgetUrl: 'https://example.com/first.pdf',
+              },
+              actorUserId: 'admin-1',
+              rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+            }),
+          ],
+        ],
+        [
+          'user-accepted-1',
+          [
+            makeAcceptedTermsRow({
+              entityCui: '22222222',
+              updatedAt: '2026-04-18T09:00:00.000Z',
+            }),
+            makeAcceptedTermsRow({
+              entityCui: '33333333',
+              updatedAt: '2026-04-18T09:30:00.000Z',
+            }),
+          ],
+        ],
+      ]),
+    });
+    const entityRepo = makeEntityRepo([
+      { cui: '11111111', name: 'Alpha Town' },
+      { cui: '22222222', name: 'Beta Village' },
+      { cui: '33333333', name: 'Gamma City' },
+    ]);
+    const firstPageResult = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: repo,
+        entityRepo,
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'updatedAt',
+        sortOrder: 'desc',
+        limit: 1,
+      }
+    );
+
+    expect(firstPageResult.isOk()).toBe(true);
+    expect(firstPageResult._unsafeUnwrap()).toMatchObject({
+      items: [{ entityCui: '11111111', isConfigured: true }],
+      hasMore: true,
+      nextCursor: {
+        sortBy: 'updatedAt',
+        sortOrder: 'desc',
+        value: '2026-04-18T12:00:00.000Z',
+        entityCui: '11111111',
+      },
+    });
+
+    const secondPageCursor = firstPageResult._unsafeUnwrap().nextCursor;
+    const secondPageResult = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: repo,
+        entityRepo,
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'updatedAt',
+        sortOrder: 'desc',
+        limit: 1,
+        ...(secondPageCursor !== null ? { cursor: secondPageCursor } : {}),
+      }
+    );
+
+    expect(secondPageResult.isOk()).toBe(true);
+    expect(secondPageResult._unsafeUnwrap()).toMatchObject({
+      items: [{ entityCui: '22222222', isConfigured: false, updatedAt: null }],
+      hasMore: true,
+      nextCursor: {
+        sortBy: 'updatedAt',
+        sortOrder: 'desc',
+        value: null,
+        entityCui: '22222222',
+      },
+    });
+
+    const thirdPageCursor = secondPageResult._unsafeUnwrap().nextCursor;
+    const thirdPageResult = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: repo,
+        entityRepo,
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'updatedAt',
+        sortOrder: 'desc',
+        limit: 1,
+        ...(thirdPageCursor !== null ? { cursor: thirdPageCursor } : {}),
+      }
+    );
+
+    expect(thirdPageResult.isOk()).toBe(true);
+    expect(thirdPageResult._unsafeUnwrap()).toMatchObject({
+      items: [{ entityCui: '33333333', isConfigured: false, updatedAt: null }],
+      hasMore: false,
+      nextCursor: null,
+    });
   });
 
   it('filters repo-backed lists by updatedAt range and entityCui', async () => {
@@ -451,18 +744,29 @@ describe('campaign entity config use cases', () => {
             }),
           ],
         ],
+        [
+          'user-accepted-1',
+          [
+            makeAcceptedTermsRow({
+              entityCui: '33333333',
+              updatedAt: '2026-04-18T09:00:00.000Z',
+            }),
+          ],
+        ],
       ]),
     });
     const entityRepo = makeEntityRepo([
       { cui: '87654321', name: 'Zulu County' },
       { cui: '12345678', name: 'Alpha Town' },
       { cui: '55555555', name: 'Beta Village' },
+      { cui: '99999999', name: 'Delta Commune' },
     ]);
 
     const rangedResult = await listCampaignEntityConfigs(
       {
         learningProgressRepo: repo,
         entityRepo,
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -489,6 +793,7 @@ describe('campaign entity config use cases', () => {
       {
         learningProgressRepo: repo,
         entityRepo,
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -511,6 +816,92 @@ describe('campaign entity config use cases', () => {
       ],
       hasMore: false,
       nextCursor: null,
+    });
+  });
+
+  it('filters and sorts by payload fields', async () => {
+    const repo = makeFakeLearningProgressRepo({
+      initialRecords: new Map([
+        [
+          buildCampaignEntityConfigUserId('funky'),
+          [
+            makeRow({
+              entityCui: '11111111',
+              values: {
+                budgetPublicationDate: '2026-03-01',
+                officialBudgetUrl: 'https://example.com/alpha.pdf',
+              },
+              actorUserId: 'admin-1',
+              rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+            }),
+            makeRow({
+              entityCui: '22222222',
+              values: {
+                budgetPublicationDate: '2026-02-01',
+                officialBudgetUrl: 'https://example.com/beta.pdf',
+              },
+              actorUserId: 'admin-2',
+              rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+            }),
+          ],
+        ],
+        [
+          'user-accepted-2',
+          [
+            makeAcceptedTermsRow({
+              entityCui: '33333333',
+              updatedAt: '2026-04-18T09:00:00.000Z',
+            }),
+          ],
+        ],
+      ]),
+    });
+    const entityRepo = makeEntityRepo([
+      { cui: '11111111', name: 'Alpha Town' },
+      { cui: '22222222', name: 'Beta Village' },
+      { cui: '33333333', name: 'Gamma City' },
+    ]);
+
+    const sortedResult = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: repo,
+        entityRepo,
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        sortBy: 'budgetPublicationDate',
+        sortOrder: 'asc',
+        limit: 50,
+      }
+    );
+
+    expect(sortedResult.isOk()).toBe(true);
+    expect(sortedResult._unsafeUnwrap().items.map((item) => item.entityCui)).toEqual([
+      '33333333',
+      '22222222',
+      '11111111',
+    ]);
+
+    const filteredResult = await listCampaignEntityConfigs(
+      {
+        learningProgressRepo: repo,
+        entityRepo,
+        audienceReader: makeAudienceReader(),
+      },
+      {
+        campaignKey: 'funky',
+        hasOfficialBudgetUrl: false,
+        sortBy: 'entityCui',
+        sortOrder: 'asc',
+        limit: 50,
+      }
+    );
+
+    expect(filteredResult.isOk()).toBe(true);
+    expect(filteredResult._unsafeUnwrap()).toMatchObject({
+      totalCount: 1,
+      items: [{ entityCui: '33333333', isConfigured: false }],
     });
   });
 
@@ -553,6 +944,7 @@ describe('campaign entity config use cases', () => {
           ]),
         }),
         entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -599,6 +991,7 @@ describe('campaign entity config use cases', () => {
             });
           },
         },
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',
@@ -622,6 +1015,7 @@ describe('campaign entity config use cases', () => {
       {
         learningProgressRepo: makeFakeLearningProgressRepo(),
         entityRepo: makeEntityRepo([]),
+        audienceReader: makeAudienceReader(),
       },
       {
         campaignKey: 'funky',

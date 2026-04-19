@@ -132,6 +132,20 @@ function makeEntityRepo(existingEntityCuis: readonly string[]): EntityRepository
   };
 }
 
+function makeAudienceReader(entityCuis: readonly string[] = []) {
+  return {
+    async listEligibleEntityCuis(input: { campaignKey: 'funky'; entityCui?: string }) {
+      void input.campaignKey;
+
+      return ok(
+        input.entityCui === undefined
+          ? entityCuis
+          : entityCuis.filter((entityCui) => entityCui === input.entityCui)
+      );
+    },
+  };
+}
+
 function makeRepo(connectionString: string): LearningProgressRepository {
   return makeLearningProgressRepo({
     db: createKyselyClient<UserDatabase>(connectionString),
@@ -219,6 +233,7 @@ describe('campaign entity config persistence', () => {
         {
           learningProgressRepo: repo,
           entityRepo,
+          audienceReader: makeAudienceReader(),
         },
         {
           campaignKey: 'funky',
@@ -407,6 +422,7 @@ describe('campaign entity config persistence', () => {
         {
           learningProgressRepo: repo,
           entityRepo,
+          audienceReader: makeAudienceReader(),
         },
         {
           campaignKey: 'funky',
@@ -424,7 +440,7 @@ describe('campaign entity config persistence', () => {
         nextCursor: {
           sortBy: 'updatedAt',
           sortOrder: 'desc',
-          updatedAt: '2026-04-18T11:00:00.000Z',
+          value: '2026-04-18T11:00:00.000Z',
           entityCui: '11111111',
         },
       });
@@ -434,6 +450,7 @@ describe('campaign entity config persistence', () => {
         {
           learningProgressRepo: repo,
           entityRepo,
+          audienceReader: makeAudienceReader(),
         },
         {
           campaignKey: 'funky',
@@ -456,6 +473,7 @@ describe('campaign entity config persistence', () => {
         {
           learningProgressRepo: repo,
           entityRepo,
+          audienceReader: makeAudienceReader(),
         },
         {
           campaignKey: 'funky',
@@ -534,6 +552,7 @@ describe('campaign entity config persistence', () => {
         {
           learningProgressRepo: repo,
           entityRepo: makeEntityRepo([]),
+          audienceReader: makeAudienceReader(),
         },
         {
           campaignKey: 'funky',

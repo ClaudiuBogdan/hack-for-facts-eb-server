@@ -119,6 +119,44 @@ function makeEntityRepo(
   };
 }
 
+function makeAudienceReader() {
+  return {};
+}
+
+function makeAcceptedTermsRow(input: {
+  entityCui: string;
+  updatedAt: string;
+}): LearningProgressRecordRow {
+  return {
+    userId: 'user-accepted-1',
+    recordKey: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+    record: {
+      key: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+      interactionId: `funky:progress:terms_accepted::entity:${input.entityCui}`,
+      lessonId: 'funky:progress:state',
+      kind: 'custom',
+      scope: { type: 'global' },
+      completionRule: { type: 'resolved' },
+      phase: 'resolved',
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            entityCui: input.entityCui,
+            acceptedTermsAt: input.updatedAt,
+          },
+        },
+      },
+      result: null,
+      updatedAt: input.updatedAt,
+    },
+    auditEvents: [],
+    updatedSeq: '1',
+    createdAt: input.updatedAt,
+    updatedAt: input.updatedAt,
+  };
+}
+
 function makeRow(input: {
   entityCui: string;
   values: {
@@ -278,6 +316,7 @@ async function createTestApp(options?: {
   permissionAllowed?: boolean;
   learningProgressRepo?: LearningProgressRepository;
   entityRepo?: EntityRepository;
+  audienceReader?: ReturnType<typeof makeAudienceReader>;
 }) {
   const testAuth = createTestAuthProvider();
   const app = fastifyLib({ logger: false });
@@ -306,6 +345,7 @@ async function createTestApp(options?: {
     makeCampaignEntityConfigRoutes({
       learningProgressRepo,
       entityRepo: options?.entityRepo ?? makeEntityRepo(['12345678']),
+      audienceReader: options?.audienceReader ?? makeAudienceReader(),
       enabledCampaignKeys: ['funky'],
       permissionAuthorizer,
     })
@@ -672,6 +712,93 @@ describe('campaign entity config routes', () => {
     expect(getByIdsCalls[0]).toEqual(expect.arrayContaining(['12345678', '87654321']));
   });
 
+  it('lists the union of configured rows and subscriber-backed default rows', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '22222222', name: 'Beta Commune' },
+      ]),
+      audienceReader: makeAudienceReader(),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            'user-accepted-1',
+            [
+              makeAcceptedTermsRow({
+                entityCui: '22222222',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?sortBy=entityCui&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        items: [
+          {
+            campaignKey: 'funky',
+            entityCui: '12345678',
+            entityName: 'Alpha Town',
+            isConfigured: true,
+            values: {
+              budgetPublicationDate: '2026-02-01',
+              officialBudgetUrl: 'https://example.com/first.pdf',
+            },
+            updatedAt: '2026-04-18T12:00:00.000Z',
+            updatedByUserId: 'admin-1',
+          },
+          {
+            campaignKey: 'funky',
+            entityCui: '22222222',
+            entityName: 'Beta Commune',
+            isConfigured: false,
+            values: {
+              budgetPublicationDate: null,
+              officialBudgetUrl: null,
+            },
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        ],
+        page: {
+          limit: 50,
+          totalCount: 2,
+          hasMore: false,
+          nextCursor: null,
+          sortBy: 'entityCui',
+          sortOrder: 'asc',
+        },
+      },
+    });
+  });
+
   it('returns config rows even when entity-name enrichment fails', async () => {
     const setup = await createTestApp({
       entityRepo: {
@@ -817,6 +944,95 @@ describe('campaign entity config routes', () => {
     });
   });
 
+  it('filters and sorts collection rows by payload fields', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+        { cui: '99999999', name: 'Gamma Village' },
+      ]),
+      audienceReader: makeAudienceReader(),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-03-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            'user-accepted-1',
+            [
+              makeAcceptedTermsRow({
+                entityCui: '99999999',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const sortedResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?sortBy=budgetPublicationDate&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(sortedResponse.statusCode).toBe(200);
+    const sortedBody: {
+      data: {
+        items: { entityCui: string }[];
+      };
+    } = sortedResponse.json();
+    expect(sortedBody.data.items.map((item) => item.entityCui)).toEqual([
+      '99999999',
+      '87654321',
+      '12345678',
+    ]);
+
+    const filteredResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?hasOfficialBudgetUrl=false',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(filteredResponse.statusCode).toBe(200);
+    expect(filteredResponse.json()).toMatchObject({
+      ok: true,
+      data: {
+        items: [
+          {
+            entityCui: '99999999',
+            isConfigured: false,
+          },
+        ],
+      },
+    });
+  });
+
   it('returns 500 when a persisted config row is corrupted', async () => {
     const setup = await createTestApp({
       learningProgressRepo: makeFakeLearningProgressRepo({
@@ -842,13 +1058,15 @@ describe('campaign entity config routes', () => {
     });
   });
 
-  it('streams a csv export with config data for all entities, including unconfigured ones', async () => {
+  it('streams a csv export with the same configured-or-subscribed union scope as the list route', async () => {
     const setup = await createTestApp({
       entityRepo: makeEntityRepo([
         { cui: '12345678', name: 'Alpha Town' },
         { cui: '87654321', name: 'Beta Commune' },
         { cui: '99999999', name: '=Unconfigured Village' },
+        { cui: '55555555', name: 'Ignored Borough' },
       ]),
+      audienceReader: makeAudienceReader(),
       learningProgressRepo: makeFakeLearningProgressRepo({
         initialRecords: new Map([
           [
@@ -871,6 +1089,15 @@ describe('campaign entity config routes', () => {
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            'user-accepted-1',
+            [
+              makeAcceptedTermsRow({
+                entityCui: '99999999',
+                updatedAt: '2026-04-18T09:00:00.000Z',
               }),
             ],
           ],
@@ -907,9 +1134,10 @@ describe('campaign entity config routes', () => {
       'funky,87654321,Beta Commune,true,2026-02-02,https://example.com/second.pdf'
     );
     expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,false,,,,");
+    expect(csvBody).not.toContain('Ignored Borough');
   });
 
-  it('streams entity export batches without materializing the full entity list first', async () => {
+  it('exports the merged collection without scanning the full entity repository', async () => {
     const getAllCalls: {
       filter: EntityFilter;
       limit: number;
@@ -930,6 +1158,7 @@ describe('campaign entity config routes', () => {
           getAllCalls.push(input);
         },
       }),
+      audienceReader: makeAudienceReader(),
       learningProgressRepo: makeFakeLearningProgressRepo({
         initialRecords: new Map([
           [
@@ -943,6 +1172,15 @@ describe('campaign entity config routes', () => {
                 },
                 actorUserId: 'admin-final',
                 rowUpdatedAt: '2026-04-18T13:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            'user-accepted-1',
+            [
+              makeAcceptedTermsRow({
+                entityCui: entities[0]?.cui ?? '10000000',
+                updatedAt: '2026-04-18T09:00:00.000Z',
               }),
             ],
           ],
@@ -960,28 +1198,14 @@ describe('campaign entity config routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(getAllCalls).toEqual([
-      {
-        filter: {},
-        limit: 500,
-        offset: 0,
-      },
-      {
-        filter: {},
-        limit: 500,
-        offset: 500,
-      },
-      {
-        filter: {},
-        limit: 500,
-        offset: 1000,
-      },
-    ]);
+    expect(getAllCalls).toEqual([]);
 
     const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
     const csvLines = csvBody.trimEnd().split('\n');
+    const firstEntityCui = entities[0]?.cui ?? '10000000';
 
-    expect(csvLines).toHaveLength(1002);
+    expect(csvLines).toHaveLength(3);
+    expect(csvBody).toContain(`funky,${firstEntityCui},Entity ${firstEntityCui},false,,,,`);
     expect(csvBody).toContain(
       `funky,${finalEntityCui},Entity ${finalEntityCui},true,2026-03-01,https://example.com/final.pdf`
     );
@@ -994,6 +1218,7 @@ describe('campaign entity config routes', () => {
         { cui: '87654321', name: 'Beta Commune' },
         { cui: '99999999', name: 'Gamma Village' },
       ]),
+      audienceReader: makeAudienceReader(),
       learningProgressRepo: makeFakeLearningProgressRepo({
         initialRecords: new Map([
           [
@@ -1016,6 +1241,15 @@ describe('campaign entity config routes', () => {
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            'user-accepted-1',
+            [
+              makeAcceptedTermsRow({
+                entityCui: '99999999',
+                updatedAt: '2026-04-18T09:00:00.000Z',
               }),
             ],
           ],

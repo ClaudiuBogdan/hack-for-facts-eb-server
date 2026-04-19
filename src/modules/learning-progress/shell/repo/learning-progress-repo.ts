@@ -19,6 +19,12 @@ import { jsonValuesAreEqual } from '../../core/json-equality.js';
 
 import type { LearningProgressRepository } from '../../core/ports.js';
 import type {
+  CampaignEntityConfigCollectionCursor,
+  CampaignEntityConfigCollectionRow,
+  CampaignEntityConfigCollectionSortBy,
+  CampaignEntityConfigCollectionSortOrder,
+  ListCampaignEntityConfigCollectionRowsInput,
+  ListCampaignEntityConfigCollectionRowsOutput,
   CampaignEntityConfigRecordSortBy,
   CampaignEntityConfigRecordSortOrder,
   CampaignAdminCampaignKey,
@@ -114,6 +120,23 @@ function escapeLikePattern(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
 
+function parseCount(value: number | string | bigint | null | undefined): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  return 0;
+}
+
 function buildCampaignAdminInteractionFiltersSql(
   interactions: readonly {
     interactionId: string;
@@ -140,6 +163,209 @@ function buildCampaignAdminInteractionFiltersSql(
 function getCampaignTermsAcceptedRecordKeyPrefix(campaignKey: CampaignAdminCampaignKey): string {
   void campaignKey;
   return FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX;
+}
+
+function buildCampaignEntityConfigCollectionSortColumnSql(
+  sortBy: CampaignEntityConfigCollectionSortBy
+) {
+  switch (sortBy) {
+    case 'updatedAt':
+      return sql.ref('collection_rows.config_updated_at');
+    case 'budgetPublicationDate':
+      return sql.ref('collection_rows.budget_publication_date');
+    case 'officialBudgetUrl':
+      return sql.ref('collection_rows.official_budget_url');
+    case 'entityCui':
+    default:
+      return sql.ref('collection_rows.entity_cui');
+  }
+}
+
+function buildCampaignEntityConfigCollectionOrderBySql(
+  sortBy: CampaignEntityConfigCollectionSortBy,
+  sortOrder: CampaignEntityConfigCollectionSortOrder
+) {
+  const sortColumn = buildCampaignEntityConfigCollectionSortColumnSql(sortBy);
+  if (sortBy === 'entityCui') {
+    return sortOrder === 'asc'
+      ? sql`order by collection_rows.entity_cui asc`
+      : sql`order by collection_rows.entity_cui desc`;
+  }
+
+  return sortOrder === 'asc'
+    ? sql`order by ${sortColumn} asc nulls first, collection_rows.entity_cui asc`
+    : sql`order by ${sortColumn} desc nulls last, collection_rows.entity_cui asc`;
+}
+
+function buildCampaignEntityConfigCollectionCursorFilterSql(input: {
+  sortBy: CampaignEntityConfigCollectionSortBy;
+  sortOrder: CampaignEntityConfigCollectionSortOrder;
+  cursor?: CampaignEntityConfigCollectionCursor;
+}) {
+  if (input.cursor === undefined) {
+    return sql``;
+  }
+
+  const sortColumn = buildCampaignEntityConfigCollectionSortColumnSql(input.sortBy);
+  const cursorEntityCui = input.cursor.entityCui;
+  const cursorValue = input.cursor.value;
+
+  if (input.sortBy === 'entityCui') {
+    return input.sortOrder === 'asc'
+      ? sql`and collection_rows.entity_cui > ${cursorEntityCui}`
+      : sql`and collection_rows.entity_cui < ${cursorEntityCui}`;
+  }
+
+  if (cursorValue === null) {
+    return input.sortOrder === 'asc'
+      ? sql`
+          and (
+            (${sortColumn} is null and collection_rows.entity_cui > ${cursorEntityCui})
+            or ${sortColumn} is not null
+          )
+        `
+      : sql`
+          and ${sortColumn} is null
+          and collection_rows.entity_cui > ${cursorEntityCui}
+        `;
+  }
+
+  if (input.sortBy === 'updatedAt') {
+    return input.sortOrder === 'asc'
+      ? sql`
+          and ${sortColumn} is not null
+          and (
+            ${sortColumn} > ${cursorValue}::timestamptz
+            or (${sortColumn} = ${cursorValue}::timestamptz and collection_rows.entity_cui > ${cursorEntityCui})
+          )
+        `
+      : sql`
+          and (
+            (${sortColumn} is not null and (
+              ${sortColumn} < ${cursorValue}::timestamptz
+              or (${sortColumn} = ${cursorValue}::timestamptz and collection_rows.entity_cui > ${cursorEntityCui})
+            ))
+            or ${sortColumn} is null
+          )
+        `;
+  }
+
+  return input.sortOrder === 'asc'
+    ? sql`
+        and ${sortColumn} is not null
+        and (
+          ${sortColumn} > ${cursorValue}
+          or (${sortColumn} = ${cursorValue} and collection_rows.entity_cui > ${cursorEntityCui})
+        )
+      `
+    : sql`
+        and (
+          (${sortColumn} is not null and (
+            ${sortColumn} < ${cursorValue}
+            or (${sortColumn} = ${cursorValue} and collection_rows.entity_cui > ${cursorEntityCui})
+          ))
+          or ${sortColumn} is null
+        )
+      `;
+}
+
+function buildCampaignEntityConfigCollectionFiltersSql(input: {
+  entityCui?: string;
+  budgetPublicationDate?: string;
+  hasBudgetPublicationDate?: boolean;
+  officialBudgetUrl?: string;
+  hasOfficialBudgetUrl?: boolean;
+  updatedAtFrom?: string;
+  updatedAtTo?: string;
+}) {
+  return sql.join(
+    [
+      input.entityCui !== undefined
+        ? sql`and collection_rows.entity_cui = ${input.entityCui}`
+        : sql``,
+      input.budgetPublicationDate !== undefined
+        ? sql`and collection_rows.budget_publication_date = ${input.budgetPublicationDate}`
+        : sql``,
+      input.hasBudgetPublicationDate === undefined
+        ? sql``
+        : input.hasBudgetPublicationDate
+          ? sql`and collection_rows.budget_publication_date is not null`
+          : sql`and collection_rows.budget_publication_date is null`,
+      input.officialBudgetUrl !== undefined
+        ? sql`and collection_rows.official_budget_url ilike ${`%${escapeLikePattern(
+            input.officialBudgetUrl
+          )}%`} escape '\\'`
+        : sql``,
+      input.hasOfficialBudgetUrl === undefined
+        ? sql``
+        : input.hasOfficialBudgetUrl
+          ? sql`and collection_rows.official_budget_url is not null`
+          : sql`and collection_rows.official_budget_url is null`,
+      input.updatedAtFrom !== undefined
+        ? sql`and collection_rows.config_updated_at >= ${input.updatedAtFrom}::timestamptz`
+        : sql``,
+      input.updatedAtTo !== undefined
+        ? sql`and collection_rows.config_updated_at <= ${input.updatedAtTo}::timestamptz`
+        : sql``,
+    ],
+    sql` `
+  );
+}
+
+function buildCampaignEntityConfigCollectionCteSql(input: {
+  campaignKey: CampaignAdminCampaignKey;
+}) {
+  const configUserId = `internal:campaign-config:${input.campaignKey}`;
+  const configRecordKeyPrefix = 'internal:entity-config::';
+  const termsAcceptedRecordKeyPrefix = getCampaignTermsAcceptedRecordKeyPrefix(input.campaignKey);
+
+  return sql`
+    with configured_rows as (
+      select
+        user_id,
+        record_key,
+        record,
+        audit_events,
+        updated_seq,
+        created_at,
+        updated_at,
+        nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui,
+        nullif(btrim(record->'value'->'json'->'value'->'values'->>'budgetPublicationDate'), '') as budget_publication_date,
+        nullif(btrim(record->'value'->'json'->'value'->'values'->>'officialBudgetUrl'), '') as official_budget_url
+      from userinteractions
+      where user_id = ${configUserId}
+        and record_key like ${`${escapeLikePattern(configRecordKeyPrefix)}%`} escape '\\'
+    ),
+    terms_accepted_entities as (
+      select distinct
+        nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui
+      from userinteractions
+      where record_key like ${`${escapeLikePattern(termsAcceptedRecordKeyPrefix)}%`} escape '\\'
+        and nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') is not null
+    ),
+    base_entities as (
+      select entity_cui from configured_rows
+      union
+      select entity_cui from terms_accepted_entities
+    ),
+    collection_rows as (
+      select
+        base_entities.entity_cui,
+        configured_rows.user_id as configured_user_id,
+        configured_rows.record_key as configured_record_key,
+        configured_rows.record as configured_record,
+        configured_rows.audit_events as configured_audit_events,
+        configured_rows.updated_seq as configured_updated_seq,
+        configured_rows.created_at as configured_created_at,
+        configured_rows.updated_at as config_updated_at,
+        configured_rows.budget_publication_date,
+        configured_rows.official_budget_url
+      from base_entities
+      left join configured_rows
+        on configured_rows.entity_cui = base_entities.entity_cui
+      where base_entities.entity_cui is not null
+    )
+  `;
 }
 
 function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
@@ -881,6 +1107,73 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
   }
 
+  async listCampaignEntityConfigCollectionRows(
+    input: ListCampaignEntityConfigCollectionRowsInput
+  ): Promise<Result<ListCampaignEntityConfigCollectionRowsOutput, LearningProgressError>> {
+    try {
+      const filtersSql = buildCampaignEntityConfigCollectionFiltersSql(input);
+      const cursorFilterSql = buildCampaignEntityConfigCollectionCursorFilterSql({
+        sortBy: input.sortBy,
+        sortOrder: input.sortOrder,
+        ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+      });
+      const orderBySql = buildCampaignEntityConfigCollectionOrderBySql(
+        input.sortBy,
+        input.sortOrder
+      );
+      const cteSql = buildCampaignEntityConfigCollectionCteSql({
+        campaignKey: input.campaignKey,
+      });
+
+      const totalCountResult = await sql<{ total_count: number | string }>`
+        ${cteSql}
+        select count(*)::int as total_count
+        from collection_rows
+        where true
+          ${filtersSql}
+      `.execute(this.db);
+      const totalCount = parseCount(totalCountResult.rows[0]?.total_count);
+
+      const pageResult = await sql<CampaignEntityConfigCollectionQueryRow>`
+        ${cteSql}
+        select
+          collection_rows.entity_cui,
+          collection_rows.configured_user_id,
+          collection_rows.configured_record_key,
+          collection_rows.configured_record,
+          collection_rows.configured_audit_events,
+          collection_rows.configured_updated_seq,
+          collection_rows.configured_created_at,
+          collection_rows.config_updated_at,
+          collection_rows.budget_publication_date,
+          collection_rows.official_budget_url,
+          ${totalCount}::int as total_count
+        from collection_rows
+        where true
+          ${filtersSql}
+          ${cursorFilterSql}
+        ${orderBySql}
+        limit ${input.limit + 1}
+      `.execute(this.db);
+
+      return ok({
+        rows: pageResult.rows
+          .slice(0, input.limit)
+          .map((row) => this.mapCampaignEntityConfigCollectionRow(row)),
+        totalCount,
+        hasMore: pageResult.rows.length > input.limit,
+      });
+    } catch (error) {
+      this.log.error(
+        { err: error, input },
+        'Failed to list campaign entity config collection rows'
+      );
+      return err(
+        createDatabaseError('Failed to list campaign entity config collection rows', error)
+      );
+    }
+  }
+
   async listCampaignAdminUsers(
     input: ListCampaignAdminUsersInput
   ): Promise<Result<ListCampaignAdminUsersOutput, LearningProgressError>> {
@@ -1441,6 +1734,38 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     };
   }
 
+  private mapCampaignEntityConfigCollectionRow(
+    row: CampaignEntityConfigCollectionQueryRow
+  ): CampaignEntityConfigCollectionRow {
+    if (
+      row.configured_user_id === null ||
+      row.configured_record_key === null ||
+      row.configured_record === null ||
+      row.configured_audit_events === null ||
+      row.configured_updated_seq === null ||
+      row.configured_created_at === null ||
+      row.config_updated_at === null
+    ) {
+      return {
+        entityCui: row.entity_cui,
+        configuredRow: null,
+      };
+    }
+
+    return {
+      entityCui: row.entity_cui,
+      configuredRow: this.mapRow({
+        user_id: row.configured_user_id,
+        record_key: row.configured_record_key,
+        record: row.configured_record,
+        audit_events: row.configured_audit_events,
+        updated_seq: row.configured_updated_seq,
+        created_at: row.configured_created_at,
+        updated_at: row.config_updated_at,
+      }),
+    };
+  }
+
   private async doUpsertInteractiveRecord(
     input: UpsertInteractiveRecordInput
   ): Promise<Result<UpsertInteractiveRecordResult, LearningProgressError>> {
@@ -1601,6 +1926,20 @@ interface CampaignAdminStatsAggregateQueryRow {
   thread_phase_closed_no_response: number;
   thread_phase_failed: number;
   thread_phase_none: number;
+}
+
+interface CampaignEntityConfigCollectionQueryRow {
+  entity_cui: string;
+  configured_user_id: string | null;
+  configured_record_key: string | null;
+  configured_record: LearningProgressRecordValueRow | null;
+  configured_audit_events: LearningProgressAuditEventRow[] | null;
+  configured_updated_seq: string | null;
+  configured_created_at: Date | string | null;
+  config_updated_at: Date | string | null;
+  budget_publication_date: string | null;
+  official_budget_url: string | null;
+  total_count: number | string;
 }
 
 interface CampaignAdminUserAggregateQueryRow {

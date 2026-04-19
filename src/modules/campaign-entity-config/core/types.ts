@@ -17,13 +17,17 @@ export interface CampaignEntityConfigDto {
   readonly updatedByUserId: string | null;
 }
 
-export type CampaignEntityConfigSortBy = 'updatedAt' | 'entityCui';
+export type CampaignEntityConfigSortBy =
+  | 'updatedAt'
+  | 'entityCui'
+  | 'budgetPublicationDate'
+  | 'officialBudgetUrl';
 export type CampaignEntityConfigSortOrder = 'asc' | 'desc';
 
 export interface CampaignEntityConfigListCursor {
   readonly sortBy: CampaignEntityConfigSortBy;
   readonly sortOrder: CampaignEntityConfigSortOrder;
-  readonly updatedAt: string | null;
+  readonly value: string | null;
   readonly entityCui: string;
 }
 
@@ -44,6 +48,10 @@ export interface ListCampaignEntityConfigsInput {
   readonly campaignKey: CampaignEntityConfigCampaignKey;
   readonly query?: string;
   readonly entityCui?: string;
+  readonly budgetPublicationDate?: string;
+  readonly hasBudgetPublicationDate?: boolean;
+  readonly officialBudgetUrl?: string;
+  readonly hasOfficialBudgetUrl?: boolean;
   readonly updatedAtFrom?: string;
   readonly updatedAtTo?: string;
   readonly sortBy: CampaignEntityConfigSortBy;

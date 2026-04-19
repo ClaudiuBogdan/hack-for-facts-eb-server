@@ -20,6 +20,8 @@ export const CampaignEntityConfigParamsSchema = Type.Object(
 export const CampaignEntityConfigSortBySchema = Type.Union([
   Type.Literal('updatedAt'),
   Type.Literal('entityCui'),
+  Type.Literal('budgetPublicationDate'),
+  Type.Literal('officialBudgetUrl'),
 ]);
 
 export const CampaignEntityConfigSortOrderSchema = Type.Union([
@@ -29,7 +31,7 @@ export const CampaignEntityConfigSortOrderSchema = Type.Union([
 
 export const CampaignEntityConfigCursorSchema = Type.Object(
   {
-    updatedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    value: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     entityCui: Type.String({ minLength: 1 }),
     sortBy: CampaignEntityConfigSortBySchema,
     sortOrder: CampaignEntityConfigSortOrderSchema,
@@ -41,12 +43,16 @@ export const CampaignEntityConfigListQuerySchema = Type.Object(
   {
     query: Type.Optional(Type.String({ maxLength: 0 })),
     entityCui: Type.Optional(Type.String()),
+    budgetPublicationDate: Type.Optional(Type.String({ format: 'date' })),
+    hasBudgetPublicationDate: Type.Optional(Type.Boolean()),
+    officialBudgetUrl: Type.Optional(Type.String()),
+    hasOfficialBudgetUrl: Type.Optional(Type.Boolean()),
     updatedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
     updatedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
     sortBy: Type.Optional(CampaignEntityConfigSortBySchema),
     sortOrder: Type.Optional(CampaignEntityConfigSortOrderSchema),
     cursor: Type.Optional(Type.String({ minLength: 1 })),
-    limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100, default: 50 })),
+    limit: Type.Optional(Type.Number({ minimum: 1, maximum: 500, default: 50 })),
   },
   { additionalProperties: false }
 );
@@ -55,6 +61,10 @@ export const CampaignEntityConfigExportQuerySchema = Type.Object(
   {
     query: Type.Optional(Type.String()),
     entityCui: Type.Optional(Type.String()),
+    budgetPublicationDate: Type.Optional(Type.String({ format: 'date' })),
+    hasBudgetPublicationDate: Type.Optional(Type.Boolean()),
+    officialBudgetUrl: Type.Optional(Type.String()),
+    hasOfficialBudgetUrl: Type.Optional(Type.Boolean()),
     updatedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
     updatedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
     sortBy: Type.Optional(CampaignEntityConfigSortBySchema),

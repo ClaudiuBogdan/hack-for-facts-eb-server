@@ -1,57 +1,26 @@
 import { err, ok, type Result } from 'neverthrow';
 
-import {
-  buildCampaignEntityConfigUserId,
-  buildNextCampaignEntityConfigCursor,
-  getCampaignEntityConfigRecordKeyPrefix,
-} from '../config-record.js';
+import { buildNextCampaignEntityConfigCursor } from '../config-record.js';
 import { createValidationError, type CampaignEntityConfigError } from '../errors.js';
 import {
-  mapLearningProgressError,
   loadEntityNameMapForEntityCuis,
+  mapLearningProgressError,
+  materializeCampaignEntityConfigCollectionRows,
   normalizeEntityCui,
   normalizeOptionalQuery,
-  parseConfiguredCampaignEntityConfigRows,
-  type CampaignEntityConfigDeps,
   validateListCursor,
   validateUpdatedAtRange,
+  type CampaignEntityConfigDeps,
 } from './shared.js';
 
 import type { ListCampaignEntityConfigsInput, ListCampaignEntityConfigsOutput } from '../types.js';
-import type { LearningProgressRecordRow } from '@/modules/learning-progress/index.js';
 
 export type ListCampaignEntityConfigsDeps = Pick<
   CampaignEntityConfigDeps,
   'entityRepo' | 'learningProgressRepo'
->;
-
-function normalizeListedRowPage(
-  input:
-    | readonly LearningProgressRecordRow[]
-    | {
-        rows: readonly LearningProgressRecordRow[];
-        totalCount: number;
-        hasMore: boolean;
-      }
-): {
-  rows: readonly LearningProgressRecordRow[];
-  totalCount: number;
-  hasMore: boolean;
-} {
-  if (Array.isArray(input)) {
-    return {
-      rows: input,
-      totalCount: input.length,
-      hasMore: false,
-    };
-  }
-
-  return input as {
-    rows: readonly LearningProgressRecordRow[];
-    totalCount: number;
-    hasMore: boolean;
-  };
-}
+> & {
+  readonly audienceReader?: unknown;
+};
 
 export const listCampaignEntityConfigs = async (
   deps: ListCampaignEntityConfigsDeps,
@@ -99,34 +68,35 @@ export const listCampaignEntityConfigs = async (
     return err(cursorResult.error);
   }
 
-  const rowsResult = await deps.learningProgressRepo.listCampaignEntityConfigRows({
-    userId: buildCampaignEntityConfigUserId(input.campaignKey),
-    recordKeyPrefix: getCampaignEntityConfigRecordKeyPrefix(),
+  const pageResult = await deps.learningProgressRepo.listCampaignEntityConfigCollectionRows({
+    campaignKey: input.campaignKey,
     ...(entityCui !== undefined ? { entityCui } : {}),
+    ...(input.budgetPublicationDate !== undefined
+      ? { budgetPublicationDate: input.budgetPublicationDate }
+      : {}),
+    ...(input.hasBudgetPublicationDate !== undefined
+      ? { hasBudgetPublicationDate: input.hasBudgetPublicationDate }
+      : {}),
+    ...(input.officialBudgetUrl !== undefined
+      ? { officialBudgetUrl: input.officialBudgetUrl }
+      : {}),
+    ...(input.hasOfficialBudgetUrl !== undefined
+      ? { hasOfficialBudgetUrl: input.hasOfficialBudgetUrl }
+      : {}),
     ...(input.updatedAtFrom !== undefined ? { updatedAtFrom: input.updatedAtFrom } : {}),
     ...(input.updatedAtTo !== undefined ? { updatedAtTo: input.updatedAtTo } : {}),
     sortBy: input.sortBy,
     sortOrder: input.sortOrder,
     limit: input.limit,
-    ...(input.cursor !== undefined
-      ? {
-          cursor: {
-            updatedAt: input.cursor.updatedAt,
-            entityCui: input.cursor.entityCui,
-          },
-        }
-      : {}),
+    ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
   });
-  if (rowsResult.isErr()) {
-    return err(mapLearningProgressError(rowsResult.error));
+  if (pageResult.isErr()) {
+    return err(mapLearningProgressError(pageResult.error));
   }
 
-  const rowPage = normalizeListedRowPage(rowsResult.value);
-
-  const itemsResult = parseConfiguredCampaignEntityConfigRows({
+  const itemsResult = materializeCampaignEntityConfigCollectionRows({
     campaignKey: input.campaignKey,
-    rows: rowPage.rows,
-    ...(entityCui !== undefined ? { expectedEntityCui: entityCui } : {}),
+    rows: pageResult.value.rows,
   });
   if (itemsResult.isErr()) {
     return err(itemsResult.error);
@@ -136,22 +106,24 @@ export const listCampaignEntityConfigs = async (
     deps,
     itemsResult.value.map((item) => item.entityCui)
   );
-  const entityNameMap: ReadonlyMap<string, string | null> = entityNameMapResult.isOk()
-    ? entityNameMapResult.value
-    : new Map<string, string | null>();
 
-  const itemsWithEntityName = itemsResult.value.map((item) => ({
-    ...item,
-    entityName: entityNameMap.get(item.entityCui) ?? null,
-  }));
+  const items = entityNameMapResult.isOk()
+    ? itemsResult.value.map((item) => ({
+        ...item,
+        entityName: entityNameMapResult.value.get(item.entityCui) ?? null,
+      }))
+    : itemsResult.value.map((item) => ({
+        ...item,
+        entityName: null,
+      }));
 
   return ok({
-    items: itemsWithEntityName,
-    totalCount: rowPage.totalCount,
-    hasMore: rowPage.hasMore,
+    items,
+    totalCount: pageResult.value.totalCount,
+    hasMore: pageResult.value.hasMore,
     nextCursor: buildNextCampaignEntityConfigCursor({
-      items: itemsWithEntityName,
-      hasMore: rowPage.hasMore,
+      items,
+      hasMore: pageResult.value.hasMore,
       sortBy: input.sortBy,
       sortOrder: input.sortOrder,
     }),

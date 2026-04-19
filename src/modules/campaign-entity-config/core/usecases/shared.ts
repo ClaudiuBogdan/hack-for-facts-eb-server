@@ -1,6 +1,8 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  compareCampaignEntityConfigDtos,
+  createDefaultCampaignEntityConfig,
   buildCampaignEntityConfigUserId,
   getCampaignEntityConfigRecordKeyPrefix,
   parseCampaignEntityConfigRecord,
@@ -20,11 +22,12 @@ import type {
   CampaignEntityConfigSortOrder,
 } from '../types.js';
 import type { Entity, EntityError, EntityRepository } from '@/modules/entity/index.js';
+import type { LearningProgressError } from '@/modules/learning-progress/core/errors.js';
+import type { LearningProgressRepository } from '@/modules/learning-progress/core/ports.js';
 import type {
-  LearningProgressError,
+  CampaignEntityConfigCollectionRow,
   LearningProgressRecordRow,
-  LearningProgressRepository,
-} from '@/modules/learning-progress/index.js';
+} from '@/modules/learning-progress/core/types.js';
 
 export interface CampaignEntityConfigDeps {
   readonly learningProgressRepo: LearningProgressRepository;
@@ -112,12 +115,43 @@ export function validateListCursor(input: {
     return ok(undefined);
   }
 
-  if (
-    input.cursor.sortBy !== input.sortBy ||
-    input.cursor.sortOrder !== input.sortOrder ||
-    (input.sortBy === 'updatedAt' && input.cursor.updatedAt === null)
-  ) {
+  if (input.cursor.sortBy !== input.sortBy || input.cursor.sortOrder !== input.sortOrder) {
     return err(createValidationError('Invalid campaign entity config cursor.'));
+  }
+
+  if (input.sortBy === 'entityCui') {
+    if (input.cursor.value !== input.cursor.entityCui) {
+      return err(createValidationError('Invalid campaign entity config cursor.'));
+    }
+
+    return ok(undefined);
+  }
+
+  if (input.sortBy === 'updatedAt') {
+    if (input.cursor.value !== null && getTimestampMilliseconds(input.cursor.value) === null) {
+      return err(createValidationError('Invalid campaign entity config cursor.'));
+    }
+
+    return ok(undefined);
+  }
+
+  if (input.sortBy === 'budgetPublicationDate') {
+    if (input.cursor.value !== null && !/^\d{4}-\d{2}-\d{2}$/.test(input.cursor.value)) {
+      return err(createValidationError('Invalid campaign entity config cursor.'));
+    }
+
+    return ok(undefined);
+  }
+
+  if (input.cursor.value !== null) {
+    try {
+      const url = new URL(input.cursor.value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return err(createValidationError('Invalid campaign entity config cursor.'));
+      }
+    } catch {
+      return err(createValidationError('Invalid campaign entity config cursor.'));
+    }
   }
 
   return ok(undefined);
@@ -167,6 +201,150 @@ export async function loadConfiguredCampaignEntityConfigDtos(
     campaignKey,
     rows: rowsResult.value,
   });
+}
+
+export function materializeCampaignEntityConfigCollectionRows(input: {
+  campaignKey: CampaignEntityConfigCampaignKey;
+  rows: readonly CampaignEntityConfigCollectionRow[];
+}): Result<readonly CampaignEntityConfigDto[], CampaignEntityConfigError> {
+  const items: CampaignEntityConfigDto[] = [];
+
+  for (const row of input.rows) {
+    if (row.configuredRow === null) {
+      items.push(
+        createDefaultCampaignEntityConfig({
+          campaignKey: input.campaignKey,
+          entityCui: row.entityCui,
+        })
+      );
+      continue;
+    }
+
+    const parsedRowResult = parseCampaignEntityConfigRecord({
+      campaignKey: input.campaignKey,
+      row: row.configuredRow,
+      expectedEntityCui: row.entityCui,
+    });
+    if (parsedRowResult.isErr()) {
+      return err(parsedRowResult.error);
+    }
+
+    items.push(parsedRowResult.value.dto);
+  }
+
+  return ok(items);
+}
+
+export function filterCampaignEntityConfigDtosByUpdatedAtRange(
+  items: readonly CampaignEntityConfigDto[],
+  input: {
+    updatedAtFrom?: string;
+    updatedAtTo?: string;
+  }
+): readonly CampaignEntityConfigDto[] {
+  if (input.updatedAtFrom === undefined && input.updatedAtTo === undefined) {
+    return items;
+  }
+
+  return items.filter((item) => {
+    if (item.updatedAt === null) {
+      return false;
+    }
+
+    if (
+      input.updatedAtFrom !== undefined &&
+      compareTimestampInstants(item.updatedAt, input.updatedAtFrom) < 0
+    ) {
+      return false;
+    }
+
+    if (
+      input.updatedAtTo !== undefined &&
+      compareTimestampInstants(item.updatedAt, input.updatedAtTo) > 0
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function matchesCampaignEntityConfigQuery(input: {
+  item: CampaignEntityConfigDto;
+  query: string | undefined;
+}): boolean {
+  if (input.query === undefined) {
+    return true;
+  }
+
+  const normalizedQuery = input.query.toLocaleLowerCase('en');
+  const entityName = input.item.entityName?.trim();
+
+  return (
+    input.item.entityCui.toLocaleLowerCase('en').includes(normalizedQuery) ||
+    (entityName !== undefined && entityName !== ''
+      ? entityName.toLocaleLowerCase('en').includes(normalizedQuery)
+      : false)
+  );
+}
+
+export function matchesCampaignEntityConfigPayloadFilters(input: {
+  item: CampaignEntityConfigDto;
+  budgetPublicationDate?: string;
+  hasBudgetPublicationDate?: boolean;
+  officialBudgetUrl?: string;
+  hasOfficialBudgetUrl?: boolean;
+}): boolean {
+  if (
+    input.budgetPublicationDate !== undefined &&
+    input.item.values.budgetPublicationDate !== input.budgetPublicationDate
+  ) {
+    return false;
+  }
+
+  if (
+    input.hasBudgetPublicationDate !== undefined &&
+    (input.item.values.budgetPublicationDate !== null) !== input.hasBudgetPublicationDate
+  ) {
+    return false;
+  }
+
+  if (input.officialBudgetUrl !== undefined) {
+    const normalizedUrlQuery = input.officialBudgetUrl.trim().toLocaleLowerCase('en');
+    if (
+      normalizedUrlQuery !== '' &&
+      !(
+        input.item.values.officialBudgetUrl?.toLocaleLowerCase('en').includes(normalizedUrlQuery) ??
+        false
+      )
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    input.hasOfficialBudgetUrl !== undefined &&
+    (input.item.values.officialBudgetUrl !== null) !== input.hasOfficialBudgetUrl
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export function sortCampaignEntityConfigDtos(input: {
+  items: readonly CampaignEntityConfigDto[];
+  sortBy: CampaignEntityConfigSortBy;
+  sortOrder: CampaignEntityConfigSortOrder;
+}): readonly CampaignEntityConfigDto[] {
+  return [...input.items].sort((left, right) =>
+    compareCampaignEntityConfigDtos({
+      left,
+      right,
+      sortBy: input.sortBy,
+      sortOrder: input.sortOrder,
+    })
+  );
 }
 
 export async function loadEntityNameMapForEntityCuis(
