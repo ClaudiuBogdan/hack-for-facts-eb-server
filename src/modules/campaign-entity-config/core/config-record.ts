@@ -17,6 +17,7 @@ import {
 import type {
   CampaignEntityConfigCampaignKey,
   CampaignEntityConfigDto,
+  CampaignEntityConfigListItem,
   CampaignEntityConfigListCursor,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
@@ -415,9 +416,9 @@ function compareNullableString(left: string | null, right: string | null): numbe
 }
 
 function getCampaignEntityConfigSortValue(
-  item: CampaignEntityConfigDto,
+  item: CampaignEntityConfigListItem,
   sortBy: CampaignEntityConfigSortBy
-): string | null {
+): string | number | null {
   switch (sortBy) {
     case 'updatedAt':
       return item.updatedAt;
@@ -425,6 +426,8 @@ function getCampaignEntityConfigSortValue(
       return item.values.budgetPublicationDate;
     case 'officialBudgetUrl':
       return item.values.officialBudgetUrl;
+    case 'usersCount':
+      return item.usersCount;
     case 'entityCui':
       return item.entityCui;
     default:
@@ -433,8 +436,8 @@ function getCampaignEntityConfigSortValue(
 }
 
 export function compareCampaignEntityConfigDtos(input: {
-  left: CampaignEntityConfigDto;
-  right: CampaignEntityConfigDto;
+  left: CampaignEntityConfigListItem;
+  right: CampaignEntityConfigListItem;
   sortBy: CampaignEntityConfigSortBy;
   sortOrder: CampaignEntityConfigSortOrder;
 }): number {
@@ -445,10 +448,20 @@ export function compareCampaignEntityConfigDtos(input: {
 
   const leftValue = getCampaignEntityConfigSortValue(input.left, input.sortBy);
   const rightValue = getCampaignEntityConfigSortValue(input.right, input.sortBy);
-  const valueComparison =
-    input.sortBy === 'updatedAt'
-      ? compareNullableUpdatedAt(leftValue, rightValue)
-      : compareNullableString(leftValue, rightValue);
+  let valueComparison: number;
+  if (input.sortBy === 'updatedAt') {
+    valueComparison = compareNullableUpdatedAt(
+      leftValue as string | null,
+      rightValue as string | null
+    );
+  } else if (input.sortBy === 'usersCount') {
+    valueComparison = Number(leftValue) - Number(rightValue);
+  } else {
+    valueComparison = compareNullableString(
+      leftValue as string | null,
+      rightValue as string | null
+    );
+  }
   if (valueComparison !== 0) {
     return input.sortOrder === 'asc' ? valueComparison : -valueComparison;
   }
@@ -457,7 +470,7 @@ export function compareCampaignEntityConfigDtos(input: {
 }
 
 export function resolveCampaignEntityConfigPageStartIndex(input: {
-  items: readonly CampaignEntityConfigDto[];
+  items: readonly CampaignEntityConfigListItem[];
   sortBy: CampaignEntityConfigSortBy;
   sortOrder: CampaignEntityConfigSortOrder;
   cursor: CampaignEntityConfigListCursor | undefined;
@@ -471,16 +484,24 @@ export function resolveCampaignEntityConfigPageStartIndex(input: {
     return err(createValidationError('Invalid campaign entity config cursor.'));
   }
 
-  const cursorItem: CampaignEntityConfigDto = {
+  const cursorItem: CampaignEntityConfigListItem = {
     campaignKey: 'funky',
     entityCui: cursor.entityCui,
     entityName: null,
+    usersCount: cursor.sortBy === 'usersCount' ? Number(cursor.value) : 0,
     isConfigured: true,
     values: {
-      budgetPublicationDate: cursor.sortBy === 'budgetPublicationDate' ? cursor.value : null,
-      officialBudgetUrl: cursor.sortBy === 'officialBudgetUrl' ? cursor.value : null,
+      budgetPublicationDate:
+        cursor.sortBy === 'budgetPublicationDate' && typeof cursor.value === 'string'
+          ? cursor.value
+          : null,
+      officialBudgetUrl:
+        cursor.sortBy === 'officialBudgetUrl' && typeof cursor.value === 'string'
+          ? cursor.value
+          : null,
     },
-    updatedAt: cursor.sortBy === 'updatedAt' ? cursor.value : null,
+    updatedAt:
+      cursor.sortBy === 'updatedAt' && typeof cursor.value === 'string' ? cursor.value : null,
     updatedByUserId: null,
   };
 
@@ -499,7 +520,7 @@ export function resolveCampaignEntityConfigPageStartIndex(input: {
 }
 
 export function buildNextCampaignEntityConfigCursor(input: {
-  items: readonly CampaignEntityConfigDto[];
+  items: readonly CampaignEntityConfigListItem[];
   hasMore: boolean;
   sortBy: CampaignEntityConfigSortBy;
   sortOrder: CampaignEntityConfigSortOrder;

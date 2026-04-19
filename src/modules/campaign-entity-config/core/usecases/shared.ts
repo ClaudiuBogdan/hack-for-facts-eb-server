@@ -17,6 +17,7 @@ import {
 import type {
   CampaignEntityConfigCampaignKey,
   CampaignEntityConfigDto,
+  CampaignEntityConfigListItem,
   CampaignEntityConfigListCursor,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
@@ -127,8 +128,25 @@ export function validateListCursor(input: {
     return ok(undefined);
   }
 
+  if (input.sortBy === 'usersCount') {
+    if (
+      typeof input.cursor.value !== 'number' ||
+      !Number.isFinite(input.cursor.value) ||
+      !Number.isInteger(input.cursor.value) ||
+      input.cursor.value < 0
+    ) {
+      return err(createValidationError('Invalid campaign entity config cursor.'));
+    }
+
+    return ok(undefined);
+  }
+
   if (input.sortBy === 'updatedAt') {
-    if (input.cursor.value !== null && getTimestampMilliseconds(input.cursor.value) === null) {
+    if (
+      input.cursor.value !== null &&
+      (typeof input.cursor.value !== 'string' ||
+        getTimestampMilliseconds(input.cursor.value) === null)
+    ) {
       return err(createValidationError('Invalid campaign entity config cursor.'));
     }
 
@@ -136,7 +154,10 @@ export function validateListCursor(input: {
   }
 
   if (input.sortBy === 'budgetPublicationDate') {
-    if (input.cursor.value !== null && !/^\d{4}-\d{2}-\d{2}$/.test(input.cursor.value)) {
+    if (
+      input.cursor.value !== null &&
+      (typeof input.cursor.value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.cursor.value))
+    ) {
       return err(createValidationError('Invalid campaign entity config cursor.'));
     }
 
@@ -145,6 +166,10 @@ export function validateListCursor(input: {
 
   if (input.cursor.value !== null) {
     try {
+      if (typeof input.cursor.value !== 'string') {
+        return err(createValidationError('Invalid campaign entity config cursor.'));
+      }
+
       const url = new URL(input.cursor.value);
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         return err(createValidationError('Invalid campaign entity config cursor.'));
@@ -206,17 +231,18 @@ export async function loadConfiguredCampaignEntityConfigDtos(
 export function materializeCampaignEntityConfigCollectionRows(input: {
   campaignKey: CampaignEntityConfigCampaignKey;
   rows: readonly CampaignEntityConfigCollectionRow[];
-}): Result<readonly CampaignEntityConfigDto[], CampaignEntityConfigError> {
-  const items: CampaignEntityConfigDto[] = [];
+}): Result<readonly CampaignEntityConfigListItem[], CampaignEntityConfigError> {
+  const items: CampaignEntityConfigListItem[] = [];
 
   for (const row of input.rows) {
     if (row.configuredRow === null) {
-      items.push(
-        createDefaultCampaignEntityConfig({
+      items.push({
+        ...createDefaultCampaignEntityConfig({
           campaignKey: input.campaignKey,
           entityCui: row.entityCui,
-        })
-      );
+        }),
+        usersCount: row.usersCount,
+      });
       continue;
     }
 
@@ -229,7 +255,10 @@ export function materializeCampaignEntityConfigCollectionRows(input: {
       return err(parsedRowResult.error);
     }
 
-    items.push(parsedRowResult.value.dto);
+    items.push({
+      ...parsedRowResult.value.dto,
+      usersCount: row.usersCount,
+    });
   }
 
   return ok(items);
@@ -333,10 +362,10 @@ export function matchesCampaignEntityConfigPayloadFilters(input: {
 }
 
 export function sortCampaignEntityConfigDtos(input: {
-  items: readonly CampaignEntityConfigDto[];
+  items: readonly CampaignEntityConfigListItem[];
   sortBy: CampaignEntityConfigSortBy;
   sortOrder: CampaignEntityConfigSortOrder;
-}): readonly CampaignEntityConfigDto[] {
+}): readonly CampaignEntityConfigListItem[] {
   return [...input.items].sort((left, right) =>
     compareCampaignEntityConfigDtos({
       left,

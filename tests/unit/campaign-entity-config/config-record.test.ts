@@ -201,6 +201,7 @@ describe('campaign entity config record helpers', () => {
       campaignKey: 'funky' as const,
       entityCui: '12345678',
       entityName: null,
+      usersCount: 0,
       isConfigured: true,
       values: {
         budgetPublicationDate: '2026-02-01',
@@ -213,6 +214,7 @@ describe('campaign entity config record helpers', () => {
       campaignKey: 'funky' as const,
       entityCui: '87654321',
       entityName: null,
+      usersCount: 0,
       isConfigured: false,
       values: {
         budgetPublicationDate: null,
@@ -238,6 +240,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '22222222',
         entityName: null,
+        usersCount: 0,
         isConfigured: true,
         values: {
           budgetPublicationDate: '2026-02-02',
@@ -250,6 +253,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '11111111',
         entityName: null,
+        usersCount: 0,
         isConfigured: true,
         values: {
           budgetPublicationDate: '2026-02-01',
@@ -262,6 +266,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '33333333',
         entityName: null,
+        usersCount: 0,
         isConfigured: true,
         values: {
           budgetPublicationDate: '2026-02-03',
@@ -274,6 +279,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '44444444',
         entityName: null,
+        usersCount: 0,
         isConfigured: true,
         values: {
           budgetPublicationDate: '2026-02-04',
@@ -290,6 +296,7 @@ describe('campaign entity config record helpers', () => {
           campaignKey: 'funky' as const,
           entityCui: '11111111',
           entityName: null,
+          usersCount: 0,
           isConfigured: true,
           values: {
             budgetPublicationDate: '2026-02-01',
@@ -302,6 +309,7 @@ describe('campaign entity config record helpers', () => {
           campaignKey: 'funky' as const,
           entityCui: '22222222',
           entityName: null,
+          usersCount: 0,
           isConfigured: true,
           values: {
             budgetPublicationDate: '2026-02-02',
@@ -340,6 +348,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '11111111',
         entityName: null,
+        usersCount: 0,
         isConfigured: true,
         values: {
           budgetPublicationDate: '2026-02-01',
@@ -352,6 +361,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '22222222',
         entityName: null,
+        usersCount: 0,
         isConfigured: false,
         values: {
           budgetPublicationDate: null,
@@ -364,6 +374,7 @@ describe('campaign entity config record helpers', () => {
         campaignKey: 'funky' as const,
         entityCui: '33333333',
         entityName: null,
+        usersCount: 0,
         isConfigured: false,
         values: {
           budgetPublicationDate: null,
@@ -380,6 +391,7 @@ describe('campaign entity config record helpers', () => {
           campaignKey: 'funky' as const,
           entityCui: '22222222',
           entityName: null,
+          usersCount: 0,
           isConfigured: false,
           values: {
             budgetPublicationDate: null,
