@@ -12,6 +12,7 @@ import { upsertCampaignEntityConfig } from '@/modules/campaign-entity-config/cor
 
 import { makeFakeLearningProgressRepo } from '../../fixtures/fakes.js';
 
+import type { CampaignEntityConfigValues } from '@/modules/campaign-entity-config/core/types.js';
 import type {
   EntityConnection,
   Entity,
@@ -108,10 +109,7 @@ function makeEntityRepo(
 
 function makeRow(input: {
   entityCui: string;
-  values: {
-    budgetPublicationDate: string | null;
-    officialBudgetUrl: string | null;
-  };
+  values: CampaignEntityConfigValues;
   actorUserId: string;
   rowUpdatedAt: string;
   recordUpdatedAt?: string;
@@ -195,6 +193,7 @@ describe('campaign entity config use cases', () => {
       values: {
         budgetPublicationDate: null,
         officialBudgetUrl: null,
+        public_debate: null,
       },
       updatedAt: null,
       updatedByUserId: null,
@@ -236,6 +235,7 @@ describe('campaign entity config use cases', () => {
         values: {
           budgetPublicationDate: '2026-02-01',
           officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: null,
         },
         expectedUpdatedAt: null,
         actorUserId: 'admin-1',
@@ -260,6 +260,7 @@ describe('campaign entity config use cases', () => {
         values: {
           budgetPublicationDate: '2026-02-02',
           officialBudgetUrl: 'https://example.com/budget-2.pdf',
+          public_debate: null,
         },
         expectedUpdatedAt: null,
         actorUserId: 'admin-1',
@@ -280,6 +281,7 @@ describe('campaign entity config use cases', () => {
         values: {
           budgetPublicationDate: '2026-03-01',
           officialBudgetUrl: 'https://example.com/other.pdf',
+          public_debate: null,
         },
         expectedUpdatedAt: '2026-04-18T10:00:00.000Z',
         actorUserId: 'admin-2',
@@ -302,6 +304,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-01',
                 officialBudgetUrl: 'https://example.com/budget.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-1',
               rowUpdatedAt: '2026-04-18T10:00:00.000Z',
@@ -332,6 +335,7 @@ describe('campaign entity config use cases', () => {
         values: {
           budgetPublicationDate: '2026-02-02',
           officialBudgetUrl: 'https://example.com/budget-v2.pdf',
+          public_debate: null,
         },
         expectedUpdatedAt: '2026-04-18T10:00:00.000Z',
         actorUserId: 'admin-2',
@@ -365,6 +369,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-03',
                 officialBudgetUrl: 'https://example.com/third.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-3',
               rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -374,6 +379,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-01',
                 officialBudgetUrl: 'https://example.com/first.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-1',
               rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -383,6 +389,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-02',
                 officialBudgetUrl: 'https://example.com/second.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-2',
               rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -487,6 +494,7 @@ describe('campaign entity config use cases', () => {
                   values: {
                     budgetPublicationDate: '2026-02-01',
                     officialBudgetUrl: 'https://example.com/alpha.pdf',
+                    public_debate: null,
                   },
                   actorUserId: 'admin-1',
                   rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -537,6 +545,7 @@ describe('campaign entity config use cases', () => {
           values: {
             budgetPublicationDate: null,
             officialBudgetUrl: null,
+            public_debate: null,
           },
           updatedAt: null,
           updatedByUserId: null,
@@ -586,6 +595,7 @@ describe('campaign entity config use cases', () => {
           values: {
             budgetPublicationDate: null,
             officialBudgetUrl: null,
+            public_debate: null,
           },
           updatedAt: null,
           updatedByUserId: null,
@@ -605,6 +615,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-01',
                 officialBudgetUrl: 'https://example.com/first.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-1',
               rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -720,6 +731,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-03',
                 officialBudgetUrl: 'https://example.com/third.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-3',
               rowUpdatedAt: '2026-04-18T13:00:00.000Z',
@@ -729,6 +741,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-01',
                 officialBudgetUrl: 'https://example.com/first.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-1',
               rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -738,6 +751,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-02',
                 officialBudgetUrl: 'https://example.com/second.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-2',
               rowUpdatedAt: '2026-04-18T10:00:00.000Z',
@@ -830,6 +844,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-03-01',
                 officialBudgetUrl: 'https://example.com/alpha.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-1',
               rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -839,6 +854,7 @@ describe('campaign entity config use cases', () => {
               values: {
                 budgetPublicationDate: '2026-02-01',
                 officialBudgetUrl: 'https://example.com/beta.pdf',
+                public_debate: null,
               },
               actorUserId: 'admin-2',
               rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -935,6 +951,7 @@ describe('campaign entity config use cases', () => {
                   values: {
                     budgetPublicationDate: '2026-02-01',
                     officialBudgetUrl: 'https://example.com/first.pdf',
+                    public_debate: null,
                   },
                   actorUserId: 'admin-1',
                   rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -973,6 +990,7 @@ describe('campaign entity config use cases', () => {
                   values: {
                     budgetPublicationDate: '2026-02-01',
                     officialBudgetUrl: 'https://example.com/first.pdf',
+                    public_debate: null,
                   },
                   actorUserId: 'admin-1',
                   rowUpdatedAt: '2026-04-18T12:00:00.000Z',

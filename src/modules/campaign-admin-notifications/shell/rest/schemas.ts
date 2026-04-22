@@ -174,6 +174,21 @@ const PublicDebateAdminFailureProjectionSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const PublicDebateAnnouncementProjectionSchema = Type.Object(
+  {
+    kind: Type.Literal('public_debate_announcement'),
+    userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    date: Type.String({ minLength: 1 }),
+    time: Type.String({ minLength: 1 }),
+    location: Type.String({ minLength: 1 }),
+    hasOnlineParticipationLink: Type.Boolean(),
+    triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 const AdminReviewedInteractionProjectionSchema = Type.Object(
   {
     kind: Type.Literal('admin_reviewed_interaction'),
@@ -210,6 +225,7 @@ export const CampaignNotificationProjectionSchema = Type.Union([
   PublicDebateEntityUpdateProjectionSchema,
   PublicDebateAdminResponseProjectionSchema,
   PublicDebateAdminFailureProjectionSchema,
+  PublicDebateAnnouncementProjectionSchema,
   AdminReviewedInteractionProjectionSchema,
   WeeklyProgressDigestProjectionSchema,
 ]);

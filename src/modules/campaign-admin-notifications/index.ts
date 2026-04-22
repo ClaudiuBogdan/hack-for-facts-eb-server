@@ -83,6 +83,11 @@ export {
   REVIEWED_INTERACTION_BULK_DEFAULT_LIMIT,
   REVIEWED_INTERACTION_BULK_MAX_LIMIT,
 } from './core/reviewed-interaction.js';
+export {
+  PUBLIC_DEBATE_ANNOUNCEMENT_FAMILY_ID,
+  PUBLIC_DEBATE_ANNOUNCEMENT_TEMPLATE_ID,
+  PUBLIC_DEBATE_ANNOUNCEMENT_RUNNABLE_ID,
+} from './core/public-debate-announcement.js';
 
 export { makeCampaignNotificationOutboxAuditRepo } from './shell/repo/outbox-audit-repo.js';
 export { makeCampaignNotificationRunnablePlanRepo } from './shell/repo/runnable-plan-repo.js';

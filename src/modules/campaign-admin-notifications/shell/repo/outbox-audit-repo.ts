@@ -8,12 +8,14 @@ import {
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
+  FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
   FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
   FUNKY_OUTBOX_WELCOME_TYPE,
 } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 import {
   parseAdminReviewedInteractionOutboxMetadata,
+  parsePublicDebateAnnouncementOutboxMetadata,
   parsePublicDebateAdminResponseOutboxMetadata,
 } from '@/modules/notification-delivery/index.js';
 
@@ -99,6 +101,7 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
+  FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
   FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
 ] as const;
 const FUNKY_AUDIT_NOTIFICATION_TYPE_SET = new Set<string>(FUNKY_AUDIT_NOTIFICATION_TYPES);
@@ -277,6 +280,26 @@ const mapProjection = (row: QueryRow): CampaignNotificationProjection => {
       responseStatus: metadata.responseStatus,
       recipientRole: metadata.recipientRole,
       responseDate: metadata.responseDate,
+      triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
+    };
+  }
+
+  if (row.notificationType === FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE) {
+    const metadataResult = parsePublicDebateAnnouncementOutboxMetadata(row.metadata);
+    if (metadataResult.isErr()) {
+      throw new Error(`Invalid public debate announcement audit metadata: ${metadataResult.error}`);
+    }
+
+    const metadata = metadataResult.value;
+    return {
+      kind: 'public_debate_announcement',
+      userId: row.userId,
+      entityCui: metadata.entityCui,
+      entityName: metadata.entityName,
+      date: metadata.publicDebate.date,
+      time: metadata.publicDebate.time,
+      location: metadata.publicDebate.location,
+      hasOnlineParticipationLink: metadata.publicDebate.online_participation_link !== undefined,
       triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
     };
   }

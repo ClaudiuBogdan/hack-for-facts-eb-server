@@ -167,6 +167,21 @@ export const PublicDebateAdminFailurePayloadSchema = Type.Object({
 
 export type PublicDebateAdminFailurePayload = Static<typeof PublicDebateAdminFailurePayloadSchema>;
 
+export const PublicDebateAnnouncementPayloadSchema = Type.Object({
+  campaignKey: Type.String({ minLength: 1 }),
+  entityCui: Type.String({ minLength: 1 }),
+  entityName: Type.String({ minLength: 1 }),
+  date: Type.String({ minLength: 1 }),
+  time: Type.String({ minLength: 1 }),
+  location: Type.String({ minLength: 1 }),
+  announcementLink: Type.String({ minLength: 1 }),
+  onlineParticipationLink: Type.Optional(Type.String({ minLength: 1 })),
+  description: Type.Optional(Type.String({ minLength: 1 })),
+  ctaUrl: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export type PublicDebateAnnouncementPayload = Static<typeof PublicDebateAnnouncementPayloadSchema>;
+
 export const AdminReviewedInteractionNextStepLinkSchema = Type.Object({
   kind: Type.Union([
     Type.Literal('retry_interaction'),

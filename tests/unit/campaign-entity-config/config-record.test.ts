@@ -42,12 +42,14 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: null,
     });
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: null,
     });
   });
 
@@ -55,12 +57,69 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: '  HTTP://example.com/budget.pdf  ',
+      public_debate: null,
     });
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'http://example.com/budget.pdf',
+      public_debate: null,
+    });
+  });
+
+  it('normalizes public debate values into their canonical stored form', () => {
+    const result = normalizeCampaignEntityConfigValues({
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: '  Council Hall  ',
+        announcement_link: ' HTTPS://example.com/public-debate ',
+        online_participation_link: null,
+        description: '  Public debate regarding the local budget proposal.  ',
+      },
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+        announcement_link: 'https://example.com/public-debate',
+        description: 'Public debate regarding the local budget proposal.',
+      },
+    });
+  });
+
+  it('treats whitespace-only optional public debate fields as absent', () => {
+    const result = normalizeCampaignEntityConfigValues({
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+        announcement_link: 'https://example.com/public-debate',
+        online_participation_link: '   ',
+        description: '   ',
+      },
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+        announcement_link: 'https://example.com/public-debate',
+      },
     });
   });
 
@@ -68,6 +127,7 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: '2026-02-30',
       officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: null,
     });
 
     expect(result.isErr()).toBe(true);
@@ -78,6 +138,7 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'budget.pdf',
+      public_debate: null,
     });
 
     expect(result.isErr()).toBe(true);
@@ -90,6 +151,7 @@ describe('campaign entity config record helpers', () => {
       const result = normalizeCampaignEntityConfigValues({
         budgetPublicationDate: '2026-02-01',
         officialBudgetUrl: `${scheme}//example.com/budget.pdf`,
+        public_debate: null,
       });
 
       expect(result.isErr()).toBe(true);
@@ -101,6 +163,7 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: null,
       extraField: 'nope',
     });
 
@@ -111,6 +174,7 @@ describe('campaign entity config record helpers', () => {
     const result = normalizeCampaignEntityConfigValues({
       budgetPublicationDate: null,
       officialBudgetUrl: null,
+      public_debate: null,
     });
 
     expect(result.isErr()).toBe(true);
@@ -124,6 +188,7 @@ describe('campaign entity config record helpers', () => {
       values: {
         budgetPublicationDate: '2026-02-01',
         officialBudgetUrl: 'https://example.com/budget.pdf',
+        public_debate: null,
       },
       actorUserId: 'admin-1',
       recordUpdatedAt: '2026-04-18T10:00:00.000Z',
@@ -136,7 +201,7 @@ describe('campaign entity config record helpers', () => {
         json: {
           value: {
             ...getJsonValue(baseRecord),
-            version: 2,
+            version: 3,
           },
         },
       },
@@ -155,6 +220,50 @@ describe('campaign entity config record helpers', () => {
     });
   });
 
+  it('maps v1 persisted rows to public_debate = null on read', () => {
+    const baseRecord = createCampaignEntityConfigRecord({
+      campaignKey: 'funky',
+      entityCui: '12345678',
+      values: {
+        budgetPublicationDate: '2026-02-01',
+        officialBudgetUrl: 'https://example.com/budget.pdf',
+        public_debate: null,
+      },
+      actorUserId: 'admin-1',
+      recordUpdatedAt: '2026-04-18T10:00:00.000Z',
+    });
+
+    const row = makeRow({
+      ...baseRecord,
+      value: {
+        kind: 'json',
+        json: {
+          value: {
+            version: 1,
+            campaignKey: 'funky',
+            entityCui: '12345678',
+            values: {
+              budgetPublicationDate: '2026-02-01',
+              officialBudgetUrl: 'https://example.com/budget.pdf',
+            },
+            meta: {
+              updatedByUserId: 'admin-1',
+            },
+          },
+        },
+      },
+    });
+
+    const result = parseCampaignEntityConfigRecord({
+      campaignKey: 'funky',
+      row,
+      expectedEntityCui: '12345678',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().dto.values.public_debate).toBeNull();
+  });
+
   it('rejects persisted rows whose payload identity mismatches the synthetic key', () => {
     const baseRecord = createCampaignEntityConfigRecord({
       campaignKey: 'funky',
@@ -162,6 +271,7 @@ describe('campaign entity config record helpers', () => {
       values: {
         budgetPublicationDate: '2026-02-01',
         officialBudgetUrl: 'https://example.com/budget.pdf',
+        public_debate: null,
       },
       actorUserId: 'admin-1',
       recordUpdatedAt: '2026-04-18T10:00:00.000Z',
@@ -206,6 +316,7 @@ describe('campaign entity config record helpers', () => {
       values: {
         budgetPublicationDate: '2026-02-01',
         officialBudgetUrl: 'https://example.com/budget.pdf',
+        public_debate: null,
       },
       updatedAt: '2026-04-18T12:00:00.000Z',
       updatedByUserId: 'admin-1',
@@ -219,6 +330,7 @@ describe('campaign entity config record helpers', () => {
       values: {
         budgetPublicationDate: null,
         officialBudgetUrl: null,
+        public_debate: null,
       },
       updatedAt: null,
       updatedByUserId: null,
@@ -245,6 +357,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: '2026-02-02',
           officialBudgetUrl: 'https://example.com/2.pdf',
+          public_debate: null,
         },
         updatedAt: '2026-04-18T13:00:00.000Z',
         updatedByUserId: 'admin-2',
@@ -258,6 +371,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: '2026-02-01',
           officialBudgetUrl: 'https://example.com/1.pdf',
+          public_debate: null,
         },
         updatedAt: '2026-04-18T12:00:00.000Z',
         updatedByUserId: 'admin-1',
@@ -271,6 +385,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: '2026-02-03',
           officialBudgetUrl: 'https://example.com/3.pdf',
+          public_debate: null,
         },
         updatedAt: '2026-04-18T10:00:00.000Z',
         updatedByUserId: 'admin-3',
@@ -284,6 +399,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: '2026-02-04',
           officialBudgetUrl: 'https://example.com/4.pdf',
+          public_debate: null,
         },
         updatedAt: '2026-04-18T09:00:00.000Z',
         updatedByUserId: 'admin-4',
@@ -301,6 +417,7 @@ describe('campaign entity config record helpers', () => {
           values: {
             budgetPublicationDate: '2026-02-01',
             officialBudgetUrl: 'https://example.com/1.pdf',
+            public_debate: null,
           },
           updatedAt: '2026-04-18T11:00:00.000Z',
           updatedByUserId: 'admin-1',
@@ -314,6 +431,7 @@ describe('campaign entity config record helpers', () => {
           values: {
             budgetPublicationDate: '2026-02-02',
             officialBudgetUrl: 'https://example.com/2.pdf',
+            public_debate: null,
           },
           updatedAt: '2026-04-18T11:00:00.000Z',
           updatedByUserId: 'admin-2',
@@ -353,6 +471,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: '2026-02-01',
           officialBudgetUrl: 'https://example.com/1.pdf',
+          public_debate: null,
         },
         updatedAt: '2026-04-18T12:00:00.000Z',
         updatedByUserId: 'admin-1',
@@ -366,6 +485,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: null,
           officialBudgetUrl: null,
+          public_debate: null,
         },
         updatedAt: null,
         updatedByUserId: null,
@@ -379,6 +499,7 @@ describe('campaign entity config record helpers', () => {
         values: {
           budgetPublicationDate: null,
           officialBudgetUrl: null,
+          public_debate: null,
         },
         updatedAt: null,
         updatedByUserId: null,
@@ -396,6 +517,7 @@ describe('campaign entity config record helpers', () => {
           values: {
             budgetPublicationDate: null,
             officialBudgetUrl: null,
+            public_debate: null,
           },
           updatedAt: null,
           updatedByUserId: null,

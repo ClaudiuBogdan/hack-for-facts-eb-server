@@ -15,6 +15,7 @@ describe('Campaign notification template preview service', () => {
     if (result.isOk()) {
       expect(result.value.map((item) => item.templateId)).toEqual([
         'admin_reviewed_user_interaction',
+        'public_debate_announcement',
         'public_debate_admin_response_requester',
         'public_debate_admin_response_subscriber',
         'public_debate_campaign_welcome',
@@ -68,6 +69,24 @@ describe('Campaign notification template preview service', () => {
       expect(result.value.exampleSubject).not.toHaveLength(0);
       expect(result.value.requiredFields).toEqual(
         expect.arrayContaining([expect.objectContaining({ name: 'weekKey', required: true })])
+      );
+    }
+  });
+
+  it('renders the public debate announcement preview', async () => {
+    const service = makeCampaignNotificationTemplatePreviewService({ logger });
+
+    const result = await service.getTemplatePreview({
+      campaignKey: 'funky',
+      templateId: 'public_debate_announcement',
+    });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.html).toContain('example.invalid');
+      expect(result.value.exampleSubject).toContain('Anunt de dezbatere publica');
+      expect(result.value.requiredFields).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'announcementLink' })])
       );
     }
   });

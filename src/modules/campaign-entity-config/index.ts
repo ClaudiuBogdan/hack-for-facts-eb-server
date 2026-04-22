@@ -1,5 +1,6 @@
 export type {
   CampaignEntityConfigCampaignKey,
+  CampaignEntityConfigPublicDebate,
   CampaignEntityConfigValues,
   CampaignEntityConfigDto,
   CampaignEntityConfigSortBy,
@@ -12,6 +13,7 @@ export type {
 } from './core/types.js';
 
 export {
+  CampaignEntityConfigPublicDebateSchema,
   CampaignEntityConfigValuesSchema,
   CampaignEntityConfigStoredPayloadSchema,
   createDefaultCampaignEntityConfig,
@@ -46,6 +48,11 @@ export {
   listCampaignEntityConfigs,
   type ListCampaignEntityConfigsDeps,
 } from './core/usecases/list-campaign-entity-configs.js';
+export {
+  listPublicDebateCampaignEntityConfigs,
+  type ListPublicDebateCampaignEntityConfigsInput,
+  type ListPublicDebateCampaignEntityConfigsOutput,
+} from './core/usecases/list-public-debate-campaign-entity-configs.js';
 
 export {
   makeCampaignEntityConfigRoutes,

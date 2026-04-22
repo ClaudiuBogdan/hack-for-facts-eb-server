@@ -60,6 +60,7 @@ const makeEmailRenderer = (
     renderError?: TemplateError;
     onRender?: (props: {
       templateType: string;
+      lang?: string;
       preferencesUrl?: string;
       selectedEntities?: string[];
       entityName?: string;
@@ -69,6 +70,7 @@ const makeEmailRenderer = (
 ) => ({
   async render(props: {
     templateType: string;
+    lang?: string;
     preferencesUrl?: string;
     selectedEntities?: string[];
     entityName?: string;
@@ -368,6 +370,77 @@ describe('compose worker helpers', () => {
     if (outbox.isOk()) {
       expect(outbox.value?.templateName).toBe('public_debate_entity_update');
       expect(outbox.value?.renderedHtml).toContain('public_debate_entity_update');
+    }
+  });
+
+  it('composes public debate announcement emails from outbox metadata', async () => {
+    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+    let renderedTemplateType: string | undefined;
+    let renderedAnnouncementLink: string | undefined;
+    let renderedLang: string | undefined;
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-public-debate-announcement-1',
+          notificationType: 'funky:outbox:public_debate_announcement',
+          referenceId: 'notif-1',
+          scopeKey: 'funky:delivery:public_debate_announcement:12345678:fingerprint-1',
+          deliveryKey: 'user-1:12345678:fingerprint-1',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_announcement',
+            entityCui: '12345678',
+            entityName: 'Municipiul Test',
+            publicDebate: {
+              date: '2026-05-10',
+              time: '18:00',
+              location: 'Council Hall',
+              announcement_link: 'https://example.com/public-debate',
+              online_participation_link: 'https://example.com/public-debate/live',
+            },
+            announcementFingerprint: 'fingerprint-1',
+            configUpdatedAt: '2026-05-01T12:00:00.000Z',
+          },
+        }),
+      ],
+    });
+
+    const result = await composeExistingOutbox(
+      {
+        sendQueue: makeSendQueue(jobs),
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        tokenSigner: makeFakeTokenSigner(),
+        dataFetcher: makeDataFetcher(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedTemplateType = props.templateType;
+            renderedAnnouncementLink = (props as { announcementLink?: string }).announcementLink;
+            renderedLang = props.lang;
+          },
+        }),
+        platformBaseUrl: 'https://transparenta.eu',
+        apiBaseUrl: 'https://api.transparenta.eu',
+        log: testLogger,
+      },
+      {
+        runId: 'run-public-debate-announcement-1',
+        kind: 'outbox',
+        outboxId: 'outbox-public-debate-announcement-1',
+      }
+    );
+
+    expect(result.status).toBe('composed');
+    expect(renderedTemplateType).toBe('public_debate_announcement');
+    expect(renderedAnnouncementLink).toBe('https://example.com/public-debate');
+    expect(renderedLang).toBe('ro');
+    expect(jobs).toHaveLength(1);
+
+    const outbox = await deliveryRepo.findById('outbox-public-debate-announcement-1');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.templateName).toBe('public_debate_announcement');
+      expect(outbox.value?.renderedHtml).toContain('public_debate_announcement');
     }
   });
 

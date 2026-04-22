@@ -11,6 +11,7 @@ import { registration as newsletterEntityRegistration } from './registrations/ne
 import { registration as publicDebateAdminFailureRegistration } from './registrations/public-debate-admin-failure.js';
 import { registration as publicDebateAdminResponseRequesterRegistration } from './registrations/public-debate-admin-response-requester.js';
 import { registration as publicDebateAdminResponseSubscriberRegistration } from './registrations/public-debate-admin-response-subscriber.js';
+import { registration as publicDebateAnnouncementRegistration } from './registrations/public-debate-announcement.js';
 import { registration as publicDebateCampaignWelcomeRegistration } from './registrations/public-debate-campaign-welcome.js';
 import { registration as publicDebateEntitySubscriptionRegistration } from './registrations/public-debate-entity-subscription.js';
 import { registration as publicDebateEntityUpdateThreadStartedSubscriberRegistration } from './registrations/public-debate-entity-update-thread-started-subscriber.js';
@@ -110,6 +111,10 @@ const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
   {
     label: 'public-debate-admin-failure',
     registration: publicDebateAdminFailureRegistration,
+  },
+  {
+    label: 'public-debate-announcement',
+    registration: publicDebateAnnouncementRegistration,
   },
   {
     label: 'public-debate-admin-response-requester',

@@ -307,6 +307,7 @@ function buildCampaignEntityConfigCollectionFiltersSql(input: {
   hasBudgetPublicationDate?: boolean;
   officialBudgetUrl?: string;
   hasOfficialBudgetUrl?: boolean;
+  hasPublicDebate?: boolean;
   updatedAtFrom?: string;
   updatedAtTo?: string;
 }) {
@@ -333,6 +334,11 @@ function buildCampaignEntityConfigCollectionFiltersSql(input: {
         : input.hasOfficialBudgetUrl
           ? sql`and collection_rows.official_budget_url is not null`
           : sql`and collection_rows.official_budget_url is null`,
+      input.hasPublicDebate === undefined
+        ? sql``
+        : input.hasPublicDebate
+          ? sql`and jsonb_typeof(collection_rows.public_debate) = 'object'`
+          : sql`and coalesce(jsonb_typeof(collection_rows.public_debate), '') <> 'object'`,
       input.updatedAtFrom !== undefined
         ? sql`and collection_rows.config_updated_at >= ${input.updatedAtFrom}::timestamptz`
         : sql``,
@@ -363,7 +369,8 @@ function buildCampaignEntityConfigCollectionCteSql(input: {
         updated_at,
         nullif(btrim(record->'value'->'json'->'value'->>'entityCui'), '') as entity_cui,
         nullif(btrim(record->'value'->'json'->'value'->'values'->>'budgetPublicationDate'), '') as budget_publication_date,
-        nullif(btrim(record->'value'->'json'->'value'->'values'->>'officialBudgetUrl'), '') as official_budget_url
+        nullif(btrim(record->'value'->'json'->'value'->'values'->>'officialBudgetUrl'), '') as official_budget_url,
+        record->'value'->'json'->'value'->'values'->'public_debate' as public_debate
       from userinteractions
       where user_id = ${configUserId}
         and record_key like ${`${escapeLikePattern(configRecordKeyPrefix)}%`} escape '\\'
@@ -394,7 +401,8 @@ function buildCampaignEntityConfigCollectionCteSql(input: {
         configured_rows.updated_at as config_updated_at,
         coalesce(terms_accepted_entities.users_count, 0)::int as users_count,
         configured_rows.budget_publication_date,
-        configured_rows.official_budget_url
+        configured_rows.official_budget_url,
+        configured_rows.public_debate
       from base_entities
       left join configured_rows
         on configured_rows.entity_cui = base_entities.entity_cui
@@ -1185,6 +1193,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
           collection_rows.users_count,
           collection_rows.budget_publication_date,
           collection_rows.official_budget_url,
+          collection_rows.public_debate,
           ${totalCount}::int as total_count
         from collection_rows
         where true
@@ -1980,6 +1989,7 @@ interface CampaignEntityConfigCollectionQueryRow {
   users_count: number | string;
   budget_publication_date: string | null;
   official_budget_url: string | null;
+  public_debate: Record<string, unknown> | null;
   total_count: number | string;
 }
 

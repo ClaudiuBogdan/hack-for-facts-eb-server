@@ -2,9 +2,19 @@ import { FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 
 export type CampaignEntityConfigCampaignKey = typeof FUNKY_CAMPAIGN_KEY;
 
+export interface CampaignEntityConfigPublicDebate {
+  readonly date: string;
+  readonly time: string;
+  readonly location: string;
+  readonly announcement_link: string;
+  readonly online_participation_link?: string;
+  readonly description?: string;
+}
+
 export interface CampaignEntityConfigValues {
   readonly budgetPublicationDate: string | null;
   readonly officialBudgetUrl: string | null;
+  readonly public_debate: CampaignEntityConfigPublicDebate | null;
 }
 
 export interface CampaignEntityConfigDto {
@@ -57,6 +67,7 @@ export interface ListCampaignEntityConfigsInput {
   readonly hasBudgetPublicationDate?: boolean;
   readonly officialBudgetUrl?: string;
   readonly hasOfficialBudgetUrl?: boolean;
+  readonly hasPublicDebate?: boolean;
   readonly updatedAtFrom?: string;
   readonly updatedAtTo?: string;
   readonly sortBy: CampaignEntityConfigSortBy;

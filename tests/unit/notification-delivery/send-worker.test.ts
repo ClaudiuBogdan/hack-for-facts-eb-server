@@ -719,6 +719,85 @@ describe('processSendJob', () => {
     }
   });
 
+  it('skips public debate announcement delivery when entity updates were disabled after enqueue', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-public-debate-announcement-optout',
+          notificationType: 'funky:outbox:public_debate_announcement',
+          referenceId: 'notification-1',
+          scopeKey: 'funky:delivery:public_debate_announcement:12345678:fingerprint-1',
+          deliveryKey: 'user-1:12345678:fingerprint-1',
+          renderedSubject: 'Public debate announcement',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'public_debate_announcement',
+            entityCui: '12345678',
+            entityName: 'Municipiul Exemplu',
+            publicDebate: {
+              date: '2026-05-10',
+              time: '18:00',
+              location: 'Council Hall',
+              announcement_link: 'https://example.com/public-debate',
+            },
+            announcementFingerprint: 'fingerprint-1',
+            configUpdatedAt: '2026-05-01T12:00:00.000Z',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '12345678',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-global',
+              userId: 'user-1',
+              entityCui: null,
+              notificationType: 'funky:notification:global',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-public-debate-announcement-optout' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-public-debate-announcement-optout',
+      status: 'skipped_unsubscribed',
+    });
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-public-debate-announcement-optout');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
   it('hashes the scope_key provider tag for reviewed-interaction deliveries', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [

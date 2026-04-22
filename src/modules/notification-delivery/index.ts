@@ -36,6 +36,10 @@ export type {
   PublicDebateEntityAudienceSummary,
 } from './core/admin-response.js';
 export type {
+  PublicDebateAnnouncementOutboxMetadata,
+  PublicDebateAnnouncementPayload,
+} from './core/public-debate-announcement.js';
+export type {
   WeeklyProgressDigestSnapshot,
   WeeklyProgressDigestOutboxMetadata,
 } from './core/weekly-progress-digest.js';
@@ -62,6 +66,13 @@ export {
   buildPublicDebateEntityAudienceSummaryKey,
   parsePublicDebateAdminResponseOutboxMetadata,
 } from './core/admin-response.js';
+export {
+  PUBLIC_DEBATE_ANNOUNCEMENT_FAMILY_ID,
+  PUBLIC_DEBATE_ANNOUNCEMENT_TEMPLATE_ID,
+  PublicDebateAnnouncementPayloadSchema,
+  PublicDebateAnnouncementOutboxMetadataSchema,
+  parsePublicDebateAnnouncementOutboxMetadata,
+} from './core/public-debate-announcement.js';
 export {
   ADMIN_REVIEWED_INTERACTION_FAMILY_ID,
   AdminReviewedInteractionNextStepLinkSchema,
@@ -214,6 +225,17 @@ export {
   type EnqueueTransactionalWelcomeNotificationResult,
   type UserRegisteredEvent,
 } from './core/usecases/enqueue-transactional-welcome-notification.js';
+export {
+  enqueuePublicDebateAnnouncementNotification,
+  type EnqueuePublicDebateAnnouncementNotificationDeps,
+  type PublicDebateAnnouncementNotificationInput,
+  type EnqueuePublicDebateAnnouncementNotificationResult,
+  type PublicDebateAnnouncementExecutionReason,
+} from './core/usecases/enqueue-public-debate-announcement-notification.js';
+export {
+  buildPublicDebateAnnouncementDeliveryKey,
+  buildPublicDebateAnnouncementScopeKey,
+} from './core/usecases/public-debate-announcement-keys.js';
 export {
   enqueuePublicDebateAdminFailureNotifications,
   type EnqueuePublicDebateAdminFailureNotificationsDeps,

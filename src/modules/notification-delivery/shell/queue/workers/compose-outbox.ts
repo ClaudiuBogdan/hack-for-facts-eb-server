@@ -1,5 +1,6 @@
 import { err, ok, type Result } from 'neverthrow';
 
+import { FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE } from '@/common/campaign-keys.js';
 import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 
@@ -19,6 +20,7 @@ import { registration as weeklyProgressDigestRegistration } from '../../../../em
 import { renderTemplateRegistration } from '../../../../email-templates/shell/renderer/render-template-registration.js';
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
 import { getErrorMessage, isRetryableError, type DeliveryError } from '../../../core/errors.js';
+import { parsePublicDebateAnnouncementOutboxMetadata } from '../../../core/public-debate-announcement.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
   parseAnafForexebugDigestScopeKey,
@@ -46,6 +48,7 @@ import type {
   PublicDebateCampaignWelcomeProps,
   PublicDebateAdminResponseRequesterProps,
   PublicDebateAdminResponseSubscriberProps,
+  PublicDebateAnnouncementProps,
   PublicDebateEntitySubscriptionProps,
   PublicDebateEntityUpdateProps,
   PublicDebateEntityUpdateThreadStartedSubscriberProps,
@@ -526,6 +529,43 @@ const buildPublicDebateAdminFailureTemplateProps = (
   });
 };
 
+const buildPublicDebateAnnouncementTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<PublicDebateAnnouncementProps, string> => {
+  const metadataResult = parsePublicDebateAnnouncementOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    return err(`Invalid public debate announcement metadata: ${metadataResult.error}`);
+  }
+
+  const metadata = metadataResult.value;
+  const copyrightYear = outbox.createdAt.getUTCFullYear();
+
+  return ok({
+    templateType: 'public_debate_announcement',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl: buildCampaignPreferencesUrl(platformBaseUrl),
+    platformBaseUrl,
+    copyrightYear,
+    campaignKey: metadata.campaignKey,
+    entityCui: metadata.entityCui,
+    entityName: metadata.entityName,
+    date: metadata.publicDebate.date,
+    time: metadata.publicDebate.time,
+    location: metadata.publicDebate.location,
+    announcementLink: metadata.publicDebate.announcement_link,
+    ...(metadata.publicDebate.online_participation_link !== undefined
+      ? { onlineParticipationLink: metadata.publicDebate.online_participation_link }
+      : {}),
+    ...(metadata.publicDebate.description !== undefined
+      ? { description: metadata.publicDebate.description }
+      : {}),
+    ctaUrl: buildCampaignEntityUrl(platformBaseUrl, metadata.entityCui),
+  });
+};
+
 const buildAdminReviewedInteractionTemplateProps = (
   outbox: NotificationOutboxRecord,
   platformBaseUrl: string,
@@ -962,6 +1002,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:admin_response' &&
     outbox.notificationType !== 'funky:outbox:admin_reviewed_interaction' &&
     outbox.notificationType !== 'funky:outbox:admin_failure' &&
+    outbox.notificationType !== FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE &&
     outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
@@ -1205,6 +1246,40 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update reviewed interaction outbox row',
       successLogMessage: 'Reviewed interaction notification composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE) {
+    const templatePropsResult = buildPublicDebateAnnouncementTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        templatePropsResult.error,
+        'Public debate announcement compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        formatTemplateError(renderResult.error),
+        'Public debate announcement render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update public debate announcement outbox row',
+      successLogMessage: 'Public debate announcement composed and send job enqueued',
     });
   }
 

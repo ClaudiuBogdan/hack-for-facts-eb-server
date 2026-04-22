@@ -12,6 +12,8 @@ export const FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE = 'funky:outbox:admin_response' as
 export const FUNKY_OUTBOX_ADMIN_FAILURE_TYPE = 'funky:outbox:admin_failure' as const;
 export const FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE =
   'funky:outbox:admin_reviewed_interaction' as const;
+export const FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE =
+  'funky:outbox:public_debate_announcement' as const;
 export const FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE =
   'funky:outbox:weekly_progress_digest' as const;
 

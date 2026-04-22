@@ -1,4 +1,5 @@
 import { Value } from '@sinclair/typebox/value';
+import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_CAMPAIGN_ADMIN_PERMISSION, FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import { deserialize } from '@/infra/cache/serialization.js';
@@ -31,7 +32,11 @@ import {
   type CampaignEntityConfigPutBody,
   type CampaignKeyParams,
 } from './schemas.js';
-import { getHttpStatusForError, type CampaignEntityConfigError } from '../../core/errors.js';
+import {
+  createValidationError,
+  getHttpStatusForError,
+  type CampaignEntityConfigError,
+} from '../../core/errors.js';
 import { getCampaignEntityConfig } from '../../core/usecases/get-campaign-entity-config.js';
 import { listCampaignEntityConfigs } from '../../core/usecases/list-campaign-entity-configs.js';
 import {
@@ -48,12 +53,14 @@ import type {
   CampaignEntityConfigListCursor,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
+  CampaignEntityConfigValues,
 } from '../../core/types.js';
 import type { EntityRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/index.js';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 const DEFAULT_LIST_LIMIT = 50;
+const isOmittedPublicDebatePutCompatEnabled = (): boolean => true;
 const ALLOWED_LIST_QUERY_KEYS = new Set<string>([
   'query',
   'entityCui',
@@ -61,6 +68,7 @@ const ALLOWED_LIST_QUERY_KEYS = new Set<string>([
   'hasBudgetPublicationDate',
   'officialBudgetUrl',
   'hasOfficialBudgetUrl',
+  'hasPublicDebate',
   'updatedAtFrom',
   'updatedAtTo',
   'sortBy',
@@ -75,6 +83,7 @@ const ALLOWED_EXPORT_QUERY_KEYS = new Set<string>([
   'hasBudgetPublicationDate',
   'officialBudgetUrl',
   'hasOfficialBudgetUrl',
+  'hasPublicDebate',
   'updatedAtFrom',
   'updatedAtTo',
   'sortBy',
@@ -86,8 +95,14 @@ const CAMPAIGN_ENTITY_CONFIG_EXPORT_HEADERS = [
   'Entity Name',
   'Users',
   'Configured',
-  'Budget Publication Date',
-  'Official Budget URL',
+  'budgetPublicationDate',
+  'officialBudgetUrl',
+  'public_debate.date',
+  'public_debate.time',
+  'public_debate.location',
+  'public_debate.online_participation_link',
+  'public_debate.announcement_link',
+  'public_debate.description',
   'Updated At',
   'Updated By User ID',
 ] as const;
@@ -219,17 +234,6 @@ function normalizeRequestedSort(
   };
 }
 
-function normalizeRequestedExportSort(
-  query: Pick<CampaignEntityConfigExportQuery, 'sortBy' | 'sortOrder'>
-): CampaignEntityConfigNormalizedSort {
-  const sortBy = query.sortBy ?? 'entityCui';
-
-  return {
-    sortBy,
-    sortOrder: query.sortOrder ?? getDefaultSortOrder(sortBy),
-  };
-}
-
 function encodeCursor(cursor: CampaignEntityConfigListCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf-8').toString('base64url');
 }
@@ -269,6 +273,8 @@ function toCampaignEntityConfigExportItem(
 }
 
 function toCampaignEntityConfigExportRow(item: CampaignEntityConfigExportItem): string {
+  const publicDebate = item.config.values.public_debate;
+
   return toCsvRow([
     item.config.campaignKey,
     item.entityCui,
@@ -277,9 +283,51 @@ function toCampaignEntityConfigExportRow(item: CampaignEntityConfigExportItem): 
     item.config.isConfigured,
     item.config.values.budgetPublicationDate,
     item.config.values.officialBudgetUrl,
+    publicDebate?.date ?? null,
+    publicDebate?.time ?? null,
+    publicDebate?.location ?? null,
+    publicDebate?.online_participation_link ?? null,
+    publicDebate?.announcement_link ?? null,
+    publicDebate?.description ?? null,
     item.config.updatedAt,
     item.config.updatedByUserId,
   ]);
+}
+
+async function resolveCampaignEntityConfigPutValues(input: {
+  learningProgressRepo: LearningProgressRepository;
+  entityRepo: EntityRepository;
+  campaignKey: CampaignEntityConfigCampaignKey;
+  entityCui: string;
+  body: CampaignEntityConfigPutBody;
+}): Promise<Result<CampaignEntityConfigValues, CampaignEntityConfigError>> {
+  if (Object.hasOwn(input.body.values, 'public_debate')) {
+    return ok(input.body.values as CampaignEntityConfigValues);
+  }
+
+  if (!isOmittedPublicDebatePutCompatEnabled()) {
+    return err(createValidationError('values.public_debate is required.'));
+  }
+
+  const existingConfigResult = await getCampaignEntityConfig(
+    {
+      learningProgressRepo: input.learningProgressRepo,
+      entityRepo: input.entityRepo,
+    },
+    {
+      campaignKey: input.campaignKey,
+      entityCui: input.entityCui,
+    }
+  );
+  if (existingConfigResult.isErr()) {
+    return err(existingConfigResult.error);
+  }
+
+  return ok({
+    budgetPublicationDate: input.body.values.budgetPublicationDate,
+    officialBudgetUrl: input.body.values.officialBudgetUrl,
+    public_debate: existingConfigResult.value.values.public_debate,
+  });
 }
 
 export interface MakeCampaignEntityConfigRoutesDeps {
@@ -370,6 +418,17 @@ export const makeCampaignEntityConfigRoutes = (
       },
       async (request, reply) => {
         const access = getCampaignEntityConfigAccess(request);
+        const valuesResult = await resolveCampaignEntityConfigPutValues({
+          learningProgressRepo: deps.learningProgressRepo,
+          entityRepo: deps.entityRepo,
+          campaignKey: access.config.campaignKey,
+          entityCui: request.params.entityCui,
+          body: request.body,
+        });
+        if (valuesResult.isErr()) {
+          return sendError(reply, valuesResult.error);
+        }
+
         const result = await upsertCampaignEntityConfig(
           {
             learningProgressRepo: deps.learningProgressRepo,
@@ -378,7 +437,7 @@ export const makeCampaignEntityConfigRoutes = (
           {
             campaignKey: access.config.campaignKey,
             entityCui: request.params.entityCui,
-            values: request.body.values,
+            values: valuesResult.value,
             expectedUpdatedAt: request.body.expectedUpdatedAt,
             actorUserId: access.userId,
           }
@@ -458,6 +517,9 @@ export const makeCampaignEntityConfigRoutes = (
             ...(request.query.hasOfficialBudgetUrl !== undefined
               ? { hasOfficialBudgetUrl: request.query.hasOfficialBudgetUrl }
               : {}),
+            ...(request.query.hasPublicDebate !== undefined
+              ? { hasPublicDebate: request.query.hasPublicDebate }
+              : {}),
             ...(request.query.updatedAtFrom !== undefined
               ? { updatedAtFrom: request.query.updatedAtFrom }
               : {}),
@@ -533,15 +595,6 @@ export const makeCampaignEntityConfigRoutes = (
           entityCui = entityCuiResult.value;
         }
 
-        const requestedSort = normalizeRequestedExportSort(request.query);
-        if (requestedSort.sortBy !== 'entityCui' || requestedSort.sortOrder !== 'asc') {
-          return reply.status(400).send({
-            ok: false,
-            error: 'ValidationError',
-            message: 'Campaign entity config export only supports sortBy=entityCui&sortOrder=asc.',
-            retryable: false,
-          });
-        }
         const updatedAtRangeResult = validateUpdatedAtRange({
           ...(request.query.updatedAtFrom !== undefined
             ? { updatedAtFrom: request.query.updatedAtFrom }
@@ -577,6 +630,9 @@ export const makeCampaignEntityConfigRoutes = (
                 : {}),
               ...(request.query.hasOfficialBudgetUrl !== undefined
                 ? { hasOfficialBudgetUrl: request.query.hasOfficialBudgetUrl }
+                : {}),
+              ...(request.query.hasPublicDebate !== undefined
+                ? { hasPublicDebate: request.query.hasPublicDebate }
                 : {}),
               ...(request.query.updatedAtFrom !== undefined
                 ? { updatedAtFrom: request.query.updatedAtFrom }

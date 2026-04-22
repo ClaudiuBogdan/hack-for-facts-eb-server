@@ -323,6 +323,7 @@ export function matchesCampaignEntityConfigPayloadFilters(input: {
   hasBudgetPublicationDate?: boolean;
   officialBudgetUrl?: string;
   hasOfficialBudgetUrl?: boolean;
+  hasPublicDebate?: boolean;
 }): boolean {
   if (
     input.budgetPublicationDate !== undefined &&
@@ -354,6 +355,13 @@ export function matchesCampaignEntityConfigPayloadFilters(input: {
   if (
     input.hasOfficialBudgetUrl !== undefined &&
     (input.item.values.officialBudgetUrl !== null) !== input.hasOfficialBudgetUrl
+  ) {
+    return false;
+  }
+
+  if (
+    input.hasPublicDebate !== undefined &&
+    (input.item.values.public_debate !== null) !== input.hasPublicDebate
   ) {
     return false;
   }
