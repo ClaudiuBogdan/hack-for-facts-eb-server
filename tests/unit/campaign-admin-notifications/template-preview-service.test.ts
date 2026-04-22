@@ -84,7 +84,7 @@ describe('Campaign notification template preview service', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.html).toContain('example.invalid');
-      expect(result.value.exampleSubject).toContain('Anunt de dezbatere publica');
+      expect(result.value.exampleSubject).toContain('Anunț de dezbatere publică');
       expect(result.value.requiredFields).toEqual(
         expect.arrayContaining([expect.objectContaining({ name: 'announcementLink' })])
       );

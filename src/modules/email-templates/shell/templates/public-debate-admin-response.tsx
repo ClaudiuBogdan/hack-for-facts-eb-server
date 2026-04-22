@@ -4,6 +4,7 @@ import * as React from 'react';
 
 import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
+import { formatTemplateTimestamp } from './formatting.js';
 
 import type {
   PublicDebateAdminResponseRequesterProps,
@@ -123,19 +124,6 @@ const COPY = {
   },
 } as const;
 
-const formatTimestamp = (lang: SupportedLanguage, value: string): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
-};
-
 const getVariant = (
   templateType: PublicDebateAdminResponseProps['templateType']
 ): 'requester' | 'subscriber' => {
@@ -194,7 +182,7 @@ export const PublicDebateAdminResponseEmail = (
         <Text style={styles.value}>{RESPONSE_STATUS_LABELS[props.lang][props.responseStatus]}</Text>
 
         <Text style={styles.label}>{langCopy.responseDateLabel}</Text>
-        <Text style={styles.value}>{formatTimestamp(props.lang, props.responseDate)}</Text>
+        <Text style={styles.value}>{formatTemplateTimestamp(props.responseDate)}</Text>
 
         <Text style={styles.label}>{langCopy.messageLabel}</Text>
         <Text style={styles.value}>{props.messageContent}</Text>

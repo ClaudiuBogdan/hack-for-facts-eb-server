@@ -3,6 +3,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_CAMPAIGN_ADMIN_PERMISSION, FUNKY_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 import { deserialize } from '@/infra/cache/serialization.js';
+import { isAuthenticated } from '@/modules/auth/core/types.js';
+import { requireAuthHandler } from '@/modules/auth/shell/middleware/fastify-auth.js';
 import {
   makeCampaignAdminAuthorizationHook,
   resolveCampaignAdminPermissionAccess,
@@ -22,6 +24,7 @@ import {
   CampaignEntityConfigListResponseSchema,
   CampaignEntityConfigListQuerySchema,
   CampaignEntityConfigParamsSchema,
+  CampaignEntityConfigPublicResponseSchema,
   CampaignEntityConfigPutBodySchema,
   CampaignEntityConfigResponseSchema,
   CampaignKeyParamsSchema,
@@ -34,10 +37,12 @@ import {
 } from './schemas.js';
 import {
   createValidationError,
+  createNotFoundError,
   getHttpStatusForError,
   type CampaignEntityConfigError,
 } from '../../core/errors.js';
 import { getCampaignEntityConfig } from '../../core/usecases/get-campaign-entity-config.js';
+import { getPublicCampaignEntityConfig } from '../../core/usecases/get-public-campaign-entity-config.js';
 import { listCampaignEntityConfigs } from '../../core/usecases/list-campaign-entity-configs.js';
 import {
   matchesCampaignEntityConfigQuery,
@@ -262,6 +267,27 @@ function sendError(reply: FastifyReply, error: CampaignEntityConfigError) {
   });
 }
 
+function sendUnauthorized(reply: FastifyReply) {
+  return reply.status(401).send({
+    ok: false,
+    error: 'Unauthorized',
+    message: 'Authentication required',
+    retryable: false,
+  });
+}
+
+function resolveEnabledCampaignEntityConfigRouteConfig(input: {
+  campaignKey: string;
+  enabledCampaignKeys: ReadonlySet<string>;
+}): CampaignEntityConfigRouteConfig | null {
+  const routeConfig = getCampaignEntityConfigRouteConfig(input.campaignKey);
+  if (routeConfig === null || !input.enabledCampaignKeys.has(routeConfig.campaignKey)) {
+    return null;
+  }
+
+  return routeConfig;
+}
+
 function toCampaignEntityConfigExportItem(
   config: CampaignEntityConfigListItem
 ): CampaignEntityConfigExportItem {
@@ -351,18 +377,68 @@ export const makeCampaignEntityConfigRoutes = (
 
   return async (fastify) => {
     const enabledCampaignKeys = new Set<string>(deps.enabledCampaignKeys);
+    const adminAuthHook = makeCampaignEntityConfigAuthHook({
+      permissionAuthorizer: deps.permissionAuthorizer,
+      enabledCampaignKeys,
+    });
+
     fastify.decorateRequest('campaignEntityConfigAccess', null);
-    fastify.addHook(
-      'preHandler',
-      makeCampaignEntityConfigAuthHook({
-        permissionAuthorizer: deps.permissionAuthorizer,
-        enabledCampaignKeys,
-      })
+
+    fastify.get<{ Params: CampaignEntityConfigParams }>(
+      '/api/v1/campaigns/:campaignKey/entities/:entityCui/config',
+      {
+        preHandler: requireAuthHandler,
+        schema: {
+          params: CampaignEntityConfigParamsSchema,
+          response: {
+            200: CampaignEntityConfigPublicResponseSchema,
+            400: ErrorResponseSchema,
+            401: ErrorResponseSchema,
+            404: ErrorResponseSchema,
+            500: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        if (!isAuthenticated(request.auth)) {
+          return sendUnauthorized(reply);
+        }
+
+        const routeConfig = resolveEnabledCampaignEntityConfigRouteConfig({
+          campaignKey: request.params.campaignKey,
+          enabledCampaignKeys,
+        });
+        if (routeConfig === null) {
+          return sendError(reply, createNotFoundError('Campaign entity config not found.'));
+        }
+
+        const result = await getPublicCampaignEntityConfig(
+          {
+            learningProgressRepo: deps.learningProgressRepo,
+            entityRepo: deps.entityRepo,
+          },
+          {
+            campaignKey: routeConfig.campaignKey,
+            entityCui: request.params.entityCui,
+            userId: request.auth.userId as string,
+          }
+        );
+
+        if (result.isErr()) {
+          return sendError(reply, result.error);
+        }
+
+        return reply.status(200).send({
+          ok: true,
+          data: result.value,
+        });
+      }
     );
 
     fastify.get<{ Params: CampaignEntityConfigParams }>(
       '/api/v1/admin/campaigns/:campaignKey/entities/:entityCui/config',
       {
+        preHandler: adminAuthHook,
         schema: {
           params: CampaignEntityConfigParamsSchema,
           response: {
@@ -402,6 +478,7 @@ export const makeCampaignEntityConfigRoutes = (
     fastify.put<{ Params: CampaignEntityConfigParams; Body: CampaignEntityConfigPutBody }>(
       '/api/v1/admin/campaigns/:campaignKey/entities/:entityCui/config',
       {
+        preHandler: adminAuthHook,
         schema: {
           params: CampaignEntityConfigParamsSchema,
           body: CampaignEntityConfigPutBodySchema,
@@ -457,6 +534,7 @@ export const makeCampaignEntityConfigRoutes = (
     fastify.get<{ Params: CampaignKeyParams; Querystring: CampaignEntityConfigListQuery }>(
       '/api/v1/admin/campaigns/:campaignKey/entity-config',
       {
+        preHandler: adminAuthHook,
         schema: {
           params: CampaignKeyParamsSchema,
           querystring: CampaignEntityConfigListQuerySchema,
@@ -560,6 +638,7 @@ export const makeCampaignEntityConfigRoutes = (
     fastify.get<{ Params: CampaignKeyParams; Querystring: CampaignEntityConfigExportQuery }>(
       '/api/v1/admin/campaigns/:campaignKey/entity-config/export',
       {
+        preHandler: adminAuthHook,
         schema: {
           params: CampaignKeyParamsSchema,
           querystring: CampaignEntityConfigExportQuerySchema,

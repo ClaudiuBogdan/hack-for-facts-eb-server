@@ -4,6 +4,7 @@ import * as React from 'react';
 
 import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
+import { formatTemplateTimestamp } from './formatting.js';
 
 import type {
   AdminReviewedInteractionProps,
@@ -129,19 +130,6 @@ const styles = {
   },
 };
 
-const formatTimestamp = (lang: SupportedLanguage, reviewedAt: string): string => {
-  const date = new Date(reviewedAt);
-  if (Number.isNaN(date.getTime())) {
-    return reviewedAt;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
-};
-
 export const getAdminReviewedInteractionSubject = ({
   lang,
   entityCui,
@@ -169,7 +157,7 @@ export const AdminReviewedInteractionEmail = (
   props: AdminReviewedInteractionProps
 ): React.ReactElement => {
   const copy = COPY_BY_LANG[props.lang];
-  const reviewedAt = formatTimestamp(props.lang, props.reviewedAt);
+  const reviewedAt = formatTemplateTimestamp(props.reviewedAt);
   const heading =
     props.reviewStatus === 'approved' ? copy.approvedHeading : copy.rejectedHeading;
   const lead = props.reviewStatus === 'approved' ? copy.approvedLead : copy.rejectedLead;

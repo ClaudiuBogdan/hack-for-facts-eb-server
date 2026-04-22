@@ -109,6 +109,17 @@ export const CampaignEntityConfigDtoSchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignEntityConfigPublicDtoSchema = Type.Object(
+  {
+    campaignKey: Type.Literal('funky'),
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    isConfigured: Type.Boolean(),
+    values: CampaignEntityConfigValuesSchema,
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignEntityConfigListItemSchema = Type.Composite([
   CampaignEntityConfigDtoSchema,
   Type.Object(
@@ -123,6 +134,14 @@ export const CampaignEntityConfigResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
     data: CampaignEntityConfigDtoSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignEntityConfigPublicResponseSchema = Type.Object(
+  {
+    ok: Type.Literal(true),
+    data: CampaignEntityConfigPublicDtoSchema,
   },
   { additionalProperties: false }
 );
