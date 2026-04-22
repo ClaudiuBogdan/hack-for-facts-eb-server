@@ -1663,12 +1663,14 @@ export const makeFakeLearningProgressRepo = (
   ): {
     budgetPublicationDate: string | null;
     officialBudgetUrl: string | null;
+    hasPublicDebate: boolean;
     updatedAt: string | null;
   } => {
     if (row === null || row.record.value?.kind !== 'json') {
       return {
         budgetPublicationDate: null,
         officialBudgetUrl: null,
+        hasPublicDebate: false,
         updatedAt: null,
       };
     }
@@ -1677,12 +1679,15 @@ export const makeFakeLearningProgressRepo = (
       values?: {
         budgetPublicationDate?: string | null;
         officialBudgetUrl?: string | null;
+        public_debate?: Record<string, unknown> | null;
       };
     };
 
     return {
       budgetPublicationDate: value.values?.budgetPublicationDate ?? null,
       officialBudgetUrl: value.values?.officialBudgetUrl ?? null,
+      hasPublicDebate:
+        value.values?.public_debate !== null && value.values?.public_debate !== undefined,
       updatedAt: row.updatedAt,
     };
   };
@@ -2399,6 +2404,13 @@ export const makeFakeLearningProgressRepo = (
           if (
             input.hasOfficialBudgetUrl !== undefined &&
             (values.officialBudgetUrl !== null) !== input.hasOfficialBudgetUrl
+          ) {
+            return false;
+          }
+
+          if (
+            input.hasPublicDebate !== undefined &&
+            values.hasPublicDebate !== input.hasPublicDebate
           ) {
             return false;
           }

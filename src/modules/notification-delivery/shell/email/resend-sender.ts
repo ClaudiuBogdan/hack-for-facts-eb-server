@@ -5,6 +5,7 @@ import {
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
+  FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
   FUNKY_OUTBOX_WELCOME_TYPE,
 } from '@/common/campaign-keys.js';
 
@@ -24,7 +25,8 @@ const isFunkyCampaignNotificationType = (notificationType: string | undefined): 
     notificationType === FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE ||
     notificationType === FUNKY_OUTBOX_ENTITY_UPDATE_TYPE ||
     notificationType === FUNKY_OUTBOX_ADMIN_FAILURE_TYPE ||
-    notificationType === FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE
+    notificationType === FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE ||
+    notificationType === FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE
   );
 };
 

@@ -83,6 +83,7 @@ export const listCampaignEntityConfigs = async (
     ...(input.hasOfficialBudgetUrl !== undefined
       ? { hasOfficialBudgetUrl: input.hasOfficialBudgetUrl }
       : {}),
+    ...(input.hasPublicDebate !== undefined ? { hasPublicDebate: input.hasPublicDebate } : {}),
     ...(input.updatedAtFrom !== undefined ? { updatedAtFrom: input.updatedAtFrom } : {}),
     ...(input.updatedAtTo !== undefined ? { updatedAtTo: input.updatedAtTo } : {}),
     sortBy: input.sortBy,

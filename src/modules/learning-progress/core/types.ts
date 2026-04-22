@@ -260,6 +260,7 @@ export interface ListCampaignEntityConfigCollectionRowsInput {
   readonly hasBudgetPublicationDate?: boolean;
   readonly officialBudgetUrl?: string;
   readonly hasOfficialBudgetUrl?: boolean;
+  readonly hasPublicDebate?: boolean;
   readonly updatedAtFrom?: string;
   readonly updatedAtTo?: string;
   readonly sortBy: CampaignEntityConfigCollectionSortBy;

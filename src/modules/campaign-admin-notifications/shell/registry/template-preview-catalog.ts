@@ -5,6 +5,7 @@ export const CAMPAIGN_NOTIFICATION_TEMPLATE_PREVIEW_CATALOG: Readonly<
 > = {
   funky: [
     'admin_reviewed_user_interaction',
+    'public_debate_announcement',
     'public_debate_admin_response_requester',
     'public_debate_admin_response_subscriber',
     'public_debate_campaign_welcome',

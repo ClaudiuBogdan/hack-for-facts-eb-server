@@ -302,6 +302,20 @@ export interface PublicDebateAdminFailureProps extends BaseTemplateProps {
   failureMessage: string;
 }
 
+export interface PublicDebateAnnouncementProps extends BaseTemplateProps {
+  templateType: 'public_debate_announcement';
+  campaignKey: string;
+  entityCui: string;
+  entityName: string;
+  date: string;
+  time: string;
+  location: string;
+  announcementLink: string;
+  onlineParticipationLink?: string;
+  description?: string;
+  ctaUrl?: string;
+}
+
 export interface AdminReviewedInteractionNextStepLink {
   kind: 'retry_interaction' | 'start_public_debate_request' | 'view_entity';
   label: string;

@@ -90,6 +90,7 @@ export type NotificationOutboxType =
   | 'funky:outbox:admin_response'
   | 'funky:outbox:admin_failure'
   | 'funky:outbox:admin_reviewed_interaction'
+  | 'funky:outbox:public_debate_announcement'
   | 'funky:outbox:weekly_progress_digest'
   | BundleOutboxType;
 

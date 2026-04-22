@@ -81,6 +81,7 @@ export interface LearningProgressRepository {
     hasBudgetPublicationDate?: boolean;
     officialBudgetUrl?: string;
     hasOfficialBudgetUrl?: boolean;
+    hasPublicDebate?: boolean;
     updatedAtFrom?: string;
     updatedAtTo?: string;
     sortBy: CampaignEntityConfigCollectionSortBy;

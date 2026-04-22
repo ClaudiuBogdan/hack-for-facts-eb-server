@@ -1,6 +1,9 @@
 import { Type, type Static } from '@sinclair/typebox';
 
-import { CampaignEntityConfigValuesSchema } from '../../core/config-record.js';
+import {
+  CampaignEntityConfigPublicDebateSchema,
+  CampaignEntityConfigValuesSchema,
+} from '../../core/config-record.js';
 
 export const CampaignKeyParamsSchema = Type.Object(
   {
@@ -48,6 +51,7 @@ export const CampaignEntityConfigListQuerySchema = Type.Object(
     hasBudgetPublicationDate: Type.Optional(Type.Boolean()),
     officialBudgetUrl: Type.Optional(Type.String()),
     hasOfficialBudgetUrl: Type.Optional(Type.Boolean()),
+    hasPublicDebate: Type.Optional(Type.Boolean()),
     updatedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
     updatedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
     sortBy: Type.Optional(CampaignEntityConfigSortBySchema),
@@ -66,6 +70,7 @@ export const CampaignEntityConfigExportQuerySchema = Type.Object(
     hasBudgetPublicationDate: Type.Optional(Type.Boolean()),
     officialBudgetUrl: Type.Optional(Type.String()),
     hasOfficialBudgetUrl: Type.Optional(Type.Boolean()),
+    hasPublicDebate: Type.Optional(Type.Boolean()),
     updatedAtFrom: Type.Optional(Type.String({ format: 'date-time' })),
     updatedAtTo: Type.Optional(Type.String({ format: 'date-time' })),
     sortBy: Type.Optional(CampaignEntityConfigSortBySchema),
@@ -74,10 +79,19 @@ export const CampaignEntityConfigExportQuerySchema = Type.Object(
   { additionalProperties: false }
 );
 
+export const CampaignEntityConfigPutValuesSchema = Type.Object(
+  {
+    budgetPublicationDate: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    officialBudgetUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    public_debate: Type.Optional(Type.Union([CampaignEntityConfigPublicDebateSchema, Type.Null()])),
+  },
+  { additionalProperties: false }
+);
+
 export const CampaignEntityConfigPutBodySchema = Type.Object(
   {
     expectedUpdatedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
-    values: CampaignEntityConfigValuesSchema,
+    values: CampaignEntityConfigPutValuesSchema,
   },
   { additionalProperties: false }
 );

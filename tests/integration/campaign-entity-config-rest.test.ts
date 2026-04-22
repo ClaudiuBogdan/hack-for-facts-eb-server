@@ -13,7 +13,10 @@ import { makeCampaignEntityConfigRoutes } from '@/modules/campaign-entity-config
 
 import { makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 
-import type { CampaignEntityConfigListItem } from '@/modules/campaign-entity-config/core/types.js';
+import type {
+  CampaignEntityConfigListItem,
+  CampaignEntityConfigValues,
+} from '@/modules/campaign-entity-config/core/types.js';
 import type {
   EntityConnection,
   Entity,
@@ -159,10 +162,7 @@ function makeAcceptedTermsRow(input: {
 
 function makeRow(input: {
   entityCui: string;
-  values: {
-    budgetPublicationDate: string | null;
-    officialBudgetUrl: string | null;
-  };
+  values: CampaignEntityConfigValues;
   actorUserId: string;
   rowUpdatedAt: string;
 }): LearningProgressRecordRow {
@@ -191,6 +191,7 @@ function makeInvalidRow(): LearningProgressRecordRow {
     values: {
       budgetPublicationDate: '2026-02-01',
       officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: null,
     },
     actorUserId: 'admin-1',
     rowUpdatedAt: '2026-04-18T10:00:00.000Z',
@@ -219,6 +220,7 @@ function toCampaignEntityConfigSortDto(
     values: {
       budgetPublicationDate: null,
       officialBudgetUrl: null,
+      public_debate: null,
     },
     updatedAt: row.record.updatedAt,
     updatedByUserId: null,
@@ -288,6 +290,7 @@ function ensureCampaignEntityConfigListCapableRepo(
               values: {
                 budgetPublicationDate: null,
                 officialBudgetUrl: null,
+                public_debate: null,
               },
               updatedAt: input.cursor.updatedAt,
               updatedByUserId: null,
@@ -454,6 +457,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: null,
           officialBudgetUrl: null,
+          public_debate: null,
         },
         updatedAt: null,
         updatedByUserId: null,
@@ -487,6 +491,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: null,
           officialBudgetUrl: null,
+          public_debate: null,
         },
         updatedAt: null,
         updatedByUserId: null,
@@ -526,6 +531,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: null,
           officialBudgetUrl: null,
+          public_debate: null,
         },
       },
     });
@@ -563,6 +569,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: '2026-02-01',
           officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: null,
         },
       },
     });
@@ -587,6 +594,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: '2026-02-02',
           officialBudgetUrl: 'https://example.com/budget-v2.pdf',
+          public_debate: null,
         },
       },
     });
@@ -604,6 +612,7 @@ describe('campaign entity config routes', () => {
         values: {
           budgetPublicationDate: '2026-02-03',
           officialBudgetUrl: 'https://example.com/budget-v3.pdf',
+          public_debate: null,
         },
       },
     });
@@ -617,6 +626,117 @@ describe('campaign entity config routes', () => {
       },
     });
     expect(getByIdCalls).toEqual(['12345678', '12345678', '12345678']);
+  });
+
+  it('temporarily preserves stored public_debate when older PUT clients omit the field', async () => {
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo(),
+      entityRepo: makeEntityRepo(['12345678']),
+    });
+    app = setup.app;
+
+    const createResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: null,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: {
+            date: '2026-05-10',
+            time: '18:00',
+            location: 'Council Hall',
+            announcement_link: 'https://example.com/public-debate',
+          },
+        },
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(200);
+    const createBody = createResponse.json();
+
+    const updateResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: createBody.data.updatedAt,
+        values: {
+          budgetPublicationDate: '2026-02-02',
+          officialBudgetUrl: 'https://example.com/budget-v2.pdf',
+        },
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      ok: true,
+      data: {
+        values: {
+          budgetPublicationDate: '2026-02-02',
+          officialBudgetUrl: 'https://example.com/budget-v2.pdf',
+          public_debate: {
+            date: '2026-05-10',
+            time: '18:00',
+            location: 'Council Hall',
+            announcement_link: 'https://example.com/public-debate',
+          },
+        },
+      },
+    });
+  });
+
+  it('treats whitespace-only optional public_debate urls as omitted on PUT', async () => {
+    const setup = await createTestApp({
+      learningProgressRepo: makeFakeLearningProgressRepo(),
+      entityRepo: makeEntityRepo(['12345678']),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+      payload: {
+        expectedUpdatedAt: null,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: {
+            date: '2026-05-10',
+            time: '18:00',
+            location: 'Council Hall',
+            announcement_link: 'https://example.com/public-debate',
+            online_participation_link: '   ',
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      data: {
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: {
+            date: '2026-05-10',
+            time: '18:00',
+            location: 'Council Hall',
+            announcement_link: 'https://example.com/public-debate',
+          },
+        },
+      },
+    });
   });
 
   it('lists configured rows only with the canonical dto shape', async () => {
@@ -643,6 +763,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-02',
                   officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -652,6 +773,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -685,6 +807,7 @@ describe('campaign entity config routes', () => {
             values: {
               budgetPublicationDate: '2026-02-01',
               officialBudgetUrl: 'https://example.com/first.pdf',
+              public_debate: null,
             },
             updatedAt: '2026-04-18T12:00:00.000Z',
             updatedByUserId: 'admin-1',
@@ -698,6 +821,7 @@ describe('campaign entity config routes', () => {
             values: {
               budgetPublicationDate: '2026-02-02',
               officialBudgetUrl: 'https://example.com/second.pdf',
+              public_debate: null,
             },
             updatedAt: '2026-04-18T11:00:00.000Z',
             updatedByUserId: 'admin-2',
@@ -718,6 +842,72 @@ describe('campaign entity config routes', () => {
     expect(getByIdsCalls[0]).toEqual(expect.arrayContaining(['12345678', '87654321']));
   });
 
+  it('filters configured rows by hasPublicDebate', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+      ]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: null,
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                  },
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config?hasPublicDebate=true&sortBy=entityCui&sortOrder=asc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.items).toHaveLength(1);
+    expect(response.json().data.items[0]).toMatchObject({
+      entityCui: '12345678',
+      values: {
+        public_debate: {
+          date: '2026-05-10',
+          time: '18:00',
+          location: 'Council Hall',
+          announcement_link: 'https://example.com/public-debate',
+        },
+      },
+    });
+  });
+
   it('lists the union of configured rows and subscriber-backed default rows', async () => {
     const setup = await createTestApp({
       entityRepo: makeEntityRepo([
@@ -735,6 +925,14 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                    online_participation_link: 'https://example.com/public-debate/live',
+                    description: 'Public debate regarding the local budget proposal.',
+                  },
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -777,6 +975,14 @@ describe('campaign entity config routes', () => {
             values: {
               budgetPublicationDate: '2026-02-01',
               officialBudgetUrl: 'https://example.com/first.pdf',
+              public_debate: {
+                date: '2026-05-10',
+                time: '18:00',
+                location: 'Council Hall',
+                announcement_link: 'https://example.com/public-debate',
+                online_participation_link: 'https://example.com/public-debate/live',
+                description: 'Public debate regarding the local budget proposal.',
+              },
             },
             updatedAt: '2026-04-18T12:00:00.000Z',
             updatedByUserId: 'admin-1',
@@ -790,6 +996,7 @@ describe('campaign entity config routes', () => {
             values: {
               budgetPublicationDate: null,
               officialBudgetUrl: null,
+              public_debate: null,
             },
             updatedAt: null,
             updatedByUserId: null,
@@ -829,6 +1036,14 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                    online_participation_link: 'https://example.com/public-debate/live',
+                    description: 'Public debate regarding the local budget proposal.',
+                  },
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -862,6 +1077,14 @@ describe('campaign entity config routes', () => {
             values: {
               budgetPublicationDate: '2026-02-01',
               officialBudgetUrl: 'https://example.com/first.pdf',
+              public_debate: {
+                date: '2026-05-10',
+                time: '18:00',
+                location: 'Council Hall',
+                announcement_link: 'https://example.com/public-debate',
+                online_participation_link: 'https://example.com/public-debate/live',
+                description: 'Public debate regarding the local budget proposal.',
+              },
             },
             updatedAt: '2026-04-18T12:00:00.000Z',
             updatedByUserId: 'admin-1',
@@ -895,6 +1118,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-02',
                   officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -904,6 +1128,14 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                    online_participation_link: 'https://example.com/public-debate/live',
+                    description: 'Public debate regarding the local budget proposal.',
+                  },
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -971,6 +1203,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-02',
                   officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -980,6 +1213,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-03-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -1086,6 +1320,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-02',
                   officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -1095,6 +1330,14 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                    online_participation_link: 'https://example.com/public-debate/live',
+                    description: 'Public debate regarding the local budget proposal.',
+                  },
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -1135,14 +1378,16 @@ describe('campaign entity config routes', () => {
     const csvLines = csvBody.trimEnd().split('\n');
 
     expect(csvLines).toHaveLength(4);
-    expect(csvLines[0]).toContain('Campaign Key,Entity CUI,Entity Name,Users,Configured');
-    expect(csvBody).toContain(
-      'funky,12345678,Alpha Town,0,true,2026-02-01,https://example.com/first.pdf'
+    expect(csvLines[0]).toContain(
+      'Campaign Key,Entity CUI,Entity Name,Users,Configured,budgetPublicationDate,officialBudgetUrl,public_debate.date,public_debate.time,public_debate.location,public_debate.online_participation_link,public_debate.announcement_link,public_debate.description'
     );
     expect(csvBody).toContain(
-      'funky,87654321,Beta Commune,0,true,2026-02-02,https://example.com/second.pdf'
+      'funky,12345678,Alpha Town,0,true,2026-02-01,https://example.com/first.pdf,2026-05-10,18:00,Council Hall,https://example.com/public-debate/live,https://example.com/public-debate,Public debate regarding the local budget proposal.'
     );
-    expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,1,false,,,,");
+    expect(csvBody).toContain(
+      'funky,87654321,Beta Commune,0,true,2026-02-02,https://example.com/second.pdf,,,,,,'
+    );
+    expect(csvBody).toContain("funky,99999999,'=Unconfigured Village,1,false,,,,,,,,");
     expect(csvBody).not.toContain('Ignored Borough');
   });
 
@@ -1178,6 +1423,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-03-01',
                   officialBudgetUrl: 'https://example.com/final.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-final',
                 rowUpdatedAt: '2026-04-18T13:00:00.000Z',
@@ -1238,6 +1484,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-01',
                   officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-1',
                 rowUpdatedAt: '2026-04-18T12:00:00.000Z',
@@ -1247,6 +1494,7 @@ describe('campaign entity config routes', () => {
                 values: {
                   budgetPublicationDate: '2026-02-02',
                   officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
                 },
                 actorUserId: 'admin-2',
                 rowUpdatedAt: '2026-04-18T11:00:00.000Z',
@@ -1284,5 +1532,62 @@ describe('campaign entity config routes', () => {
     expect(csvBody).toContain('funky,99999999,Gamma Village,1,false,,,,');
     expect(csvBody).not.toContain('Alpha Town');
     expect(csvBody).not.toContain('Beta Commune');
+  });
+
+  it('ignores export sort params that differ from the internal streaming order', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+      ]),
+      audienceReader: makeAudienceReader(),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: '2026-02-02',
+                  officialBudgetUrl: 'https://example.com/second.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T11:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/first.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/campaigns/funky/entity-config/export?sortBy=updatedAt&sortOrder=desc',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const csvBody = response.body.startsWith('\uFEFF') ? response.body.slice(1) : response.body;
+    const csvLines = csvBody.trimEnd().split('\n');
+
+    expect(csvLines).toHaveLength(3);
+    expect(csvLines[1]).toContain('funky,12345678,Alpha Town');
+    expect(csvLines[2]).toContain('funky,87654321,Beta Commune');
   });
 });

@@ -179,6 +179,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-01',
             officialBudgetUrl: 'https://example.com/first.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: null,
           actorUserId: 'admin-1',
@@ -200,6 +201,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-02',
             officialBudgetUrl: 'https://example.com/second.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: null,
           actorUserId: 'admin-2',
@@ -278,6 +280,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-01',
             officialBudgetUrl: 'https://example.com/first.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: null,
           actorUserId: 'admin-1',
@@ -297,6 +300,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-02',
             officialBudgetUrl: 'https://example.com/second.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: null,
           actorUserId: 'admin-1',
@@ -317,6 +321,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-03',
             officialBudgetUrl: 'https://example.com/third.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: created._unsafeUnwrap().updatedAt,
           actorUserId: 'admin-2',
@@ -336,6 +341,7 @@ describe('campaign entity config persistence', () => {
           values: {
             budgetPublicationDate: '2026-02-04',
             officialBudgetUrl: 'https://example.com/fourth.pdf',
+            public_debate: null,
           },
           expectedUpdatedAt: created._unsafeUnwrap().updatedAt,
           actorUserId: 'admin-3',
@@ -369,18 +375,21 @@ describe('campaign entity config persistence', () => {
           actorUserId: 'admin-1',
           budgetPublicationDate: '2026-02-01',
           officialBudgetUrl: 'https://example.com/first.pdf',
+          public_debate: null,
         },
         {
           entityCui: '22222222',
           actorUserId: 'admin-2',
           budgetPublicationDate: '2026-02-02',
           officialBudgetUrl: 'https://example.com/second.pdf',
+          public_debate: null,
         },
         {
           entityCui: '33333333',
           actorUserId: 'admin-3',
           budgetPublicationDate: '2026-02-03',
           officialBudgetUrl: 'https://example.com/third.pdf',
+          public_debate: null,
         },
       ] as const) {
         const result = await upsertCampaignEntityConfig(
@@ -394,6 +403,7 @@ describe('campaign entity config persistence', () => {
             values: {
               budgetPublicationDate: item.budgetPublicationDate,
               officialBudgetUrl: item.officialBudgetUrl,
+              public_debate: null,
             },
             expectedUpdatedAt: null,
             actorUserId: item.actorUserId,

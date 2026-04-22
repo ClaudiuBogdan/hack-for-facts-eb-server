@@ -19,6 +19,7 @@ import type {
   CampaignEntityConfigDto,
   CampaignEntityConfigListItem,
   CampaignEntityConfigListCursor,
+  CampaignEntityConfigPublicDebate,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
   CampaignEntityConfigValues,
@@ -31,7 +32,19 @@ const INTERNAL_CLIENT_ID = 'server-internal-campaign-entity-config' as const;
 
 const NullableStringSchema = Type.Union([Type.String({ minLength: 1 }), Type.Null()]);
 
-export const CampaignEntityConfigValuesSchema = Type.Object(
+export const CampaignEntityConfigPublicDebateSchema = Type.Object(
+  {
+    date: Type.String(),
+    time: Type.String(),
+    location: Type.String(),
+    online_participation_link: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    announcement_link: Type.String(),
+    description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  },
+  { additionalProperties: false }
+);
+
+const CampaignEntityConfigValuesV1Schema = Type.Object(
   {
     budgetPublicationDate: NullableStringSchema,
     officialBudgetUrl: NullableStringSchema,
@@ -39,9 +52,34 @@ export const CampaignEntityConfigValuesSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export const CampaignEntityConfigStoredPayloadSchema = Type.Object(
+export const CampaignEntityConfigValuesSchema = Type.Object(
+  {
+    budgetPublicationDate: NullableStringSchema,
+    officialBudgetUrl: NullableStringSchema,
+    public_debate: Type.Union([CampaignEntityConfigPublicDebateSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignEntityConfigStoredPayloadV1Schema = Type.Object(
   {
     version: Type.Literal(1),
+    campaignKey: Type.Literal(FUNKY_CAMPAIGN_KEY),
+    entityCui: Type.String({ minLength: 1 }),
+    values: CampaignEntityConfigValuesV1Schema,
+    meta: Type.Object(
+      {
+        updatedByUserId: Type.String({ minLength: 1 }),
+      },
+      { additionalProperties: false }
+    ),
+  },
+  { additionalProperties: false }
+);
+
+export const CampaignEntityConfigStoredPayloadV2Schema = Type.Object(
+  {
+    version: Type.Literal(2),
     campaignKey: Type.Literal(FUNKY_CAMPAIGN_KEY),
     entityCui: Type.String({ minLength: 1 }),
     values: CampaignEntityConfigValuesSchema,
@@ -55,9 +93,20 @@ export const CampaignEntityConfigStoredPayloadSchema = Type.Object(
   { additionalProperties: false }
 );
 
-export type CampaignEntityConfigStoredPayload = Static<
-  typeof CampaignEntityConfigStoredPayloadSchema
+export const CampaignEntityConfigStoredPayloadSchema = Type.Union([
+  CampaignEntityConfigStoredPayloadV1Schema,
+  CampaignEntityConfigStoredPayloadV2Schema,
+]);
+
+export type CampaignEntityConfigStoredPayloadV1 = Static<
+  typeof CampaignEntityConfigStoredPayloadV1Schema
 >;
+export type CampaignEntityConfigStoredPayloadV2 = Static<
+  typeof CampaignEntityConfigStoredPayloadV2Schema
+>;
+export type CampaignEntityConfigStoredPayload =
+  | CampaignEntityConfigStoredPayloadV1
+  | CampaignEntityConfigStoredPayloadV2;
 
 interface ParsedCampaignEntityConfigRecord {
   readonly payload: CampaignEntityConfigStoredPayload;
@@ -111,6 +160,11 @@ function normalizeDateOnly(candidate: string): string | null {
   return trimmedCandidate;
 }
 
+function normalizeTimeOnly(candidate: string): string | null {
+  const trimmedCandidate = candidate.trim();
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(trimmedCandidate) ? trimmedCandidate : null;
+}
+
 function normalizeUrl(candidate: string): string | null {
   const trimmedCandidate = candidate.trim();
   if (trimmedCandidate === '') {
@@ -129,14 +183,127 @@ function normalizeUrl(candidate: string): string | null {
   }
 }
 
+function normalizeRequiredTrimmedString(candidate: string): string | null {
+  const normalizedCandidate = candidate.trim();
+  return normalizedCandidate === '' ? null : normalizedCandidate;
+}
+
+function normalizeOptionalTrimmedString(candidate: string | null | undefined): string | undefined {
+  if (candidate === undefined || candidate === null) {
+    return undefined;
+  }
+
+  const normalizedCandidate = candidate.trim();
+  return normalizedCandidate === '' ? undefined : normalizedCandidate;
+}
+
+function normalizeOptionalUrl(candidate: string | null | undefined): string | undefined | null {
+  if (candidate === undefined || candidate === null) {
+    return undefined;
+  }
+
+  if (candidate.trim() === '') {
+    return undefined;
+  }
+
+  const normalizedCandidate = normalizeUrl(candidate);
+  return normalizedCandidate ?? null;
+}
+
+function normalizePublicDebate(
+  candidate: CampaignEntityConfigPublicDebate | null
+): Result<CampaignEntityConfigPublicDebate | null, CampaignEntityConfigError> {
+  if (candidate === null) {
+    return ok(null);
+  }
+
+  const date = normalizeDateOnly(candidate.date);
+  if (date === null) {
+    return err(
+      createValidationError('public_debate.date must be a valid YYYY-MM-DD business date.')
+    );
+  }
+
+  const time = normalizeTimeOnly(candidate.time);
+  if (time === null) {
+    return err(createValidationError('public_debate.time must use strict HH:MM 24-hour format.'));
+  }
+
+  const location = normalizeRequiredTrimmedString(candidate.location);
+  if (location === null) {
+    return err(createValidationError('public_debate.location must be a non-empty string.'));
+  }
+
+  const announcementLink = normalizeUrl(candidate.announcement_link);
+  if (announcementLink === null) {
+    return err(
+      createValidationError('public_debate.announcement_link must be a valid absolute URL.')
+    );
+  }
+
+  const onlineParticipationLink = normalizeOptionalUrl(candidate.online_participation_link);
+  if (onlineParticipationLink === null) {
+    return err(
+      createValidationError('public_debate.online_participation_link must be a valid absolute URL.')
+    );
+  }
+
+  const description = normalizeOptionalTrimmedString(candidate.description);
+
+  return ok({
+    date,
+    time,
+    location,
+    announcement_link: announcementLink,
+    ...(onlineParticipationLink !== undefined
+      ? { online_participation_link: onlineParticipationLink }
+      : {}),
+    ...(description !== undefined ? { description } : {}),
+  });
+}
+
+function hasEqualPublicDebate(
+  left: CampaignEntityConfigPublicDebate | null,
+  right: CampaignEntityConfigPublicDebate | null
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+
+  return (
+    left.date === right.date &&
+    left.time === right.time &&
+    left.location === right.location &&
+    left.announcement_link === right.announcement_link &&
+    left.online_participation_link === right.online_participation_link &&
+    left.description === right.description
+  );
+}
+
+function hasEqualCampaignEntityConfigValues(
+  left: CampaignEntityConfigValues,
+  right: CampaignEntityConfigValues
+): boolean {
+  return (
+    left.budgetPublicationDate === right.budgetPublicationDate &&
+    left.officialBudgetUrl === right.officialBudgetUrl &&
+    hasEqualPublicDebate(left.public_debate, right.public_debate)
+  );
+}
+
 function hasConfiguredValue(values: CampaignEntityConfigValues): boolean {
-  return values.budgetPublicationDate !== null || values.officialBudgetUrl !== null;
+  return (
+    values.budgetPublicationDate !== null ||
+    values.officialBudgetUrl !== null ||
+    values.public_debate !== null
+  );
 }
 
 function createDefaultValues(): CampaignEntityConfigValues {
   return {
     budgetPublicationDate: null,
     officialBudgetUrl: null,
+    public_debate: null,
   };
 }
 
@@ -208,9 +375,15 @@ export function normalizeCampaignEntityConfigValues(
     return err(createValidationError('officialBudgetUrl must be a valid absolute URL.'));
   }
 
+  const publicDebateResult = normalizePublicDebate(valuesCandidate.public_debate);
+  if (publicDebateResult.isErr()) {
+    return err(publicDebateResult.error);
+  }
+
   const normalizedValues: CampaignEntityConfigValues = {
     budgetPublicationDate,
     officialBudgetUrl,
+    public_debate: publicDebateResult.value,
   };
 
   if (!hasConfiguredValue(normalizedValues)) {
@@ -269,8 +442,8 @@ export function createCampaignEntityConfigRecord(input: {
   actorUserId: string;
   recordUpdatedAt: string;
 }): InteractiveStateRecord {
-  const payload: CampaignEntityConfigStoredPayload = {
-    version: 1,
+  const payload: CampaignEntityConfigStoredPayloadV2 = {
+    version: 2,
     campaignKey: input.campaignKey,
     entityCui: input.entityCui,
     values: input.values,
@@ -346,7 +519,7 @@ export function parseCampaignEntityConfigRecord(input: {
     );
   }
 
-  const payload = payloadCandidate;
+  const payload = payloadCandidate as CampaignEntityConfigStoredPayload;
   if (
     input.row.recordKey !== buildCampaignEntityConfigRecordKey(payload.entityCui) ||
     (input.expectedEntityCui !== undefined && payload.entityCui !== input.expectedEntityCui)
@@ -354,15 +527,30 @@ export function parseCampaignEntityConfigRecord(input: {
     return err(createDatabaseError('Invalid persisted campaign entity config identity.', false));
   }
 
-  const normalizedValuesResult = normalizeCampaignEntityConfigValues(payload.values);
+  const valuesCandidate =
+    payload.version === 1
+      ? {
+          budgetPublicationDate: payload.values.budgetPublicationDate,
+          officialBudgetUrl: payload.values.officialBudgetUrl,
+          public_debate: null,
+        }
+      : (payload.values as unknown as CampaignEntityConfigValues);
+
+  const normalizedValuesResult = normalizeCampaignEntityConfigValues(valuesCandidate);
   if (normalizedValuesResult.isErr()) {
     return err(createDatabaseError(normalizedValuesResult.error.message, false));
   }
 
-  if (
-    payload.values.budgetPublicationDate !== normalizedValuesResult.value.budgetPublicationDate ||
-    payload.values.officialBudgetUrl !== normalizedValuesResult.value.officialBudgetUrl
-  ) {
+  const isCanonicalPayload =
+    payload.version === 1
+      ? payload.values.budgetPublicationDate ===
+          normalizedValuesResult.value.budgetPublicationDate &&
+        payload.values.officialBudgetUrl === normalizedValuesResult.value.officialBudgetUrl
+      : hasEqualCampaignEntityConfigValues(
+          payload.values as unknown as CampaignEntityConfigValues,
+          normalizedValuesResult.value
+        );
+  if (!isCanonicalPayload) {
     return err(createDatabaseError('Invalid persisted campaign entity config payload.', false));
   }
 
@@ -499,6 +687,7 @@ export function resolveCampaignEntityConfigPageStartIndex(input: {
         cursor.sortBy === 'officialBudgetUrl' && typeof cursor.value === 'string'
           ? cursor.value
           : null,
+      public_debate: null,
     },
     updatedAt:
       cursor.sortBy === 'updatedAt' && typeof cursor.value === 'string' ? cursor.value : null,

@@ -82,6 +82,18 @@ export interface PublicDebateAdminFailureProjection {
   readonly phase: string | null;
 }
 
+export interface PublicDebateAnnouncementProjection {
+  readonly kind: 'public_debate_announcement';
+  readonly userId: string | null;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly date: string;
+  readonly time: string;
+  readonly location: string;
+  readonly hasOnlineParticipationLink: boolean;
+  readonly triggerSource: CampaignNotificationTriggerSource | null;
+}
+
 export interface AdminReviewedInteractionProjection {
   readonly kind: 'admin_reviewed_interaction';
   readonly userId: string | null;
@@ -112,6 +124,7 @@ export type CampaignNotificationProjection =
   | PublicDebateEntityUpdateProjection
   | PublicDebateAdminResponseProjection
   | PublicDebateAdminFailureProjection
+  | PublicDebateAnnouncementProjection
   | AdminReviewedInteractionProjection
   | WeeklyProgressDigestProjection;
 
