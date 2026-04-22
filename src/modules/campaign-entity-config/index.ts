@@ -3,10 +3,12 @@ export type {
   CampaignEntityConfigPublicDebate,
   CampaignEntityConfigValues,
   CampaignEntityConfigDto,
+  CampaignEntityConfigPublicDto,
   CampaignEntityConfigSortBy,
   CampaignEntityConfigSortOrder,
   CampaignEntityConfigListCursor,
   GetCampaignEntityConfigInput,
+  GetPublicCampaignEntityConfigInput,
   UpsertCampaignEntityConfigInput,
   ListCampaignEntityConfigsInput,
   ListCampaignEntityConfigsOutput,
@@ -41,6 +43,14 @@ export {
   type GetCampaignEntityConfigDeps,
 } from './core/usecases/get-campaign-entity-config.js';
 export {
+  authorizePublicCampaignEntityConfigAccess,
+  type AuthorizePublicCampaignEntityConfigAccessOutput,
+} from './core/usecases/authorize-public-campaign-entity-config-access.js';
+export {
+  getPublicCampaignEntityConfig,
+  type GetPublicCampaignEntityConfigDeps,
+} from './core/usecases/get-public-campaign-entity-config.js';
+export {
   upsertCampaignEntityConfig,
   type UpsertCampaignEntityConfigDeps,
 } from './core/usecases/upsert-campaign-entity-config.js';
@@ -69,7 +79,9 @@ export {
   CampaignEntityConfigExportQuerySchema,
   CampaignEntityConfigPutBodySchema,
   CampaignEntityConfigDtoSchema,
+  CampaignEntityConfigPublicDtoSchema,
   CampaignEntityConfigResponseSchema,
+  CampaignEntityConfigPublicResponseSchema,
   CampaignEntityConfigListResponseSchema,
   ErrorResponseSchema,
   type CampaignKeyParams,

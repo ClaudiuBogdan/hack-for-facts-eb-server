@@ -9,6 +9,7 @@ import type {
   AlertSeriesProps,
   AnafForexebugDigestProps,
   NewsletterEntityProps,
+  PublicDebateAnnouncementProps,
   PublicDebateAdminFailureProps,
   PublicDebateAdminResponseRequesterProps,
   PublicDebateAdminResponseSubscriberProps,
@@ -94,6 +95,38 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.templateName).toBe('public_debate_campaign_welcome');
   });
 
+  it('renders public_debate_announcement with multiline description formatting', async () => {
+    const props: PublicDebateAnnouncementProps = {
+      templateType: 'public_debate_announcement',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+      campaignKey: 'funky',
+      entityCui: '87654321',
+      entityName: 'Municipiul Exemplu',
+      date: '2026-05-10',
+      time: '18:00',
+      location: 'Sala Consiliului Local',
+      announcementLink: 'https://transparenta.eu/anunt/dezbatere',
+      description: 'Prima linie.\n\nA doua linie.',
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'Anunț de dezbatere publică: Municipiul Exemplu pe 10 mai 2026 la 18:00'
+    );
+    expect(rendered.html).toContain('10 mai 2026');
+    expect(rendered.text).toContain('10 mai 2026');
+    expect(rendered.html).toMatch(/Prima linie\.<br\s*\/?><br\s*\/?>\s*A doua\s+linie\./);
+    expect(rendered.text).toMatch(/Prima linie\.\s*\n\s*\n\s*A doua linie\./);
+    expect(rendered.templateName).toBe('public_debate_announcement');
+  });
+
   it('renders public_debate_entity_subscription template successfully', async () => {
     const props: PublicDebateEntitySubscriptionProps = {
       templateType: 'public_debate_entity_subscription',
@@ -142,7 +175,7 @@ describe('EmailRenderer (registry-backed)', () => {
       institutionEmail: 'contact@primarie.ro',
       subjectLine: 'Solicitare organizare dezbatere publica - buget local 2026',
       occurredAt: '2026-04-03T10:00:00.000Z',
-      replyTextPreview: 'Va comunicam ca solicitarea a fost primita.',
+      replyTextPreview: 'Prima linie.\n\nA doua linie.',
     };
 
     const result = await renderer.render(props);
@@ -155,9 +188,11 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.html).toContain('Salutare,');
     expect(rendered.text).toContain('Primăria din Municipiul Exemplu a trimis un răspuns.');
     expect(rendered.html).toContain('A sosit un răspuns');
+    expect(rendered.html).toMatch(/Prima linie\.<br\s*\/?><br\s*\/?>\s*A doua\s+linie\./);
     expect(rendered.text).toContain(
       'Pentru participarea la dezbatere, îți recomandăm să parcurgi atât proiectul de buget, cât și execuția anilor precedenți.'
     );
+    expect(rendered.text).toMatch(/Prima linie\.\s*\n\s*\n\s*A doua linie\./);
     expect(rendered.text).toContain('Mulțumim că ești parte din această provocare civică!');
     expect(rendered.templateName).toBe('public_debate_entity_update');
   });
@@ -625,13 +660,14 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(13);
+    expect(templates).toHaveLength(14);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');
     expect(names).toContain('anaf_forexebug_digest');
+    expect(names).toContain('public_debate_announcement');
     expect(names).toContain('public_debate_campaign_welcome');
     expect(names).toContain('public_debate_admin_failure');
     expect(names).toContain('public_debate_admin_response_requester');

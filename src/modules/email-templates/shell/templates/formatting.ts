@@ -155,3 +155,49 @@ export const formatNumberWithUnit = (
 ): string => {
   return `${formatGroupedDecimal(toDecimal(value), lang, 2)} ${unit}`;
 };
+
+export const formatTemplateTimestamp = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  // Intentionally fixed to Romanian for now because transactional email sends
+  // currently target Romanian users only. Reintroduce `lang` when that changes.
+  return new Intl.DateTimeFormat('ro-RO', {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(date);
+};
+
+export const formatTemplateDate = (value: string): string => {
+  const match = /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$/u.exec(value);
+  if (match?.groups === undefined) {
+    return value;
+  }
+
+  const year = Number(match.groups['year']);
+  const month = Number(match.groups['month']);
+  const day = Number(match.groups['day']);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('ro-RO', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+};

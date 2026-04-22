@@ -126,12 +126,15 @@ function makeAudienceReader() {
   return {};
 }
 
+const TEST_AUTH_USER_1 = 'user_test_1';
+
 function makeAcceptedTermsRow(input: {
+  userId?: string;
   entityCui: string;
   updatedAt: string;
 }): LearningProgressRecordRow {
   return {
-    userId: 'user-accepted-1',
+    userId: input.userId ?? 'user-accepted-1',
     recordKey: `funky:progress:terms_accepted::entity:${input.entityCui}`,
     record: {
       key: `funky:progress:terms_accepted::entity:${input.entityCui}`,
@@ -387,6 +390,404 @@ describe('campaign entity config routes', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('returns 401 from the public route when unauthenticated', async () => {
+    const setup = await createTestApp();
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('returns a public-safe payload for an authorized entity with only budget fields', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/budget.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            TEST_AUTH_USER_1,
+            [
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '12345678',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        campaignKey: 'funky',
+        entityCui: '12345678',
+        entityName: 'Alpha Town',
+        isConfigured: true,
+        values: {
+          budgetPublicationDate: '2026-02-01',
+          officialBudgetUrl: 'https://example.com/budget.pdf',
+          public_debate: null,
+        },
+      },
+    });
+    expect(response.json().data).not.toHaveProperty('updatedAt');
+    expect(response.json().data).not.toHaveProperty('updatedByUserId');
+    expect(response.json().data).not.toHaveProperty('usersCount');
+  });
+
+  it('allows a public user with multiple entities to fetch each allowed entity explicitly', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([
+        { cui: '12345678', name: 'Alpha Town' },
+        { cui: '87654321', name: 'Beta Commune' },
+      ]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/alpha-budget.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+              makeRow({
+                entityCui: '87654321',
+                values: {
+                  budgetPublicationDate: null,
+                  officialBudgetUrl: 'https://example.com/beta-budget.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                  },
+                },
+                actorUserId: 'admin-2',
+                rowUpdatedAt: '2026-04-18T13:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            TEST_AUTH_USER_1,
+            [
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '12345678',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '87654321',
+                updatedAt: '2026-04-18T09:05:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const alphaResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+    const betaResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/87654321/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(alphaResponse.statusCode).toBe(200);
+    expect(alphaResponse.json().data).toMatchObject({
+      entityCui: '12345678',
+      entityName: 'Alpha Town',
+      values: {
+        budgetPublicationDate: '2026-02-01',
+        officialBudgetUrl: 'https://example.com/alpha-budget.pdf',
+        public_debate: null,
+      },
+    });
+
+    expect(betaResponse.statusCode).toBe(200);
+    expect(betaResponse.json().data).toMatchObject({
+      entityCui: '87654321',
+      entityName: 'Beta Commune',
+      values: {
+        budgetPublicationDate: null,
+        officialBudgetUrl: 'https://example.com/beta-budget.pdf',
+        public_debate: {
+          date: '2026-05-10',
+          time: '18:00',
+          location: 'Council Hall',
+          announcement_link: 'https://example.com/public-debate',
+        },
+      },
+    });
+  });
+
+  it('returns full public debate fields when present', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/budget.pdf',
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                    online_participation_link: 'https://example.com/live',
+                    description: 'Public debate regarding the local budget proposal.',
+                  },
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            TEST_AUTH_USER_1,
+            [
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '12345678',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.values).toEqual({
+      budgetPublicationDate: '2026-02-01',
+      officialBudgetUrl: 'https://example.com/budget.pdf',
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+        announcement_link: 'https://example.com/public-debate',
+        online_participation_link: 'https://example.com/live',
+        description: 'Public debate regarding the local budget proposal.',
+      },
+    });
+  });
+
+  it('returns partial optional public_debate fields when optional fields are omitted', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: null,
+                  officialBudgetUrl: null,
+                  public_debate: {
+                    date: '2026-05-10',
+                    time: '18:00',
+                    location: 'Council Hall',
+                    announcement_link: 'https://example.com/public-debate',
+                  },
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+          [
+            TEST_AUTH_USER_1,
+            [
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '12345678',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.values).toEqual({
+      budgetPublicationDate: null,
+      officialBudgetUrl: null,
+      public_debate: {
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+        announcement_link: 'https://example.com/public-debate',
+      },
+    });
+  });
+
+  it('returns the default public payload when the authorized entity has no configured config', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            TEST_AUTH_USER_1,
+            [
+              makeAcceptedTermsRow({
+                userId: TEST_AUTH_USER_1,
+                entityCui: '12345678',
+                updatedAt: '2026-04-18T09:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      data: {
+        campaignKey: 'funky',
+        entityCui: '12345678',
+        entityName: 'Alpha Town',
+        isConfigured: false,
+        values: {
+          budgetPublicationDate: null,
+          officialBudgetUrl: null,
+          public_debate: null,
+        },
+      },
+    });
+  });
+
+  it('returns the same safe 404 for unauthorized existing and unauthorized missing entities', async () => {
+    const setup = await createTestApp({
+      entityRepo: makeEntityRepo([{ cui: '12345678', name: 'Alpha Town' }]),
+      learningProgressRepo: makeFakeLearningProgressRepo({
+        initialRecords: new Map([
+          [
+            buildCampaignEntityConfigUserId('funky'),
+            [
+              makeRow({
+                entityCui: '12345678',
+                values: {
+                  budgetPublicationDate: '2026-02-01',
+                  officialBudgetUrl: 'https://example.com/budget.pdf',
+                  public_debate: null,
+                },
+                actorUserId: 'admin-1',
+                rowUpdatedAt: '2026-04-18T12:00:00.000Z',
+              }),
+            ],
+          ],
+        ]),
+      }),
+    });
+    app = setup.app;
+
+    const existingEntityResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/12345678/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+    const missingEntityResponse = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/entities/99999999/config',
+      headers: {
+        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+      },
+    });
+
+    expect(existingEntityResponse.statusCode).toBe(404);
+    expect(missingEntityResponse.statusCode).toBe(404);
+    expect(existingEntityResponse.json()).toEqual({
+      ok: false,
+      error: 'NotFoundError',
+      message: 'Campaign entity config not found.',
+      retryable: false,
+    });
+    expect(missingEntityResponse.json()).toEqual(existingEntityResponse.json());
   });
 
   it('returns 403 when permission is denied', async () => {

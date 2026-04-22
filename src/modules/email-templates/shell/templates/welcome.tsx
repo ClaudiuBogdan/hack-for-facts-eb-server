@@ -3,6 +3,7 @@ import { Section, Text, Button, Hr } from '@react-email/components';
 import * as React from 'react';
 
 import { EmailLayout } from './email-layout.js';
+import { formatTemplateTimestamp } from './formatting.js';
 import { getTranslations } from '../../core/i18n.js';
 
 import type { WelcomeEmailProps } from '../../core/types.js';
@@ -63,11 +64,7 @@ export const WelcomeEmail = ({
   const registeredAtDate = new Date(registeredAt);
   const formattedRegisteredAt = Number.isNaN(registeredAtDate.getTime())
     ? registeredAt
-    : new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-        dateStyle: 'long',
-        timeStyle: 'short',
-        timeZone: 'UTC',
-      }).format(registeredAtDate);
+    : formatTemplateTimestamp(registeredAt);
 
   return (
     <EmailLayout

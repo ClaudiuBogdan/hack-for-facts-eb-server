@@ -27,6 +27,14 @@ export interface CampaignEntityConfigDto {
   readonly updatedByUserId: string | null;
 }
 
+export interface CampaignEntityConfigPublicDto {
+  readonly campaignKey: CampaignEntityConfigCampaignKey;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly isConfigured: boolean;
+  readonly values: CampaignEntityConfigValues;
+}
+
 export interface CampaignEntityConfigListItem extends CampaignEntityConfigDto {
   readonly usersCount: number;
 }
@@ -49,6 +57,10 @@ export interface CampaignEntityConfigListCursor {
 export interface GetCampaignEntityConfigInput {
   readonly campaignKey: CampaignEntityConfigCampaignKey;
   readonly entityCui: string;
+}
+
+export interface GetPublicCampaignEntityConfigInput extends GetCampaignEntityConfigInput {
+  readonly userId: string;
 }
 
 export interface UpsertCampaignEntityConfigInput {

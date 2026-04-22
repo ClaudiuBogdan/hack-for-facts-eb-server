@@ -3,6 +3,7 @@ import { Section, Text } from '@react-email/components';
 import * as React from 'react';
 
 import { EmailLayout } from './email-layout.js';
+import { formatTemplateTimestamp } from './formatting.js';
 
 import type { PublicDebateAdminFailureProps, SupportedLanguage } from '../../core/types.js';
 
@@ -93,19 +94,6 @@ const styles = {
   },
 };
 
-const formatTimestamp = (lang: SupportedLanguage, occurredAt: string): string => {
-  const date = new Date(occurredAt);
-  if (Number.isNaN(date.getTime())) {
-    return occurredAt;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
-};
-
 export const getPublicDebateAdminFailureSubject = ({
   lang,
   entityCui,
@@ -149,7 +137,7 @@ export const PublicDebateAdminFailureEmail = (
         <Text style={styles.value}>{props.subjectLine}</Text>
 
         <Text style={styles.label}>{copy.occurredAtLabel}</Text>
-        <Text style={styles.value}>{formatTimestamp(props.lang, props.occurredAt)}</Text>
+        <Text style={styles.value}>{formatTemplateTimestamp(props.occurredAt)}</Text>
 
         <Text style={styles.label}>{copy.threadIdLabel}</Text>
         <Text style={styles.value}>{props.threadId}</Text>

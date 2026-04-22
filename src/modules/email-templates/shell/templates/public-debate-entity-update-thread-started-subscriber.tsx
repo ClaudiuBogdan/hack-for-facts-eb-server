@@ -4,6 +4,7 @@ import * as React from 'react';
 
 import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
+import { formatTemplateTimestamp } from './formatting.js';
 
 import type {
   PublicDebateEntityUpdateThreadStartedSubscriberProps,
@@ -136,19 +137,6 @@ const styles = {
   },
 };
 
-const formatTimestamp = (lang: SupportedLanguage, occurredAt: string): string => {
-  const date = new Date(occurredAt);
-  if (Number.isNaN(date.getTime())) {
-    return occurredAt;
-  }
-
-  return new Intl.DateTimeFormat(lang === 'ro' ? 'ro-RO' : 'en-US', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date);
-};
-
 export const getPublicDebateEntityUpdateThreadStartedSubscriberSubject = ({
   lang,
   entityCui,
@@ -198,7 +186,7 @@ export const PublicDebateEntityUpdateThreadStartedSubscriberEmail = (
         <Text style={styles.value}>{entityName}</Text>
 
         <Text style={styles.label}>{copy.occurredAtLabel}</Text>
-        <Text style={styles.value}>{formatTimestamp(props.lang, props.occurredAt)}</Text>
+        <Text style={styles.value}>{formatTemplateTimestamp(props.occurredAt)}</Text>
       </Section>
 
       <Text style={styles.body}>{copy.ctaSafety}</Text>
