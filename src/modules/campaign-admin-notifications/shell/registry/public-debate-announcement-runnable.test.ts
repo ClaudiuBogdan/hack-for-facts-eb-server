@@ -1,5 +1,5 @@
 import { ok } from 'neverthrow';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createCampaignEntityConfigRecord } from '@/modules/campaign-entity-config/core/config-record.js';
 
@@ -94,6 +94,15 @@ function makeDefinition(rows: LearningProgressRecordRow[]) {
 }
 
 describe('public debate announcement runnable', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T09:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('dry run yields will_send rows for configured public debates', async () => {
     const definition = makeDefinition([
       makeConfigRow({
@@ -122,6 +131,70 @@ describe('public debate announcement runnable', () => {
         sendMode: 'create',
       });
     }
+  });
+
+  it('dry run excludes debates that are not strictly after the trigger time', async () => {
+    vi.setSystemTime(new Date('2026-05-10T15:00:00.000Z'));
+    const definition = makeDefinition([
+      makeConfigRow({
+        entityCui: '12345678',
+        updatedAt: '2026-05-01T12:00:00.000Z',
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+      }),
+    ]);
+
+    const result = await definition.dryRun({
+      actorUserId: 'admin-1',
+      selectors: {},
+      filters: {},
+    });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.summary.totalRowCount).toBe(0);
+      expect(result.value.rows).toEqual([]);
+    }
+  });
+
+  it('executeStoredRow skips when the debate has already taken place after planning', async () => {
+    const definition = makeDefinition([
+      makeConfigRow({
+        entityCui: '12345678',
+        updatedAt: '2026-05-01T12:00:00.000Z',
+        date: '2026-05-10',
+        time: '18:00',
+        location: 'Council Hall',
+      }),
+    ]);
+
+    const dryRunResult = await definition.dryRun({
+      actorUserId: 'admin-1',
+      selectors: {},
+      filters: {},
+    });
+
+    expect(dryRunResult.isOk()).toBe(true);
+    if (dryRunResult.isErr()) {
+      return;
+    }
+
+    const row = dryRunResult.value.rows[0];
+    if (row === undefined) {
+      throw new Error('Expected a stored row in test setup.');
+    }
+
+    vi.setSystemTime(new Date('2026-05-10T15:01:00.000Z'));
+    const result = await definition.executeStoredRow({
+      actorUserId: 'admin-1',
+      row,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({
+      outcome: 'ineligible',
+    });
   });
 
   it('treats changed public_debate payloads as missing_data on send', async () => {

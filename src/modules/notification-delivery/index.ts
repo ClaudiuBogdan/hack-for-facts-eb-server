@@ -69,8 +69,10 @@ export {
 export {
   PUBLIC_DEBATE_ANNOUNCEMENT_FAMILY_ID,
   PUBLIC_DEBATE_ANNOUNCEMENT_TEMPLATE_ID,
+  PUBLIC_DEBATE_ANNOUNCEMENT_TIME_ZONE,
   PublicDebateAnnouncementPayloadSchema,
   PublicDebateAnnouncementOutboxMetadataSchema,
+  isPublicDebateAnnouncementAfterTriggerTime,
   parsePublicDebateAnnouncementOutboxMetadata,
 } from './core/public-debate-announcement.js';
 export {

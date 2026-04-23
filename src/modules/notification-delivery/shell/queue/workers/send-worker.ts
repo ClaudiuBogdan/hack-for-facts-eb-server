@@ -17,7 +17,10 @@ import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
-import { parsePublicDebateAnnouncementOutboxMetadata } from '../../../core/public-debate-announcement.js';
+import {
+  isPublicDebateAnnouncementAfterTriggerTime,
+  parsePublicDebateAnnouncementOutboxMetadata,
+} from '../../../core/public-debate-announcement.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import { MAX_RETRY_ATTEMPTS, type SendJobPayload } from '../../../core/types.js';
 import {
@@ -301,6 +304,26 @@ export const processSendJob = async (
         status: 'failed_permanent',
         error: `Invalid public debate announcement metadata: ${metadataResult.error}`,
       };
+    }
+
+    if (
+      !isPublicDebateAnnouncementAfterTriggerTime({
+        publicDebate: metadataResult.value.publicDebate,
+        triggerTime: new Date(),
+      })
+    ) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          entityCui: metadataResult.value.entityCui,
+        },
+        'Public debate announcement already took place at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed', {
+        lastError: 'Public debate announcement already took place at send time.',
+      });
+      return { outboxId, status: 'skipped_unsubscribed' };
     }
 
     const eligibilityResult = await notificationsRepo.findEligibleByUserTypeAndEntity(

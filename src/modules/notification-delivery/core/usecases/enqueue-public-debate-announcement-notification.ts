@@ -10,6 +10,7 @@ import { createValidationError, type DeliveryError } from '../errors.js';
 import {
   parsePublicDebateAnnouncementOutboxMetadata,
   PUBLIC_DEBATE_ANNOUNCEMENT_FAMILY_ID,
+  isPublicDebateAnnouncementAfterTriggerTime,
   type PublicDebateAnnouncementOutboxMetadata,
   type PublicDebateAnnouncementPayload,
 } from '../public-debate-announcement.js';
@@ -40,6 +41,7 @@ export interface PublicDebateAnnouncementNotificationInput {
   publicDebate: PublicDebateAnnouncementPayload;
   announcementFingerprint: string;
   configUpdatedAt: string;
+  notificationTriggerTime?: Date;
   triggerSource?: string;
   triggeredByUserId?: string;
 }
@@ -131,6 +133,26 @@ export const enqueuePublicDebateAnnouncementNotification = async (
     entityCui: metadata.entityCui,
     announcementFingerprint: metadata.announcementFingerprint,
   });
+  const triggerTime = input.notificationTriggerTime ?? new Date();
+
+  if (
+    !isPublicDebateAnnouncementAfterTriggerTime({
+      publicDebate: metadata.publicDebate,
+      triggerTime,
+    })
+  ) {
+    return ok({
+      status: 'skipped',
+      reason: 'ineligible_now',
+      deliveryKey,
+      scopeKey,
+      eligibility: {
+        isEligible: false,
+        reason: 'debate_not_future',
+        notification: null,
+      },
+    });
+  }
 
   const eligibilityResult = await deps.notificationsRepo.findEligibleByUserTypeAndEntity(
     input.userId,
