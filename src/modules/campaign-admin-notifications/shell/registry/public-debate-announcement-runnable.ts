@@ -14,6 +14,7 @@ import { TEMPLATE_VERSION } from '@/modules/email-templates/index.js';
 import {
   enqueuePublicDebateAnnouncementNotification,
   getErrorMessage,
+  isPublicDebateAnnouncementAfterTriggerTime,
   type EnqueuePublicDebateAnnouncementNotificationResult,
 } from '@/modules/notification-delivery/index.js';
 
@@ -367,9 +368,12 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
 
       const selectors = input.selectors as PublicDebateAnnouncementSelectors;
       const filters = input.filters as PublicDebateAnnouncementFilters;
+      const triggerTime = new Date();
+      const watermark = triggerTime.toISOString();
+
       if (filters.hasPublicDebate === false) {
         return ok({
-          watermark: new Date().toISOString(),
+          watermark,
           summary: createEmptySummary(),
           rows: [],
         });
@@ -378,7 +382,6 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
       const rows: CampaignNotificationStoredPlanRow[] = [];
       let summary = createEmptySummary();
       let cursor: CampaignEntityConfigListCursor | undefined;
-      const watermark = new Date().toISOString();
 
       for (;;) {
         const pageResult = await listPublicDebateCampaignEntityConfigs(
@@ -429,6 +432,15 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
             continue;
           }
 
+          if (
+            !isPublicDebateAnnouncementAfterTriggerTime({
+              publicDebate,
+              triggerTime,
+            })
+          ) {
+            continue;
+          }
+
           const announcementFingerprint = buildAnnouncementFingerprint(publicDebate);
           const notificationsResult =
             await deps.extendedNotificationsRepo.findActiveByTypeAndEntity(
@@ -464,6 +476,7 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
                 publicDebate,
                 announcementFingerprint,
                 configUpdatedAt: item.updatedAt,
+                notificationTriggerTime: triggerTime,
               }
             );
             if (dryRunResult.isErr()) {
@@ -540,6 +553,16 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
         return ok({ outcome: 'missing_data' as const });
       }
 
+      const triggerTime = new Date();
+      if (
+        !isPublicDebateAnnouncementAfterTriggerTime({
+          publicDebate,
+          triggerTime,
+        })
+      ) {
+        return ok({ outcome: 'ineligible' as const });
+      }
+
       const enqueueResult = await enqueuePublicDebateAnnouncementNotification(
         {
           notificationsRepo: deps.extendedNotificationsRepo,
@@ -556,6 +579,7 @@ export const makePublicDebateAnnouncementRunnableDefinition = (
           publicDebate,
           announcementFingerprint: executionData.announcementFingerprint,
           configUpdatedAt: configResult.value.updatedAt,
+          notificationTriggerTime: triggerTime,
         }
       );
       if (enqueueResult.isErr()) {

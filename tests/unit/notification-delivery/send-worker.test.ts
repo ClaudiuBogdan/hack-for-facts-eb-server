@@ -737,7 +737,7 @@ describe('processSendJob', () => {
             entityCui: '12345678',
             entityName: 'Municipiul Exemplu',
             publicDebate: {
-              date: '2026-05-10',
+              date: '2099-05-10',
               time: '18:00',
               location: 'Council Hall',
               announcement_link: 'https://example.com/public-debate',
@@ -795,6 +795,90 @@ describe('processSendJob', () => {
     expect(stored.isOk()).toBe(true);
     if (stored.isOk()) {
       expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
+  it('skips public debate announcement delivery when the debate already took place', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-10T15:01:00.000Z'));
+
+    try {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'outbox-public-debate-announcement-past',
+            notificationType: 'funky:outbox:public_debate_announcement',
+            referenceId: 'notification-1',
+            scopeKey: 'funky:delivery:public_debate_announcement:12345678:fingerprint-1',
+            deliveryKey: 'user-1:12345678:fingerprint-1',
+            renderedSubject: 'Public debate announcement',
+            renderedHtml: '<p>Hello</p>',
+            renderedText: 'Hello',
+            metadata: {
+              campaignKey: 'funky',
+              familyId: 'public_debate_announcement',
+              entityCui: '12345678',
+              entityName: 'Municipiul Exemplu',
+              publicDebate: {
+                date: '2026-05-10',
+                time: '18:00',
+                location: 'Council Hall',
+                announcement_link: 'https://example.com/public-debate',
+              },
+              announcementFingerprint: 'fingerprint-1',
+              configUpdatedAt: '2026-05-01T12:00:00.000Z',
+            },
+          }),
+        ],
+      });
+
+      const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+      const getEmail = vi.fn(async () => ok('user@example.com'));
+
+      const result = await processSendJob(
+        {
+          deliveryRepo,
+          notificationsRepo: makeFakeExtendedNotificationsRepo({
+            notifications: [
+              createTestNotification({
+                id: 'notification-1',
+                userId: 'user-1',
+                entityCui: '12345678',
+                notificationType: 'funky:notification:entity_updates',
+                isActive: true,
+              }),
+            ],
+          }),
+          userEmailFetcher: {
+            getEmail,
+            getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+          },
+          emailSender: { send },
+          tokenSigner: makeFakeTokenSigner(),
+          apiBaseUrl: 'https://api.transparenta.eu',
+          environment: 'test',
+          log: testLogger,
+        },
+        { outboxId: 'outbox-public-debate-announcement-past' }
+      );
+
+      expect(result).toEqual({
+        outboxId: 'outbox-public-debate-announcement-past',
+        status: 'skipped_unsubscribed',
+      });
+      expect(getEmail).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+
+      const stored = await deliveryRepo.findById('outbox-public-debate-announcement-past');
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('skipped_unsubscribed');
+        expect(stored.value?.lastError).toBe(
+          'Public debate announcement already took place at send time.'
+        );
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 

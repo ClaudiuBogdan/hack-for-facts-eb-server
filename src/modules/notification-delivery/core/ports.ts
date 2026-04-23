@@ -306,7 +306,8 @@ export type TargetedNotificationEligibilityReason =
   | 'missing_preference'
   | 'inactive_preference'
   | 'global_unsubscribe'
-  | 'campaign_disabled';
+  | 'campaign_disabled'
+  | 'debate_not_future';
 
 export interface TargetedNotificationEligibility {
   isEligible: boolean;
