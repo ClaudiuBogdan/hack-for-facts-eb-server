@@ -949,7 +949,7 @@ describe('syncEvents', () => {
     });
   });
 
-  it('rejects client-authored evaluated audit events', async () => {
+  it('accepts legacy client-authored evaluated audit events but drops them', async () => {
     const record = createTestInteractiveRecord({
       key: 'quiz-1::global',
       updatedAt: '2024-01-15T10:00:00.000Z',
@@ -991,15 +991,21 @@ describe('syncEvents', () => {
 
     expect(result.isOk()).toBe(true);
     expectSyncEventsSuccess(result._unsafeUnwrap(), {
-      newEventsCount: 0,
-      failedEvents: [
-        {
+      newEventsCount: 1,
+      failedEvents: [],
+      appliedEvents: [
+        createTestInteractiveUpdatedEvent({
           eventId: 'event-evaluated-audit',
-          errorType: 'InvalidEventError',
-          message: 'Public progress sync cannot include non-user audit events.',
-        },
+          payload: {
+            record,
+          },
+        }),
       ],
     });
+
+    const storedRows = (await repo.getRecords('user-1'))._unsafeUnwrap();
+    expect(storedRows[0]?.record).toEqual(record);
+    expect(storedRows[0]?.auditEvents).toEqual([]);
   });
 
   it('ignores older record snapshots that arrive after newer state', async () => {

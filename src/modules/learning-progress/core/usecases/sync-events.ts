@@ -395,22 +395,37 @@ function validatePublicInteractiveRecord(
   return ok(undefined);
 }
 
-function validatePublicInteractiveAuditEvents(input: {
-  auditEvents: readonly InteractiveAuditEvent[];
-  eventId: string;
-}): Result<void, LearningProgressError> {
-  for (const auditEvent of input.auditEvents) {
-    if (auditEvent.type !== 'submitted') {
-      return err(
-        createInvalidEventError(
-          'Public progress sync cannot include non-user audit events.',
-          input.eventId
-        )
-      );
-    }
-  }
+function filterPublicInteractiveAuditEvents(
+  auditEvents: readonly InteractiveAuditEvent[]
+): readonly Extract<InteractiveAuditEvent, { type: 'submitted' }>[] {
+  return auditEvents.filter(
+    (auditEvent): auditEvent is Extract<InteractiveAuditEvent, { type: 'submitted' }> =>
+      auditEvent.type === 'submitted'
+  );
+}
 
-  return ok(undefined);
+function buildPublicAppliedEvent(params: {
+  event: Extract<LearningProgressEvent, { type: 'interactive.updated' }>;
+  record: InteractiveStateRecord;
+  auditEvents: readonly InteractiveAuditEvent[];
+}): LearningProgressEvent {
+  const { auditEvents: omittedAuditEvents, ...payloadWithoutAuditEvents } = params.event.payload;
+  void omittedAuditEvents;
+
+  return {
+    ...params.event,
+    payload:
+      params.auditEvents.length > 0
+        ? {
+            ...payloadWithoutAuditEvents,
+            record: params.record,
+            auditEvents: params.auditEvents,
+          }
+        : {
+            ...payloadWithoutAuditEvents,
+            record: params.record,
+          },
+  };
 }
 
 export async function syncEvents(
@@ -501,22 +516,9 @@ export async function syncEvents(
           return err(validationResult.error);
         }
 
-        const auditValidationResult = validatePublicInteractiveAuditEvents({
-          auditEvents: event.payload.auditEvents ?? [],
-          eventId: event.eventId,
-        });
-        if (auditValidationResult.isErr()) {
-          if (auditValidationResult.error.type === 'InvalidEventError') {
-            failedEvents.push({
-              eventId: event.eventId,
-              errorType: auditValidationResult.error.type,
-              message: auditValidationResult.error.message,
-            });
-            continue;
-          }
-
-          return err(auditValidationResult.error);
-        }
+        const publicAuditEvents = filterPublicInteractiveAuditEvents(
+          event.payload.auditEvents ?? []
+        );
 
         const upsertResult = await transactionalRepo.upsertInteractiveRecord({
           userId,
@@ -524,7 +526,7 @@ export async function syncEvents(
           clientId: event.clientId,
           occurredAt: event.occurredAt,
           record: normalizedRecordResult.value,
-          auditEvents: event.payload.auditEvents ?? [],
+          auditEvents: publicAuditEvents,
         });
 
         if (upsertResult.isErr()) {
@@ -533,7 +535,13 @@ export async function syncEvents(
 
         if (upsertResult.value.applied) {
           appliedCount += 1;
-          appliedEvents.push(event);
+          appliedEvents.push(
+            buildPublicAppliedEvent({
+              event,
+              record: normalizedRecordResult.value,
+              auditEvents: publicAuditEvents,
+            })
+          );
         }
       }
     }

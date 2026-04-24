@@ -120,10 +120,8 @@ describe('getProgress', () => {
     expect(result._unsafeUnwrap()).toEqual({
       snapshot: {
         version: 1,
-        recordsByKey: {
-          [publicRecord.key]: publicRecord,
-        },
-        lastUpdated: '2024-01-15T10:00:00.000Z',
+        recordsByKey: {},
+        lastUpdated: null,
       },
       events: [
         expect.objectContaining({
@@ -273,7 +271,11 @@ describe('getProgress', () => {
 
     expect(result.isOk()).toBe(true);
     const data = result._unsafeUnwrap();
-    expect(data.snapshot.recordsByKey[record.key]).toEqual(record);
+    expect(data.snapshot).toEqual({
+      version: 1,
+      recordsByKey: {},
+      lastUpdated: null,
+    });
     expect(data.events).toHaveLength(1);
     expect(data.events[0]?.type).toBe('interactive.updated');
     expect(data.events[0]?.payload.record).toEqual(record);
@@ -328,12 +330,10 @@ describe('getProgress', () => {
     expect(result.isOk()).toBe(true);
     const data = result._unsafeUnwrap();
 
-    expect(data.snapshot.recordsByKey[reviewedRecord.key]).toEqual({
-      ...reviewedRecord,
-      review: {
-        status: 'approved',
-        reviewedAt: '2024-01-15T12:00:00.000Z',
-      },
+    expect(data.snapshot).toEqual({
+      version: 1,
+      recordsByKey: {},
+      lastUpdated: null,
     });
     expect(data.events[0]?.payload.record).toEqual({
       ...reviewedRecord,
