@@ -54,6 +54,11 @@ export interface UpdateCampaignGlobalPreferenceRepoInput {
   hash?: string;
 }
 
+export interface ManualNotificationOptInInput {
+  userId: string;
+  notificationType: NotificationType;
+}
+
 /**
  * Repository interface for notifications.
  */
@@ -62,6 +67,15 @@ export interface NotificationsRepository {
    * Creates a new notification.
    */
   create(input: CreateNotificationInput): Promise<Result<Notification, NotificationError>>;
+
+  /**
+   * Creates a notification from an explicit manual preference API opt-in and
+   * applies only the parent/global rows required to make that preference
+   * deliverable. Automatic flows must keep using create().
+   */
+  createWithManualOptIn(
+    input: CreateNotificationInput
+  ): Promise<Result<Notification, NotificationError>>;
 
   /**
    * Finds a notification by ID.
@@ -112,13 +126,34 @@ export interface NotificationsRepository {
   ): Promise<Result<Notification, NotificationError>>;
 
   /**
-   * Updates the public debate campaign master preference and cascades the same
-   * active state to the user's entity update subscriptions in one transaction.
+   * Updates a notification from an explicit manual preference API opt-in and
+   * applies only the parent/global rows required to make that preference
+   * deliverable. Automatic flows must keep using update().
+   */
+  updateWithManualOptIn(
+    id: string,
+    input: UpdateNotificationRepoInput
+  ): Promise<Result<Notification, NotificationError>>;
+
+  /**
+   * Updates the public debate campaign master preference. When disabling the
+   * master preference, also disables campaign-scoped child preferences for the
+   * same user in one transaction. Enabling the master preference does not
+   * restore children.
    */
   updateCampaignGlobalPreference(
     id: string,
     input: UpdateCampaignGlobalPreferenceRepoInput
   ): Promise<Result<Notification, NotificationError>>;
+
+  /**
+   * Applies manual opt-in parent/global behavior for an explicit subscribe
+   * request that found an already active notification. If global_unsubscribe is
+   * absent, the user is already implicitly enabled and no row is created.
+   */
+  applyManualNotificationOptIn(
+    input: ManualNotificationOptInInput
+  ): Promise<Result<void, NotificationError>>;
 
   /**
    * Deletes a notification and cascades to deliveries and tokens.
@@ -127,8 +162,10 @@ export interface NotificationsRepository {
   deleteCascade(id: string): Promise<Result<Notification | null, NotificationError>>;
 
   /**
-   * Finds or creates the global_unsubscribe row for a user and sets is_active = false.
-   * Idempotent: calling multiple times has the same effect.
+   * Finds or creates the global_unsubscribe row for a user, stores email disabled,
+   * and sets is_active = false. Delivery treats is_active = false or
+   * config.channels.email = false as globally unsubscribed. Idempotent: calling
+   * multiple times has the same effect.
    */
   deactivateGlobalUnsubscribe(userId: string): Promise<Result<void, NotificationError>>;
 }

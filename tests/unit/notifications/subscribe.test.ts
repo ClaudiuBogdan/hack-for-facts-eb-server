@@ -100,6 +100,36 @@ describe('subscribe use case', () => {
         }
       });
 
+      it('creation re-enables system global unsubscribe', async () => {
+        const globalUnsubscribe = createTestNotification({
+          id: 'global-unsubscribe',
+          userId: 'user-1',
+          notificationType: 'global_unsubscribe',
+          entityCui: null,
+          isActive: false,
+          config: { channels: { email: false } },
+        });
+        const repo = makeFakeNotificationsRepo({ notifications: [globalUnsubscribe] });
+
+        const result = await subscribe(
+          { notificationsRepo: repo, hasher },
+          {
+            userId: 'user-1',
+            notificationType: 'newsletter_entity_monthly',
+            entityCui: '1234567',
+          }
+        );
+
+        expect(result.isOk()).toBe(true);
+
+        const globalUnsubscribeResult = await repo.findById(globalUnsubscribe.id);
+        expect(globalUnsubscribeResult.isOk()).toBe(true);
+        if (globalUnsubscribeResult.isOk()) {
+          expect(globalUnsubscribeResult.value?.isActive).toBe(true);
+          expect(globalUnsubscribeResult.value?.config).toEqual({ channels: { email: true } });
+        }
+      });
+
       it('creates new quarterly newsletter subscription', async () => {
         const repo = makeFakeNotificationsRepo();
         const result = await subscribe(
@@ -243,6 +273,43 @@ describe('subscribe use case', () => {
           expect(result.value.isActive).toBe(true);
         }
       });
+
+      it('reactivation re-enables system global unsubscribe', async () => {
+        const existing = createTestNotification({
+          id: 'newsletter-1',
+          userId: 'user-1',
+          notificationType: 'newsletter_entity_monthly',
+          entityCui: '1234567',
+          isActive: false,
+        });
+        const globalUnsubscribe = createTestNotification({
+          id: 'global-unsubscribe',
+          userId: 'user-1',
+          notificationType: 'global_unsubscribe',
+          entityCui: null,
+          isActive: false,
+          config: { channels: { email: false } },
+        });
+        const repo = makeFakeNotificationsRepo({ notifications: [existing, globalUnsubscribe] });
+
+        const result = await subscribe(
+          { notificationsRepo: repo, hasher },
+          {
+            userId: 'user-1',
+            notificationType: 'newsletter_entity_monthly',
+            entityCui: '1234567',
+          }
+        );
+
+        expect(result.isOk()).toBe(true);
+
+        const globalUnsubscribeResult = await repo.findById(globalUnsubscribe.id);
+        expect(globalUnsubscribeResult.isOk()).toBe(true);
+        if (globalUnsubscribeResult.isOk()) {
+          expect(globalUnsubscribeResult.value?.isActive).toBe(true);
+          expect(globalUnsubscribeResult.value?.config).toEqual({ channels: { email: true } });
+        }
+      });
     });
   });
 
@@ -264,6 +331,16 @@ describe('subscribe use case', () => {
         expect(result.value.notificationType).toBe('funky:notification:entity_updates');
         expect(result.value.entityCui).toBe('1234567');
         expect(result.value.config).toBeNull();
+      }
+
+      const campaignGlobalResult = await repo.findByUserTypeAndEntity(
+        'user-1',
+        'funky:notification:global',
+        null
+      );
+      expect(campaignGlobalResult.isOk()).toBe(true);
+      if (campaignGlobalResult.isOk()) {
+        expect(campaignGlobalResult.value?.isActive).toBe(true);
       }
     });
 
@@ -289,6 +366,40 @@ describe('subscribe use case', () => {
       if (result.isOk()) {
         expect(result.value.id).toBe(existing.id);
         expect(result.value.isActive).toBe(true);
+      }
+    });
+
+    it('reactivation enables an existing inactive campaign global preference', async () => {
+      const existing = createTestNotification({
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '1234567',
+        isActive: false,
+      });
+      const campaignGlobal = createTestNotification({
+        id: 'campaign-global',
+        userId: 'user-1',
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: false,
+      });
+      const repo = makeFakeNotificationsRepo({ notifications: [existing, campaignGlobal] });
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'funky:notification:entity_updates',
+          entityCui: '1234567',
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+
+      const campaignGlobalResult = await repo.findById(campaignGlobal.id);
+      expect(campaignGlobalResult.isOk()).toBe(true);
+      if (campaignGlobalResult.isOk()) {
+        expect(campaignGlobalResult.value?.isActive).toBe(true);
       }
     });
   });
@@ -336,6 +447,55 @@ describe('subscribe use case', () => {
       if (result.isOk()) {
         expect(result.value.id).toBe(existing.id);
         expect(result.value.isActive).toBe(true);
+      }
+    });
+
+    it('manual campaign preference subscribe re-enables system global unsubscribe only', async () => {
+      const existing = createTestNotification({
+        userId: 'user-1',
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: false,
+      });
+      const entityUpdates = createTestNotification({
+        id: 'entity-updates',
+        userId: 'user-1',
+        notificationType: 'funky:notification:entity_updates',
+        entityCui: '1234567',
+        isActive: false,
+      });
+      const globalUnsubscribe = createTestNotification({
+        id: 'global-unsubscribe',
+        userId: 'user-1',
+        notificationType: 'global_unsubscribe',
+        entityCui: null,
+        isActive: false,
+        config: { channels: { email: false } },
+      });
+      const repo = makeFakeNotificationsRepo({
+        notifications: [existing, entityUpdates, globalUnsubscribe],
+      });
+
+      const result = await subscribe(
+        { notificationsRepo: repo, hasher },
+        {
+          userId: 'user-1',
+          notificationType: 'funky:notification:global',
+          entityCui: null,
+        }
+      );
+
+      expect(result.isOk()).toBe(true);
+
+      const entityUpdatesResult = await repo.findById(entityUpdates.id);
+      const globalUnsubscribeResult = await repo.findById(globalUnsubscribe.id);
+      expect(entityUpdatesResult.isOk()).toBe(true);
+      expect(globalUnsubscribeResult.isOk()).toBe(true);
+      if (entityUpdatesResult.isOk()) {
+        expect(entityUpdatesResult.value?.isActive).toBe(false);
+      }
+      if (globalUnsubscribeResult.isOk()) {
+        expect(globalUnsubscribeResult.value?.isActive).toBe(true);
       }
     });
   });

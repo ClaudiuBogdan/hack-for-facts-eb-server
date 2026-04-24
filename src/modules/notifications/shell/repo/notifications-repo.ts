@@ -9,7 +9,10 @@ import { randomUUID } from 'crypto';
 import { sql, type Transaction } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
-import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
+} from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import { createDatabaseError, type NotificationError } from '../../core/errors.js';
@@ -91,6 +94,11 @@ const buildUpdateValues = (
   return updateValues;
 };
 
+const GLOBAL_UNSUBSCRIBE_TYPE = 'global_unsubscribe' as const satisfies NotificationType;
+const PUBLIC_DEBATE_CHILD_NOTIFICATION_TYPES = [
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+] as const satisfies readonly NotificationType[];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Repository Implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,6 +165,72 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         'Failed to create notification'
       );
       return err(createDatabaseError('Failed to create notification', error));
+    }
+  }
+
+  async createWithManualOptIn(
+    input: CreateNotificationInput
+  ): Promise<Result<Notification, NotificationError>> {
+    const { userId, notificationType, entityCui, hash } = input;
+
+    this.log.debug(
+      { userId, notificationType, entityCui, hash },
+      'Creating notification with manual opt-in'
+    );
+
+    try {
+      const id = randomUUID();
+      const now = new Date();
+
+      const row = await this.db.transaction().execute(async (trx) => {
+        const insertValues = {
+          id,
+          user_id: input.userId,
+          entity_cui: input.entityCui,
+          notification_type: input.notificationType,
+          is_active: true,
+          config: input.config !== null ? sql`${JSON.stringify(input.config)}::jsonb` : null,
+          hash: input.hash,
+          created_at: now,
+          updated_at: now,
+        };
+
+        const inserted = await trx
+          .insertInto('notifications')
+          .values(insertValues as never)
+          .returning([
+            'id',
+            'user_id',
+            'entity_cui',
+            'notification_type',
+            'is_active',
+            'config',
+            'hash',
+            'created_at',
+            'updated_at',
+          ])
+          .executeTakeFirstOrThrow();
+
+        await this.applyManualNotificationOptInInTransaction(
+          trx,
+          input.userId,
+          input.notificationType,
+          now
+        );
+
+        return inserted;
+      });
+
+      await this.invalidateCampaignSubscriptionStatsCache(notificationType);
+      await this.invalidateCampaignSubscriptionStatsCache(GLOBAL_UNSUBSCRIBE_TYPE);
+      this.log.debug({ notificationId: id }, 'Notification created with manual opt-in');
+      return ok(this.mapRowToNotification(row as unknown as QueryRow));
+    } catch (error) {
+      this.log.error(
+        { err: error, userId, notificationType, entityCui },
+        'Failed to create notification with manual opt-in'
+      );
+      return err(createDatabaseError('Failed to create notification with manual opt-in', error));
     }
   }
 
@@ -407,6 +481,56 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     }
   }
 
+  async updateWithManualOptIn(
+    id: string,
+    input: UpdateNotificationRepoInput
+  ): Promise<Result<Notification, NotificationError>> {
+    this.log.debug({ notificationId: id, input }, 'Updating notification with manual opt-in');
+
+    try {
+      const updatedAt = new Date();
+      const row = await this.db.transaction().execute(async (trx) => {
+        const updateValues = buildUpdateValues(input, updatedAt);
+
+        const updated = await trx
+          .updateTable('notifications')
+          .set(updateValues)
+          .where('id', '=', id)
+          .returning([
+            'id',
+            'user_id',
+            'entity_cui',
+            'notification_type',
+            'is_active',
+            'config',
+            'hash',
+            'created_at',
+            'updated_at',
+          ])
+          .executeTakeFirstOrThrow();
+
+        await this.applyManualNotificationOptInInTransaction(
+          trx,
+          updated.user_id,
+          updated.notification_type as NotificationType,
+          updatedAt
+        );
+
+        return updated;
+      });
+
+      await this.invalidateCampaignSubscriptionStatsCache(
+        row.notification_type as NotificationType
+      );
+      await this.invalidateCampaignSubscriptionStatsCache(GLOBAL_UNSUBSCRIBE_TYPE);
+      this.log.debug({ notificationId: id }, 'Notification updated with manual opt-in');
+      return ok(this.mapRowToNotification(row as unknown as QueryRow));
+    } catch (error) {
+      this.log.error({ err: error, notificationId: id }, 'Failed to update notification');
+      return err(createDatabaseError('Failed to update notification with manual opt-in', error));
+    }
+  }
+
   async updateCampaignGlobalPreference(
     id: string,
     input: UpdateCampaignGlobalPreferenceRepoInput
@@ -435,15 +559,19 @@ class KyselyNotificationsRepo implements NotificationsRepository {
           ])
           .executeTakeFirstOrThrow();
 
-        await trx
-          .updateTable('notifications')
-          .set({
-            is_active: input.isActive,
-            updated_at: updatedAt,
-          } as never)
-          .where('user_id', '=', updatedGlobal.user_id)
-          .where('notification_type', '=', FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE)
-          .execute();
+        if (!input.isActive) {
+          await trx
+            .updateTable('notifications')
+            .set({
+              is_active: false,
+              updated_at: updatedAt,
+            } as never)
+            .where('user_id', '=', updatedGlobal.user_id)
+            .where('id', '!=', updatedGlobal.id)
+            .where('notification_type', 'in', PUBLIC_DEBATE_CHILD_NOTIFICATION_TYPES)
+            .where('is_active', '=', true)
+            .execute();
+        }
 
         return updatedGlobal;
       });
@@ -462,6 +590,33 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         'Failed to update campaign global preference'
       );
       return err(createDatabaseError('Failed to update campaign global preference', error));
+    }
+  }
+
+  async applyManualNotificationOptIn(input: {
+    userId: string;
+    notificationType: NotificationType;
+  }): Promise<Result<void, NotificationError>> {
+    this.log.debug(input, 'Applying manual notification opt-in');
+
+    try {
+      const updatedAt = new Date();
+      await this.db.transaction().execute(async (trx) => {
+        await this.applyManualNotificationOptInInTransaction(
+          trx,
+          input.userId,
+          input.notificationType,
+          updatedAt
+        );
+      });
+
+      await this.invalidateCampaignSubscriptionStatsCache(input.notificationType);
+      await this.invalidateCampaignSubscriptionStatsCache(GLOBAL_UNSUBSCRIBE_TYPE);
+      this.log.debug(input, 'Manual notification opt-in applied');
+      return ok(undefined);
+    } catch (error) {
+      this.log.error({ err: error, ...input }, 'Failed to apply manual notification opt-in');
+      return err(createDatabaseError('Failed to apply manual notification opt-in', error));
     }
   }
 
@@ -500,48 +655,62 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     this.log.debug({ userId }, 'Deactivating global unsubscribe');
 
     try {
+      const updatedAt = new Date();
       const config = { channels: { email: false } } as const;
       const hash = generateNotificationHash(
         sha256Hasher,
         userId,
-        'global_unsubscribe',
+        GLOBAL_UNSUBSCRIBE_TYPE,
         null,
         config
       );
 
-      await sql`
-        INSERT INTO notifications (
-          id,
-          user_id,
-          entity_cui,
-          notification_type,
-          is_active,
-          config,
-          hash,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ${randomUUID()},
-          ${userId},
-          NULL,
-          'global_unsubscribe',
-          FALSE,
-          ${JSON.stringify(config)}::jsonb,
-          ${hash},
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (user_id, notification_type)
-        WHERE notification_type = 'global_unsubscribe'
-        DO UPDATE
-        SET is_active = FALSE,
-            config = EXCLUDED.config,
-            hash = EXCLUDED.hash,
-            updated_at = NOW()
-      `.execute(this.db);
+      await this.db.transaction().execute(async (trx) => {
+        await sql`
+          INSERT INTO notifications (
+            id,
+            user_id,
+            entity_cui,
+            notification_type,
+            is_active,
+            config,
+            hash,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            ${randomUUID()},
+            ${userId},
+            NULL,
+            'global_unsubscribe',
+            FALSE,
+            ${JSON.stringify(config)}::jsonb,
+            ${hash},
+            ${updatedAt},
+            ${updatedAt}
+          )
+          ON CONFLICT (user_id, notification_type)
+          WHERE notification_type = 'global_unsubscribe'
+          DO UPDATE
+          SET is_active = FALSE,
+              config = EXCLUDED.config,
+              hash = EXCLUDED.hash,
+              updated_at = EXCLUDED.updated_at
+        `.execute(trx);
 
-      await this.invalidateCampaignSubscriptionStatsCache('global_unsubscribe');
+        await trx
+          .updateTable('notifications')
+          .set({
+            is_active: false,
+            updated_at: updatedAt,
+          } as never)
+          .where('user_id', '=', userId)
+          .where('notification_type', '!=', GLOBAL_UNSUBSCRIBE_TYPE)
+          .where('is_active', '=', true)
+          .execute();
+      });
+
+      await this.invalidateCampaignSubscriptionStatsCache(GLOBAL_UNSUBSCRIBE_TYPE);
       this.log.info({ userId }, 'Global unsubscribe deactivated');
       return ok(undefined);
     } catch (error) {
@@ -553,6 +722,80 @@ class KyselyNotificationsRepo implements NotificationsRepository {
   // ─────────────────────────────────────────────────────────────────────────────
   // Private Methods
   // ─────────────────────────────────────────────────────────────────────────────
+
+  private async applyManualNotificationOptInInTransaction(
+    trx: Transaction<UserDatabase>,
+    userId: string,
+    notificationType: NotificationType,
+    updatedAt: Date
+  ): Promise<void> {
+    const enabledGlobalConfig = { channels: { email: true } } as const;
+    const enabledGlobalHash = generateNotificationHash(
+      sha256Hasher,
+      userId,
+      GLOBAL_UNSUBSCRIBE_TYPE,
+      null,
+      enabledGlobalConfig
+    );
+
+    await trx
+      .updateTable('notifications')
+      .set({
+        is_active: true,
+        config: sql`${JSON.stringify(enabledGlobalConfig)}::jsonb`,
+        hash: enabledGlobalHash,
+        updated_at: updatedAt,
+      } as never)
+      .where('user_id', '=', userId)
+      .where('notification_type', '=', GLOBAL_UNSUBSCRIBE_TYPE)
+      .execute();
+
+    const isPublicDebateChildNotification = PUBLIC_DEBATE_CHILD_NOTIFICATION_TYPES.some(
+      (childNotificationType) => childNotificationType === notificationType
+    );
+
+    if (!isPublicDebateChildNotification) {
+      return;
+    }
+
+    const campaignGlobalHash = generateNotificationHash(
+      sha256Hasher,
+      userId,
+      FUNKY_NOTIFICATION_GLOBAL_TYPE,
+      null,
+      null
+    );
+
+    await sql`
+      INSERT INTO notifications (
+        id,
+        user_id,
+        entity_cui,
+        notification_type,
+        is_active,
+        config,
+        hash,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${randomUUID()},
+        ${userId},
+        NULL,
+        'funky:notification:global',
+        TRUE,
+        NULL,
+        ${campaignGlobalHash},
+        ${updatedAt},
+        ${updatedAt}
+      )
+      ON CONFLICT (user_id, notification_type)
+      WHERE notification_type = 'funky:notification:global'
+      DO UPDATE
+      SET is_active = TRUE,
+          updated_at = EXCLUDED.updated_at
+    `.execute(trx);
+  }
 
   /**
    * Maps a database row to Notification domain type.
