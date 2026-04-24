@@ -159,6 +159,14 @@ chore(deps): update fastify to 5.6.2
 
 Pre-commit hooks run ESLint, Prettier, and TypeScript checks automatically.
 
+### User Data Deletion Coverage
+
+Any new table or JSON document that stores user-generated data, user-owned
+state, copied account/contact data, or user-linked operational records must add
+a Clerk `user.deleted` delete/anonymize handler path. Document the field
+treatment in
+[`docs/USER-DATA-ANONYMIZATION.md`](docs/USER-DATA-ANONYMIZATION.md).
+
 ## Architecture
 
 This codebase follows **Functional Core / Imperative Shell** (Hexagonal Architecture):
@@ -211,13 +219,14 @@ For detailed architecture documentation, see:
 
 ## Documentation
 
-| Document                                                         | Description                           |
-| :--------------------------------------------------------------- | :------------------------------------ |
-| [`CLAUDE.md`](CLAUDE.md)                                         | AI development guide (full reference) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                   | Architectural principles and patterns |
-| [`docs/CACHE.md`](docs/CACHE.md)                                 | Caching layer specification           |
-| [`docs/DATASETS.md`](docs/DATASETS.md)                           | Dataset format and validation         |
-| [`docs/NORMALIZATION-FACTORS.md`](docs/NORMALIZATION-FACTORS.md) | Data normalization logic              |
+| Document                                                             | Description                                 |
+| :------------------------------------------------------------------- | :------------------------------------------ |
+| [`CLAUDE.md`](CLAUDE.md)                                             | AI development guide (full reference)       |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                       | Architectural principles and patterns       |
+| [`docs/CACHE.md`](docs/CACHE.md)                                     | Caching layer specification                 |
+| [`docs/DATASETS.md`](docs/DATASETS.md)                               | Dataset format and validation               |
+| [`docs/NORMALIZATION-FACTORS.md`](docs/NORMALIZATION-FACTORS.md)     | Data normalization logic                    |
+| [`docs/USER-DATA-ANONYMIZATION.md`](docs/USER-DATA-ANONYMIZATION.md) | Clerk `user.deleted` anonymization strategy |
 
 ## Testing
 

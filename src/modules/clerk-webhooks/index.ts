@@ -23,6 +23,17 @@ export {
 export { makeClerkWebhookRoutes, type ClerkWebhookRoutesDeps } from './shell/rest/routes.js';
 
 export {
-  makeClerkUserDeletedNotificationsHandler,
-  type ClerkUserDeletedNotificationsHandlerDeps,
-} from './shell/handlers/user-deleted-notifications-handler.js';
+  makeClerkUserDeletedAnonymizationHandler,
+  type ClerkUserDeletedAnonymizationHandlerDeps,
+} from './shell/handlers/user-deleted-anonymization-handler.js';
+
+export {
+  buildAnonymizedUserId,
+  makeUserDataAnonymizer,
+  sanitizeCorrespondenceThreadRecordForDeletedUser,
+  sanitizeMetadataForDeletedUser,
+  sanitizeUserInteractionRecordForDeletedUser,
+  type UserDataAnonymizer,
+  type UserDataAnonymizationInput,
+  type UserDataAnonymizationSummary,
+} from './shell/anonymization/user-data-anonymizer.js';
