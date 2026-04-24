@@ -1942,6 +1942,73 @@ describe('App Factory', () => {
       );
     });
 
+    it('validates campaign-admin correspondence wiring before starting runtimes', async () => {
+      const testAuth = createTestAuthProvider();
+      const notificationDeliveryRuntimeFactory = vi.fn(async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: vi.fn(async () => undefined),
+      }));
+      const userEventRuntimeFactory = vi.fn(async () => ({
+        publisher: {
+          publish: vi.fn(async () => undefined),
+          publishMany: vi.fn(async () => undefined),
+        },
+        stop: vi.fn(async () => undefined),
+      }));
+
+      await expect(
+        buildApp({
+          fastifyOptions: { logger: false },
+          deps: {
+            budgetDb: makeFakeBudgetDb(),
+            insDb: makeFakeInsDb(),
+            userDb: makeFakeKyselyDb(),
+            datasetRepo: makeFakeDatasetRepo(),
+            authProvider: testAuth.provider,
+            notificationDeliveryRuntimeFactory,
+            userEventRuntimeFactory,
+            config: makeTestConfig({
+              learningProgress: {
+                campaignAdminEnabledCampaigns: ['funky'],
+              },
+              jobs: {
+                redisUrl: 'redis://localhost:6379',
+                redisPassword: undefined,
+                concurrency: 5,
+                prefix: 'test:jobs',
+                notificationRecoverySweepIntervalMinutes: 15,
+                notificationStuckSendingThresholdMinutes: 15,
+              },
+              email: {
+                apiKey: 're_test_key',
+                webhookSecret: undefined,
+                fromAddress: 'noreply@test.example.com',
+                funkyFromAddress: 'campaign@test.example.com',
+                funkyFromAddressCcRecipients: ['review@test.example.com'],
+                funkyReplyToAddress: 'debate@transparenta.test',
+                previewEnabled: false,
+                maxRps: 2,
+                enabled: false,
+              },
+              auth: {
+                clerkSecretKey: 'sk_test_clerk',
+                clerkJwtKey: undefined,
+                clerkAuthorizedParties: undefined,
+                clerkWebhookSigningSecret: undefined,
+                enabled: true,
+              },
+            }),
+          },
+        })
+      ).rejects.toThrow(
+        'Campaign admin routes require public debate correspondence wiring when the campaign admin API is enabled.'
+      );
+
+      expect(notificationDeliveryRuntimeFactory).not.toHaveBeenCalled();
+      expect(userEventRuntimeFactory).not.toHaveBeenCalled();
+    });
+
     it('fails closed when campaign-admin routes are configured for an unsupported campaign', async () => {
       const testAuth = createTestAuthProvider();
 

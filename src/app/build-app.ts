@@ -7,13 +7,10 @@ import { timingSafeEqual } from 'node:crypto';
 
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
-import fastifyLib, {
-  type FastifyInstance,
-  type FastifyServerOptions,
-  type FastifyError,
-} from 'fastify';
+import fastifyLib, { type FastifyInstance, type FastifyError } from 'fastify';
 import { err, ok, type Result } from 'neverthrow';
 
+import { resolveBuildPlan, type AppOptions } from './build-plan.js';
 import {
   wrapCountyAnalyticsRepo,
   wrapUATAnalyticsRepo,
@@ -34,7 +31,7 @@ import {
   BUDGET_DOCUMENT_INTERACTION_ID,
   DEBATE_REQUEST_INTERACTION_ID,
 } from '../common/campaign-user-interactions.js';
-import { CacheNamespace, initCache, type CacheClient } from '../infra/cache/index.js';
+import { CacheNamespace, initCache } from '../infra/cache/index.js';
 import {
   makeEmailClient,
   makeReceivedEmailFetcher,
@@ -75,13 +72,12 @@ import {
   makeAggregatedLineItemsRepo,
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
-import { makeGraphQLContext, ANONYMOUS_SESSION, type AuthProvider } from '../modules/auth/index.js';
+import { makeGraphQLContext, ANONYMOUS_SESSION } from '../modules/auth/index.js';
 import { makeAuthMiddleware } from '../modules/auth/shell/middleware/fastify-auth.js';
 import {
   makeBudgetSectorResolvers,
   BudgetSectorSchema,
   makeBudgetSectorRepo,
-  type BudgetSectorRepository,
 } from '../modules/budget-sector/index.js';
 import { makeClerkCampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
 import {
@@ -127,11 +123,7 @@ import {
   CountyAnalyticsSchema,
   makeCountyAnalyticsRepo,
 } from '../modules/county-analytics/index.js';
-import {
-  type DatasetRepo,
-  DatasetsSchema,
-  makeDatasetsResolvers,
-} from '../modules/datasets/index.js';
+import { DatasetsSchema, makeDatasetsResolvers } from '../modules/datasets/index.js';
 import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
   makeEntityResolvers,
@@ -156,15 +148,12 @@ import {
   ExecutionLineItemSchema,
   makeExecutionLineItemRepo as makeExecutionLineItemsModuleRepo,
   createExecutionLineItemLoaders,
-  type ExecutionLineItemRepository as ExecutionLineItemsModuleRepository,
 } from '../modules/execution-line-items/index.js';
 import {
   makeFundingSourceResolvers,
   FundingSourceSchema,
   makeFundingSourceRepo,
   makeExecutionLineItemRepo,
-  type FundingSourceRepository,
-  type ExecutionLineItemRepository,
 } from '../modules/funding-sources/index.js';
 import {
   makeHealthRoutes,
@@ -187,7 +176,6 @@ import {
   makePublicDebateTemplateRenderer,
   startCorrespondenceRecoveryRuntime,
   type CorrespondenceRecoveryRuntime,
-  type CorrespondenceRecoveryRuntimeFactory,
   type CampaignAdminThreadNotificationService,
   type InstitutionCorrespondenceRepository,
   type InstitutionCorrespondenceError,
@@ -195,7 +183,6 @@ import {
   type PublicDebateSelfSendApprovalService,
 } from '../modules/institution-correspondence/index.js';
 import {
-  CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS,
   createDatabaseError as createLearningProgressDatabaseError,
   makeCampaignAdminUserInteractionRoutes,
   makeLearningProgressRoutes,
@@ -247,7 +234,6 @@ import {
   startNotificationDeliveryRuntime,
   createWeeklyProgressDigestPostSendReconciler,
   type NotificationDeliveryRuntime,
-  type NotificationDeliveryRuntimeFactory,
 } from '../modules/notification-delivery/index.js';
 import {
   type CampaignSubscriptionStatsInvalidator,
@@ -296,55 +282,9 @@ import {
   type LearningProgressAppliedEventHandler,
   type UserEventHandler,
   type UserEventRuntime,
-  type UserEventRuntimeFactory,
 } from '../modules/user-events/index.js';
 
-import type { AppConfig } from '../infra/config/env.js';
-import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
-
-/**
- * Application dependencies that can be injected
- */
-export interface AppDeps {
-  healthCheckers?: HealthChecker[];
-  budgetDb: BudgetDbClient;
-  insDb: InsDbClient;
-  /** User database for notifications and other user-related data */
-  userDb?: UserDbClient;
-  datasetRepo: DatasetRepo;
-  budgetSectorRepo?: BudgetSectorRepository;
-  fundingSourceRepo?: FundingSourceRepository;
-  /** Repository for funding source nested resolver (funding-sources module) */
-  executionLineItemRepo?: ExecutionLineItemRepository;
-  /** Repository for execution line items module (standalone queries) */
-  executionLineItemsModuleRepo?: ExecutionLineItemsModuleRepository;
-  config: AppConfig;
-  /** Optional cache client for testing (auto-initialized if not provided) */
-  cacheClient?: CacheClient;
-  /**
-   * Optional auth provider for token verification.
-   * When provided, GraphQL context will include auth information.
-   * Resolvers can use `requireAuthOrThrow` or `withAuth` to require authentication.
-   */
-  authProvider?: AuthProvider;
-  /** Optional notification delivery runtime factory for tests */
-  notificationDeliveryRuntimeFactory?: NotificationDeliveryRuntimeFactory;
-  /** Optional user event runtime factory for tests */
-  userEventRuntimeFactory?: UserEventRuntimeFactory;
-  /** Optional admin event runtime factory for tests */
-  adminEventRuntimeFactory?: import('../modules/admin-events/index.js').AdminEventRuntimeFactory;
-  /** Optional correspondence recovery runtime factory for tests */
-  correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
-}
-
-/**
- * Application options combining Fastify options with our custom deps
- */
-export interface AppOptions {
-  fastifyOptions?: FastifyServerOptions;
-  deps?: Partial<AppDeps>; // Allow partial for tests/defaults, but runtime needs them
-  version?: string | undefined;
-}
+export type { AppDeps, AppOptions } from './build-plan.js';
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
@@ -558,108 +498,26 @@ class LearningProgressSyncRollbackError extends Error {
  * This is the composition root where all modules are wired together
  */
 export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstance> => {
-  const { fastifyOptions = {}, deps = {}, version } = options;
-
-  if (
-    deps.budgetDb === undefined ||
-    deps.insDb === undefined ||
-    deps.datasetRepo === undefined ||
-    deps.config === undefined
-  ) {
-    throw new Error('Missing required dependencies: budgetDb, insDb, datasetRepo, config');
-  }
+  const { fastifyOptions = {}, deps: inputDeps = {}, version } = options;
+  const { deps, features } = resolveBuildPlan(inputDeps);
 
   const budgetDb = deps.budgetDb;
   const insDb = deps.insDb;
   const datasetRepo = deps.datasetRepo;
   const config = deps.config;
-  const hasBullmqRedisConfig = config.jobs.redisUrl !== undefined && config.jobs.redisUrl !== '';
-  const shouldRegisterNotificationAdminRoutes =
-    config.notifications.triggerApiKey !== undefined && config.notifications.triggerApiKey !== '';
-  const shouldPublishLearningProgressUserEvents = hasBullmqRedisConfig;
-  const shouldEnqueueClerkWelcomeNotifications =
-    hasBullmqRedisConfig && config.auth.clerkWebhookSigningSecret !== undefined;
-  const shouldStartNotificationWorkers = hasBullmqRedisConfig;
-  const shouldInitializeNotificationDeliveryRuntime =
-    shouldRegisterNotificationAdminRoutes ||
-    shouldEnqueueClerkWelcomeNotifications ||
-    shouldStartNotificationWorkers;
-  const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
-  const enabledCampaignAdminKeys = config.learningProgress.campaignAdminEnabledCampaigns;
-  const supportedCampaignAdminKeys = new Set<string>(CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS);
-  const unsupportedCampaignAdminKeys = enabledCampaignAdminKeys.filter(
-    (campaignKey) => !supportedCampaignAdminKeys.has(campaignKey)
-  );
-  const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
-  const emailFromAddress = config.email.fromAddress?.trim();
-  const funkyEmailFromAddress = config.email.funkyFromAddress?.trim();
-  const campaignAuditCcRecipients = config.email.funkyFromAddressCcRecipients;
-  const campaignReplyToAddress = config.email.funkyReplyToAddress?.trim();
-
-  if (config.email.enabled && (emailFromAddress === undefined || emailFromAddress === '')) {
-    throw new Error('Email is enabled but EMAIL_FROM_ADDRESS is missing.');
-  }
-
-  if (
-    shouldEnablePublicDebateCorrespondence &&
-    (funkyEmailFromAddress === undefined || funkyEmailFromAddress === '')
-  ) {
-    throw new Error(
-      'Public debate campaign email requires FUNKY_EMAIL_FROM_ADDRESS when email is enabled.'
-    );
-  }
-
-  if (
-    shouldEnablePublicDebateCorrespondence &&
-    (campaignReplyToAddress === undefined || campaignReplyToAddress === '')
-  ) {
-    throw new Error(
-      'Public debate correspondence requires FUNKY_EMAIL_REPLY_TO_ADDRESS when email is enabled.'
-    );
-  }
-
-  if (shouldEnablePublicDebateCorrespondence && !hasBullmqRedisConfig) {
-    throw new Error(
-      'Public debate correspondence requires BULLMQ_REDIS_URL so learning progress requests can dispatch institution email.'
-    );
-  }
-
-  if (shouldInitializeNotificationDeliveryRuntime && deps.userDb === undefined) {
-    throw new Error(
-      'Notification delivery runtime requires userDb when notification admin routes or workers are enabled.'
-    );
-  }
-
-  if (
-    shouldInitializeNotificationDeliveryRuntime &&
-    (config.jobs.redisUrl === undefined || config.jobs.redisUrl === '')
-  ) {
-    throw new Error(
-      'Notification delivery runtime requires BULLMQ_REDIS_URL when notification admin routes or workers are enabled.'
-    );
-  }
-
-  if (shouldInitializeUserEventRuntime && deps.userDb === undefined) {
-    throw new Error(
-      'User event runtime requires userDb when BullMQ background processing is enabled.'
-    );
-  }
-
-  if (unsupportedCampaignAdminKeys.length > 0) {
-    throw new Error(
-      `Campaign admin routes configured for unsupported campaigns: ${unsupportedCampaignAdminKeys.join(', ')}.`
-    );
-  }
-
-  if (enabledCampaignAdminKeys.length > 0 && deps.userDb === undefined) {
-    throw new Error('Campaign admin routes require userDb when the campaign admin API is enabled.');
-  }
-
-  if (enabledCampaignAdminKeys.length > 0 && deps.authProvider === undefined) {
-    throw new Error(
-      'Campaign admin routes require authProvider when the campaign admin API is enabled.'
-    );
-  }
+  const {
+    hasBullmqRedisConfig,
+    shouldRegisterNotificationAdminRoutes,
+    shouldEnqueueClerkWelcomeNotifications,
+    shouldStartNotificationWorkers,
+    shouldInitializeNotificationDeliveryRuntime,
+    shouldInitializeUserEventRuntime,
+    enabledCampaignAdminKeys,
+    emailFromAddress,
+    funkyEmailFromAddress,
+    campaignAuditCcRecipients,
+    campaignReplyToAddress,
+  } = features;
 
   // Create Fastify instance
   const app = fastifyLib({
@@ -1210,13 +1068,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     let publicDebateUpdatePublisher: PublicDebateEntityUpdatePublisher | undefined;
     let campaignAdminThreadNotificationService: CampaignAdminThreadNotificationService | undefined;
 
-    const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
-
-    if (unsubscribeSecret === undefined || unsubscribeSecret === '') {
-      throw new Error(
-        'Notification routes require UNSUBSCRIBE_HMAC_SECRET (min 32 chars) when userDb is enabled.'
-      );
-    }
+    const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim() ?? '';
     const tokenSigner = makeUnsubscribeTokenSigner(unsubscribeSecret);
     const weeklyProgressDigestPostSendReconciler = createWeeklyProgressDigestPostSendReconciler({
       learningProgressRepo,
@@ -1246,36 +1098,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         reader: campaignSubscriptionStatsReader,
       })
     );
-
-    if (shouldStartNotificationWorkers && config.auth.clerkSecretKey === undefined) {
-      throw new Error(
-        'Notification delivery requires CLERK_SECRET_KEY when BullMQ workers are enabled.'
-      );
-    }
-
-    if (
-      shouldStartNotificationWorkers &&
-      (config.email.apiKey === undefined || config.email.apiKey === '')
-    ) {
-      throw new Error(
-        'Notification delivery requires RESEND_API_KEY when BullMQ workers are enabled.'
-      );
-    }
-
-    if (
-      shouldStartNotificationWorkers &&
-      (emailFromAddress === undefined || emailFromAddress === '')
-    ) {
-      throw new Error(
-        'Notification delivery requires EMAIL_FROM_ADDRESS when BullMQ workers are enabled.'
-      );
-    }
-
-    if (shouldStartNotificationWorkers && config.notifications.platformBaseUrl === '') {
-      throw new Error(
-        'Notification delivery requires PUBLIC_CLIENT_BASE_URL when BullMQ workers are enabled.'
-      );
-    }
 
     if (shouldInitializeNotificationDeliveryRuntime) {
       const createNotificationDeliveryRuntime =
@@ -1579,10 +1401,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // Setup Institution Correspondence Module (Admin REST API + Webhook Side Effects)
     // ─────────────────────────────────────────────────────────────────────────
     if (config.email.enabled) {
-      const emailApiKey = config.email.apiKey;
-      if (emailApiKey === undefined || emailApiKey === '') {
-        throw new Error('Email is enabled but RESEND_API_KEY is missing.');
-      }
+      const emailApiKey = config.email.apiKey ?? '';
 
       correspondenceRepo = makeInstitutionCorrespondenceRepo({
         db: userDb,
@@ -1952,12 +1771,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
     // Spec: docs/specs/specs-202604110932-campaign-admin-fail-closed-authorization.md
     if (enabledCampaignAdminKeys.length > 0) {
-      const campaignAdminClerkSecret = config.auth.clerkSecretKey?.trim();
-      if (campaignAdminClerkSecret === undefined || campaignAdminClerkSecret === '') {
-        throw new Error(
-          'Campaign admin routes require CLERK_SECRET_KEY when the campaign admin API is enabled.'
-        );
-      }
+      const campaignAdminClerkSecret = config.auth.clerkSecretKey?.trim() ?? '';
 
       if (prepareLearningProgressReviewSideEffects === undefined) {
         throw new Error(
