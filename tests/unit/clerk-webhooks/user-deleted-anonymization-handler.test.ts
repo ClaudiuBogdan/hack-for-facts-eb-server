@@ -5,9 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   makeClerkUserDeletedAnonymizationHandler,
   type ClerkWebhookEvent,
-  type UserDataAnonymizer,
-  type UserDataAnonymizationSummary,
 } from '@/modules/clerk-webhooks/index.js';
+
+import type {
+  UserDataAnonymizer,
+  UserDataAnonymizationSummary,
+} from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
 
 const logger = pinoLogger({ level: 'silent' });
 

@@ -87,6 +87,11 @@ twice and verifies the replay succeeds.
 
 ## Audit and Logging
 
+When an anonymization run starts, the anonymizer first writes or updates a
+non-PII audit row. Notification send workers check this audit marker after
+claiming a delivery and again immediately before calling the email provider, so
+in-flight deliveries are skipped once deletion handling has started.
+
 Successful runs write to `UserDataAnonymizationAudit` with:
 
 - `user_id_hash`
@@ -102,6 +107,22 @@ Successful runs write to `UserDataAnonymizationAudit` with:
 The webhook route hashes `event.data.id` for `user.deleted` logs. The anonymizer
 logs the Svix ID, anonymized user ID, and mutation summary. Errors log the user
 ID hash, not the raw Clerk ID.
+
+When email is enabled, successful anonymization also sends a fire-and-forget
+admin alert to the configured admin/campaign sender address. The alert includes
+the Svix ID, user ID hash, anonymized user ID, and mutation summary. It must not
+include the raw Clerk user ID.
+
+## Static Misuse Guard
+
+The anonymizer factory is deliberately not exported from
+`src/modules/clerk-webhooks/index.ts`. ESLint also restricts imports of
+`src/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.ts` to the
+approved composition and handler files.
+
+If another caller needs deletion behavior, route it through the verified Clerk
+`user.deleted` webhook handler instead of importing the destructive factory
+directly.
 
 ## Adding New User-Generated Tables
 

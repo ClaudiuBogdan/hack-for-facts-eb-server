@@ -167,6 +167,11 @@ export interface NotificationOutboxRepository {
   ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
+   * Returns true when Clerk deletion anonymization has started or completed.
+   */
+  isUserAnonymizationStarted?(userId: string): Promise<Result<boolean, DeliveryError>>;
+
+  /**
    * Updates delivery status with optional metadata.
    */
   updateStatus(

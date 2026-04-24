@@ -4,7 +4,7 @@
  * Kysely-based implementation with atomic claim pattern.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
@@ -45,6 +45,7 @@ export interface DeliveryRepoConfig {
 }
 
 const COMPOSE_CLAIM_METADATA_KEY = '__composeClaimId';
+const ANONYMIZED_USER_ID_PREFIX = 'deleted-user:';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -79,6 +80,8 @@ const mapRow = (row: Record<string, unknown>): NotificationOutboxRecord => ({
   metadata: (row['metadata'] as Record<string, unknown> | null) ?? {},
   createdAt: parseDbTimestamp(row['created_at'], 'created_at'),
 });
+
+const hashUserId = (userId: string): string => createHash('sha256').update(userId).digest('hex');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
@@ -437,6 +440,31 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         return ok(mapRow(row));
       } catch (error) {
         log.error({ error, outboxId }, 'Failed to claim outbox row');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async isUserAnonymizationStarted(userId: string): Promise<Result<boolean, DeliveryError>> {
+      if (userId.startsWith(ANONYMIZED_USER_ID_PREFIX)) {
+        return ok(true);
+      }
+
+      const userIdHash = hashUserId(userId);
+      try {
+        const row = await db
+          .selectFrom('userdataanonymizationaudit')
+          .select('id')
+          .where((eb) =>
+            eb.or([
+              eb('user_id_hash', '=', userIdHash),
+              eb('anonymized_user_id', '=', `${ANONYMIZED_USER_ID_PREFIX}${userIdHash}`),
+            ])
+          )
+          .executeTakeFirst();
+
+        return ok(row !== undefined);
+      } catch (error) {
+        log.error({ error }, 'Failed to check user anonymization state');
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },

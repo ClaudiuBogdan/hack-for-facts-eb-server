@@ -113,8 +113,9 @@ import {
   makeClerkUserDeletedAnonymizationHandler,
   makeClerkWebhookRoutes,
   makeClerkWebhookVerifier,
-  makeUserDataAnonymizer,
 } from '../modules/clerk-webhooks/index.js';
+import { makeUserDataAnonymizationAdminEmailNotifier } from '../modules/clerk-webhooks/shell/anonymization/admin-email-notifier.js';
+import { makeUserDataAnonymizer } from '../modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
 import {
   CommitmentsSchema,
   makeCommitmentsRepo,
@@ -1006,6 +1007,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const userDataAnonymizer = makeUserDataAnonymizer({
       db: userDb,
       logger: repoLogger,
+      ...(config.email.enabled
+        ? {
+            adminNotifier: makeUserDataAnonymizationAdminEmailNotifier({
+              emailSender: makeEmailClient({
+                apiKey: config.email.apiKey ?? '',
+                fromAddress: funkyEmailFromAddress ?? emailFromAddress ?? '',
+                logger: repoLogger,
+              }),
+              recipientEmail: funkyEmailFromAddress ?? emailFromAddress ?? '',
+              unsubscribeUrl: config.notifications.apiBaseUrl,
+              logger: repoLogger,
+            }),
+          }
+        : {}),
     });
     clerkWebhookEventVerifiedHandlers.push(
       makeClerkUserDeletedAnonymizationHandler({

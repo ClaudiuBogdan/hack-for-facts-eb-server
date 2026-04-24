@@ -26,6 +26,7 @@
 
 - **NEVER read `.env` files** — Environment files contain secrets (API keys, database credentials). Do not read, display, or reference their contents. Use `.env.example` as a template reference instead.
 - **User deletion coverage:** Any new table or JSON document that stores user-generated data, user-owned state, copied account/contact data, or user-linked operational records must add a Clerk `user.deleted` delete/anonymize handler path and document the field treatment in `docs/USER-DATA-ANONYMIZATION.md`.
+- **Destructive anonymizer guard:** The deleted-user anonymizer is intentionally not public API. Do not bypass the ESLint restricted-import rule; route calls through the verified Clerk `user.deleted` handler.
 
 ## Module Dependencies
 

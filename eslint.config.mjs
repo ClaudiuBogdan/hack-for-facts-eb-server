@@ -1,6 +1,6 @@
 import eslint from '@eslint/js';
 import comments from '@eslint-community/eslint-plugin-eslint-comments';
-import { defineConfig } from "eslint/config";
+import { defineConfig } from 'eslint/config';
 import prettierConfig from 'eslint-config-prettier';
 import boundaries from 'eslint-plugin-boundaries';
 import { flatConfigs as importPluginFlatConfigs } from 'eslint-plugin-import-x';
@@ -14,7 +14,16 @@ export default defineConfig(
   // Base Setup & Global Ignores
   // ========================================================================
   {
-    ignores: ['dist', 'node_modules', 'coverage', '**/*.d.ts', '.git/**', '.opencode/**', 'old_code_repositories', 'tests/golden-master/snapshots/**'],
+    ignores: [
+      'dist',
+      'node_modules',
+      'coverage',
+      '**/*.d.ts',
+      '.git/**',
+      '.opencode/**',
+      'old_code_repositories',
+      'tests/golden-master/snapshots/**',
+    ],
   },
 
   // ========================================================================
@@ -98,7 +107,7 @@ export default defineConfig(
       ],
 
       // Force explicit equality checks (no ==)
-      'eqeqeq': ['error', 'smart'],
+      eqeqeq: ['error', 'smart'],
 
       // ====================================================================
       // C. CODING STANDARDS & MAINTAINABILITY
@@ -126,7 +135,14 @@ export default defineConfig(
       'import-x/order': [
         'error',
         {
-          groups: ['builtin', 'external', 'internal', ['parent', 'sibling', 'index'], 'object', 'type'],
+          groups: [
+            'builtin',
+            'external',
+            'internal',
+            ['parent', 'sibling', 'index'],
+            'object',
+            'type',
+          ],
           'newlines-between': 'always',
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
@@ -141,8 +157,8 @@ export default defineConfig(
         {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_'
-        }
+          caughtErrorsIgnorePattern: '^_',
+        },
       ],
 
       // ====================================================================
@@ -194,7 +210,10 @@ export default defineConfig(
                 { to: { origin: ['external', 'core'] }, dependency: { module: 'axios' } },
                 { to: { origin: ['external', 'core'] }, dependency: { module: 'fs' } },
                 { to: { origin: ['external', 'core'] }, dependency: { module: 'http' } },
-                { to: { origin: ['external', 'core'] }, dependency: { module: '@modelcontextprotocol/sdk' } },
+                {
+                  to: { origin: ['external', 'core'] },
+                  dependency: { module: '@modelcontextprotocol/sdk' },
+                },
               ],
               message: 'Core modules must not import I/O libraries.',
             },
@@ -210,6 +229,67 @@ export default defineConfig(
           message: 'Use a safe parsing utility (Result-based) instead of JSON.parse.',
         },
       ],
+    },
+  },
+
+  // ========================================================================
+  // Destructive user-data anonymizer guard
+  // ========================================================================
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@/modules/clerk-webhooks/index.js',
+              importNames: [
+                'makeUserDataAnonymizer',
+                'UserDataAnonymizer',
+                'UserDataAnonymizationInput',
+                'UserDataAnonymizationSummary',
+              ],
+              message:
+                'The deleted-user anonymizer is destructive. Import it only from the approved composition/handler files.',
+            },
+            {
+              name: '../modules/clerk-webhooks/index.js',
+              importNames: [
+                'makeUserDataAnonymizer',
+                'UserDataAnonymizer',
+                'UserDataAnonymizationInput',
+                'UserDataAnonymizationSummary',
+              ],
+              message:
+                'The deleted-user anonymizer is destructive. Import it only from the approved composition/handler files.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js',
+                '**/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js',
+                './anonymization/user-data-anonymizer.js',
+                '../anonymization/user-data-anonymizer.js',
+              ],
+              message:
+                'The deleted-user anonymizer is destructive. Import it only from the approved composition/handler files.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    files: [
+      'src/app/build-app.ts',
+      'src/modules/clerk-webhooks/shell/anonymization/admin-email-notifier.ts',
+      'src/modules/clerk-webhooks/shell/handlers/user-deleted-anonymization-handler.ts',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 

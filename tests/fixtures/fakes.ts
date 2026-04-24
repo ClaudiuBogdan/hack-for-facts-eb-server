@@ -3263,6 +3263,10 @@ interface FakeDeliveryRepoOptions {
   deliveries?: DeliveryRecord[];
   /** Enable database error simulation */
   simulateDbError?: boolean;
+  /** Fail only the user anonymization lookup */
+  simulateAnonymizationCheckError?: boolean;
+  /** User IDs for which deletion anonymization has started */
+  anonymizationStartedUserIds?: string[];
 }
 
 /**
@@ -3275,6 +3279,8 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
   const store = new Map<string, DeliveryRecord>();
   const keyIndex = new Map<string, string>(); // deliveryKey -> id
   const simulateDbError = options.simulateDbError ?? false;
+  const simulateAnonymizationCheckError = options.simulateAnonymizationCheckError ?? false;
+  const anonymizationStartedUserIds = new Set(options.anonymizationStartedUserIds ?? []);
 
   // Seed initial deliveries
   if (options.deliveries !== undefined) {
@@ -3561,6 +3567,11 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       };
       store.set(deliveryId, updated);
       return ok(updated);
+    },
+
+    isUserAnonymizationStarted: async (userId: string): Promise<Result<boolean, DeliveryError>> => {
+      if (simulateDbError || simulateAnonymizationCheckError) return createDbError();
+      return ok(anonymizationStartedUserIds.has(userId));
     },
 
     updateStatus: async (

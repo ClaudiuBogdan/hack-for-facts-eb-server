@@ -201,6 +201,51 @@ const getDigestRecomposeRunId = (delivery: NotificationOutboxRecord): string => 
   return `send-recompose-${delivery.id}`;
 };
 
+const skipIfUserAnonymizationStarted = async (input: {
+  deliveryRepo: DeliveryRepository;
+  delivery: NotificationOutboxRecord;
+  log: Logger;
+}): Promise<boolean> => {
+  if (input.deliveryRepo.isUserAnonymizationStarted === undefined) {
+    return false;
+  }
+
+  const anonymizationResult = await input.deliveryRepo.isUserAnonymizationStarted(
+    input.delivery.userId
+  );
+
+  if (anonymizationResult.isErr()) {
+    const errorMessage = `Failed to check user anonymization state before send: ${getErrorMessage(
+      anonymizationResult.error
+    )}`;
+    input.log.error(
+      {
+        error: anonymizationResult.error,
+        outboxId: input.delivery.id,
+      },
+      'Failed to check user anonymization state before send'
+    );
+    await input.deliveryRepo.updateStatusIfStillSending(input.delivery.id, 'failed_transient', {
+      lastError: errorMessage,
+    });
+    throw new Error(errorMessage);
+  }
+
+  if (!anonymizationResult.value) {
+    return false;
+  }
+
+  input.log.info(
+    { outboxId: input.delivery.id },
+    'User deletion anonymization has started, skipping send'
+  );
+  await input.deliveryRepo.updateStatusIfStillSending(input.delivery.id, 'skipped_no_email', {
+    lastError: 'User deletion anonymization has started; delivery skipped',
+  });
+
+  return true;
+};
+
 export const processSendJob = async (
   deps: {
     deliveryRepo: DeliveryRepository;
@@ -244,6 +289,10 @@ export const processSendJob = async (
   if (delivery === null) {
     log.info({ outboxId }, 'Outbox row not claimable (already claimed or processed)');
     return { outboxId, status: 'skipped_already_claimed' };
+  }
+
+  if (await skipIfUserAnonymizationStarted({ deliveryRepo, delivery, log })) {
+    return { outboxId, status: 'skipped_no_email' };
   }
 
   // Check global unsubscribe before sending
@@ -842,6 +891,10 @@ export const processSendJob = async (
     });
 
     return { outboxId, status: 'failed_missing_content' };
+  }
+
+  if (await skipIfUserAnonymizationStarted({ deliveryRepo, delivery, log })) {
+    return { outboxId, status: 'skipped_no_email' };
   }
 
   const tags = [

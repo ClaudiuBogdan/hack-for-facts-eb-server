@@ -95,9 +95,24 @@ export interface UserDataAnonymizer {
   ): Promise<Result<UserDataAnonymizationSummary, UserDataAnonymizationError>>;
 }
 
+export interface UserDataAnonymizationAdminNotification {
+  userIdHash: string;
+  anonymizedUserId: string;
+  svixId: string;
+  eventType: string;
+  eventTimestamp: number;
+  completedAt: Date;
+  summary: UserDataAnonymizationSummary;
+}
+
+export interface UserDataAnonymizationAdminNotifier {
+  notifyCompleted(input: UserDataAnonymizationAdminNotification): Promise<void>;
+}
+
 export interface UserDataAnonymizerDeps {
   db: UserDbClient;
   logger: Logger;
+  adminNotifier?: UserDataAnonymizationAdminNotifier;
 }
 
 interface MutationResult {
@@ -590,9 +605,74 @@ const insertAuditRow = async (
         clerk_event_type = EXCLUDED.clerk_event_type,
         clerk_event_timestamp = EXCLUDED.clerk_event_timestamp,
         completed_at = EXCLUDED.completed_at,
-        run_count = userdataanonymizationaudit.run_count + 1,
         summary = EXCLUDED.summary
   `.execute(trx);
+};
+
+const markAuditStarted = async (
+  db: UserDbClient,
+  input: {
+    userIdHash: string;
+    anonymizedUserId: string;
+    svixId: string;
+    eventType: string;
+    eventTimestamp: number;
+    startedAt: Date;
+  }
+): Promise<void> => {
+  await sql`
+    INSERT INTO userdataanonymizationaudit (
+      user_id_hash,
+      anonymized_user_id,
+      first_svix_id,
+      latest_svix_id,
+      clerk_event_type,
+      clerk_event_timestamp,
+      completed_at,
+      run_count,
+      summary
+    )
+    VALUES (
+      ${input.userIdHash},
+      ${input.anonymizedUserId},
+      ${input.svixId},
+      ${input.svixId},
+      ${input.eventType},
+      ${input.eventTimestamp},
+      ${input.startedAt},
+      1,
+      ${JSON.stringify({ status: 'started' })}::jsonb
+    )
+    ON CONFLICT (user_id_hash)
+    DO UPDATE
+    SET latest_svix_id = EXCLUDED.latest_svix_id,
+        clerk_event_type = EXCLUDED.clerk_event_type,
+        clerk_event_timestamp = EXCLUDED.clerk_event_timestamp,
+        completed_at = EXCLUDED.completed_at,
+        run_count = userdataanonymizationaudit.run_count + 1,
+        summary = EXCLUDED.summary
+  `.execute(db);
+};
+
+const notifyAdminAnonymizationCompleted = (input: {
+  notifier: UserDataAnonymizationAdminNotifier | undefined;
+  log: Logger;
+  notification: UserDataAnonymizationAdminNotification;
+}): void => {
+  if (input.notifier === undefined) {
+    return;
+  }
+
+  void input.notifier.notifyCompleted(input.notification).catch((error: unknown) => {
+    input.log.warn(
+      {
+        err: error,
+        svixId: input.notification.svixId,
+        anonymizedUserId: input.notification.anonymizedUserId,
+      },
+      'User data anonymization completed, but admin notification failed'
+    );
+  });
 };
 
 const anonymizeDeletedUserInTransaction = async (
@@ -615,8 +695,12 @@ const anonymizeDeletedUserInTransaction = async (
     .select(['id', 'record'])
     .where((eb) =>
       eb.or([
-        sql<boolean>`position(${input.userId} in record::text) > 0`,
-        sql<boolean>`position(${anonymizedUserId} in record::text) > 0`,
+        sql<boolean>`record @> jsonb_build_object('ownerUserId', ${input.userId}::text)`,
+        sql<boolean>`record @> jsonb_build_object('ownerUserId', ${anonymizedUserId}::text)`,
+        sql<boolean>`record -> 'metadata' @> jsonb_build_object('userId', ${input.userId}::text)`,
+        sql<boolean>`record -> 'metadata' @> jsonb_build_object('userId', ${anonymizedUserId}::text)`,
+        sql<boolean>`record -> 'adminWorkflow' -> 'responseEvents' @> jsonb_build_array(jsonb_build_object('actorUserId', ${input.userId}::text))`,
+        sql<boolean>`record -> 'adminWorkflow' -> 'responseEvents' @> jsonb_build_array(jsonb_build_object('actorUserId', ${anonymizedUserId}::text))`,
       ])
     )
     .execute()) as ThreadRow[];
@@ -686,10 +770,14 @@ const anonymizeDeletedUserInTransaction = async (
   const campaignRunPlansDeletedResult = await sql`
     DELETE FROM campaignnotificationrunplans
     WHERE actor_user_id IN (${sql.join(matchingUserIds)})
-      OR position(${input.userId} in summary_json::text) > 0
-      OR position(${input.userId} in rows_json::text) > 0
-      OR position(${anonymizedUserId} in summary_json::text) > 0
-      OR position(${anonymizedUserId} in rows_json::text) > 0
+      OR summary_json @> jsonb_build_object('userId', ${input.userId}::text)
+      OR summary_json @> jsonb_build_object('userId', ${anonymizedUserId}::text)
+      OR summary_json @> jsonb_build_object('actorUserId', ${input.userId}::text)
+      OR summary_json @> jsonb_build_object('actorUserId', ${anonymizedUserId}::text)
+      OR rows_json @> jsonb_build_array(jsonb_build_object('userId', ${input.userId}::text))
+      OR rows_json @> jsonb_build_array(jsonb_build_object('userId', ${anonymizedUserId}::text))
+      OR rows_json @> jsonb_build_array(jsonb_build_object('actorUserId', ${input.userId}::text))
+      OR rows_json @> jsonb_build_array(jsonb_build_object('actorUserId', ${anonymizedUserId}::text))
   `.execute(trx);
 
   let advancedMapSnapshotsUpdated = 0;
@@ -813,8 +901,18 @@ export const makeUserDataAnonymizer = (deps: UserDataAnonymizerDeps): UserDataAn
       }
 
       const anonymizedUserId = buildAnonymizedUserId(userId);
+      const userIdHash = hashValue(userId);
 
       try {
+        await markAuditStarted(deps.db, {
+          userIdHash,
+          anonymizedUserId,
+          svixId: input.svixId,
+          eventType: input.eventType,
+          eventTimestamp: input.eventTimestamp,
+          startedAt: new Date(),
+        });
+
         const summary = await deps.db.transaction().execute((trx) =>
           anonymizeDeletedUserInTransaction(
             trx,
@@ -827,9 +925,23 @@ export const makeUserDataAnonymizer = (deps: UserDataAnonymizerDeps): UserDataAn
           )
         );
 
+        notifyAdminAnonymizationCompleted({
+          notifier: deps.adminNotifier,
+          log,
+          notification: {
+            userIdHash,
+            anonymizedUserId,
+            svixId: input.svixId,
+            eventType: input.eventType,
+            eventTimestamp: input.eventTimestamp,
+            completedAt: new Date(),
+            summary,
+          },
+        });
+
         return ok(summary);
       } catch (error) {
-        log.error({ err: error, userIdHash: hashValue(userId) }, 'Failed to anonymize user data');
+        log.error({ err: error, userIdHash }, 'Failed to anonymize user data');
         return err(createDatabaseError('Failed to anonymize user data', error));
       }
     },
