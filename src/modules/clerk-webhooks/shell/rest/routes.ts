@@ -3,7 +3,11 @@ import { fromThrowable } from 'neverthrow';
 
 import { parseClerkWebhookEvent } from '../../core/usecases/parse-clerk-webhook-event.js';
 
-import type { ClerkWebhookVerifier, SvixHeaders } from '../../core/ports.js';
+import type {
+  ClerkWebhookEventVerifiedHandler,
+  ClerkWebhookVerifier,
+  SvixHeaders,
+} from '../../core/ports.js';
 import type { ClerkWebhookEvent } from '../../core/types.js';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { Logger } from 'pino';
@@ -15,7 +19,7 @@ interface RequestWithRawBody extends FastifyRequest {
 export interface ClerkWebhookRoutesDeps {
   webhookVerifier: ClerkWebhookVerifier;
   logger: Logger;
-  onEventVerified?: (input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>;
+  onEventVerified?: ClerkWebhookEventVerifiedHandler;
 }
 
 const WebhookSuccessResponseSchema = Type.Object({

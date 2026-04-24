@@ -1122,21 +1122,33 @@ export const makeFakeNotificationsRepo = (
       userId: string
     ): Promise<Result<void, NotificationError>> => {
       if (simulateDbError) return createDbError();
+      const now = new Date();
+      const config = { channels: { email: false } };
       let found = false;
       for (const n of store.values()) {
         if (
           n.userId === userId &&
           n.notificationType === ('global_unsubscribe' as NotificationType)
         ) {
-          store.set(n.id, { ...n, isActive: false, updatedAt: new Date() });
+          store.set(n.id, {
+            ...n,
+            isActive: false,
+            config,
+            hash: generateNotificationHash(
+              sha256Hasher,
+              userId,
+              'global_unsubscribe',
+              null,
+              config
+            ),
+            updatedAt: now,
+          });
           found = true;
           break;
         }
       }
       if (!found) {
         const id = crypto.randomUUID();
-        const now = new Date();
-        const config = { channels: { email: false } };
         store.set(id, {
           id,
           userId,
