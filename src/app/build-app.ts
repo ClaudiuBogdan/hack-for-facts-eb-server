@@ -110,9 +110,10 @@ import {
 } from '../modules/classification/index.js';
 import {
   type ClerkWebhookEventVerifiedHandler,
-  makeClerkUserDeletedNotificationsHandler,
+  makeClerkUserDeletedAnonymizationHandler,
   makeClerkWebhookRoutes,
   makeClerkWebhookVerifier,
+  makeUserDataAnonymizer,
 } from '../modules/clerk-webhooks/index.js';
 import {
   CommitmentsSchema,
@@ -1002,9 +1003,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       logger: repoLogger,
       campaignSubscriptionStatsInvalidator: campaignSubscriptionStatsCacheInvalidator,
     });
+    const userDataAnonymizer = makeUserDataAnonymizer({
+      db: userDb,
+      logger: repoLogger,
+    });
     clerkWebhookEventVerifiedHandlers.push(
-      makeClerkUserDeletedNotificationsHandler({
-        notificationsRepo,
+      makeClerkUserDeletedAnonymizationHandler({
+        userDataAnonymizer,
         logger: repoLogger,
       })
     );

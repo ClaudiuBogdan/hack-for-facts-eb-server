@@ -73,6 +73,20 @@ export interface CampaignNotificationRunPlans {
   consumed_at: Timestamp | null;
 }
 
+export interface UserDataAnonymizationAudit {
+  id: Generated<string>;
+  user_id_hash: string;
+  anonymized_user_id: string;
+  first_svix_id: string;
+  latest_svix_id: string;
+  clerk_event_type: string;
+  clerk_event_timestamp: string;
+  completed_at: Generated<Timestamp>;
+  run_count: Generated<number>;
+  summary: JSONColumnType<Record<string, unknown>>;
+  created_at: Generated<Timestamp>;
+}
+
 export interface VPublicDebateCampaignUserTotal {
   campaign_key: string;
   total_users: string;
@@ -319,6 +333,7 @@ export interface UserDatabase {
   notifications: Notifications;
   notificationsoutbox: NotificationOutbox;
   campaignnotificationrunplans: CampaignNotificationRunPlans;
+  userdataanonymizationaudit: UserDataAnonymizationAudit;
   v_public_debate_campaign_user_total: VPublicDebateCampaignUserTotal;
   v_public_debate_uat_user_counts: VPublicDebateUatUserCounts;
   userinteractions: UserInteractionsTable;

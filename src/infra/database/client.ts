@@ -63,4 +63,10 @@ export const initDatabases = (config: AppConfig): DatabaseClients => {
 // Re-export types
 export * from './budget/types.js';
 export type { InsDatabase } from './ins/types.js';
-export type { ShortLinks, Notifications, NotificationOutbox, UserDatabase } from './user/types.js';
+export type {
+  ShortLinks,
+  Notifications,
+  NotificationOutbox,
+  UserDataAnonymizationAudit,
+  UserDatabase,
+} from './user/types.js';

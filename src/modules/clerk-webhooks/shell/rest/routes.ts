@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { Type } from '@sinclair/typebox';
 import { fromThrowable } from 'neverthrow';
 
@@ -35,6 +37,23 @@ const safeJsonParse = fromThrowable(JSON.parse);
 const getEventDataId = (event: ClerkWebhookEvent): string | undefined => {
   const value = event.data['id'];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+};
+
+const hashLogValue = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+const getEventDataIdLogFields = (
+  event: ClerkWebhookEvent
+): { eventDataId?: string; eventDataIdHash?: string } => {
+  const eventDataId = getEventDataId(event);
+  if (eventDataId === undefined) {
+    return {};
+  }
+
+  if (event.type === 'user.deleted') {
+    return { eventDataIdHash: hashLogValue(eventDataId) };
+  }
+
+  return { eventDataId };
 };
 
 export const makeClerkWebhookRoutes = (deps: ClerkWebhookRoutesDeps): FastifyPluginAsync => {
@@ -104,14 +123,13 @@ export const makeClerkWebhookRoutes = (deps: ClerkWebhookRoutesDeps): FastifyPlu
         }
 
         const event = eventResult.value;
-        const eventDataId = getEventDataId(event);
 
         log.info(
           {
             svixId,
             eventType: event.type,
             instanceId: event.instance_id,
-            ...(eventDataId !== undefined ? { eventDataId } : {}),
+            ...getEventDataIdLogFields(event),
           },
           'Clerk webhook received'
         );
