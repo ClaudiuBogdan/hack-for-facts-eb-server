@@ -4,7 +4,10 @@ import { err, ok } from 'neverthrow';
 import pinoLogger from 'pino';
 import { vi } from 'vitest';
 
-import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
+} from '@/common/campaign-keys.js';
 import {
   makeCampaignAdminThreadNotificationService,
   makePublicDebateNotificationOrchestrator,
@@ -24,6 +27,7 @@ import {
 } from '@/modules/notification-delivery/index.js';
 import {
   ensurePublicDebateAutoSubscriptions,
+  generateNotificationHash,
   sha256Hasher,
   type Notification,
   type NotificationError,
@@ -104,6 +108,65 @@ const createSharedNotificationsRepo = (): {
 } => {
   const store = new Map<string, Notification>();
 
+  const applyManualOptIn = (userId: string, notificationType: NotificationType): void => {
+    const updatedAt = new Date();
+    const enabledGlobalConfig = { channels: { email: true } };
+
+    for (const notification of store.values()) {
+      if (
+        notification.userId === userId &&
+        notification.notificationType === 'global_unsubscribe'
+      ) {
+        store.set(notification.id, {
+          ...notification,
+          isActive: true,
+          config: enabledGlobalConfig,
+          hash: generateNotificationHash(
+            sha256Hasher,
+            userId,
+            'global_unsubscribe',
+            null,
+            enabledGlobalConfig
+          ),
+          updatedAt,
+        });
+      }
+    }
+
+    if (notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE) {
+      return;
+    }
+
+    for (const notification of store.values()) {
+      if (
+        notification.userId === userId &&
+        notification.notificationType === FUNKY_NOTIFICATION_GLOBAL_TYPE
+      ) {
+        store.set(notification.id, { ...notification, isActive: true, updatedAt });
+        return;
+      }
+    }
+
+    const id = randomUUID();
+    store.set(id, {
+      id,
+      userId,
+      entityCui: null,
+      notificationType: FUNKY_NOTIFICATION_GLOBAL_TYPE,
+      isActive: true,
+      config: null,
+      hash: generateNotificationHash(
+        sha256Hasher,
+        userId,
+        FUNKY_NOTIFICATION_GLOBAL_TYPE,
+        null,
+        null
+      ),
+      createdAt: updatedAt,
+      updatedAt,
+    });
+  };
+
   const notificationsRepo: NotificationsRepository = {
     async create(input) {
       const now = new Date();
@@ -120,6 +183,14 @@ const createSharedNotificationsRepo = (): {
       };
       store.set(notification.id, notification);
       return ok(notification);
+    },
+
+    async createWithManualOptIn(input) {
+      const result = await this.create(input);
+      if (result.isOk()) {
+        applyManualOptIn(result.value.userId, result.value.notificationType);
+      }
+      return result;
     },
 
     async findById(notificationId) {
@@ -181,6 +252,14 @@ const createSharedNotificationsRepo = (): {
       return ok(updated);
     },
 
+    async updateWithManualOptIn(notificationId, input) {
+      const result = await this.update(notificationId, input);
+      if (result.isOk()) {
+        applyManualOptIn(result.value.userId, result.value.notificationType);
+      }
+      return result;
+    },
+
     async updateCampaignGlobalPreference(notificationId, input) {
       const existing = store.get(notificationId);
       if (existing === undefined) {
@@ -201,22 +280,30 @@ const createSharedNotificationsRepo = (): {
       };
       store.set(notificationId, updatedGlobal);
 
-      for (const notification of store.values()) {
-        if (
-          notification.userId !== updatedGlobal.userId ||
-          notification.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE
-        ) {
-          continue;
-        }
+      if (!input.isActive) {
+        for (const notification of store.values()) {
+          if (
+            notification.userId !== updatedGlobal.userId ||
+            notification.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE ||
+            !notification.isActive
+          ) {
+            continue;
+          }
 
-        store.set(notification.id, {
-          ...notification,
-          isActive: input.isActive,
-          updatedAt,
-        });
+          store.set(notification.id, {
+            ...notification,
+            isActive: false,
+            updatedAt,
+          });
+        }
       }
 
       return ok(updatedGlobal);
+    },
+
+    async applyManualNotificationOptIn(input) {
+      applyManualOptIn(input.userId, input.notificationType);
+      return ok(undefined);
     },
 
     async deleteCascade(notificationId) {

@@ -12,6 +12,7 @@ import { FUNKY_NOTIFICATION_GLOBAL_TYPE } from '@/common/campaign-keys.js';
 import {
   createNotificationNotFoundError,
   createNotificationForbiddenError,
+  createInvalidConfigError,
   type NotificationError,
 } from '../errors.js';
 import {
@@ -81,6 +82,15 @@ export async function updateNotification(
     return err(createNotificationForbiddenError(userId, notificationId));
   }
 
+  if (notification.notificationType === 'global_unsubscribe') {
+    return err(
+      createInvalidConfigError(
+        notification.notificationType,
+        'global_unsubscribe is system-managed and cannot be updated via notifications API'
+      )
+    );
+  }
+
   // Build update payload
   const payload: { isActive?: boolean; config?: NotificationConfig; hash?: string } = {};
 
@@ -129,13 +139,17 @@ export async function updateNotification(
 
   if (
     notification.notificationType === FUNKY_NOTIFICATION_GLOBAL_TYPE &&
-    updates.isActive !== undefined
+    updates.isActive === false
   ) {
     return notificationsRepo.updateCampaignGlobalPreference(notificationId, {
-      isActive: updates.isActive,
+      isActive: false,
       ...(payload.config !== undefined ? { config: payload.config } : {}),
       ...(payload.hash !== undefined ? { hash: payload.hash } : {}),
     });
+  }
+
+  if (updates.isActive === true) {
+    return notificationsRepo.updateWithManualOptIn(notificationId, payload);
   }
 
   // Update

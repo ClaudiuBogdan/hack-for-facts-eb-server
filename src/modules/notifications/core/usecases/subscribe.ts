@@ -84,6 +84,21 @@ export async function subscribe(
     );
   }
 
+  const returnExistingAfterManualOptIn = async (
+    notification: Notification
+  ): Promise<Result<Notification, NotificationError>> => {
+    const optInResult = await notificationsRepo.applyManualNotificationOptIn({
+      userId: notification.userId,
+      notificationType: notification.notificationType,
+    });
+
+    if (optInResult.isErr()) {
+      return err(optInResult.error);
+    }
+
+    return ok(notification);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Validate based on notification type
   // ─────────────────────────────────────────────────────────────────────────────
@@ -112,11 +127,13 @@ export async function subscribe(
       // Reactivate existing subscription
       if (existing.isActive) {
         // Already active, return as-is
-        return ok(existing);
+        return returnExistingAfterManualOptIn(existing);
       }
 
       // Reactivate
-      const updateResult = await notificationsRepo.update(existing.id, { isActive: true });
+      const updateResult = await notificationsRepo.updateWithManualOptIn(existing.id, {
+        isActive: true,
+      });
       if (updateResult.isOk()) {
         return updateResult;
       }
@@ -126,7 +143,7 @@ export async function subscribe(
       // TODO(review): decide if we should retry lookup instead of create.
       if (updateResult.error.type === 'NotificationNotFoundError') {
         const hash = generateNotificationHash(hasher, userId, notificationType, entityCui, null);
-        return notificationsRepo.create({
+        return notificationsRepo.createWithManualOptIn({
           userId,
           notificationType,
           entityCui,
@@ -140,7 +157,7 @@ export async function subscribe(
 
     // Create new entity-scoped configless subscription
     const hash = generateNotificationHash(hasher, userId, notificationType, entityCui, null);
-    return notificationsRepo.create({
+    return notificationsRepo.createWithManualOptIn({
       userId,
       notificationType,
       entityCui,
@@ -164,17 +181,19 @@ export async function subscribe(
 
     if (existing !== null) {
       if (existing.isActive) {
-        return ok(existing);
+        return returnExistingAfterManualOptIn(existing);
       }
 
-      const updateResult = await notificationsRepo.update(existing.id, { isActive: true });
+      const updateResult = await notificationsRepo.updateWithManualOptIn(existing.id, {
+        isActive: true,
+      });
       if (updateResult.isOk()) {
         return updateResult;
       }
 
       if (updateResult.error.type === 'NotificationNotFoundError') {
         const hash = generateNotificationHash(hasher, userId, notificationType, null, null);
-        return notificationsRepo.create({
+        return notificationsRepo.createWithManualOptIn({
           userId,
           notificationType,
           entityCui: null,
@@ -187,7 +206,7 @@ export async function subscribe(
     }
 
     const hash = generateNotificationHash(hasher, userId, notificationType, null, null);
-    return notificationsRepo.create({
+    return notificationsRepo.createWithManualOptIn({
       userId,
       notificationType,
       entityCui: null,
@@ -224,12 +243,15 @@ export async function subscribe(
   const existing = existingResult.value;
 
   if (existing !== null) {
-    // Return existing subscription (no duplicate error per spec)
-    return ok(existing);
+    if (existing.isActive) {
+      return returnExistingAfterManualOptIn(existing);
+    }
+
+    return notificationsRepo.updateWithManualOptIn(existing.id, { isActive: true });
   }
 
   // Create new alert subscription
-  return notificationsRepo.create({
+  return notificationsRepo.createWithManualOptIn({
     userId,
     notificationType,
     entityCui,

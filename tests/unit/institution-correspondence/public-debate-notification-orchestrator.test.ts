@@ -4,8 +4,19 @@ import { ok, err } from 'neverthrow';
 import pinoLogger from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 
-import { FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
+} from '@/common/campaign-keys.js';
 import { makePublicDebateNotificationOrchestrator } from '@/modules/institution-correspondence/index.js';
+import {
+  generateNotificationHash,
+  sha256Hasher,
+  type Notification,
+  type NotificationError,
+  type NotificationType,
+  type NotificationsRepository,
+} from '@/modules/notifications/index.js';
 
 import {
   createThreadAggregateRecord,
@@ -16,12 +27,6 @@ import { createTestNotification, makeFakeDeliveryRepo } from '../../fixtures/fak
 
 import type { EntityRepository } from '@/modules/entity/index.js';
 import type { ExtendedNotificationsRepository } from '@/modules/notification-delivery/index.js';
-import type {
-  Notification,
-  NotificationError,
-  NotificationType,
-  NotificationsRepository,
-} from '@/modules/notifications/index.js';
 
 const makeTestEntityRepo = (entityName = 'Oras Test'): EntityRepository => {
   return {
@@ -72,6 +77,70 @@ const makeSharedNotificationRepos = (
 } => {
   const notifications = [...initialNotifications];
 
+  const applyManualOptIn = (userId: string, notificationType: NotificationType): void => {
+    const updatedAt = new Date();
+    const enabledGlobalConfig = { channels: { email: true } };
+
+    for (const [index, notification] of notifications.entries()) {
+      if (
+        notification.userId === userId &&
+        notification.notificationType === 'global_unsubscribe'
+      ) {
+        notifications[index] = {
+          ...notification,
+          isActive: true,
+          config: enabledGlobalConfig,
+          hash: generateNotificationHash(
+            sha256Hasher,
+            userId,
+            'global_unsubscribe',
+            null,
+            enabledGlobalConfig
+          ),
+          updatedAt,
+        };
+      }
+    }
+
+    if (notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE) {
+      return;
+    }
+
+    const existingGlobalIndex = notifications.findIndex(
+      (notification) =>
+        notification.userId === userId &&
+        notification.notificationType === FUNKY_NOTIFICATION_GLOBAL_TYPE
+    );
+
+    if (existingGlobalIndex !== -1) {
+      const existingGlobal = notifications[existingGlobalIndex]!;
+      notifications[existingGlobalIndex] = {
+        ...existingGlobal,
+        isActive: true,
+        updatedAt,
+      };
+      return;
+    }
+
+    notifications.push({
+      id: randomUUID(),
+      userId,
+      entityCui: null,
+      notificationType: FUNKY_NOTIFICATION_GLOBAL_TYPE,
+      isActive: true,
+      config: null,
+      hash: generateNotificationHash(
+        sha256Hasher,
+        userId,
+        FUNKY_NOTIFICATION_GLOBAL_TYPE,
+        null,
+        null
+      ),
+      createdAt: updatedAt,
+      updatedAt,
+    });
+  };
+
   const notificationsRepo: NotificationsRepository = {
     async create(input) {
       const now = new Date();
@@ -88,6 +157,14 @@ const makeSharedNotificationRepos = (
       };
       notifications.push(notification);
       return ok(notification);
+    },
+
+    async createWithManualOptIn(input) {
+      const result = await this.create(input);
+      if (result.isOk()) {
+        applyManualOptIn(result.value.userId, result.value.notificationType);
+      }
+      return result;
     },
 
     async findById(id) {
@@ -150,6 +227,14 @@ const makeSharedNotificationRepos = (
       return ok(updated);
     },
 
+    async updateWithManualOptIn(id, input) {
+      const result = await this.update(id, input);
+      if (result.isOk()) {
+        applyManualOptIn(result.value.userId, result.value.notificationType);
+      }
+      return result;
+    },
+
     async updateCampaignGlobalPreference(id, input) {
       const notificationIndex = notifications.findIndex((notification) => notification.id === id);
       if (notificationIndex === -1) {
@@ -172,22 +257,30 @@ const makeSharedNotificationRepos = (
 
       notifications[notificationIndex] = updatedGlobal;
 
-      for (const [index, notification] of notifications.entries()) {
-        if (
-          notification.userId !== updatedGlobal.userId ||
-          notification.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE
-        ) {
-          continue;
-        }
+      if (!input.isActive) {
+        for (const [index, notification] of notifications.entries()) {
+          if (
+            notification.userId !== updatedGlobal.userId ||
+            notification.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE ||
+            !notification.isActive
+          ) {
+            continue;
+          }
 
-        notifications[index] = {
-          ...notification,
-          isActive: input.isActive,
-          updatedAt,
-        };
+          notifications[index] = {
+            ...notification,
+            isActive: false,
+            updatedAt,
+          };
+        }
       }
 
       return ok(updatedGlobal);
+    },
+
+    async applyManualNotificationOptIn(input) {
+      applyManualOptIn(input.userId, input.notificationType);
+      return ok(undefined);
     },
 
     async deleteCascade(id) {

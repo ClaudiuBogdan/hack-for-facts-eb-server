@@ -9,6 +9,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import {
   FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+  FUNKY_NOTIFICATION_GLOBAL_TYPE,
   FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX,
 } from '@/common/campaign-keys.js';
 import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
@@ -816,6 +817,76 @@ export const makeFakeNotificationsRepo = (
   const createDbError = (): Result<never, NotificationError> =>
     err({ type: 'DatabaseError', message: 'Simulated database error', retryable: true });
 
+  const applyManualOptInToStore = (
+    userId: string,
+    notificationType: NotificationType,
+    updatedAt: Date
+  ): void => {
+    const enabledGlobalConfig = { channels: { email: true } };
+
+    for (const current of store.values()) {
+      if (
+        current.userId !== userId ||
+        current.notificationType !== ('global_unsubscribe' as NotificationType)
+      ) {
+        continue;
+      }
+
+      store.set(current.id, {
+        ...current,
+        isActive: true,
+        config: enabledGlobalConfig,
+        hash: generateNotificationHash(
+          sha256Hasher,
+          userId,
+          'global_unsubscribe',
+          null,
+          enabledGlobalConfig
+        ),
+        updatedAt,
+      });
+    }
+
+    if (notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE) {
+      return;
+    }
+
+    for (const current of store.values()) {
+      if (
+        current.userId !== userId ||
+        current.notificationType !== FUNKY_NOTIFICATION_GLOBAL_TYPE
+      ) {
+        continue;
+      }
+
+      store.set(current.id, {
+        ...current,
+        isActive: true,
+        updatedAt,
+      });
+      return;
+    }
+
+    const campaignGlobalId = randomUUID();
+    store.set(campaignGlobalId, {
+      id: campaignGlobalId,
+      userId,
+      entityCui: null,
+      notificationType: FUNKY_NOTIFICATION_GLOBAL_TYPE,
+      isActive: true,
+      config: null,
+      hash: generateNotificationHash(
+        sha256Hasher,
+        userId,
+        FUNKY_NOTIFICATION_GLOBAL_TYPE,
+        null,
+        null
+      ),
+      createdAt: updatedAt,
+      updatedAt,
+    });
+  };
+
   return {
     create: async (
       input: CreateNotificationInput
@@ -836,6 +907,29 @@ export const makeFakeNotificationsRepo = (
         updatedAt: now,
       };
       store.set(id, notification);
+      return ok(notification);
+    },
+
+    createWithManualOptIn: async (
+      input: CreateNotificationInput
+    ): Promise<Result<Notification, NotificationError>> => {
+      if (simulateDbError) return createDbError();
+
+      const id = crypto.randomUUID();
+      const now = new Date();
+      const notification: Notification = {
+        id,
+        userId: input.userId,
+        entityCui: input.entityCui,
+        notificationType: input.notificationType,
+        isActive: true,
+        config: input.config,
+        hash: input.hash,
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.set(id, notification);
+      applyManualOptInToStore(input.userId, input.notificationType, now);
       return ok(notification);
     },
 
@@ -929,6 +1023,33 @@ export const makeFakeNotificationsRepo = (
       return ok(updated);
     },
 
+    updateWithManualOptIn: async (
+      id: string,
+      input: UpdateNotificationRepoInput
+    ): Promise<Result<Notification, NotificationError>> => {
+      if (simulateDbError) return createDbError();
+      const notification = store.get(id);
+      if (notification === undefined) {
+        return err({
+          type: 'NotificationNotFoundError',
+          message: `Notification with ID '${id}' not found`,
+          id,
+        });
+      }
+
+      const updatedAt = new Date();
+      const updated: Notification = {
+        ...notification,
+        ...(input.isActive !== undefined && { isActive: input.isActive }),
+        ...(input.config !== undefined && { config: input.config }),
+        ...(input.hash !== undefined && { hash: input.hash }),
+        updatedAt,
+      };
+      store.set(id, updated);
+      applyManualOptInToStore(updated.userId, updated.notificationType, updatedAt);
+      return ok(updated);
+    },
+
     updateCampaignGlobalPreference: async (
       id,
       input
@@ -953,22 +1074,38 @@ export const makeFakeNotificationsRepo = (
       };
       store.set(id, updatedGlobal);
 
-      for (const current of store.values()) {
-        if (
-          current.userId !== updatedGlobal.userId ||
-          current.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE
-        ) {
-          continue;
-        }
+      if (!input.isActive) {
+        for (const current of store.values()) {
+          if (
+            current.userId !== updatedGlobal.userId ||
+            current.notificationType !== FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE ||
+            current.id === updatedGlobal.id ||
+            !current.isActive
+          ) {
+            continue;
+          }
 
-        store.set(current.id, {
-          ...current,
-          isActive: input.isActive,
-          updatedAt,
-        });
+          store.set(current.id, {
+            ...current,
+            isActive: false,
+            updatedAt,
+          });
+        }
       }
 
       return ok(updatedGlobal);
+    },
+
+    applyManualNotificationOptIn: async ({
+      userId,
+      notificationType,
+    }: {
+      userId: string;
+      notificationType: NotificationType;
+    }): Promise<Result<void, NotificationError>> => {
+      if (simulateDbError) return createDbError();
+      applyManualOptInToStore(userId, notificationType, new Date());
+      return ok(undefined);
     },
 
     deleteCascade: async (id: string): Promise<Result<Notification | null, NotificationError>> => {
@@ -1011,6 +1148,15 @@ export const makeFakeNotificationsRepo = (
           createdAt: now,
           updatedAt: now,
         });
+      }
+      for (const n of store.values()) {
+        if (
+          n.userId === userId &&
+          n.notificationType !== ('global_unsubscribe' as NotificationType) &&
+          n.isActive
+        ) {
+          store.set(n.id, { ...n, isActive: false, updatedAt: new Date() });
+        }
       }
       return ok(undefined);
     },

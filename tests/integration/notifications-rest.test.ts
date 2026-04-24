@@ -205,6 +205,54 @@ describe('Notifications REST API', () => {
       expect(body.data.campaignKey).toBe('funky');
     });
 
+    it('manual public debate subscribe clears system unsubscribe and creates campaign global', async () => {
+      const globalUnsubscribe = createTestNotification({
+        id: 'global-unsubscribe',
+        userId: testAuth.userIds.user1,
+        notificationType: 'global_unsubscribe',
+        entityCui: null,
+        isActive: false,
+        config: { channels: { email: false } },
+      });
+      const notificationsRepo = makeFakeNotificationsRepo({
+        notifications: [globalUnsubscribe],
+      });
+
+      if (app != null) await app.close();
+      app = await createTestApp({ notificationsRepo });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/notifications',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          notificationType: 'funky:notification:entity_updates',
+          entityCui: '1234567',
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+
+      const globalUnsubscribeResult = await notificationsRepo.findById(globalUnsubscribe.id);
+      const campaignGlobalResult = await notificationsRepo.findByUserTypeAndEntity(
+        testAuth.userIds.user1,
+        'funky:notification:global',
+        null
+      );
+      expect(globalUnsubscribeResult.isOk()).toBe(true);
+      expect(campaignGlobalResult.isOk()).toBe(true);
+      if (globalUnsubscribeResult.isOk()) {
+        expect(globalUnsubscribeResult.value?.isActive).toBe(true);
+        expect(globalUnsubscribeResult.value?.config).toEqual({ channels: { email: true } });
+      }
+      if (campaignGlobalResult.isOk()) {
+        expect(campaignGlobalResult.value?.isActive).toBe(true);
+      }
+    });
+
     it('creates public debate campaign preference without an entity', async () => {
       const response = await app.inject({
         method: 'POST',
@@ -439,6 +487,45 @@ describe('Notifications REST API', () => {
       expect(body.data.isActive).toBe(false);
     });
 
+    it('rejects direct updates to system-managed global_unsubscribe rows', async () => {
+      const notification = createTestNotification({
+        id: testUuid1,
+        userId: testAuth.userIds.user1,
+        notificationType: 'global_unsubscribe',
+        entityCui: null,
+        isActive: false,
+        config: { channels: { email: false } },
+      });
+      const notificationsRepo = makeFakeNotificationsRepo({ notifications: [notification] });
+
+      if (app != null) await app.close();
+      app = await createTestApp({ notificationsRepo });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/notifications/${testUuid1}`,
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          isActive: true,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = response.json();
+      expect(body.ok).toBe(false);
+      expect(body.message).toContain('system-managed');
+
+      const stored = await notificationsRepo.findById(notification.id);
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.isActive).toBe(false);
+        expect(stored.value?.config).toEqual({ channels: { email: false } });
+      }
+    });
+
     it('cascades public debate master toggle updates to campaign entity subscriptions only', async () => {
       const globalPreference = createTestNotification({
         id: testUuid1,
@@ -498,6 +585,62 @@ describe('Notifications REST API', () => {
       }
       if (unrelatedResult.isOk()) {
         expect(unrelatedResult.value?.isActive).toBe(true);
+      }
+    });
+
+    it('manual newsletter activation clears system unsubscribe but not campaign global', async () => {
+      const newsletter = createTestNotification({
+        id: testUuid1,
+        userId: testAuth.userIds.user1,
+        notificationType: 'newsletter_entity_monthly',
+        entityCui: '12345678',
+        isActive: false,
+      });
+      const campaignGlobal = createTestNotification({
+        id: 'campaign-global',
+        userId: testAuth.userIds.user1,
+        notificationType: 'funky:notification:global',
+        entityCui: null,
+        isActive: false,
+      });
+      const globalUnsubscribe = createTestNotification({
+        id: 'global-unsubscribe',
+        userId: testAuth.userIds.user1,
+        notificationType: 'global_unsubscribe',
+        entityCui: null,
+        isActive: false,
+        config: { channels: { email: false } },
+      });
+      const notificationsRepo = makeFakeNotificationsRepo({
+        notifications: [newsletter, campaignGlobal, globalUnsubscribe],
+      });
+
+      if (app != null) await app.close();
+      app = await createTestApp({ notificationsRepo });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/notifications/${testUuid1}`,
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          isActive: true,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const campaignGlobalResult = await notificationsRepo.findById(campaignGlobal.id);
+      const globalUnsubscribeResult = await notificationsRepo.findById(globalUnsubscribe.id);
+      expect(campaignGlobalResult.isOk()).toBe(true);
+      expect(globalUnsubscribeResult.isOk()).toBe(true);
+      if (campaignGlobalResult.isOk()) {
+        expect(campaignGlobalResult.value?.isActive).toBe(false);
+      }
+      if (globalUnsubscribeResult.isOk()) {
+        expect(globalUnsubscribeResult.value?.isActive).toBe(true);
       }
     });
 
