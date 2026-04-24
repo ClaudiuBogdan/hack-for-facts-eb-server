@@ -10,6 +10,7 @@ import {
 } from '@/modules/notification-delivery/shell/data/budget-data-fetcher.js';
 
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
+import type { ClassificationPeriodData } from '@/modules/aggregated-line-items/index.js';
 import type { DataFetcher } from '@/modules/notification-delivery/core/ports.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
@@ -31,6 +32,19 @@ const makeTotals = (
   budgetBalance: Number(budgetBalance),
 });
 
+const makeClassificationRow = (
+  functionalCode: string,
+  amount: string
+): ClassificationPeriodData => ({
+  functional_code: functionalCode,
+  functional_name: functionalCode,
+  economic_code: '00.00.00',
+  economic_name: 'Total',
+  year: 2026,
+  amount: new Decimal(amount),
+  count: 1,
+});
+
 const getPeriodDate = (period: AnalyticsFilter['report_period']): string => {
   return period.selection.dates?.[0] ?? '';
 };
@@ -42,10 +56,12 @@ const makeFetcher = (input: {
     totalExpenses: Decimal;
     budgetBalance: Decimal;
   };
+  aggregatedRows?: ClassificationPeriodData[];
 }): {
   fetcher: DataFetcher;
   getTotals: ReturnType<typeof vi.fn>;
   getMonthlyYtdTotals: ReturnType<typeof vi.fn>;
+  getClassificationPeriodData: ReturnType<typeof vi.fn>;
 } => {
   const getTotals = vi.fn(async (_entityCui: string, period: AnalyticsFilter['report_period']) => {
     const periodKey = getPeriodDate(period);
@@ -59,6 +75,12 @@ const makeFetcher = (input: {
         budgetBalance: new Decimal('0'),
       }
     )
+  );
+  const getClassificationPeriodData = vi.fn(async () =>
+    ok({
+      rows: input.aggregatedRows ?? [],
+      distinctClassificationCount: input.aggregatedRows?.length ?? 0,
+    })
   );
 
   const fetcher = makeBudgetDataFetcher({
@@ -87,11 +109,7 @@ const makeFetcher = (input: {
       getMonthlyYtdTotals,
     },
     aggregatedLineItemsRepo: {
-      getClassificationPeriodData: async () =>
-        ok({
-          rows: [],
-          distinctClassificationCount: 0,
-        }),
+      getClassificationPeriodData,
     } as never,
     normalization: {
       generateFactors: async () => ({
@@ -113,6 +131,7 @@ const makeFetcher = (input: {
     fetcher,
     getTotals,
     getMonthlyYtdTotals,
+    getClassificationPeriodData,
   };
 };
 
@@ -165,6 +184,55 @@ describe('makeBudgetDataFetcher', () => {
       entityCui: '123',
       periodKey: '2026-03',
       reportType: REPORT_TYPE,
+    });
+  });
+
+  it('calculates top expense percentages from filtered monthly category totals', async () => {
+    const { fetcher, getClassificationPeriodData } = makeFetcher({
+      totalsByPeriod: {
+        '2026-03': makeTotals('508688538.67', '286933346.55', '221755192.12'),
+        '2026-02': makeTotals('300', '200', '100'),
+      },
+      ytdTotals: {
+        totalIncome: new Decimal('1017000000'),
+        totalExpenses: new Decimal('620790000'),
+        budgetBalance: new Decimal('397060000'),
+      },
+      aggregatedRows: [
+        makeClassificationRow('84.02', '162690402.1'),
+        makeClassificationRow('65.02', '33426583.74'),
+        makeClassificationRow('67.02', '15999569.81'),
+      ],
+    });
+
+    const result = await fetcher.fetchNewsletterData('123', '2026-03', 'monthly');
+
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) return;
+
+    expect(result.value.topExpenseCategories?.map((category) => category.name)).toEqual([
+      'Transporturi',
+      'Învățământ',
+      'Cultură, recreere și religie',
+    ]);
+    expect(
+      result.value.topExpenseCategories?.map((category) =>
+        category.percentage.toDecimalPlaces(2).toString()
+      )
+    ).toEqual(['56.7', '11.65', '5.58']);
+
+    expect(getClassificationPeriodData).toHaveBeenCalledOnce();
+    expect(getClassificationPeriodData.mock.calls[0]?.[0]).toMatchObject({
+      account_category: 'ch',
+      report_type: REPORT_TYPE,
+      entity_cuis: ['123'],
+      exclude: {
+        economic_prefixes: ['51.01', '51.02'],
+      },
+      report_period: {
+        type: 'MONTH',
+        selection: { dates: ['2026-03'] },
+      },
     });
   });
 
