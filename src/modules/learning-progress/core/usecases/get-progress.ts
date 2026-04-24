@@ -8,6 +8,7 @@ import { createInvalidEventError, type LearningProgressError } from '../errors.j
 import {
   buildDeltaEventsFromRecords,
   buildSnapshotFromRecords,
+  createEmptySnapshot,
   getLatestCursor,
 } from '../reducer.js';
 
@@ -44,19 +45,18 @@ export async function getProgress(
   }
 
   const records = recordsResult.value;
-  const snapshot = buildSnapshotFromRecords(records);
   const cursor = getLatestCursor(records);
 
   if (since === undefined || since === '') {
     return ok({
-      snapshot,
+      snapshot: buildSnapshotFromRecords(records),
       events: [],
       cursor,
     });
   }
 
   return ok({
-    snapshot,
+    snapshot: createEmptySnapshot(),
     events: buildDeltaEventsFromRecords(records, since),
     cursor,
   });

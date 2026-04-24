@@ -411,14 +411,22 @@ describe('Learning Progress REST API', () => {
     const body = response.json<{
       ok: boolean;
       data: {
-        snapshot: { recordsByKey: Record<string, unknown> };
+        snapshot: {
+          version: number;
+          recordsByKey: Record<string, unknown>;
+          lastUpdated: string | null;
+        };
         events: { type: string; payload: { record: { key: string } } }[];
         cursor: string;
       };
     }>();
 
     expect(body.ok).toBe(true);
-    expect(body.data.snapshot.recordsByKey[record.key]).toBeDefined();
+    expect(body.data.snapshot).toEqual({
+      version: 1,
+      recordsByKey: {},
+      lastUpdated: null,
+    });
     expect(body.data.events).toEqual([
       {
         eventId: `server:4:${record.key}`,
@@ -1245,10 +1253,8 @@ describe('Learning Progress REST API', () => {
       data: {
         snapshot: {
           version: 1,
-          recordsByKey: {
-            [storedRecord.key]: storedRecord,
-          },
-          lastUpdated: storedRecord.updatedAt,
+          recordsByKey: {},
+          lastUpdated: null,
         },
         events: [],
         cursor: '1',
@@ -1717,10 +1723,8 @@ describe('Learning Progress REST API', () => {
         data: expect.objectContaining({
           snapshot: {
             version: 1,
-            lastUpdated: publicRecord.updatedAt,
-            recordsByKey: {
-              [publicRecord.key]: publicRecord,
-            },
+            lastUpdated: null,
+            recordsByKey: {},
           },
           cursor: '1',
           events: [
