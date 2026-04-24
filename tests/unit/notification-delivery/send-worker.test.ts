@@ -17,6 +17,111 @@ import {
 const testLogger = pinoLogger({ level: 'silent' });
 
 describe('processSendJob', () => {
+  it('skips a claimed delivery when deletion anonymization has started for the user', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      anonymizationStartedUserIds: ['user-1'],
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-anonymizing',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-1',
+          toEmail: 'user@example.com',
+          renderedSubject: 'Welcome',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+      ],
+    });
+
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-anonymizing' }
+    );
+
+    expect(result.status).toBe('skipped_no_email');
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-anonymizing');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_no_email');
+      expect(stored.value?.lastError).toBe(
+        'User deletion anonymization has started; delivery skipped'
+      );
+    }
+  });
+
+  it('fails closed when deletion anonymization state cannot be checked', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      simulateAnonymizationCheckError: true,
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-anonymization-check-error',
+          notificationType: 'transactional_welcome',
+          referenceId: null,
+          scopeKey: 'welcome',
+          deliveryKey: 'transactional_welcome:user-1',
+          toEmail: 'user@example.com',
+          renderedSubject: 'Welcome',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+      ],
+    });
+
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    await expect(
+      processSendJob(
+        {
+          deliveryRepo,
+          notificationsRepo: makeFakeExtendedNotificationsRepo(),
+          userEmailFetcher: {
+            getEmail,
+            getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+          },
+          emailSender: { send },
+          tokenSigner: makeFakeTokenSigner(),
+          apiBaseUrl: 'https://api.transparenta.eu',
+          environment: 'test',
+          log: testLogger,
+        },
+        { outboxId: 'outbox-anonymization-check-error' }
+      )
+    ).rejects.toThrow('Failed to check user anonymization state before send');
+
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-anonymization-check-error');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('failed_transient');
+      expect(stored.value?.lastError).toBe(
+        'Failed to check user anonymization state before send: Simulated database error'
+      );
+    }
+  });
+
   it('uses the persisted toEmail snapshot before calling the user email fetcher', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [

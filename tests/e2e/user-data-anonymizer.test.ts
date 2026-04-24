@@ -3,7 +3,11 @@ import { randomUUID } from 'node:crypto';
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
-import { buildAnonymizedUserId, makeUserDataAnonymizer } from '@/modules/clerk-webhooks/index.js';
+import {
+  buildAnonymizedUserId,
+  makeUserDataAnonymizer,
+  type UserDataAnonymizationAdminNotification,
+} from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
 
 import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
@@ -16,7 +20,16 @@ describe('User data anonymizer', () => {
 
     const { userDb } = getTestClients();
     const logger = pinoLogger({ level: 'silent' });
-    const anonymizer = makeUserDataAnonymizer({ db: userDb, logger });
+    const adminNotifications: UserDataAnonymizationAdminNotification[] = [];
+    const anonymizer = makeUserDataAnonymizer({
+      db: userDb,
+      logger,
+      adminNotifier: {
+        async notifyCompleted(input) {
+          adminNotifications.push(input);
+        },
+      },
+    });
     const suffix = randomUUID();
     const userId = `user-delete-${suffix}`;
     const otherUserId = `other-user-${suffix}`;
@@ -26,6 +39,8 @@ describe('User data anonymizer', () => {
     const mapId = `map-${suffix}`;
     const datasetId = randomUUID();
     const threadId = randomUUID();
+    const unrelatedThreadId = randomUUID();
+    const unrelatedSimilarUserId = `${userId}4`;
 
     await userDb
       .insertInto('shortlinks')
@@ -127,86 +142,120 @@ describe('User data anonymizer', () => {
 
     await userDb
       .insertInto('campaignnotificationrunplans')
-      .values({
-        actor_user_id: userId,
-        campaign_key: 'funky',
-        runnable_id: 'runnable',
-        template_id: 'template',
-        template_version: '1',
-        payload_hash: `payload-${suffix}`,
-        watermark: 'watermark',
-        summary_json: { userId },
-        rows_json: [{ userId, email: `user-${suffix}@example.com` }],
-        expires_at: new Date(Date.now() + 60_000),
-      } as never)
+      .values([
+        {
+          actor_user_id: userId,
+          campaign_key: 'funky',
+          runnable_id: 'runnable',
+          template_id: 'template',
+          template_version: '1',
+          payload_hash: `payload-${suffix}`,
+          watermark: 'watermark',
+          summary_json: { userId },
+          rows_json: [{ userId, email: `user-${suffix}@example.com` }],
+          expires_at: new Date(Date.now() + 60_000),
+        },
+        {
+          actor_user_id: otherUserId,
+          campaign_key: 'funky',
+          runnable_id: 'runnable',
+          template_id: 'template',
+          template_version: '1',
+          payload_hash: `payload-unrelated-${suffix}`,
+          watermark: 'watermark',
+          summary_json: { userId: unrelatedSimilarUserId },
+          rows_json: [{ userId: unrelatedSimilarUserId }],
+          expires_at: new Date(Date.now() + 60_000),
+        },
+      ] as never)
       .execute();
 
     await userDb
       .insertInto('institutionemailthreads')
-      .values({
-        id: threadId,
-        entity_cui: '123',
-        campaign_key: 'funky',
-        thread_key: `thread-${suffix}`,
-        phase: 'awaiting_reply',
-        record: {
-          version: 1,
-          campaign: 'public_debate',
-          campaignKey: 'funky',
-          ownerUserId: userId,
-          subject: `Subject ${userId}`,
-          submissionPath: 'platform_send',
-          institutionEmail: 'office@example.test',
-          ngoIdentity: 'ngo',
-          requesterOrganizationName: 'Private org',
-          budgetPublicationDate: null,
-          consentCapturedAt: null,
-          contestationDeadlineAt: null,
-          captureAddress: 'capture@example.test',
-          correspondence: [
-            {
-              id: `entry-${suffix}`,
-              campaignKey: 'funky',
-              direction: 'outbound',
-              source: 'platform_send',
-              resendEmailId: `email-${suffix}`,
-              messageId: `message-${suffix}`,
-              fromAddress: `user-${suffix}@example.com`,
-              toAddresses: ['office@example.test'],
-              ccAddresses: [`user-${suffix}@example.com`],
-              bccAddresses: [],
-              subject: `Subject ${userId}`,
-              textBody: `Body ${userId}`,
-              htmlBody: `<p>${userId}</p>`,
-              headers: { 'x-user': userId },
-              attachments: [],
-              occurredAt: new Date().toISOString(),
-              metadata: { email: `user-${suffix}@example.com` },
-            },
-          ],
-          latestReview: {
-            basedOnEntryId: `entry-${suffix}`,
-            resolutionCode: 'other',
-            notes: userId,
-            reviewedAt: new Date().toISOString(),
-          },
-          adminWorkflow: {
-            currentResponseStatus: 'registration_number_received',
-            responseEvents: [
+      .values([
+        {
+          id: threadId,
+          entity_cui: '123',
+          campaign_key: 'funky',
+          thread_key: `thread-${suffix}`,
+          phase: 'awaiting_reply',
+          record: {
+            version: 1,
+            campaign: 'public_debate',
+            campaignKey: 'funky',
+            ownerUserId: userId,
+            subject: `Subject ${userId}`,
+            submissionPath: 'platform_send',
+            institutionEmail: 'office@example.test',
+            ngoIdentity: 'ngo',
+            requesterOrganizationName: 'Private org',
+            budgetPublicationDate: null,
+            consentCapturedAt: null,
+            contestationDeadlineAt: null,
+            captureAddress: 'capture@example.test',
+            correspondence: [
               {
-                id: `response-${suffix}`,
-                responseDate: new Date().toISOString(),
-                messageContent: `Response ${userId}`,
-                responseStatus: 'registration_number_received',
-                actorUserId: userId,
-                createdAt: new Date().toISOString(),
-                source: 'campaign_admin_api',
+                id: `entry-${suffix}`,
+                campaignKey: 'funky',
+                direction: 'outbound',
+                source: 'platform_send',
+                resendEmailId: `email-${suffix}`,
+                messageId: `message-${suffix}`,
+                fromAddress: `user-${suffix}@example.com`,
+                toAddresses: ['office@example.test'],
+                ccAddresses: [`user-${suffix}@example.com`],
+                bccAddresses: [],
+                subject: `Subject ${userId}`,
+                textBody: `Body ${userId}`,
+                htmlBody: `<p>${userId}</p>`,
+                headers: { 'x-user': userId },
+                attachments: [],
+                occurredAt: new Date().toISOString(),
+                metadata: { email: `user-${suffix}@example.com` },
               },
             ],
+            latestReview: {
+              basedOnEntryId: `entry-${suffix}`,
+              resolutionCode: 'other',
+              notes: userId,
+              reviewedAt: new Date().toISOString(),
+            },
+            adminWorkflow: {
+              currentResponseStatus: 'registration_number_received',
+              responseEvents: [
+                {
+                  id: `response-${suffix}`,
+                  responseDate: new Date().toISOString(),
+                  messageContent: `Response ${userId}`,
+                  responseStatus: 'registration_number_received',
+                  actorUserId: userId,
+                  createdAt: new Date().toISOString(),
+                  source: 'campaign_admin_api',
+                },
+              ],
+            },
+            metadata: { userId, email: `user-${suffix}@example.com` },
           },
-          metadata: { userId, email: `user-${suffix}@example.com` },
         },
-      })
+        {
+          id: unrelatedThreadId,
+          entity_cui: '123',
+          campaign_key: 'funky',
+          thread_key: `thread-unrelated-${suffix}`,
+          phase: 'awaiting_reply',
+          record: {
+            version: 1,
+            campaign: 'public_debate',
+            campaignKey: 'funky',
+            ownerUserId: unrelatedSimilarUserId,
+            subject: `Subject ${unrelatedSimilarUserId}`,
+            correspondence: [],
+            adminWorkflow: {
+              responseEvents: [{ actorUserId: unrelatedSimilarUserId }],
+            },
+          },
+        },
+      ])
       .execute();
 
     await userDb
@@ -372,6 +421,23 @@ describe('User data anonymizer', () => {
     });
     expect(JSON.stringify(thread.record)).not.toContain(userId);
 
+    const unrelatedThread = await userDb
+      .selectFrom('institutionemailthreads')
+      .selectAll()
+      .where('id', '=', unrelatedThreadId)
+      .executeTakeFirstOrThrow();
+    expect(unrelatedThread.record).toMatchObject({
+      ownerUserId: unrelatedSimilarUserId,
+      subject: `Subject ${unrelatedSimilarUserId}`,
+    });
+
+    const unrelatedPlan = await userDb
+      .selectFrom('campaignnotificationrunplans')
+      .selectAll()
+      .where('payload_hash', '=', `payload-unrelated-${suffix}`)
+      .executeTakeFirst();
+    expect(unrelatedPlan).toBeDefined();
+
     const resendEvent = await userDb
       .selectFrom('resend_wh_emails')
       .selectAll()
@@ -435,5 +501,10 @@ describe('User data anonymizer', () => {
     expect(auditRow.user_id_hash).not.toBe(userId);
     expect(auditRow.latest_svix_id).toBe(`svix-delete-replay-${suffix}`);
     expect(auditRow.run_count).toBe(2);
+
+    expect(adminNotifications).toHaveLength(2);
+    expect(adminNotifications[0]?.userIdHash).not.toBe(userId);
+    expect(adminNotifications[0]?.anonymizedUserId).toBe(anonymizedUserId);
+    expect(JSON.stringify(adminNotifications)).not.toContain(userId);
   });
 });

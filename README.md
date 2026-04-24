@@ -167,6 +167,9 @@ a Clerk `user.deleted` delete/anonymize handler path. Document the field
 treatment in
 [`docs/USER-DATA-ANONYMIZATION.md`](docs/USER-DATA-ANONYMIZATION.md).
 
+The deleted-user anonymizer is intentionally restricted by ESLint imports and
+should only be reached through the verified Clerk `user.deleted` webhook handler.
+
 ## Architecture
 
 This codebase follows **Functional Core / Imperative Shell** (Hexagonal Architecture):
