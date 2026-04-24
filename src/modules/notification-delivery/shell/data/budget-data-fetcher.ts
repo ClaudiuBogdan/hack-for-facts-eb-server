@@ -43,6 +43,7 @@ import type { Logger } from 'pino';
 const DEFAULT_TOP_CATEGORIES_LIMIT = 5;
 const MAX_AGGREGATED_ITEMS_LIMIT = 100_000;
 const DEFAULT_CURRENCY = 'RON';
+const EXPENSE_TRANSFER_ECONOMIC_PREFIXES = ['51.01', '51.02'];
 
 const toDecimal = (value: Decimal | number | string): Decimal => {
   return value instanceof Decimal ? value : new Decimal(value);
@@ -374,6 +375,7 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
     entityCui: string,
     periodKey: string,
     periodType: 'monthly' | 'quarterly' | 'yearly',
+    reportType: string,
     totalExpenses: Decimal
   ): Promise<NewsletterData['topExpenseCategories']> => {
     const result = await getAggregatedLineItems(
@@ -385,8 +387,12 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
       {
         filter: {
           account_category: 'ch',
+          report_type: reportType,
           entity_cuis: [entityCui],
           report_period: buildReportPeriod(periodKey, periodType),
+          exclude: {
+            economic_prefixes: EXPENSE_TRANSFER_ECONOMIC_PREFIXES,
+          },
           normalization: 'total',
           inflation_adjusted: false,
           show_period_growth: false,
@@ -517,7 +523,13 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
           entityProfileRepo.getByEntityCui(entityCui),
           Promise.resolve(getPreviousPeriodKey(periodKey, periodType)),
           loadPopulation(entityCui, periodKey, periodType),
-          loadTopExpenseCategories(entityCui, periodKey, periodType, totalExpenses),
+          loadTopExpenseCategories(
+            entityCui,
+            periodKey,
+            periodType,
+            entity.default_report_type,
+            totalExpenses
+          ),
         ]);
 
       const previousPeriodComparison =
