@@ -1,4 +1,5 @@
 import type { ClerkWebhookVerificationError } from './errors.js';
+import type { ClerkWebhookEvent } from './types.js';
 import type { Result } from 'neverthrow';
 
 export interface SvixHeaders {
@@ -13,3 +14,12 @@ export interface ClerkWebhookVerifier {
     headers: SvixHeaders
   ): Promise<Result<unknown, ClerkWebhookVerificationError>>;
 }
+
+export interface ClerkWebhookEventVerifiedInput {
+  event: ClerkWebhookEvent;
+  svixId: string;
+}
+
+export type ClerkWebhookEventVerifiedHandler = (
+  input: ClerkWebhookEventVerifiedInput
+) => Promise<void>;

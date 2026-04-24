@@ -109,7 +109,8 @@ import {
   makeEconomicClassificationRepo,
 } from '../modules/classification/index.js';
 import {
-  type ClerkWebhookEvent,
+  type ClerkWebhookEventVerifiedHandler,
+  makeClerkUserDeletedNotificationsHandler,
   makeClerkWebhookRoutes,
   makeClerkWebhookVerifier,
 } from '../modules/clerk-webhooks/index.js';
@@ -591,9 +592,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   let userEventRuntime: UserEventRuntime | undefined;
   let adminEventRuntime: AdminEventRuntime | undefined;
   let adminEventRegistry: AdminEventRegistry | undefined;
-  let onClerkWebhookEventVerified:
-    | ((input: { event: ClerkWebhookEvent; svixId: string }) => Promise<void>)
-    | undefined;
+  const clerkWebhookEventVerifiedHandlers: ClerkWebhookEventVerifiedHandler[] = [];
 
   // Emit a consistent completion log where userId is included if auth middleware enriched request.log.
   app.addHook('onRequest', (request, _reply, done) => {
@@ -1003,6 +1002,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       logger: repoLogger,
       campaignSubscriptionStatsInvalidator: campaignSubscriptionStatsCacheInvalidator,
     });
+    clerkWebhookEventVerifiedHandlers.push(
+      makeClerkUserDeletedNotificationsHandler({
+        notificationsRepo,
+        logger: repoLogger,
+      })
+    );
     const extendedNotificationsRepo = makeExtendedNotificationsRepo({
       db: userDb,
       logger: repoLogger,
@@ -1197,7 +1202,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
       if (shouldEnqueueClerkWelcomeNotifications) {
         const composeJobScheduler = notificationDeliveryRuntime.composeJobScheduler;
-        onClerkWebhookEventVerified = async ({ event, svixId }) => {
+        clerkWebhookEventVerifiedHandlers.push(async ({ event, svixId }) => {
           if (event.type !== 'user.created') {
             return;
           }
@@ -1237,7 +1242,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           if (enqueueResult.isErr()) {
             throw new Error(getErrorMessage(enqueueResult.error));
           }
-        };
+        });
       }
     }
 
@@ -2113,6 +2118,14 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       signingSecret: config.auth.clerkWebhookSigningSecret,
       logger: repoLogger,
     });
+    const onClerkWebhookEventVerified =
+      clerkWebhookEventVerifiedHandlers.length > 0
+        ? async (input: Parameters<ClerkWebhookEventVerifiedHandler>[0]) => {
+            for (const handler of clerkWebhookEventVerifiedHandlers) {
+              await handler(input);
+            }
+          }
+        : undefined;
 
     await app.register(
       makeClerkWebhookRoutes({
