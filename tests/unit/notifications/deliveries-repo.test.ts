@@ -26,7 +26,7 @@ function makeUserDb(rows: Record<string, unknown>[]) {
           }
 
           if (clause.operator === 'in' && Array.isArray(clause.value)) {
-            return clause.value.includes(row[clause.column] as never);
+            return clause.value.includes(row[clause.column]);
           }
 
           return true;

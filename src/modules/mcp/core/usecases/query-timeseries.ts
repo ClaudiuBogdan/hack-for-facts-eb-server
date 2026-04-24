@@ -374,7 +374,7 @@ export async function queryTimeseries(
       const dataSeriesItem = dataSeries[i];
       return {
         label: dataSeriesItem !== undefined ? dataSeriesItem.label : `Series ${String(i)}`,
-        filter: s.filter as Record<string, unknown>,
+        filter: s.filter,
       };
     }),
     period

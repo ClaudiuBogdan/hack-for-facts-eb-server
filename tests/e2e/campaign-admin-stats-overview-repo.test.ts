@@ -113,7 +113,7 @@ function makeEntityRepo(nameByCui: Record<string, string>): EntityRepository {
     getChildren: vi.fn(),
     getParents: vi.fn(),
     getCountyEntity: vi.fn(),
-  } as unknown as EntityRepository;
+  };
 }
 
 describe('Campaign admin stats repo', () => {

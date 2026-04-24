@@ -538,7 +538,7 @@ describe('Advanced Map Analytics REST API', () => {
       listDatasetRows: async () => ok([{ sirutaCode: '1001', valueNumber: '1', valueJson: null }]),
       listReferencingMaps: async () => ok([]),
       listPublicReferencingMaps: async () => ok([]),
-    } as AdvancedMapDatasetRepository;
+    };
 
     if (app !== undefined) {
       await app.close();
@@ -842,7 +842,7 @@ describe('Advanced Map Analytics REST API', () => {
         ]),
       listReferencingMaps: async () => ok([]),
       listPublicReferencingMaps: async () => ok([]),
-    } as AdvancedMapDatasetRepository;
+    };
 
     if (app !== undefined) {
       await app.close();
@@ -1178,7 +1178,7 @@ describe('Advanced Map Analytics REST API', () => {
       listDatasetRows: async () => ok([{ sirutaCode: '1001', valueNumber: '1', valueJson: null }]),
       listReferencingMaps: async () => ok([]),
       listPublicReferencingMaps: async () => ok([]),
-    } as AdvancedMapDatasetRepository;
+    };
 
     if (app !== undefined) {
       await app.close();

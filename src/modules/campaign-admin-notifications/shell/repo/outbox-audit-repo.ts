@@ -27,7 +27,6 @@ import {
 
 import type { CampaignNotificationAuditRepository } from '../../core/ports.js';
 import type {
-  CampaignNotificationAdminCampaignKey,
   CampaignNotificationAuditCursor,
   CampaignNotificationAuditItem,
   CampaignNotificationAuditSortBy,
@@ -563,7 +562,7 @@ export const makeCampaignNotificationOutboxAuditRepo = (
 
         const items: CampaignNotificationAuditItem[] = pageRows.map((row) => ({
           outboxId: row.id,
-          campaignKey: FUNKY_CAMPAIGN_KEY as CampaignNotificationAdminCampaignKey,
+          campaignKey: FUNKY_CAMPAIGN_KEY,
           notificationType: row.notificationType,
           templateId: row.templateName,
           templateName: row.templateName,

@@ -255,7 +255,7 @@ export const wrapInsRepo = (
         filter: normalizeDatasetFilterForCache(filter),
         limit,
         offset,
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -268,7 +268,7 @@ export const wrapInsRepo = (
         filter,
         limit,
         offset,
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -279,7 +279,7 @@ export const wrapInsRepo = (
       keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
         method: 'getDatasetByCode',
         code,
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -290,7 +290,7 @@ export const wrapInsRepo = (
       keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
         method: 'listDimensions',
         matrixId,
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -305,7 +305,7 @@ export const wrapInsRepo = (
         filter,
         limit,
         offset,
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -316,7 +316,7 @@ export const wrapInsRepo = (
       keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
         method: 'listObservations',
         input: normalizeObservationInputForCache(input),
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -327,7 +327,7 @@ export const wrapInsRepo = (
       keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
         method: 'listLatestDatasetValues',
         input: normalizeLatestDatasetValuesInputForCache(input),
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 
@@ -340,7 +340,7 @@ export const wrapInsRepo = (
         sirutaCode,
         contextCode: normalizeOptionalTrimmedValue(contextCode),
         period: normalizeOptionalTrimmedValue(period),
-      } as FilterLike),
+      }),
     INS_CACHE_TTL_MS
   ),
 });
@@ -409,7 +409,7 @@ export const wrapEntityAnalyticsRepo = (
         pagination,
         sort,
         aggFilters,
-      } as FilterLike)
+      })
   ),
 });
 
@@ -447,7 +447,7 @@ export const wrapAggregatedLineItemsRepo = (
     keyBuilder.fromFilter(CacheNamespace.ANALYTICS_AGGREGATED, {
       method: 'getClassificationPeriodData',
       filter,
-    } as FilterLike)
+    })
   ),
 
   getNormalizedAggregatedItems: wrapWithCache<
@@ -464,7 +464,7 @@ export const wrapAggregatedLineItemsRepo = (
         factorMap: Object.fromEntries(factorMap),
         pagination,
         aggFilters,
-      } as FilterLike)
+      })
   ),
 });
 
@@ -492,7 +492,7 @@ export const wrapBudgetSectorRepo = (
       filter,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });
 
@@ -520,7 +520,7 @@ export const wrapFundingSourceRepo = (
       filter,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });
 
@@ -543,7 +543,7 @@ export const wrapFundingSourceLineItemRepo = (
       filter,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });
 
@@ -572,7 +572,7 @@ export const wrapFunctionalClassificationRepo = (
       filter,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });
 
@@ -601,7 +601,7 @@ export const wrapEconomicClassificationRepo = (
       filter,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });
 
@@ -652,6 +652,6 @@ export const wrapExecutionLineItemsRepo = (
       sort,
       limit,
       offset,
-    } as FilterLike)
+    })
   ),
 });

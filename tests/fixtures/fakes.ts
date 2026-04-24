@@ -1004,7 +1004,7 @@ export const makeFakeNotificationsRepo = (
           id,
           userId,
           entityCui: null,
-          notificationType: 'global_unsubscribe' as NotificationType,
+          notificationType: 'global_unsubscribe',
           isActive: false,
           config,
           hash: generateNotificationHash(sha256Hasher, userId, 'global_unsubscribe', null, config),
@@ -1463,8 +1463,7 @@ export const makeFakeLearningProgressRepo = (
   };
 
   const getSubmissionPath = (record: InteractiveStateRecord): string | null => {
-    const payloadValue =
-      record.value?.kind === 'json' ? (record.value.json.value as Record<string, unknown>) : null;
+    const payloadValue = record.value?.kind === 'json' ? record.value.json.value : null;
 
     return typeof payloadValue?.['submissionPath'] === 'string'
       ? payloadValue['submissionPath']
@@ -1527,7 +1526,7 @@ export const makeFakeLearningProgressRepo = (
       return null;
     }
 
-    const value = row.record.value.json.value as Record<string, unknown>;
+    const value = row.record.value.json.value;
     return typeof value['entityCui'] === 'string' && value['entityCui'].trim() !== ''
       ? value['entityCui'].trim()
       : null;
@@ -1875,7 +1874,7 @@ export const makeFakeLearningProgressRepo = (
       return null;
     }
 
-    const value = record.value.json.value as Record<string, unknown>;
+    const value = record.value.json.value;
     return typeof value['primariaEmail'] === 'string' && value['primariaEmail'].trim() !== ''
       ? value['primariaEmail'].trim()
       : null;
@@ -3094,7 +3093,7 @@ export const createTestProgressResetEvent = (
     occurredAt: overrides.occurredAt ?? new Date().toISOString(),
     clientId: overrides.clientId ?? 'test-client',
     type: 'progress.reset',
-  } as LearningProgressEvent;
+  };
 };
 
 // =============================================================================

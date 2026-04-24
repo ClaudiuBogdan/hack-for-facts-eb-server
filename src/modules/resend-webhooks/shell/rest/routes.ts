@@ -113,9 +113,9 @@ export const makeResendWebhookRoutes = (deps: ResendWebhookRoutesDeps): FastifyP
           return reply.status(401).send({ error: 'Invalid signature' });
         }
 
-        const parsedEvent = parseResendEmailWebhookEvent(verifyResult.value as unknown);
+        const parsedEvent = parseResendEmailWebhookEvent(verifyResult.value);
         if (parsedEvent.isErr()) {
-          const eventType = getPayloadType(verifyResult.value as unknown);
+          const eventType = getPayloadType(verifyResult.value);
 
           if (!isSupportedPayloadType(eventType)) {
             log.info(

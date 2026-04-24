@@ -44,7 +44,7 @@ describe('makeClerkCampaignAdminPermissionAuthorizer', () => {
     const authorizer = makeClerkCampaignAdminPermissionAuthorizer({
       secretKey: 'sk_test_123',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(
@@ -68,7 +68,7 @@ describe('makeClerkCampaignAdminPermissionAuthorizer', () => {
     const authorizer = makeClerkCampaignAdminPermissionAuthorizer({
       secretKey: 'sk_test_123',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(
@@ -141,7 +141,7 @@ describe('makeClerkCampaignAdminPermissionAuthorizer', () => {
     const authorizer = makeClerkCampaignAdminPermissionAuthorizer({
       secretKey: 'sk_test_123',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(

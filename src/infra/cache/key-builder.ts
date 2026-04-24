@@ -110,7 +110,7 @@ const sortObjectKeys = (obj: unknown): unknown => {
     return obj.map(sortObjectKeys);
   }
 
-  const sortedKeys = Object.keys(obj as Record<string, unknown>).sort();
+  const sortedKeys = Object.keys(obj).sort();
   const result: Record<string, unknown> = {};
   for (const key of sortedKeys) {
     result[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);

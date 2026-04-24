@@ -242,7 +242,7 @@ async function searchFunctionalClassifications(
 
     return {
       name: row.functional_name ?? code,
-      category: 'functional_classification' as FilterCategory,
+      category: 'functional_classification',
       context: `COFOG: ${code}`,
       score: toScore(row.relevance) + computeNameMatchBoost(row.functional_name, query),
       filterKey: key,
@@ -273,7 +273,7 @@ async function searchEconomicClassifications(
 
     return {
       name: row.economic_name ?? code,
-      category: 'economic_classification' as FilterCategory,
+      category: 'economic_classification',
       context: `Economic: ${code}`,
       score: toScore(row.relevance) + computeNameMatchBoost(row.economic_name, query),
       filterKey: key,

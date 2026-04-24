@@ -180,7 +180,7 @@ class KyselyReportRepo implements ReportRepository {
 
       const map = new Map<string, Report>();
       for (const row of rows) {
-        map.set(row.report_id, mapRowToReport(row as ReportRow));
+        map.set(row.report_id, mapRowToReport(row));
       }
 
       return ok(map);

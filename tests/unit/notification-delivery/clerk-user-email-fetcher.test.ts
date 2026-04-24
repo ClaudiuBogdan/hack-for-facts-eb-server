@@ -65,7 +65,7 @@ describe('makeClerkUserEmailFetcher', () => {
     const fetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: fetchMock as ClerkFetch,
+      fetch: fetchMock,
     });
 
     const result = await fetcher.getEmail('user-1');
@@ -182,7 +182,7 @@ describe('makeClerkUserEmailFetcher', () => {
     const fetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: fetchMock as ClerkFetch,
+      fetch: fetchMock,
     });
 
     const firstLookup = fetcher.getEmail('user-1');
@@ -235,7 +235,7 @@ describe('makeClerkUserEmailFetcher', () => {
     const fetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: fetchMock as ClerkFetch,
+      fetch: fetchMock,
     });
 
     const batchResult = await fetcher.getEmailsByUserIds(['user-1', 'user-1', 'user-2']);
@@ -279,7 +279,7 @@ describe('makeClerkUserEmailFetcher', () => {
     const fetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: fetchMock as ClerkFetch,
+      fetch: fetchMock,
     });
 
     const userIds = Array.from({ length: 101 }, (_, index) => `user-${String(index + 1)}`);
@@ -311,12 +311,12 @@ describe('makeClerkUserEmailFetcher', () => {
     const retryableFetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: retryableFetchMock as ClerkFetch,
+      fetch: retryableFetchMock,
     });
     const malformedFetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
       logger: testLogger,
-      fetch: malformedFetchMock as ClerkFetch,
+      fetch: malformedFetchMock,
     });
 
     const retryableResult = await retryableFetcher.getEmail('user-1');

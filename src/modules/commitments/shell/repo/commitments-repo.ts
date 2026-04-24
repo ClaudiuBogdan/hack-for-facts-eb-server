@@ -242,9 +242,7 @@ class KyselyCommitmentsRepo implements CommitmentsRepository {
     const frequency = filter.report_period.type;
 
     // Decide MV vs fact based on routing rules.
-    const useMv = shouldUseMV(
-      filter as unknown as import('@/common/types/commitments.js').CommitmentsFilter
-    );
+    const useMv = shouldUseMV(filter);
 
     try {
       await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
@@ -1705,9 +1703,7 @@ class KyselyCommitmentsRepo implements CommitmentsRepository {
       return err(createDatabaseError('Invalid metric for period type', { metric, frequency }));
     }
 
-    const useMv = shouldUseMV(
-      filter as unknown as import('@/common/types/commitments.js').CommitmentsFilter
-    );
+    const useMv = shouldUseMV(filter);
 
     try {
       await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);

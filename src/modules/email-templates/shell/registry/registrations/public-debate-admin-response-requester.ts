@@ -46,5 +46,5 @@ export const registration = defineTemplate({
     responseDate: '2026-04-16T12:00:00.000Z',
     messageContent: 'Am înregistrat solicitarea și revenim cu detalii.',
     ctaUrl: 'https://transparenta.eu/provocare/localitati/12345678',
-  } as PublicDebateAdminResponseRequesterProps,
+  },
 });

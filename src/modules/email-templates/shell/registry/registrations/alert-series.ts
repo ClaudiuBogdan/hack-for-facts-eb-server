@@ -49,5 +49,5 @@ export const registration = defineTemplate({
       },
     ],
     dataSourceUrl: 'https://transparenta.eu/data/123',
-  } as AlertSeriesProps,
+  },
 });

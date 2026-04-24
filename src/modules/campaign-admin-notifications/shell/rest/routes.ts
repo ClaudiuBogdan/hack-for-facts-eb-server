@@ -185,7 +185,7 @@ function decodeCursor(encodedCursor: string): CampaignNotificationAuditCursor | 
   }
 
   return Value.Check(CampaignNotificationCursorSchema, parseResult.value)
-    ? (parseResult.value as CampaignNotificationAuditCursor)
+    ? parseResult.value
     : null;
 }
 

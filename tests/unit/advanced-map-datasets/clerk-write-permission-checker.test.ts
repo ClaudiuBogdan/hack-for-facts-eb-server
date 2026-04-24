@@ -36,7 +36,7 @@ describe('makeClerkAdvancedMapDatasetWritePermissionChecker', () => {
       secretKey: 'sk_test_123',
       permissionName: 'advanced_map:public_write',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(checker.canWrite('user_123')).resolves.toBe(true);
@@ -51,7 +51,7 @@ describe('makeClerkAdvancedMapDatasetWritePermissionChecker', () => {
       secretKey: 'sk_test_123',
       permissionName: 'advanced_map:public_write',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(checker.canWrite('user_123')).resolves.toBe(false);
@@ -77,7 +77,7 @@ describe('makeClerkAdvancedMapDatasetWritePermissionChecker', () => {
       secretKey: 'sk_test_123',
       permissionName: 'advanced_map:public_write',
       logger: makeLogger(),
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
     });
 
     await expect(checker.canWrite('user_123')).resolves.toBe(false);

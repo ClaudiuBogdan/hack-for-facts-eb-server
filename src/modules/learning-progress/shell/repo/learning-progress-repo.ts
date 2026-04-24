@@ -89,7 +89,7 @@ function normalizeRecordValueRow(record: LearningProgressRecordValueRow): Intera
 function normalizeAuditEventRow(
   auditEvent: LearningProgressAuditEventRow
 ): StoredInteractiveAuditEvent {
-  return auditEvent as StoredInteractiveAuditEvent;
+  return auditEvent;
 }
 
 function sortAuditEvents(

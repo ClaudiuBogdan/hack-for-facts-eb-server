@@ -420,7 +420,7 @@ export const makeCampaignEntityConfigRoutes = (
           {
             campaignKey: routeConfig.campaignKey,
             entityCui: request.params.entityCui,
-            userId: request.auth.userId as string,
+            userId: request.auth.userId,
           }
         );
 

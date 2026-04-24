@@ -49,5 +49,5 @@ export const registration = defineTemplate({
       currency: 'RON',
     },
     detailsUrl: 'https://transparenta.eu/entities/4267117',
-  } as NewsletterEntityProps,
+  },
 });

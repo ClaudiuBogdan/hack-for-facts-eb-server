@@ -54,5 +54,5 @@ export const registration = defineTemplate({
         description: 'Actualizeaza documentul si retrimite interactiunea.',
       },
     ],
-  } as AdminReviewedInteractionProps,
+  },
 });

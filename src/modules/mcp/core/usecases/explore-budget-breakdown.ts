@@ -287,7 +287,7 @@ export async function exploreBudgetBreakdown(
   }
 
   // Normalize filter
-  const normalizedFilter = normalizeFilterClassificationCodes(filter as Record<string, unknown>);
+  const normalizedFilter = normalizeFilterClassificationCodes(filter);
 
   // Build internal filter
   const reportType = normalizedFilter['reportType'];

@@ -410,7 +410,7 @@ function sortObjectKeys(obj: unknown): unknown {
   }
 
   const sorted: Record<string, unknown> = {};
-  const keys = Object.keys(obj as Record<string, unknown>).sort();
+  const keys = Object.keys(obj).sort();
 
   for (const key of keys) {
     sorted[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);

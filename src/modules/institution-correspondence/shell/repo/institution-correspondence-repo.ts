@@ -510,7 +510,7 @@ export const makeInstitutionCorrespondenceRepo = (
             return err(createNotFoundError(`Thread "${input.threadId}" was not found.`));
           }
 
-          const thread = mapThreadRow(current as Record<string, unknown>);
+          const thread = mapThreadRow(current);
           const duplicate =
             (input.entry.resendEmailId !== null &&
               thread.record.correspondence.some(
@@ -567,7 +567,7 @@ export const makeInstitutionCorrespondenceRepo = (
             return err(createNotFoundError(`Thread "${threadId}" was not found.`));
           }
 
-          const thread = mapThreadRow(current as Record<string, unknown>);
+          const thread = mapThreadRow(current);
           const nextStateResult = mutator(thread);
           if (nextStateResult.isErr()) {
             return err(nextStateResult.error);
@@ -617,7 +617,7 @@ export const makeInstitutionCorrespondenceRepo = (
             return err(createNotFoundError(`Thread "${input.threadId}" was not found.`));
           }
 
-          const thread = mapThreadRow(current as Record<string, unknown>);
+          const thread = mapThreadRow(current);
           if (thread.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
             return err(
               createConflictError(
@@ -677,7 +677,7 @@ export const makeInstitutionCorrespondenceRepo = (
             return ok(null);
           }
 
-          const thread = mapThreadRow(current as Record<string, unknown>);
+          const thread = mapThreadRow(current);
           const targetIndex = thread.record.correspondence.findIndex(
             (entry) => entry.resendEmailId === resendEmailId
           );

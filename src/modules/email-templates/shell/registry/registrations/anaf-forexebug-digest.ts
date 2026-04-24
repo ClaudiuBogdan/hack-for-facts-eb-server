@@ -101,5 +101,5 @@ export const registration = defineTemplate({
         dataSourceUrl: 'https://transparenta.eu/entities/4267117/analytics',
       },
     ],
-  } as AnafForexebugDigestProps,
+  },
 });

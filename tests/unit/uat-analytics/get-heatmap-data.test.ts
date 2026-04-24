@@ -236,7 +236,7 @@ describe('getHeatmapData', () => {
             selection: { interval: { start: '2023', end: '2024' } },
           },
           // report_type is missing
-        } as AnalyticsFilter,
+        },
       });
 
       expect(result.isErr()).toBe(true);

@@ -631,7 +631,7 @@ describe('db map series provider cache behavior', () => {
               total_amount: new Decimal(100),
             },
           ]),
-      } as UATAnalyticsRepository,
+      },
       cache,
       keyBuilder: createKeyBuilder(),
     });

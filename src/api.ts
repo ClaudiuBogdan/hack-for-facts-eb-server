@@ -52,7 +52,7 @@ const createAuthProvider = (config: AppConfig, logger: Logger): AuthProvider | u
   // We enforce authorized parties in the adapter when configured via CLERK_AUTHORIZED_PARTIES.
   const jwtAdapter = makeJWTAdapter({
     jwtVerify: jwtVerify as unknown as import('./modules/auth/index.js').JWTVerifyFn,
-    importSPKI: importSPKI as unknown as import('./modules/auth/index.js').ImportSPKIFn,
+    importSPKI: importSPKI,
     publicKeyPEM: config.auth.clerkJwtKey,
     algorithm: 'RS256',
     ...(config.auth.clerkAuthorizedParties !== undefined &&
