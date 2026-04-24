@@ -18,6 +18,7 @@ import {
 } from '../../fixtures/fakes.js';
 
 import type { TemplateError } from '@/modules/email-templates/core/ports.js';
+import type { EmailTemplateProps } from '@/modules/email-templates/core/types.js';
 import type {
   DataFetcher,
   DeliveryRepository,
@@ -27,6 +28,17 @@ import type { SendJobPayload } from '@/modules/notification-delivery/core/types.
 import type { Queue } from 'bullmq';
 
 const testLogger = pinoLogger({ level: 'silent' });
+
+interface RenderCaptureProps {
+  templateType: string;
+  lang?: string;
+  preferencesUrl?: string;
+  selectedEntities?: string[];
+  entityName?: string;
+  ctaUrl?: string;
+  detailsUrl?: string;
+  sections?: { detailsUrl?: string }[];
+}
 
 const makeDataFetcher = (
   options: Partial<Pick<DataFetcher, 'fetchNewsletterData' | 'fetchAlertData'>> = {}
@@ -44,6 +56,16 @@ const makeDataFetcher = (
       totalExpenses: new Decimal('50'),
       budgetBalance: new Decimal('50'),
       currency: 'RON',
+      monthlyDelta: {
+        totalIncome: new Decimal('100'),
+        totalExpenses: new Decimal('50'),
+        budgetBalance: new Decimal('50'),
+      },
+      ytdSummary: {
+        totalIncome: new Decimal('600'),
+        totalExpenses: new Decimal('450'),
+        budgetBalance: new Decimal('150'),
+      },
     });
   },
   async fetchAlertData(config, periodKey) {
@@ -58,25 +80,11 @@ const makeDataFetcher = (
 const makeEmailRenderer = (
   options: {
     renderError?: TemplateError;
-    onRender?: (props: {
-      templateType: string;
-      lang?: string;
-      preferencesUrl?: string;
-      selectedEntities?: string[];
-      entityName?: string;
-      ctaUrl?: string;
-    }) => void;
+    onRender?: (props: RenderCaptureProps) => void;
   } = {}
 ) => ({
-  async render(props: {
-    templateType: string;
-    lang?: string;
-    preferencesUrl?: string;
-    selectedEntities?: string[];
-    entityName?: string;
-    ctaUrl?: string;
-  }) {
-    options.onRender?.(props);
+  async render(props: EmailTemplateProps) {
+    options.onRender?.(props as RenderCaptureProps);
 
     if (options.renderError !== undefined) {
       return err(options.renderError);
@@ -1521,6 +1529,7 @@ describe('compose worker helpers', () => {
   it('composes ANAF / Forexebug digest emails from existing outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     let renderedPreferencesUrl: string | undefined;
+    let renderedReportUrl: string | undefined;
     const notificationsRepo = makeFakeExtendedNotificationsRepo({
       notifications: [
         createTestNotification({
@@ -1565,6 +1574,7 @@ describe('compose worker helpers', () => {
         emailRenderer: makeEmailRenderer({
           onRender: (props) => {
             renderedPreferencesUrl = props.preferencesUrl;
+            renderedReportUrl = props.sections?.[0]?.detailsUrl;
           },
         }),
         platformBaseUrl: 'https://transparenta.eu',
@@ -1585,6 +1595,9 @@ describe('compose worker helpers', () => {
       expect(outbox.value?.templateName).toBe('anaf_forexebug_digest');
     }
     expect(renderedPreferencesUrl).toBe('https://transparenta.eu/settings/notifications');
+    expect(renderedReportUrl).toBe(
+      'https://transparenta.eu/entities/123?period=MONTH&normalization=total&year=2026&month=03'
+    );
     expect(jobs).toHaveLength(1);
   });
 
@@ -1842,6 +1855,7 @@ describe('compose worker helpers', () => {
   it('still creates subscription outbox rows with referenceId', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
     const deliveryRepo = makeFakeDeliveryRepo();
+    let renderedReportUrl: string | undefined;
     const notification = createTestNotification({
       id: 'notification-1',
       userId: 'user-1',
@@ -1867,13 +1881,27 @@ describe('compose worker helpers', () => {
               totalExpenses: new Decimal('50'),
               budgetBalance: new Decimal('50'),
               currency: 'RON',
+              monthlyDelta: {
+                totalIncome: new Decimal('100'),
+                totalExpenses: new Decimal('50'),
+                budgetBalance: new Decimal('50'),
+              },
+              ytdSummary: {
+                totalIncome: new Decimal('600'),
+                totalExpenses: new Decimal('450'),
+                budgetBalance: new Decimal('150'),
+              },
             });
           },
           async fetchAlertData() {
             return ok(null);
           },
         },
-        emailRenderer: makeEmailRenderer(),
+        emailRenderer: makeEmailRenderer({
+          onRender(props) {
+            renderedReportUrl = props.detailsUrl;
+          },
+        }),
         platformBaseUrl: 'https://transparenta.eu',
         apiBaseUrl: 'https://api.transparenta.eu',
         log: testLogger,
@@ -1908,6 +1936,9 @@ describe('compose worker helpers', () => {
       expect(created.value?.referenceId).toBe('notification-1');
       expect(created.value?.notificationType).toBe('newsletter_entity_monthly');
     }
+    expect(renderedReportUrl).toBe(
+      'https://transparenta.eu/entities/123?period=MONTH&normalization=total&year=2026&month=03'
+    );
   });
 
   it('retries subscription compose when template data fetch fails transiently', async () => {

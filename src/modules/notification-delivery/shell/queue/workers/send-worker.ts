@@ -13,6 +13,7 @@ import {
   FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
 } from '@/common/campaign-keys.js';
 import { hashResendTagValue, sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
+import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
@@ -22,7 +23,12 @@ import {
   parsePublicDebateAnnouncementOutboxMetadata,
 } from '../../../core/public-debate-announcement.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
-import { MAX_RETRY_ATTEMPTS, type SendJobPayload } from '../../../core/types.js';
+import {
+  MAX_RETRY_ATTEMPTS,
+  parseAnafForexebugDigestScopeKey,
+  type NotificationOutboxRecord,
+  type SendJobPayload,
+} from '../../../core/types.js';
 import {
   FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
   parseWeeklyProgressDigestOutboxMetadata,
@@ -34,6 +40,7 @@ import type {
   UserEmailFetcher,
   EmailSenderPort,
   ExtendedNotificationsRepository,
+  ComposeJobScheduler,
   WeeklyProgressDigestPostSendReconciler,
 } from '../../../core/ports.js';
 import type { UnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
@@ -59,6 +66,7 @@ export interface SendWorkerDeps {
   environment: string;
   bullmqPrefix: string;
   weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
+  composeJobScheduler?: ComposeJobScheduler;
   /** Rate limit: max requests per second (default: 2 for Resend) */
   maxRps?: number;
   concurrency?: number;
@@ -120,6 +128,79 @@ const resolveWeeklyProgressDigestEligibility = async (
   });
 };
 
+const parseAnafForexebugDigestSourceIds = (metadata: NotificationOutboxRecord['metadata']) => {
+  const value = metadata['sourceNotificationIds'];
+
+  if (!Array.isArray(value) || value.length === 0) {
+    return err('sourceNotificationIds must be a non-empty string array');
+  }
+
+  const sourceNotificationIds = value.filter(isNonEmptyString);
+  if (sourceNotificationIds.length !== value.length) {
+    return err('sourceNotificationIds must be a non-empty string array');
+  }
+
+  return ok([...new Set(sourceNotificationIds)]);
+};
+
+interface SourceNotificationVersion {
+  notificationType: string;
+  hash: string;
+}
+
+const parseAnafForexebugDigestSourceVersions = (
+  metadata: NotificationOutboxRecord['metadata']
+): Record<string, SourceNotificationVersion> => {
+  const value = metadata['sourceNotificationVersions'];
+  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const versions: Record<string, SourceNotificationVersion> = {};
+  for (const [notificationId, rawVersion] of Object.entries(value as Record<string, unknown>)) {
+    if (rawVersion === null || typeof rawVersion !== 'object' || Array.isArray(rawVersion)) {
+      continue;
+    }
+
+    const version = rawVersion as Record<string, unknown>;
+    const notificationType = version['notificationType'];
+    const hash = version['hash'];
+    if (
+      isNonEmptyString(notificationId) &&
+      isNonEmptyString(notificationType) &&
+      isNonEmptyString(hash)
+    ) {
+      versions[notificationId] = { notificationType, hash };
+    }
+  }
+
+  return versions;
+};
+
+const isBlockingDirectDeliveryForDigest = (delivery: NotificationOutboxRecord): boolean => {
+  return (
+    delivery.status === 'sending' ||
+    delivery.status === 'sent' ||
+    delivery.status === 'delivered' ||
+    delivery.status === 'webhook_timeout'
+  );
+};
+
+const shouldSuppressDirectNewsletterForDigest = (
+  digest: NotificationOutboxRecord | null
+): digest is NotificationOutboxRecord => {
+  return digest !== null && digest.status !== 'failed_permanent';
+};
+
+const getDigestRecomposeRunId = (delivery: NotificationOutboxRecord): string => {
+  const runId = delivery.metadata['runId'];
+  if (typeof runId === 'string' && runId.trim() !== '') {
+    return runId;
+  }
+
+  return `send-recompose-${delivery.id}`;
+};
+
 export const processSendJob = async (
   deps: {
     deliveryRepo: DeliveryRepository;
@@ -130,6 +211,7 @@ export const processSendJob = async (
     apiBaseUrl: string;
     environment: string;
     weeklyProgressDigestPostSendReconciler?: WeeklyProgressDigestPostSendReconciler;
+    composeJobScheduler?: ComposeJobScheduler;
     log: Logger;
   },
   payload: SendJobPayload
@@ -143,6 +225,7 @@ export const processSendJob = async (
     apiBaseUrl,
     environment,
     weeklyProgressDigestPostSendReconciler,
+    composeJobScheduler,
     log,
   } = deps;
   const { outboxId } = payload;
@@ -191,6 +274,289 @@ export const processSendJob = async (
     log.info({ outboxId, userId: delivery.userId }, 'User globally unsubscribed, skipping');
     await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
     return { outboxId, status: 'skipped_unsubscribed' };
+  }
+
+  if (delivery.notificationType.startsWith('newsletter_entity_')) {
+    if (delivery.referenceId === null) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: 'Newsletter delivery is missing source notification reference',
+      });
+      return {
+        outboxId,
+        status: 'failed_permanent',
+        error: 'Newsletter delivery is missing source notification reference',
+      };
+    }
+
+    const sourceNotificationResult = await notificationsRepo.findById(delivery.referenceId);
+    if (sourceNotificationResult.isErr()) {
+      const errorMessage = `Failed to re-check newsletter eligibility: ${getErrorMessage(
+        sourceNotificationResult.error
+      )}`;
+      const retryable = isRetryableError(sourceNotificationResult.error);
+
+      await deliveryRepo.updateStatusIfStillSending(
+        outboxId,
+        retryable ? 'failed_transient' : 'failed_permanent',
+        { lastError: errorMessage }
+      );
+
+      if (retryable) {
+        throw new Error(errorMessage);
+      }
+
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    const sourceNotification = sourceNotificationResult.value;
+    if (
+      sourceNotification === null ||
+      !sourceNotification.isActive ||
+      sourceNotification.userId !== delivery.userId ||
+      sourceNotification.notificationType !== delivery.notificationType
+    ) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          referenceId: delivery.referenceId,
+        },
+        'Newsletter source notification no longer eligible at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+
+    if (delivery.notificationType === 'newsletter_entity_monthly') {
+      const digestResult = await deliveryRepo.findAnafForexebugDigestForSource(
+        delivery.referenceId,
+        delivery.scopeKey
+      );
+
+      if (digestResult.isErr()) {
+        const errorMessage = `Failed to check digest materialization for direct newsletter: ${getErrorMessage(
+          digestResult.error
+        )}`;
+        const retryable = isRetryableError(digestResult.error);
+
+        await deliveryRepo.updateStatusIfStillSending(
+          outboxId,
+          retryable ? 'failed_transient' : 'failed_permanent',
+          { lastError: errorMessage }
+        );
+
+        if (retryable) {
+          throw new Error(errorMessage);
+        }
+
+        return { outboxId, status: 'failed_permanent', error: errorMessage };
+      }
+
+      if (shouldSuppressDirectNewsletterForDigest(digestResult.value)) {
+        log.info(
+          {
+            outboxId,
+            digestOutboxId: digestResult.value.id,
+            referenceId: delivery.referenceId,
+            periodKey: delivery.scopeKey,
+          },
+          'Direct monthly newsletter source already bundled in digest, suppressing direct send'
+        );
+        await deliveryRepo.updateStatusIfStillSending(outboxId, 'suppressed', {
+          lastError: `Suppressed because source notification is bundled in digest ${digestResult.value.id}.`,
+        });
+        return { outboxId, status: 'skipped_digest_duplicate' };
+      }
+    }
+  }
+
+  if (delivery.notificationType === 'anaf_forexebug_digest') {
+    const sourceIdsResult = parseAnafForexebugDigestSourceIds(delivery.metadata);
+    if (sourceIdsResult.isErr()) {
+      const errorMessage = `Invalid ANAF / Forexebug digest metadata: ${sourceIdsResult.error}`;
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: errorMessage,
+      });
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    const periodKey = parseAnafForexebugDigestScopeKey(delivery.scopeKey);
+    if (periodKey === null) {
+      const errorMessage = `Invalid ANAF / Forexebug digest scope: ${delivery.scopeKey}`;
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: errorMessage,
+      });
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    const sourceIds = sourceIdsResult.value;
+    const sourceVersions = parseAnafForexebugDigestSourceVersions(delivery.metadata);
+    const activeSourceIds: string[] = [];
+    const changedSourceIds: string[] = [];
+    const sourceNotificationVersions: Record<string, SourceNotificationVersion> = {};
+
+    for (const sourceId of sourceIds) {
+      const sourceNotificationResult = await notificationsRepo.findById(sourceId);
+      if (sourceNotificationResult.isErr()) {
+        const errorMessage = `Failed to re-check digest source notification '${sourceId}': ${getErrorMessage(
+          sourceNotificationResult.error
+        )}`;
+        const retryable = isRetryableError(sourceNotificationResult.error);
+
+        await deliveryRepo.updateStatusIfStillSending(
+          outboxId,
+          retryable ? 'failed_transient' : 'failed_permanent',
+          { lastError: errorMessage }
+        );
+
+        if (retryable) {
+          throw new Error(errorMessage);
+        }
+
+        return { outboxId, status: 'failed_permanent', error: errorMessage };
+      }
+
+      const sourceNotification = sourceNotificationResult.value;
+      if (
+        sourceNotification !== null &&
+        sourceNotification.isActive &&
+        sourceNotification.userId === delivery.userId
+      ) {
+        const directDeliveryResult = await deliveryRepo.findDirectDeliveryForSource(
+          sourceNotification.notificationType,
+          sourceId,
+          periodKey
+        );
+
+        if (directDeliveryResult.isErr()) {
+          const errorMessage = `Failed to check direct source delivery '${sourceId}': ${getErrorMessage(
+            directDeliveryResult.error
+          )}`;
+          const retryable = isRetryableError(directDeliveryResult.error);
+
+          await deliveryRepo.updateStatusIfStillSending(
+            outboxId,
+            retryable ? 'failed_transient' : 'failed_permanent',
+            { lastError: errorMessage }
+          );
+
+          if (retryable) {
+            throw new Error(errorMessage);
+          }
+
+          return { outboxId, status: 'failed_permanent', error: errorMessage };
+        }
+
+        if (
+          directDeliveryResult.value !== null &&
+          isBlockingDirectDeliveryForDigest(directDeliveryResult.value)
+        ) {
+          continue;
+        }
+
+        const currentVersion = {
+          notificationType: sourceNotification.notificationType,
+          hash: sourceNotification.hash,
+        };
+        const composedVersion = sourceVersions[sourceId];
+        if (
+          composedVersion?.notificationType !== currentVersion.notificationType ||
+          composedVersion.hash !== currentVersion.hash
+        ) {
+          changedSourceIds.push(sourceId);
+        }
+
+        activeSourceIds.push(sourceId);
+        sourceNotificationVersions[sourceId] = currentVersion;
+      }
+    }
+
+    if (activeSourceIds.length === 0) {
+      log.info(
+        { outboxId, userId: delivery.userId },
+        'All digest source notifications are inactive, missing, or already direct-delivered at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed', {
+        lastError:
+          'All digest source notifications are inactive, missing, or already direct-delivered at send time.',
+      });
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+
+    if (activeSourceIds.length !== sourceIds.length || changedSourceIds.length > 0) {
+      const staleSourceIds = sourceIds.filter((sourceId) => !activeSourceIds.includes(sourceId));
+      const metadata = {
+        ...delivery.metadata,
+        sourceNotificationIds: activeSourceIds,
+        itemCount: activeSourceIds.length,
+        sourceNotificationVersions,
+        staleSourceNotificationIds: staleSourceIds,
+        changedSourceNotificationIds: changedSourceIds,
+      };
+      const refreshResult = await deliveryRepo.refreshSendingDigestMetadataForRecompose(
+        outboxId,
+        metadata
+      );
+
+      if (refreshResult.isErr()) {
+        const errorMessage = `Failed to reset stale digest for recompose: ${getErrorMessage(
+          refreshResult.error
+        )}`;
+        const retryable = isRetryableError(refreshResult.error);
+
+        await deliveryRepo.updateStatusIfStillSending(
+          outboxId,
+          retryable ? 'failed_transient' : 'failed_permanent',
+          { lastError: errorMessage }
+        );
+
+        if (retryable) {
+          throw new Error(errorMessage);
+        }
+
+        return { outboxId, status: 'failed_permanent', error: errorMessage };
+      }
+
+      if (refreshResult.value === null) {
+        log.info({ outboxId }, 'Digest outbox changed state before stale recompose reset');
+        return { outboxId, status: 'skipped_status' };
+      }
+
+      if (composeJobScheduler === undefined) {
+        const errorMessage = 'Digest source preferences changed; compose scheduler unavailable';
+        await deliveryRepo.updateStatusIfCurrentIn(outboxId, ['pending'], 'failed_permanent', {
+          lastError: errorMessage,
+        });
+        return { outboxId, status: 'failed_permanent', error: errorMessage };
+      }
+
+      const enqueueResult = await composeJobScheduler.enqueue({
+        runId: getDigestRecomposeRunId(delivery),
+        kind: 'outbox',
+        outboxId,
+      });
+
+      if (enqueueResult.isErr()) {
+        const errorMessage = `Failed to enqueue stale digest recompose: ${getErrorMessage(
+          enqueueResult.error
+        )}`;
+        await deliveryRepo.updateStatusIfCurrentIn(outboxId, ['pending'], 'failed_permanent', {
+          lastError: errorMessage,
+        });
+        return { outboxId, status: 'failed_permanent', error: errorMessage };
+      }
+
+      log.info(
+        {
+          outboxId,
+          activeSourceCount: activeSourceIds.length,
+          staleSourceCount: staleSourceIds.length,
+          changedSourceCount: changedSourceIds.length,
+        },
+        'Digest source preferences changed at send time, requeued compose'
+      );
+      return { outboxId, status: 'requeued_compose_due_to_stale_sources' };
+    }
   }
 
   if (delivery.notificationType === 'funky:outbox:admin_reviewed_interaction') {
@@ -628,6 +994,7 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
     environment,
     bullmqPrefix,
     weeklyProgressDigestPostSendReconciler,
+    composeJobScheduler,
     maxRps = 2,
     concurrency = 5,
   } = deps;
@@ -649,6 +1016,7 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
           ...(weeklyProgressDigestPostSendReconciler !== undefined
             ? { weeklyProgressDigestPostSendReconciler }
             : {}),
+          ...(composeJobScheduler !== undefined ? { composeJobScheduler } : {}),
           log,
         },
         job.data

@@ -55,6 +55,11 @@ interface MaterializedDigestGroup {
   metadata: AnafForexebugDigestMetadata;
 }
 
+const snapshotNotificationVersion = (notification: Notification) => ({
+  notificationType: notification.notificationType,
+  hash: notification.hash,
+});
+
 const shouldRequeueBundleCompose = (outbox: DeliveryRecord): boolean => {
   return (
     outbox.notificationType === 'anaf_forexebug_digest' &&
@@ -103,7 +108,9 @@ const collectEligibleNotifications = async (
     const result = await notificationsRepo.findEligibleForDelivery(
       notificationType,
       periodKey,
-      repoLimit
+      repoLimit,
+      false,
+      'direct'
     );
     if (result.isErr()) {
       return err(result.error);
@@ -157,6 +164,9 @@ const groupNotificationsByUser = (notifications: Notification[]): MaterializedDi
           digestType: 'anaf_forexebug_digest',
           sourceNotificationIds: [notification.id],
           itemCount: 1,
+          sourceNotificationVersions: {
+            [notification.id]: snapshotNotificationVersion(notification),
+          },
         },
       });
       continue;
@@ -164,6 +174,10 @@ const groupNotificationsByUser = (notifications: Notification[]): MaterializedDi
 
     existing.metadata.sourceNotificationIds.push(notification.id);
     existing.metadata.itemCount = existing.metadata.sourceNotificationIds.length;
+    existing.metadata.sourceNotificationVersions = {
+      ...(existing.metadata.sourceNotificationVersions ?? {}),
+      [notification.id]: snapshotNotificationVersion(notification),
+    };
   }
 
   return [...groups.values()];
@@ -255,6 +269,7 @@ export const materializeAnafForexebugDigests = async (
         periodLabel: formatPeriodLabel(input.periodKey, 'monthly'),
         sourceNotificationIds: group.metadata.sourceNotificationIds,
         itemCount: group.metadata.itemCount,
+        sourceNotificationVersions: group.metadata.sourceNotificationVersions,
         designDoc: BUNDLE_DESIGN_DOC,
       },
     });

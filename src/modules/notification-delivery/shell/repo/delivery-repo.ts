@@ -16,6 +16,11 @@ import {
   createDatabaseError,
   createDuplicateDeliveryError,
 } from '../../core/errors.js';
+import {
+  buildAnafForexebugDigestScopeKey,
+  type DeliveryStatus,
+  type NotificationOutboxRecord,
+} from '../../core/types.js';
 
 import type {
   DeliveryRepository,
@@ -23,8 +28,8 @@ import type {
   UpdateRenderedContentInput,
   UpdateDeliveryStatusInput,
 } from '../../core/ports.js';
-import type { NotificationOutboxRecord, DeliveryStatus } from '../../core/types.js';
 import type { UserDbClient } from '@/infra/database/client.js';
+import type { NotificationType } from '@/modules/notifications/core/types.js';
 import type { Logger } from 'pino';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +223,109 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         return ok(mapRow(row));
       } catch (error) {
         log.error({ error, outboxId }, 'Failed to refresh outbox metadata');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async refreshSendingDigestMetadataForRecompose(
+      outboxId: string,
+      metadata: Record<string, unknown>
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug({ outboxId }, 'Refreshing metadata on sending digest outbox row');
+
+      try {
+        const result = await sql<Record<string, unknown>>`
+          UPDATE notificationsoutbox
+          SET metadata = ${JSON.stringify(metadata)},
+              status = 'pending',
+              to_email = NULL,
+              rendered_subject = NULL,
+              rendered_html = NULL,
+              rendered_text = NULL,
+              content_hash = NULL,
+              template_name = NULL,
+              template_version = NULL,
+              resend_email_id = NULL,
+              last_error = NULL,
+              attempt_count = 0,
+              last_attempt_at = NULL,
+              sent_at = NULL
+          WHERE id = ${outboxId}
+            AND notification_type = 'anaf_forexebug_digest'
+            AND status = 'sending'
+          RETURNING *
+        `.execute(db);
+
+        const row = result.rows[0];
+        if (row === undefined) {
+          log.debug(
+            { outboxId },
+            'Digest outbox row metadata not refreshed because row is not sending'
+          );
+          return ok(null);
+        }
+
+        return ok(mapRow(row));
+      } catch (error) {
+        log.error({ error, outboxId }, 'Failed to refresh sending digest metadata');
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async findAnafForexebugDigestForSource(
+      sourceNotificationId: string,
+      periodKey: string
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug({ sourceNotificationId, periodKey }, 'Finding digest row for source notification');
+
+      try {
+        const row = await db
+          .selectFrom('notificationsoutbox')
+          .selectAll()
+          .where('notification_type', '=', 'anaf_forexebug_digest')
+          .where('scope_key', 'in', [periodKey, buildAnafForexebugDigestScopeKey(periodKey)])
+          .where(
+            sql<boolean>`notificationsoutbox.metadata -> 'sourceNotificationIds' ? ${sourceNotificationId}`
+          )
+          .orderBy('created_at', 'asc')
+          .executeTakeFirst();
+
+        return ok(row !== undefined ? mapRow(row as unknown as Record<string, unknown>) : null);
+      } catch (error) {
+        log.error(
+          { error, sourceNotificationId, periodKey },
+          'Failed to find digest row for source notification'
+        );
+        return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
+      }
+    },
+
+    async findDirectDeliveryForSource(
+      notificationType: NotificationType,
+      sourceNotificationId: string,
+      periodKey: string
+    ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>> {
+      log.debug(
+        { notificationType, sourceNotificationId, periodKey },
+        'Finding direct delivery row for source notification'
+      );
+
+      try {
+        const row = await db
+          .selectFrom('notificationsoutbox')
+          .selectAll()
+          .where('notification_type', '=', notificationType)
+          .where('reference_id', '=', sourceNotificationId)
+          .where('scope_key', '=', periodKey)
+          .orderBy('created_at', 'asc')
+          .executeTakeFirst();
+
+        return ok(row !== undefined ? mapRow(row as unknown as Record<string, unknown>) : null);
+      } catch (error) {
+        log.error(
+          { error, notificationType, sourceNotificationId, periodKey },
+          'Failed to find direct delivery row for source notification'
+        );
         return err(createDatabaseError(error instanceof Error ? error.message : 'Unknown error'));
       }
     },

@@ -106,6 +106,22 @@ const formatPopulation = (population: number): string => {
   return new Intl.NumberFormat('ro-RO').format(population);
 };
 
+const ENTITY_TYPE_LABELS: Readonly<Record<string, string>> = {
+  admin_municipality: 'Primărie municipiu',
+  admin_city_hall: 'Primărie oraș',
+  admin_commune_hall: 'Primărie comună',
+  admin_county_council: 'Consiliu județean',
+  public_institution: 'Instituție publică',
+  public_company: 'Companie publică',
+  ministry: 'Minister',
+  agency: 'Agenție',
+  other: 'Alt tip de entitate',
+};
+
+const formatEntityType = (entityType: string): string => {
+  return ENTITY_TYPE_LABELS[entityType] ?? entityType;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,7 +146,9 @@ export const EntityHeader = ({
       <Text style={styles.entityName}>{entityName}</Text>
 
       {/* Entity Type Badge */}
-      {entityType !== undefined && <Text style={styles.entityTypeBadge}>{entityType}</Text>}
+      {entityType !== undefined && (
+        <Text style={styles.entityTypeBadge}>{formatEntityType(entityType)}</Text>
+      )}
 
       {/* Info Row */}
       <Row style={styles.infoRow}>

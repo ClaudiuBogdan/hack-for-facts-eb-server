@@ -168,6 +168,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
                   workerDeps.weeklyProgressDigestPostSendReconciler,
               }
             : {}),
+          composeJobScheduler,
           bullmqPrefix,
           concurrency,
           ...(workerDeps.maxSendRps !== undefined ? { maxRps: workerDeps.maxSendRps } : {}),

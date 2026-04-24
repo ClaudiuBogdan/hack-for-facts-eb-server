@@ -49,6 +49,18 @@ export const registration = defineTemplate({
         population: 1883425,
         periodLabel: 'martie 2026',
         summary: {
+          totalIncome: '184500000',
+          totalExpenses: '121300000',
+          budgetBalance: '63200000',
+          currency: 'RON',
+        },
+        monthlyDelta: {
+          totalIncome: '184500000',
+          totalExpenses: '121300000',
+          budgetBalance: '63200000',
+          currency: 'RON',
+        },
+        ytdSummary: {
           totalIncome: '1502800000',
           totalExpenses: '982350000',
           budgetBalance: '520450000',
@@ -58,13 +70,15 @@ export const registration = defineTemplate({
           incomeChangePercent: '8.5',
           expensesChangePercent: '12.3',
           balanceChangePercent: '-4.2',
+          balanceChangeAmount: '-22600000',
         },
         topExpenseCategories: [
           { name: 'Transport public', amount: '245600000', percentage: '25.0' },
           { name: 'Învățământ', amount: '196500000', percentage: '20.0' },
           { name: 'Sănătate', amount: '147350000', percentage: '15.0' },
         ],
-        detailsUrl: 'https://transparenta.eu/entities/4267117?period=2026-03',
+        detailsUrl:
+          'https://transparenta.eu/entities/4267117?period=MONTH&normalization=total&year=2026&month=03',
         mapUrl: 'https://transparenta.eu/map?entity=4267117',
       },
       {
@@ -75,12 +89,25 @@ export const registration = defineTemplate({
         entityCui: '4240600',
         periodLabel: 'martie 2026',
         summary: {
+          totalIncome: '35000000',
+          totalExpenses: '21200000',
+          budgetBalance: '13800000',
+          currency: 'RON',
+        },
+        monthlyDelta: {
+          totalIncome: '35000000',
+          totalExpenses: '21200000',
+          budgetBalance: '13800000',
+          currency: 'RON',
+        },
+        ytdSummary: {
           totalIncome: '280050000',
           totalExpenses: '182370000',
           budgetBalance: '97680000',
           currency: 'RON',
         },
-        detailsUrl: 'https://transparenta.eu/entities/4240600?period=2026-03',
+        detailsUrl:
+          'https://transparenta.eu/entities/4240600?period=MONTH&normalization=total&year=2026&month=03',
       },
       {
         kind: 'alert_series',

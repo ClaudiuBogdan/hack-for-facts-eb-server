@@ -169,7 +169,10 @@ export {
 } from './shell/repo/public-debate-entity-audience-summary-reader.js';
 export {
   makeBudgetDataFetcher,
+  makeBudgetMonthlyYtdTotalsReader,
   type BudgetDataFetcherConfig,
+  type BudgetMonthlyYtdTotalsReaderConfig,
+  type MonthlyYtdTotalsReader,
 } from './shell/data/budget-data-fetcher.js';
 
 // Shell - Queue Workers

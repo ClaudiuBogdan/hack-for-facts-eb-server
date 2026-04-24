@@ -224,6 +224,7 @@ import {
   getErrorMessage,
   makeAnafForexebugDigestTriggerRoutes,
   makeBudgetDataFetcher,
+  makeBudgetMonthlyYtdTotalsReader,
   makeClerkUserEmailFetcher,
   makeDeliveryRepo,
   makeExtendedNotificationsRepo,
@@ -1143,6 +1144,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
                   entityRepo,
                   entityProfileRepo,
                   entityAnalyticsSummaryRepo,
+                  monthlyYtdTotalsReader: makeBudgetMonthlyYtdTotalsReader({
+                    budgetDb,
+                    logger: repoLogger,
+                  }),
                   aggregatedLineItemsRepo: rawAggregatedLineItemsRepo,
                   normalization: normalizationService,
                   populationRepo: rawPopulationRepo,

@@ -413,6 +413,18 @@ describe('EmailRenderer (registry-backed)', () => {
             budgetBalance: '50',
             currency: 'RON',
           },
+          monthlyDelta: {
+            totalIncome: '100',
+            totalExpenses: '50',
+            budgetBalance: '50',
+            currency: 'RON',
+          },
+          ytdSummary: {
+            totalIncome: '600',
+            totalExpenses: '450',
+            budgetBalance: '150',
+            currency: 'RON',
+          },
         },
       ],
     };
@@ -443,6 +455,18 @@ describe('EmailRenderer (registry-backed)', () => {
           entityCui: '4240600',
           periodLabel: 'martie 2026',
           summary: {
+            totalIncome: '35000000',
+            totalExpenses: '21200000',
+            budgetBalance: '13800000',
+            currency: 'RON',
+          },
+          monthlyDelta: {
+            totalIncome: '35000000',
+            totalExpenses: '21200000',
+            budgetBalance: '13800000',
+            currency: 'RON',
+          },
+          ytdSummary: {
             totalIncome: '280050000',
             totalExpenses: '182370000',
             budgetBalance: '97680000',
@@ -452,6 +476,7 @@ describe('EmailRenderer (registry-backed)', () => {
             incomeChangePercent: '12.3',
             expensesChangePercent: '8.7',
             balanceChangePercent: '23.1',
+            balanceChangeAmount: '18300000',
           },
           topExpenseCategories: [
             { name: 'Învățământ', amount: '45200000', percentage: '24.8' },
@@ -481,6 +506,10 @@ describe('EmailRenderer (registry-backed)', () => {
     const rendered = result._unsafeUnwrap();
     expect(rendered.html).toContain('Municipiul Sibiu');
     expect(rendered.html).toContain('280,05 mil. RON');
+    expect(rendered.html).toContain('35,00 mil. RON');
+    expect(rendered.html).toContain('Venituri YTD');
+    expect(rendered.html).toContain('în martie 2026');
+    expect(rendered.html).toContain('vs. perioada anterioară');
     expect(rendered.html).toContain('Cheltuieli neobișnuite detectate');
     expect(rendered.html).toContain('mai mare decât');
     expect(rendered.html).toContain('1 rapoarte');
@@ -512,6 +541,18 @@ describe('EmailRenderer (registry-backed)', () => {
         budgetBalance: '50',
         currency: 'RON',
       },
+      monthlyDelta: {
+        totalIncome: '100',
+        totalExpenses: '50',
+        budgetBalance: '50',
+        currency: 'RON',
+      },
+      ytdSummary: {
+        totalIncome: '600',
+        totalExpenses: '450',
+        budgetBalance: '150',
+        currency: 'RON',
+      },
       topExpenseCategories: [
         { name: 'Învățământ', amount: '20', percentage: '40' },
         { name: 'Sănătate', amount: '15', percentage: '30' },
@@ -526,6 +567,10 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(result.isOk()).toBe(true);
 
     const rendered = result._unsafeUnwrap();
+    expect(rendered.html).toContain('Venituri YTD');
+    expect(rendered.html).toMatch(/600\s*RON/u);
+    expect(rendered.html).toContain('Mișcare lunară în martie 2026');
+    expect(rendered.html).toMatch(/100\s*RON/u);
     expect(rendered.html).toContain('style="border-radius:4px;overflow:hidden">');
     expect(rendered.html).toContain(
       'style="border-radius:6px;overflow:hidden;margin-bottom:16px">'

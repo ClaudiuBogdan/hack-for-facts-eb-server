@@ -3,15 +3,21 @@ import { err, ok, type Result } from 'neverthrow';
 import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 
 import {
+  buildEntityReportUrl,
   buildNotificationSettingsUrl,
   getPeriodType,
   getPeriodYear,
   hashContent,
+  hasMonthlyNewsletterTemplateFields,
   mapNewsletterDataToTemplateFields,
   mapTriggeredConditionsToTemplateFields,
 } from './compose-helpers.js';
 import { generateDeliveryKey, type Notification } from '../../../../notifications/core/types.js';
-import { getErrorMessage, type DeliveryError } from '../../../core/errors.js';
+import {
+  createValidationError,
+  getErrorMessage,
+  type DeliveryError,
+} from '../../../core/errors.js';
 import {
   isReadyToSendDelivery,
   type ComposeSubscriptionJobPayload,
@@ -118,17 +124,37 @@ const buildSubscriptionTemplateProps = async (
 
     const data = dataResult.value;
 
-    const props: NewsletterEntityProps = {
-      templateType: 'newsletter_entity',
-      lang: 'ro',
+    const newsletterFields = mapNewsletterDataToTemplateFields(data);
+    const commonProps = {
+      templateType: 'newsletter_entity' as const,
+      lang: 'ro' as const,
       unsubscribeUrl,
       preferencesUrl: buildNotificationSettingsUrl(platformBaseUrl),
       platformBaseUrl,
       copyrightYear: getPeriodYear(periodKey),
-      periodType,
       periodLabel: formatPeriodLabel(periodKey, periodType),
-      detailsUrl: `${platformBaseUrl}/entities/${entityCui}`,
-      ...mapNewsletterDataToTemplateFields(data),
+      detailsUrl: buildEntityReportUrl(platformBaseUrl, entityCui, periodKey, periodType),
+      ...newsletterFields,
+    };
+
+    if (periodType === 'monthly') {
+      if (!hasMonthlyNewsletterTemplateFields(newsletterFields)) {
+        return err(createValidationError('Monthly newsletter data is missing monthly/YTD totals'));
+      }
+
+      const props: NewsletterEntityProps = {
+        ...commonProps,
+        periodType,
+        monthlyDelta: newsletterFields.monthlyDelta,
+        ytdSummary: newsletterFields.ytdSummary,
+      };
+
+      return ok(props);
+    }
+
+    const props: NewsletterEntityProps = {
+      ...commonProps,
+      periodType,
     };
 
     return ok(props);

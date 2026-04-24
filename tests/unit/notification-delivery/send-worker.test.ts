@@ -99,7 +99,17 @@ describe('processSendJob', () => {
       processSendJob(
         {
           deliveryRepo,
-          notificationsRepo: makeFakeExtendedNotificationsRepo(),
+          notificationsRepo: makeFakeExtendedNotificationsRepo({
+            notifications: [
+              createTestNotification({
+                id: 'notification-1',
+                userId: 'user-1',
+                entityCui: '123',
+                notificationType: 'newsletter_entity_monthly',
+                isActive: true,
+              }),
+            ],
+          }),
           userEmailFetcher: {
             getEmail,
             getEmailsByUserIds: vi.fn(async () => ok(new Map())),
@@ -334,6 +344,476 @@ describe('processSendJob', () => {
     }
   });
 
+  it('skips direct monthly newsletters when the source notification was deactivated after compose', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-newsletter-inactive',
+          notificationType: 'newsletter_entity_monthly',
+          referenceId: 'notification-1',
+          scopeKey: '2026-03',
+          deliveryKey: 'user-1:notification-1:2026-03',
+          renderedSubject: 'Newsletter',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-newsletter-inactive' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-newsletter-inactive',
+      status: 'skipped_unsubscribed',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-newsletter-inactive');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
+  it('suppresses direct monthly newsletters when the source was bundled in a digest', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-newsletter-direct',
+          notificationType: 'newsletter_entity_monthly',
+          referenceId: 'notification-1',
+          scopeKey: '2026-03',
+          deliveryKey: 'user-1:notification-1:2026-03',
+          renderedSubject: 'Newsletter',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+        createTestDeliveryRecord({
+          id: 'outbox-digest-existing',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: 'digest:anaf_forexebug:2026-03',
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          metadata: {
+            digestType: 'anaf_forexebug_digest',
+            sourceNotificationIds: ['notification-1'],
+            itemCount: 1,
+          },
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              isActive: true,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-newsletter-direct' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-newsletter-direct',
+      status: 'skipped_digest_duplicate',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-newsletter-direct');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('suppressed');
+    }
+  });
+
+  it('skips ANAF / Forexebug digests when all source notifications were deactivated after compose', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-digest-inactive',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: 'digest:anaf_forexebug:2026-03',
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          renderedSubject: 'Digest',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            digestType: 'anaf_forexebug_digest',
+            sourceNotificationIds: ['notification-1'],
+            itemCount: 1,
+          },
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-digest-inactive' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-digest-inactive',
+      status: 'skipped_unsubscribed',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('requeues ANAF / Forexebug digest compose when some source notifications are stale', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-digest-partial-stale',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: 'digest:anaf_forexebug:2026-03',
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          renderedSubject: 'Digest',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            runId: 'run-digest',
+            digestType: 'anaf_forexebug_digest',
+            sourceNotificationIds: ['notification-active', 'notification-inactive'],
+            itemCount: 2,
+          },
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const composeJobs: unknown[] = [];
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-active',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-inactive',
+              userId: 'user-1',
+              entityCui: '456',
+              notificationType: 'newsletter_entity_monthly',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        composeJobScheduler: {
+          enqueue: async (job) => {
+            composeJobs.push(job);
+            return ok(undefined);
+          },
+        },
+        log: testLogger,
+      },
+      { outboxId: 'outbox-digest-partial-stale' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-digest-partial-stale',
+      status: 'requeued_compose_due_to_stale_sources',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(composeJobs).toEqual([
+      {
+        runId: 'run-digest',
+        kind: 'outbox',
+        outboxId: 'outbox-digest-partial-stale',
+      },
+    ]);
+
+    const stored = await deliveryRepo.findById('outbox-digest-partial-stale');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('pending');
+      expect(stored.value?.renderedSubject).toBeNull();
+      expect(stored.value?.metadata['sourceNotificationIds']).toEqual(['notification-active']);
+      expect(stored.value?.metadata['staleSourceNotificationIds']).toEqual([
+        'notification-inactive',
+      ]);
+    }
+  });
+
+  it('requeues ANAF / Forexebug digest compose when an active source changed after compose', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-digest-source-changed',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: 'digest:anaf_forexebug:2026-03',
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          renderedSubject: 'Digest',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            runId: 'run-digest',
+            digestType: 'anaf_forexebug_digest',
+            sourceNotificationIds: ['notification-1'],
+            sourceNotificationVersions: {
+              'notification-1': {
+                notificationType: 'newsletter_entity_monthly',
+                hash: 'old-hash',
+              },
+            },
+            itemCount: 1,
+          },
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const composeJobs: unknown[] = [];
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              hash: 'new-hash',
+              isActive: true,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        composeJobScheduler: {
+          enqueue: async (job) => {
+            composeJobs.push(job);
+            return ok(undefined);
+          },
+        },
+        log: testLogger,
+      },
+      { outboxId: 'outbox-digest-source-changed' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-digest-source-changed',
+      status: 'requeued_compose_due_to_stale_sources',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(composeJobs).toHaveLength(1);
+
+    const stored = await deliveryRepo.findById('outbox-digest-source-changed');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('pending');
+      expect(stored.value?.metadata['sourceNotificationVersions']).toEqual({
+        'notification-1': {
+          notificationType: 'newsletter_entity_monthly',
+          hash: 'new-hash',
+        },
+      });
+      expect(stored.value?.metadata['changedSourceNotificationIds']).toEqual(['notification-1']);
+    }
+  });
+
+  it('requeues ANAF / Forexebug digest compose without sources already sent directly', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-digest-direct-sent',
+          notificationType: 'anaf_forexebug_digest',
+          referenceId: null,
+          scopeKey: 'digest:anaf_forexebug:2026-03',
+          deliveryKey: 'digest:anaf_forexebug:user-1:2026-03',
+          renderedSubject: 'Digest',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            runId: 'run-digest',
+            digestType: 'anaf_forexebug_digest',
+            sourceNotificationIds: ['notification-direct', 'notification-digest'],
+            sourceNotificationVersions: {
+              'notification-direct': {
+                notificationType: 'newsletter_entity_monthly',
+                hash: 'hash-direct',
+              },
+              'notification-digest': {
+                notificationType: 'newsletter_entity_monthly',
+                hash: 'hash-digest',
+              },
+            },
+            itemCount: 2,
+          },
+        }),
+        createTestDeliveryRecord({
+          id: 'outbox-direct-sent',
+          notificationType: 'newsletter_entity_monthly',
+          referenceId: 'notification-direct',
+          scopeKey: '2026-03',
+          deliveryKey: 'user-1:notification-direct:2026-03',
+          status: 'sent',
+          renderedSubject: 'Newsletter',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+      ],
+    });
+    const getEmail = vi.fn(async () => ok('user@example.com'));
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const composeJobs: unknown[] = [];
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-direct',
+              userId: 'user-1',
+              entityCui: '123',
+              notificationType: 'newsletter_entity_monthly',
+              hash: 'hash-direct',
+              isActive: true,
+            }),
+            createTestNotification({
+              id: 'notification-digest',
+              userId: 'user-1',
+              entityCui: '456',
+              notificationType: 'newsletter_entity_monthly',
+              hash: 'hash-digest',
+              isActive: true,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail,
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        composeJobScheduler: {
+          enqueue: async (job) => {
+            composeJobs.push(job);
+            return ok(undefined);
+          },
+        },
+        log: testLogger,
+      },
+      { outboxId: 'outbox-digest-direct-sent' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-digest-direct-sent',
+      status: 'requeued_compose_due_to_stale_sources',
+    });
+    expect(getEmail).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(composeJobs).toHaveLength(1);
+
+    const stored = await deliveryRepo.findById('outbox-digest-direct-sent');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.metadata['sourceNotificationIds']).toEqual(['notification-digest']);
+      expect(stored.value?.metadata['staleSourceNotificationIds']).toEqual(['notification-direct']);
+    }
+  });
+
   it('marks delivery as failed_transient and throws when global unsubscribe lookup fails', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
@@ -460,7 +940,17 @@ describe('processSendJob', () => {
       processSendJob(
         {
           deliveryRepo,
-          notificationsRepo: makeFakeExtendedNotificationsRepo(),
+          notificationsRepo: makeFakeExtendedNotificationsRepo({
+            notifications: [
+              createTestNotification({
+                id: 'notification-1',
+                userId: 'user-1',
+                entityCui: '123',
+                notificationType: 'newsletter_entity_monthly',
+                isActive: true,
+              }),
+            ],
+          }),
           userEmailFetcher: {
             getEmail: vi.fn(async () => ok('user@example.com')),
             getEmailsByUserIds: vi.fn(async () => ok(new Map())),
