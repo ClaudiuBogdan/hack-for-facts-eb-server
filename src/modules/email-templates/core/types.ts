@@ -65,15 +65,21 @@ export interface BaseTemplateProps {
 export type NewsletterPeriodType = 'monthly' | 'quarterly' | 'yearly';
 
 /**
- * Budget summary data for newsletter.
+ * Budget amount data for newsletter.
  */
-export interface BudgetSummary {
+export interface BudgetAmounts {
   /** Total income for the period */
   totalIncome: DecimalString;
   /** Total expenses for the period */
   totalExpenses: DecimalString;
   /** Budget balance (income - expenses) */
   budgetBalance: DecimalString;
+}
+
+/**
+ * Budget summary data for newsletter.
+ */
+export interface BudgetSummary extends BudgetAmounts {
   /** Currency code (e.g., 'RON') */
   currency: string;
 }
@@ -83,11 +89,13 @@ export interface BudgetSummary {
  */
 export interface PeriodComparison {
   /** Income change percentage vs previous period */
-  incomeChangePercent: DecimalString;
+  incomeChangePercent?: DecimalString;
   /** Expenses change percentage vs previous period */
-  expensesChangePercent: DecimalString;
+  expensesChangePercent?: DecimalString;
   /** Balance change percentage vs previous period */
-  balanceChangePercent: DecimalString;
+  balanceChangePercent?: DecimalString;
+  /** Absolute balance movement vs previous period */
+  balanceChangeAmount: DecimalString;
 }
 
 /**
@@ -123,9 +131,9 @@ export interface PerCapitaMetrics {
 }
 
 /**
- * Props for entity newsletter templates.
+ * Shared props for entity newsletter templates.
  */
-export interface NewsletterEntityProps extends BaseTemplateProps {
+export interface NewsletterEntityBaseProps extends BaseTemplateProps {
   templateType: 'newsletter_entity';
 
   // ── Entity Information ─────────────────────────────────────────────────────
@@ -141,8 +149,6 @@ export interface NewsletterEntityProps extends BaseTemplateProps {
   population?: number;
 
   // ── Period Information ─────────────────────────────────────────────────────
-  /** Newsletter period type */
-  periodType: NewsletterPeriodType;
   /** Human-readable period label (e.g., "Ianuarie 2025") */
   periodLabel: string;
 
@@ -166,6 +172,27 @@ export interface NewsletterEntityProps extends BaseTemplateProps {
   /** URL to explore on map */
   mapUrl?: string;
 }
+
+export interface NewsletterEntityMonthlyProps extends NewsletterEntityBaseProps {
+  /** Newsletter period type */
+  periodType: 'monthly';
+  /** Monthly movement for monthly newsletters */
+  monthlyDelta: BudgetSummary;
+  /** Year-to-date totals through the selected month */
+  ytdSummary: BudgetSummary;
+}
+
+export interface NewsletterEntityAggregateProps extends NewsletterEntityBaseProps {
+  /** Newsletter period type */
+  periodType: Exclude<NewsletterPeriodType, 'monthly'>;
+  monthlyDelta?: BudgetSummary;
+  ytdSummary?: BudgetSummary;
+}
+
+/**
+ * Props for entity newsletter templates.
+ */
+export type NewsletterEntityProps = NewsletterEntityMonthlyProps | NewsletterEntityAggregateProps;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Alert Template Props
@@ -401,6 +428,8 @@ export interface AnafForexebugDigestNewsletterSection {
   population?: number;
   periodLabel: string;
   summary: BudgetSummary;
+  monthlyDelta: BudgetSummary;
+  ytdSummary: BudgetSummary;
   previousPeriodComparison?: PeriodComparison;
   topExpenseCategories?: TopExpenseCategory[];
   fundingSources?: FundingSourceBreakdown[];

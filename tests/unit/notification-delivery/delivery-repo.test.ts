@@ -259,6 +259,56 @@ describe('DeliveryRepository (fake)', () => {
       }
     });
 
+    it('returns null for sending rows in the generic replay helper', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-sending',
+        status: 'sending',
+        renderedSubject: 'Sending subject',
+        renderedHtml: '<p>Sending</p>',
+        renderedText: 'Sending',
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshMetadataForRecomposeIfReplayable(existing.id, {
+        recipientRole: 'subscriber',
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBeNull();
+      }
+
+      const stored = await repo.findById(existing.id);
+      expect(stored.isOk()).toBe(true);
+      if (stored.isOk()) {
+        expect(stored.value?.status).toBe('sending');
+        expect(stored.value?.renderedSubject).toBe('Sending subject');
+      }
+    });
+
+    it('refreshes sending ANAF / Forexebug digest rows through the dedicated helper', async () => {
+      const existing = createTestDeliveryRecord({
+        id: 'delivery-recompose-sending-digest',
+        notificationType: 'anaf_forexebug_digest',
+        status: 'sending',
+        renderedSubject: 'Digest subject',
+        renderedHtml: '<p>Digest</p>',
+        renderedText: 'Digest',
+      });
+      const repo = makeFakeDeliveryRepo({ deliveries: [existing] });
+
+      const result = await repo.refreshSendingDigestMetadataForRecompose(existing.id, {
+        sourceNotificationIds: ['notification-1'],
+      });
+
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value?.status).toBe('pending');
+        expect(result.value?.renderedSubject).toBeNull();
+        expect(result.value?.metadata).toEqual({ sourceNotificationIds: ['notification-1'] });
+      }
+    });
+
     it('drops stale rendered updates when the compose claim changes', async () => {
       const existing = createTestDeliveryRecord({
         id: 'delivery-compose-claim',

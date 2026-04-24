@@ -9,6 +9,7 @@ import { Text } from '@react-email/components';
 // eslint-disable-next-line @typescript-eslint/naming-convention -- React is a third-party naming standard
 import * as React from 'react';
 
+import { getTranslations } from '../../../core/i18n.js';
 import { formatAbsolutePercentage } from '../formatting.js';
 import { getMetricChangeArrow, getMetricChangeColor } from './metric-change.js';
 
@@ -23,8 +24,14 @@ export interface CompactMetric {
   label: string;
   /** Pre-formatted value string (e.g., "280,05 mil. RON") */
   value: string;
+  /** Optional secondary value, used for monthly delta under a YTD main value */
+  secondaryValue?: string | undefined;
+  /** Optional secondary value label */
+  secondaryLabel?: string | undefined;
   /** Change percentage vs previous period */
   changePercent?: DecimalString | undefined;
+  /** Optional text before the previous-period context */
+  changePrefix?: string | undefined;
 }
 
 export interface CompactMetricRowProps {
@@ -66,6 +73,12 @@ const styles = {
     margin: '2px 0 0',
     lineHeight: '14px',
   },
+  secondary: {
+    fontSize: '11px',
+    color: '#6B7280',
+    margin: '2px 0 0',
+    lineHeight: '14px',
+  },
 };
 
 const MetricCell = ({
@@ -78,23 +91,34 @@ const MetricCell = ({
   color: string;
   metricType: 'income' | 'expenses' | 'balance';
   lang: SupportedLanguage;
-}): React.ReactElement => (
-  <td style={{ width: '33%', padding: '0 4px', verticalAlign: 'top' }}>
-    <Text style={styles.label}>{metric.label}</Text>
-    <Text style={{ ...styles.value, color }}>{metric.value}</Text>
-    {metric.changePercent !== undefined && (
-      <Text
-        style={{
-          ...styles.change,
-          color: getMetricChangeColor(metricType, metric.changePercent),
-        }}
-      >
-        {getMetricChangeArrow(metric.changePercent)}{' '}
-        {formatAbsolutePercentage(metric.changePercent, lang)}
-      </Text>
-    )}
-  </td>
-);
+}): React.ReactElement => {
+  const t = getTranslations(lang);
+
+  return (
+    <td style={{ width: '33%', padding: '0 4px', verticalAlign: 'top' }}>
+      <Text style={styles.label}>{metric.label}</Text>
+      <Text style={{ ...styles.value, color }}>{metric.value}</Text>
+      {metric.secondaryValue !== undefined && metric.secondaryLabel !== undefined && (
+        <Text style={styles.secondary}>
+          {metric.secondaryLabel}: {metric.secondaryValue}
+        </Text>
+      )}
+      {metric.changePercent !== undefined && (
+        <Text
+          style={{
+            ...styles.change,
+            color: getMetricChangeColor(metricType, metric.changePercent),
+          }}
+        >
+          {getMetricChangeArrow(metric.changePercent)}{' '}
+          {formatAbsolutePercentage(metric.changePercent, lang)}{' '}
+          {metric.changePrefix !== undefined ? `${metric.changePrefix} ` : ''}
+          {t.newsletter.change.vsLastPeriod}
+        </Text>
+      )}
+    </td>
+  );
+};
 
 export const CompactMetricRow = ({
   income,

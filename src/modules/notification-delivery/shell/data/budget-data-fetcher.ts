@@ -1,7 +1,9 @@
 import { Decimal } from 'decimal.js';
+import { sql } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { Frequency } from '@/common/types/temporal.js';
+import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 import {
   getAggregatedLineItems,
   type AggregatedLineItemsRepository,
@@ -15,8 +17,14 @@ import {
   type DeliveryError,
 } from '../../core/errors.js';
 
-import type { AlertData, DataFetcher, NewsletterData } from '../../core/ports.js';
+import type {
+  AlertData,
+  DataFetcher,
+  NewsletterData,
+  NewsletterFinancialSummary,
+} from '../../core/ports.js';
 import type { AnalyticsFilter, PeriodDate } from '@/common/types/analytics.js';
+import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { DatasetRepo } from '@/modules/datasets/index.js';
 import type {
   EntityAnalyticsSummaryRepository,
@@ -119,6 +127,17 @@ const calculatePercentChange = (current: Decimal, previous: Decimal): Decimal | 
   }
 
   return current.minus(previous).div(previous).mul(100);
+};
+
+const calculateBalancePercentChange = (
+  current: Decimal,
+  previous: Decimal
+): Decimal | undefined => {
+  if (previous.isZero()) {
+    return undefined;
+  }
+
+  return current.minus(previous).div(previous.abs()).mul(100);
 };
 
 const normalizeFilterObject = (value: Record<string, unknown>): Record<string, unknown> => {
@@ -231,6 +250,7 @@ export interface BudgetDataFetcherConfig {
   entityRepo: EntityRepository;
   entityProfileRepo: EntityProfileRepository;
   entityAnalyticsSummaryRepo: EntityAnalyticsSummaryRepository;
+  monthlyYtdTotalsReader: MonthlyYtdTotalsReader;
   aggregatedLineItemsRepo: AggregatedLineItemsRepository;
   normalization: NormalizationPort;
   populationRepo: PopulationRepository;
@@ -238,11 +258,110 @@ export interface BudgetDataFetcherConfig {
   logger: Logger;
 }
 
+export interface MonthlyYtdTotalsReaderInput {
+  entityCui: string;
+  periodKey: string;
+  reportType: string;
+}
+
+export interface MonthlyYtdTotalsReader {
+  getMonthlyYtdTotals(
+    input: MonthlyYtdTotalsReaderInput
+  ): Promise<Result<NewsletterFinancialSummary, DeliveryError>>;
+}
+
+export interface BudgetMonthlyYtdTotalsReaderConfig {
+  budgetDb: BudgetDbClient;
+  logger: Logger;
+}
+
+const parseMonthlyPeriodKey = (periodKey: string): { year: number; month: number } | null => {
+  const match = /^(?<year>\d{4})-(?<month>0[1-9]|1[0-2])$/u.exec(periodKey);
+  if (match?.groups === undefined) {
+    return null;
+  }
+
+  const year = Number.parseInt(match.groups['year'] ?? '', 10);
+  const month = Number.parseInt(match.groups['month'] ?? '', 10);
+
+  if (Number.isNaN(year) || Number.isNaN(month)) {
+    return null;
+  }
+
+  return { year, month };
+};
+
+interface MonthlyYtdTotalsRow {
+  total_income: string | null;
+  total_expense: string | null;
+  budget_balance: string | null;
+}
+
+export const makeBudgetMonthlyYtdTotalsReader = ({
+  budgetDb,
+  logger,
+}: BudgetMonthlyYtdTotalsReaderConfig): MonthlyYtdTotalsReader => {
+  const log = logger.child({ component: 'BudgetMonthlyYtdTotalsReader' });
+
+  return {
+    async getMonthlyYtdTotals({
+      entityCui,
+      periodKey,
+      reportType,
+    }: MonthlyYtdTotalsReaderInput): Promise<Result<NewsletterFinancialSummary, DeliveryError>> {
+      const parsedPeriod = parseMonthlyPeriodKey(periodKey);
+      if (parsedPeriod === null) {
+        return err(createValidationError(`Invalid monthly period key '${periodKey}'`));
+      }
+
+      try {
+        const result = await sql<MonthlyYtdTotalsRow>`
+          SELECT
+            COALESCE(SUM(CASE WHEN eli.account_category = 'vn' THEN eli.ytd_amount ELSE 0 END), 0)::text AS total_income,
+            COALESCE(SUM(CASE WHEN eli.account_category = 'ch' THEN eli.ytd_amount ELSE 0 END), 0)::text AS total_expense,
+            COALESCE(SUM(CASE WHEN eli.account_category = 'vn' THEN eli.ytd_amount ELSE -eli.ytd_amount END), 0)::text AS budget_balance
+          FROM executionlineitems eli
+          WHERE eli.entity_cui = ${entityCui}
+            AND eli.report_type = ${reportType}
+            AND eli.year = ${parsedPeriod.year}
+            AND eli.month = ${parsedPeriod.month}
+            AND NOT (
+              eli.account_category = 'ch' AND (
+                eli.economic_code LIKE '51.01%' OR
+                eli.economic_code LIKE '51.02%'
+              )
+            )
+            AND NOT (
+              eli.account_category = 'vn' AND (
+                eli.functional_code LIKE '36.02.05%' OR
+                eli.functional_code LIKE '37.02.03%' OR
+                eli.functional_code LIKE '37.02.04%' OR
+                eli.functional_code LIKE '47.02.04%'
+              )
+            )
+        `.execute(budgetDb);
+
+        const row = result.rows[0];
+
+        return ok({
+          totalIncome: new Decimal(row?.total_income ?? '0'),
+          totalExpenses: new Decimal(row?.total_expense ?? '0'),
+          budgetBalance: new Decimal(row?.budget_balance ?? '0'),
+        });
+      } catch (error) {
+        log.warn({ entityCui, periodKey, error }, 'Failed to load monthly YTD totals');
+        return err(createDatabaseError('Failed to load monthly YTD totals'));
+      }
+    },
+  };
+};
+
 export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetcher => {
   const {
     entityRepo,
     entityProfileRepo,
     entityAnalyticsSummaryRepo,
+    monthlyYtdTotalsReader,
     aggregatedLineItemsRepo,
     normalization,
     populationRepo,
@@ -369,6 +488,29 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
       const totalIncome = toDecimal(totals.totalIncome);
       const totalExpenses = toDecimal(totals.totalExpenses);
       const budgetBalance = toDecimal(totals.budgetBalance);
+      const monthlyDelta =
+        periodType === 'monthly'
+          ? {
+              totalIncome,
+              totalExpenses,
+              budgetBalance,
+            }
+          : undefined;
+
+      const ytdSummaryResult =
+        periodType === 'monthly'
+          ? await monthlyYtdTotalsReader.getMonthlyYtdTotals({
+              entityCui,
+              periodKey,
+              reportType: entity.default_report_type,
+            })
+          : undefined;
+
+      if (ytdSummaryResult?.isErr() === true) {
+        return err(ytdSummaryResult.error);
+      }
+
+      const ytdSummary = ytdSummaryResult?.isOk() === true ? ytdSummaryResult.value : undefined;
 
       const [profileResult, previousPeriodKey, population, topExpenseCategories] =
         await Promise.all([
@@ -405,23 +547,18 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
                 totalExpenses,
                 toDecimal(previousTotals.totalExpenses)
               );
-              const balanceChangePercent = calculatePercentChange(
+              const previousBudgetBalance = toDecimal(previousTotals.budgetBalance);
+              const balanceChangePercent = calculateBalancePercentChange(
                 budgetBalance,
-                toDecimal(previousTotals.budgetBalance)
+                previousBudgetBalance
               );
-
-              if (
-                incomeChangePercent === undefined ||
-                expensesChangePercent === undefined ||
-                balanceChangePercent === undefined
-              ) {
-                return undefined;
-              }
+              const balanceChangeAmount = budgetBalance.minus(previousBudgetBalance);
 
               return {
-                incomeChangePercent,
-                expensesChangePercent,
-                balanceChangePercent,
+                ...(incomeChangePercent !== undefined ? { incomeChangePercent } : {}),
+                ...(expensesChangePercent !== undefined ? { expensesChangePercent } : {}),
+                ...(balanceChangePercent !== undefined ? { balanceChangePercent } : {}),
+                balanceChangeAmount,
               };
             })();
 
@@ -436,11 +573,13 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
       return ok({
         entityName: entity.name,
         entityCui: entity.cui,
-        periodLabel: periodKey,
+        periodLabel: formatPeriodLabel(periodKey, periodType),
         totalIncome,
         totalExpenses,
         budgetBalance,
         currency: DEFAULT_CURRENCY,
+        ...(monthlyDelta !== undefined ? { monthlyDelta } : {}),
+        ...(ytdSummary !== undefined ? { ytdSummary } : {}),
         ...(entity.entity_type !== null ? { entityType: entity.entity_type } : {}),
         ...(profile?.county_name !== null && profile?.county_name !== undefined
           ? { countyName: profile.county_name }

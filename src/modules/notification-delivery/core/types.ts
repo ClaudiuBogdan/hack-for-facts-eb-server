@@ -99,6 +99,13 @@ export interface AnafForexebugDigestMetadata {
   sourceNotificationIds: string[];
   itemCount: number;
   periodLabel?: string;
+  sourceNotificationVersions?: Record<
+    string,
+    {
+      notificationType: NotificationType;
+      hash: string;
+    }
+  >;
   designDoc?: string;
 }
 export type BundleOutboxMetadata = AnafForexebugDigestMetadata;

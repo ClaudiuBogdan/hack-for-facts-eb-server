@@ -7,11 +7,13 @@ import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 import {
   buildCampaignEntityUrl,
   buildCampaignPreferencesUrl,
+  buildEntityReportUrl,
   buildNotificationSettingsUrl,
   type BundleComposeError,
   formatTemplateError,
   getPeriodYear,
   hashContent,
+  hasMonthlyNewsletterTemplateFields,
   mapNewsletterDataToTemplateFields,
   mapTriggeredConditionsToTemplateFields,
   toDecimalString,
@@ -19,7 +21,12 @@ import {
 import { registration as weeklyProgressDigestRegistration } from '../../../../email-templates/shell/registry/registrations/weekly-progress-digest.js';
 import { renderTemplateRegistration } from '../../../../email-templates/shell/renderer/render-template-registration.js';
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
-import { getErrorMessage, isRetryableError, type DeliveryError } from '../../../core/errors.js';
+import {
+  createValidationError,
+  getErrorMessage,
+  isRetryableError,
+  type DeliveryError,
+} from '../../../core/errors.js';
 import { parsePublicDebateAnnouncementOutboxMetadata } from '../../../core/public-debate-announcement.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
@@ -747,14 +754,22 @@ const buildNewsletterBundleSection = async (
   }
 
   const data = dataResult.value;
+  const newsletterFields = mapNewsletterDataToTemplateFields(data);
+  if (!hasMonthlyNewsletterTemplateFields(newsletterFields)) {
+    return err(
+      createValidationError('Monthly digest newsletter data is missing monthly/YTD totals')
+    );
+  }
 
   return ok({
     kind: 'newsletter_entity',
     notificationId: notification.id,
     notificationType: notification.notificationType,
     periodLabel: data.periodLabel,
-    detailsUrl: `${platformBaseUrl}/entities/${notification.entityCui}`,
-    ...mapNewsletterDataToTemplateFields(data),
+    detailsUrl: buildEntityReportUrl(platformBaseUrl, notification.entityCui, periodKey, 'monthly'),
+    ...newsletterFields,
+    monthlyDelta: newsletterFields.monthlyDelta,
+    ytdSummary: newsletterFields.ytdSummary,
   });
 };
 

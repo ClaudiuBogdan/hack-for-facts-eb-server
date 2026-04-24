@@ -153,7 +153,15 @@ const DigestEntitySection = ({
   periodKey: string;
 }): React.ReactElement => {
   const t = getTranslations(lang);
-  const { summary } = section;
+  const summary = section.ytdSummary;
+  const { monthlyDelta } = section;
+  const ytdLabels = {
+    income: lang === 'ro' ? 'Venituri YTD' : 'YTD income',
+    expenses: lang === 'ro' ? 'Cheltuieli YTD' : 'YTD expenses',
+    balance: lang === 'ro' ? 'Sold YTD' : 'YTD balance',
+  };
+  const monthlyDeltaLabel = lang === 'ro' ? `în ${section.periodLabel}` : `in ${section.periodLabel}`;
+  const monthlyChangePrefix = lang === 'ro' ? 'lunar' : 'monthly';
 
   return (
     <Section
@@ -173,19 +181,40 @@ const DigestEntitySection = ({
       {/* Compact Financial Metrics */}
       <CompactMetricRow
         income={{
-          label: t.digest.sections.income,
+          label: ytdLabels.income,
           value: formatCompactCurrency(summary.totalIncome, summary.currency, lang),
+          secondaryLabel: monthlyDeltaLabel,
+          secondaryValue: formatCompactCurrency(
+            monthlyDelta.totalIncome,
+            monthlyDelta.currency,
+            lang
+          ),
           changePercent: section.previousPeriodComparison?.incomeChangePercent,
+          changePrefix: monthlyChangePrefix,
         }}
         expenses={{
-          label: t.digest.sections.expenses,
+          label: ytdLabels.expenses,
           value: formatCompactCurrency(summary.totalExpenses, summary.currency, lang),
+          secondaryLabel: monthlyDeltaLabel,
+          secondaryValue: formatCompactCurrency(
+            monthlyDelta.totalExpenses,
+            monthlyDelta.currency,
+            lang
+          ),
           changePercent: section.previousPeriodComparison?.expensesChangePercent,
+          changePrefix: monthlyChangePrefix,
         }}
         balance={{
-          label: t.digest.sections.balance,
+          label: ytdLabels.balance,
           value: formatCompactCurrency(summary.budgetBalance, summary.currency, lang),
+          secondaryLabel: monthlyDeltaLabel,
+          secondaryValue: formatCompactCurrency(
+            monthlyDelta.budgetBalance,
+            monthlyDelta.currency,
+            lang
+          ),
           changePercent: section.previousPeriodComparison?.balanceChangePercent,
+          changePrefix: monthlyChangePrefix,
         }}
         lang={lang}
       />

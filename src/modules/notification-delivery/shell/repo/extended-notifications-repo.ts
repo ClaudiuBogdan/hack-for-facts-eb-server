@@ -16,6 +16,7 @@ import {
   type TargetedNotificationEligibility,
   type UserScopedNotificationEligibility,
 } from '../../core/ports.js';
+import { buildAnafForexebugDigestScopeKey } from '../../core/types.js';
 
 import type { UserDbClient } from '@/infra/database/client.js';
 import type {
@@ -222,7 +223,8 @@ export const makeExtendedNotificationsRepo = (
       notificationType: NotificationType,
       periodKey: string,
       limit?: number,
-      ignoreMaterialized = false
+      ignoreMaterialized = false,
+      materializedScope = 'all'
     ): Promise<Result<Notification[], DeliveryError>> {
       try {
         const notificationRows = await db
@@ -242,20 +244,44 @@ export const makeExtendedNotificationsRepo = (
         }
         const globallyUnsubscribedUsers = globallyUnsubscribedUsersResult.value;
 
-        const materializedNotificationIds = ignoreMaterialized
-          ? new Set<string>()
-          : new Set(
-              (
-                await db
-                  .selectFrom('notificationsoutbox')
-                  .select(['reference_id'])
-                  .where('scope_key', '=', periodKey)
-                  .where('notification_type', '=', notificationType)
-                  .execute()
-              )
-                .map((row) => row.reference_id)
-                .filter((referenceId): referenceId is string => typeof referenceId === 'string')
-            );
+        const materializedNotificationIds = new Set<string>();
+
+        if (!ignoreMaterialized) {
+          const directOutboxRows = await db
+            .selectFrom('notificationsoutbox')
+            .select(['reference_id'])
+            .where('scope_key', '=', periodKey)
+            .where('notification_type', '=', notificationType)
+            .execute();
+
+          for (const row of directOutboxRows) {
+            if (typeof row.reference_id === 'string') {
+              materializedNotificationIds.add(row.reference_id);
+            }
+          }
+
+          if (materializedScope === 'all') {
+            const digestOutboxRows = await db
+              .selectFrom('notificationsoutbox')
+              .select(['metadata'])
+              .where('notification_type', '=', 'anaf_forexebug_digest')
+              .where('scope_key', 'in', [periodKey, buildAnafForexebugDigestScopeKey(periodKey)])
+              .execute();
+
+            for (const row of digestOutboxRows) {
+              const sourceNotificationIds = row.metadata['sourceNotificationIds'];
+              if (!Array.isArray(sourceNotificationIds)) {
+                continue;
+              }
+
+              for (const sourceNotificationId of sourceNotificationIds) {
+                if (typeof sourceNotificationId === 'string') {
+                  materializedNotificationIds.add(sourceNotificationId);
+                }
+              }
+            }
+          }
+        }
 
         const eligibleNotifications = notificationRows
           .map((row) => mapRow(row as unknown as QueryRow))

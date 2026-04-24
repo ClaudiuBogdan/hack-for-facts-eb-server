@@ -33,6 +33,7 @@ import {
   getErrorMessage,
   MAX_RETRY_ATTEMPTS,
   makeBudgetDataFetcher,
+  makeBudgetMonthlyYtdTotalsReader,
   makeClerkUserEmailFetcher,
   makeComposeJobScheduler,
   makeDeliveryRepo,
@@ -405,6 +406,10 @@ const main = async (): Promise<void> => {
     entityRepo: makeEntityRepo(budgetDb),
     entityProfileRepo: makeEntityProfileRepo(budgetDb),
     entityAnalyticsSummaryRepo: makeEntityAnalyticsSummaryRepo(budgetDb),
+    monthlyYtdTotalsReader: makeBudgetMonthlyYtdTotalsReader({
+      budgetDb,
+      logger,
+    }),
     aggregatedLineItemsRepo: makeAggregatedLineItemsRepo(budgetDb),
     normalization,
     populationRepo: makePopulationRepo(budgetDb),
@@ -439,6 +444,7 @@ const main = async (): Promise<void> => {
   });
   const composeQueue = queueClient.getQueue<ComposeJobPayload>(QUEUE_NAMES.COMPOSE);
   const sendQueue = queueClient.getQueue<SendJobPayload>(QUEUE_NAMES.SEND);
+  const composeJobScheduler = makeComposeJobScheduler({ composeQueue });
   const workerManager = createWorkerManager({ logger });
 
   const composeWorker = createComposeWorker({
@@ -464,6 +470,7 @@ const main = async (): Promise<void> => {
     logger,
     apiBaseUrl: platformBaseUrl,
     environment: useRealSender ? 'monthly-poc-real' : 'monthly-poc-mock',
+    composeJobScheduler,
     bullmqPrefix,
   });
 
@@ -476,7 +483,7 @@ const main = async (): Promise<void> => {
       {
         notificationsRepo: scopedNotificationsRepo,
         deliveryRepo,
-        composeJobScheduler: makeComposeJobScheduler({ composeQueue }),
+        composeJobScheduler,
       },
       {
         runId,

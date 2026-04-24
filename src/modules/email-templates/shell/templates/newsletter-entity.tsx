@@ -12,9 +12,10 @@ import * as React from 'react';
 import { CategoryList } from './components/category-list.js';
 import { EntityHeader } from './components/entity-header.js';
 import { FundingBreakdown } from './components/funding-breakdown.js';
-import { MetricCard } from './components/metric-card.js';
+import { MetricCard, type MetricType } from './components/metric-card.js';
+import { getMetricChangeArrow, getMetricChangeColor } from './components/metric-change.js';
 import { EmailLayout } from './email-layout.js';
-import { formatCompactCurrency, formatCurrency } from './formatting.js';
+import { formatAbsolutePercentage, formatCompactCurrency, formatCurrency } from './formatting.js';
 import { getTranslations, getNewsletterIntro } from '../../core/i18n.js';
 
 import type { NewsletterEntityProps } from '../../core/types.js';
@@ -38,6 +39,40 @@ const styles = {
   },
   metricsContainer: {
     margin: '0 0 24px',
+  },
+  monthlyDeltaContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    padding: '18px 20px',
+    border: '1px solid #e5e7eb',
+    margin: '0 0 24px',
+  },
+  monthlyDeltaTitle: {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#1f2937',
+    margin: '0 0 12px',
+  },
+  monthlyDeltaLabel: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#8898aa',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
+    margin: '0 0 4px',
+  },
+  monthlyDeltaValue: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#1a1a2e',
+    margin: '0',
+    lineHeight: '22px',
+  },
+  monthlyDeltaChange: {
+    fontSize: '11px',
+    fontWeight: '600',
+    margin: '2px 0 0',
+    lineHeight: '14px',
   },
   button: {
     backgroundColor: '#4F46E5',
@@ -118,6 +153,8 @@ export const NewsletterEntityEmail = ({
   periodType,
   periodLabel,
   summary,
+  monthlyDelta,
+  ytdSummary,
   previousPeriodComparison,
   topExpenseCategories,
   fundingSources,
@@ -127,6 +164,41 @@ export const NewsletterEntityEmail = ({
 }: NewsletterEntityProps): React.ReactElement => {
   const t = getTranslations(lang);
   const previewText = getNewsletterIntro(lang, periodType, entityName, periodLabel);
+  const displaySummary = periodType === 'monthly' ? ytdSummary : summary;
+  const metricLabels =
+    periodType === 'monthly'
+      ? {
+          income: lang === 'ro' ? 'Venituri YTD' : 'YTD income',
+          expenses: lang === 'ro' ? 'Cheltuieli YTD' : 'YTD expenses',
+          balance: lang === 'ro' ? 'Sold YTD' : 'YTD balance',
+        }
+      : {
+          income: t.newsletter.body.income,
+          expenses: t.newsletter.body.expenses,
+          balance: t.newsletter.body.balance,
+        };
+  const monthlyDeltaTitle =
+    lang === 'ro' ? `Mișcare lunară în ${periodLabel}` : `Monthly movement in ${periodLabel}`;
+  const renderMonthlyChange = (
+    type: MetricType,
+    changePercent: string | undefined
+  ): React.ReactElement | null => {
+    if (changePercent === undefined) {
+      return null;
+    }
+
+    return (
+      <Text
+        style={{
+          ...styles.monthlyDeltaChange,
+          color: getMetricChangeColor(type, changePercent),
+        }}
+      >
+        {getMetricChangeArrow(changePercent)} {formatAbsolutePercentage(changePercent, lang)}{' '}
+        {t.newsletter.change.vsLastPeriod}
+      </Text>
+    );
+  };
 
   const layoutProps = {
     lang,
@@ -165,9 +237,15 @@ export const NewsletterEntityEmail = ({
           <Column style={{ width: '33%', padding: '0 6px 0 0' }}>
             <MetricCard
               type="income"
-              label={t.newsletter.body.income}
-              value={formatCompactCurrency(summary.totalIncome, summary.currency, lang)}
-              changePercent={previousPeriodComparison?.incomeChangePercent}
+              label={metricLabels.income}
+              value={formatCompactCurrency(
+                displaySummary.totalIncome,
+                displaySummary.currency,
+                lang
+              )}
+              changePercent={
+                periodType === 'monthly' ? undefined : previousPeriodComparison?.incomeChangePercent
+              }
               lang={lang}
             />
           </Column>
@@ -176,9 +254,17 @@ export const NewsletterEntityEmail = ({
           <Column style={{ width: '33%', padding: '0 3px' }}>
             <MetricCard
               type="expenses"
-              label={t.newsletter.body.expenses}
-              value={formatCompactCurrency(summary.totalExpenses, summary.currency, lang)}
-              changePercent={previousPeriodComparison?.expensesChangePercent}
+              label={metricLabels.expenses}
+              value={formatCompactCurrency(
+                displaySummary.totalExpenses,
+                displaySummary.currency,
+                lang
+              )}
+              changePercent={
+                periodType === 'monthly'
+                  ? undefined
+                  : previousPeriodComparison?.expensesChangePercent
+              }
               lang={lang}
             />
           </Column>
@@ -187,18 +273,59 @@ export const NewsletterEntityEmail = ({
           <Column style={{ width: '33%', padding: '0 0 0 6px' }}>
             <MetricCard
               type="balance"
-              label={t.newsletter.body.balance}
-              value={formatCompactCurrency(summary.budgetBalance, summary.currency, lang)}
-              changePercent={previousPeriodComparison?.balanceChangePercent}
+              label={metricLabels.balance}
+              value={formatCompactCurrency(
+                displaySummary.budgetBalance,
+                displaySummary.currency,
+                lang
+              )}
+              changePercent={
+                periodType === 'monthly'
+                  ? undefined
+                  : previousPeriodComparison?.balanceChangePercent
+              }
               lang={lang}
             />
           </Column>
         </Row>
       </Section>
 
+      {periodType === 'monthly' && (
+        <Section style={styles.monthlyDeltaContainer}>
+          <Text style={styles.monthlyDeltaTitle}>{monthlyDeltaTitle}</Text>
+          <Row>
+            <Column style={{ width: '33%', padding: '0 8px 0 0' }}>
+              <Text style={styles.monthlyDeltaLabel}>{t.newsletter.body.income}</Text>
+              <Text style={{ ...styles.monthlyDeltaValue, color: '#10b981' }}>
+                {formatCompactCurrency(monthlyDelta.totalIncome, monthlyDelta.currency, lang)}
+              </Text>
+              {renderMonthlyChange('income', previousPeriodComparison?.incomeChangePercent)}
+            </Column>
+            <Column style={{ width: '33%', padding: '0 4px' }}>
+              <Text style={styles.monthlyDeltaLabel}>{t.newsletter.body.expenses}</Text>
+              <Text style={{ ...styles.monthlyDeltaValue, color: '#f43f5e' }}>
+                {formatCompactCurrency(monthlyDelta.totalExpenses, monthlyDelta.currency, lang)}
+              </Text>
+              {renderMonthlyChange('expenses', previousPeriodComparison?.expensesChangePercent)}
+            </Column>
+            <Column style={{ width: '33%', padding: '0 0 0 8px' }}>
+              <Text style={styles.monthlyDeltaLabel}>{t.newsletter.body.balance}</Text>
+              <Text style={{ ...styles.monthlyDeltaValue, color: '#6366f1' }}>
+                {formatCompactCurrency(monthlyDelta.budgetBalance, monthlyDelta.currency, lang)}
+              </Text>
+              {renderMonthlyChange('balance', previousPeriodComparison?.balanceChangePercent)}
+            </Column>
+          </Row>
+        </Section>
+      )}
+
       {/* Top Spending Categories */}
       {topExpenseCategories !== undefined && topExpenseCategories.length > 0 && (
-        <CategoryList categories={topExpenseCategories} currency={summary.currency} lang={lang} />
+        <CategoryList
+          categories={topExpenseCategories}
+          currency={displaySummary.currency}
+          lang={lang}
+        />
       )}
 
       {/* Funding Sources */}
@@ -278,7 +405,9 @@ export const NewsletterEntityEmail = ({
                           </table>
                         </td>
                         <td style={{ verticalAlign: 'middle' }}>
-                          <Text style={styles.perCapitaLabel}>{t.newsletter.perCapita.expenses}</Text>
+                          <Text style={styles.perCapitaLabel}>
+                            {t.newsletter.perCapita.expenses}
+                          </Text>
                           <Text style={{ ...styles.perCapitaValue, color: '#f43f5e' }}>
                             {formatCurrency(perCapita.expenses, summary.currency, lang)}
                           </Text>
@@ -341,6 +470,18 @@ NewsletterEntityEmail.PreviewProps = {
 
   // Financial Summary
   summary: {
+    totalIncome: '42000000',
+    totalExpenses: '31500000',
+    budgetBalance: '10500000',
+    currency: 'RON',
+  },
+  monthlyDelta: {
+    totalIncome: '42000000',
+    totalExpenses: '31500000',
+    budgetBalance: '10500000',
+    currency: 'RON',
+  },
+  ytdSummary: {
     totalIncome: '280050000',
     totalExpenses: '182370000',
     budgetBalance: '97680000',
@@ -352,6 +493,7 @@ NewsletterEntityEmail.PreviewProps = {
     incomeChangePercent: '12.3',
     expensesChangePercent: '8.7',
     balanceChangePercent: '23.1',
+    balanceChangeAmount: '18300000',
   },
 
   // Top Spending Categories
@@ -377,7 +519,8 @@ NewsletterEntityEmail.PreviewProps = {
   },
 
   // Links
-  detailsUrl: 'https://transparenta.eu/entities/4240600?period=2025-01',
+  detailsUrl:
+    'https://transparenta.eu/entities/4240600?period=MONTH&normalization=total&year=2025&month=01',
   mapUrl: 'https://transparenta.eu/map?entity=4240600',
 } as NewsletterEntityProps;
 

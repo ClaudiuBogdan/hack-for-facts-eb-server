@@ -23,6 +23,7 @@ interface NotificationOutboxRow {
   notification_type?: string;
   reference_id: string | null;
   scope_key: string;
+  metadata?: Record<string, unknown>;
 }
 
 const toSortableValue = (value: unknown): string => {
@@ -215,6 +216,106 @@ describe('makeExtendedNotificationsRepo', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.map((notification) => notification.id)).toEqual(['n-2']);
+    }
+  });
+
+  it('excludes source notifications already bundled in a digest for the requested period', async () => {
+    const { db } = makeUserDb({
+      notifications: [
+        {
+          id: 'n-1',
+          user_id: 'user-1',
+          entity_cui: '1',
+          notification_type: 'newsletter_entity_monthly',
+          is_active: true,
+          config: null,
+          hash: 'hash-1',
+          created_at: '2026-03-01T10:00:00.000Z',
+          updated_at: '2026-03-01T10:00:00.000Z',
+        },
+        {
+          id: 'n-2',
+          user_id: 'user-2',
+          entity_cui: '2',
+          notification_type: 'newsletter_entity_monthly',
+          is_active: true,
+          config: null,
+          hash: 'hash-2',
+          created_at: '2026-03-02T10:00:00.000Z',
+          updated_at: '2026-03-02T10:00:00.000Z',
+        },
+      ],
+      outboxRows: [
+        {
+          reference_id: null,
+          scope_key: 'digest:anaf_forexebug:2026-03',
+          notification_type: 'anaf_forexebug_digest',
+          metadata: {
+            sourceNotificationIds: ['n-1'],
+          },
+        },
+      ],
+    });
+
+    const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
+    const result = await repo.findEligibleForDelivery('newsletter_entity_monthly', '2026-03');
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.map((notification) => notification.id)).toEqual(['n-2']);
+    }
+  });
+
+  it('does not treat digest bundle membership as materialized when only direct rows should count', async () => {
+    const { db } = makeUserDb({
+      notifications: [
+        {
+          id: 'n-1',
+          user_id: 'user-1',
+          entity_cui: '1',
+          notification_type: 'newsletter_entity_monthly',
+          is_active: true,
+          config: null,
+          hash: 'hash-1',
+          created_at: '2026-03-01T10:00:00.000Z',
+          updated_at: '2026-03-01T10:00:00.000Z',
+        },
+        {
+          id: 'n-2',
+          user_id: 'user-2',
+          entity_cui: '2',
+          notification_type: 'newsletter_entity_monthly',
+          is_active: true,
+          config: null,
+          hash: 'hash-2',
+          created_at: '2026-03-02T10:00:00.000Z',
+          updated_at: '2026-03-02T10:00:00.000Z',
+        },
+      ],
+      outboxRows: [
+        {
+          reference_id: null,
+          scope_key: 'digest:anaf_forexebug:2026-03',
+          notification_type: 'anaf_forexebug_digest',
+          metadata: {
+            sourceNotificationIds: ['n-1'],
+          },
+        },
+      ],
+    });
+
+    const repo = makeExtendedNotificationsRepo({ db, logger: testLogger });
+    const result = await repo.findEligibleForDelivery(
+      'newsletter_entity_monthly',
+      '2026-03',
+      undefined,
+      false,
+      'direct'
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.map((notification) => notification.id)).toEqual(['n-1', 'n-2']);
     }
   });
 

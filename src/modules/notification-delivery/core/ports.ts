@@ -106,6 +106,33 @@ export interface NotificationOutboxRepository {
   ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
 
   /**
+   * Replaces metadata and resets an in-flight ANAF / Forexebug digest into a
+   * compose-needed state after source preferences changed at send time.
+   */
+  refreshSendingDigestMetadataForRecompose(
+    outboxId: string,
+    metadata: Record<string, unknown>
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
+
+  /**
+   * Finds an ANAF / Forexebug digest row that already bundles this source for
+   * the requested monthly period.
+   */
+  findAnafForexebugDigestForSource(
+    sourceNotificationId: string,
+    periodKey: string
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
+
+  /**
+   * Finds a direct source delivery for the requested period.
+   */
+  findDirectDeliveryForSource(
+    notificationType: NotificationType,
+    sourceNotificationId: string,
+    periodKey: string
+  ): Promise<Result<NotificationOutboxRecord | null, DeliveryError>>;
+
+  /**
    * Updates rendered content on an existing outbox row only if it still holds
    * the composing claim for the current worker.
    *
@@ -219,6 +246,8 @@ export interface LoggerPort {
 // Notifications Repository Extensions
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type MaterializedDeliveryScope = 'all' | 'direct';
+
 /**
  * Extended notifications repository for delivery pipeline.
  */
@@ -232,12 +261,16 @@ export interface ExtendedNotificationsRepository {
    * Finds notifications eligible for delivery.
    * Returns active notifications that are still deliverable for this period.
    * Globally unsubscribed users are excluded before queueing.
+   * materializedScope controls whether digest bundle membership also counts as
+   * materialized. Direct monthly triggers use "all"; digest materialization uses
+   * "direct" so it can still find existing digest rows for requeue.
    */
   findEligibleForDelivery(
     notificationType: NotificationType,
     periodKey: string,
     limit?: number,
-    ignoreMaterialized?: boolean
+    ignoreMaterialized?: boolean,
+    materializedScope?: MaterializedDeliveryScope
   ): Promise<Result<Notification[], DeliveryError>>;
 
   /**
@@ -472,9 +505,14 @@ export interface NewsletterFundingSource {
  * Period-over-period comparison data.
  */
 export interface NewsletterPeriodComparison {
-  incomeChangePercent: Decimal;
-  expensesChangePercent: Decimal;
-  balanceChangePercent: Decimal;
+  incomeChangePercent?: Decimal;
+  expensesChangePercent?: Decimal;
+  /**
+   * Balance percent uses the absolute previous balance as denominator so
+   * improving deficits produce positive change and worsening deficits negative.
+   */
+  balanceChangePercent?: Decimal;
+  balanceChangeAmount: Decimal;
 }
 
 /**
@@ -483,6 +521,15 @@ export interface NewsletterPeriodComparison {
 export interface NewsletterPerCapita {
   income: Decimal;
   expenses: Decimal;
+}
+
+/**
+ * Budget execution totals used by newsletter templates.
+ */
+export interface NewsletterFinancialSummary {
+  totalIncome: Decimal;
+  totalExpenses: Decimal;
+  budgetBalance: Decimal;
 }
 
 /**
@@ -504,6 +551,16 @@ export interface NewsletterData {
   totalExpenses: Decimal;
   budgetBalance: Decimal;
   currency: string;
+  /**
+   * Explicit monthly movement for monthly newsletters. For non-monthly
+   * newsletters this is omitted because the selected period already carries the
+   * intended semantics.
+   */
+  monthlyDelta?: NewsletterFinancialSummary | undefined;
+  /**
+   * Year-to-date totals through the selected monthly period.
+   */
+  ytdSummary?: NewsletterFinancialSummary | undefined;
 
   // Period comparison (optional)
   previousPeriodComparison?: NewsletterPeriodComparison | undefined;

@@ -3296,6 +3296,84 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
       return ok(updated);
     },
 
+    refreshSendingDigestMetadataForRecompose: async (
+      deliveryId: string,
+      metadata: Record<string, unknown>
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      const delivery = store.get(deliveryId);
+      if (delivery === undefined) return ok(null);
+
+      if (delivery.status !== 'sending' || delivery.notificationType !== 'anaf_forexebug_digest') {
+        return ok(null);
+      }
+
+      const updated: DeliveryRecord = {
+        ...delivery,
+        status: 'pending',
+        toEmail: null,
+        renderedSubject: null,
+        renderedHtml: null,
+        renderedText: null,
+        contentHash: null,
+        templateName: null,
+        templateVersion: null,
+        resendEmailId: null,
+        lastError: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        sentAt: null,
+        metadata,
+      };
+      store.set(deliveryId, updated);
+      return ok(updated);
+    },
+
+    findAnafForexebugDigestForSource: async (
+      sourceNotificationId: string,
+      periodKey: string
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      for (const delivery of store.values()) {
+        const sourceNotificationIds = delivery.metadata['sourceNotificationIds'];
+        const isMatchingDigestScope =
+          delivery.scopeKey === periodKey ||
+          delivery.scopeKey === `digest:anaf_forexebug:${periodKey}`;
+        if (
+          delivery.notificationType === 'anaf_forexebug_digest' &&
+          isMatchingDigestScope &&
+          Array.isArray(sourceNotificationIds) &&
+          sourceNotificationIds.includes(sourceNotificationId)
+        ) {
+          return ok(delivery);
+        }
+      }
+
+      return ok(null);
+    },
+
+    findDirectDeliveryForSource: async (
+      notificationType: NotificationType,
+      sourceNotificationId: string,
+      periodKey: string
+    ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
+      if (simulateDbError) return createDbError();
+
+      for (const delivery of store.values()) {
+        if (
+          delivery.notificationType === notificationType &&
+          delivery.referenceId === sourceNotificationId &&
+          delivery.scopeKey === periodKey
+        ) {
+          return ok(delivery);
+        }
+      }
+
+      return ok(null);
+    },
+
     claimForSending: async (
       deliveryId: string
     ): Promise<Result<DeliveryRecord | null, DeliveryError>> => {
@@ -3498,6 +3576,8 @@ interface FakeExtendedNotificationsRepoOptions {
   notifications?: Notification[];
   /** Notifications already materialized for a given period */
   deliveredNotificationIdsByPeriod?: Record<string, string[]>;
+  /** Notifications already bundled in a digest for a given period */
+  digestedNotificationIdsByPeriod?: Record<string, string[]>;
   /** Simulate a globally unsubscribed user (by userId) */
   globallyUnsubscribedUsers?: Set<string>;
   /** Enable database error simulation */
@@ -3513,6 +3593,7 @@ export const makeFakeExtendedNotificationsRepo = (
   const store = new Map<string, Notification>();
   const simulateDbError = options.simulateDbError ?? false;
   const deliveredNotificationIdsByPeriod = options.deliveredNotificationIdsByPeriod ?? {};
+  const digestedNotificationIdsByPeriod = options.digestedNotificationIdsByPeriod ?? {};
   const globallyUnsubscribedUsers = options.globallyUnsubscribedUsers ?? new Set<string>();
 
   if (options.notifications !== undefined) {
@@ -3539,12 +3620,18 @@ export const makeFakeExtendedNotificationsRepo = (
       notificationType: NotificationType,
       periodKey: string,
       limit = 100,
-      ignoreMaterialized = false
+      ignoreMaterialized = false,
+      materializedScope = 'all'
     ) => {
       if (simulateDbError) return createDbError();
       const deliveredNotificationIds = ignoreMaterialized
         ? new Set<string>()
-        : new Set(deliveredNotificationIdsByPeriod[periodKey] ?? []);
+        : new Set([
+            ...(deliveredNotificationIdsByPeriod[periodKey] ?? []),
+            ...(materializedScope === 'all'
+              ? (digestedNotificationIdsByPeriod[periodKey] ?? [])
+              : []),
+          ]);
       const eligible: Notification[] = [];
       for (const n of store.values()) {
         const isGloballyUnsubscribed =

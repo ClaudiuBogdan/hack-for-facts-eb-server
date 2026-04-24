@@ -43,11 +43,24 @@ export const registration = defineTemplate({
     periodType: 'monthly',
     periodLabel: 'Ianuarie 2025',
     summary: {
+      totalIncome: '125000000',
+      totalExpenses: '94000000',
+      budgetBalance: '31000000',
+      currency: 'RON',
+    },
+    monthlyDelta: {
+      totalIncome: '125000000',
+      totalExpenses: '94000000',
+      budgetBalance: '31000000',
+      currency: 'RON',
+    },
+    ytdSummary: {
       totalIncome: '1500000000',
       totalExpenses: '1200000000',
       budgetBalance: '300000000',
       currency: 'RON',
     },
-    detailsUrl: 'https://transparenta.eu/entities/4267117',
+    detailsUrl:
+      'https://transparenta.eu/entities/4267117?period=MONTH&normalization=total&year=2025&month=01',
   },
 });

@@ -26,12 +26,14 @@ describe('materializeAnafForexebugDigests', () => {
           userId: 'user-1',
           entityCui: '123',
           notificationType: 'newsletter_entity_monthly',
+          hash: 'hash-newsletter-1',
         }),
         createTestNotification({
           id: 'alert-1',
           userId: 'user-1',
           notificationType: 'alert_series_analytics',
           config: { conditions: [], filter: {} },
+          hash: 'hash-alert-1',
         }),
       ],
     });
@@ -67,6 +69,16 @@ describe('materializeAnafForexebugDigests', () => {
       expect(outbox.value?.referenceId).toBeNull();
       expect(outbox.value?.scopeKey).toBe(buildAnafForexebugDigestScopeKey('2026-03'));
       expect(outbox.value?.metadata['sourceNotificationIds']).toEqual(['newsletter-1', 'alert-1']);
+      expect(outbox.value?.metadata['sourceNotificationVersions']).toEqual({
+        'newsletter-1': {
+          notificationType: 'newsletter_entity_monthly',
+          hash: 'hash-newsletter-1',
+        },
+        'alert-1': {
+          notificationType: 'alert_series_analytics',
+          hash: 'hash-alert-1',
+        },
+      });
       expect(outbox.value?.metadata['itemCount']).toBe(2);
       expect(outbox.value?.metadata['digestType']).toBe('anaf_forexebug_digest');
       expect(outbox.value?.metadata['bundleItems']).toBeUndefined();
@@ -92,6 +104,9 @@ describe('materializeAnafForexebugDigests', () => {
           notificationType: 'newsletter_entity_monthly',
         }),
       ],
+      digestedNotificationIdsByPeriod: {
+        '2026-03': ['newsletter-1'],
+      },
     });
     const jobs: ComposeJobPayload[] = [];
 
@@ -397,6 +412,55 @@ describe('materializeAnafForexebugDigests', () => {
         'newsletter-user-2',
       ]);
     }
+  });
+
+  it('does not include source notifications already materialized directly for the period', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo();
+    const notificationsRepo = makeFakeExtendedNotificationsRepo({
+      notifications: [
+        createTestNotification({
+          id: 'newsletter-direct-1',
+          userId: 'user-1',
+          entityCui: '123',
+          notificationType: 'newsletter_entity_monthly',
+        }),
+        createTestNotification({
+          id: 'newsletter-digest-1',
+          userId: 'user-1',
+          entityCui: '456',
+          notificationType: 'newsletter_entity_monthly',
+        }),
+      ],
+      deliveredNotificationIdsByPeriod: {
+        '2026-03': ['newsletter-direct-1'],
+      },
+    });
+    const jobs: ComposeJobPayload[] = [];
+
+    const result = await materializeAnafForexebugDigests(
+      {
+        notificationsRepo,
+        deliveryRepo,
+        composeJobScheduler: {
+          enqueue: async (job) => {
+            jobs.push(job);
+            return ok(undefined);
+          },
+        },
+      },
+      {
+        runId: 'run-direct-first',
+        periodKey: '2026-03',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    const outbox = await deliveryRepo.findByDeliveryKey('digest:anaf_forexebug:user-1:2026-03');
+    expect(outbox.isOk()).toBe(true);
+    if (outbox.isOk()) {
+      expect(outbox.value?.metadata['sourceNotificationIds']).toEqual(['newsletter-digest-1']);
+    }
+    expect(jobs).toHaveLength(1);
   });
 
   it('re-enqueues compose when a duplicate digest row already exists in pending state', async () => {

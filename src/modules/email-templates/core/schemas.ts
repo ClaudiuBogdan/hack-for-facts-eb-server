@@ -291,6 +291,12 @@ export type AlertSeriesPayload = Static<typeof AlertSeriesPayloadSchema>;
 // Newsletter Entity Template
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const BudgetAmountsSchema = Type.Object({
+  totalIncome: DecimalStringSchema,
+  totalExpenses: DecimalStringSchema,
+  budgetBalance: DecimalStringSchema,
+});
+
 export const BudgetSummarySchema = Type.Object({
   totalIncome: DecimalStringSchema,
   totalExpenses: DecimalStringSchema,
@@ -299,9 +305,10 @@ export const BudgetSummarySchema = Type.Object({
 });
 
 export const PeriodComparisonSchema = Type.Object({
-  incomeChangePercent: DecimalStringSchema,
-  expensesChangePercent: DecimalStringSchema,
-  balanceChangePercent: DecimalStringSchema,
+  incomeChangePercent: Type.Optional(DecimalStringSchema),
+  expensesChangePercent: Type.Optional(DecimalStringSchema),
+  balanceChangePercent: Type.Optional(DecimalStringSchema),
+  balanceChangeAmount: DecimalStringSchema,
 });
 
 export const TopExpenseCategorySchema = Type.Object({
@@ -320,17 +327,12 @@ export const PerCapitaMetricsSchema = Type.Object({
   expenses: DecimalStringSchema,
 });
 
-export const NewsletterEntityPayloadSchema = Type.Object({
+const NewsletterEntityCommonPayloadSchema = Type.Object({
   entityName: Type.String({ minLength: 1 }),
   entityCui: Type.String({ minLength: 1 }),
   entityType: Type.Optional(Type.String()),
   countyName: Type.Optional(Type.String()),
   population: Type.Optional(Type.Integer()),
-  periodType: Type.Union([
-    Type.Literal('monthly'),
-    Type.Literal('quarterly'),
-    Type.Literal('yearly'),
-  ]),
   periodLabel: Type.String({ minLength: 1 }),
   summary: BudgetSummarySchema,
   previousPeriodComparison: Type.Optional(PeriodComparisonSchema),
@@ -340,6 +342,25 @@ export const NewsletterEntityPayloadSchema = Type.Object({
   detailsUrl: Type.Optional(Type.String()),
   mapUrl: Type.Optional(Type.String()),
 });
+
+export const NewsletterEntityPayloadSchema = Type.Union([
+  Type.Intersect([
+    NewsletterEntityCommonPayloadSchema,
+    Type.Object({
+      periodType: Type.Literal('monthly'),
+      monthlyDelta: BudgetSummarySchema,
+      ytdSummary: BudgetSummarySchema,
+    }),
+  ]),
+  Type.Intersect([
+    NewsletterEntityCommonPayloadSchema,
+    Type.Object({
+      periodType: Type.Union([Type.Literal('quarterly'), Type.Literal('yearly')]),
+      monthlyDelta: Type.Optional(BudgetSummarySchema),
+      ytdSummary: Type.Optional(BudgetSummarySchema),
+    }),
+  ]),
+]);
 
 export type NewsletterEntityPayload = Static<typeof NewsletterEntityPayloadSchema>;
 
@@ -358,6 +379,8 @@ export const AnafForexebugDigestNewsletterSectionSchema = Type.Object({
   population: Type.Optional(Type.Integer()),
   periodLabel: Type.String({ minLength: 1 }),
   summary: BudgetSummarySchema,
+  monthlyDelta: BudgetSummarySchema,
+  ytdSummary: BudgetSummarySchema,
   previousPeriodComparison: Type.Optional(PeriodComparisonSchema),
   topExpenseCategories: Type.Optional(Type.Array(TopExpenseCategorySchema)),
   fundingSources: Type.Optional(Type.Array(FundingSourceBreakdownSchema)),
