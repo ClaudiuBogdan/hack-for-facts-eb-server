@@ -41,5 +41,5 @@ export const registration = defineTemplate({
     copyrightYear: 2026,
     registeredAt: '2026-03-28T15:00:00.000Z',
     ctaUrl: 'https://transparenta.eu',
-  } as WelcomeEmailProps,
+  },
 });

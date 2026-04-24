@@ -203,7 +203,7 @@ async function loadDatasetRows(
     .orderBy('siruta_code', 'asc')
     .execute();
 
-  const normalizedRows = rows.map((row) => toDatasetRow(row as unknown as DatasetValueRow));
+  const normalizedRows = rows.map((row) => toDatasetRow(row));
   const validationResult = validateDatasetRows(normalizedRows);
   if (validationResult.isErr()) {
     throw new Error(validationResult.error.message);
@@ -353,7 +353,7 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
         await insertDatasetRows(trx, input.id, rowsResult.value);
 
         return {
-          ...toSummary(inserted as unknown as DatasetRow),
+          ...toSummary(inserted),
           rows: [...rowsResult.value],
         } satisfies AdvancedMapDatasetDetail;
       });
@@ -753,7 +753,7 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
           return null;
         }
 
-        return this.toDetail(trx, row as unknown as DatasetRow);
+        return this.toDetail(trx, row);
       });
 
       return ok(dataset);

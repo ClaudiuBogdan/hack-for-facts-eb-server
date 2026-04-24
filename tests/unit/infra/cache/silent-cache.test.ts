@@ -1,7 +1,7 @@
 import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
-import { CacheError, type CachePort, type CacheStats } from '@/infra/cache/ports.js';
+import { CacheError, type CachePort } from '@/infra/cache/ports.js';
 import { createSilentCache } from '@/infra/cache/wrappers/silent-cache.js';
 
 const createMockLogger = () => ({
@@ -38,7 +38,7 @@ const createMockCache = <T>(): CachePort<T> & {
     has: vi.fn(() => hasResult),
     clearByPrefix: vi.fn(() => clearByPrefixResult),
     clear: vi.fn(() => clearResult),
-    stats: vi.fn(() => Promise.resolve({ hits: 0, misses: 0, size: 0 } as CacheStats)),
+    stats: vi.fn(() => Promise.resolve({ hits: 0, misses: 0, size: 0 })),
     _setGetResult: (r) => {
       getResult = r;
     },

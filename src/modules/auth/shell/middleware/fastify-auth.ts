@@ -10,7 +10,7 @@ import { authenticate, type AuthenticateDeps } from '../../core/usecases/authent
 import { requireAuth } from '../../core/usecases/require-auth.js';
 import { httpSessionExtractor } from '../extractors/http-extractor.js';
 
-import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
+import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Request Decoration
@@ -69,10 +69,8 @@ function enrichRequestLoggerWithUserId(
  *   }
  * });
  */
-export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHookHandler {
-  // Fastify preHandler hooks support async functions that return Promise<void>
-  // The type assertion is needed due to strict type checking with exactOptionalPropertyTypes
-  const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerAsyncHookHandler {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const token = httpSessionExtractor.extractToken(request);
 
     const result = await authenticate(deps, { token });
@@ -94,11 +92,9 @@ export function makeAuthMiddleware(deps: MakeAuthMiddlewareDeps): preHandlerHook
     request.auth = result.value;
 
     if (isAuthenticated(result.value)) {
-      enrichRequestLoggerWithUserId(request, reply, result.value.userId as string);
+      enrichRequestLoggerWithUserId(request, reply, result.value.userId);
     }
   };
-
-  return handler as preHandlerHookHandler;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,5 +133,4 @@ const requireAuthHandlerImpl = async (
   }
 };
 
-// Type assertion needed for async preHandler hooks with strictFunctionTypes
-export const requireAuthHandler = requireAuthHandlerImpl as preHandlerHookHandler;
+export const requireAuthHandler: preHandlerAsyncHookHandler = requireAuthHandlerImpl;

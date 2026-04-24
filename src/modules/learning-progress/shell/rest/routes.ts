@@ -175,7 +175,7 @@ export const makeLearningProgressRoutes = (
         const syncInput: SyncEventsInput = {
           userId,
           clientUpdatedAt,
-          events: events as LearningProgressEvent[],
+          events: events,
         };
         const result =
           syncEventsWithSideEffects !== undefined

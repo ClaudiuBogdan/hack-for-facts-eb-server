@@ -50,5 +50,5 @@ export const registration = defineTemplate({
     replyTextPreview: 'Va comunicam ca solicitarea a fost primita.',
     resolutionCode: 'debate_announced',
     reviewNotes: 'Primaria a confirmat organizarea unei dezbateri.',
-  } as PublicDebateEntityUpdateProps,
+  },
 });

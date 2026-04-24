@@ -44,7 +44,7 @@ export const makeEntityTermsAcceptedSyncHandler = (
         return;
       }
 
-      const payload = record.value.json.value as Record<string, unknown>;
+      const payload = record.value.json.value;
       const entityCui =
         typeof payload['entityCui'] === 'string' ? payload['entityCui'].trim() : null;
       const acceptedTermsAt =

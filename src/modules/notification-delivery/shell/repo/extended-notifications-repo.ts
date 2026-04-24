@@ -47,10 +47,6 @@ interface GlobalUnsubscribeRow {
   config: Record<string, unknown> | null;
 }
 
-interface NotificationOutboxReferenceRow {
-  reference_id: string | null;
-}
-
 export interface ExtendedNotificationsRepoOptions {
   db: UserDbClient;
   logger: Logger;
@@ -132,7 +128,7 @@ export const makeExtendedNotificationsRepo = (
     return ok(
       new Set(
         globalUnsubscribeRows
-          .filter((row) => isEmailGloballyUnsubscribed(row as unknown as GlobalUnsubscribeRow))
+          .filter((row) => isEmailGloballyUnsubscribed(row))
           .map((row) => row.user_id)
       )
     );
@@ -181,7 +177,7 @@ export const makeExtendedNotificationsRepo = (
       return null;
     }
 
-    return mapRow(row as unknown as QueryRow);
+    return mapRow(row);
   };
 
   const loadMatchingUserScopedNotification = async (
@@ -202,7 +198,7 @@ export const makeExtendedNotificationsRepo = (
       return null;
     }
 
-    return mapRow(row as unknown as QueryRow);
+    return mapRow(row);
   };
 
   return {
@@ -257,7 +253,7 @@ export const makeExtendedNotificationsRepo = (
                   .where('notification_type', '=', notificationType)
                   .execute()
               )
-                .map((row) => (row as NotificationOutboxReferenceRow).reference_id)
+                .map((row) => row.reference_id)
                 .filter((referenceId): referenceId is string => typeof referenceId === 'string')
             );
 

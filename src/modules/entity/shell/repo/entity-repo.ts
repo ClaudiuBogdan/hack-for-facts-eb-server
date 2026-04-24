@@ -127,7 +127,7 @@ class KyselyEntityRepo implements EntityRepository {
 
       const map = new Map<string, Entity>();
       for (const row of rows) {
-        map.set(row.cui, this.mapRowToEntity(row as unknown as EntityRow));
+        map.set(row.cui, this.mapRowToEntity(row));
       }
 
       return ok(map);

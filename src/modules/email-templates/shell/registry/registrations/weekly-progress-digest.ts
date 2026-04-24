@@ -95,5 +95,5 @@ export const registration = defineTemplate({
       },
     ],
     allUpdatesUrl: null,
-  } as WeeklyProgressDigestProps,
+  },
 });

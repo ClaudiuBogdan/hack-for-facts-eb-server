@@ -68,7 +68,7 @@ export const decodeStoredPlanCursor = (
     return createValidationError('Invalid campaign notification plan cursor.');
   }
 
-  return parsed.value as StoredPlanCursorPayload;
+  return parsed.value;
 };
 
 export const assertReadableStoredPlan = (input: {

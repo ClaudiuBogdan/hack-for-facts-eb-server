@@ -629,15 +629,12 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
     // Map 'amount' to the appropriate column based on frequency
     const sortField = this.mapSortField(sort.field, frequency);
     const column = `eli.${sortField}`;
-    query = query.orderBy(column, sort.order.toLowerCase() as 'asc' | 'desc');
+    query = query.orderBy(column, sort.order.toLowerCase());
 
     // Add secondary sort for deterministic pagination (if not already sorting by ytd_amount)
     if (sort.field !== DEFAULT_SECONDARY_SORT.field) {
       const secondaryColumn = `eli.${DEFAULT_SECONDARY_SORT.field}`;
-      query = query.orderBy(
-        secondaryColumn,
-        DEFAULT_SECONDARY_SORT.order.toLowerCase() as 'asc' | 'desc'
-      );
+      query = query.orderBy(secondaryColumn, DEFAULT_SECONDARY_SORT.order.toLowerCase());
     }
 
     return query;

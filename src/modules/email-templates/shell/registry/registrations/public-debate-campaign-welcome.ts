@@ -40,5 +40,5 @@ export const registration = defineTemplate({
     entityName: 'Municipiul Exemplu',
     acceptedTermsAt: '2026-04-01T10:00:00.000Z',
     ctaUrl: 'https://transparenta.eu/primarie/12345678',
-  } as PublicDebateCampaignWelcomeProps,
+  },
 });

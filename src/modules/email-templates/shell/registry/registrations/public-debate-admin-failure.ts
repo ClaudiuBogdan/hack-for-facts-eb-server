@@ -44,5 +44,5 @@ export const registration = defineTemplate({
     subjectLine: 'Cerere dezbatere buget local - Municipiul Exemplu',
     occurredAt: '2026-03-31T10:00:00.000Z',
     failureMessage: 'Provider returned 422 validation_error',
-  } as PublicDebateAdminFailureProps,
+  },
 });

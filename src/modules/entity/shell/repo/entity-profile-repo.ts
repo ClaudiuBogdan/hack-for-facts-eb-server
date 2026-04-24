@@ -107,7 +107,7 @@ class KyselyEntityProfileRepo implements EntityProfileRepository {
 
       const map = new Map<string, EntityProfile>();
       for (const row of rows) {
-        map.set(row.cui, this.mapRowToEntityProfile(row as unknown as EntityProfileRow));
+        map.set(row.cui, this.mapRowToEntityProfile(row));
       }
 
       return ok(map);

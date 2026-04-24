@@ -69,7 +69,7 @@ export async function parseUploadedDatasetCsv(
       relax_column_count: false,
       skip_empty_lines: false,
       trim: false,
-    }) as unknown[];
+    });
   } catch (error) {
     return err(
       csvValidationError(error instanceof Error ? error.message : 'Failed to parse CSV', [

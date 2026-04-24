@@ -36,7 +36,7 @@ const extractCodes = (nodes: ClassificationNode[]): Map<string, string> => {
 };
 
 /** Full code → name map (all levels) */
-const allCodes = extractCodes(classificationsJson as ClassificationNode[]);
+const allCodes = extractCodes(classificationsJson);
 
 /** 2-digit chapter code → name map */
 const chapterMap = new Map<string, string>();

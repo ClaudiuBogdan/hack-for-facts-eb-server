@@ -401,7 +401,7 @@ describe('subscribe use case', () => {
               title: 'Test',
               conditions: [],
               datasetId: 'test', // Wrong config type
-            } as unknown as AnalyticsSeriesAlertConfig,
+            },
           }
         );
 
@@ -699,7 +699,7 @@ describe('subscribe use case', () => {
               title: 'Test',
               conditions: [],
               filter: {}, // Wrong config type
-            } as unknown as StaticSeriesAlertConfig,
+            },
           }
         );
 

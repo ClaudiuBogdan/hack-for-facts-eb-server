@@ -235,7 +235,7 @@ async function validateUploadedDatasetAccessForMapWrite(
   const rowById = new Map<string, DatasetAccessRow>();
   const rowByPublicId = new Map<string, DatasetAccessRow>();
   for (const row of rows) {
-    const datasetRow = row as unknown as DatasetAccessRow;
+    const datasetRow = row;
     rowById.set(datasetRow.id, datasetRow);
     rowByPublicId.set(datasetRow.public_id, datasetRow);
   }
@@ -695,7 +695,7 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
           throw new Error('Failed to insert snapshot row');
         }
 
-        const snapshotDetail = mapSnapshotDetailRow(insertedSnapshot as unknown as SnapshotRow);
+        const snapshotDetail = mapSnapshotDetailRow(insertedSnapshot);
         if (snapshotDetail === null) {
           throw new Error('Snapshot payload validation failed after insert');
         }
@@ -752,7 +752,7 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
         return ok(null);
       }
 
-      const snapshotDetail = mapSnapshotDetailRow(row as unknown as SnapshotRow);
+      const snapshotDetail = mapSnapshotDetailRow(row);
       if (snapshotDetail === null) {
         return err(createProviderError('Stored snapshot payload is invalid'));
       }

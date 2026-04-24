@@ -44,7 +44,7 @@ export const processRecoveryJob = async (
     throw new UnrecoverableError('Invalid recovery job payload');
   }
 
-  const jobPayload = payload as RecoveryJobPayload;
+  const jobPayload = payload;
 
   log.info({ thresholdMinutes: jobPayload.thresholdMinutes }, 'Processing recovery job');
 

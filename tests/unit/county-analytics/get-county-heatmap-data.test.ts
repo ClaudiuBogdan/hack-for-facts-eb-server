@@ -203,7 +203,7 @@ describe('getCountyHeatmapData', () => {
             selection: { interval: { start: '2023', end: '2023' } },
           },
           // report_type is missing
-        } as AnalyticsFilter,
+        },
       });
 
       expect(result.isErr()).toBe(true);

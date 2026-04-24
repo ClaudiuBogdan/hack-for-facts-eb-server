@@ -140,7 +140,7 @@ class KyselyUATRepo implements UATRepository {
 
       const map = new Map<number, UAT>();
       for (const row of rows) {
-        map.set(row.id, this.mapRowToUAT(row as UATRow));
+        map.set(row.id, this.mapRowToUAT(row));
       }
 
       return ok(map);

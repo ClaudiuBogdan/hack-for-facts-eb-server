@@ -114,8 +114,8 @@ const mapStoredPlan = (
       templateVersion: row.template_version,
       payloadHash: row.payload_hash,
       watermark: row.watermark,
-      summary: row.summary_json as CampaignNotificationStoredPlan['summary'],
-      rows: row.rows_json as CampaignNotificationStoredPlan['rows'],
+      summary: row.summary_json,
+      rows: row.rows_json,
       createdAt: parseDbTimestamp(
         row.created_at,
         'campaignnotificationrunplans.created_at'
@@ -206,7 +206,7 @@ export const makeCampaignNotificationRunnablePlanRepo = (
           );
         }
 
-        const mapped = mapStoredPlan(inserted as RunnablePlanRow);
+        const mapped = mapStoredPlan(inserted);
         if (mapped.isErr()) {
           await deps.db
             .deleteFrom('campaignnotificationrunplans')
@@ -233,7 +233,7 @@ export const makeCampaignNotificationRunnablePlanRepo = (
           return ok(null);
         }
 
-        return mapStoredPlan(row as RunnablePlanRow);
+        return mapStoredPlan(row);
       } catch (error) {
         log.error({ error, planId }, 'Failed to load campaign notification run plan');
         return err(createDatabaseError('Failed to load campaign notification run plan.'));

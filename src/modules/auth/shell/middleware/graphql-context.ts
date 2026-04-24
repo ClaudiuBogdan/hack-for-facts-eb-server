@@ -83,7 +83,7 @@ export const makeGraphQLContext = (deps: MakeGraphQLContextDeps) => {
     const auth: AuthContext = result.isOk() ? result.value : ANONYMOUS_SESSION;
 
     if (isAuthenticated(auth)) {
-      enrichGraphQLLoggerWithUserId(request, reply, auth.userId as string);
+      enrichGraphQLLoggerWithUserId(request, reply, auth.userId);
     }
 
     return {

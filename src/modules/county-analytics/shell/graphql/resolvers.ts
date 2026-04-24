@@ -22,7 +22,6 @@ import type {
 } from '@/common/types/analytics.js';
 import type { EntityRepository } from '@/modules/entity/core/ports.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
-import type { HeatmapCurrency } from '@/modules/uat-analytics/core/types.js';
 import type { IResolvers } from 'mercurius';
 
 // ============================================================================
@@ -144,7 +143,7 @@ const toTransformationOptions = (
   return {
     inflationAdjusted,
     // Legacy euro modes override the currency parameter
-    currency: isLegacyEuroMode ? 'EUR' : ((currency ?? 'RON') as HeatmapCurrency),
+    currency: isLegacyEuroMode ? 'EUR' : (currency ?? 'RON'),
     normalization: isPerCapita ? 'per_capita' : 'total',
   };
 };

@@ -19,7 +19,6 @@ import {
   type ExecutionLineItem,
   type ExecutionLineItemOutput,
   type SortInput,
-  type SortOrder,
   type SortableField,
   SORTABLE_FIELDS,
 } from '../../core/types.js';
@@ -28,7 +27,6 @@ import { listExecutionLineItems } from '../../core/usecases/list-execution-line-
 
 import type { ExecutionLineItemRepository } from '../../core/ports.js';
 import type {
-  AccountCategory,
   AnalyticsExclude,
   AnalyticsFilter,
   Currency,
@@ -162,7 +160,7 @@ const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter =>
   // Cast to AnalyticsFilter to handle exactOptionalPropertyTypes
   // GraphQL input has all optional fields as potentially undefined
   return {
-    account_category: input.account_category as AccountCategory,
+    account_category: input.account_category,
     report_period: {
       type: frequency,
       selection:
@@ -254,7 +252,7 @@ const transformSort = (
 
   return {
     field: fieldName as SortableField,
-    order: order as SortOrder,
+    order: order,
   };
 };
 

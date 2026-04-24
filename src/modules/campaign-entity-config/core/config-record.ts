@@ -519,7 +519,7 @@ export function parseCampaignEntityConfigRecord(input: {
     );
   }
 
-  const payload = payloadCandidate as CampaignEntityConfigStoredPayload;
+  const payload = payloadCandidate;
   if (
     input.row.recordKey !== buildCampaignEntityConfigRecordKey(payload.entityCui) ||
     (input.expectedEntityCui !== undefined && payload.entityCui !== input.expectedEntityCui)

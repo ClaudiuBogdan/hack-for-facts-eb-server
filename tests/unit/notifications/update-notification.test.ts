@@ -378,7 +378,7 @@ describe('updateNotification use case', () => {
               title: 'Invalid',
               conditions: [],
               datasetId: 'wrong-type',
-            } as unknown as AnalyticsSeriesAlertConfig,
+            },
           },
         }
       );
@@ -530,7 +530,7 @@ describe('updateNotification use case', () => {
               title: 'Invalid',
               conditions: [],
               filter: {},
-            } as unknown as StaticSeriesAlertConfig,
+            },
           },
         }
       );

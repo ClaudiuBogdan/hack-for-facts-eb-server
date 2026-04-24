@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Frequency } from '@/common/types/temporal.js';
 import { makeEntityResolvers } from '@/modules/entity/shell/graphql/resolvers.js';
 
-import type { AnalyticsFilter, PeriodSelection } from '@/common/types/analytics.js';
+import type { AnalyticsFilter } from '@/common/types/analytics.js';
 import type {
   EntityRepository,
   EntityAnalyticsSummaryRepository,
@@ -241,7 +241,7 @@ function createBaseFilter(): Partial<AnalyticsFilter> {
     account_category: 'ch',
     report_period: {
       type: Frequency.YEAR,
-      selection: { interval: { start: '2023', end: '2023' } } as PeriodSelection,
+      selection: { interval: { start: '2023', end: '2023' } },
     },
     report_type: 'Executie bugetara detaliata',
   };

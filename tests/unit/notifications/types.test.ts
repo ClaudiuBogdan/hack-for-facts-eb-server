@@ -257,7 +257,7 @@ describe('generateNotificationHash', () => {
         title: 'Test',
         conditions: [],
         filter: {},
-      } as unknown as AnalyticsSeriesAlertConfig);
+      });
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
     });
 

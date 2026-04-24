@@ -10,11 +10,7 @@ import { Frequency } from '@/common/types/temporal.js';
 import { getHeatmapData } from '../../core/usecases/get-heatmap-data.js';
 
 import type { UATAnalyticsRepository } from '../../core/ports.js';
-import type {
-  HeatmapCurrency,
-  HeatmapTransformationOptions,
-  NormalizedHeatmapDataPoint,
-} from '../../core/types.js';
+import type { HeatmapTransformationOptions, NormalizedHeatmapDataPoint } from '../../core/types.js';
 import type {
   AnalyticsFilter,
   GqlReportPeriodInput,
@@ -135,7 +131,7 @@ const toTransformationOptions = (args: HeatmapUATDataArgs): HeatmapTransformatio
   return {
     inflationAdjusted,
     // Legacy euro modes override the currency parameter
-    currency: isLegacyEuroMode ? 'EUR' : ((currency ?? 'RON') as HeatmapCurrency),
+    currency: isLegacyEuroMode ? 'EUR' : (currency ?? 'RON'),
     normalization: isPerCapita ? 'per_capita' : 'total',
   };
 };

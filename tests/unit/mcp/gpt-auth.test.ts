@@ -69,9 +69,9 @@ function createMockDone(): {
 } {
   let called = false;
   return {
-    done: (() => {
+    done: () => {
       called = true;
-    }) as unknown as HookHandlerDoneFunction,
+    },
     wasCalled: () => called,
   };
 }

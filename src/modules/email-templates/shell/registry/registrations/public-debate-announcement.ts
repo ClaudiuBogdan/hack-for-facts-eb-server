@@ -47,5 +47,5 @@ export const registration = defineTemplate({
     onlineParticipationLink: 'https://example.com/public-debate/live',
     description: 'Dezbatere publica privind proiectul de buget local.',
     ctaUrl: 'https://transparenta.eu/primarie/12345678',
-  } as PublicDebateAnnouncementProps,
+  },
 });

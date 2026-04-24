@@ -223,7 +223,7 @@ const toDomainFilter = (input: GraphQLCommitmentsFilterInput): CommitmentsFilter
 
   return {
     report_period: {
-      type: mapPeriodType(reportPeriod.type as unknown as PeriodType),
+      type: mapPeriodType(reportPeriod.type),
       selection,
     },
     ...(reportTypeDb !== undefined && { report_type: reportTypeDb }),

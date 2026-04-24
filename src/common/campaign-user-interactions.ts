@@ -51,10 +51,7 @@ export function parseWebsiteLinkPayloadValue(candidate: unknown): WebsiteLinkPay
     return null;
   }
 
-  const payload = candidate as {
-    websiteUrl?: string;
-    submittedAt?: string | null;
-  };
+  const payload = candidate;
 
   return {
     websiteUrl: typeof payload.websiteUrl === 'string' ? payload.websiteUrl : null,
@@ -214,11 +211,7 @@ export function parseBudgetStatusReportPayloadValue(
     return null;
   }
 
-  const payload = candidate as {
-    isPublished?: BudgetStatusReportPayload['isPublished'];
-    budgetStage?: BudgetStatusReportPayload['budgetStage'];
-    submittedAt?: string | null;
-  };
+  const payload = candidate;
 
   return {
     isPublished: payload.isPublished ?? null,
@@ -249,11 +242,7 @@ export function parseCityHallContactPayloadValue(
     return null;
   }
 
-  const payload = candidate as {
-    email?: string | null;
-    phone?: string | null;
-    submittedAt?: string | null;
-  };
+  const payload = candidate;
 
   return {
     email: typeof payload.email === 'string' ? payload.email : null,
@@ -296,14 +285,7 @@ export function parseParticipationReportPayloadValue(
     return null;
   }
 
-  const payload = candidate as {
-    debateTookPlace?: ParticipationReportPayload['debateTookPlace'];
-    approximateAttendees?: number | null;
-    citizensAllowedToSpeak?: ParticipationReportPayload['citizensAllowedToSpeak'];
-    citizenInputsRecorded?: ParticipationReportPayload['citizenInputsRecorded'];
-    observations?: string | null;
-    submittedAt?: string | null;
-  };
+  const payload = candidate;
 
   return {
     debateTookPlace: payload.debateTookPlace ?? null,
@@ -350,16 +332,7 @@ export function parseContestationBuilderPayloadValue(
     return null;
   }
 
-  const payload = candidate as {
-    contestedItem?: string;
-    reasoning?: string;
-    impact?: string;
-    proposedChange?: string;
-    senderName?: string | null;
-    submissionPath?: ContestationBuilderPayload['submissionPath'];
-    primariaEmail?: string | null;
-    submittedAt?: string | null;
-  };
+  const payload = candidate;
 
   return {
     contestedItem: typeof payload.contestedItem === 'string' ? payload.contestedItem : null,

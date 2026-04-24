@@ -11,7 +11,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 
 import { createTriggerApiKeyPreHandler } from './trigger-auth.js';
-import { generatePeriodKey, type NotificationType } from '../../../notifications/core/types.js';
+import { generatePeriodKey } from '../../../notifications/core/types.js';
 
 import type { ExtendedNotificationsRepository } from '../../core/ports.js';
 import type { CollectJobPayload, TriggerResponse } from '../../core/types.js';
@@ -98,8 +98,7 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
         } = request.body;
 
         const runId = randomUUID();
-        const periodKey =
-          inputPeriodKey ?? generatePeriodKey(notificationType as NotificationType, new Date());
+        const periodKey = inputPeriodKey ?? generatePeriodKey(notificationType, new Date());
 
         log.info(
           { runId, notificationType, periodKey, dryRun, limit, force },
@@ -108,7 +107,7 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
 
         // Find eligible notifications
         const eligibleResult = await notificationsRepo.findEligibleForDelivery(
-          notificationType as NotificationType,
+          notificationType,
           periodKey,
           limit,
           force
@@ -167,7 +166,7 @@ export const makeTriggerRoutes = (deps: TriggerRoutesDeps): FastifyPluginAsync =
           'collect',
           {
             runId,
-            notificationType: notificationType as NotificationType,
+            notificationType: notificationType,
             periodKey,
             notificationIds: eligible.map((n) => n.id),
           },

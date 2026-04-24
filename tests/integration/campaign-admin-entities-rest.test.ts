@@ -559,7 +559,7 @@ describe('campaign admin entities routes', () => {
       sortBy: 'latestInteractionAt',
       sortOrder: 'desc',
       entityCui: '12345678',
-      value: 'not-a-date' as never,
+      value: 'not-a-date',
     });
 
     const response = await app.inject({

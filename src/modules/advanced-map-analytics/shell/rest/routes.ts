@@ -307,7 +307,7 @@ function buildGroupedSeriesDataBody(
         granularity: 'UAT',
         series: [],
         payload: GROUPED_SERIES_EMPTY_PAYLOAD,
-      } as GroupedSeriesDataBodyInput,
+      },
     };
   }
 
@@ -330,7 +330,7 @@ function buildGroupedSeriesDataBody(
         granularity: 'UAT',
         series: [],
         payload: GROUPED_SERIES_EMPTY_PAYLOAD,
-      } as GroupedSeriesDataBodyInput,
+      },
     };
   }
 
