@@ -7,6 +7,7 @@
 import { registration as adminReviewedUserInteractionRegistration } from './registrations/admin-reviewed-user-interaction.js';
 import { registration as alertSeriesRegistration } from './registrations/alert-series.js';
 import { registration as anafForexebugDigestRegistration } from './registrations/anaf-forexebug-digest.js';
+import { registration as bucharestBudgetAnalysisRegistration } from './registrations/bucharest-budget-analysis.js';
 import { registration as newsletterEntityRegistration } from './registrations/newsletter-entity.js';
 import { registration as publicDebateAdminFailureRegistration } from './registrations/public-debate-admin-failure.js';
 import { registration as publicDebateAdminResponseRequesterRegistration } from './registrations/public-debate-admin-response-requester.js';
@@ -99,6 +100,10 @@ const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
   {
     label: 'anaf-forexebug-digest',
     registration: anafForexebugDigestRegistration,
+  },
+  {
+    label: 'bucharest-budget-analysis',
+    registration: bucharestBudgetAnalysisRegistration,
   },
   {
     label: 'alert-series',

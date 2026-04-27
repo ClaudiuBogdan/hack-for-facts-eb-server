@@ -1393,6 +1393,75 @@ describe('processSendJob', () => {
     }
   });
 
+  it('skips Bucharest budget analysis delivery when Bucharest updates were disabled after enqueue', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'outbox-bucharest-analysis-optout',
+          notificationType: 'funky:outbox:bucharest_budget_analysis',
+          referenceId: 'notification-1',
+          scopeKey: 'funky:delivery:bucharest_budget_analysis:4267117:fingerprint-1',
+          deliveryKey: 'funky:delivery:bucharest_budget_analysis:user-1:4267117:fingerprint-1',
+          renderedSubject: 'Bucharest budget analysis',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+          metadata: {
+            campaignKey: 'funky',
+            familyId: 'bucharest_budget_analysis',
+            entityCui: '4267117',
+            entityName: 'Primăria Municipiului București',
+            analysisId: 'pmb-budget-analysis-2026',
+            analysisUrl:
+              'https://funky.ong/analiza-buget-local-primaria-municipiului-bucuresti-2026/',
+            analysisPublishedAt: '2026-04-23',
+            analysisFingerprint: 'fingerprint-1',
+          },
+        }),
+      ],
+    });
+
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo({
+          notifications: [
+            createTestNotification({
+              id: 'notification-1',
+              userId: 'user-1',
+              entityCui: '4267117',
+              notificationType: 'funky:notification:entity_updates',
+              isActive: false,
+            }),
+          ],
+        }),
+        userEmailFetcher: {
+          getEmail: vi.fn(async () => ok('user@example.com')),
+          getEmailsByUserIds: vi.fn(async () => ok(new Map())),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'outbox-bucharest-analysis-optout' }
+    );
+
+    expect(result).toEqual({
+      outboxId: 'outbox-bucharest-analysis-optout',
+      status: 'skipped_unsubscribed',
+    });
+    expect(send).not.toHaveBeenCalled();
+
+    const stored = await deliveryRepo.findById('outbox-bucharest-analysis-optout');
+    expect(stored.isOk()).toBe(true);
+    if (stored.isOk()) {
+      expect(stored.value?.status).toBe('skipped_unsubscribed');
+    }
+  });
+
   it('skips public debate announcement delivery when the debate already took place', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-10T15:01:00.000Z'));

@@ -189,6 +189,20 @@ const PublicDebateAnnouncementProjectionSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const BucharestBudgetAnalysisProjectionSchema = Type.Object(
+  {
+    kind: Type.Literal('bucharest_budget_analysis'),
+    userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    entityCui: Type.String({ minLength: 1 }),
+    entityName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    analysisId: Type.String({ minLength: 1 }),
+    analysisPublishedAt: Type.String({ minLength: 1 }),
+    analysisUrl: Type.String({ minLength: 1 }),
+    triggerSource: Type.Union([CampaignNotificationTriggerSourceSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 const AdminReviewedInteractionProjectionSchema = Type.Object(
   {
     kind: Type.Literal('admin_reviewed_interaction'),
@@ -226,6 +240,7 @@ export const CampaignNotificationProjectionSchema = Type.Union([
   PublicDebateAdminResponseProjectionSchema,
   PublicDebateAdminFailureProjectionSchema,
   PublicDebateAnnouncementProjectionSchema,
+  BucharestBudgetAnalysisProjectionSchema,
   AdminReviewedInteractionProjectionSchema,
   WeeklyProgressDigestProjectionSchema,
 ]);

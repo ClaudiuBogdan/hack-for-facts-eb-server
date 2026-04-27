@@ -10,6 +10,7 @@ import { err, ok } from 'neverthrow';
 import {
   FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
   FUNKY_NOTIFICATION_GLOBAL_TYPE,
+  FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE,
   FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
 } from '@/common/campaign-keys.js';
 import { hashResendTagValue, sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
@@ -17,6 +18,7 @@ import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 import { QUEUE_NAMES } from '@/infra/queue/client.js';
 
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
+import { parseBucharestBudgetAnalysisOutboxMetadata } from '../../../core/bucharest-budget-analysis.js';
 import { getErrorMessage, isRetryableError } from '../../../core/errors.js';
 import {
   isPublicDebateAnnouncementAfterTriggerTime,
@@ -773,6 +775,57 @@ export const processSendJob = async (
           reason: eligibilityResult.value.reason,
         },
         'Public debate announcement no longer eligible at send time, skipping'
+      );
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
+      return { outboxId, status: 'skipped_unsubscribed' };
+    }
+  }
+
+  if (delivery.notificationType === FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE) {
+    const metadataResult = parseBucharestBudgetAnalysisOutboxMetadata(delivery.metadata);
+    if (metadataResult.isErr()) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: `Invalid Bucharest budget analysis metadata: ${metadataResult.error}`,
+      });
+      return {
+        outboxId,
+        status: 'failed_permanent',
+        error: `Invalid Bucharest budget analysis metadata: ${metadataResult.error}`,
+      };
+    }
+
+    const eligibilityResult = await notificationsRepo.findEligibleByUserTypeAndEntity(
+      delivery.userId,
+      FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE,
+      metadataResult.value.entityCui
+    );
+    if (eligibilityResult.isErr()) {
+      const errorMessage = `Failed to re-check Bucharest budget analysis eligibility: ${getErrorMessage(
+        eligibilityResult.error
+      )}`;
+      const retryable = isRetryableError(eligibilityResult.error);
+
+      await deliveryRepo.updateStatusIfStillSending(
+        outboxId,
+        retryable ? 'failed_transient' : 'failed_permanent',
+        { lastError: errorMessage }
+      );
+
+      if (retryable) {
+        throw new Error(errorMessage);
+      }
+
+      return { outboxId, status: 'failed_permanent', error: errorMessage };
+    }
+
+    if (!eligibilityResult.value.isEligible) {
+      log.info(
+        {
+          outboxId,
+          userId: delivery.userId,
+          reason: eligibilityResult.value.reason,
+        },
+        'Bucharest budget analysis no longer eligible at send time, skipping'
       );
       await deliveryRepo.updateStatusIfStillSending(outboxId, 'skipped_unsubscribed');
       return { outboxId, status: 'skipped_unsubscribed' };

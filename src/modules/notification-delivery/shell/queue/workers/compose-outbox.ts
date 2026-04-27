@@ -1,6 +1,9 @@
 import { err, ok, type Result } from 'neverthrow';
 
-import { FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE } from '@/common/campaign-keys.js';
+import {
+  FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE,
+  FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
+} from '@/common/campaign-keys.js';
 import { formatPeriodLabel } from '@/common/utils/format-period-label.js';
 import { isNonEmptyString } from '@/common/utils/is-non-empty-string.js';
 
@@ -21,6 +24,7 @@ import {
 import { registration as weeklyProgressDigestRegistration } from '../../../../email-templates/shell/registry/registrations/weekly-progress-digest.js';
 import { renderTemplateRegistration } from '../../../../email-templates/shell/renderer/render-template-registration.js';
 import { parsePublicDebateAdminResponseOutboxMetadata } from '../../../core/admin-response.js';
+import { parseBucharestBudgetAnalysisOutboxMetadata } from '../../../core/bucharest-budget-analysis.js';
 import {
   createValidationError,
   getErrorMessage,
@@ -48,6 +52,7 @@ import type { EmailRenderer } from '../../../../email-templates/core/ports.js';
 import type {
   AdminReviewedInteractionProps,
   AnafForexebugDigestProps,
+  BucharestBudgetAnalysisProps,
   AnafForexebugDigestSection,
   EmailTemplateProps,
   WeeklyProgressDigestProps,
@@ -573,6 +578,26 @@ const buildPublicDebateAnnouncementTemplateProps = (
   });
 };
 
+const buildBucharestBudgetAnalysisTemplateProps = (
+  outbox: NotificationOutboxRecord,
+  platformBaseUrl: string,
+  unsubscribeUrl: string
+): Result<BucharestBudgetAnalysisProps, string> => {
+  const metadataResult = parseBucharestBudgetAnalysisOutboxMetadata(outbox.metadata);
+  if (metadataResult.isErr()) {
+    return err(`Invalid Bucharest budget analysis metadata: ${metadataResult.error}`);
+  }
+
+  return ok({
+    templateType: 'bucharest_budget_analysis_2026_04_23',
+    lang: 'ro',
+    unsubscribeUrl,
+    preferencesUrl: buildCampaignPreferencesUrl(platformBaseUrl),
+    platformBaseUrl,
+    copyrightYear: outbox.createdAt.getUTCFullYear(),
+  });
+};
+
 const buildAdminReviewedInteractionTemplateProps = (
   outbox: NotificationOutboxRecord,
   platformBaseUrl: string,
@@ -1018,6 +1043,7 @@ export const composeExistingOutbox = async (
     outbox.notificationType !== 'funky:outbox:admin_reviewed_interaction' &&
     outbox.notificationType !== 'funky:outbox:admin_failure' &&
     outbox.notificationType !== FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE &&
+    outbox.notificationType !== FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE &&
     outbox.notificationType !== FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE &&
     !isBundleOutboxType(outbox.notificationType)
   ) {
@@ -1295,6 +1321,40 @@ export const composeExistingOutbox = async (
       log,
       updateFailureLogMessage: 'Failed to update public debate announcement outbox row',
       successLogMessage: 'Public debate announcement composed and send job enqueued',
+    });
+  }
+
+  if (outbox.notificationType === FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE) {
+    const templatePropsResult = buildBucharestBudgetAnalysisTemplateProps(
+      outbox,
+      platformBaseUrl,
+      unsubscribeUrl
+    );
+
+    if (templatePropsResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        templatePropsResult.error,
+        'Bucharest budget analysis compose failed permanently'
+      );
+    }
+
+    const renderResult = await emailRenderer.render(templatePropsResult.value);
+    if (renderResult.isErr()) {
+      return failCurrentOutboxPermanently(
+        formatTemplateError(renderResult.error),
+        'Bucharest budget analysis render failed permanently'
+      );
+    }
+
+    return persistRenderedOutboxAndEnqueueSend({
+      deliveryRepo,
+      sendQueue,
+      outbox,
+      runId,
+      rendered: renderResult.value,
+      log,
+      updateFailureLogMessage: 'Failed to update Bucharest budget analysis outbox row',
+      successLogMessage: 'Bucharest budget analysis composed and send job enqueued',
     });
   }
 

@@ -182,6 +182,10 @@ export const PublicDebateAnnouncementPayloadSchema = Type.Object({
 
 export type PublicDebateAnnouncementPayload = Static<typeof PublicDebateAnnouncementPayloadSchema>;
 
+export const BucharestBudgetAnalysisPayloadSchema = Type.Object({});
+
+export type BucharestBudgetAnalysisPayload = Static<typeof BucharestBudgetAnalysisPayloadSchema>;
+
 export const AdminReviewedInteractionNextStepLinkSchema = Type.Object({
   kind: Type.Union([
     Type.Literal('retry_interaction'),

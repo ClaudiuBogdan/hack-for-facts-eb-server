@@ -94,6 +94,17 @@ export interface PublicDebateAnnouncementProjection {
   readonly triggerSource: CampaignNotificationTriggerSource | null;
 }
 
+export interface BucharestBudgetAnalysisProjection {
+  readonly kind: 'bucharest_budget_analysis';
+  readonly userId: string | null;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly analysisId: string;
+  readonly analysisPublishedAt: string;
+  readonly analysisUrl: string;
+  readonly triggerSource: CampaignNotificationTriggerSource | null;
+}
+
 export interface AdminReviewedInteractionProjection {
   readonly kind: 'admin_reviewed_interaction';
   readonly userId: string | null;
@@ -125,6 +136,7 @@ export type CampaignNotificationProjection =
   | PublicDebateAdminResponseProjection
   | PublicDebateAdminFailureProjection
   | PublicDebateAnnouncementProjection
+  | BucharestBudgetAnalysisProjection
   | AdminReviewedInteractionProjection
   | WeeklyProgressDigestProjection;
 

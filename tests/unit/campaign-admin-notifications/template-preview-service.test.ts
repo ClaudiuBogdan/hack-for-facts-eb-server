@@ -15,6 +15,7 @@ describe('Campaign notification template preview service', () => {
     if (result.isOk()) {
       expect(result.value.map((item) => item.templateId)).toEqual([
         'admin_reviewed_user_interaction',
+        'bucharest_budget_analysis_2026_04_23',
         'public_debate_announcement',
         'public_debate_admin_response_requester',
         'public_debate_admin_response_subscriber',

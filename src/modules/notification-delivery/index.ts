@@ -39,6 +39,7 @@ export type {
   PublicDebateAnnouncementOutboxMetadata,
   PublicDebateAnnouncementPayload,
 } from './core/public-debate-announcement.js';
+export type { BucharestBudgetAnalysisOutboxMetadata } from './core/bucharest-budget-analysis.js';
 export type {
   WeeklyProgressDigestSnapshot,
   WeeklyProgressDigestOutboxMetadata,
@@ -75,6 +76,17 @@ export {
   isPublicDebateAnnouncementAfterTriggerTime,
   parsePublicDebateAnnouncementOutboxMetadata,
 } from './core/public-debate-announcement.js';
+export {
+  BUCHAREST_BUDGET_ANALYSIS_ENTITY_CUI,
+  BUCHAREST_BUDGET_ANALYSIS_ENTITY_NAME,
+  BUCHAREST_BUDGET_ANALYSIS_FAMILY_ID,
+  BUCHAREST_BUDGET_ANALYSIS_ID,
+  BUCHAREST_BUDGET_ANALYSIS_PUBLISHED_AT,
+  BUCHAREST_BUDGET_ANALYSIS_TEMPLATE_ID,
+  BUCHAREST_BUDGET_ANALYSIS_URL,
+  BucharestBudgetAnalysisOutboxMetadataSchema,
+  parseBucharestBudgetAnalysisOutboxMetadata,
+} from './core/bucharest-budget-analysis.js';
 export {
   ADMIN_REVIEWED_INTERACTION_FAMILY_ID,
   AdminReviewedInteractionNextStepLinkSchema,
@@ -238,9 +250,21 @@ export {
   type PublicDebateAnnouncementExecutionReason,
 } from './core/usecases/enqueue-public-debate-announcement-notification.js';
 export {
+  enqueueBucharestBudgetAnalysisNotification,
+  type BucharestBudgetAnalysisExecutionReason,
+  type BucharestBudgetAnalysisNotificationInput,
+  type EnqueueBucharestBudgetAnalysisNotificationDeps,
+  type EnqueueBucharestBudgetAnalysisNotificationResult,
+} from './core/usecases/enqueue-bucharest-budget-analysis-notification.js';
+export {
   buildPublicDebateAnnouncementDeliveryKey,
   buildPublicDebateAnnouncementScopeKey,
 } from './core/usecases/public-debate-announcement-keys.js';
+export {
+  buildBucharestBudgetAnalysisDeliveryKey,
+  buildBucharestBudgetAnalysisScopeKey,
+  type BucharestBudgetAnalysisKeyInput,
+} from './core/usecases/bucharest-budget-analysis-keys.js';
 export {
   enqueuePublicDebateAdminFailureNotifications,
   type EnqueuePublicDebateAdminFailureNotificationsDeps,
