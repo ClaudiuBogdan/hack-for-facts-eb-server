@@ -17,6 +17,7 @@ import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './mod
 import { createDatasetRepo } from './modules/datasets/index.js';
 import { NormalizationService } from './modules/normalization/index.js';
 
+import type { HealthChecker } from './modules/health/index.js';
 import type { Logger } from 'pino';
 
 // Read package.json for version (optional, won't fail if not available)
@@ -83,6 +84,24 @@ const main = async (): Promise<void> => {
 
   logger.info({ config: { server: config.server } }, 'Starting API server');
 
+  let isDraining = false;
+  let shutdownStarted = false;
+
+  const markDraining = (signal: string): void => {
+    if (!isDraining) {
+      logger.info({ signal }, 'Marking pod unready for shutdown drain');
+    }
+    isDraining = true;
+  };
+
+  const shutdownReadinessChecker: HealthChecker = () =>
+    Promise.resolve({
+      name: 'shutdown-drain',
+      status: isDraining ? 'unhealthy' : 'healthy',
+      critical: true,
+      ...(isDraining ? { message: 'Pod is draining connections' } : {}),
+    });
+
   // Initialize dependencies
   const { budgetDb, insDb, userDb } = initDatabases(config);
   const datasetRepo = createDatasetRepo({
@@ -120,7 +139,7 @@ const main = async (): Promise<void> => {
       trustProxy: config.server.trustProxy ?? true,
     },
     deps: {
-      healthCheckers: [],
+      healthCheckers: [shutdownReadinessChecker],
       budgetDb,
       insDb,
       userDb,
@@ -133,6 +152,12 @@ const main = async (): Promise<void> => {
 
   // Graceful shutdown handler
   const shutdown = async (signal: string): Promise<void> => {
+    if (shutdownStarted) {
+      logger.warn({ signal }, 'Shutdown already in progress');
+      return;
+    }
+    shutdownStarted = true;
+    markDraining(signal);
     logger.info({ signal }, 'Received shutdown signal');
 
     try {
@@ -148,6 +173,9 @@ const main = async (): Promise<void> => {
 
   process.on('SIGTERM', () => {
     void shutdown('SIGTERM');
+  });
+  process.on('SIGUSR2', () => {
+    markDraining('SIGUSR2');
   });
   process.on('SIGINT', () => {
     void shutdown('SIGINT');
