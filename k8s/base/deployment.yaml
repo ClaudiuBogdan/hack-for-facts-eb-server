@@ -6,6 +6,12 @@ metadata:
     image-sha: latest
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: hack-for-facts-eb-server
@@ -14,6 +20,7 @@ spec:
       labels:
         app: hack-for-facts-eb-server
     spec:
+      terminationGracePeriodSeconds: 120
       imagePullSecrets:
         - name: registry-credentials
       containers:
@@ -80,12 +87,28 @@ spec:
               path: /health/ready
               port: 3000
             initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 1
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /health/live
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 3
             failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /nodejs/bin/node
+                  - -e
+                  - "try { process.kill(1, 'SIGUSR2'); } catch {} setTimeout(() => process.exit(0), 20000)"

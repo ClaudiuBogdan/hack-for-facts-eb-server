@@ -6,6 +6,7 @@ resources:
 - postgres-ins.yaml
 - postgres-userdata.yaml
 - deployment.yaml
+- pdb.yaml
 - service.yaml
 - virtual-service.yaml
 - configmap.yaml

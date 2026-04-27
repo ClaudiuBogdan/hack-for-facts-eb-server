@@ -2,7 +2,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: hack-for-facts-eb-server-pdb
-  namespace: hack-for-facts-prod
+  namespace: hack-for-facts
 spec:
   minAvailable: 1
   selector:
