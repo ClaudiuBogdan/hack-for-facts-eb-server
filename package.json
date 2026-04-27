@@ -122,7 +122,7 @@
     "@typescript-eslint/eslint-plugin": "^8.59.0",
     "@typescript-eslint/parser": "^8.59.0",
     "@vitest/coverage-v8": "^4.1.5",
-    "baseline-browser-mapping": "^2.10.21",
+    "baseline-browser-mapping": "^2.10.23",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
