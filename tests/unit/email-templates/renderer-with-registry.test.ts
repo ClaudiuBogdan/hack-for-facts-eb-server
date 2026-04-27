@@ -8,6 +8,7 @@ import type {
   WelcomeEmailProps,
   AlertSeriesProps,
   AnafForexebugDigestProps,
+  BucharestBudgetAnalysisProps,
   NewsletterEntityProps,
   PublicDebateAnnouncementProps,
   PublicDebateAdminFailureProps,
@@ -125,6 +126,30 @@ describe('EmailRenderer (registry-backed)', () => {
     expect(rendered.html).toMatch(/Prima linie\.<br\s*\/?><br\s*\/?>\s*A doua\s+linie\./);
     expect(rendered.text).toMatch(/Prima linie\.\s*\n\s*\n\s*A doua linie\./);
     expect(rendered.templateName).toBe('public_debate_announcement');
+  });
+
+  it('renders bucharest_budget_analysis_2026_04_23 template successfully', async () => {
+    const props: BucharestBudgetAnalysisProps = {
+      templateType: 'bucharest_budget_analysis_2026_04_23',
+      lang: 'ro',
+      unsubscribeUrl: 'https://transparenta.eu/unsub/token',
+      preferencesUrl: 'https://transparenta.eu/provocare/notificari',
+      platformBaseUrl: 'https://transparenta.eu',
+      copyrightYear: 2026,
+    };
+
+    const result = await renderer.render(props);
+    expect(result.isOk()).toBe(true);
+
+    const rendered = result._unsafeUnwrap();
+    expect(rendered.subject).toBe(
+      'Analiza Funky: bugetul 2026 pentru Primăria Municipiului București'
+    );
+    expect(rendered.html).toContain('12,88 miliarde lei');
+    expect(rendered.html).not.toContain('CUI urmărit');
+    expect(rendered.html).not.toContain('Publicat');
+    expect(rendered.text).toContain('Citește analiza completă');
+    expect(rendered.templateName).toBe('bucharest_budget_analysis_2026_04_23');
   });
 
   it('renders public_debate_entity_subscription template successfully', async () => {
@@ -705,9 +730,10 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(14);
+    expect(templates).toHaveLength(15);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
+    expect(names).toContain('bucharest_budget_analysis_2026_04_23');
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');

@@ -6,6 +6,7 @@ import {
   FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE,
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
+  FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE,
   FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE,
   FUNKY_OUTBOX_ENTITY_UPDATE_TYPE,
   FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
@@ -15,6 +16,7 @@ import {
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 import {
   parseAdminReviewedInteractionOutboxMetadata,
+  parseBucharestBudgetAnalysisOutboxMetadata,
   parsePublicDebateAnnouncementOutboxMetadata,
   parsePublicDebateAdminResponseOutboxMetadata,
 } from '@/modules/notification-delivery/index.js';
@@ -101,6 +103,7 @@ const FUNKY_AUDIT_NOTIFICATION_TYPES = [
   FUNKY_OUTBOX_ADMIN_FAILURE_TYPE,
   FUNKY_OUTBOX_ADMIN_REVIEWED_INTERACTION_TYPE,
   FUNKY_OUTBOX_PUBLIC_DEBATE_ANNOUNCEMENT_TYPE,
+  FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE,
   FUNKY_OUTBOX_WEEKLY_PROGRESS_DIGEST_TYPE,
 ] as const;
 const FUNKY_AUDIT_NOTIFICATION_TYPE_SET = new Set<string>(FUNKY_AUDIT_NOTIFICATION_TYPES);
@@ -299,6 +302,25 @@ const mapProjection = (row: QueryRow): CampaignNotificationProjection => {
       time: metadata.publicDebate.time,
       location: metadata.publicDebate.location,
       hasOnlineParticipationLink: metadata.publicDebate.online_participation_link !== undefined,
+      triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
+    };
+  }
+
+  if (row.notificationType === FUNKY_OUTBOX_BUCHAREST_BUDGET_ANALYSIS_TYPE) {
+    const metadataResult = parseBucharestBudgetAnalysisOutboxMetadata(row.metadata);
+    if (metadataResult.isErr()) {
+      throw new Error(`Invalid Bucharest budget analysis audit metadata: ${metadataResult.error}`);
+    }
+
+    const metadata = metadataResult.value;
+    return {
+      kind: 'bucharest_budget_analysis',
+      userId: row.userId,
+      entityCui: metadata.entityCui,
+      entityName: metadata.entityName,
+      analysisId: metadata.analysisId,
+      analysisPublishedAt: metadata.analysisPublishedAt,
+      analysisUrl: metadata.analysisUrl,
       triggerSource: (row.triggerSource as CampaignNotificationTriggerSource | null) ?? null,
     };
   }

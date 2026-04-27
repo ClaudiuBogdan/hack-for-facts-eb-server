@@ -1,4 +1,5 @@
 import { makeAdminReviewedInteractionRunnableDefinition } from './admin-reviewed-interaction-runnable.js';
+import { makeBucharestBudgetAnalysisRunnableDefinition } from './bucharest-budget-analysis-runnable.js';
 import { makePublicDebateAnnouncementRunnableDefinition } from './public-debate-announcement-runnable.js';
 import { makeWeeklyProgressDigestRunnableDefinition } from './weekly-progress-digest-runnable.js';
 
@@ -14,6 +15,7 @@ export const makeCampaignNotificationRunnableTemplateRegistry = (
 ): CampaignNotificationRunnableTemplateRegistry => {
   const definitions = [
     makeAdminReviewedInteractionRunnableDefinition(deps),
+    makeBucharestBudgetAnalysisRunnableDefinition(deps),
     makePublicDebateAnnouncementRunnableDefinition(deps),
     makeWeeklyProgressDigestRunnableDefinition(deps),
   ] as const satisfies readonly CampaignNotificationRunnableTemplateDefinition[];

@@ -5,6 +5,7 @@ export const CAMPAIGN_NOTIFICATION_TEMPLATE_PREVIEW_CATALOG: Readonly<
 > = {
   funky: [
     'admin_reviewed_user_interaction',
+    'bucharest_budget_analysis_2026_04_23',
     'public_debate_announcement',
     'public_debate_admin_response_requester',
     'public_debate_admin_response_subscriber',

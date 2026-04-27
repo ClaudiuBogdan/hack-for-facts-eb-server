@@ -343,6 +343,10 @@ export interface PublicDebateAnnouncementProps extends BaseTemplateProps {
   ctaUrl?: string;
 }
 
+export interface BucharestBudgetAnalysisProps extends BaseTemplateProps {
+  templateType: 'bucharest_budget_analysis_2026_04_23';
+}
+
 export interface AdminReviewedInteractionNextStepLink {
   kind: 'retry_interaction' | 'start_public_debate_request' | 'view_entity';
   label: string;
