@@ -23,14 +23,11 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface MakeMcpRoutesDeps {
-  mcpServer: McpServer;
+  createMcpServer: () => McpServer;
   sessionStore: McpSessionStore;
   rateLimiter?: McpRateLimiter;
   config: McpConfig;
 }
-
-// In-memory transport registry (transports are not serializable)
-const transports = new Map<string, StreamableHTTPServerTransport>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -126,7 +123,15 @@ export async function makeMcpRoutes(
   fastify: FastifyInstance,
   deps: MakeMcpRoutesDeps
 ): Promise<void> {
-  const { mcpServer, sessionStore, rateLimiter, config } = deps;
+  const { createMcpServer, sessionStore, rateLimiter, config } = deps;
+  // In-memory transport registry (transports are not serializable)
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  fastify.addHook('onClose', async () => {
+    const activeTransports = [...transports.values()];
+    transports.clear();
+    await Promise.allSettled(activeTransports.map(async (transport) => transport.close()));
+  });
 
   // ─────────────────────────────────────────────────────────────────────────
   // POST /mcp - Initialize session or handle MCP requests
@@ -193,6 +198,9 @@ export async function makeMcpRoutes(
       };
 
       transport = newTransport;
+
+      // Each Streamable HTTP session needs its own MCP protocol instance.
+      const mcpServer = createMcpServer();
 
       // Connect to MCP server
       // Cast needed: StreamableHTTPServerTransport uses `| undefined` for onclose
@@ -261,12 +269,13 @@ export async function makeMcpRoutes(
     }
 
     const transport = transports.get(sessionId);
-    if (transport !== undefined) {
-      await transport.close();
-      transports.delete(sessionId);
+    if (transport === undefined) {
+      reply.code(404).send({ error: 'Session not found or expired' });
+      return;
     }
-    await sessionStore.delete(sessionId);
 
-    reply.code(204).send();
+    // Let the SDK validate and close the session according to the MCP transport spec.
+    reply.hijack();
+    await transport.handleRequest(request.raw, reply.raw);
   });
 }

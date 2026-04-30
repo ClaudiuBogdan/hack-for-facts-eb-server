@@ -2076,26 +2076,26 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // Setup MCP Module (Model Context Protocol for AI clients)
     // ─────────────────────────────────────────────────────────────────────────
     if (config.mcp.enabled) {
-      // Create MCP server with all dependencies
-      const mcpServer = createMcpServer({
-        entityRepo: mcpEntityAdapter,
-        executionRepo: mcpExecutionRepo,
-        uatRepo: mcpUatAdapter,
-        functionalClassificationRepo: mcpFunctionalAdapter,
-        economicClassificationRepo: mcpEconomicAdapter,
-        entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
-        analyticsService: mcpAnalyticsService,
-        aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
-        shareLink: mcpShareLink,
-        config: mcpConfig,
-      });
+      const createHttpMcpServer = () =>
+        createMcpServer({
+          entityRepo: mcpEntityAdapter,
+          executionRepo: mcpExecutionRepo,
+          uatRepo: mcpUatAdapter,
+          functionalClassificationRepo: mcpFunctionalAdapter,
+          economicClassificationRepo: mcpEconomicAdapter,
+          entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
+          analyticsService: mcpAnalyticsService,
+          aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
+          shareLink: mcpShareLink,
+          config: mcpConfig,
+        });
 
       // Create session store (use in-memory for now, can switch to Redis later)
       const sessionStore = makeInMemorySessionStore(config.mcp.sessionTtlSeconds);
 
       // Register MCP routes
       await app.register(makeMcpRoutes, {
-        mcpServer,
+        createMcpServer: createHttpMcpServer,
         sessionStore,
         rateLimiter,
         config: mcpConfig,
