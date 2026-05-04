@@ -85,7 +85,7 @@
     "@opentelemetry/sdk-trace-base": "^2.7.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@react-email/components": "^1.0.12",
-    "@react-email/render": "^2.0.7",
+    "@react-email/render": "^2.0.8",
     "@sinclair/typebox": "^0.34.49",
     "bullmq": "^5.76.2",
     "csv-parse": "^6.2.1",
