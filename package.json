@@ -97,7 +97,7 @@
     "graphql-depth-limit": "^1.1.0",
     "ioredis": "^5.10.1",
     "jose": "^6.2.2",
-    "kysely": "^0.28.16",
+    "kysely": "^0.28.17",
     "mercurius": "^16.9.0",
     "neverthrow": "^8.2.0",
     "pg": "^8.20.0",
