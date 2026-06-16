@@ -1,0 +1,174 @@
+parliament.bill_act_links	bill_act_link_id	bigint
+parliament.bill_act_links	bill_key	text
+parliament.bill_act_links	relationship_kind	text
+parliament.bill_act_links	target_act_id	bigint
+parliament.bill_act_links	target_act_type	text
+parliament.bill_act_links	target_act_number	text
+parliament.bill_act_links	target_act_year	smallint
+parliament.bill_act_links	target_issuer_slug	text
+parliament.bill_act_links	resolution_status	text
+parliament.bill_act_links	confidence	numeric(4,3)
+parliament.bill_act_links	confidence_label	text
+parliament.bill_act_links	primary_method	text
+parliament.bill_act_links	resolver_version	text
+parliament.bill_act_links	evidence	jsonb
+parliament.bill_act_links	candidates	jsonb
+parliament.bill_act_links	issues	jsonb
+parliament.bill_act_links	created_at	timestamp with time zone
+parliament.bill_act_links	updated_at	timestamp with time zone
+parliament.bill_documents	bill_key	text
+parliament.bill_documents	url	text
+parliament.bill_documents	label	text
+parliament.bill_documents	kind	text
+parliament.bill_documents	position	integer
+parliament.bill_documents	attrs	jsonb
+parliament.bill_events	bill_key	text
+parliament.bill_events	position	integer
+parliament.bill_events	event_date	date
+parliament.bill_events	event_date_text	text
+parliament.bill_events	description	text
+parliament.bill_events	chamber_code	text
+parliament.bill_events	committee	text
+parliament.bill_events	vote_idv	text
+parliament.bill_events	docs	jsonb
+parliament.bill_vote_links	bill_vote_link_id	bigint
+parliament.bill_vote_links	vote_key	text
+parliament.bill_vote_links	bill_key	text
+parliament.bill_vote_links	source_ref	text
+parliament.bill_vote_links	matched_scheme	text
+parliament.bill_vote_links	match_method	text
+parliament.bill_vote_links	role	text
+parliament.bill_vote_links	resolution_status	text
+parliament.bill_vote_links	confidence	numeric(4,3)
+parliament.bill_vote_links	confidence_label	text
+parliament.bill_vote_links	source_event_position	integer
+parliament.bill_vote_links	evidence	jsonb
+parliament.bill_vote_links	candidates	jsonb
+parliament.bill_vote_links	issues	jsonb
+parliament.bill_vote_links	resolver_version	text
+parliament.bill_vote_links	created_at	timestamp with time zone
+parliament.bill_vote_links	updated_at	timestamp with time zone
+parliament.bills	bill_key	text
+parliament.bills	plx_number	text
+parliament.bills	plx_year	integer
+parliament.bills	senate_number	text
+parliament.bills	senate_year	integer
+parliament.bills	title	text
+parliament.bills	final_law_number	text
+parliament.bills	final_law_year	integer
+parliament.bills	attrs	jsonb
+parliament.bills	source_updated_at	timestamp with time zone
+parliament.bills	updated_at	timestamp with time zone
+parliament.control_items	item_key	text
+parliament.control_items	control_type	text
+parliament.control_items	control_type_provenance	text
+parliament.control_items	title	text
+parliament.control_items	recipient	text
+parliament.control_items	item_date	date
+parliament.control_items	response_status	text
+parliament.control_items	author_name	text
+parliament.control_items	mandate_key	text
+parliament.control_items	match_method	text
+parliament.control_items	attrs	jsonb
+parliament.control_items	source_updated_at	timestamp with time zone
+parliament.group_membership_intervals	mandate_key	text
+parliament.group_membership_intervals	group_id	text
+parliament.group_membership_intervals	valid_from	date
+parliament.group_membership_intervals	valid_to	date
+parliament.group_membership_intervals	source	text
+parliament.group_membership_intervals	vote_count	integer
+parliament.group_membership_intervals	issues	jsonb
+parliament.member_declarations	declaration_id	bigint
+parliament.member_declarations	mandate_key	text
+parliament.member_declarations	declaration_type	text
+parliament.member_declarations	declaration_date	date
+parliament.member_declarations	label	text
+parliament.member_declarations	file_url	text
+parliament.member_declarations	file_hash	text
+parliament.member_declarations	content_status	text
+parliament.member_declarations	attrs	jsonb
+parliament.member_declarations	created_at	timestamp with time zone
+parliament.member_initiatives	initiative_key	text
+parliament.member_initiatives	mandate_key	text
+parliament.member_initiatives	bill_key	text
+parliament.member_initiatives	title	text
+parliament.member_initiatives	status	text
+parliament.member_initiatives	registration_number	text
+parliament.member_initiatives	registration_date_text	text
+parliament.member_initiatives	promulgated_law_number	text
+parliament.member_initiatives	promulgated_law_year	integer
+parliament.member_initiatives	bill_url	text
+parliament.member_initiatives	attrs	jsonb
+parliament.members	mandate_key	text
+parliament.members	chamber	text
+parliament.members	legislature	text
+parliament.members	full_name	text
+parliament.members	normalized_name	text
+parliament.members	group_name	text
+parliament.members	group_id	text
+parliament.members	constituency_name	text
+parliament.members	birth_date	date
+parliament.members	birth_date_text	text
+parliament.members	birth_date_parse_method	text
+parliament.members	attrs	jsonb
+parliament.members	source_updated_at	timestamp with time zone
+parliament.members	updated_at	timestamp with time zone
+parliament.members	person_id	bigint
+parliament.parliamentary_groups	group_id	text
+parliament.parliamentary_groups	chamber	text
+parliament.parliamentary_groups	name	text
+parliament.parliamentary_groups	attrs	jsonb
+parliament.parliamentary_groups	updated_at	timestamp with time zone
+parliament.person_identity_candidates	candidate_id	bigint
+parliament.person_identity_candidates	mandate_key	text
+parliament.person_identity_candidates	person_id	bigint
+parliament.person_identity_candidates	status	text
+parliament.person_identity_candidates	method	text
+parliament.person_identity_candidates	evidence	jsonb
+parliament.person_identity_candidates	created_at	timestamp with time zone
+parliament.person_identity_candidates	updated_at	timestamp with time zone
+parliament.persons	person_id	bigint
+parliament.persons	canonical_name	text
+parliament.persons	normalized_name	text
+parliament.persons	birth_date	date
+parliament.persons	birth_date_text	text
+parliament.persons	confidence	text
+parliament.persons	issues	jsonb
+parliament.persons	attrs	jsonb
+parliament.persons	updated_at	timestamp with time zone
+parliament.persons	cluster_key	text
+parliament.speeches	speech_key	text
+parliament.speeches	mandate_key	text
+parliament.speeches	speaker_name	text
+parliament.speeches	chamber	text
+parliament.speeches	spoken_at	date
+parliament.speeches	date_source	text
+parliament.speeches	quarantined	boolean
+parliament.speeches	title	text
+parliament.speeches	summary	text
+parliament.speeches	attrs	jsonb
+parliament.speeches	source_updated_at	timestamp with time zone
+parliament.vote_records	vote_key	text
+parliament.vote_records	row_index	integer
+parliament.vote_records	member_name	text
+parliament.vote_records	group_name	text
+parliament.vote_records	choice	text
+parliament.vote_records	raw_marker	text
+parliament.vote_records	mandate_key	text
+parliament.vote_records	match_method	text
+parliament.votes	vote_key	text
+parliament.votes	chamber	text
+parliament.votes	vote_date	date
+parliament.votes	title	text
+parliament.votes	pentru	integer
+parliament.votes	impotriva	integer
+parliament.votes	abtinere	integer
+parliament.votes	nu_a_votat	integer
+parliament.votes	present	integer
+parliament.votes	outcome	text
+parliament.votes	division_number	integer
+parliament.votes	bill_key	text
+parliament.votes	law_reference	text
+parliament.votes	attrs	jsonb
+parliament.votes	source_updated_at	timestamp with time zone
+parliament.votes	updated_at	timestamp with time zone

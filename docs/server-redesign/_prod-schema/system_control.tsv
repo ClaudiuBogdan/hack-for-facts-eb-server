@@ -1,0 +1,4 @@
+system_control.kysely_migration	name	character varying(255)
+system_control.kysely_migration	timestamp	character varying(255)
+system_control.kysely_migration_lock	id	character varying(255)
+system_control.kysely_migration_lock	is_locked	integer
