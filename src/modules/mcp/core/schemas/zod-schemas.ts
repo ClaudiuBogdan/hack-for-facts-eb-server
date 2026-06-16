@@ -275,6 +275,33 @@ export const ExploreBudgetBreakdownInputZod = z.object({
 
 export type ExploreBudgetBreakdownInputZodType = z.infer<typeof ExploreBudgetBreakdownInputZod>;
 
+/**
+ * query_procurement_filters - Query deterministic procurement aggregates.
+ */
+export const QueryProcurementFiltersInputZod = z.object({
+  analysis: z
+    .enum(['top_suppliers', 'category_breakdown', 'same_day_direct_acquisition_candidates'])
+    .describe('Procurement question type'),
+  authorityCountyCode: z.string().describe('Buyer county code').optional(),
+  authorityCui: z.string().describe('Buyer/public authority CUI').optional(),
+  authorityRegion: z.string().describe('Buyer development region').optional(),
+  cpvDivisionCode: z
+    .string()
+    .regex(/^[0-9]{2}$/)
+    .describe('Two-digit CPV division code')
+    .optional(),
+  limit: z.number().min(1).max(50).default(10).optional(),
+  rankBy: z.enum(['amount_ron', 'flow_count']).default('amount_ron').optional(),
+  sourceGrain: z
+    .enum(['direct_acquisition', 'procurement_contract'])
+    .default('direct_acquisition')
+    .optional(),
+  yearEnd: z.number().min(2006).describe('Last year to include').optional(),
+  yearStart: z.number().min(2006).describe('First year to include').optional(),
+});
+
+export type QueryProcurementFiltersInputZodType = z.infer<typeof QueryProcurementFiltersInputZod>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Output Schemas
 // ─────────────────────────────────────────────────────────────────────────────
