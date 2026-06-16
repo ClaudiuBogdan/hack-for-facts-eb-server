@@ -124,6 +124,12 @@ export {
   type RankEntitiesInput,
   type RankEntitiesOutput,
 
+  // query_procurement_filters
+  QueryProcurementFiltersInputSchema,
+  QueryProcurementFiltersOutputSchema,
+  type QueryProcurementFiltersInput,
+  type QueryProcurementFiltersOutput,
+
   // Error
   ErrorOutputSchema,
   type ErrorOutput,

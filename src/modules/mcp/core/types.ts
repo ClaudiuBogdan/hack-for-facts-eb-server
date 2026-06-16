@@ -151,6 +151,97 @@ export interface EntityRankingRow {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Procurement Analytics
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ProcurementAnalysisKind =
+  | 'top_suppliers'
+  | 'category_breakdown'
+  | 'same_day_direct_acquisition_candidates';
+
+export type ProcurementAnswerStatus = 'allowed' | 'abstained';
+
+export type ProcurementAnswerClass = 'filter' | 'spend_ranking' | 'review_signal';
+
+export type ProcurementRankBy = 'amount_ron' | 'flow_count';
+
+export type ProcurementSourceGrain = 'direct_acquisition' | 'procurement_contract';
+
+export interface ProcurementAggregateQuality {
+  amountCoverageRate: number;
+  authorityCuiCoverageRate: number;
+  authorityTerritoryCoverageRate: number;
+  blockers: string[];
+  cpvCoverageRate: number;
+  dateCoverageRate: number;
+  filterAnswersAllowed: boolean;
+  rowsCount: number;
+  sourceGrain: ProcurementSourceGrain;
+  spendRankingsAllowed: boolean;
+  supplierCuiCoverageRate: number;
+  supplierRegionFiltersAllowed: boolean;
+}
+
+export interface ProcurementFilterQuery {
+  authorityCountyCode?: string;
+  authorityCui?: string;
+  authorityRegion?: string;
+  cpvDivisionCode?: string;
+  limit: number;
+  rankBy: ProcurementRankBy;
+  sourceGrain: ProcurementSourceGrain;
+  yearEnd?: number;
+  yearStart?: number;
+}
+
+export interface ProcurementSupplierRankingRow {
+  amountMissingCount: number;
+  amountPresentCount: number;
+  amountRonSum: number;
+  authorityCount: number;
+  cpvDivisionCode: string | null;
+  cpvDivisionLabelEn: string | null;
+  evidenceRefsSample: string[];
+  firstFlowDate: string | null;
+  flowCount: number;
+  lastFlowDate: string | null;
+  supplierCui: string;
+  supplierName: string | null;
+}
+
+export interface ProcurementCategoryBreakdownRow {
+  amountMissingCount: number;
+  amountPresentCount: number;
+  amountRonSum: number;
+  cpvDivisionCode: string;
+  cpvDivisionLabelEn: string | null;
+  distinctSupplierCount: number | null;
+  evidenceRefsSample: string[];
+  firstFlowDate: string | null;
+  flowCount: number;
+  lastFlowDate: string | null;
+}
+
+export interface ProcurementSameDayCandidateRow {
+  amountMissingCount: number;
+  amountPresentCount: number;
+  authorityCountyName: string | null;
+  authorityCui: string;
+  authorityName: string | null;
+  authorityRegion: string | null;
+  candidateDate: string;
+  cpvCode: string | null;
+  cpvDivisionCode: string | null;
+  cpvDivisionLabelEn: string | null;
+  evidenceRefsSample: string[];
+  maxSingleAmountRon: number;
+  sameDayCount: number;
+  sameDayTotalRon: number;
+  supplierCui: string;
+  supplierName: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pagination
 // ─────────────────────────────────────────────────────────────────────────────
 
