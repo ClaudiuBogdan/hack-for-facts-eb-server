@@ -206,6 +206,7 @@ import {
   makeInMemorySessionStore,
   makeInMemoryRateLimiter,
   makeMcpExecutionRepo,
+  makeMcpProcurementRepo,
   makeMcpAnalyticsService,
   makeEntityAdapter,
   makeUatAdapter,
@@ -2039,6 +2040,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const mcpFunctionalAdapter = makeFunctionalClassificationAdapter(functionalClassificationRepo);
     const mcpEconomicAdapter = makeEconomicClassificationAdapter(economicClassificationRepo);
     const mcpExecutionRepo = makeMcpExecutionRepo(budgetDb);
+    const mcpProcurementRepo = config.mcp.procurementFiltersEnabled
+      ? makeMcpProcurementRepo(budgetDb)
+      : undefined;
     const mcpAnalyticsService = makeMcpAnalyticsService(analyticsRepo, normalizationService);
 
     // Create share link adapter
@@ -2064,6 +2068,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         config.mcp.clientBaseUrl !== ''
           ? config.mcp.clientBaseUrl
           : (config.cors.clientBaseUrl ?? ''),
+      procurementFiltersEnabled: config.mcp.procurementFiltersEnabled,
     };
 
     // Create rate limiter (shared between MCP and GPT - 100 requests per minute)
@@ -2076,8 +2081,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // Setup MCP Module (Model Context Protocol for AI clients)
     // ─────────────────────────────────────────────────────────────────────────
     if (config.mcp.enabled) {
-      const createHttpMcpServer = () =>
-        createMcpServer({
+      const createHttpMcpServer = () => {
+        const procurementDeps =
+          mcpProcurementRepo === undefined ? {} : { procurementRepo: mcpProcurementRepo };
+
+        return createMcpServer({
           entityRepo: mcpEntityAdapter,
           executionRepo: mcpExecutionRepo,
           uatRepo: mcpUatAdapter,
@@ -2086,9 +2094,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
           analyticsService: mcpAnalyticsService,
           aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
+          ...procurementDeps,
           shareLink: mcpShareLink,
           config: mcpConfig,
         });
+      };
 
       // Create session store (use in-memory for now, can switch to Redis later)
       const sessionStore = makeInMemorySessionStore(config.mcp.sessionTtlSeconds);

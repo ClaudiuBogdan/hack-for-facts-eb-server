@@ -241,6 +241,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
         apiKey: undefined,
         sessionTtlSeconds: 3600,
         clientBaseUrl: '',
+        procurementFiltersEnabled: false,
       },
       gpt: {
         apiKey: undefined,

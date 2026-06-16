@@ -119,6 +119,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       apiKey: undefined,
       sessionTtlSeconds: 3600,
       clientBaseUrl: '',
+      procurementFiltersEnabled: false,
     },
     gpt: {
       apiKey: undefined,

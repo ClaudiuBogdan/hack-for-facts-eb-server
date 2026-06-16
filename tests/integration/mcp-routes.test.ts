@@ -4,7 +4,9 @@ import createFastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 
 import {
+  createMcpServer,
   makeMcpRoutes,
+  type CreateMcpServerDeps,
   type McpConfig,
   type McpSession,
   type McpSessionStore,
@@ -46,7 +48,10 @@ const makeConfig = (): McpConfig => ({
   rateLimitWindowMs: 60_000,
   rateLimitMaxRequests: 60,
   clientBaseUrl: '',
+  procurementFiltersEnabled: false,
 });
+
+const makeStub = (): unknown => ({});
 
 class TestSessionStore implements McpSessionStore {
   private readonly sessions = new Map<string, McpSession>();
@@ -89,6 +94,60 @@ const makeTestMcpServer = (name: string, mcpServerCtor: typeof McpServer): McpSe
   );
 
   return server;
+};
+
+const makeTransparentaMcpServerDeps = (
+  procurementRepo?: NonNullable<CreateMcpServerDeps['procurementRepo']>
+): CreateMcpServerDeps => {
+  const deps = {
+    entityRepo: makeStub() as CreateMcpServerDeps['entityRepo'],
+    executionRepo: makeStub() as CreateMcpServerDeps['executionRepo'],
+    uatRepo: makeStub() as CreateMcpServerDeps['uatRepo'],
+    functionalClassificationRepo: makeStub() as CreateMcpServerDeps['functionalClassificationRepo'],
+    economicClassificationRepo: makeStub() as CreateMcpServerDeps['economicClassificationRepo'],
+    entityAnalyticsRepo: makeStub() as CreateMcpServerDeps['entityAnalyticsRepo'],
+    analyticsService: makeStub() as CreateMcpServerDeps['analyticsService'],
+    aggregatedLineItemsRepo: makeStub() as CreateMcpServerDeps['aggregatedLineItemsRepo'],
+    shareLink: makeStub() as CreateMcpServerDeps['shareLink'],
+    config: makeConfig(),
+  };
+
+  return procurementRepo === undefined ? deps : { ...deps, procurementRepo };
+};
+
+const listTools = async (createMcpServerForSession: () => McpServer): Promise<string> => {
+  const app = createFastify();
+
+  await app.register(makeMcpRoutes, {
+    createMcpServer: createMcpServerForSession,
+    sessionStore: new TestSessionStore(),
+    config: makeConfig(),
+  });
+
+  const initialized = await app.inject({
+    method: 'POST',
+    url: '/mcp',
+    headers: MCP_HEADERS,
+    payload: makeInitializePayload(1),
+  });
+  const sessionId = initialized.headers['mcp-session-id'];
+
+  expect(typeof sessionId).toBe('string');
+
+  const tools = await app.inject({
+    method: 'POST',
+    url: '/mcp',
+    headers: {
+      ...MCP_PROTOCOL_HEADERS,
+      'mcp-session-id': sessionId,
+    },
+    payload: makeToolsListPayload(2),
+  });
+
+  await app.close();
+
+  expect(tools.statusCode).toBe(200);
+  return tools.body;
 };
 
 describe('MCP HTTP routes', () => {
@@ -188,5 +247,24 @@ describe('MCP HTTP routes', () => {
     expect(afterDelete.statusCode).toBe(409);
 
     await app.close();
+  });
+
+  it('omits procurement filters when the gated dependency is absent', async () => {
+    const tools = await listTools(() => createMcpServer(makeTransparentaMcpServerDeps()));
+
+    expect(tools).toContain('"name":"get_entity_snapshot"');
+    expect(tools).not.toContain('"name":"query_procurement_filters"');
+  });
+
+  it('registers procurement filters when the gated dependency is present', async () => {
+    const tools = await listTools(() =>
+      createMcpServer(
+        makeTransparentaMcpServerDeps(
+          makeStub() as NonNullable<CreateMcpServerDeps['procurementRepo']>
+        )
+      )
+    );
+
+    expect(tools).toContain('"name":"query_procurement_filters"');
   });
 });

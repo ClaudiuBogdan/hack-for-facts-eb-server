@@ -16,6 +16,7 @@ import {
   RANK_ENTITIES_DESCRIPTION,
   ANALYZE_ENTITY_BUDGET_DESCRIPTION,
   EXPLORE_BUDGET_BREAKDOWN_DESCRIPTION,
+  QUERY_PROCUREMENT_FILTERS_DESCRIPTION,
 } from './tool-descriptions.js';
 import {
   GetEntitySnapshotInputZod,
@@ -24,6 +25,7 @@ import {
   QueryTimeseriesInputZod,
   AnalyzeEntityBudgetInputZod,
   ExploreBudgetBreakdownInputZod,
+  QueryProcurementFiltersInputZod,
 } from '../../core/schemas/zod-schemas.js';
 import {
   analyzeEntityBudget,
@@ -35,6 +37,10 @@ import {
   getEntitySnapshot,
   type GetEntitySnapshotDeps,
 } from '../../core/usecases/get-entity-snapshot.js';
+import {
+  queryProcurementFilters,
+  type QueryProcurementFiltersDeps,
+} from '../../core/usecases/query-procurement-filters.js';
 import { queryTimeseries, type QueryTimeseriesDeps } from '../../core/usecases/query-timeseries.js';
 import { rankEntities, type RankEntitiesDeps } from '../../core/usecases/rank-entities.js';
 import { ALL_PROMPTS } from '../prompts/prompt-templates.js';
@@ -71,6 +77,9 @@ export interface CreateMcpServerDeps {
   // Analyze entity budget deps
   aggregatedLineItemsRepo: AnalyzeEntityBudgetDeps['aggregatedLineItemsRepo'];
 
+  // Procurement aggregate deps
+  procurementRepo?: QueryProcurementFiltersDeps['procurementRepo'];
+
   // Shared
   shareLink: {
     create(url: string): Promise<import('neverthrow').Result<string, unknown>>;
@@ -100,6 +109,7 @@ You are an AI assistant helping users explore Romanian public budget data throug
 - **query_timeseries_data**: Query multi-series time-series data for trends and comparisons
 - **analyze_entity_budget**: Analyze a single entity's budget with breakdown by classification
 - **explore_budget_breakdown**: Explore budget hierarchically with progressive drill-down
+- **query_procurement_filters** (when enabled): Query deterministic public-contract aggregate filters with coverage-gated abstention
 
 ## Key Concepts
 
@@ -147,6 +157,7 @@ You are an AI assistant helping users explore Romanian public budget data throug
 - Entity deep-dive: get_entity_snapshot → analyze_entity_budget → drill by functional/economic codes
 - Regional analysis: discover_filters (UAT/county) → rank_entities or explore_budget_breakdown
 - Classification analysis: discover_filters (functional/economic codes) → explore_budget_breakdown with path navigation
+- Procurement analytics, when enabled: resolve public institution CUI if needed → query_procurement_filters. Treat region filters there as buyer/public authority region and respect abstentions.
 
 ## Data Currency
 All amounts are in Romanian Lei (RON) unless normalized to EUR or per-capita.
@@ -320,6 +331,27 @@ export function createMcpServer(deps: CreateMcpServerDeps): McpServer {
       return result.isErr() ? errResponse(result.error) : okResponse(result.value);
     }
   );
+
+  // query_procurement_filters
+  if (deps.procurementRepo !== undefined) {
+    const procurementRepo = deps.procurementRepo;
+    server.registerTool(
+      'query_procurement_filters',
+      {
+        description: QUERY_PROCUREMENT_FILTERS_DESCRIPTION,
+        inputSchema: QueryProcurementFiltersInputZod.shape,
+      },
+      async (args) => {
+        const result = await queryProcurementFilters(
+          {
+            procurementRepo,
+          },
+          args as Parameters<typeof queryProcurementFilters>[1]
+        );
+        return result.isErr() ? errResponse(result.error) : okResponse(result.value);
+      }
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Register Resources
