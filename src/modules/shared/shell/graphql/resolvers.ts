@@ -11,13 +11,19 @@ import { GraphQLError } from 'graphql';
 
 import { scalarResolvers } from './scalars.js';
 import { GRAPHQL_ERROR_CODE, type ApiError } from '../../core/errors.js';
-import { makeEntity360, type Entity360, type Entity360Deps } from '../../core/usecases/entity-360.js';
+import {
+  makeEntityCore,
+  resolveEntityPresence,
+  type EntityCore,
+  type Entity360Deps,
+} from '../../core/usecases/entity-360.js';
 import {
   makeGlobalSearch,
   type GlobalSearchDeps,
 } from '../../core/usecases/global-search.js';
 
-
+import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
+import type { FlowSummary, SourcePresence, Territory } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
@@ -34,6 +40,10 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
 export interface KernelResolverDeps {
   readonly entity360Deps: Entity360Deps;
   readonly globalSearchDeps: GlobalSearchDeps;
+  readonly identityRepo: IdentityRepo;
+  readonly flowsRepo: FlowsRepo;
+  readonly searchRepo: SearchRepo;
+  readonly registry: ContributorRegistry;
   readonly health: () => Promise<unknown>;
 }
 
@@ -52,8 +62,10 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
   Query: {
     health: async () => deps.health(),
 
-    entity: async (_root: unknown, args: EntityArgs): Promise<Entity360 | null> => {
-      const result = await makeEntity360(deps.entity360Deps, args.cui);
+    entity: async (_root: unknown, args: EntityArgs): Promise<EntityCore | null> => {
+      // Lazy: resolve the non-flow core only. flowsIn/flowsOut are field
+      // resolvers that scan flows.money_flows ONLY when selected.
+      const result = await makeEntityCore(deps.entity360Deps, args.cui);
       if (result.isErr()) {
         // Invalid CUI input → null entity rather than a hard error.
         if (result.error.type === 'InvalidInput') return null;
@@ -70,5 +82,22 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
           ...(args.limit !== undefined && { limit: args.limit }),
         })
       ),
+  },
+
+  // Field-level resolvers — each computed lazily per-request, so a query pays
+  // only for what it selects. flowsIn/flowsOut hit the 19GB flow graph;
+  // documentCount is a ~7s any(cuis) scan over 6.1M docs; territory + presence
+  // are their own joins/fan-out. `entity(cui){ pnrr }` touches NONE of these.
+  Entity: {
+    flowsIn: async (parent: { cui: string }): Promise<FlowSummary> =>
+      unwrap(await deps.flowsRepo.getFlowSummary(parent.cui, 'in')),
+    flowsOut: async (parent: { cui: string }): Promise<FlowSummary> =>
+      unwrap(await deps.flowsRepo.getFlowSummary(parent.cui, 'out')),
+    territory: async (parent: { cui: string }): Promise<Territory | null> =>
+      unwrap(await deps.identityRepo.territoryForCui(parent.cui)),
+    documentCount: async (parent: { cui: string }): Promise<number> =>
+      unwrap(await deps.searchRepo.countByCui(parent.cui)),
+    presence: async (parent: { cui: string }): Promise<readonly SourcePresence[]> =>
+      resolveEntityPresence(deps.registry, parent.cui),
   },
 });

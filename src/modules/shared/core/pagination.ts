@@ -162,3 +162,12 @@ export interface CursorPage<T> {
   readonly items: readonly T[];
   readonly next: string | null;
 }
+
+/**
+ * `Conn<T>` is an alias of `CursorPage<T>` for plans/modules that speak in
+ * "connection" terms (GraphQL Relay naming). It is the SAME shape — the GraphQL
+ * connection projection (edges/node/pageInfo) is built from this in the shell,
+ * so there is one cursor contract, not two. Prefer `CursorPage<T>` in new code;
+ * `Conn<T>` exists so module plans referencing it don't reinvent one.
+ */
+export type Conn<T> = CursorPage<T>;

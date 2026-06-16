@@ -45,6 +45,56 @@ export interface Entity360 {
   readonly presence: readonly SourcePresence[];
 }
 
+/**
+ * The CHEAP entity core — only the indexed identity lookup (org + identifiers).
+ * The expensive parts each have their own measured cost and become GraphQL
+ * field resolvers so a query pays only for what it selects:
+ *   - `flowsIn`/`flowsOut` → flows.money_flows (the 19GB graph, §14.6)
+ *   - `documentCount`      → `any(cuis)` over 6.1M search docs (~7s, no index)
+ *   - `territory`          → public_entities → territories join
+ *   - `presence`           → per-contributor fan-out
+ * A query like `entity(cui){ pnrr }` therefore never touches flows or the doc
+ * scan. The full eager assembly lives in `makeEntity360` (snapshot/REST use).
+ */
+export interface EntityCore {
+  readonly cui: Cui;
+  readonly organization: Organization | null;
+  readonly identifiers: readonly OrgIdentifier[];
+}
+
+export const makeEntityCore = async (
+  deps: Entity360Deps,
+  rawCui: string
+): Promise<Result<EntityCore, ApiError>> => {
+  const cui = normalizeCui(rawCui);
+  if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+
+  const orgRes = await deps.identityRepo.findByCui(cui);
+  if (orgRes.isErr()) return err(orgRes.error);
+
+  let identifiers: readonly OrgIdentifier[] = [];
+  if (orgRes.value !== null) {
+    const idRes = await deps.identityRepo.getIdentifiers(orgRes.value.orgId);
+    if (idRes.isErr()) return err(idRes.error);
+    identifiers = idRes.value;
+  }
+
+  return ok({ cui, organization: orgRes.value, identifiers });
+};
+
+/** Resolve the present source contributors for a CUI (field-level). */
+export const resolveEntityPresence = async (
+  registry: ContributorRegistry,
+  cui: Cui
+): Promise<readonly SourcePresence[]> => {
+  const results = await Promise.all(registry.list().map((c) => c.presenceFor(cui)));
+  const presences: SourcePresence[] = [];
+  for (const res of results) {
+    if (res.isOk() && res.value !== null) presences.push(res.value);
+  }
+  return presences;
+};
+
 export const makeEntity360 = async (
   deps: Entity360Deps,
   rawCui: string
@@ -69,7 +119,10 @@ export const makeEntity360 = async (
   if (territoryRes.isErr()) return err(territoryRes.error);
   if (flowsInRes.isErr()) return err(flowsInRes.error);
   if (flowsOutRes.isErr()) return err(flowsOutRes.error);
-  if (docCountRes.isErr()) return err(docCountRes.error);
+  // documentCount is informational and runs a known-slow `any(cuis)` scan over
+  // 6.1M docs (no index yet) — degrade to 0 on failure/timeout rather than
+  // failing the whole snapshot.
+  const documentCount = docCountRes.isOk() ? docCountRes.value : 0;
 
   // Identifiers only if we resolved an org.
   let identifiers: readonly OrgIdentifier[] = [];
@@ -92,7 +145,7 @@ export const makeEntity360 = async (
     territory: territoryRes.value,
     flowsIn: flowsInRes.value,
     flowsOut: flowsOutRes.value,
-    documentCount: docCountRes.value,
+    documentCount,
     presence: presences,
   });
 };

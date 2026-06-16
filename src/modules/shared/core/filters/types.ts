@@ -30,7 +30,13 @@ export type FilterOp =
   | 'contains'
   | 'isNull';
 
-export type FilterFieldType = 'string' | 'int' | 'number' | 'date' | 'bool' | 'enum';
+/**
+ * `money` is a precision-safe decimal: validated/compiled as a STRING (never a
+ * JS float), so value/amount-range filters over `numeric(18,2)` columns stay
+ * exact. Surfaces it as the GraphQL `Money` scalar and compiles comparisons as
+ * `column::numeric <op> $value::numeric`.
+ */
+export type FilterFieldType = 'string' | 'int' | 'number' | 'money' | 'date' | 'bool' | 'enum';
 
 /**
  * A safe column reference. `alias` is the table alias used in the query (e.g.
