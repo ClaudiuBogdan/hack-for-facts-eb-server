@@ -18,6 +18,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
 export interface BuildRedesignAppDeps {
@@ -32,6 +33,13 @@ export interface BuildRedesignAppDeps {
   /** Hook to register source contributors into the kernel registry. */
   readonly registerContributors?: (kernel: Kernel) => void;
   readonly enableGraphiQL?: boolean;
+  /** Client base URL for module MCP deep links. */
+  readonly clientBaseUrl?: string;
+  /**
+   * Source modules to wire into the kernel. Defaults to all built-in modules
+   * (currently just `pnrr`). Pass `[]` to boot the bare kernel.
+   */
+  readonly modules?: readonly ('pnrr')[];
 }
 
 export interface RedesignApp {
@@ -72,14 +80,37 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   });
 
   const kernel = await makeKernel(deps.kernelConfig);
+
+  // ── Source modules (built on the kernel) ─────────────────────────────────────
+  // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
+  // and registers a SourceContributor. Registration order is data-independent.
+  const enabledModules = deps.modules ?? (['pnrr'] as const);
+  const moduleSlices: GraphqlSlice[] = [];
+  const moduleResolvers: Record<string, unknown>[] = [];
+  const moduleMcpTools: KernelMcpTool[] = [];
+
+  if (enabledModules.includes('pnrr')) {
+    const pnrr = makePnrrModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(pnrr.contributor);
+    moduleSlices.push(pnrr.graphqlSlice);
+    moduleResolvers.push(pnrr.graphqlResolvers);
+    moduleMcpTools.push(...pnrr.mcpTools);
+  }
+
   deps.registerContributors?.(kernel);
 
   // ── GraphQL ────────────────────────────────────────────────────────────────
-  const { typeDefs, resolvers } = kernel.buildGraphql(deps.graphqlSlices ?? []);
-  const mergedResolvers =
-    deps.graphqlResolvers !== undefined
-      ? deepMergeResolvers(resolvers, deps.graphqlResolvers)
-      : resolvers;
+  const allSlices = [...moduleSlices, ...(deps.graphqlSlices ?? [])];
+  const { typeDefs, resolvers } = kernel.buildGraphql(allSlices);
+  let mergedResolvers = resolvers;
+  for (const r of moduleResolvers) mergedResolvers = deepMergeResolvers(mergedResolvers, r);
+  if (deps.graphqlResolvers !== undefined) {
+    mergedResolvers = deepMergeResolvers(mergedResolvers, deps.graphqlResolvers);
+  }
 
   // The kernel resolver map is a plain resolver object; @graphql-tools types it
   // as IResolvers. Cast through unknown — shape is correct at runtime.
@@ -96,7 +127,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   });
 
   // ── MCP (stateless streamable HTTP) ──────────────────────────────────────────
-  const mcpServer = kernel.buildMcpServer(deps.mcpTools ?? []);
+  const mcpServer = kernel.buildMcpServer([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
 
   app.post('/api/v1/mcp', async (request, reply) => {
     // Stateless mode: omit sessionIdGenerator; JSON request/response. The SDK's
