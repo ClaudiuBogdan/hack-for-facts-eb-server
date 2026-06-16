@@ -276,6 +276,23 @@ export interface EntityProfileSlice {
   readonly data?: Record<string, unknown>;
 }
 
+/**
+ * A name→value discovery/resolve hit (the §7.4 resolve pattern, shared across
+ * modules). `kind` is the dimension resolved (e.g. 'entity' | 'county' |
+ * 'cpv' | 'component'); `value` is the filter value to feed back (CUI, SIRUTA,
+ * code, status); `label` is the human-readable name; `score` is an optional
+ * match confidence; `hint` is optional extra context (county, year, type) the
+ * UI/agent can disambiguate on. Modules reuse this un-prefixed rather than each
+ * inventing a `*ResolveHit`.
+ */
+export interface ResolveHit {
+  readonly kind: string;
+  readonly value: string;
+  readonly label: string;
+  readonly score?: number;
+  readonly hint?: string;
+}
+
 /** Health status of an auxiliary service. */
 export interface ServiceStatus {
   readonly status: 'ok' | 'error' | 'disabled';

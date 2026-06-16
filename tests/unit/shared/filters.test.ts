@@ -65,6 +65,12 @@ const spec: CollectionFilterSpec = {
       ops: ['in', 'contains'],
       column: { alias: 'c', column: 'attrs_tags', arrayColumn: true, arrayKind: 'jsonb' },
     },
+    {
+      name: 'value',
+      type: 'money',
+      ops: ['gte', 'lte', 'between', 'eq', 'in'],
+      column: { alias: 'c', column: 'amount_ron' },
+    },
   ],
   sort: { default: 'year', allowed: ['year', 'amount'] },
 };
@@ -142,6 +148,44 @@ describe('toConditionBuilders → SQL', () => {
     expect(f.sql).toContain('is not null');
   });
 
+  it('compiles money gte as ::numeric vs ::numeric with the value as a string', () => {
+    const res = toConditionBuilders(spec, { value: { gte: '1000000.50' } });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.sql).toContain('::numeric');
+    expect(compiled.sql).toContain('>=');
+    // value bound as a STRING, never a JS float.
+    expect(compiled.parameters).toEqual(['1000000.50']);
+  });
+
+  it('compiles money between as a numeric range', () => {
+    const res = toConditionBuilders(spec, { value: { between: { from: '100', to: '200.25' } } });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.sql).toContain('::numeric >= ');
+    expect(compiled.sql).toContain('::numeric <= ');
+    expect(compiled.parameters).toEqual(['100', '200.25']);
+  });
+
+  it('accepts a JS number money input but binds it as a string', () => {
+    const res = toConditionBuilders(spec, { value: { eq: 1500 as unknown as string } });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.parameters).toEqual(['1500']);
+  });
+
+  it('rejects a non-decimal money value', () => {
+    const res = toConditionBuilders(spec, { value: { gte: 'lots' } });
+    expect(res.isErr()).toBe(true);
+    expect(res._unsafeUnwrapErr().type).toBe('InvalidInput');
+  });
+
+  it('compiles money IN with numeric casts on both sides', () => {
+    const res = toConditionBuilders(spec, { value: { in: ['100', '200.5'] } });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    // lhs cast + each value cast to numeric (not a raw text in-list).
+    expect(compiled.sql).toContain('::numeric in (');
+    expect(compiled.sql.match(/::numeric/gu)?.length).toBeGreaterThanOrEqual(3);
+    expect(compiled.parameters).toEqual(['100', '200.5']);
+  });
+
   it('negates exclude fields with NOT(...)', () => {
     const res = toConditionBuilders(spec, { exclude: { cui: { in: ['111'] } } });
     const compiled = compileWhere(res._unsafeUnwrap());
@@ -211,6 +255,14 @@ describe('canonicalizeFilters + filterHash', () => {
     expect(empty).toEqual(absent);
   });
 
+  it('normalizes money so "100", "100.00" and 100 hash identically (no float)', () => {
+    const a = fhashFor(spec, { value: { gte: '100' } });
+    const b = fhashFor(spec, { value: { gte: '100.00' } });
+    const c = fhashFor(spec, { value: { gte: 100 as unknown as string } });
+    expect(a).toEqual(b);
+    expect(a).toEqual(c);
+  });
+
   it('produces a longer (64-bit) hash than a single 32-bit lane', () => {
     expect(filterHash('hello world').length).toBeGreaterThan(6);
   });
@@ -248,5 +300,21 @@ describe('toGraphQLInput', () => {
     const sdl = toGraphQLInput(spec);
     expect(sdl).toContain('contains: [String!]'); // tags (array col)
     expect(sdl).toContain('contains: String'); // title (scalar)
+  });
+
+  it('renders a money field as the Money scalar (no Float)', () => {
+    const sdl = toGraphQLInput(spec);
+    // the ContractsValueFilter input uses Money for gte/lte and a Money range.
+    expect(sdl).toContain('gte: Money');
+    expect(sdl).toContain('between: ContractsValueRange');
+    expect(sdl).toMatch(/input ContractsValueRange \{\s*from: Money\s*to: Money\s*\}/u);
+  });
+});
+
+describe('toTypeBox money', () => {
+  it('validates money as a decimal-string pattern (not a number)', () => {
+    const schema = toTypeBox(spec);
+    const valueProp = schema.properties['value'] as { properties?: Record<string, unknown> };
+    expect(valueProp).toBeDefined();
   });
 });

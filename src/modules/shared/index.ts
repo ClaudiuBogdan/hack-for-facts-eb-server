@@ -19,6 +19,7 @@ import { makeKernelLoaders, type KernelLoaders } from './shell/graphql/dataloade
 import { mergeGraphqlSlices, type GraphqlSlice } from './shell/graphql/merge.js';
 import { makeKernelResolvers } from './shell/graphql/resolvers.js';
 import { baseTypeDefs } from './shell/graphql/typedefs.js';
+import { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 import { createKernelMcpServer } from './shell/mcp/server.js';
 import { makeKernelMcpTools } from './shell/mcp/tools.js';
 import { createCache, type KernelCache } from './shell/middleware/cache.js';
@@ -94,6 +95,12 @@ export interface Kernel {
   buildGraphql(slices: readonly GraphqlSlice[]): { typeDefs: string; resolvers: Record<string, unknown> };
   /** Build the MCP server from kernel + module-contributed tools. */
   buildMcpServer(moduleTools: readonly KernelMcpTool[]): ReturnType<typeof createKernelMcpServer>;
+  /**
+   * Build an HTTP JSON-RPC dispatcher over the MCP server (kernel + module
+   * tools). Per-request server lifecycle; avoids the SDK's hono/socket bridge;
+   * safe under Fastify + inject().
+   */
+  buildMcpDispatcher(moduleTools: readonly KernelMcpTool[]): McpHttpDispatcher;
   readonly mcpTools: readonly KernelMcpTool[];
   health(): Promise<HealthReport>;
   close(): Promise<void>;
@@ -232,8 +239,20 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     chatModel,
     buildGraphql(slices: readonly GraphqlSlice[]) {
       const merged = mergeGraphqlSlices(baseTypeDefs, slices);
-      const resolvers = makeKernelResolvers({ entity360Deps, globalSearchDeps, health });
+      const resolvers = makeKernelResolvers({
+        entity360Deps,
+        globalSearchDeps,
+        identityRepo,
+        flowsRepo,
+        searchRepo,
+        registry: contributors,
+        health,
+      });
       return { typeDefs: merged.typeDefs, resolvers };
+    },
+    buildMcpDispatcher(moduleTools: readonly KernelMcpTool[]) {
+      // Per-request server factory (MCP session state must not cross requests).
+      return createMcpHttpDispatcher(() => createKernelMcpServer([...mcpTools, ...moduleTools]));
     },
     buildMcpServer(moduleTools: readonly KernelMcpTool[]) {
       return createKernelMcpServer([...mcpTools, ...moduleTools]);
@@ -262,5 +281,6 @@ export { baseTypeDefs } from './shell/graphql/typedefs.js';
 export { scalarResolvers, scalarTypeDefs } from './shell/graphql/scalars.js';
 export { makeBatchLoader, type BatchLoader } from './shell/graphql/dataloaders.js';
 export type { KernelMcpTool, McpToolOutput } from './shell/mcp/types.js';
+export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { type KernelCache } from './shell/middleware/cache.js';
 export { type RateLimiter } from './shell/middleware/rate-limiter.js';

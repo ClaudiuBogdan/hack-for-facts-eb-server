@@ -13,8 +13,6 @@
  */
 
 import { makeExecutableSchema } from '@graphql-tools/schema';
-// eslint-disable-next-line import-x/no-unresolved -- SDK wildcard subpath exports
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
@@ -126,21 +124,20 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     allowBatchedQueries: false,
   });
 
-  // ── MCP (stateless streamable HTTP) ──────────────────────────────────────────
-  const mcpServer = kernel.buildMcpServer([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
+  // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────
+  // Direct JSON-RPC dispatch (no SDK hono/socket bridge, which crashes under
+  // Fastify with `socket.destroySoon is not a function`). Works under a real
+  // listen and inject() alike.
+  const mcpDispatcher = kernel.buildMcpDispatcher([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
 
   app.post('/api/v1/mcp', async (request, reply) => {
-    // Stateless mode: omit sessionIdGenerator; JSON request/response. The SDK's
-    // transport types are stricter than its runtime contract under
-    // exactOptionalPropertyTypes, so connect/handleRequest cross a thin cast.
-    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
-    reply.raw.on('close', () => {
-      void transport.close();
-    });
-    await mcpServer.connect(transport as unknown as Parameters<typeof mcpServer.connect>[0]);
-    const handle = transport.handleRequest.bind(transport);
-    await handle(request.raw, reply.raw, request.body);
-    return reply;
+    const response = await mcpDispatcher.dispatch(request.body);
+    if (response === null) return reply.code(202).send();
+    return reply.code(200).send(response);
+  });
+
+  app.addHook('onClose', async () => {
+    await mcpDispatcher.close();
   });
 
   // ── Health / readiness ───────────────────────────────────────────────────────

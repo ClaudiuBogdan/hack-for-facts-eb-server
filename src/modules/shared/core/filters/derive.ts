@@ -43,6 +43,18 @@ const canonScalar = (type: FilterFieldSpec['type'], x: unknown): unknown => {
     const n = typeof x === 'number' ? x : Number(x);
     return Number.isFinite(n) ? n : x;
   }
+  if (type === 'money') {
+    // Normalize the decimal so "100", "100.00" and 100 hash identically
+    // (numerically equal). Keep as a STRING (no float) to preserve precision.
+    const s = typeof x === 'number' ? String(x) : typeof x === 'string' ? x.trim() : '';
+    if (!/^-?\d+(\.\d+)?$/u.test(s)) return x;
+    const neg = s.startsWith('-');
+    const [intPart = '0', fracRaw = ''] = s.replace(/^-/u, '').split('.');
+    const frac = fracRaw.replace(/0+$/u, '');
+    const intNorm = intPart.replace(/^0+(?=\d)/u, '');
+    const body = frac.length > 0 ? `${intNorm}.${frac}` : intNorm;
+    return `${neg && body !== '0' ? '-' : ''}${body}`;
+  }
   if (type === 'bool') return x === true || x === 'true';
   if (typeof x === 'string') return x.toLowerCase();
   return x;
@@ -163,6 +175,15 @@ const coerceScalar = (
       if (!Number.isFinite(n)) return err(invalidInput(`${field.name} must be a number`, field.name));
       return ok(n);
     }
+    case 'money': {
+      // Precision-safe: validate a decimal STRING and keep it as text (never a
+      // JS float). Compiled as `::numeric` in opSql so Postgres does exact math.
+      const s = typeof raw === 'string' ? raw.trim() : typeof raw === 'number' ? String(raw) : '';
+      if (!/^-?\d+(\.\d+)?$/u.test(s)) {
+        return err(invalidInput(`${field.name} must be a decimal string`, field.name));
+      }
+      return ok(s);
+    }
     case 'bool':
       return ok(raw === true || raw === 'true');
     case 'enum': {
@@ -198,8 +219,14 @@ const opSql = (
   }
   const colRef = safeColumnRef(field.column);
   const isArrayCol = field.column.arrayColumn === true;
+  const isMoney = field.type === 'money';
 
   const wrap = (cond: SqlCondition): SqlCondition => (negate ? sql`not (${cond})` : cond);
+  // Money comparisons cast both operands to numeric so Postgres does exact
+  // decimal math (the bound value is a string, never a float).
+  const lhs: SqlCondition = isMoney ? sql`${colRef}::numeric` : colRef;
+  const rhs = (v: string | number | boolean): SqlCondition =>
+    isMoney ? sql`${v}::numeric` : sql`${v}`;
 
   switch (op) {
     case 'isNull': {
@@ -209,7 +236,7 @@ const opSql = (
     case 'eq': {
       const c = coerceScalar(field, value);
       if (c.isErr()) return err(c.error);
-      return ok(wrap(sql`${colRef} = ${c.value}`));
+      return ok(wrap(sql`${lhs} = ${rhs(c.value)}`));
     }
     case 'gt':
     case 'gte':
@@ -218,7 +245,7 @@ const opSql = (
       const c = coerceScalar(field, value);
       if (c.isErr()) return err(c.error);
       const sym = { gt: sql`>`, gte: sql`>=`, lt: sql`<`, lte: sql`<=` }[op];
-      return ok(wrap(sql`${colRef} ${sym} ${c.value}`));
+      return ok(wrap(sql`${lhs} ${sym} ${rhs(c.value)}`));
     }
     case 'between': {
       if (typeof value !== 'object' || Array.isArray(value)) {
@@ -229,12 +256,12 @@ const opSql = (
       if (range.from !== undefined) {
         const c = coerceScalar(field, range.from);
         if (c.isErr()) return err(c.error);
-        parts.push(sql`${colRef} >= ${c.value}`);
+        parts.push(sql`${lhs} >= ${rhs(c.value)}`);
       }
       if (range.to !== undefined) {
         const c = coerceScalar(field, range.to);
         if (c.isErr()) return err(c.error);
-        parts.push(sql`${colRef} <= ${c.value}`);
+        parts.push(sql`${lhs} <= ${rhs(c.value)}`);
       }
       if (parts.length === 0) return ok(null);
       return ok(wrap(andConditions(parts)));
@@ -262,7 +289,8 @@ const opSql = (
           )
         );
       }
-      return ok(wrap(sql`${colRef} in (${sql.join(coerced.map((v) => sql`${v}`), sql`, `)})`));
+      // Scalar IN — money fields cast both sides to numeric (like eq/range).
+      return ok(wrap(sql`${lhs} in (${sql.join(coerced.map((v) => rhs(v)), sql`, `)})`));
     }
     case 'contains': {
       if (isArrayCol) {

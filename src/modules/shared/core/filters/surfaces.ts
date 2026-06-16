@@ -17,12 +17,17 @@ import type { CollectionFilterSpec, FilterFieldSpec, FilterOp } from './types.js
 // TypeBox (REST)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** REST validation for a money value: a decimal STRING (never a float). */
+const MONEY_PATTERN = '^-?\\d+(\\.\\d+)?$';
+
 const scalarSchema = (field: FilterFieldSpec): TSchema => {
   switch (field.type) {
     case 'int':
       return Type.Integer();
     case 'number':
       return Type.Number();
+    case 'money':
+      return Type.String({ pattern: MONEY_PATTERN, description: 'Decimal money amount as a string.' });
     case 'bool':
       return Type.Boolean();
     case 'enum':
@@ -88,6 +93,7 @@ export const toTypeBox = (spec: CollectionFilterSpec): TObject => {
 const GQL_SCALAR: Record<FilterFieldSpec['type'], string> = {
   int: 'Int',
   number: 'Float',
+  money: 'Money',
   bool: 'Boolean',
   enum: 'String',
   date: 'Date',
