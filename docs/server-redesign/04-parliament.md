@@ -668,7 +668,7 @@ column/index. `q` engine declared per field.
 | `hasLaw` | bool | `eq` | `bill_act_links.resolution_status='linked'` | `hasLaw` | `hasLaw` | join to act links |
 | `actId` | string | `eq` | `bill_act_links_target_idx` | `actId` | `actId` | reverse: bills that became act X |
 | `q` | string | `contains` | `title`,`plx_number/year`,`senate_number/year` | `q` | `q` | Meili-backed; ILIKE fallback |
-| sort | — | — | default `updated_desc` (last_event_date); allowed `title_asc/desc`,`updated_asc/desc` | | | the unified `make_date` NULLS-LAST expression carries over |
+| sort | — | — | default `updated_desc` (last_event_date, ISO text, DESC NULLS LAST); allowed `title_asc/desc`,`updated_asc/desc` | | | bills expose `lastEventDate`; member-initiatives sort by a throw-proof zero-padded ISO reorder of `registration_date_text` (DESC NULLS LAST), surfaced as `registrationDate` — NOT `to_date`/`make_date` (those throw on calendar-invalid text) |
 
 ### 7.4 `control_items` collection (cursor; bounded)
 

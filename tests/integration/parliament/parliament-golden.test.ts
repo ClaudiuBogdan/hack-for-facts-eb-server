@@ -842,6 +842,66 @@ d('Parliament golden (live prod)', () => {
     expect(await billsTotal('{billType:null, status:null}')).toBe(9958);
   }, 30_000);
 
+  it('member initiatives are ordered newest-registration-first (sort bug fix)', async () => {
+    // Bug: ORDER BY initiative_key ASC surfaced NULL-date legacy items (initiative:100…)
+    // on page 1 and buried a member's recent initiatives. Fixed to registration date
+    // DESC NULLS LAST. Member 2:2024:235 has all-2026 initiatives.
+    const data = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly initiatives: {
+            readonly total: number;
+            readonly initiatives: readonly {
+              readonly initiativeKey: string;
+              readonly registrationDate: string | null;
+            }[];
+          };
+        } | null;
+      }>(
+        `{
+          parliamentMember(mandateKey:"2:2024:235") {
+            initiatives(page:1, pageSize:10) {
+              total
+              initiatives { initiativeKey registrationDate }
+            }
+          }
+        }`
+      )
+    );
+    const page = requireValue(data.parliamentMember, '2:2024:235').initiatives;
+    expect(page.total).toBeGreaterThan(50);
+    const items = page.initiatives;
+    expect(items.length).toBe(10);
+    // Page 1 is NOT the legacy initiative:100–109 block (the bug); it is recent items.
+    expect(items.every((i) => !/:initiative:10[0-9]$/u.test(i.initiativeKey))).toBe(true);
+    // Page 1 carries a registration date and is monotonically DESC (newest first).
+    expect(items.every((i) => i.registrationDate !== null)).toBe(true);
+    const dates = items.map((i) => i.registrationDate ?? '');
+    expect([...dates].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))).toEqual(dates);
+    // The newest item is a 2026 registration (this member's real recent work).
+    expect(items[0]?.registrationDate?.startsWith('2026-')).toBe(true);
+  }, 30_000);
+
+  it('bills default sort exposes lastEventDate, descending (display fix)', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentBills: {
+          readonly bills: readonly { readonly billKey: string; readonly lastEventDate: string | null }[];
+        };
+      }>(
+        `{ parliamentBills(page:1, pageSize:10) { bills { billKey lastEventDate } } }`
+      )
+    );
+    const bills = data.parliamentBills.bills;
+    expect(bills.length).toBe(10);
+    // Default sort is updated_desc (last_event_date DESC NULLS LAST): the top page is
+    // fully populated and monotonically descending, and the newest is recent (2026).
+    expect(bills.every((b) => b.lastEventDate !== null)).toBe(true);
+    const dates = bills.map((b) => b.lastEventDate ?? '');
+    expect([...dates].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))).toEqual(dates);
+    expect(bills[0]?.lastEventDate?.startsWith('2026-')).toBe(true);
+  }, 30_000);
+
   it('person-candidates data-quality surface is API-key gated by default', async () => {
     const res = await gql<{ parliamentPersonCandidates: unknown }>(
       `{

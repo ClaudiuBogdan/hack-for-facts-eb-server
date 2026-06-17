@@ -119,6 +119,10 @@ export interface ParliamentBill {
   //    procedure object is absent (~1.6k of ~10k bills carry no procedure).
   readonly statusText: string | null;
   readonly billType: string | null;
+  // Date of the most recent timeline event (attrs.last_event_date, already ISO).
+  // This is the key the default 'updated_desc' sort uses — surfaced flat so the
+  // client can show/verify recency.
+  readonly lastEventDate: string | null;
   readonly attrs: SafeAttrs; // whitelisted to BILL_ATTR_KEYS by the mapper
   readonly sourceUpdatedAt: string | null; // timestamptz ISO
   readonly updatedAt: string | null;
@@ -274,6 +278,9 @@ export interface ParliamentInitiative {
   readonly status: string | null;
   readonly promulgatedLawNumber: string | null;
   readonly promulgatedLawYear: number | null;
+  // Registration date (parsed from registration_date_text 'DD.MM.YYYY' → ISO).
+  // null for the ~4.3% date-less legacy rows. This is the list sort key (DESC).
+  readonly registrationDate: string | null;
 }
 
 export interface ParliamentSpeech {
