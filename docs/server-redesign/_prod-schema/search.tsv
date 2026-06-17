@@ -1,0 +1,14 @@
+search.documents	doc_id	text
+search.documents	doc_type	text
+search.documents	title	text
+search.documents	body	text
+search.documents	cuis	text[]
+search.documents	doc_date	date
+search.documents	amount_ron	numeric(18,2)
+search.documents	county_name	text
+search.documents	url	text
+search.documents	attrs	jsonb
+search.documents	updated_at	timestamp with time zone
+search.documents	embedded_at	timestamp with time zone
+search.documents	indexed_meili_at	timestamp with time zone
+search.documents	indexed_os_at	timestamp with time zone
