@@ -68,6 +68,9 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
     constituency_name: 'București',
     birth_date: '1970-05-12', // ::text — a STRING, not a Date
     person_id: '2264', // bigint → string
+    is_current: true,
+    mandate_end_date: null,
+    mandate_end_reason: null,
     attrs: { source_title: 'X', profile_url: 'http://x', birth_date_text: 'LEAK' },
   };
 
@@ -96,6 +99,27 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
     expect(Object.keys(m)).not.toContain('birthDateText');
     expect(Object.keys(m)).not.toContain('clusterKey');
     expect(Object.keys(m)).not.toContain('birthDateParseMethod');
+  });
+
+  it('maps SC-1 seat lifecycle: a seated member is current with no end date/reason', () => {
+    const m = mapMember(row);
+    expect(m.isCurrent).toBe(true);
+    expect(m.mandateEndDate).toBeNull();
+    expect(m.mandateEndReason).toBeNull();
+  });
+
+  it('maps a superseded member: isCurrent false + end date/reason (attribution untouched here)', () => {
+    const superseded: MemberRow = {
+      ...row,
+      mandate_key: '2:2024:146',
+      is_current: false,
+      mandate_end_date: '2025-01-27',
+      mandate_end_reason: 'deces',
+    };
+    const m = mapMember(superseded);
+    expect(m.isCurrent).toBe(false);
+    expect(m.mandateEndDate).toBe('2025-01-27');
+    expect(m.mandateEndReason).toBe('deces');
   });
 });
 

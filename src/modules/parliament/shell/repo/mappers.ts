@@ -63,6 +63,9 @@ export interface MemberRow {
   constituency_name: string | null;
   birth_date: string | null;
   person_id: string | null;
+  is_current: boolean;
+  mandate_end_date: string | null;
+  mandate_end_reason: string | null;
   attrs: unknown;
 }
 
@@ -82,6 +85,9 @@ export const mapMember = (r: MemberRow): ParliamentMember => {
     constituencyName: r.constituency_name,
     birthDate: r.birth_date,
     personId: r.person_id,
+    isCurrent: r.is_current,
+    mandateEndDate: r.mandate_end_date,
+    mandateEndReason: r.mandate_end_reason,
     profileUrl,
     attrs,
   };
