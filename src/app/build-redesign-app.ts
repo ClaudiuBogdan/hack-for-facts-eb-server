@@ -22,6 +22,7 @@ import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
@@ -158,6 +159,20 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(budget.graphqlSlice);
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
+  }
+
+  if (enabledModules.includes('procurement')) {
+    const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
+    const procurement = makeProcurementModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(Number.isFinite(windowEnv) && windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(procurement.contributor);
+    moduleSlices.push(procurement.graphqlSlice);
+    moduleResolvers.push(procurement.graphqlResolvers);
+    moduleMcpTools.push(...procurement.mcpTools);
   }
 
   if (enabledModules.includes('companies')) {
