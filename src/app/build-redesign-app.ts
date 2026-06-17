@@ -17,6 +17,7 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import { makeBudgetModule } from '../modules/budget/index.js';
+import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
@@ -102,6 +103,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleMcpTools.push(...pnrr.mcpTools);
   }
 
+<<<<<<< HEAD
   if (enabledModules.includes('reference')) {
     // Reference reuses the kernel identity + territory hubs (§0) — they are
     // injected, not constructed by the module.
@@ -128,6 +130,20 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(budget.graphqlSlice);
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
+  }
+
+  if (enabledModules.includes('companies')) {
+    const companies = makeCompaniesModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      flowsRepo: kernel.flowsRepo,
+      meili: kernel.clients.meiliClient,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(companies.contributor);
+    moduleSlices.push(companies.graphqlSlice);
+    moduleResolvers.push(companies.graphqlResolvers);
+    moduleMcpTools.push(...companies.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
