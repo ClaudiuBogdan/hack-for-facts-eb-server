@@ -159,6 +159,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       capabilities: kernel.searchCapabilities,
       cache: kernel.cache,
       registry: kernel.contributors,
+      identity: kernel.identityRepo,
       embeddingModel,
       logger: app.log,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
