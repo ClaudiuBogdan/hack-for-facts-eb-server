@@ -164,6 +164,10 @@ const BILL_SELECT = [
   'b.title',
   'b.final_law_number',
   'b.final_law_year',
+  // Source-stored classification extracted flat from attrs (Gap 2): the real
+  // status string + initiative type the client previously derived from title.
+  sql<string | null>`b.attrs->>'status_text'`.as('status_text'),
+  sql<string | null>`b.attrs#>>'{procedure,tip_initiativa}'`.as('bill_type'),
   'b.attrs',
   sql<string | null>`b.source_updated_at::text`.as('source_updated_at'),
   sql<string | null>`b.updated_at::text`.as('updated_at'),
@@ -901,9 +905,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       conds.push(sql`vr.row_index > ${Number(keys.value[0])}`);
     }
     try {
+      // LEFT JOIN members to surface the resolved member's constituency on each
+      // ballot. Still parent-bound (vr.vote_key = voteKey → low hundreds of rows),
+      // so the heavy-query rule holds — this is NOT an unparented vote_records scan.
       const rows = await db
         .selectFrom('parliament.vote_records as vr')
-        .select(['vr.row_index', 'vr.member_name', 'vr.group_name', 'vr.choice', 'vr.mandate_key', 'vr.match_method'])
+        .leftJoin('parliament.members as m', 'm.mandate_key', 'vr.mandate_key')
+        .select([
+          'vr.row_index',
+          'vr.member_name',
+          'vr.group_name',
+          'vr.choice',
+          'vr.mandate_key',
+          'vr.match_method',
+          'm.constituency_name',
+        ])
         .where(composeWhere(conds))
         .orderBy('vr.row_index', 'asc')
         .limit(limit + 1)
@@ -917,6 +933,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         choice: r.choice,
         mandateKey: r.mandate_key,
         matchMethod: r.match_method,
+        constituencyName: r.constituency_name,
       }));
       const last = sliced[sliced.length - 1];
       const next =

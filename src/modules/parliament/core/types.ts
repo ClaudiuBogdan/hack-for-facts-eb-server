@@ -43,6 +43,10 @@ export interface ParliamentMember {
   readonly constituencyName: string | null;
   readonly birthDate: string | null; // parsed DOB (public); birth_date::text
   readonly personId: string | null; // FK persons.person_id (bigint→string)
+  // The public CDEP/Senate profile-page URL (attrs.profile_url), surfaced flat for
+  // the member contact tab. ~5.3k of 5.3k members carry it. NOT a contact email/
+  // phone/photo — those have no source (documented gap 4).
+  readonly profileUrl: string | null;
   readonly attrs: SafeAttrs; // whitelisted to MEMBER_ATTR_KEYS by the mapper
 }
 
@@ -99,6 +103,14 @@ export interface ParliamentBill {
   readonly title: string | null;
   readonly finalLawNumber: string | null;
   readonly finalLawYear: number | null;
+  // Source-stored classification (extracted from attrs in SQL, surfaced flat):
+  //  - statusText: the CDEP/Senate `status_text` ("Lege 423/2023 …", "respins" …)
+  //    — the real current-status string the client derived from title+events.
+  //  - billType: the `procedure.tip_initiativa` value ("Proiect de Lege …" |
+  //    "Propunere legislativa …") — the source initiative type. null when the
+  //    procedure object is absent (~1.6k of ~10k bills carry no procedure).
+  readonly statusText: string | null;
+  readonly billType: string | null;
   readonly attrs: SafeAttrs; // whitelisted to BILL_ATTR_KEYS by the mapper
   readonly sourceUpdatedAt: string | null; // timestamptz ISO
   readonly updatedAt: string | null;
@@ -201,6 +213,11 @@ export interface ParliamentBallot {
   readonly choice: string | null; // 'pentru'|'impotriva'|'abtinere'|'nu_a_votat'
   readonly mandateKey: string | null; // nullable BY DESIGN
   readonly matchMethod: string | null;
+  // constituencyName is JOINed from the resolved member (mandate_key → members):
+  // null when the ballot is unresolved (mandateKey null) OR the member has no
+  // recorded constituency. Surfaced flat so the client's vote-detail "județ" column
+  // needs no per-ballot member fetch (the N+1 the `ballot.member` resolver would be).
+  readonly constituencyName: string | null;
 }
 
 /** A member's ballot joined to its vote (the `listMemberVotes` row). */

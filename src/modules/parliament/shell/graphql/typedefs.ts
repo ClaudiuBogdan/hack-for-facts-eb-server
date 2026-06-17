@@ -14,6 +14,23 @@
  * lists (roles, statuses, relationship_kind), those are typed `String` in the SDL
  * (documented), while the small CLOSED, surface-defining sets (chamber, outcome,
  * vote choice, control type, resolve dim, person confidence) are GraphQL enums.
+ *
+ * CLIENT GAP AUDIT (2026-06-17, vs live prod). Six client-flagged gaps:
+ *   IMPLEMENTED (data exists in prod, now exposed):
+ *     1. ParliamentBallot.constituencyName — JOIN members.constituency_name (261/277
+ *        resolved on cdep:29892); client vote-detail "județ" column.
+ *     2. ParliamentBill.statusText + .billType — bills.attrs status_text /
+ *        procedure.tip_initiativa (real source classification, was attrs-only).
+ *     4a. ParliamentMember.profileUrl — attrs.profile_url (public CDEP/Senate page).
+ *   DOCUMENTED source-data gaps (NO prod data — a scrapper/data-platform task, not API):
+ *     3. Member electionResult / officialPortraitUrl — absent in parliament.*.
+ *     4b. Member contact email/phone/photoUrl + OFFICIAL mandate start/end — absent.
+ *        (group_membership_intervals.valid_from/to exist but are derived_from_votes,
+ *        NOT official mandate dates — already surfaced as ParliamentGroupInterval.)
+ *     5. Group colour / shortName — parliamentary_groups.attrs is empty {}; the
+ *        client palette stays a UI concern.
+ *     6. Vote type deschis/secret — no column/flag; all stored votes are electronic
+ *        roll-call (open by nature); the client "deschis" default is correct.
  */
 
 import { toGraphQLInput } from '@/modules/shared/index.js';
@@ -68,6 +85,8 @@ const objectsAndQuery = /* GraphQL */ `
     group: ParliamentGroup
     constituencyName: String
     birthDate: Date
+    "Public CDEP/Senate profile-page URL (attrs.profile_url). NOT a contact email/phone/photo — those have no source."
+    profileUrl: String
     person: ParliamentPerson
     groupIntervals: [ParliamentGroupInterval!]!
     activityCounts: ParliamentActivityCounts!
@@ -87,6 +106,8 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentBallot {
     rowIndex: Int!  memberName: String  groupName: String
     choice: ParliamentVoteChoice  mandateKey: ID  member: ParliamentMember  matchMethod: String
+    "Constituency (județ) of the resolved member, JOINed from members. null when the ballot is unresolved or the member has no recorded constituency. Flat field — avoids a per-ballot member fetch for the vote-detail județ column."
+    constituencyName: String
   }
 
   type ParliamentVote {
@@ -137,6 +158,10 @@ const objectsAndQuery = /* GraphQL */ `
     billKey: ID!
     plxNumber: String  plxYear: Int  senateNumber: String  senateYear: Int
     title: String  finalLawNumber: String  finalLawYear: Int
+    "Source-stored current-status string (CDEP/Senate status_text, e.g. 'Lege 423/2023 …', 'respins'). The real status the client derived from title+events."
+    statusText: String
+    "Source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). null when the source carries no procedure block."
+    billType: String
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!
