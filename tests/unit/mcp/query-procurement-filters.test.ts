@@ -10,6 +10,7 @@ import {
   type McpProcurementRepo,
   type ProcurementAggregateQuality,
   type ProcurementCategoryBreakdownRow,
+  type ProcurementFilterCapability,
   type ProcurementFilterQuery,
   type ProcurementSameDayCandidateRow,
   type ProcurementSupplierRankingRow,
@@ -49,6 +50,129 @@ const CONTRACT_QUALITY: ProcurementAggregateQuality = {
   supplierRegionFiltersAllowed: false,
 };
 
+const DEFAULT_CAPABILITY_COVERAGE = {
+  amountCoverageRate: 0.999,
+  authorityCuiCoverageRate: 0.99,
+  authorityTerritoryCoverageRate: 0.76,
+  cpvCoverageRate: 0.99,
+  cpvDivisionCoverageRate: 0.98,
+  dateCoverageRate: 0.96,
+  rowsCount: 15_790_420,
+  supplierCuiCoverageRate: 0.99,
+};
+
+const RANKING_CAPABILITY_DIMENSIONS = [
+  'source_grain',
+  'authority_cui',
+  'supplier_cui',
+  'cpv_division_code',
+  'month_start',
+  'authority_county_code',
+  'authority_region',
+];
+
+const SAME_DAY_CAPABILITY_DIMENSIONS = [
+  'authority_cui',
+  'supplier_cui',
+  'candidate_date',
+  'cpv_code',
+  'cpv_division_code',
+  'authority_county_code',
+  'authority_region',
+];
+
+function makeCapability(
+  overrides: Partial<ProcurementFilterCapability> &
+    Pick<ProcurementFilterCapability, 'answerClass' | 'sourceGrain'>
+): ProcurementFilterCapability {
+  return {
+    allowed: true,
+    allowedDimensions: ['source_grain', 'authority_cui'],
+    blockers: [],
+    capabilityVersion: 'public-contracts-filter-capabilities-v1',
+    caveats: [],
+    coverage: DEFAULT_CAPABILITY_COVERAGE,
+    projectionVersion: 'procurement-aggregate-filters-v1',
+    rankingMode: null,
+    refreshedAt: '2026-06-17T00:00:00.000Z',
+    requiredProjection: 'procurement.org_edge_monthly_rollups',
+    ...overrides,
+  };
+}
+
+function defaultCapabilities(): ProcurementFilterCapability[] {
+  return [
+    makeCapability({
+      allowedDimensions: RANKING_CAPABILITY_DIMENSIONS,
+      answerClass: 'spend_ranked_top_n',
+      caveats: ['Allowed only when amount coverage passes the stricter spend gate.'],
+      rankingMode: 'value',
+      sourceGrain: 'direct_acquisition',
+    }),
+    makeCapability({
+      allowedDimensions: RANKING_CAPABILITY_DIMENSIONS,
+      answerClass: 'count_ranked_top_n',
+      rankingMode: 'count',
+      sourceGrain: 'direct_acquisition',
+    }),
+    makeCapability({
+      allowedDimensions: ['authority_county_code', 'authority_region'],
+      answerClass: 'buyer_region_filter',
+      sourceGrain: 'direct_acquisition',
+    }),
+    makeCapability({
+      allowedDimensions: ['cpv_division_code'],
+      answerClass: 'cpv_category_filter',
+      sourceGrain: 'direct_acquisition',
+    }),
+    makeCapability({
+      allowedDimensions: SAME_DAY_CAPABILITY_DIMENSIONS,
+      answerClass: 'same_day_direct_acquisition_signal',
+      rankingMode: 'count',
+      sourceGrain: 'direct_acquisition',
+    }),
+    makeCapability({
+      allowed: false,
+      allowedDimensions: [],
+      answerClass: 'spend_ranked_top_n',
+      blockers: ['procurement_contract amount coverage below spend-ranking threshold'],
+      rankingMode: 'value',
+      sourceGrain: 'procurement_contract',
+    }),
+    makeCapability({
+      allowedDimensions: RANKING_CAPABILITY_DIMENSIONS,
+      answerClass: 'count_ranked_top_n',
+      rankingMode: 'count',
+      sourceGrain: 'procurement_contract',
+    }),
+    makeCapability({
+      allowedDimensions: ['authority_county_code', 'authority_region'],
+      answerClass: 'buyer_region_filter',
+      sourceGrain: 'procurement_contract',
+    }),
+    makeCapability({
+      allowedDimensions: ['cpv_division_code'],
+      answerClass: 'cpv_category_filter',
+      sourceGrain: 'procurement_contract',
+    }),
+    makeCapability({
+      allowed: false,
+      allowedDimensions: [],
+      answerClass: 'same_day_direct_acquisition_signal',
+      blockers: ['procurement_contract same-day direct-acquisition signal does not apply'],
+      rankingMode: 'count',
+      sourceGrain: 'procurement_contract',
+    }),
+    makeCapability({
+      allowed: false,
+      allowedDimensions: [],
+      answerClass: 'llm_generated_filter',
+      blockers: ['LLM-generated filters are not authoritative in v1'],
+      sourceGrain: 'direct_acquisition',
+    }),
+  ];
+}
+
 function makeSupplierRow(
   overrides: Partial<ProcurementSupplierRankingRow> = {}
 ): ProcurementSupplierRankingRow {
@@ -71,6 +195,7 @@ function makeSupplierRow(
 
 function makeFakeProcurementRepo(
   options: {
+    capabilities?: ProcurementFilterCapability[];
     categoryRows?: ProcurementCategoryBreakdownRow[];
     error?: boolean;
     quality?: ProcurementAggregateQuality[];
@@ -84,6 +209,13 @@ function makeFakeProcurementRepo(
         return err({ code: 'DATABASE_ERROR', message: 'Query failed' });
       }
       return ok(options.quality ?? [DIRECT_ACQUISITION_QUALITY, CONTRACT_QUALITY]);
+    },
+    async getFilterCapabilities(sourceGrains) {
+      return ok(
+        (options.capabilities ?? defaultCapabilities()).filter((capability) =>
+          sourceGrains.includes(capability.sourceGrain)
+        )
+      );
     },
     async listSameDayDirectAcquisitionCandidates(_query: ProcurementFilterQuery) {
       return ok(options.sameDayRows ?? []);
@@ -116,6 +248,10 @@ describe('queryProcurementFilters', () => {
     const output = result._unsafeUnwrap();
     expect(output.status).toBe('allowed');
     expect(output.answerClass).toBe('spend_ranking');
+    expect(output.capabilities?.map((capability) => capability.answerClass)).toEqual([
+      'spend_ranked_top_n',
+      'cpv_category_filter',
+    ]);
     expect(output.quality?.sourceGrain).toBe('direct_acquisition');
     expect(output.rows).toEqual([makeSupplierRow()]);
     expect(output.caveats[0]).toContain('flows.money_flows');
@@ -153,6 +289,138 @@ describe('queryProcurementFilters', () => {
     expect(output.rows).toHaveLength(1);
   });
 
+  it('abstains when the capability view blocks a requested buyer-region filter', async () => {
+    const result = await queryProcurementFilters(
+      makeDeps(
+        makeFakeProcurementRepo({
+          capabilities: defaultCapabilities().map((capability) =>
+            capability.sourceGrain === 'direct_acquisition' &&
+            capability.answerClass === 'buyer_region_filter'
+              ? {
+                  ...capability,
+                  allowed: false,
+                  allowedDimensions: [],
+                  blockers: ['direct_acquisition buyer territory coverage below threshold'],
+                }
+              : capability
+          ),
+        })
+      ),
+      {
+        analysis: 'top_suppliers',
+        authorityRegion: 'București-Ilfov',
+        sourceGrain: 'direct_acquisition',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    const output = result._unsafeUnwrap();
+    expect(output.status).toBe('abstained');
+    expect(output.rows).toEqual([]);
+    expect(output.summary).toContain(
+      'procurement capability direct_acquisition/buyer_region_filter'
+    );
+  });
+
+  it('abstains when an allowed capability omits a requested dimension', async () => {
+    const result = await queryProcurementFilters(
+      makeDeps(
+        makeFakeProcurementRepo({
+          capabilities: defaultCapabilities().map((capability) =>
+            capability.sourceGrain === 'direct_acquisition' &&
+            capability.answerClass === 'buyer_region_filter'
+              ? {
+                  ...capability,
+                  allowedDimensions: ['authority_county_code'],
+                }
+              : capability
+          ),
+        })
+      ),
+      {
+        analysis: 'top_suppliers',
+        authorityRegion: 'București-Ilfov',
+        rankBy: 'flow_count',
+        sourceGrain: 'direct_acquisition',
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    const output = result._unsafeUnwrap();
+    expect(output.status).toBe('abstained');
+    expect(output.summary).toContain('does not approve dimension authority_region');
+  });
+
+  it('requires CPV capability only when a CPV division filter is requested', async () => {
+    const capabilities = defaultCapabilities().map((capability) =>
+      capability.sourceGrain === 'direct_acquisition' &&
+      capability.answerClass === 'cpv_category_filter'
+        ? {
+            ...capability,
+            allowed: false,
+            allowedDimensions: [],
+            blockers: ['direct_acquisition CPV division coverage below 0.85'],
+          }
+        : capability
+    );
+
+    const unfilteredResult = await queryProcurementFilters(
+      makeDeps(makeFakeProcurementRepo({ capabilities })),
+      {
+        analysis: 'category_breakdown',
+        authorityCui: '36727850',
+        rankBy: 'flow_count',
+        sourceGrain: 'direct_acquisition',
+      }
+    );
+    expect(unfilteredResult.isOk()).toBe(true);
+    expect(unfilteredResult._unsafeUnwrap().status).toBe('allowed');
+
+    const filteredResult = await queryProcurementFilters(
+      makeDeps(makeFakeProcurementRepo({ capabilities })),
+      {
+        analysis: 'top_suppliers',
+        authorityCui: '36727850',
+        cpvDivisionCode: '45',
+        rankBy: 'flow_count',
+        sourceGrain: 'direct_acquisition',
+      }
+    );
+    expect(filteredResult.isOk()).toBe(true);
+    const output = filteredResult._unsafeUnwrap();
+    expect(output.status).toBe('abstained');
+    expect(output.summary).toContain(
+      'procurement capability direct_acquisition/cpv_category_filter'
+    );
+  });
+
+  it('returns a database error when a required capability row is missing', async () => {
+    const result = await queryProcurementFilters(
+      makeDeps(
+        makeFakeProcurementRepo({
+          capabilities: defaultCapabilities().filter(
+            (capability) =>
+              !(
+                capability.sourceGrain === 'direct_acquisition' &&
+                capability.answerClass === 'spend_ranked_top_n'
+              )
+          ),
+        })
+      ),
+      {
+        analysis: 'top_suppliers',
+        authorityCui: '36727850',
+        sourceGrain: 'direct_acquisition',
+      }
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().code).toBe('DATABASE_ERROR');
+    expect(result._unsafeUnwrapErr().message).toContain(
+      'Missing procurement capability direct_acquisition/spend_ranked_top_n'
+    );
+  });
+
   it('rejects unscoped corpus-wide queries', async () => {
     const result = await queryProcurementFilters(makeDeps(), {
       analysis: 'top_suppliers',
@@ -169,7 +437,9 @@ describe('queryProcurementFilters', () => {
     });
 
     expect(result.isErr()).toBe(true);
-    expect(result._unsafeUnwrapErr().message).toContain('At least one');
+    expect(result._unsafeUnwrapErr().message).toContain(
+      'authorityCui, authorityCountyCode, authorityRegion, or cpvDivisionCode'
+    );
   });
 
   it('rejects same-day candidate queries for procurement contracts', async () => {

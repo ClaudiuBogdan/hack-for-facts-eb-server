@@ -482,6 +482,50 @@ const ProcurementQualitySchema = Type.Object({
   supplierRegionFiltersAllowed: Type.Boolean(),
 });
 
+const ProcurementCapabilityCoverageSchema = Type.Object({
+  amountCoverageRate: Type.Number(),
+  authorityCuiCoverageRate: Type.Number(),
+  authorityTerritoryCoverageRate: Type.Number(),
+  cpvCoverageRate: Type.Number(),
+  cpvDivisionCoverageRate: Type.Number(),
+  dateCoverageRate: Type.Number(),
+  rowsCount: Type.Number(),
+  supplierCuiCoverageRate: Type.Number(),
+});
+
+const ProcurementFilterCapabilitySchema = Type.Object({
+  allowed: Type.Boolean(),
+  allowedDimensions: Type.Array(Type.String()),
+  answerClass: Type.Union([
+    Type.Literal('buyer_region_filter'),
+    Type.Literal('count_ranked_top_n'),
+    Type.Literal('cpv_category_filter'),
+    Type.Literal('filter_count'),
+    Type.Literal('llm_generated_filter'),
+    Type.Literal('same_day_direct_acquisition_signal'),
+    Type.Literal('spend_ranked_top_n'),
+    Type.Literal('supplier_region_filter'),
+  ]),
+  blockers: Type.Array(Type.String()),
+  capabilityVersion: Type.String(),
+  caveats: Type.Array(Type.String()),
+  coverage: ProcurementCapabilityCoverageSchema,
+  projectionVersion: Type.String(),
+  rankingMode: Type.Union([
+    Type.Literal('amount_ron'),
+    Type.Literal('flow_count'),
+    Type.Literal('count'),
+    Type.Literal('value'),
+    Type.Null(),
+  ]),
+  refreshedAt: Type.Union([Type.String(), Type.Null()]),
+  requiredProjection: Type.String(),
+  sourceGrain: Type.Union([
+    Type.Literal('direct_acquisition'),
+    Type.Literal('procurement_contract'),
+  ]),
+});
+
 const ProcurementSupplierRankingRowSchema = Type.Object({
   amountMissingCount: Type.Number(),
   amountPresentCount: Type.Number(),
@@ -536,6 +580,7 @@ export const QueryProcurementFiltersOutputSchema = Type.Object({
     Type.Literal('spend_ranking'),
     Type.Literal('review_signal'),
   ]),
+  capabilities: Type.Optional(Type.Array(ProcurementFilterCapabilitySchema)),
   caveats: Type.Array(Type.String()),
   quality: Type.Optional(ProcurementQualitySchema),
   query: QueryProcurementFiltersInputSchema,

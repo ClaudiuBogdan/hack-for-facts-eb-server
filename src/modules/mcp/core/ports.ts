@@ -11,6 +11,7 @@ import type {
   McpConfig,
   ProcurementAggregateQuality,
   ProcurementCategoryBreakdownRow,
+  ProcurementFilterCapability,
   ProcurementFilterQuery,
   ProcurementSameDayCandidateRow,
   ProcurementSourceGrain,
@@ -241,6 +242,10 @@ export interface McpProcurementRepo {
   getAggregateQuality(
     sourceGrains: ProcurementSourceGrain[]
   ): Promise<Result<ProcurementAggregateQuality[], McpError>>;
+
+  getFilterCapabilities(
+    sourceGrains: ProcurementSourceGrain[]
+  ): Promise<Result<ProcurementFilterCapability[], McpError>>;
 
   rankSuppliers(
     query: ProcurementFilterQuery

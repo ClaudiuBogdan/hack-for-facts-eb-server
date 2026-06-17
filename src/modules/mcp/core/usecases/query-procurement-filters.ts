@@ -17,6 +17,8 @@ import type {
 import type {
   ProcurementAggregateQuality,
   ProcurementAnswerClass,
+  ProcurementCapabilityAnswerClass,
+  ProcurementFilterCapability,
   ProcurementFilterQuery,
 } from '../types.js';
 
@@ -29,6 +31,11 @@ export interface QueryProcurementFiltersDeps {
 
 interface NormalizedProcurementInput extends ProcurementFilterQuery {
   analysis: QueryProcurementFiltersInput['analysis'];
+}
+
+interface RequiredCapabilityCheck {
+  readonly answerClass: ProcurementCapabilityAnswerClass;
+  readonly dimensions: string[];
 }
 
 export async function queryProcurementFilters(
@@ -51,18 +58,50 @@ export async function queryProcurementFilters(
     return err(databaseError(`Missing procurement quality gate for ${query.sourceGrain}`));
   }
 
+  const capabilitiesResult = await deps.procurementRepo.getFilterCapabilities([query.sourceGrain]);
+  if (capabilitiesResult.isErr()) {
+    return err(capabilitiesResult.error);
+  }
+
+  const requiredCapabilities = requiredCapabilityChecks(query);
+  const capabilityGate = resolveCapabilityGate(
+    capabilitiesResult.value,
+    query.sourceGrain,
+    requiredCapabilities
+  );
+  if (capabilityGate.isErr()) {
+    return err(capabilityGate.error);
+  }
+
   const answerClass = resolveAnswerClass(query);
+  const capabilities = capabilityGate.value.capabilities;
+  const caveats = buildCaveats(query, capabilities);
   const abstentionReason = resolveAbstentionReason(quality, answerClass);
   if (abstentionReason !== null) {
     return ok({
       ok: true,
       answerClass,
-      caveats: buildCaveats(query),
+      capabilities,
+      caveats,
       quality,
       query,
       rows: [],
       status: 'abstained',
       summary: abstentionReason,
+    });
+  }
+
+  if (capabilityGate.value.abstentionReason !== null) {
+    return ok({
+      ok: true,
+      answerClass,
+      capabilities,
+      caveats,
+      quality,
+      query,
+      rows: [],
+      status: 'abstained',
+      summary: capabilityGate.value.abstentionReason,
     });
   }
 
@@ -80,7 +119,8 @@ export async function queryProcurementFilters(
   return ok({
     ok: true,
     answerClass,
-    caveats: buildCaveats(query),
+    capabilities,
+    caveats,
     quality,
     query,
     rows: rowsResult.value,
@@ -120,7 +160,7 @@ function normalizeInput(
   if (!hasScopedFilter(input)) {
     return err(
       invalidInputError(
-        'At least one of authorityCui, authorityCountyCode, authorityRegion, cpvDivisionCode, yearStart, or yearEnd is required'
+        'At least one of authorityCui, authorityCountyCode, authorityRegion, or cpvDivisionCode is required'
       )
     );
   }
@@ -163,6 +203,132 @@ function resolveAnswerClass(query: NormalizedProcurementInput): ProcurementAnswe
   return query.rankBy === 'amount_ron' ? 'spend_ranking' : 'filter';
 }
 
+function requiredCapabilityChecks(query: NormalizedProcurementInput): RequiredCapabilityCheck[] {
+  if (query.analysis === 'same_day_direct_acquisition_candidates') {
+    return [
+      {
+        answerClass: 'same_day_direct_acquisition_signal',
+        dimensions: queryDimensions(query, 'candidate_date', false),
+      },
+    ];
+  }
+
+  const required: RequiredCapabilityCheck[] = [
+    {
+      answerClass: query.rankBy === 'amount_ron' ? 'spend_ranked_top_n' : 'count_ranked_top_n',
+      dimensions: queryDimensions(query, 'month_start', true),
+    },
+  ];
+
+  if (query.authorityCountyCode !== undefined || query.authorityRegion !== undefined) {
+    required.push({
+      answerClass: 'buyer_region_filter',
+      dimensions: buyerRegionDimensions(query),
+    });
+  }
+  if (query.cpvDivisionCode !== undefined) {
+    required.push({
+      answerClass: 'cpv_category_filter',
+      dimensions: ['cpv_division_code'],
+    });
+  }
+
+  return required;
+}
+
+function queryDimensions(
+  query: NormalizedProcurementInput,
+  dateDimension: 'candidate_date' | 'month_start',
+  includeSourceGrain: boolean
+): string[] {
+  const dimensions: string[] = includeSourceGrain ? ['source_grain'] : [];
+  if (query.authorityCui !== undefined) {
+    dimensions.push('authority_cui');
+  }
+  if (query.authorityCountyCode !== undefined) {
+    dimensions.push('authority_county_code');
+  }
+  if (query.authorityRegion !== undefined) {
+    dimensions.push('authority_region');
+  }
+  if (query.cpvDivisionCode !== undefined) {
+    dimensions.push('cpv_division_code');
+  }
+  if (query.yearStart !== undefined || query.yearEnd !== undefined) {
+    dimensions.push(dateDimension);
+  }
+  return dimensions;
+}
+
+function buyerRegionDimensions(query: NormalizedProcurementInput): string[] {
+  return [
+    ...(query.authorityCountyCode !== undefined ? ['authority_county_code'] : []),
+    ...(query.authorityRegion !== undefined ? ['authority_region'] : []),
+  ];
+}
+
+function resolveCapabilityGate(
+  capabilities: readonly ProcurementFilterCapability[],
+  sourceGrain: ProcurementFilterQuery['sourceGrain'],
+  required: readonly RequiredCapabilityCheck[]
+): Result<
+  {
+    readonly abstentionReason: string | null;
+    readonly capabilities: ProcurementFilterCapability[];
+  },
+  McpError
+> {
+  const selected: ProcurementFilterCapability[] = [];
+  for (const check of required) {
+    const matches = capabilities.filter(
+      (candidate) =>
+        candidate.sourceGrain === sourceGrain && candidate.answerClass === check.answerClass
+    );
+    if (matches.length > 1) {
+      return err(
+        databaseError(`Duplicate procurement capability ${sourceGrain}/${check.answerClass}`)
+      );
+    }
+    const capability = matches[0];
+    if (capability === undefined) {
+      return err(
+        databaseError(`Missing procurement capability ${sourceGrain}/${check.answerClass}`)
+      );
+    }
+    selected.push(capability);
+  }
+
+  const blocked = selected.find((capability) => !capability.allowed);
+  if (blocked === undefined) {
+    const dimensionBlocker = selected
+      .map((capability) => {
+        const check = required.find(
+          (candidate) => candidate.answerClass === capability.answerClass
+        );
+        const missingDimension = check?.dimensions.find(
+          (dimension) => !capability.allowedDimensions.includes(dimension)
+        );
+        return missingDimension === undefined ? null : { capability, dimension: missingDimension };
+      })
+      .find((item) => item !== null);
+
+    if (dimensionBlocker !== undefined) {
+      return ok({
+        abstentionReason: `Abstained: procurement capability ${dimensionBlocker.capability.sourceGrain}/${dimensionBlocker.capability.answerClass} does not approve dimension ${dimensionBlocker.dimension}.`,
+        capabilities: selected,
+      });
+    }
+
+    return ok({ abstentionReason: null, capabilities: selected });
+  }
+
+  const blockers = blocked.blockers.length > 0 ? `: ${blocked.blockers.join('; ')}` : '.';
+  return ok({
+    abstentionReason: `Abstained: procurement capability ${blocked.sourceGrain}/${blocked.answerClass} is not approved${blockers}`,
+    capabilities: selected,
+  });
+}
+
 function resolveAbstentionReason(
   quality: ProcurementAggregateQuality,
   answerClass: ProcurementAnswerClass
@@ -178,10 +344,14 @@ function resolveAbstentionReason(
   return null;
 }
 
-function buildCaveats(query: NormalizedProcurementInput): string[] {
+function buildCaveats(
+  query: NormalizedProcurementInput,
+  capabilities: readonly ProcurementFilterCapability[]
+): string[] {
   return [
     'Results come from deterministic procurement rollups over flows.money_flows; LLM-generated metadata is not used for authoritative filters.',
     'Authority region/county filters describe the buyer/public institution territory, not supplier headquarters.',
+    ...capabilities.flatMap((capability) => capability.caveats),
     ...(query.analysis === 'same_day_direct_acquisition_candidates'
       ? ['Same-day direct-acquisition candidates are review signals, not findings of illegality.']
       : []),
