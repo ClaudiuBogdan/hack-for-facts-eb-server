@@ -55,12 +55,24 @@ export const BILL_TYPES = ['government', 'parliamentary'] as const;
 /**
  * Bill STATUS buckets, derived from `attrs.status_text` (verified vs prod
  * 2026-06-17 — partitions all 9,958 bills, 0 unclassified):
- *   - promulgated → status_text ILIKE 'lege %' or = 'lege'  (3,606) — became law;
- *     cross-checks 1:1 with final_law_number IS NOT NULL (0 mismatches).
- *   - rejected    → status_text ILIKE 'respins%'            (1,939) — covers
- *     respins / respinsa / respins(a)definitiv.
- *   - in_progress → everything else                          (4,413) — la comisii,
+ *   - promulgated → became law, TWO equivalent phrasings              (4,470):
+ *       · status_text ILIKE 'lege %' or = 'lege'   (3,606 — also carry
+ *         final_law_number; cross-checks 1:1 with it, 0 mismatches), AND
+ *       · status_text ILIKE 'a devenit lege%'      (864 — final_law_number NOT
+ *         backfilled, so status_text is the ONLY became-law signal). Missing this
+ *         union silently drops 864 laws into in_progress (Codex/GLM critique).
+ *   - rejected    → status_text ILIKE 'respins%'            (1,939) — case-folded,
+ *     so 'Respins de ambele Camere' (220) is covered too; incl. respinsa /
+ *     respins(a)definitiv.
+ *   - in_progress → everything else                          (3,549) — la comisii,
  *     trimis la cameră, pe ordinea de zi, raport, etc.
+ *
+ * `in_progress` means "neither promulgated nor rejected". A SMALL terminal tail —
+ * `clasat%` (filed, 46) + `retras%` (withdrawn, 15) = 61 bills — also lands here:
+ * they are terminal but neither a law nor a rejection, so v1 keeps the 3-bucket
+ * model rather than a 4th "withdrawn/lapsed" bucket (0.6% of bills; GLM Q4 flagged,
+ * deliberately deferred). Verified vs prod: NO 'Promulgat…' / 'Legea …' (no-space)
+ * phrasings exist, so the promulgated union above is exhaustive for became-law.
  */
 export const BILL_STATUSES = ['promulgated', 'rejected', 'in_progress'] as const;
 

@@ -687,12 +687,15 @@ d('Parliament golden (live prod)', () => {
     expect(await billsTotal('{billType:{in:["government","parliamentary"]}}')).toBe(8276);
 
     // status buckets on status_text — a clean partition of all 9,958 bills.
+    // promulgated unions BOTH became-law phrasings ('Lege …' 3,606 + 'A devenit
+    // Legea …' 864 = 4,470); the 864 carry no final_law_number, so omitting them
+    // would mis-bucket them as in_progress (the dual-model critique finding).
     const promulgated = await billsTotal('{status:{eq:"promulgated"}}');
     const rejected = await billsTotal('{status:{eq:"rejected"}}');
     const inProgress = await billsTotal('{status:{eq:"in_progress"}}');
-    expect(promulgated).toBe(3606);
+    expect(promulgated).toBe(4470);
     expect(rejected).toBe(1939);
-    expect(inProgress).toBe(4413);
+    expect(inProgress).toBe(3549);
     expect(promulgated + rejected + inProgress).toBe(9958); // partition is exhaustive
 
     // Combined filters AND together (government bills that became law).
@@ -706,6 +709,16 @@ d('Parliament golden (live prod)', () => {
     );
     expect(bad.errors).toBeDefined();
     expect(bad.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+
+    // Edge cases from the dual-model critique (Codex round 2):
+    // (a) explicit empty in:[] is "match nothing" (#60h), NOT "match all".
+    const totalAll = await billsTotal('{}');
+    expect(totalAll).toBe(9958);
+    expect(await billsTotal('{billType:{in:[]}}')).toBe(0);
+    expect(await billsTotal('{status:{in:[]}}')).toBe(0);
+    // (b) explicit null on a virtual field is treated as ABSENT (no crash, no filter).
+    expect(await billsTotal('{status:null}')).toBe(9958);
+    expect(await billsTotal('{billType:null, status:null}')).toBe(9958);
   }, 30_000);
 
   it('person-candidates data-quality surface is API-key gated by default', async () => {
