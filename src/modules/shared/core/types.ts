@@ -50,13 +50,19 @@ export const normalizeCui = (raw: string): Cui | null => {
 // Flow & document type registries (§4.3, §4.5) — kept in sync with prod
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `flows.money_flows.flow_type` values (live, verified against prod). */
+/**
+ * `flows.money_flows.flow_type` values. The first group is live (verified against
+ * prod); `budget_execution` is DECLARED by the budget module but not yet projected
+ * into `flows.money_flows` (the budget contributor is capability-gated empty for
+ * flows — plan 02 §4.1/§13.1).
+ */
 export const FLOW_TYPES = [
   'direct_acquisition',
   'procurement_contract',
   'pnrr_payment',
   'pnrr_commitment',
   'pnrr_subcontract',
+  'budget_execution',
 ] as const;
 export type FlowType = (typeof FLOW_TYPES)[number];
 
@@ -81,6 +87,9 @@ export const DOC_TYPES = [
   'parliament_speech_segment',
   'judicial_case',
   'primarii_transparency_entity',
+  // DECLARED by the budget module; not yet written to search.documents (gated).
+  'budget_entity',
+  'budget_report',
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 

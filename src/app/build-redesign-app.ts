@@ -16,6 +16,7 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import { makeBudgetModule } from '../modules/budget/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
@@ -38,7 +39,7 @@ export interface BuildRedesignAppDeps {
    * Source modules to wire into the kernel. Defaults to all built-in modules.
    * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr' | 'reference')[];
+  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal')[];
 }
 
 export interface RedesignApp {
@@ -83,7 +84,8 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // ── Source modules (built on the kernel) ─────────────────────────────────────
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
-  const enabledModules = deps.modules ?? (['pnrr', 'reference'] as const);
+  const enabledModules =
+    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -114,6 +116,18 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(reference.graphqlSlice);
     moduleResolvers.push(reference.graphqlResolvers);
     moduleMcpTools.push(...reference.mcpTools);
+  }
+
+  if (enabledModules.includes('budget')) {
+    const budget = makeBudgetModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(budget.contributor);
+    moduleSlices.push(budget.graphqlSlice);
+    moduleResolvers.push(budget.graphqlResolvers);
+    moduleMcpTools.push(...budget.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
