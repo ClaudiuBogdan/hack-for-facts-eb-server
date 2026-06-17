@@ -12,7 +12,7 @@
  * `deps.registerContributors` once they exist; the kernel boots standalone today.
  */
 
-import fastifyCors from '@fastify/cors';
+import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
@@ -131,7 +131,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       .filter((o): o is string => typeof o === 'string' && o.trim() !== '')
       .map((o) => o.trim())
   );
-  await app.register(fastifyCors, {
+  await app.register(corsPlugin, {
     origin: (origin, cb) => {
       if (origin === undefined || origin === '') {
         cb(null, true);
