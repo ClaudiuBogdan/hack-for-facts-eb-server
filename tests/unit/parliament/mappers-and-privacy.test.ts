@@ -82,6 +82,15 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
     expect((m.attrs as Record<string, unknown>)['birth_date_text']).toBeUndefined();
   });
 
+  it('surfaces profileUrl flat from the whitelisted attrs (Gap 4)', () => {
+    expect(mapMember(row).profileUrl).toBe('http://x');
+  });
+
+  it('leaves profileUrl null when attrs carries no profile_url', () => {
+    const noProfile: MemberRow = { ...row, attrs: { source_title: 'X' } };
+    expect(mapMember(noProfile).profileUrl).toBeNull();
+  });
+
   it('the member view model has no birthDateText / clusterKey field at all', () => {
     const m = mapMember(row);
     expect(Object.keys(m)).not.toContain('birthDateText');
@@ -138,7 +147,7 @@ describe('mapDeclaration — metadata only, NEVER file_hash or content', () => {
   });
 });
 
-describe('mapBill — dates/timestamps as strings, attrs whitelisted', () => {
+describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat classification', () => {
   it('keeps known bill attrs and drops the rest', () => {
     const row: BillRow = {
       bill_key: '12760',
@@ -149,6 +158,8 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted', () => {
       title: 'Proiect de Lege',
       final_law_number: '423',
       final_law_year: 2023,
+      status_text: 'Lege 423/2023 29.12.2023',
+      bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
       attrs: { status_text: 'adoptat', last_event_date: '2023-12-01', internal_secret: 'x' },
       source_updated_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-02T00:00:00Z',
@@ -159,6 +170,48 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted', () => {
     expect(b.attrs['last_event_date']).toBe('2023-12-01');
     expect((b.attrs as Record<string, unknown>)['internal_secret']).toBeUndefined();
     expect(BILL_ATTR_KEYS).toContain('status_text');
+  });
+
+  it('surfaces statusText + billType flat from the extracted columns (Gap 2)', () => {
+    const row: BillRow = {
+      bill_key: '12760',
+      plx_number: '237',
+      plx_year: 2012,
+      senate_number: null,
+      senate_year: null,
+      title: 'Proiect de Lege',
+      final_law_number: '423',
+      final_law_year: 2023,
+      status_text: 'Lege 423/2023 29.12.2023',
+      bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
+      attrs: {},
+      source_updated_at: null,
+      updated_at: null,
+    };
+    const b = mapBill(row);
+    expect(b.statusText).toBe('Lege 423/2023 29.12.2023');
+    expect(b.billType).toBe('Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012');
+  });
+
+  it('leaves statusText / billType null when the source carries neither', () => {
+    const row: BillRow = {
+      bill_key: 'x',
+      plx_number: null,
+      plx_year: null,
+      senate_number: null,
+      senate_year: null,
+      title: null,
+      final_law_number: null,
+      final_law_year: null,
+      status_text: null,
+      bill_type: null,
+      attrs: {},
+      source_updated_at: null,
+      updated_at: null,
+    };
+    const b = mapBill(row);
+    expect(b.statusText).toBeNull();
+    expect(b.billType).toBeNull();
   });
 });
 

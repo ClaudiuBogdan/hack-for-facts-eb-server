@@ -66,19 +66,26 @@ export interface MemberRow {
   attrs: unknown;
 }
 
-export const mapMember = (r: MemberRow): ParliamentMember => ({
-  mandateKey: r.mandate_key,
-  chamber: r.chamber,
-  legislature: r.legislature,
-  fullName: r.full_name,
-  normalizedName: r.normalized_name,
-  groupName: r.group_name,
-  groupId: r.group_id,
-  constituencyName: r.constituency_name,
-  birthDate: r.birth_date,
-  personId: r.person_id,
-  attrs: safeAttrs(r.attrs, MEMBER_ATTR_KEYS),
-});
+export const mapMember = (r: MemberRow): ParliamentMember => {
+  const attrs = safeAttrs(r.attrs, MEMBER_ATTR_KEYS);
+  // profile_url is already in the MEMBER_ATTR_KEYS whitelist; surface it flat
+  // (string only — defend against a non-string primitive sneaking through).
+  const profileUrl = typeof attrs['profile_url'] === 'string' ? attrs['profile_url'] : null;
+  return {
+    mandateKey: r.mandate_key,
+    chamber: r.chamber,
+    legislature: r.legislature,
+    fullName: r.full_name,
+    normalizedName: r.normalized_name,
+    groupName: r.group_name,
+    groupId: r.group_id,
+    constituencyName: r.constituency_name,
+    birthDate: r.birth_date,
+    personId: r.person_id,
+    profileUrl,
+    attrs,
+  };
+};
 
 export interface PersonRow {
   person_id: string;
@@ -125,6 +132,8 @@ export interface BillRow {
   title: string | null;
   final_law_number: string | null;
   final_law_year: number | null;
+  status_text: string | null;
+  bill_type: string | null;
   attrs: unknown;
   source_updated_at: string | null;
   updated_at: string | null;
@@ -139,6 +148,8 @@ export const mapBill = (r: BillRow): ParliamentBill => ({
   title: r.title,
   finalLawNumber: r.final_law_number,
   finalLawYear: r.final_law_year,
+  statusText: r.status_text,
+  billType: r.bill_type,
   attrs: safeAttrs(r.attrs, BILL_ATTR_KEYS),
   sourceUpdatedAt: r.source_updated_at,
   updatedAt: r.updated_at,
