@@ -24,6 +24,8 @@ const RedesignEnvSchema = Type.Object({
   PROD_EMBEDDING_MODEL: Type.Optional(Type.String()),
   PROD_AI_MODEL: Type.Optional(Type.String()),
   PROD_CLIENT_BASE_URL: Type.Optional(Type.String()),
+  /** Extra browser origins allowed cross-origin in prod (comma-separated). */
+  PROD_ALLOWED_ORIGINS: Type.Optional(Type.String()),
   PROD_DB_POOL_MAX: Type.Optional(Type.String()),
   PROD_DB_SSL: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Optional(Type.String()),
@@ -35,6 +37,8 @@ export interface RedesignConfig {
   readonly port: number;
   readonly host: string;
   readonly logLevel: string;
+  /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
+  readonly corsAllowedOrigins: readonly string[];
   readonly kernel: {
     readonly prodDatabaseUrl: string;
     readonly meiliHost: string;
@@ -70,6 +74,12 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
     port: parseIntOr(e.PORT, 3010),
     host: e.HOST ?? '0.0.0.0',
     logLevel: e.LOG_LEVEL ?? 'info',
+    corsAllowedOrigins:
+      e.PROD_ALLOWED_ORIGINS === undefined
+        ? []
+        : e.PROD_ALLOWED_ORIGINS.split(',')
+            .map((o) => o.trim())
+            .filter((o) => o !== ''),
     kernel: {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
       meiliHost: e.PROD_MEILI_HOST,

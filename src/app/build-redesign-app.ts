@@ -12,6 +12,7 @@
  * `deps.registerContributors` once they exist; the kernel boots standalone today.
  */
 
+import fastifyCors from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
@@ -39,8 +40,14 @@ export interface BuildRedesignAppDeps {
   /** Hook to register source contributors into the kernel registry. */
   readonly registerContributors?: (kernel: Kernel) => void;
   readonly enableGraphiQL?: boolean;
-  /** Client base URL for module MCP deep links. */
+  /** Client base URL for module MCP deep links. Also trusted as a CORS origin. */
   readonly clientBaseUrl?: string;
+  /**
+   * Additional browser origins allowed to call the API cross-origin (in prod).
+   * In development any `localhost` origin is allowed regardless. Requests with no
+   * `Origin` header (server-to-server, SSR loaders, curl) are always allowed.
+   */
+  readonly corsAllowedOrigins?: readonly string[];
   /**
    * Source modules to wire into the kernel. Defaults to all built-in modules.
    * Pass `[]` to boot the bare kernel.
@@ -62,6 +69,22 @@ export interface RedesignApp {
   readonly app: FastifyInstance;
   readonly kernel: Kernel;
 }
+
+/** True for http(s) origins whose host is a loopback address. */
+const isLocalhostOrigin = (origin: string): boolean => {
+  try {
+    const { protocol, hostname } = new URL(origin);
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]'
+    );
+  } catch {
+    return false;
+  }
+};
 
 const deepMergeResolvers = (
   base: Record<string, unknown>,
@@ -93,6 +116,44 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     logger: { level: deps.logLevel ?? 'info' },
     disableRequestLogging: true,
     trustProxy: true,
+  });
+
+  // ── CORS ─────────────────────────────────────────────────────────────────────
+  // The browser client calls /api/v1/graphql + /api/v1/mcp cross-origin, so the
+  // API must answer OPTIONS preflight and set Access-Control-Allow-Origin.
+  // Registered before the routes so its onRequest hook is inherited by them.
+  //  - No `Origin` header (server-to-server, SSR loaders, curl) → always allowed.
+  //  - Development → any localhost origin allowed (client dev server, any port).
+  //  - Production  → only the configured client origins (clientBaseUrl + extras).
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const allowedOrigins = new Set<string>(
+    [deps.clientBaseUrl, ...(deps.corsAllowedOrigins ?? [])]
+      .filter((o): o is string => typeof o === 'string' && o.trim() !== '')
+      .map((o) => o.trim())
+  );
+  await app.register(fastifyCors, {
+    origin: (origin, cb) => {
+      if (origin === undefined || origin === '') {
+        cb(null, true);
+        return;
+      }
+      if (!isProduction && isLocalhostOrigin(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(null, allowedOrigins.has(origin));
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: [
+      'content-type',
+      'authorization',
+      'x-api-key',
+      'accept',
+      'mcp-session-id',
+      'last-event-id',
+    ],
+    exposedHeaders: ['content-type', 'mcp-session-id', 'Mcp-Session-Id'],
+    credentials: true,
   });
 
   const kernel = await makeKernel(deps.kernelConfig);
