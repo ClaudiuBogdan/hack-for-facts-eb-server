@@ -103,7 +103,6 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleMcpTools.push(...pnrr.mcpTools);
   }
 
-<<<<<<< HEAD
   if (enabledModules.includes('reference')) {
     // Reference reuses the kernel identity + territory hubs (§0) — they are
     // injected, not constructed by the module.
