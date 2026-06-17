@@ -20,6 +20,7 @@
 import './shell/db/schema.js';
 
 import { effectiveSemantic, type LegalSearchDeps, type ResolveLegalFiltersDeps } from './core/usecases.js';
+import { makeMonitorulSurface } from './mo/index.js';
 import { probeLegalHnsw } from './shell/capability.js';
 import { makeLegalResolvers } from './shell/graphql/resolvers.js';
 import { legalTypeDefs } from './shell/graphql/typedefs.js';
@@ -37,6 +38,7 @@ import type {
   CapabilityResolver,
   ContributorRegistry,
   GraphqlSlice,
+  IdentityRepo,
   KernelCache,
   KernelMcpTool,
   LegalActByIdLoader,
@@ -63,6 +65,8 @@ export interface LegalModuleDeps {
   readonly cache: KernelCache;
   /** The kernel contributor registry (06's MO contributor registers here). */
   readonly registry: ContributorRegistry;
+  /** Kernel identity hub — the `mo/` area uses it for issuer-slug→org matching (06). */
+  readonly identity: IdentityRepo;
   /** The discovered/overridden embedding model id (nomic; `search_query:` prefix). */
   readonly embeddingModel: string;
   readonly clientBaseUrl?: string;
@@ -130,20 +134,71 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   };
   const resolveDeps: ResolveLegalFiltersDeps = { base: acts, acts, vocab };
 
-  // 5. GraphQL slice + MCP tools (acts area). 06 stitches its `extend type LegalAct`
-  //    + Mo* typedefs into this slice and pushes its contributor before contribution.
-  const graphqlResolvers = makeLegalResolvers({ acts, graph, tree, searchDeps, resolveDeps });
-  const mcpTools = makeLegalMcpTools({ acts, graph, tree, searchDeps, resolveDeps, clientBaseUrl });
+  // 5. GraphQL slice + MCP tools (acts area).
+  const actsResolvers = makeLegalResolvers({ acts, graph, tree, searchDeps, resolveDeps });
+  const actsMcpTools = makeLegalMcpTools({ acts, graph, tree, searchDeps, resolveDeps, clientBaseUrl });
+
+  // 6. mo/ area (06) — STITCHED INTO the single legal slice (foundation §9). MO adds
+  //    Mo* types + `extend type LegalAct`/`Entity`/`Query` to the typeDefs, its
+  //    resolvers (deep-merged so the LegalAct/Query maps gain fields, never clobber),
+  //    its MCP tools, and the ONE issuer-keyed contributor. From build-app's view
+  //    there is still exactly ONE `legal` module to register.
+  const mo = makeMonitorulSurface({
+    db: deps.db,
+    base: acts,
+    identity: deps.identity,
+    registry: deps.registry,
+    cache: deps.cache,
+    clientBaseUrl,
+  });
+
+  const graphqlResolvers = deepMergeResolvers(actsResolvers, mo.resolvers);
+  const mcpTools = [...actsMcpTools, ...mo.mcpTools];
 
   return {
-    graphqlSlice: { source: 'legal', typeDefs: legalTypeDefs },
+    graphqlSlice: { source: 'legal', typeDefs: `${legalTypeDefs}\n\n${mo.typeDefs}` },
     graphqlResolvers,
     mcpTools,
-    contributors: [], // acts area: none in v1 (§4). 06's MO area appends here.
+    contributors: [mo.contributor], // 06's MO area: source:'monitorul-oficial'.
     repos,
     legalActLoader,
     semanticReady,
   };
+};
+
+/**
+ * Deep-merge two resolver maps: nested resolver objects (e.g. `Query`, `LegalAct`,
+ * `Entity`) merge field-by-field; new `Mo*` type maps are added. MO adds DISTINCT
+ * fields (`Query.moX`, `LegalAct.gazetteX`, `Entity.monitorul`), so nothing in the
+ * acts area is clobbered. A LEAF collision (the override would overwrite an existing
+ * acts-area resolver fn or enum entry) THROWS at build time rather than silently
+ * winning (Codex #6) — the only intended overwrites are nested-object merges.
+ */
+const deepMergeResolvers = (
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+  path = ''
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = out[key];
+    const here = path === '' ? key : `${path}.${key}`;
+    const bothObjects =
+      typeof existing === 'object' &&
+      existing !== null &&
+      !Array.isArray(existing) &&
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value);
+    if (bothObjects) {
+      out[key] = deepMergeResolvers(existing as Record<string, unknown>, value as Record<string, unknown>, here);
+    } else if (existing !== undefined) {
+      throw new Error(`legal resolver merge conflict: '${here}' is defined by both the acts and mo areas`);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
 };
 
 export type { LegalActsRepo, LegalGraphRepo, LegalRetrievalRepo, LegalTreeRepo } from './core/ports.js';
