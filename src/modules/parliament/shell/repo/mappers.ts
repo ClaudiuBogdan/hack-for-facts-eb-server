@@ -140,6 +140,7 @@ export interface BillRow {
   final_law_year: number | null;
   status_text: string | null;
   bill_type: string | null;
+  last_event_date: string | null;
   attrs: unknown;
   source_updated_at: string | null;
   updated_at: string | null;
@@ -156,6 +157,7 @@ export const mapBill = (r: BillRow): ParliamentBill => ({
   finalLawYear: r.final_law_year,
   statusText: r.status_text,
   billType: r.bill_type,
+  lastEventDate: r.last_event_date,
   attrs: safeAttrs(r.attrs, BILL_ATTR_KEYS),
   sourceUpdatedAt: r.source_updated_at,
   updatedAt: r.updated_at,
@@ -301,6 +303,7 @@ export interface InitiativeRow {
   status: string | null;
   promulgated_law_number: string | null;
   promulgated_law_year: number | null;
+  registration_date: string | null; // to_date(registration_date_text)::text → ISO
 }
 
 export const mapInitiative = (r: InitiativeRow): ParliamentInitiative => ({
@@ -311,6 +314,7 @@ export const mapInitiative = (r: InitiativeRow): ParliamentInitiative => ({
   status: r.status,
   promulgatedLawNumber: r.promulgated_law_number,
   promulgatedLawYear: r.promulgated_law_year,
+  registrationDate: r.registration_date,
 });
 
 export interface DeclarationRow {

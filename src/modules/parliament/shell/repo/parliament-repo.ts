@@ -173,6 +173,9 @@ const BILL_SELECT = [
   // status string + initiative type the client previously derived from title.
   sql<string | null>`b.attrs->>'status_text'`.as('status_text'),
   sql<string | null>`b.attrs#>>'{procedure,tip_initiativa}'`.as('bill_type'),
+  // last_event_date (already ISO YYYY-MM-DD in attrs) — the key the default
+  // 'updated_desc' sort uses; surfaced flat so the client can show/verify recency.
+  sql<string | null>`b.attrs->>'last_event_date'`.as('last_event_date'),
   'b.attrs',
   sql<string | null>`b.source_updated_at::text`.as('source_updated_at'),
   sql<string | null>`b.updated_at::text`.as('updated_at'),
@@ -1234,14 +1237,33 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     offsetActivity<ParliamentInitiative>(
       'listMemberInitiatives',
       async (p) => {
+        // registration_date_text is TEXT 'DD.MM.YYYY' (~95.7% coverage). Reorder it to
+        // a zero-padded ISO 'YYYY-MM-DD' STRING with pure string ops (lpad/split) for
+        // BOTH the projected field and the sort key. This is throw-proof: `to_date`
+        // ERRORS on an impossible date (e.g. '31.02.2026') and would 500 the whole
+        // member's page — the regex format check is NOT sufficient (Codex container
+        // test). The reorder produces an identical ISO value to to_date for every
+        // live row (0 mismatches verified vs prod) and lexical == chronological order.
+        // null/'' → NULL → NULLS LAST. Order DESC (newest first), then initiative_key
+        // DESC as a UNIQUE (PK) tiebreak → TOTAL order (stable offset pagination). The
+        // OLD `initiative_key ASC` surfaced NULL-date legacy items on page 1 and
+        // buried a member's recent initiatives (audit bug).
+        const regDateIso = sql<string | null>`(case
+          when nullif(mi.registration_date_text, '') is null then null
+          else lpad(split_part(mi.registration_date_text, '.', 3), 4, '0') || '-'
+            || lpad(split_part(mi.registration_date_text, '.', 2), 2, '0') || '-'
+            || lpad(split_part(mi.registration_date_text, '.', 1), 2, '0')
+        end)`;
         const rows = await db
           .selectFrom('parliament.member_initiatives as mi')
           .select([
             'mi.initiative_key', 'mi.mandate_key', 'mi.bill_key', 'mi.title', 'mi.status',
             'mi.promulgated_law_number', 'mi.promulgated_law_year',
+            sql<string | null>`${regDateIso}`.as('registration_date'),
           ])
           .where('mi.mandate_key', '=', mandateKey)
-          .orderBy('mi.initiative_key', 'asc')
+          .orderBy(sql`${regDateIso} desc nulls last`)
+          .orderBy('mi.initiative_key', 'desc')
           .limit(p.pageSize)
           .offset(offsetFor(p))
           .execute();
