@@ -666,6 +666,48 @@ d('Parliament golden (live prod)', () => {
     expect(new Set(all.map((m) => m.mandateKey)).size).toBe(472);
   }, 30_000);
 
+  it('bill billType + status filters return the live prod classification counts', async () => {
+    const billsTotal = async (filter: string): Promise<number> => {
+      const data = expectGqlData(
+        await gql<{ parliamentBills: { readonly total: number; readonly totalEstimated: boolean } }>(
+          `{ parliamentBills(filter:${filter}, page:1, pageSize:1) { total totalEstimated } }`
+        )
+      );
+      // All buckets are < the 10k list cap, so total is EXACT (never estimated).
+      expect(data.parliamentBills.totalEstimated).toBe(false);
+      return data.parliamentBills.total;
+    };
+
+    // billType (initiative-kind badge), prefix on procedure.tip_initiativa. The
+    // kernel renders enum filter fields as GraphQL String (literal-union validated
+    // server-side), so values are passed as quoted strings.
+    expect(await billsTotal('{billType:{eq:"government"}}')).toBe(5271);
+    expect(await billsTotal('{billType:{eq:"parliamentary"}}')).toBe(3005);
+    // in:[both] is the OR — the union (bills carrying a procedure block).
+    expect(await billsTotal('{billType:{in:["government","parliamentary"]}}')).toBe(8276);
+
+    // status buckets on status_text — a clean partition of all 9,958 bills.
+    const promulgated = await billsTotal('{status:{eq:"promulgated"}}');
+    const rejected = await billsTotal('{status:{eq:"rejected"}}');
+    const inProgress = await billsTotal('{status:{eq:"in_progress"}}');
+    expect(promulgated).toBe(3606);
+    expect(rejected).toBe(1939);
+    expect(inProgress).toBe(4413);
+    expect(promulgated + rejected + inProgress).toBe(9958); // partition is exhaustive
+
+    // Combined filters AND together (government bills that became law).
+    expect(await billsTotal('{billType:{eq:"government"}, status:{eq:"promulgated"}}')).toBe(3270);
+
+    // An unknown enum value is a clean InvalidInput (repo enumSelection guard) —
+    // NOT a silent empty result. (The kernel renders these virtual enums as String
+    // and skips virtual fields, so the repo owns the domain check.)
+    const bad = await gql<{ parliamentBills: unknown }>(
+      `{ parliamentBills(filter:{status:{eq:"enacted"}}, page:1, pageSize:1) { total } }`
+    );
+    expect(bad.errors).toBeDefined();
+    expect(bad.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 30_000);
+
   it('person-candidates data-quality surface is API-key gated by default', async () => {
     const res = await gql<{ parliamentPersonCandidates: unknown }>(
       `{
