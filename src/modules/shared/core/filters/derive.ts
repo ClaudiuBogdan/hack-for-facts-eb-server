@@ -270,7 +270,9 @@ const opSql = (
       if (!Array.isArray(value)) {
         return err(invalidInput(`${field.name} 'in' requires an array`, field.name));
       }
-      if (value.length === 0) return ok(null);
+      // An explicit empty `in: []` means "match nothing" — compile to FALSE,
+      // NOT a no-op (a dropped predicate would silently match ALL rows). #60h.
+      if (value.length === 0) return ok(wrap(sql`false`));
       const coerced: (string | number | boolean)[] = [];
       for (const item of value) {
         const c = coerceScalar(field, item);
@@ -361,8 +363,10 @@ export const toConditionBuilders = (
   const byName = new Map(spec.fields.map((f) => [f.name, f]));
   const conditions: SqlCondition[] = [];
 
-  // Defaults (only when the field is absent from input).
+  // Defaults (only when the field is absent from input). Virtual fields are
+  // repo-intercepted — never compile their default to SQL (#60b).
   for (const f of spec.fields) {
+    if (f.virtual === true) continue;
     if (f.default !== undefined && input[f.name] === undefined) {
       const built = opSql(f, 'eq', f.default as FilterValue, false);
       if (built.isErr()) return err(built.error);
@@ -374,6 +378,9 @@ export const toConditionBuilders = (
     if (key === 'exclude') continue;
     const field = byName.get(key);
     if (field === undefined) continue;
+    // Virtual fields are translated by the repo (partition/join/rollup), not
+    // compiled here — a non-column virtual field would emit broken SQL (#60b).
+    if (field.virtual === true) continue;
     const ff = input[key];
     if (ff === undefined || typeof ff !== 'object') continue;
     const built = buildFieldConditions(field, ff, false);
@@ -387,6 +394,7 @@ export const toConditionBuilders = (
     for (const key of Object.keys(exclude)) {
       const field = byName.get(key);
       if (field === undefined) continue;
+      if (field.virtual === true) continue;
       if (field.exclude !== true) {
         return err(invalidInput(`field '${key}' is not negatable`, key));
       }

@@ -171,3 +171,14 @@ export interface CursorPage<T> {
  * `Conn<T>` exists so module plans referencing it don't reinvent one.
  */
 export type Conn<T> = CursorPage<T>;
+
+/**
+ * A cursor-page REQUEST (Relay `first`/`after` inputs). Kernel-owned so the per-
+ * source repos don't each redefine it (pnrr/reference/legal all did). `sort` is
+ * an optional named sort key the repo maps to its keyset columns.
+ */
+export interface CursorPageRequest {
+  readonly first: number;
+  readonly after?: string;
+  readonly sort?: string;
+}

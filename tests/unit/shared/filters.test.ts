@@ -318,3 +318,88 @@ describe('toTypeBox money', () => {
     expect(valueProp).toBeDefined();
   });
 });
+
+// ── #60a: SDL description escaping ────────────────────────────────────────────
+describe('toGraphQLInput escapes field descriptions (#60a)', () => {
+  const dangerousSpec: CollectionFilterSpec = {
+    collection: 'docs',
+    fields: [
+      {
+        name: 'q',
+        type: 'string',
+        ops: ['contains'],
+        column: { alias: 'd', column: 'title' },
+        description: 'Search "title" text\nwith a newline and a \\ backslash',
+      },
+    ],
+    sort: { default: 'q', allowed: ['q'] },
+  };
+
+  it('escapes quotes/newlines/backslashes so the SDL is one valid line', () => {
+    const sdl = toGraphQLInput(dangerousSpec);
+    // No raw newline or bare quote inside the description line.
+    expect(sdl).toContain('\\"title\\"');
+    expect(sdl).toContain('\\n');
+    expect(sdl).toContain('\\\\ backslash');
+  });
+
+  it('the escaped SDL parses as valid GraphQL (would throw if unescaped)', async () => {
+    const { parse } = await import('graphql');
+    const sdl = `${toGraphQLInput(dangerousSpec)}\ntype Query { _x: String }`;
+    expect(() => parse(sdl)).not.toThrow();
+  });
+});
+
+// ── #60h: empty in:[] → FALSE, not match-all ──────────────────────────────────
+describe('empty in:[] compiles to FALSE (#60h)', () => {
+  it('compiles an explicit empty array to a false predicate (match nothing)', () => {
+    const res = toConditionBuilders(spec, { status: { in: [] } });
+    expect(res.isOk()).toBe(true);
+    const compiled = compileWhere(res._unsafeUnwrap());
+    // A predicate is emitted (not a dropped/no-op clause that matches ALL).
+    expect(compiled.sql.toLowerCase()).toContain('false');
+  });
+
+  it('negated empty in:[] under exclude compiles to NOT false (match all of that field)', () => {
+    const res = toConditionBuilders(spec, { exclude: { cui: { in: [] } } });
+    expect(res.isOk()).toBe(true);
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.sql.toLowerCase()).toContain('false');
+  });
+});
+
+// ── #60b: virtual fields are not compiled to SQL ──────────────────────────────
+describe('virtual fields are skipped by toConditionBuilders (#60b)', () => {
+  const virtualSpec: CollectionFilterSpec = {
+    collection: 'budget',
+    fields: [
+      {
+        name: 'reportType',
+        type: 'enum',
+        ops: ['eq'],
+        enumValues: ['ch', 'vn'],
+        // repo-intercepted: chooses the partition; no real column to compile.
+        column: { alias: 'b', column: 'report_type' },
+        virtual: true,
+        default: 'ch',
+      },
+      { name: 'year', type: 'int', ops: ['eq'], column: { alias: 'b', column: 'budget_year' } },
+    ],
+    sort: { default: 'year', allowed: ['year'] },
+  };
+
+  it('does not compile a virtual field, even when present in the input', () => {
+    const res = toConditionBuilders(virtualSpec, { reportType: { eq: 'vn' }, year: { eq: 2024 } });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.sql).toContain('budget_year');
+    expect(compiled.sql).not.toContain('report_type');
+    expect(compiled.parameters).toEqual([2024]);
+  });
+
+  it('does not apply a virtual field default on compose', () => {
+    const res = toConditionBuilders(virtualSpec, {});
+    const compiled = compileWhere(res._unsafeUnwrap());
+    // No condition at all — the virtual default ('ch') is repo-handled, not SQL.
+    expect(compiled.sql).toBe('');
+  });
+});
