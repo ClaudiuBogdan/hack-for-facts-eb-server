@@ -16,6 +16,7 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
@@ -34,10 +35,10 @@ export interface BuildRedesignAppDeps {
   /** Client base URL for module MCP deep links. */
   readonly clientBaseUrl?: string;
   /**
-   * Source modules to wire into the kernel. Defaults to all built-in modules
-   * (currently just `pnrr`). Pass `[]` to boot the bare kernel.
+   * Source modules to wire into the kernel. Defaults to all built-in modules.
+   * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr')[];
+  readonly modules?: readonly ('pnrr' | 'companies')[];
 }
 
 export interface RedesignApp {
@@ -82,7 +83,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // ── Source modules (built on the kernel) ─────────────────────────────────────
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
-  const enabledModules = deps.modules ?? (['pnrr'] as const);
+  const enabledModules = deps.modules ?? (['pnrr', 'companies'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -97,6 +98,20 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(pnrr.graphqlSlice);
     moduleResolvers.push(pnrr.graphqlResolvers);
     moduleMcpTools.push(...pnrr.mcpTools);
+  }
+
+  if (enabledModules.includes('companies')) {
+    const companies = makeCompaniesModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      flowsRepo: kernel.flowsRepo,
+      meili: kernel.clients.meiliClient,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(companies.contributor);
+    moduleSlices.push(companies.graphqlSlice);
+    moduleResolvers.push(companies.graphqlResolvers);
+    moduleMcpTools.push(...companies.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
