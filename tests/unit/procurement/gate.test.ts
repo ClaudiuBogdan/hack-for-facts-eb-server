@@ -1,0 +1,125 @@
+/**
+ * Procurement grain-gate enforcement (mocked aggregate repo, no live DB). The gate
+ * is the load-bearing §14.6 invariant: the USECASE reads the live gate first and
+ * degrades (abstain / count-basis) data-driven, never code constants.
+ */
+
+import { ok, type Result } from 'neverthrow';
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  supplierConcentration,
+  topSuppliers,
+} from '@/modules/procurement/core/usecases.js';
+
+import type { ProcurementAggregateRepo } from '@/modules/procurement/core/ports.js';
+import type { GrainQuality, ProcurementGrain } from '@/modules/procurement/core/types.js';
+import type { ApiError } from '@/modules/shared/index.js';
+
+const gateRow = (grain: ProcurementGrain, over: Partial<GrainQuality>): GrainQuality => ({
+  grain,
+  rowsCount: '1000',
+  authorityCuiCoverageRate: 1,
+  supplierCuiCoverageRate: 1,
+  amountCoverageRate: 1,
+  cpvCoverageRate: 1,
+  dateCoverageRate: 1,
+  authorityTerritoryCoverageRate: 0,
+  filterAnswersAllowed: true,
+  spendRankingsAllowed: true,
+  supplierRegionFiltersAllowed: false,
+  blockers: [],
+  refreshedAt: '2026-06-16T21:17:44Z',
+  projectionVersion: 'test-v1',
+  ...over,
+});
+
+/** A mock aggregate repo whose gate rows + edge data are injected per test. */
+const mockRepo = (gates: readonly GrainQuality[], over: Partial<ProcurementAggregateRepo> = {}): ProcurementAggregateRepo => ({
+  grainQuality: () => Promise.resolve(ok(gates) as Result<readonly GrainQuality[], ApiError>),
+  topSuppliersForAuthority: vi.fn(() => Promise.resolve(ok([]))),
+  topAuthoritiesForSupplier: vi.fn(() => Promise.resolve(ok([]))),
+  repeatedPairs: vi.fn(() => Promise.resolve(ok([]))),
+  supplierConcentration: vi.fn(() => Promise.resolve(ok({
+    authorityCui: 'X', grain: 'direct_acquisition' as const, supplierCount: 3, basis: 'value' as const,
+    top1Share: 0.5, top5Share: 1, hhi: 0.4, totalRon: '100', caveats: [],
+  }))),
+  authorityCpvSpend: vi.fn(() => Promise.resolve(ok([]))),
+  topSuppliersByRegionCpv: vi.fn(() => Promise.resolve(ok([]))),
+  sameDaySplittingCandidates: vi.fn(() => Promise.resolve(ok({ items: [], total: null, estimated: true }))),
+  presenceFor: vi.fn(() => Promise.resolve(ok(null))),
+  profileSlice: vi.fn(() => Promise.resolve(ok(null))),
+  ...over,
+});
+
+describe('gate: filterAnswersAllowed=false → ABSTAIN (never fabricate)', () => {
+  it('topSuppliers returns empty data + a blockers caveat, does NOT hit the rollup', async () => {
+    const top = vi.fn(() => Promise.resolve(ok([])));
+    const repo = mockRepo(
+      [gateRow('procurement_contract', { filterAnswersAllowed: false, blockers: ['amount coverage low'] })],
+      { topSuppliersForAuthority: top }
+    );
+    const res = await topSuppliers(repo, '4305857', { grain: 'procurement_contract', topN: 5 });
+    expect(res.isOk()).toBe(true);
+    const r = res._unsafeUnwrap();
+    expect(r.data).toEqual([]);
+    expect(r.caveats[0]).toContain('not gate-approved');
+    expect(r.caveats[0]).toContain('amount coverage low');
+    expect(top).not.toHaveBeenCalled(); // abstained before querying
+  });
+});
+
+describe('gate: spendRankingsAllowed=false → count-degrade with caveat', () => {
+  it('topSuppliers queries with orderByValue=false (rank by count) + flags the caveat', async () => {
+    const top = vi.fn(() => Promise.resolve(ok([])));
+    const repo = mockRepo(
+      [gateRow('procurement_contract', { spendRankingsAllowed: false })],
+      { topSuppliersForAuthority: top }
+    );
+    const res = await topSuppliers(repo, '4305857', { grain: 'procurement_contract', topN: 5 });
+    const r = res._unsafeUnwrap();
+    // The gate is NOT ignored: the repo is told to order by flow_count, not value.
+    expect(top).toHaveBeenCalledWith('4305857', expect.anything(), false);
+    expect(r.caveats.some((c) => c.includes('spend rankings not gate-approved'))).toBe(true);
+  });
+
+  it('topSuppliers queries with orderByValue=true when spend is gate-approved', async () => {
+    const top = vi.fn(() => Promise.resolve(ok([])));
+    const repo = mockRepo([gateRow('direct_acquisition', { spendRankingsAllowed: true })], { topSuppliersForAuthority: top });
+    await topSuppliers(repo, '4305857', { grain: 'direct_acquisition', topN: 5 });
+    expect(top).toHaveBeenCalledWith('4305857', expect.anything(), true);
+  });
+
+  it('supplierConcentration passes basis=count when spend is suppressed', async () => {
+    const conc = vi.fn(() => Promise.resolve(ok({
+      authorityCui: 'X', grain: 'procurement_contract' as const, supplierCount: 3, basis: 'count' as const,
+      top1Share: 0.5, top5Share: 1, hhi: 0.4, totalRon: null, caveats: [],
+    })));
+    const repo = mockRepo([gateRow('procurement_contract', { spendRankingsAllowed: false })], { supplierConcentration: conc });
+    await supplierConcentration(repo, '4305857', { grain: 'procurement_contract', topN: 0 });
+    // The usecase computes basis from the live gate and passes it to the repo.
+    expect(conc).toHaveBeenCalledWith('4305857', expect.anything(), 'count');
+  });
+
+  it('supplierConcentration passes basis=value when spend is allowed', async () => {
+    const conc = vi.fn(() => Promise.resolve(ok({
+      authorityCui: 'X', grain: 'direct_acquisition' as const, supplierCount: 3, basis: 'value' as const,
+      top1Share: 0.5, top5Share: 1, hhi: 0.4, totalRon: '100', caveats: [],
+    })));
+    const repo = mockRepo([gateRow('direct_acquisition', { spendRankingsAllowed: true })], { supplierConcentration: conc });
+    await supplierConcentration(repo, '4305857', { grain: 'direct_acquisition', topN: 0 });
+    expect(conc).toHaveBeenCalledWith('4305857', expect.anything(), 'value');
+  });
+});
+
+describe('gate: concentration abstains when filterAnswersAllowed=false', () => {
+  it('returns a zeroed concentration + caveat without hitting the rollup', async () => {
+    const conc = vi.fn();
+    const repo = mockRepo([gateRow('procurement_contract', { filterAnswersAllowed: false })], { supplierConcentration: conc });
+    const res = await supplierConcentration(repo, '4305857', { grain: 'procurement_contract', topN: 0 });
+    const c = res._unsafeUnwrap();
+    expect(c.supplierCount).toBe(0);
+    expect(c.caveats[0]).toContain('not gate-approved');
+    expect(conc).not.toHaveBeenCalled();
+  });
+});

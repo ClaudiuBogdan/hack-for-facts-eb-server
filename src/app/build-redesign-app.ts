@@ -20,6 +20,7 @@ import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
@@ -41,7 +42,7 @@ export interface BuildRedesignAppDeps {
    * Source modules to wire into the kernel. Defaults to all built-in modules.
    * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal')[];
+  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal' | 'procurement')[];
 }
 
 export interface RedesignApp {
@@ -87,7 +88,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
   const enabledModules =
-    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal'] as const);
+    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal', 'procurement'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -130,6 +131,20 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(budget.graphqlSlice);
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
+  }
+
+  if (enabledModules.includes('procurement')) {
+    const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
+    const procurement = makeProcurementModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(Number.isFinite(windowEnv) && windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(procurement.contributor);
+    moduleSlices.push(procurement.graphqlSlice);
+    moduleResolvers.push(procurement.graphqlResolvers);
+    moduleMcpTools.push(...procurement.mcpTools);
   }
 
   if (enabledModules.includes('companies')) {
