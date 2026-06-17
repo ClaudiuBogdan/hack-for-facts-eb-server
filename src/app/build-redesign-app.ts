@@ -22,6 +22,7 @@ import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
 import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
@@ -147,6 +148,22 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(reference.graphqlSlice);
     moduleResolvers.push(reference.graphqlResolvers);
     moduleMcpTools.push(...reference.mcpTools);
+  }
+
+  if (enabledModules.includes('primarii-transparency')) {
+    // Local-government transparency QA registry. Reuses the kernel identity hub for
+    // CUI resolution + per-entity territory (`territoryForCui`). Geographic FILTERS
+    // stay capability-gated (no kernel cui→territory set-predicate builder yet).
+    const primarii = makePrimariiTransparencyModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(primarii.contributor);
+    moduleSlices.push(primarii.graphqlSlice);
+    moduleResolvers.push(primarii.graphqlResolvers);
+    moduleMcpTools.push(...primarii.mcpTools);
   }
 
   if (enabledModules.includes('budget')) {
