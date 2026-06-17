@@ -153,11 +153,13 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   if (enabledModules.includes('primarii-transparency')) {
     // Local-government transparency QA registry. Reuses the kernel identity hub for
     // CUI resolution + per-entity territory (`territoryForCui`). Geographic FILTERS
-    // stay capability-gated (no kernel cui→territory set-predicate builder yet).
+    // (region/siruta/isUat/population) compile through the kernel cui→territory
+    // builder, so they are enabled here (the join is stable core schema).
     const primarii = makePrimariiTransparencyModule({
       db: kernel.db,
       identityRepo: kernel.identityRepo,
       registry: kernel.contributors,
+      territoryFilterAvailable: true,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(primarii.contributor);

@@ -17,7 +17,13 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FieldFilter, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type FieldFilter,
+  type FilterInput,
+  type TerritoryFilterValues,
+} from '@/modules/shared/index.js';
 
 /** Pull a single field's op-map out of a FilterInput (typed, undefined-safe). */
 export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {
@@ -115,4 +121,58 @@ export const validateVirtualEnum = (
     }
   }
   return ok(undefined);
+};
+
+/** Read a finite `between.{from,to}` numeric bound off a field op-map. */
+const betweenBounds = (
+  f: FieldFilter | undefined,
+  name: string
+): Result<{ min?: number; max?: number }, ApiError> => {
+  if (f === undefined) return ok({});
+  const between = f['between'];
+  if (between === undefined) return ok({});
+  if (typeof between !== 'object' || Array.isArray(between)) {
+    return err(invalidInput(`${name} between requires { from, to }`, name));
+  }
+  const { from, to } = between as { from?: string | number; to?: string | number };
+  const out: { min?: number; max?: number } = {};
+  if (from !== undefined) {
+    const n = Number(from);
+    if (!Number.isFinite(n)) return err(invalidInput(`${name} between.from must be a number`, name));
+    out.min = n;
+  }
+  if (to !== undefined) {
+    const n = Number(to);
+    if (!Number.isFinite(n)) return err(invalidInput(`${name} between.to must be a number`, name));
+    out.max = n;
+  }
+  return ok(out);
+};
+
+/**
+ * Project the primarii entity FilterInput's geographic fields onto the kernel
+ * `TerritoryFilterValues` shape: `region`/`siruta` (eq/in + exclude), `isUat`
+ * (bool eq), `population` (between → min/max). The kernel
+ * `buildTerritoryCuiPredicate` turns this into the cui→territory semijoin.
+ * Validates the population range; the kernel builder owns the SQL.
+ */
+export const territoryFilterValues = (
+  input: FilterInput
+): Result<TerritoryFilterValues, ApiError> => {
+  const region = virtualValues(input, 'region');
+  const siruta = virtualValues(input, 'siruta');
+  const isUat = boolEq(fieldOf(input, 'isUat'));
+  const popBounds = betweenBounds(fieldOf(input, 'population'), 'population');
+  if (popBounds.isErr()) return err(popBounds.error);
+
+  const values: TerritoryFilterValues = {
+    ...(region.include.length > 0 && { region: region.include }),
+    ...(region.exclude.length > 0 && { excludeRegion: region.exclude }),
+    ...(siruta.include.length > 0 && { siruta: siruta.include }),
+    ...(siruta.exclude.length > 0 && { excludeSiruta: siruta.exclude }),
+    ...(isUat !== undefined && { isUat }),
+    ...(popBounds.value.min !== undefined && { populationMin: popBounds.value.min }),
+    ...(popBounds.value.max !== undefined && { populationMax: popBounds.value.max }),
+  };
+  return ok(values);
 };

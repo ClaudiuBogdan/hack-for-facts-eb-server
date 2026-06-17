@@ -405,16 +405,31 @@ d('Primarii-transparency golden (live prod)', () => {
     expect((warnings.data as { primariiLoadIssues: unknown[] }).primariiLoadIssues).toHaveLength(200);
   });
 
-  it('territory filters and region aggregates are capability-gated when geographic resolution is unavailable', async () => {
-    const filtered = await gql(
-      `query($filter: PrimariiEntityFilter!) { primariiEntities(filter: $filter, first: 1) { totalCount } }`,
-      { filter: { region: { in: ['Nord-Vest'] } } }
-    );
-    expect(filtered.data).toBeNull();
-    const filteredErrors = JSON.stringify(filtered.errors);
-    expect(filteredErrors).toContain('InvalidInput');
-    expect(filteredErrors).toContain('geographic resolution unavailable');
+  it('territory filters compile through the kernel cui→territory builder (live counts)', async () => {
+    // The app wires territoryFilterAvailable=true, so geo FILTERS now return real
+    // filtered results. Counts pinned against raw SQL over the cui→territory semijoin
+    // (verified 2026-06-17): region=Nord-Vest 446; isUat=false 15; population
+    // 10000..50000 174; region=Nord-Vest ∧ dataQuality=high 42; exclude region
+    // Bucuresti-Ilfov → 3140 (3187 − 47).
+    const total = async (filter: Record<string, unknown>): Promise<number> => {
+      const res = await gql(
+        `query($filter: PrimariiEntityFilter!) { primariiEntities(filter: $filter, first: 1) { totalCount } }`,
+        { filter }
+      );
+      expect(res.errors).toBeUndefined();
+      return (res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount;
+    };
 
+    expect(await total({ region: { in: ['Nord-Vest'] } })).toBe(446);
+    expect(await total({ siruta: { eq: '120726' } })).toBe(1); // Piatra-Neamt's territory
+    expect(await total({ isUat: { eq: false } })).toBe(15);
+    expect(await total({ population: { between: { from: 10000, to: 50000 } } })).toBe(174);
+    // territory predicate ANDs with a physical filter (region ∧ dataQuality=high).
+    expect(await total({ region: { in: ['Nord-Vest'] }, dataQualityStatus: { in: ['high'] } })).toBe(42);
+    // exclusion negates the membership: everything outside Bucuresti-Ilfov.
+    expect(await total({ exclude: { region: { in: ['Bucuresti-Ilfov'] } } })).toBe(3140);
+
+    // region GROUPING (a group-by, not a predicate) stays gated — out of scope here.
     const aggregate = await gql(`query { primariiStats(groupBy: region) { key total } }`);
     expect(aggregate.data).toBeNull();
     const aggregateErrors = JSON.stringify(aggregate.errors);
