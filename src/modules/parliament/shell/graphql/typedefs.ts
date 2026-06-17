@@ -57,7 +57,13 @@ const objectsAndQuery = /* GraphQL */ `
   enum ParliamentBillSort { updated_desc updated_asc title_asc title_desc }
   enum ParliamentVoteSort { voteDate voteKey }
 
-  type ParliamentGroup { groupId: ID!  chamber: String!  name: String!  memberCount: Int }
+  type ParliamentGroup {
+    groupId: ID!
+    "Chamber of this group row. An empty string means a party-level / cross-chamber aggregate (the whole-parliament parliamentGroups list sums a party across both chambers); a non-empty value is a per-chamber group."
+    chamber: String!
+    name: String!
+    memberCount: Int
+  }
   type ParliamentGroupInterval {
     groupId: ID!  group: ParliamentGroup  validFrom: Date!  validTo: Date  source: String!  voteCount: Int
   }
@@ -235,6 +241,7 @@ const objectsAndQuery = /* GraphQL */ `
     "Cross-mandate person career (all mandates, group history, career totals)."
     parliamentPerson(personId: ID!): ParliamentPerson
     parliamentGroups(legislature: String, chamber: String): [ParliamentGroup!]!
+    "Roster for a group. groupId accepts EITHER a per-chamber group_id slug (from the chamber-scoped parliamentGroups list) OR a party-level group_name (from the whole-parliament list, whose groupId is the chamber-agnostic party name) — both resolve. Each member carries its own chamber, so the client buckets a party-level roster by chamber."
     parliamentGroupMembers(groupId: ID!, legislature: String): [ParliamentMember!]!
     parliamentBills(filter: ParliamentBillsFilter, sort: ParliamentBillSort, page: Int, pageSize: Int): ParliamentBillPage!
     parliamentBill(billKey: ID!): ParliamentBill

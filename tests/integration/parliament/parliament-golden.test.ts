@@ -620,6 +620,52 @@ d('Parliament golden (live prod)', () => {
     expect(cohesion.parliamentVoteCohesion.length).toBeGreaterThan(0);
   }, 30_000);
 
+  it('group roster resolves a PARTY-LEVEL groupId to its full cross-chamber set, and a per-chamber slug exactly', async () => {
+    const roster = async (groupId: string): Promise<readonly { readonly mandateKey: string; readonly chamber: string | null }[]> => {
+      const data = expectGqlData(
+        await gql<{
+          parliamentGroupMembers: readonly { readonly mandateKey: string; readonly chamber: string | null }[];
+        }>(
+          `query($groupId: ID!, $legislature: String) {
+            parliamentGroupMembers(groupId:$groupId, legislature:$legislature) { mandateKey chamber }
+          }`,
+          { groupId, legislature: '2024' }
+        )
+      );
+      return data.parliamentGroupMembers;
+    };
+
+    // The whole-parliament groups list hands the client a party-level id (= group_name).
+    // It MUST resolve to the full cross-chamber roster (the defect: it returned 0).
+    const aur = await roster('AUR');
+    expect(aur.length).toBe(91);
+    expect(aur.filter((m) => m.chamber === 'camera_deputatilor').length).toBe(63);
+    expect(aur.filter((m) => m.chamber === 'senat').length).toBe(28);
+
+    // Regression: a per-chamber group_id slug still resolves EXACTLY (one chamber).
+    const aurSenat = await roster('aur-senat');
+    expect(aurSenat.length).toBe(28);
+    expect(aurSenat.every((m) => m.chamber === 'senat')).toBe(true);
+
+    // The party-level rosters partition the legislature: every 2024 member belongs to
+    // exactly one party, so the per-party roster sizes sum to the chamber totals.
+    const groups = expectGqlData(
+      await gql<{ parliamentGroups: readonly { readonly groupId: string; readonly chamber: string }[] }>(
+        `{ parliamentGroups(legislature:"2024") { groupId chamber } }`
+      )
+    );
+    // Whole-parliament list → party-level rows (chamber === "").
+    const partyIds = groups.parliamentGroups.filter((g) => g.chamber === '').map((g) => g.groupId);
+    expect(partyIds.length).toBeGreaterThan(0);
+    const rosters = await Promise.all(partyIds.map((id) => roster(id)));
+    const all = rosters.flat();
+    expect(all.length).toBe(472);
+    expect(all.filter((m) => m.chamber === 'camera_deputatilor').length).toBe(335);
+    expect(all.filter((m) => m.chamber === 'senat').length).toBe(137);
+    // No member is double-counted (mandate_key is unique across the party rosters).
+    expect(new Set(all.map((m) => m.mandateKey)).size).toBe(472);
+  }, 30_000);
+
   it('person-candidates data-quality surface is API-key gated by default', async () => {
     const res = await gql<{ parliamentPersonCandidates: unknown }>(
       `{

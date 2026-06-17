@@ -346,10 +346,17 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     legislature?: string
   ): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
+      // The groupId handed in is EITHER a per-chamber `m.group_id` slug
+      // (`aur-senat`, from the chamber-scoped parliamentGroups list) OR a
+      // party-level `m.group_name` ("AUR", from the whole-parliament list whose
+      // groupId is the chamber-agnostic party name). Match either: group_id and
+      // group_name values NEVER collide (verified across all legislatures — 0
+      // overlaps), so the OR is unambiguous — a party-level id resolves to its
+      // full cross-chamber roster (the bug fix) while a slug stays exact.
       let qb = db
         .selectFrom('parliament.members as m')
         .select(MEMBER_SELECT)
-        .where('m.group_id', '=', groupId);
+        .where((eb) => eb.or([eb('m.group_id', '=', groupId), eb('m.group_name', '=', groupId)]));
       if (legislature !== undefined) qb = qb.where('m.legislature', '=', legislature);
       const rows = await qb.orderBy(sql`m.full_name asc nulls last`).limit(1000).execute();
       return ok(rows.map((r) => mapMember(r as MemberRow)));
