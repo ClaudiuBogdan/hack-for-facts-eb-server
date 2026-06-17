@@ -17,6 +17,7 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
 export interface BuildRedesignAppDeps {
@@ -34,10 +35,10 @@ export interface BuildRedesignAppDeps {
   /** Client base URL for module MCP deep links. */
   readonly clientBaseUrl?: string;
   /**
-   * Source modules to wire into the kernel. Defaults to all built-in modules
-   * (currently just `pnrr`). Pass `[]` to boot the bare kernel.
+   * Source modules to wire into the kernel. Defaults to all built-in modules.
+   * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr')[];
+  readonly modules?: readonly ('pnrr' | 'reference')[];
 }
 
 export interface RedesignApp {
@@ -82,7 +83,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // ── Source modules (built on the kernel) ─────────────────────────────────────
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
-  const enabledModules = deps.modules ?? (['pnrr'] as const);
+  const enabledModules = deps.modules ?? (['pnrr', 'reference'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -97,6 +98,22 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(pnrr.graphqlSlice);
     moduleResolvers.push(pnrr.graphqlResolvers);
     moduleMcpTools.push(...pnrr.mcpTools);
+  }
+
+  if (enabledModules.includes('reference')) {
+    // Reference reuses the kernel identity + territory hubs (§0) — they are
+    // injected, not constructed by the module.
+    const reference = makeReferenceModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      territoryRepo: kernel.territoryRepo,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(reference.contributor);
+    moduleSlices.push(reference.graphqlSlice);
+    moduleResolvers.push(reference.graphqlResolvers);
+    moduleMcpTools.push(...reference.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
