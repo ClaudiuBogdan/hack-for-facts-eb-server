@@ -42,12 +42,36 @@ export const CONTROL_TYPES = [
   'motion',
 ] as const;
 
+/**
+ * Bill INITIATIVE-KIND buckets (the client's badge), derived from
+ * `attrs.procedure.tip_initiativa` by PREFIX (verified vs transparenta_prod
+ * 2026-06-17 — the prefix is exhaustive, no third value):
+ *   - government     → tip_initiativa ILIKE 'Proiect de Lege%'      (5,271)
+ *   - parliamentary  → tip_initiativa ILIKE 'Propunere legislativa%' (3,005)
+ * Bills with NO procedure block (1,682) match NEITHER value (documented).
+ */
+export const BILL_TYPES = ['government', 'parliamentary'] as const;
+
+/**
+ * Bill STATUS buckets, derived from `attrs.status_text` (verified vs prod
+ * 2026-06-17 — partitions all 9,958 bills, 0 unclassified):
+ *   - promulgated → status_text ILIKE 'lege %' or = 'lege'  (3,606) — became law;
+ *     cross-checks 1:1 with final_law_number IS NOT NULL (0 mismatches).
+ *   - rejected    → status_text ILIKE 'respins%'            (1,939) — covers
+ *     respins / respinsa / respins(a)definitiv.
+ *   - in_progress → everything else                          (4,413) — la comisii,
+ *     trimis la cameră, pe ordinea de zi, raport, etc.
+ */
+export const BILL_STATUSES = ['promulgated', 'rejected', 'in_progress'] as const;
+
 /** Repo-intercepted virtual filter fields per collection (kernel composer skips). */
 export const VOTES_VIRTUAL_FIELDS = ['q'] as const;
 export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // `year` is virtual: it must match plx_year OR senate_year (Codex BLOCKER #3 —
 // a non-virtual plx_year-only field silently drops Senate-only bills).
-export const BILLS_VIRTUAL_FIELDS = ['q', 'hasLaw', 'actId', 'year'] as const;
+// `billType`/`status` are virtual: they classify jsonb attrs (prefix on
+// procedure.tip_initiativa / bucket on status_text), not a plain column op.
+export const BILLS_VIRTUAL_FIELDS = ['q', 'hasLaw', 'actId', 'year', 'billType', 'status'] as const;
 export const CONTROL_VIRTUAL_FIELDS = ['recipient', 'author', 'q'] as const;
 
 // ── votes (cursor; driving votes_chamber_date_idx) ───────────────────────────
@@ -184,6 +208,28 @@ export const billsFilterSpec: CollectionFilterSpec = {
       column: { alias: 'b', column: 'bill_key' },
       virtual: true,
       description: 'Reverse lineage: bills that became act X (bill_act_links_target_idx). Repo-intercepted.',
+    },
+    {
+      name: 'billType',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'b', column: 'attrs' },
+      enumValues: [...BILL_TYPES],
+      array: true,
+      virtual: true,
+      description:
+        'Initiative kind (the client badge): government = procedure.tip_initiativa starts with "Proiect de Lege"; parliamentary = starts with "Propunere legislativa". Bills with no procedure match neither. Repo-intercepted. Residual (no index).',
+    },
+    {
+      name: 'status',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'b', column: 'attrs' },
+      enumValues: [...BILL_STATUSES],
+      array: true,
+      virtual: true,
+      description:
+        'Lifecycle bucket from status_text: promulgated = "Lege …" (became law; matches final_law_number); rejected = "respins…"; in_progress = everything else. Repo-intercepted. Residual (no index).',
     },
     {
       name: 'q',

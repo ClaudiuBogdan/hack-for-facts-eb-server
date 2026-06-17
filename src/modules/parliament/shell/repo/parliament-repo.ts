@@ -75,6 +75,8 @@ import { COHESION_VOTE_CAP,
   type ParliamentVote,
   type ParliamentVoteGroupBreakdown } from '../../core/types.js';
 import {
+  BILL_STATUSES,
+  BILL_TYPES,
   billsFilterSpec,
   controlItemsFilterSpec,
   membersFilterSpec,
@@ -187,6 +189,27 @@ const stringValues = (f: Record<string, unknown> | undefined): { eq?: string; in
   if (typeof f['eq'] === 'string') out.eq = f['eq'];
   if (Array.isArray(f['in'])) out.in = (f['in'] as unknown[]).filter((x): x is string => typeof x === 'string');
   return out;
+};
+
+/**
+ * Resolve a virtual ENUM field's selected values (eq + in), deduped, and VALIDATE
+ * each against the allowed set. An unknown value is a clean InvalidInput (400),
+ * never a silent empty/full result — the kernel composer can't validate a virtual
+ * field, so the repo enforces the domain itself.
+ */
+const enumSelection = (
+  f: Record<string, unknown> | undefined,
+  allowed: readonly string[]
+): Result<string[], ApiError> => {
+  const { eq, in: inVals } = stringValues(f);
+  const picked = [...(eq !== undefined ? [eq] : []), ...(inVals ?? [])];
+  const deduped = [...new Set(picked)];
+  for (const v of deduped) {
+    if (!allowed.includes(v)) {
+      return err(invalidInput(`unknown value '${v}'; expected one of ${allowed.join(', ')}`, 'filter'));
+    }
+  }
+  return ok(deduped);
 };
 
 const containsValue = (f: Record<string, unknown> | undefined): string | undefined => {
@@ -569,6 +592,38 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       conds.push(
         sql`exists (select 1 from parliament.bill_act_links bal where bal.bill_key = b.bill_key and bal.target_act_id = ${actId.eq}::bigint)`
       );
+    }
+
+    // billType (virtual enum): initiative-kind badge by PREFIX on
+    // procedure.tip_initiativa. Each selected value → its prefix predicate;
+    // multiple values are OR-ed (in:[government,parliamentary] keeps either).
+    // Bills with no procedure block match neither value (NULL ILIKE → NULL).
+    const billTypeVals = enumSelection(fieldFilter(filter, 'billType'), BILL_TYPES);
+    if (billTypeVals.isErr()) return err(billTypeVals.error);
+    if (billTypeVals.value.length > 0) {
+      const pred = (v: string): RawBuilder<unknown> =>
+        v === 'government'
+          ? sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Proiect de Lege%'`
+          : sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Propunere legislativa%'`;
+      conds.push(sql`(${sql.join(billTypeVals.value.map(pred), sql` or `)})`);
+    }
+
+    // status (virtual enum): lifecycle bucket on status_text. promulgated = 'lege …'
+    // (≡ final_law_number IS NOT NULL), rejected = 'respins…', in_progress = the
+    // complement of those two. Multiple values OR-ed; the complement is built as
+    // NOT(promulgated OR rejected) so the three buckets stay a clean partition.
+    const statusVals = enumSelection(fieldFilter(filter, 'status'), BILL_STATUSES);
+    if (statusVals.isErr()) return err(statusVals.error);
+    if (statusVals.value.length > 0) {
+      const st = sql`lower(coalesce(b.attrs->>'status_text', ''))`;
+      const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege')`;
+      const rejected = sql`${st} like 'respins%'`;
+      const pred = (v: string): RawBuilder<unknown> => {
+        if (v === 'promulgated') return promulgated;
+        if (v === 'rejected') return rejected;
+        return sql`not (${promulgated} or ${rejected})`; // in_progress
+      };
+      conds.push(sql`(${sql.join(statusVals.value.map(pred), sql` or `)})`);
     }
 
     // q (virtual): title / plx-number / senate-number ILIKE (diacritic-folded title).
