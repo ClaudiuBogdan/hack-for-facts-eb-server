@@ -1,0 +1,116 @@
+justice.case_appeals	case_id	bigint
+justice.case_appeals	appeal_index	integer
+justice.case_appeals	appeal_declared_at	date
+justice.case_appeals	appeal_type	text
+justice.case_appeals	row_hash	text
+justice.case_appeals	latest_snapshot_id	bigint
+justice.case_appeals	updated_at	timestamp with time zone
+justice.case_hearings	case_id	bigint
+justice.case_hearings	hearing_index	integer
+justice.case_hearings	hearing_at	timestamp with time zone
+justice.case_hearings	panel	text
+justice.case_hearings	solution	text
+justice.case_hearings	solution_summary	text
+justice.case_hearings	pronouncement_date	date
+justice.case_hearings	document_number	text
+justice.case_hearings	document_date	date
+justice.case_hearings	row_hash	text
+justice.case_hearings	latest_snapshot_id	bigint
+justice.case_hearings	updated_at	timestamp with time zone
+justice.case_legal_references	case_legal_reference_id	bigint
+justice.case_legal_references	case_id	bigint
+justice.case_legal_references	source_field	text
+justice.case_legal_references	raw_text	text
+justice.case_legal_references	span_start	integer
+justice.case_legal_references	span_end	integer
+justice.case_legal_references	act_type	text
+justice.case_legal_references	act_number	text
+justice.case_legal_references	act_year	smallint
+justice.case_legal_references	issuer_slug	text
+justice.case_legal_references	article_fragment	text
+justice.case_legal_references	target_act_id	bigint
+justice.case_legal_references	resolution_status	text
+justice.case_legal_references	confidence_score	numeric(4,3)
+justice.case_legal_references	candidates	jsonb
+justice.case_legal_references	resolver_version	text
+justice.case_legal_references	created_at	timestamp with time zone
+justice.case_lineage_candidates	lineage_candidate_id	bigint
+justice.case_lineage_candidates	from_case_id	bigint
+justice.case_lineage_candidates	to_case_id	bigint
+justice.case_lineage_candidates	lineage_type	text
+justice.case_lineage_candidates	method	text
+justice.case_lineage_candidates	confidence_score	numeric(4,3)
+justice.case_lineage_candidates	validation_status	text
+justice.case_lineage_candidates	evidence	jsonb
+justice.case_lineage_candidates	resolver_version	text
+justice.case_lineage_candidates	created_at	timestamp with time zone
+justice.case_lineage_candidates	updated_at	timestamp with time zone
+justice.case_parties	case_id	bigint
+justice.case_parties	party_index	integer
+justice.case_parties	name_key_id	bigint
+justice.case_parties	role_normalized	text
+justice.case_parties	party_kind	text
+justice.case_parties	classifier_version	text
+justice.case_parties	classifier_rule	text
+justice.case_parties	row_hash	text
+justice.case_parties	latest_response_id	bigint
+justice.case_parties	parser_version	text
+justice.case_parties	sync_run_id	bigint
+justice.case_parties	first_seen_at	timestamp with time zone
+justice.case_parties	last_seen_at	timestamp with time zone
+justice.cases	case_id	bigint
+justice.cases	source_slug	text
+justice.cases	institution_code	text
+justice.cases	case_number	text
+justice.cases	case_number_old	text
+justice.cases	department	text
+justice.cases	category	text
+justice.cases	category_name	text
+justice.cases	stage	text
+justice.cases	stage_name	text
+justice.cases	object	text
+justice.cases	source_opened_at	timestamp with time zone
+justice.cases	latest_source_modified_at	timestamp with time zone
+justice.cases	latest_snapshot_id	bigint
+justice.cases	sync_run_id	bigint
+justice.cases	first_seen_at	timestamp with time zone
+justice.cases	last_seen_at	timestamp with time zone
+justice.courts	institution_code	text
+justice.courts	ordinal	integer
+justice.courts	court_level	text
+justice.courts	specialization	text
+justice.courts	locality	text
+justice.courts	county_code	text
+justice.courts	parent_institution_code	text
+justice.courts	mapping_confidence	text
+justice.courts	mapping_notes	text
+justice.courts	evidence	jsonb
+justice.courts	updated_at	timestamp with time zone
+justice.party_company_candidates	candidate_id	bigint
+justice.party_company_candidates	name_key_id	bigint
+justice.party_company_candidates	candidate_cui	text
+justice.party_company_candidates	candidate_company_name	text
+justice.party_company_candidates	candidate_source_table	text
+justice.party_company_candidates	method	text
+justice.party_company_candidates	confidence_score	numeric(4,3)
+justice.party_company_candidates	confidence_tier	text
+justice.party_company_candidates	validation_status	text
+justice.party_company_candidates	rejection_reason	text
+justice.party_company_candidates	evidence	jsonb
+justice.party_company_candidates	candidates	jsonb
+justice.party_company_candidates	resolver_version	text
+justice.party_company_candidates	reviewed_by	text
+justice.party_company_candidates	reviewed_at	timestamp with time zone
+justice.party_company_candidates	created_at	timestamp with time zone
+justice.party_company_candidates	updated_at	timestamp with time zone
+justice.party_name_keys	name_key_id	bigint
+justice.party_name_keys	name_key	text
+justice.party_name_keys	display_name	text
+justice.party_name_keys	party_kind	text
+justice.party_name_keys	legal_form	text
+justice.party_name_keys	alias_keys	text[]
+justice.party_name_keys	mention_count	bigint
+justice.party_name_keys	classifier_version	text
+justice.party_name_keys	normalizer_version	text
+justice.party_name_keys	first_seen_at	timestamp with time zone
+justice.party_name_keys	last_seen_at	timestamp with time zone

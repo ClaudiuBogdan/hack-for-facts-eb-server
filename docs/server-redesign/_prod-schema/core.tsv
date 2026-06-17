@@ -1,0 +1,54 @@
+core.classification_codes	system	text
+core.classification_codes	code	text
+core.classification_codes	label	text
+core.classification_codes	parent_code	text
+core.organization_identifiers	scheme	text
+core.organization_identifiers	value	text
+core.organization_identifiers	org_id	bigint
+core.organization_identifiers	source	text
+core.organizations	org_id	bigint
+core.organizations	cui	text
+core.organizations	registration_number	text
+core.organizations	kind	text
+core.organizations	name	text
+core.organizations	normalized_name	text
+core.organizations	county_name	text
+core.organizations	locality_name	text
+core.organizations	siruta_code	integer
+core.organizations	first_seen_source	text
+core.organizations	attrs	jsonb
+core.organizations	created_at	timestamp with time zone
+core.organizations	updated_at	timestamp with time zone
+core.public_entities	cui	text
+core.public_entities	name	text
+core.public_entities	address	text
+core.public_entities	entity_type	text
+core.public_entities	category	text
+core.public_entities	tags	jsonb
+core.public_entities	is_uat	boolean
+core.public_entities	territorial_siruta_code	text
+core.public_entities	uat_mapping_method	text
+core.public_entities	uat_mapping_confidence	text
+core.public_entities	uat_unresolved_reason	text
+core.public_entities	parent1_cui	text
+core.public_entities	parent2_cui	text
+core.public_entities	main_creditors	jsonb
+core.public_entities	default_report_type	text
+core.public_entities	issues	jsonb
+core.public_entities	field_trace	jsonb
+core.public_entities	updated_at	timestamp with time zone
+core.territories	id	integer
+core.territories	territorial_siruta_code	text
+core.territories	siruta_code	text
+core.territories	county_siruta_code	text
+core.territories	uat_code	text
+core.territories	name	text
+core.territories	county_code	text
+core.territories	county_name	text
+core.territories	region	text
+core.territories	population	integer
+core.territories	siruta_link_method	text
+core.territories	siruta_link_confidence	text
+core.territories	siruta_link_warnings	jsonb
+core.territories	siruta_link_evidence	jsonb
+core.territories	updated_at	timestamp with time zone

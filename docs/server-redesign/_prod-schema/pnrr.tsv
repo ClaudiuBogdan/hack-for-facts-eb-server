@@ -1,0 +1,245 @@
+pnrr.acquisitions	acquisition_key	text
+pnrr.acquisitions	announcement_key	text
+pnrr.acquisitions	beneficiary_cui	text
+pnrr.acquisitions	beneficiary_name	text
+pnrr.acquisitions	procedure_type	text
+pnrr.acquisitions	signed_at	date
+pnrr.acquisitions	full_contract_value	numeric(18,2)
+pnrr.acquisitions	currency	text
+pnrr.acquisitions	award_criterion	text
+pnrr.acquisitions	framework_agreement	boolean
+pnrr.acquisitions	has_association_leader	boolean
+pnrr.acquisitions	has_third_party_support	boolean
+pnrr.acquisitions	has_subcontractor	boolean
+pnrr.acquisitions	source_system	text
+pnrr.acquisitions	raw_item_id	bigint
+pnrr.acquisitions	source_record_hash	text
+pnrr.acquisitions	retrieved_at	timestamp with time zone
+pnrr.acquisitions	transform_version	text
+pnrr.acquisitions	attrs	jsonb
+pnrr.acquisitions	created_at	timestamp with time zone
+pnrr.acquisitions	updated_at	timestamp with time zone
+pnrr.announcement_contacts_private	announcement_key	text
+pnrr.announcement_contacts_private	contact_first_name	text
+pnrr.announcement_contacts_private	contact_last_name	text
+pnrr.announcement_contacts_private	contact_email	text
+pnrr.announcement_contacts_private	contact_phone	text
+pnrr.announcement_contacts_private	raw_item_id	bigint
+pnrr.announcement_contacts_private	source_record_hash	text
+pnrr.announcement_contacts_private	retrieved_at	timestamp with time zone
+pnrr.announcement_contacts_private	created_at	timestamp with time zone
+pnrr.announcement_contacts_private	updated_at	timestamp with time zone
+pnrr.announcements	announcement_key	text
+pnrr.announcements	platform_project_id	text
+pnrr.announcements	applicant_cui	text
+pnrr.announcements	applicant_name	text
+pnrr.announcements	project_name	text
+pnrr.announcements	call_name	text
+pnrr.announcements	component_code	text
+pnrr.announcements	budget_value	numeric(18,2)
+pnrr.announcements	status	text
+pnrr.announcements	status_raw	text
+pnrr.announcements	county_id_raw	text
+pnrr.announcements	county_siruta	text
+pnrr.announcements	is_personal_recipient	boolean
+pnrr.announcements	source_system	text
+pnrr.announcements	raw_item_id	bigint
+pnrr.announcements	source_record_hash	text
+pnrr.announcements	retrieved_at	timestamp with time zone
+pnrr.announcements	transform_version	text
+pnrr.announcements	attrs	jsonb
+pnrr.announcements	created_at	timestamp with time zone
+pnrr.announcements	updated_at	timestamp with time zone
+pnrr.commitment_snapshots	snapshot_id	text
+pnrr.commitment_snapshots	source_record_id	text
+pnrr.commitment_snapshots	snapshot_date	date
+pnrr.commitment_snapshots	beneficiary_cui	text
+pnrr.commitment_snapshots	contract_number	text
+pnrr.commitment_snapshots	commitment_key	text
+pnrr.commitment_snapshots	link_confidence	real
+pnrr.commitment_snapshots	financial_progress	numeric
+pnrr.commitment_snapshots	physical_progress	numeric
+pnrr.commitment_snapshots	stage	text
+pnrr.commitment_snapshots	received_eur	numeric(18,2)
+pnrr.commitment_snapshots	paid_eur	numeric(18,2)
+pnrr.commitment_snapshots	allocated_eur	numeric(18,2)
+pnrr.commitment_snapshots	raw_item_id	bigint
+pnrr.commitment_snapshots	source_record_hash	text
+pnrr.commitment_snapshots	retrieved_at	timestamp with time zone
+pnrr.commitment_snapshots	transform_version	text
+pnrr.commitment_snapshots	attrs	jsonb
+pnrr.commitment_snapshots	created_at	timestamp with time zone
+pnrr.commitment_snapshots	updated_at	timestamp with time zone
+pnrr.commitments	commitment_key	text
+pnrr.commitments	beneficiary_cui	text
+pnrr.commitments	beneficiary_name	text
+pnrr.commitments	id_angajament	text
+pnrr.commitments	contract_number	text
+pnrr.commitments	component_code	text
+pnrr.commitments	measure_code	text
+pnrr.commitments	total_value	numeric(18,2)
+pnrr.commitments	eu_value	numeric(18,2)
+pnrr.commitments	national_public_value	numeric(18,2)
+pnrr.commitments	vat_value	numeric(18,2)
+pnrr.commitments	ineligible_value	numeric(18,2)
+pnrr.commitments	financial_progress	numeric
+pnrr.commitments	physical_progress	numeric
+pnrr.commitments	commitment_date	date
+pnrr.commitments	end_date	date
+pnrr.commitments	status	text
+pnrr.commitments	status_raw	text
+pnrr.commitments	county_name	text
+pnrr.commitments	county_siruta	text
+pnrr.commitments	source_system	text
+pnrr.commitments	raw_item_id	bigint
+pnrr.commitments	source_record_hash	text
+pnrr.commitments	retrieved_at	timestamp with time zone
+pnrr.commitments	transform_version	text
+pnrr.commitments	attrs	jsonb
+pnrr.commitments	created_at	timestamp with time zone
+pnrr.commitments	updated_at	timestamp with time zone
+pnrr.components	component_code	text
+pnrr.components	component_name	text
+pnrr.components	pillar	text
+pnrr.components	attrs	jsonb
+pnrr.components	created_at	timestamp with time zone
+pnrr.components	updated_at	timestamp with time zone
+pnrr.contractors	contractor_key	text
+pnrr.contractors	acquisition_key	text
+pnrr.contractors	role	text
+pnrr.contractors	contractor_cui	text
+pnrr.contractors	contractor_name	text
+pnrr.contractors	contractor_country	text
+pnrr.contractors	formation_document_number	text
+pnrr.contractors	contract_value	numeric(18,2)
+pnrr.contractors	currency	text
+pnrr.contractors	confidence	text
+pnrr.contractors	validation_status	text
+pnrr.contractors	run_id	text
+pnrr.contractors	source_table	text
+pnrr.contractors	source_pk	text
+pnrr.contractors	raw_item_id	bigint
+pnrr.contractors	source_record_hash	text
+pnrr.contractors	retrieved_at	timestamp with time zone
+pnrr.contractors	transform_version	text
+pnrr.contractors	attrs	jsonb
+pnrr.contractors	created_at	timestamp with time zone
+pnrr.contractors	updated_at	timestamp with time zone
+pnrr.documents	document_key	text
+pnrr.documents	lot_key	text
+pnrr.documents	announcement_key	text
+pnrr.documents	category	text
+pnrr.documents	file_name	text
+pnrr.documents	download_request_key	text
+pnrr.documents	source_system	text
+pnrr.documents	raw_item_id	bigint
+pnrr.documents	source_record_hash	text
+pnrr.documents	retrieved_at	timestamp with time zone
+pnrr.documents	transform_version	text
+pnrr.documents	attrs	jsonb
+pnrr.documents	created_at	timestamp with time zone
+pnrr.documents	updated_at	timestamp with time zone
+pnrr.entities	cui	text
+pnrr.entities	resolved_name	text
+pnrr.entities	name_source	text
+pnrr.entities	caen_code	text
+pnrr.entities	is_active	boolean
+pnrr.entities	is_vat_payer	boolean
+pnrr.entities	is_beneficiary	boolean
+pnrr.entities	is_applicant	boolean
+pnrr.entities	is_winner	boolean
+pnrr.entities	is_subcontractor	boolean
+pnrr.entities	first_seen_source	text
+pnrr.entities	built_at	timestamp with time zone
+pnrr.entities	attrs	jsonb
+pnrr.entities	created_at	timestamp with time zone
+pnrr.entities	updated_at	timestamp with time zone
+pnrr.entity_registry_links	link_id	bigint
+pnrr.entity_registry_links	cui	text
+pnrr.entity_registry_links	registry	text
+pnrr.entity_registry_links	registry_cui	text
+pnrr.entity_registry_links	link_confidence	real
+pnrr.entity_registry_links	built_at	timestamp with time zone
+pnrr.entity_registry_links	attrs	jsonb
+pnrr.lots	lot_key	text
+pnrr.lots	announcement_key	text
+pnrr.lots	lot_number	text
+pnrr.lots	description	text
+pnrr.lots	source_system	text
+pnrr.lots	raw_item_id	bigint
+pnrr.lots	source_record_hash	text
+pnrr.lots	retrieved_at	timestamp with time zone
+pnrr.lots	transform_version	text
+pnrr.lots	attrs	jsonb
+pnrr.lots	created_at	timestamp with time zone
+pnrr.lots	updated_at	timestamp with time zone
+pnrr.measure_aliases	alias_id	bigint
+pnrr.measure_aliases	component_code	text
+pnrr.measure_aliases	raw_measure_string	text
+pnrr.measure_aliases	parsed_kind	text
+pnrr.measure_aliases	parsed_number	integer
+pnrr.measure_aliases	target_fenix_reference	text
+pnrr.measure_aliases	match_status	text
+pnrr.measure_aliases	parser_version	text
+pnrr.measure_aliases	row_count	bigint
+pnrr.measure_aliases	value_lei	numeric(18,2)
+pnrr.measure_aliases	attrs	jsonb
+pnrr.measure_aliases	created_at	timestamp with time zone
+pnrr.measure_aliases	updated_at	timestamp with time zone
+pnrr.measures	fenix_reference	text
+pnrr.measures	component_code	text
+pnrr.measures	measure_type	text
+pnrr.measures	measure_number	integer
+pnrr.measures	measure_name	text
+pnrr.measures	attrs	jsonb
+pnrr.measures	created_at	timestamp with time zone
+pnrr.measures	updated_at	timestamp with time zone
+pnrr.national_projects	project_key	text
+pnrr.national_projects	fenix_measure	text
+pnrr.national_projects	person_unique_identifier	text
+pnrr.national_projects	location	text
+pnrr.national_projects	start_date	date
+pnrr.national_projects	end_date	date
+pnrr.national_projects	received_amount_lei	numeric(18,2)
+pnrr.national_projects	source_system	text
+pnrr.national_projects	raw_item_id	bigint
+pnrr.national_projects	source_record_hash	text
+pnrr.national_projects	retrieved_at	timestamp with time zone
+pnrr.national_projects	transform_version	text
+pnrr.national_projects	attrs	jsonb
+pnrr.national_projects	created_at	timestamp with time zone
+pnrr.national_projects	updated_at	timestamp with time zone
+pnrr.payments	payment_key	text
+pnrr.payments	beneficiary_cui	text
+pnrr.payments	beneficiary_name	text
+pnrr.payments	is_personal_recipient	boolean
+pnrr.payments	component_code	text
+pnrr.payments	measure_fenix	text
+pnrr.payments	measure_raw	text
+pnrr.payments	submeasure_raw	text
+pnrr.payments	amount_lei	numeric(18,2)
+pnrr.payments	amount_eur	numeric(18,2)
+pnrr.payments	payment_date	date
+pnrr.payments	county_name	text
+pnrr.payments	county_siruta	text
+pnrr.payments	locality_name	text
+pnrr.payments	locality_siruta	text
+pnrr.payments	caen_division	text
+pnrr.payments	financing_source	text
+pnrr.payments	source_system	text
+pnrr.payments	raw_item_id	bigint
+pnrr.payments	source_record_hash	text
+pnrr.payments	retrieved_at	timestamp with time zone
+pnrr.payments	transform_version	text
+pnrr.payments	attrs	jsonb
+pnrr.payments	created_at	timestamp with time zone
+pnrr.payments	updated_at	timestamp with time zone
+pnrr.program_indicators	snapshot_id	text
+pnrr.program_indicators	snapshot_date	date
+pnrr.program_indicators	nr_projects	integer
+pnrr.program_indicators	allocated_eur	numeric(18,2)
+pnrr.program_indicators	received_eur	numeric(18,2)
+pnrr.program_indicators	paid_eur	numeric(18,2)
+pnrr.program_indicators	attrs	jsonb
+pnrr.program_indicators	created_at	timestamp with time zone
+pnrr.program_indicators	updated_at	timestamp with time zone

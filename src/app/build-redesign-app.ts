@@ -1,0 +1,327 @@
+/**
+ * Bootable redesign server (foundation §2, §10) — NO legacy modules.
+ *
+ * Wires ONLY the shared kernel:
+ *  - GraphQL at `/api/v1/graphql` (kernel base Query + module slices, stitched).
+ *  - MCP at `/api/v1/mcp` (stateless streamable-HTTP transport).
+ *  - `GET /api/v1/health` (liveness; degrades on aux down, never hard-fails).
+ *  - `GET /api/v1/ready` (readiness; gates deploys — fails if postgres is down).
+ *
+ * Surface = GraphQL + MCP only (REST deferred per the kernel brief). Source
+ * modules are registered through `deps.graphqlSlices` / `deps.mcpTools` /
+ * `deps.registerContributors` once they exist; the kernel boots standalone today.
+ */
+
+import { makeExecutableSchema } from '@graphql-tools/schema';
+import fastifyLib, { type FastifyInstance } from 'fastify';
+import mercuriusPlugin from 'mercurius';
+
+import { makeBudgetModule } from '../modules/budget/index.js';
+import { makeCompaniesModule } from '../modules/companies/index.js';
+import { makeJudicialModule } from '../modules/judicial/index.js';
+import { makeLegalModule } from '../modules/legal/index.js';
+import { makeParliamentModule } from '../modules/parliament/index.js';
+import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
+import { makeProcurementModule } from '../modules/procurement/index.js';
+import { makeReferenceModule } from '../modules/reference/index.js';
+import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
+
+export interface BuildRedesignAppDeps {
+  readonly kernelConfig: KernelConfig;
+  readonly logLevel?: string;
+  /** GraphQL SDL slices contributed by source modules (extend Query/Entity). */
+  readonly graphqlSlices?: readonly GraphqlSlice[];
+  /** Module GraphQL resolvers, merged over the kernel resolvers. */
+  readonly graphqlResolvers?: Record<string, unknown>;
+  /** MCP tools contributed by source modules. */
+  readonly mcpTools?: readonly KernelMcpTool[];
+  /** Hook to register source contributors into the kernel registry. */
+  readonly registerContributors?: (kernel: Kernel) => void;
+  readonly enableGraphiQL?: boolean;
+  /** Client base URL for module MCP deep links. */
+  readonly clientBaseUrl?: string;
+  /**
+   * Source modules to wire into the kernel. Defaults to all built-in modules.
+   * Pass `[]` to boot the bare kernel.
+   */
+  readonly modules?: readonly (
+    | 'pnrr'
+    | 'reference'
+    | 'budget'
+    | 'companies'
+    | 'legal'
+    | 'parliament'
+    | 'judicial'
+    | 'procurement'
+    | 'primarii-transparency'
+  )[];
+}
+
+export interface RedesignApp {
+  readonly app: FastifyInstance;
+  readonly kernel: Kernel;
+}
+
+const deepMergeResolvers = (
+  base: Record<string, unknown>,
+  override: Record<string, unknown>
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = out[key];
+    if (
+      typeof existing === 'object' &&
+      existing !== null &&
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value)
+    ) {
+      out[key] = deepMergeResolvers(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>
+      );
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+};
+
+export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<RedesignApp> => {
+  const app = fastifyLib({
+    logger: { level: deps.logLevel ?? 'info' },
+    disableRequestLogging: true,
+    trustProxy: true,
+  });
+
+  const kernel = await makeKernel(deps.kernelConfig);
+
+  // ── Source modules (built on the kernel) ─────────────────────────────────────
+  // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
+  // and registers a SourceContributor. Order is data-independent EXCEPT parliament,
+  // which reads the legal-registered `legalActLoader` for its bill↔act link — so
+  // parliament is wired AFTER legal (it degrades to null if legal is disabled).
+  // legal is wired before parliament + judicial (both read the legal-registered
+  // `legalActLoader`); judicial's SDL references LegalAct, so legal must be in the
+  // set whenever judicial is.
+  const enabledModules =
+    deps.modules ??
+    ([
+      'pnrr',
+      'reference',
+      'budget',
+      'companies',
+      'legal',
+      'parliament',
+      'judicial',
+      'procurement',
+      'primarii-transparency',
+    ] as const);
+  const moduleSlices: GraphqlSlice[] = [];
+  const moduleResolvers: Record<string, unknown>[] = [];
+  const moduleMcpTools: KernelMcpTool[] = [];
+
+  if (enabledModules.includes('pnrr')) {
+    const pnrr = makePnrrModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(pnrr.contributor);
+    moduleSlices.push(pnrr.graphqlSlice);
+    moduleResolvers.push(pnrr.graphqlResolvers);
+    moduleMcpTools.push(...pnrr.mcpTools);
+  }
+
+  if (enabledModules.includes('reference')) {
+    // Reference reuses the kernel identity + territory hubs (§0) — they are
+    // injected, not constructed by the module.
+    const reference = makeReferenceModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      territoryRepo: kernel.territoryRepo,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(reference.contributor);
+    moduleSlices.push(reference.graphqlSlice);
+    moduleResolvers.push(reference.graphqlResolvers);
+    moduleMcpTools.push(...reference.mcpTools);
+  }
+
+  if (enabledModules.includes('primarii-transparency')) {
+    // Local-government transparency QA registry. Reuses the kernel identity hub for
+    // CUI resolution + per-entity territory (`territoryForCui`). Geographic FILTERS
+    // stay capability-gated (no kernel cui→territory set-predicate builder yet).
+    const primarii = makePrimariiTransparencyModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(primarii.contributor);
+    moduleSlices.push(primarii.graphqlSlice);
+    moduleResolvers.push(primarii.graphqlResolvers);
+    moduleMcpTools.push(...primarii.mcpTools);
+  }
+
+  if (enabledModules.includes('budget')) {
+    const budget = makeBudgetModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(budget.contributor);
+    moduleSlices.push(budget.graphqlSlice);
+    moduleResolvers.push(budget.graphqlResolvers);
+    moduleMcpTools.push(...budget.mcpTools);
+  }
+
+  if (enabledModules.includes('procurement')) {
+    const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
+    const procurement = makeProcurementModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(Number.isFinite(windowEnv) && windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(procurement.contributor);
+    moduleSlices.push(procurement.graphqlSlice);
+    moduleResolvers.push(procurement.graphqlResolvers);
+    moduleMcpTools.push(...procurement.mcpTools);
+  }
+
+  if (enabledModules.includes('companies')) {
+    const companies = makeCompaniesModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      flowsRepo: kernel.flowsRepo,
+      meili: kernel.clients.meiliClient,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(companies.contributor);
+    moduleSlices.push(companies.graphqlSlice);
+    moduleResolvers.push(companies.graphqlResolvers);
+    moduleMcpTools.push(...companies.mcpTools);
+  }
+
+  if (enabledModules.includes('legal')) {
+    // The legal module embeds queries with the nomic model + `search_query:`
+    // prefix; discover the model id from the synthetic client (env override wins).
+    const embedRes = await kernel.clients.syntheticClient.discoverEmbeddingModel();
+    const embeddingModel = embedRes.isOk() ? embedRes.value : 'nomic-embed-text-v1.5';
+    const legal = await makeLegalModule({
+      db: kernel.db,
+      meiliClient: kernel.clients.meiliClient,
+      openSearchClient: kernel.clients.openSearchClient,
+      synthetic: kernel.clients.syntheticClient,
+      capabilities: kernel.searchCapabilities,
+      cache: kernel.cache,
+      registry: kernel.contributors,
+      identity: kernel.identityRepo,
+      embeddingModel,
+      logger: app.log,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    // The legal acts area registers NO contributor in v1 (§4); 06's MO area will.
+    for (const c of legal.contributors) kernel.contributors.register(c);
+    // Parliament (04) + judicial (08) resolve act_id → act through this loader.
+    kernel.registerLegalActLoader(legal.legalActLoader);
+    moduleSlices.push(legal.graphqlSlice);
+    moduleResolvers.push(legal.graphqlResolvers);
+    moduleMcpTools.push(...legal.mcpTools);
+  }
+
+  if (enabledModules.includes('parliament')) {
+    // Wired AFTER legal so the bill↔act loader is registered. The loader is
+    // optional — if legal is disabled, `ParliamentBillActLink.legalAct` → null.
+    const parliament = makeParliamentModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      legalActLoader: kernel.legalActLoader(),
+      meili: kernel.clients.meiliClient,
+      searchEngineUp: kernel.searchCapabilities.engines.meili || kernel.searchCapabilities.engines.opensearch,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(parliament.contributor);
+    moduleSlices.push(parliament.graphqlSlice);
+    moduleResolvers.push(parliament.graphqlResolvers);
+    moduleMcpTools.push(...parliament.mcpTools);
+  }
+
+  if (enabledModules.includes('judicial')) {
+    // PRIVACY-CRITICAL module. Reads the legal-act loader LAZILY (registered above
+    // by legal if enabled) — registration order is data-independent.
+    const judicial = makeJudicialModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      legalActLoader: () => kernel.legalActLoader(),
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(judicial.contributor);
+    moduleSlices.push(judicial.graphqlSlice);
+    moduleResolvers.push(judicial.graphqlResolvers);
+    moduleMcpTools.push(...judicial.mcpTools);
+  }
+
+  deps.registerContributors?.(kernel);
+
+  // ── GraphQL ────────────────────────────────────────────────────────────────
+  const allSlices = [...moduleSlices, ...(deps.graphqlSlices ?? [])];
+  const { typeDefs, resolvers } = kernel.buildGraphql(allSlices);
+  let mergedResolvers = resolvers;
+  for (const r of moduleResolvers) mergedResolvers = deepMergeResolvers(mergedResolvers, r);
+  if (deps.graphqlResolvers !== undefined) {
+    mergedResolvers = deepMergeResolvers(mergedResolvers, deps.graphqlResolvers);
+  }
+
+  // The kernel resolver map is a plain resolver object; @graphql-tools types it
+  // as IResolvers. Cast through unknown — shape is correct at runtime.
+  const schema = makeExecutableSchema({
+    typeDefs,
+    resolvers: mergedResolvers as unknown as Record<string, never>,
+  });
+
+  await app.register(mercuriusPlugin, {
+    schema,
+    path: '/api/v1/graphql',
+    graphiql: deps.enableGraphiQL ?? process.env['NODE_ENV'] !== 'production',
+    allowBatchedQueries: false,
+  });
+
+  // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────
+  // Direct JSON-RPC dispatch (no SDK hono/socket bridge, which crashes under
+  // Fastify with `socket.destroySoon is not a function`). Works under a real
+  // listen and inject() alike.
+  const mcpDispatcher = kernel.buildMcpDispatcher([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
+
+  app.post('/api/v1/mcp', async (request, reply) => {
+    const response = await mcpDispatcher.dispatch(request.body);
+    if (response === null) return reply.code(202).send();
+    return reply.code(200).send(response);
+  });
+
+  app.addHook('onClose', async () => {
+    await mcpDispatcher.close();
+  });
+
+  // ── Health / readiness ───────────────────────────────────────────────────────
+  app.get('/api/v1/health', async (_request, reply) => {
+    const report = await kernel.health();
+    // Liveness never hard-fails on aux down (§14.11); always 200.
+    return reply.code(200).send(report);
+  });
+
+  app.get('/api/v1/ready', async (_request, reply) => {
+    const report = await kernel.health();
+    const ready = report.postgres.status === 'ok';
+    return reply.code(ready ? 200 : 503).send({ ready, ...report });
+  });
+
+  app.addHook('onClose', async () => {
+    await kernel.close();
+  });
+
+  return { app, kernel };
+};

@@ -1,0 +1,18 @@
+etl.load_runs	run_id	bigint
+etl.load_runs	source_id	text
+etl.load_runs	target_table	text
+etl.load_runs	started_at	timestamp with time zone
+etl.load_runs	finished_at	timestamp with time zone
+etl.load_runs	rows_loaded	bigint
+etl.load_runs	status	text
+etl.load_runs	notes	text
+etl.validation_results	result_id	bigint
+etl.validation_results	run_id	bigint
+etl.validation_results	source_id	text
+etl.validation_results	check_name	text
+etl.validation_results	status	text
+etl.validation_results	observed	numeric
+etl.validation_results	threshold	numeric
+etl.validation_results	details	jsonb
+etl.validation_results	message	text
+etl.validation_results	checked_at	timestamp with time zone
