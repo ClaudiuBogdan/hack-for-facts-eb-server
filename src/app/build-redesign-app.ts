@@ -20,6 +20,7 @@ import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
+import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
 
@@ -41,7 +42,14 @@ export interface BuildRedesignAppDeps {
    * Source modules to wire into the kernel. Defaults to all built-in modules.
    * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal')[];
+  readonly modules?: readonly (
+    | 'pnrr'
+    | 'reference'
+    | 'budget'
+    | 'companies'
+    | 'legal'
+    | 'primarii-transparency'
+  )[];
 }
 
 export interface RedesignApp {
@@ -87,7 +95,8 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
   const enabledModules =
-    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal'] as const);
+    deps.modules ??
+    (['pnrr', 'reference', 'budget', 'companies', 'legal', 'primarii-transparency'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -118,6 +127,22 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(reference.graphqlSlice);
     moduleResolvers.push(reference.graphqlResolvers);
     moduleMcpTools.push(...reference.mcpTools);
+  }
+
+  if (enabledModules.includes('primarii-transparency')) {
+    // Local-government transparency QA registry. Reuses the kernel identity hub for
+    // CUI resolution + per-entity territory (`territoryForCui`). Geographic FILTERS
+    // stay capability-gated (no kernel cui→territory set-predicate builder yet).
+    const primarii = makePrimariiTransparencyModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(primarii.contributor);
+    moduleSlices.push(primarii.graphqlSlice);
+    moduleResolvers.push(primarii.graphqlResolvers);
+    moduleMcpTools.push(...primarii.mcpTools);
   }
 
   if (enabledModules.includes('budget')) {
