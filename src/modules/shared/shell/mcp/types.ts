@@ -9,14 +9,22 @@
 
 import type { ZodRawShape } from 'zod';
 
-/** The structured object every kernel/module MCP tool returns (§6.3). */
-export interface McpToolOutput {
+/**
+ * The structured object every kernel/module MCP tool returns (§6.3).
+ *
+ * `T` types the `item`/`items` payload. It DEFAULTS to `unknown`, so the bare
+ * `McpToolOutput` is identical to before and no existing usage changes — a module
+ * MAY narrow it (`McpToolOutput<PnrrProjectView>`) for stronger handler typing
+ * without any kernel/cross-module churn. The runtime privacy property (no raw/PII
+ * leakage) is enforced separately by the leak-audit tests, not by this type.
+ */
+export interface McpToolOutput<T = unknown> {
   readonly ok: boolean;
   readonly kind: string;
   readonly query?: unknown;
   readonly link?: string;
-  readonly item?: unknown;
-  readonly items?: readonly unknown[];
+  readonly item?: T;
+  readonly items?: readonly T[];
   readonly summary?: string;
   readonly error?: string;
 }

@@ -10,8 +10,9 @@
  *
  * Territory: the module NEVER joins core.* directly (§3). Per-entity territory works
  * via the kernel `territoryForCui` (a 100%-coverage point lookup, verified live);
- * geographic FILTERS (region/siruta/population) are capability-gated until a kernel
- * cui→territory set-predicate builder exists (`territoryFilterAvailable`).
+ * geographic FILTERS (region/siruta/isUat/population) compile through the kernel
+ * cui→territory set-predicate builder (`buildTerritoryCuiPredicate`), gated by
+ * `territoryFilterAvailable` (the app wires it on).
  */
 
 import './shell/db/schema.js';
@@ -40,11 +41,12 @@ export interface PrimariiModuleDeps {
   readonly registry: ContributorRegistry;
   readonly clientBaseUrl?: string;
   /**
-   * Whether the kernel exposes a cui→territory SET-PREDICATE builder for geographic
+   * Whether to enable the kernel cui→territory SET-PREDICATE builder for geographic
    * FILTERS (region/siruta/isUat/population). `territoryForCui` (per-CUI enrichment)
-   * always works; this gates only the filter predicates (§13.0). Default false — no
-   * such builder exists yet, so those filters return InvalidInput rather than
-   * silently dropping the predicate.
+   * always works; this gates only the filter predicates (§13.0). The builder
+   * (`buildTerritoryCuiPredicate`) now exists, so the app wires this `true`; default
+   * stays `false` so a caller that omits it keeps the conservative gated behavior
+   * (filters return InvalidInput rather than silently dropping the predicate).
    */
   readonly territoryFilterAvailable?: boolean;
 }

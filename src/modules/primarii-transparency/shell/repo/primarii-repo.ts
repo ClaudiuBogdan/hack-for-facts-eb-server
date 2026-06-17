@@ -9,10 +9,13 @@
  *    snapshot_id (from current_entity_status) so a future re-research run can't leak
  *    stale rows.
  *  - Territory: this repo NEVER joins core.* directly (§3). Geographic FILTERS
- *    (region/siruta/isUat/population) are capability-gated — they return
- *    `InvalidInput` "geographic resolution unavailable" because no kernel
- *    territory-FILTER-builder exists (territoryForCui is a per-CUI point lookup, used
- *    by the usecase for the per-entity `territory` field, not a set predicate).
+ *    (region/siruta/isUat/population) compile through the kernel cui→territory
+ *    builder (`buildTerritoryCuiPredicate`) — a `ces.cui IN (SELECT pe.cui FROM
+ *    core.public_entities pe JOIN core.territories t …)` semijoin the kernel owns,
+ *    so core.* stays private. When the builder is unavailable (`territoryFilterAvailable
+ *    = false`) the filters are capability-gated (InvalidInput, never silently dropped).
+ *    `territoryForCui` remains the per-CUI point lookup for the per-entity `territory`
+ *    field; the builder is the SET predicate.
  *  - Cursor lists use the kernel envelope keyed on a UNIQUE compound tuple (sort
  *    column + the PK tiebreak), so non-unique sorts never skip/duplicate.
  *  - Raw-pointer / excerpt columns (§8) are never selected.
@@ -23,6 +26,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   buildNextCursor,
+  buildTerritoryCuiPredicate,
   databaseError,
   decodeCursor,
   fhashFor,
@@ -43,6 +47,7 @@ import {
   fieldOf,
   inValues,
   omitVirtualFields,
+  territoryFilterValues,
   validateVirtualEnum,
 } from './filter-helpers.js';
 import {
@@ -188,8 +193,13 @@ export const makePrimariiRepo = (
   deps: { territoryFilterAvailable: boolean }
 ): PrimariiRepository => {
   // ── entity virtual conditions ──────────────────────────────────────────────
-  /** hasIssues + publishesCategory(+categoryState) → SQL. Territory virtuals are gated (validated separately). */
-  const entityVirtualConditions = (input: FilterInput): RawBuilder<unknown>[] => {
+  /**
+   * hasIssues + publishesCategory(+categoryState) + territory → SQL. Territory
+   * compiles to the kernel cui→territory semijoin (when available; gated in
+   * `validateEntityVirtual` otherwise, so the predicate is never silently dropped).
+   * Returns a Result because the territory projection validates the population range.
+   */
+  const entityVirtualConditions = (input: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
     const conds: RawBuilder<unknown>[] = [];
 
     // hasIssues: issue_count > 0 / = 0
@@ -218,7 +228,17 @@ export const makePrimariiRepo = (
         );
       }
     }
-    return conds;
+
+    // territory (region/siruta/isUat/population) → kernel cui→territory semijoin over
+    // ces.cui. Reached only when the builder is available (validateEntityVirtual gates
+    // it otherwise), so an unavailable resolver never silently drops the predicate.
+    if (deps.territoryFilterAvailable) {
+      const tvalues = territoryFilterValues(input);
+      if (tvalues.isErr()) return err(tvalues.error);
+      const predicate = buildTerritoryCuiPredicate({ alias: 'ces', column: 'cui' }, tvalues.value);
+      if (predicate !== undefined) conds.push(predicate);
+    }
+    return ok(conds);
   };
 
   /** Validate the virtual enum/gated fields the kernel composer never sees. */
@@ -227,9 +247,10 @@ export const makePrimariiRepo = (
     if (pub.isErr()) return pub;
     const st = validateVirtualEnum(input, 'categoryState', PRIMARII_CATEGORY_STATE);
     if (st.isErr()) return st;
-    // Territory filters are capability-gated: if present and unavailable → InvalidInput
-    // (never silently dropped). territoryForCui is a per-CUI lookup, not a set predicate,
-    // and §3 forbids a private core.* join here.
+    // Territory filters resolve through the kernel cui→territory builder. When the
+    // builder is unavailable they are capability-gated (InvalidInput — never silently
+    // dropped). When available, validate the projected values (e.g. the population
+    // range) here so a malformed value fails the same way the kernel composer would.
     if (!deps.territoryFilterAvailable) {
       for (const f of PRIMARII_TERRITORY_VIRTUAL_FIELDS) {
         const present =
@@ -244,6 +265,9 @@ export const makePrimariiRepo = (
           );
         }
       }
+    } else {
+      const tvalues = territoryFilterValues(input);
+      if (tvalues.isErr()) return err(tvalues.error);
     }
     return ok(undefined);
   };
@@ -253,7 +277,9 @@ export const makePrimariiRepo = (
     const physical = omitVirtualFields(input, [...PRIMARII_ENTITY_VIRTUAL_FIELDS]);
     const kernel = toConditionBuilders(primariiEntityFilterSpec, physical);
     if (kernel.isErr()) return err(kernel.error);
-    return ok([...kernel.value, ...entityVirtualConditions(input)]);
+    const virtual = entityVirtualConditions(input);
+    if (virtual.isErr()) return err(virtual.error);
+    return ok([...kernel.value, ...virtual.value]);
   };
 
   // ── listEntities ────────────────────────────────────────────────────────────
