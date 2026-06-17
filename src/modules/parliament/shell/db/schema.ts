@@ -40,6 +40,13 @@ export interface ParliamentMembersTable {
   constituency_name: string | null;
   birth_date: DateCol | null; // the parsed DOB IS surfaced (public CDEP profile data)
   // birth_date_text / birth_date_parse_method — provenance; OMITTED (§2.6 privacy)
+  // SC-1 seat lifecycle. is_current is for COMPOSITION/ROSTER ONLY — it must NEVER
+  // gate vote attribution (a superseded/deceased member keeps every vote_records /
+  // initiative / control row). mandate_end_text is the raw provenance string —
+  // OMITTED here (the parsed date + reason are surfaced; text stays internal).
+  is_current: boolean;
+  mandate_end_date: DateCol | null;
+  mandate_end_reason: string | null; // 'demisie' | 'deces' | … (open list)
   attrs: Jsonb;
   source_updated_at: Tstz | null;
   updated_at: Tstz | null;

@@ -190,7 +190,8 @@ export const getPersonCareer = async (
 export const listGroups = (
   deps: ParliamentUsecaseDeps,
   legislature: string | undefined,
-  chamber: string | undefined
+  chamber: string | undefined,
+  current?: boolean
 ): Promise<Result<readonly ParliamentGroup[], ApiError>> =>
   (async () => {
     let leg = legislature;
@@ -200,7 +201,8 @@ export const listGroups = (
       leg = latest.value ?? '';
     }
     if (leg === '') return ok([]);
-    return deps.repo.listGroupCounts(leg, chamber);
+    // current (SC-1): currently-seated composition counts (camera 330 / senat 134).
+    return deps.repo.listGroupCounts(leg, chamber, current);
   })();
 
 // ── bills ────────────────────────────────────────────────────────────────────
@@ -246,6 +248,9 @@ export const getBillDossier = async (
       groupName: i.groupName,
       chamber: i.chamber,
       personId: i.personId,
+      isCurrent: i.isCurrent,
+      mandateEndDate: i.mandateEndDate,
+      mandateEndReason: i.mandateEndReason,
     })),
     relatedVotes: votes._unsafeUnwrap(),
     actLinks: actLinks._unsafeUnwrap(),

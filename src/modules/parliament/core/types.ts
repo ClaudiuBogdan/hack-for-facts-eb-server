@@ -47,6 +47,14 @@ export interface ParliamentMember {
   // the member contact tab. ~5.3k of 5.3k members carry it. NOT a contact email/
   // phone/photo — those have no source (documented gap 4).
   readonly profileUrl: string | null;
+  // SC-1 seat lifecycle. isCurrent = this mandate row is a CURRENTLY-SEATED member
+  // (for chamber composition / current rosters ONLY — it does NOT affect this
+  // member's vote/initiative/control attribution, which always reads ALL rows).
+  // mandateEndDate / mandateEndReason are set when a seat ended early (demisie,
+  // deces, …); null for a member still seated or whose mandate ran full term.
+  readonly isCurrent: boolean;
+  readonly mandateEndDate: string | null; // date::text
+  readonly mandateEndReason: string | null;
   readonly attrs: SafeAttrs; // whitelisted to MEMBER_ATTR_KEYS by the mapper
 }
 
@@ -160,6 +168,12 @@ export interface ParliamentBillInitiator {
   readonly groupName: string | null;
   readonly chamber: string | null;
   readonly personId: string | null;
+  // Initiators are surfaced AS ParliamentMember in the SDL; isCurrent is Boolean!
+  // there, so it must be present (Codex BLOCKER). DISPLAY only — the initiator set
+  // is NEVER filtered by is_current (a superseded member keeps their initiative).
+  readonly isCurrent: boolean;
+  readonly mandateEndDate: string | null;
+  readonly mandateEndReason: string | null;
 }
 
 /** The bill dossier: detail + events + docs + initiators + votes + lineage links. */

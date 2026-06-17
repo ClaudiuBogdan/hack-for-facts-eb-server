@@ -666,6 +666,127 @@ d('Parliament golden (live prod)', () => {
     expect(new Set(all.map((m) => m.mandateKey)).size).toBe(472);
   }, 30_000);
 
+  it('SC-1 is_current scopes composition/rosters but NEVER vote attribution', async () => {
+    const SUPERSEDED = '2:2024:146'; // Ibram Iusein — deces 2025-01-27, keeps 12 ballots
+
+    // (a) parliamentMembers current filter → per-chamber CURRENT seat counts (330/134/464).
+    const memberTotal = async (filter: string): Promise<number> => {
+      const data = expectGqlData(
+        await gql<{ parliamentMembers: { readonly total: number } }>(
+          `{ parliamentMembers(filter:${filter}, page:1, pageSize:1) { total } }`
+        )
+      );
+      return data.parliamentMembers.total;
+    };
+    expect(await memberTotal('{legislature:{eq:"2024"}, chamber:{eq:"camera_deputatilor"}, current:{eq:true}}')).toBe(330);
+    expect(await memberTotal('{legislature:{eq:"2024"}, chamber:{eq:"senat"}, current:{eq:true}}')).toBe(134);
+    expect(await memberTotal('{legislature:{eq:"2024"}, current:{eq:true}}')).toBe(464);
+    // all-mandate counts UNCHANGED when current is omitted.
+    expect(await memberTotal('{legislature:{eq:"2024"}}')).toBe(472);
+
+    // (b) current-only group roster: AUR current 90 (62 camera + 28 senat) vs all 91.
+    const roster = async (current: boolean): Promise<readonly { readonly chamber: string | null; readonly isCurrent: boolean }[]> => {
+      const data = expectGqlData(
+        await gql<{ parliamentGroupMembers: readonly { readonly chamber: string | null; readonly isCurrent: boolean }[] }>(
+          `query($c: Boolean) {
+            parliamentGroupMembers(groupId:"AUR", legislature:"2024", current:$c) { chamber isCurrent }
+          }`,
+          { c: current }
+        )
+      );
+      return data.parliamentGroupMembers;
+    };
+    const aurCurrent = await roster(true);
+    expect(aurCurrent.length).toBe(90);
+    expect(aurCurrent.filter((m) => m.chamber === 'camera_deputatilor').length).toBe(62);
+    expect(aurCurrent.filter((m) => m.chamber === 'senat').length).toBe(28);
+    expect(aurCurrent.every((m) => m.isCurrent)).toBe(true);
+    expect((await roster(false)).length).toBe(91); // all-mandate roster UNCHANGED
+
+    // (c) composition counts: parliamentGroups current:true → AUR current 90; default 91.
+    const aurCount = async (current: boolean): Promise<number> => {
+      const data = expectGqlData(
+        await gql<{ parliamentGroups: readonly { readonly name: string; readonly memberCount: number | null }[] }>(
+          `query($c: Boolean) { parliamentGroups(legislature:"2024", current:$c) { name memberCount } }`,
+          { c: current }
+        )
+      );
+      return data.parliamentGroups.find((g) => g.name === 'AUR')?.memberCount ?? -1;
+    };
+    expect(await aurCount(true)).toBe(90);
+    expect(await aurCount(false)).toBe(91);
+
+    // (d) CRITICAL INVARIANT: a superseded member is isCurrent=false on the member,
+    // but attribution (member detail + voting history) is UNAFFECTED — Ibram keeps
+    // his 12 ballots. is_current must NEVER reach the vote_records path.
+    const member = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly mandateKey: string;
+          readonly isCurrent: boolean;
+          readonly mandateEndDate: string | null;
+          readonly mandateEndReason: string | null;
+          readonly activityCounts: { readonly votes: number };
+          readonly votes: { readonly total: number };
+        } | null;
+      }>(
+        `query($mk: ID!) {
+          parliamentMember(mandateKey:$mk) {
+            mandateKey isCurrent mandateEndDate mandateEndReason
+            activityCounts { votes }
+            votes(first:1) { total }
+          }
+        }`,
+        { mk: SUPERSEDED }
+      )
+    );
+    const m = requireValue(member.parliamentMember, 'superseded member');
+    expect(m.isCurrent).toBe(false);
+    expect(m.mandateEndDate).toBe('2025-01-27');
+    expect(m.mandateEndReason).toBe('deces');
+    // Attribution intact: both the activity count and the member-votes connection
+    // total still report all 12 ballots — is_current did NOT filter them out.
+    expect(m.activityCounts.votes).toBe(12);
+    expect(m.votes.total).toBe(12);
+
+    // (e) the superseded member is EXCLUDED from the current roster but PRESENT in
+    // the all-mandate roster (same group, Minoritati) — composition vs attribution.
+    const minoritatiAll = expectGqlData(
+      await gql<{ parliamentGroupMembers: readonly { readonly mandateKey: string }[] }>(
+        `{ parliamentGroupMembers(groupId:"Minoritati", legislature:"2024") { mandateKey } }`
+      )
+    );
+    const minoritatiCurrent = expectGqlData(
+      await gql<{ parliamentGroupMembers: readonly { readonly mandateKey: string }[] }>(
+        `{ parliamentGroupMembers(groupId:"Minoritati", legislature:"2024", current:true) { mandateKey } }`
+      )
+    );
+    expect(minoritatiAll.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(true);
+    expect(minoritatiCurrent.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(false);
+
+    // (f) Codex BLOCKER guard: bill initiators are typed ParliamentMember (isCurrent
+    // is Boolean!), so the lean initiator projection MUST carry isCurrent or the
+    // non-null field null-propagates. Bill 14873 has 224 initiators, all from the
+    // 2012 legislature (isCurrent=false). They are ALL returned (attribution is
+    // NEVER filtered by is_current) and isCurrent resolves cleanly to false.
+    const dossier = expectGqlData(
+      await gql<{
+        parliamentBill: {
+          readonly initiators: readonly {
+            readonly mandateKey: string;
+            readonly isCurrent: boolean;
+            readonly mandateEndReason: string | null;
+          }[];
+        } | null;
+      }>(
+        `{ parliamentBill(billKey:"14873") { initiators { mandateKey isCurrent mandateEndReason } } }`
+      )
+    );
+    const initiators = requireValue(dossier.parliamentBill, 'bill 14873').initiators;
+    expect(initiators.length).toBeGreaterThan(0);
+    expect(initiators.every((i) => !i.isCurrent)).toBe(true); // 2012 cohort, all superseded
+  }, 30_000);
+
   it('bill billType + status filters return the live prod classification counts', async () => {
     const billsTotal = async (filter: string): Promise<number> => {
       const data = expectGqlData(

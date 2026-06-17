@@ -93,6 +93,12 @@ const objectsAndQuery = /* GraphQL */ `
     birthDate: Date
     "Public CDEP/Senate profile-page URL (attrs.profile_url). NOT a contact email/phone/photo — those have no source."
     profileUrl: String
+    "SC-1 seat lifecycle: true = currently-seated. For chamber composition / current rosters ONLY — does NOT affect this member's vote/initiative/control attribution (a superseded or deceased member keeps every attributed row)."
+    isCurrent: Boolean!
+    "Date the seat ended early (resignation/death/…); null if still seated or ran full term."
+    mandateEndDate: Date
+    "Why the seat ended early (e.g. demisie, deces); null if still seated."
+    mandateEndReason: String
     person: ParliamentPerson
     groupIntervals: [ParliamentGroupInterval!]!
     activityCounts: ParliamentActivityCounts!
@@ -240,9 +246,10 @@ const objectsAndQuery = /* GraphQL */ `
     parliamentMember(mandateKey: ID!): ParliamentMember
     "Cross-mandate person career (all mandates, group history, career totals)."
     parliamentPerson(personId: ID!): ParliamentPerson
-    parliamentGroups(legislature: String, chamber: String): [ParliamentGroup!]!
-    "Roster for a group. groupId accepts EITHER a per-chamber group_id slug (from the chamber-scoped parliamentGroups list) OR a party-level group_name (from the whole-parliament list, whose groupId is the chamber-agnostic party name) — both resolve. Each member carries its own chamber, so the client buckets a party-level roster by chamber."
-    parliamentGroupMembers(groupId: ID!, legislature: String): [ParliamentMember!]!
+    "Group composition counts. current:true (SC-1) = currently-seated only (e.g. camera 330 / senat 134); omit/false = all-mandate counts (335 / 137)."
+    parliamentGroups(legislature: String, chamber: String, current: Boolean): [ParliamentGroup!]!
+    "Roster for a group. groupId accepts EITHER a per-chamber group_id slug (from the chamber-scoped parliamentGroups list) OR a party-level group_name (from the whole-parliament list, whose groupId is the chamber-agnostic party name) — both resolve. Each member carries its own chamber, so the client buckets a party-level roster by chamber. current:true (SC-1) = currently-seated roster only."
+    parliamentGroupMembers(groupId: ID!, legislature: String, current: Boolean): [ParliamentMember!]!
     parliamentBills(filter: ParliamentBillsFilter, sort: ParliamentBillSort, page: Int, pageSize: Int): ParliamentBillPage!
     parliamentBill(billKey: ID!): ParliamentBill
     "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here."
