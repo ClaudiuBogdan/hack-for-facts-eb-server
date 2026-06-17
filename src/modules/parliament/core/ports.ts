@@ -71,8 +71,10 @@ export interface ParliamentRepo {
     page: OffsetParams
   ): Promise<Result<OffsetResult<ParliamentMember>, ApiError>>; // bounded by legislature
   findMember(mandateKey: string): Promise<Result<ParliamentMember | null, ApiError>>; // members_pkey
-  listGroupCounts(legislature: string, chamber?: string): Promise<Result<readonly ParliamentGroup[], ApiError>>;
-  listGroupMembers(groupId: string, legislature?: string): Promise<Result<readonly ParliamentMember[], ApiError>>;
+  // `current` (SC-1) restricts composition counts / roster to currently-seated
+  // members; omit/false = ALL mandate rows. Composition/roster ONLY (never attribution).
+  listGroupCounts(legislature: string, chamber?: string, current?: boolean): Promise<Result<readonly ParliamentGroup[], ApiError>>;
+  listGroupMembers(groupId: string, legislature?: string, current?: boolean): Promise<Result<readonly ParliamentMember[], ApiError>>;
   findPerson(personId: string): Promise<Result<ParliamentPerson | null, ApiError>>; // persons_pkey
   listPersonMandates(personId: string): Promise<Result<readonly ParliamentMember[], ApiError>>; // members_person_idx
   listGroupIntervals(mandateKey: string): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>; // pk prefix

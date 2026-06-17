@@ -137,6 +137,9 @@ const MEMBER_SELECT = [
   'm.constituency_name',
   sql<string | null>`m.birth_date::text`.as('birth_date'),
   sql<string | null>`m.person_id::text`.as('person_id'),
+  'm.is_current',
+  sql<string | null>`m.mandate_end_date::text`.as('mandate_end_date'),
+  'm.mandate_end_reason',
   'm.attrs',
 ] as const;
 
@@ -241,10 +244,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  /** Build the members WHERE: physical (legislature/chamber) + virtual (group/judet/q). */
+  /** Build the members WHERE: physical (legislature/chamber/current) + virtual (group/judet/q). */
   const buildMemberConditions = (filter: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
     const physical: Record<string, unknown> = {};
-    for (const key of ['legislature', 'chamber'] as const) {
+    // `current` is physical (compiles to `m.is_current = $`) — composition/roster
+    // ONLY. It is applied HERE (the parliamentMembers list), and separately in
+    // listGroupCounts + listGroupMembers; it is NEVER threaded into any
+    // vote_records / initiative / control / member-detail / career query.
+    for (const key of ['legislature', 'chamber', 'current'] as const) {
       if (filter[key] !== undefined) physical[key] = filter[key];
     }
     const built = toConditionBuilders(membersFilterSpec, physical as FilterInput);
@@ -322,12 +329,15 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
   const listGroupCounts = async (
     legislature: string,
-    chamber?: string
+    chamber?: string,
+    current?: boolean
   ): Promise<Result<readonly ParliamentGroup[], ApiError>> => {
+    // SC-1: current=true restricts the composition counts to currently-seated
+    // members (camera 330 / senat 134 vs all-mandate 335 / 137). Composition ONLY.
     try {
       if (chamber !== undefined) {
         // Chamber-scoped: per-chamber group rows (groupId = slug(name)-<chamber>).
-        const rows = await db
+        let qb = db
           .selectFrom('parliament.members as m')
           .select([
             'm.group_id as group_id',
@@ -337,7 +347,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           ])
           .where('m.legislature', '=', legislature)
           .where('m.chamber', '=', chamber)
-          .where('m.group_name', 'is not', null)
+          .where('m.group_name', 'is not', null);
+        if (current === true) qb = qb.where('m.is_current', '=', true);
+        const rows = await qb
           .groupBy(['m.group_id', 'm.group_name', 'm.chamber'])
           .orderBy(sql`count(*) desc`)
           .execute();
@@ -352,14 +364,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       }
       // Whole-parliament: aggregate the party ACROSS chambers (PSD = camera+senat),
       // so "how big is PSD this legislature" returns the party total, not a split.
-      const rows = await db
+      let qb = db
         .selectFrom('parliament.members as m')
         .select(['m.group_name as name', sql<string>`count(*)`.as('cnt')])
         .where('m.legislature', '=', legislature)
-        .where('m.group_name', 'is not', null)
-        .groupBy('m.group_name')
-        .orderBy(sql`count(*) desc`)
-        .execute();
+        .where('m.group_name', 'is not', null);
+      if (current === true) qb = qb.where('m.is_current', '=', true);
+      const rows = await qb.groupBy('m.group_name').orderBy(sql`count(*) desc`).execute();
       return ok(
         rows.map((r) => ({
           // groupId is the chamber-agnostic party slug at parliament scope.
@@ -376,7 +387,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
   const listGroupMembers = async (
     groupId: string,
-    legislature?: string
+    legislature?: string,
+    current?: boolean
   ): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
       // The groupId handed in is EITHER a per-chamber `m.group_id` slug
@@ -391,6 +403,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .select(MEMBER_SELECT)
         .where((eb) => eb.or([eb('m.group_id', '=', groupId), eb('m.group_name', '=', groupId)]));
       if (legislature !== undefined) qb = qb.where('m.legislature', '=', legislature);
+      // SC-1: current=true → currently-seated roster only (composition/roster ONLY).
+      if (current === true) qb = qb.where('m.is_current', '=', true);
       const rows = await qb.orderBy(sql`m.full_name asc nulls last`).limit(1000).execute();
       return ok(rows.map((r) => mapMember(r as MemberRow)));
     } catch (e) {
@@ -766,6 +780,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'm.group_name',
           'm.chamber',
           sql<string | null>`m.person_id::text`.as('person_id'),
+          // is_current is REQUIRED here: initiators are typed as ParliamentMember in
+          // the SDL, whose isCurrent is Boolean! — without it the non-null field
+          // null-propagates (Codex BLOCKER). This is a DISPLAY field on a historical
+          // initiator; it does NOT filter the initiator set (all initiators are kept
+          // regardless of is_current — attribution is never gated).
+          'm.is_current',
+          sql<string | null>`m.mandate_end_date::text`.as('mandate_end_date'),
+          'm.mandate_end_reason',
         ])
         .where('mi.bill_key', '=', billKey)
         .orderBy('m.full_name', 'asc')
@@ -778,6 +800,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           groupName: r.group_name,
           chamber: r.chamber,
           personId: r.person_id,
+          isCurrent: r.is_current,
+          mandateEndDate: r.mandate_end_date,
+          mandateEndReason: r.mandate_end_reason,
         }))
       );
     } catch (e) {

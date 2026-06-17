@@ -148,6 +148,14 @@ export const membersFilterSpec: CollectionFilterSpec = {
       description: 'Election year (e.g. 2024). Default = latest; ALWAYS present (bounds the scan).',
     },
     {
+      name: 'current',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'm', column: 'is_current' },
+      description:
+        'SC-1: current:true = currently-seated members only (chamber composition / current roster). Omit for ALL mandate rows. Does NOT affect vote/initiative attribution.',
+    },
+    {
       name: 'chamber',
       type: 'enum',
       ops: ['eq'],
