@@ -1,0 +1,183 @@
+/**
+ * Companies module — GraphQL SDL slice (plan §6). All types `Company*`-prefixed
+ * (§14.8); extends root `Query` + `type Entity`. The `CompaniesFilter` input is
+ * GENERATED from the §7 spec via the kernel `toGraphQLInput(spec)` so REST/GraphQL/
+ * MCP never drift. Kernel scalars (`CUI`, `Money`, `Date`, `BigInt`, `SIRUTA`,
+ * `JSON`, `PageInfo`, `Entity`) are referenced, never redefined.
+ *
+ * Lists are connection-only (cursor); the company list is keyset-paginated by the
+ * active sort. `totalCount` is BOUNDED (≤10,000) + `totalEstimated` (§14.4) — a
+ * large unfiltered list never `COUNT(*)`s 3.99M rows.
+ */
+
+import { toGraphQLInput } from '@/modules/shared/index.js';
+
+import { companiesFilterSpec } from '../../core/filters.js';
+
+const filterInput = toGraphQLInput(companiesFilterSpec);
+
+const objectsAndQuery = /* GraphQL */ `
+  enum CompanySort { NAME REGISTRATION_DATE CUI }
+  enum CompanyResolveDim { NAME REGNUM CAEN COUNTY }
+  enum CompanyMatchConfidence { SAFE UNMATCHED }
+  enum CompanyGroupBy { COUNTY STATUS CAEN_DIVISION }
+
+  type CompanyStatus { code: String!  label: String! }
+  type CompanyStatusFlag { code: String!  label: String }
+
+  type CompanyTerritory {
+    sirutaCode: SIRUTA
+    uatName: String
+    countyName: String
+    matchConfidence: CompanyMatchConfidence!
+  }
+
+  "address.county = raw_county (99.996% coverage); deliberately distinct from CompanyTerritory.countyName (SIRUTA-matched, urban-only)."
+  type CompanyAddress { display: String!  county: String  locality: String }
+
+  type CompanyFiscal {
+    vatPayer: Boolean
+    "= is_inactive. The ONLY fiscal-inactivity boolean. NOT operating-active; is_active (its exact complement) is intentionally dropped (§13-R1)."
+    declaredFiscallyInactive: Boolean
+    mainCaenCode: String
+    registeredName: String
+    asOf: Date
+  }
+
+  type CompanyCaenActivity { code: String!  rev: String!  label: String  source: String! }
+  "Public ONRC registry data — NOT PII."
+  type CompanyRepresentative { name: String!  role: String! }
+  type CompanyEuBranch { branchName: String  country: String  euid: String  fiscalCode: String }
+
+  type CompanyFinancialYear {
+    year: Int!
+    turnover: Money
+    netProfit: Money
+    netLoss: Money
+    "bigint as string — source outliers overflow int4; never a JS number."
+    employees: BigInt
+    "The 20 typed metrics."
+    summary: JSON!
+    "Full statement (render-only; never filtered/summed)."
+    lines: JSON
+  }
+
+  type CompanyFinancialTrajectory {
+    fromYear: Int
+    toYear: Int
+    turnoverDelta: Money
+    netResultDelta: Money
+    employeesDelta: BigInt
+  }
+
+  type CompanyFinancials {
+    years: [CompanyFinancialYear!]!
+    latest: CompanyFinancialYear
+    trajectory: CompanyFinancialTrajectory
+  }
+
+  type CompanyAsOf { onrc: Date  anaf: Date }
+
+  "Public money RECEIVED (company = payee). Kernel FlowsRepo (grain-gated). Never mixes registry + flow grains."
+  type CompanyPublicMoney {
+    totalRon: Money!
+    flowCount: Int!
+    byYear: [CompanyPublicMoneyYear!]!
+    topPayers: [CompanyPublicMoneyPayer!]!
+  }
+  type CompanyPublicMoneyYear { year: Int  flowType: String!  totalRon: Money!  count: Int! }
+  type CompanyPublicMoneyPayer { cui: CUI  name: String  totalRon: Money!  count: Int! }
+
+  type Company {
+    cui: CUI!
+    orgId: BigInt!
+    name: String!
+    legalForm: String
+    codInmatriculare: String
+    registrationDate: Date
+    registrationDatePresent: Boolean!
+    headlineStatus: CompanyStatus
+    statusFlags: [CompanyStatusFlag!]!
+    territory: CompanyTerritory
+    address: CompanyAddress!
+    fiscal: CompanyFiscal
+    caenActivities: [CompanyCaenActivity!]!
+    representatives: [CompanyRepresentative!]!
+    financials: [CompanyFinancialYear!]!
+    euBranches: [CompanyEuBranch!]!
+    "Public money received (payee), via the kernel FlowsRepo. Null when none."
+    publicMoney: CompanyPublicMoney
+    asOf: CompanyAsOf!
+  }
+
+  "Lean per-entity company summary (Entity.company / entity-360). NOT the full Company list/profile shape — it carries only the cross-source slice the contributor returns."
+  type CompanyEntitySummary {
+    cui: CUI!
+    name: String!
+    legalForm: String
+    headlineStatus: CompanyStatus
+    vatPayer: Boolean
+    declaredFiscallyInactive: Boolean
+    registrationDate: Date
+    registrationDatePresent: Boolean!
+    territory: CompanyTerritory
+    latestFinancial: CompanyFinancialYear
+    asOf: CompanyAsOf!
+  }
+
+  type CompanyResolveHit { dim: CompanyResolveDim!  value: String!  label: String!  cui: CUI  confidence: Float }
+  type CompanyCaenHit { code: String!  rev: String!  label: String }
+
+  type CompanyGroupCount { key: String!  label: String  count: Int! }
+  type CompanyCoverage { territoryMatched: Int  territoryUnmatched: Int  note: String! }
+  type CompanyCountyProfile {
+    groupBy: CompanyGroupBy!
+    groups: [CompanyGroupCount!]!
+    denominator: Int!
+    coverage: CompanyCoverage!
+  }
+
+  "A lean company list row (the connection node). NOT the full Company profile — list pages never fan out the 8 per-CUI tables. Fetch the full Company via company(cui)."
+  type CompanyListItem {
+    cui: CUI!
+    orgId: BigInt!
+    name: String!
+    legalForm: String
+    headlineStatus: CompanyStatus
+    "raw_county (99.996% coverage)."
+    county: String
+    vatPayer: Boolean
+    declaredFiscallyInactive: Boolean
+    registrationDate: Date
+    registrationDatePresent: Boolean!
+  }
+
+  type CompanyEdge { node: CompanyListItem!  cursor: String! }
+  "totalCount is bounded ≤10,000; totalEstimated flags the cap (§14.4)."
+  type CompanyConnection {
+    edges: [CompanyEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+    totalEstimated: Boolean!
+  }
+
+  extend type Query {
+    "Full company profile by CUI (registry + fiscal + financials + caen + reps + flags + public money)."
+    company(cui: CUI!): Company
+    "Filterable company list. q (name) resolves via Meili first, then hydrates by CUI; connection-only."
+    companies(filter: CompaniesFilter, q: String, sort: CompanySort = NAME, first: Int = 20, after: String): CompanyConnection!
+    "Full financials series + computed latest + trajectory."
+    companyFinancials(cui: CUI!): CompanyFinancials
+    "Resolve free text to a filter value: name→CUI (Meili), regnum→CUI list (two-hop), caen-label→code, county→canonical."
+    companyResolve(dim: CompanyResolveDim!, q: String!, limit: Int = 10): [CompanyResolveHit!]!
+    "Count-ranked county/status/CAEN-division profile. groupBy=COUNTY requires a selective filter (no raw_county index)."
+    companyCountyProfile(filter: CompaniesFilter, groupBy: CompanyGroupBy = COUNTY): CompanyCountyProfile!
+  }
+
+  extend type Entity {
+    "Company summary for this entity by CUI (link-not-merge; via the cross-source contributor). Lean slice, not the full Company profile."
+    company: CompanyEntitySummary
+  }
+`;
+
+export const companiesTypeDefs = `${objectsAndQuery}\n\n${filterInput}`;
