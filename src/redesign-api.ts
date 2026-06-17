@@ -15,6 +15,10 @@ const main = async (): Promise<void> => {
   const { app, kernel } = await buildRedesignApp({
     kernelConfig: config.kernel,
     logLevel: config.logLevel,
+    corsAllowedOrigins: config.corsAllowedOrigins,
+    ...(config.kernel.clientBaseUrl !== undefined && {
+      clientBaseUrl: config.kernel.clientBaseUrl,
+    }),
   });
 
   const shutdown = async (signal: string): Promise<void> => {
