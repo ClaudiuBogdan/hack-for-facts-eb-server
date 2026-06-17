@@ -184,6 +184,7 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       final_law_year: 2023,
       status_text: 'Lege 423/2023 29.12.2023',
       bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
+      last_event_date: '2023-12-01',
       attrs: { status_text: 'adoptat', last_event_date: '2023-12-01', internal_secret: 'x' },
       source_updated_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-02T00:00:00Z',
@@ -194,6 +195,7 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
     expect(b.attrs['last_event_date']).toBe('2023-12-01');
     expect((b.attrs as Record<string, unknown>)['internal_secret']).toBeUndefined();
     expect(BILL_ATTR_KEYS).toContain('status_text');
+    expect(b.lastEventDate).toBe('2023-12-01'); // surfaced flat from the extracted column
   });
 
   it('surfaces statusText + billType flat from the extracted columns (Gap 2)', () => {
@@ -208,6 +210,7 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       final_law_year: 2023,
       status_text: 'Lege 423/2023 29.12.2023',
       bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
+      last_event_date: '2023-12-29',
       attrs: {},
       source_updated_at: null,
       updated_at: null,
@@ -215,6 +218,7 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
     const b = mapBill(row);
     expect(b.statusText).toBe('Lege 423/2023 29.12.2023');
     expect(b.billType).toBe('Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012');
+    expect(b.lastEventDate).toBe('2023-12-29');
   });
 
   it('leaves statusText / billType null when the source carries neither', () => {
@@ -229,6 +233,7 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       final_law_year: null,
       status_text: null,
       bill_type: null,
+      last_event_date: null,
       attrs: {},
       source_updated_at: null,
       updated_at: null,
