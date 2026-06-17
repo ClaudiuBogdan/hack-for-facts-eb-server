@@ -55,6 +55,7 @@ const objectsAndQuery = /* GraphQL */ `
   enum ParliamentPersonConfidence { high medium low }
   enum ParliamentFilterDim { group person constituency recipient control_type outcome chamber }
   enum ParliamentBillSort { updated_desc updated_asc title_asc title_desc }
+  "Vote sort. voteDate (default) is chronological. voteKey is a STABLE id order, NOT chronological — senat vote keys are UUIDs that sort lexically; use voteDate for time order."
   enum ParliamentVoteSort { voteDate voteKey }
 
   type ParliamentGroup {
@@ -174,6 +175,8 @@ const objectsAndQuery = /* GraphQL */ `
     statusText: String
     "Source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). null when the source carries no procedure block."
     billType: String
+    "Date of the most recent timeline event (attrs.last_event_date). This is the key the default 'updated_desc' sort uses — exposed so the client can show/verify recency."
+    lastEventDate: Date
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!
@@ -191,6 +194,8 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentInitiative {
     initiativeKey: ID!  billKey: ID  title: String  status: String
     promulgatedLawNumber: String  promulgatedLawYear: Int  bill: ParliamentBill
+    "Registration date (parsed from registration_date_text). null for ~4.3% date-less legacy rows. The member-initiatives list is ordered by this DESC (newest first)."
+    registrationDate: Date
   }
   "Declaration metadata ONLY — no file_hash, no content (§2.6)."
   type ParliamentDeclarationMeta { declarationType: String!  declarationDate: Date  label: String  fileUrl: String! }
