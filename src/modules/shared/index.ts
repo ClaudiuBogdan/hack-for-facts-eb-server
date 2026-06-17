@@ -284,3 +284,17 @@ export type { KernelMcpTool, McpToolOutput } from './shell/mcp/types.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { type KernelCache } from './shell/middleware/cache.js';
 export { type RateLimiter } from './shell/middleware/rate-limiter.js';
+// Diacritic folding (§15.7) — re-exported so modules don't reach into shell/repo.
+export { foldDiacritics } from './shell/repo/fold.js';
+
+/**
+ * The minimal structured-logger contract modules accept (a pino `Logger` and
+ * Fastify's `app.log` both satisfy it). Kernel-owned so each module doesn't
+ * declare its own (legal's `LegalModuleLogger` can adopt this).
+ */
+export interface Logger {
+  info(obj: unknown, msg?: string): void;
+  warn(obj: unknown, msg?: string): void;
+  error(obj: unknown, msg?: string): void;
+  debug(obj: unknown, msg?: string): void;
+}

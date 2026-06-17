@@ -107,6 +107,20 @@ const pascal = (s: string): string =>
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join('');
 
+/**
+ * Escape a field description for a single-line GraphQL SDL string. A bare `"`
+ * or newline would otherwise break the entire stitched schema at boot (#60a).
+ * Per the GraphQL spec: `\` → `\\`, `"` → `\"`, and control/newline chars are
+ * rendered as escape sequences so the description stays one quoted line.
+ */
+const escapeSdlDescription = (raw: string): string =>
+  raw
+    .replace(/\\/gu, '\\\\')
+    .replace(/"/gu, '\\"')
+    .replace(/\n/gu, '\\n')
+    .replace(/\r/gu, '\\r')
+    .replace(/\t/gu, '\\t');
+
 const opFieldSdl = (field: FilterFieldSpec, op: FilterOp, rangeTypeName: string): string => {
   const scalar = GQL_SCALAR[field.type];
   switch (op) {
@@ -146,7 +160,8 @@ export const toGraphQLInput = (spec: CollectionFilterSpec): string => {
     }
 
     const opLines = field.ops.map((op) => opFieldSdl(field, op, rangeType));
-    const desc = field.description !== undefined ? `  "${field.description}"\n` : '';
+    const desc =
+      field.description !== undefined ? `  "${escapeSdlDescription(field.description)}"\n` : '';
     blocks.push(`${desc}input ${fieldType} {\n${opLines.join('\n')}\n}`);
 
     fieldLines.push(`  ${field.name}: ${fieldType}`);

@@ -76,6 +76,16 @@ export interface FilterFieldSpec {
   readonly default?: unknown;
   /** Human description surfaced in generated SDL / OpenAPI. */
   readonly description?: string;
+  /**
+   * A VIRTUAL field is surfaced on the REST/GraphQL/MCP filter inputs (and may
+   * carry a default for documentation), but `toConditionBuilders` does NOT
+   * compile it to SQL and does NOT apply its `default` on compose — the repo
+   * intercepts it and translates it into partition keys, joins, or rollup
+   * selection itself. This lets sources declare a unified filter surface while
+   * the repo owns the physical predicate (budget/reference/companies pattern).
+   * A non-virtual field with no real column would otherwise emit broken SQL.
+   */
+  readonly virtual?: boolean;
 }
 
 export interface CollectionFilterSpec {
