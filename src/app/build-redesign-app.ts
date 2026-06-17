@@ -18,6 +18,7 @@ import mercuriusPlugin from 'mercurius';
 
 import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
+import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
@@ -41,7 +42,7 @@ export interface BuildRedesignAppDeps {
    * Source modules to wire into the kernel. Defaults to all built-in modules.
    * Pass `[]` to boot the bare kernel.
    */
-  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal')[];
+  readonly modules?: readonly ('pnrr' | 'reference' | 'budget' | 'companies' | 'legal' | 'judicial')[];
 }
 
 export interface RedesignApp {
@@ -87,7 +88,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
   // and registers a SourceContributor. Registration order is data-independent.
   const enabledModules =
-    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal'] as const);
+    deps.modules ?? (['pnrr', 'reference', 'budget', 'companies', 'legal', 'judicial'] as const);
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
@@ -170,6 +171,21 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(legal.graphqlSlice);
     moduleResolvers.push(legal.graphqlResolvers);
     moduleMcpTools.push(...legal.mcpTools);
+  }
+
+  if (enabledModules.includes('judicial')) {
+    // PRIVACY-CRITICAL module. Reads the legal-act loader LAZILY (registered above
+    // by legal if enabled) — registration order is data-independent.
+    const judicial = makeJudicialModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      legalActLoader: () => kernel.legalActLoader(),
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    kernel.contributors.register(judicial.contributor);
+    moduleSlices.push(judicial.graphqlSlice);
+    moduleResolvers.push(judicial.graphqlResolvers);
+    moduleMcpTools.push(...judicial.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
