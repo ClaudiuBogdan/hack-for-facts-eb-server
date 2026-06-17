@@ -18,6 +18,7 @@ import mercuriusPlugin from 'mercurius';
 
 import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
+import { makeLegalModule } from '../modules/legal/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
@@ -143,6 +144,32 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     moduleSlices.push(companies.graphqlSlice);
     moduleResolvers.push(companies.graphqlResolvers);
     moduleMcpTools.push(...companies.mcpTools);
+  }
+
+  if (enabledModules.includes('legal')) {
+    // The legal module embeds queries with the nomic model + `search_query:`
+    // prefix; discover the model id from the synthetic client (env override wins).
+    const embedRes = await kernel.clients.syntheticClient.discoverEmbeddingModel();
+    const embeddingModel = embedRes.isOk() ? embedRes.value : 'nomic-embed-text-v1.5';
+    const legal = await makeLegalModule({
+      db: kernel.db,
+      meiliClient: kernel.clients.meiliClient,
+      openSearchClient: kernel.clients.openSearchClient,
+      synthetic: kernel.clients.syntheticClient,
+      capabilities: kernel.searchCapabilities,
+      cache: kernel.cache,
+      registry: kernel.contributors,
+      embeddingModel,
+      logger: app.log,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    // The legal acts area registers NO contributor in v1 (§4); 06's MO area will.
+    for (const c of legal.contributors) kernel.contributors.register(c);
+    // Parliament (04) + judicial (08) resolve act_id → act through this loader.
+    kernel.registerLegalActLoader(legal.legalActLoader);
+    moduleSlices.push(legal.graphqlSlice);
+    moduleResolvers.push(legal.graphqlResolvers);
+    moduleMcpTools.push(...legal.mcpTools);
   }
 
   deps.registerContributors?.(kernel);
