@@ -245,6 +245,8 @@ d('Parliament golden (live prod)', () => {
         readonly title: string | null;
         readonly finalLawNumber: string | null;
         readonly finalLawYear: number | null;
+        readonly statusText: string | null;
+        readonly billType: string | null;
         readonly actLinks: readonly {
           readonly relationshipKind: string;
           readonly targetActId: string | null;
@@ -276,6 +278,8 @@ d('Parliament golden (live prod)', () => {
           title
           finalLawNumber
           finalLawYear
+          statusText
+          billType
           actLinks {
             relationshipKind
             targetActId
@@ -298,6 +302,9 @@ d('Parliament golden (live prod)', () => {
     expect(bill.plxYear).toBe(2012);
     expect(bill.finalLawNumber).toBe('423');
     expect(bill.finalLawYear).toBe(2023);
+    // Gap 2: source-stored classification, surfaced flat (was attrs-only / unreachable).
+    expect(bill.statusText).toBe('Lege 423/2023 29.12.2023');
+    expect(bill.billType).toBe('Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012');
 
     const firstActLink = requireValue(bill.actLinks[0], 'first act link');
     expect(firstActLink.relationshipKind).toBe('becomes_law');
@@ -335,6 +342,7 @@ d('Parliament golden (live prod)', () => {
               readonly rowIndex: number;
               readonly choice: string | null;
               readonly mandateKey: string | null;
+              readonly constituencyName: string | null;
             };
           }[];
         };
@@ -348,7 +356,7 @@ d('Parliament golden (live prod)', () => {
           outcome
           tally { pentru impotriva abtinere nuAVotat present }
           groupBreakdown { groupName pentru }
-          ballots(first:5) { edges { node { rowIndex choice mandateKey } } }
+          ballots(first:200) { edges { node { rowIndex choice mandateKey constituencyName } } }
         }
       }`,
       { voteKey: VOTE }
@@ -366,6 +374,22 @@ d('Parliament golden (live prod)', () => {
     expect(vote.groupBreakdown.length).toBeGreaterThan(0);
     expect(vote.ballots.edges.length).toBeGreaterThan(0);
     expect(vote.ballots.edges.some((edge) => edge.node.mandateKey !== null)).toBe(true);
+
+    // Gap 1: the resolved ballot carries the member's constituency (JOINed), so the
+    // client's vote-detail "județ" column is populated in live mode. Andronache
+    // (mandate 2:2020:12, row 0) voted in BRAȘOV.
+    const andronache = requireValue(
+      vote.ballots.edges.find((edge) => edge.node.mandateKey === MEMBER)?.node,
+      'Andronache ballot'
+    );
+    expect(andronache.constituencyName).toBe('BRAŞOV');
+    // Across the vote, 261/277 ballots resolve to a member with a constituency; the
+    // ballots connection is capped at 200 per page, so the first page surfaces a
+    // substantial (~186) constituency-bearing slice — the județ column is populated.
+    const resolvedWithConstituency = vote.ballots.edges.filter(
+      (edge) => edge.node.mandateKey !== null && edge.node.constituencyName !== null
+    );
+    expect(resolvedWithConstituency.length).toBeGreaterThanOrEqual(150);
   });
 
   it('Member and person golden (GraphQL): Gabriel Andronache links mandate 2:2020:12 to person 2264', async () => {
@@ -377,6 +401,8 @@ d('Parliament golden (live prod)', () => {
         readonly fullName: string | null;
         readonly groupName: string | null;
         readonly birthDate: string | null;
+        readonly constituencyName: string | null;
+        readonly profileUrl: string | null;
         readonly person: {
           readonly personId: string;
           readonly canonicalName: string;
@@ -415,6 +441,8 @@ d('Parliament golden (live prod)', () => {
           fullName
           groupName
           birthDate
+          constituencyName
+          profileUrl
           person {
             personId
             canonicalName
@@ -433,6 +461,11 @@ d('Parliament golden (live prod)', () => {
     expect(member.fullName).toContain('Andronache');
     expect(member.legislature).toBe('2020');
     expect(member.chamber).toBe('camera_deputatilor');
+    expect(member.constituencyName).toBe('BRAŞOV');
+    // Gap 4: the public CDEP profile URL is surfaced flat (was attrs-only / unreachable).
+    expect(member.profileUrl).toBe(
+      'https://www.cdep.ro/ords/pls/parlam/structura2015.mp?idm=12&cam=2&leg=2020'
+    );
     expect(member.person?.personId).toBe(PERSON);
     expect(member.votes.total).toBeGreaterThanOrEqual(6000);
     expect(member.votes.edges.length).toBeGreaterThan(0);
@@ -585,6 +618,52 @@ d('Parliament golden (live prod)', () => {
       )
     );
     expect(cohesion.parliamentVoteCohesion.length).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('group roster resolves a PARTY-LEVEL groupId to its full cross-chamber set, and a per-chamber slug exactly', async () => {
+    const roster = async (groupId: string): Promise<readonly { readonly mandateKey: string; readonly chamber: string | null }[]> => {
+      const data = expectGqlData(
+        await gql<{
+          parliamentGroupMembers: readonly { readonly mandateKey: string; readonly chamber: string | null }[];
+        }>(
+          `query($groupId: ID!, $legislature: String) {
+            parliamentGroupMembers(groupId:$groupId, legislature:$legislature) { mandateKey chamber }
+          }`,
+          { groupId, legislature: '2024' }
+        )
+      );
+      return data.parliamentGroupMembers;
+    };
+
+    // The whole-parliament groups list hands the client a party-level id (= group_name).
+    // It MUST resolve to the full cross-chamber roster (the defect: it returned 0).
+    const aur = await roster('AUR');
+    expect(aur.length).toBe(91);
+    expect(aur.filter((m) => m.chamber === 'camera_deputatilor').length).toBe(63);
+    expect(aur.filter((m) => m.chamber === 'senat').length).toBe(28);
+
+    // Regression: a per-chamber group_id slug still resolves EXACTLY (one chamber).
+    const aurSenat = await roster('aur-senat');
+    expect(aurSenat.length).toBe(28);
+    expect(aurSenat.every((m) => m.chamber === 'senat')).toBe(true);
+
+    // The party-level rosters partition the legislature: every 2024 member belongs to
+    // exactly one party, so the per-party roster sizes sum to the chamber totals.
+    const groups = expectGqlData(
+      await gql<{ parliamentGroups: readonly { readonly groupId: string; readonly chamber: string }[] }>(
+        `{ parliamentGroups(legislature:"2024") { groupId chamber } }`
+      )
+    );
+    // Whole-parliament list → party-level rows (chamber === "").
+    const partyIds = groups.parliamentGroups.filter((g) => g.chamber === '').map((g) => g.groupId);
+    expect(partyIds.length).toBeGreaterThan(0);
+    const rosters = await Promise.all(partyIds.map((id) => roster(id)));
+    const all = rosters.flat();
+    expect(all.length).toBe(472);
+    expect(all.filter((m) => m.chamber === 'camera_deputatilor').length).toBe(335);
+    expect(all.filter((m) => m.chamber === 'senat').length).toBe(137);
+    // No member is double-counted (mandate_key is unique across the party rosters).
+    expect(new Set(all.map((m) => m.mandateKey)).size).toBe(472);
   }, 30_000);
 
   it('person-candidates data-quality surface is API-key gated by default', async () => {
