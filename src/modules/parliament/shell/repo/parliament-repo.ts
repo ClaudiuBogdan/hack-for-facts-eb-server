@@ -178,8 +178,12 @@ const BILL_SELECT = [
 // ── filter helpers (split virtual / physical) ────────────────────────────────
 
 const fieldFilter = (input: FilterInput, name: string): Record<string, unknown> | undefined => {
-  const v = input[name];
-  return typeof v === 'object' && !Array.isArray(v) ? v : undefined;
+  // Read as `unknown`: the FilterInput type omits `null`, but a GraphQL nullable
+  // input field CAN arrive as `null` at runtime. `null` is `typeof 'object'`, so
+  // guard it — else `filter:{field:null}` would be treated as a field-filter object
+  // and `stringValues(null)` would crash on `null['eq']` (Codex round-2 #2).
+  const v: unknown = input[name];
+  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 };
 
 /** Pull eq/in string value(s) from a field filter. */
@@ -196,12 +200,18 @@ const stringValues = (f: Record<string, unknown> | undefined): { eq?: string; in
  * each against the allowed set. An unknown value is a clean InvalidInput (400),
  * never a silent empty/full result — the kernel composer can't validate a virtual
  * field, so the repo enforces the domain itself.
+ *
+ * Returns `matchNothing: true` for an EXPLICIT empty `in: []` with no `eq` — the
+ * kernel contract (#60h) compiles `in: []` to FALSE (match nothing), NOT a dropped
+ * predicate (which would silently match ALL rows). The caller emits `sql\`false\``
+ * in that case so this virtual field mirrors the physical-field behavior.
  */
 const enumSelection = (
   f: Record<string, unknown> | undefined,
   allowed: readonly string[]
-): Result<string[], ApiError> => {
+): Result<{ values: string[]; matchNothing: boolean }, ApiError> => {
   const { eq, in: inVals } = stringValues(f);
+  const explicitEmptyIn = f !== undefined && Array.isArray(f['in']) && (f['in'] as unknown[]).length === 0;
   const picked = [...(eq !== undefined ? [eq] : []), ...(inVals ?? [])];
   const deduped = [...new Set(picked)];
   for (const v of deduped) {
@@ -209,7 +219,7 @@ const enumSelection = (
       return err(invalidInput(`unknown value '${v}'; expected one of ${allowed.join(', ')}`, 'filter'));
     }
   }
-  return ok(deduped);
+  return ok({ values: deduped, matchNothing: deduped.length === 0 && eq === undefined && explicitEmptyIn });
 };
 
 const containsValue = (f: Record<string, unknown> | undefined): string | undefined => {
@@ -600,30 +610,36 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // Bills with no procedure block match neither value (NULL ILIKE → NULL).
     const billTypeVals = enumSelection(fieldFilter(filter, 'billType'), BILL_TYPES);
     if (billTypeVals.isErr()) return err(billTypeVals.error);
-    if (billTypeVals.value.length > 0) {
+    if (billTypeVals.value.matchNothing) conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
+    else if (billTypeVals.value.values.length > 0) {
       const pred = (v: string): RawBuilder<unknown> =>
         v === 'government'
           ? sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Proiect de Lege%'`
           : sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Propunere legislativa%'`;
-      conds.push(sql`(${sql.join(billTypeVals.value.map(pred), sql` or `)})`);
+      conds.push(sql`(${sql.join(billTypeVals.value.values.map(pred), sql` or `)})`);
     }
 
-    // status (virtual enum): lifecycle bucket on status_text. promulgated = 'lege …'
-    // (≡ final_law_number IS NOT NULL), rejected = 'respins…', in_progress = the
-    // complement of those two. Multiple values OR-ed; the complement is built as
-    // NOT(promulgated OR rejected) so the three buckets stay a clean partition.
+    // status (virtual enum): lifecycle bucket on status_text. promulgated = became
+    // law, in TWO equivalent source phrasings — 'Lege <nr>/…' (3,606; these also
+    // carry final_law_number) AND 'A devenit Legea <nr>/…' (864; final_law_number
+    // is NOT backfilled for these, so status_text is the ONLY became-law signal).
+    // The bucket MUST union both or it silently drops 864 promulgated bills into
+    // in_progress — caught by the Codex/GLM dual-model critique. rejected =
+    // 'respins…'; in_progress = the complement. The complement is built as
+    // NOT(promulgated OR rejected) so the three buckets stay an exhaustive partition.
     const statusVals = enumSelection(fieldFilter(filter, 'status'), BILL_STATUSES);
     if (statusVals.isErr()) return err(statusVals.error);
-    if (statusVals.value.length > 0) {
+    if (statusVals.value.matchNothing) conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
+    else if (statusVals.value.values.length > 0) {
       const st = sql`lower(coalesce(b.attrs->>'status_text', ''))`;
-      const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege')`;
+      const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege' or ${st} like 'a devenit lege%')`;
       const rejected = sql`${st} like 'respins%'`;
       const pred = (v: string): RawBuilder<unknown> => {
         if (v === 'promulgated') return promulgated;
         if (v === 'rejected') return rejected;
         return sql`not (${promulgated} or ${rejected})`; // in_progress
       };
-      conds.push(sql`(${sql.join(statusVals.value.map(pred), sql` or `)})`);
+      conds.push(sql`(${sql.join(statusVals.value.values.map(pred), sql` or `)})`);
     }
 
     // q (virtual): title / plx-number / senate-number ILIKE (diacritic-folded title).
