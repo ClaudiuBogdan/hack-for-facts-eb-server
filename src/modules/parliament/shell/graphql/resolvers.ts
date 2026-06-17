@@ -157,11 +157,11 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         return { ...career.person, mandates: career.mandates, groupIntervals: career.groupIntervals, careerTotals: career.careerTotals };
       },
 
-      parliamentGroups: async (_r: unknown, args: { legislature?: string; chamber?: string }) =>
-        unwrap(await listGroups(deps, args.legislature, args.chamber)),
+      parliamentGroups: async (_r: unknown, args: { legislature?: string; chamber?: string; current?: boolean }) =>
+        unwrap(await listGroups(deps, args.legislature, args.chamber, args.current)),
 
-      parliamentGroupMembers: async (_r: unknown, args: { groupId: string; legislature?: string }) =>
-        unwrap(await deps.repo.listGroupMembers(args.groupId, args.legislature)),
+      parliamentGroupMembers: async (_r: unknown, args: { groupId: string; legislature?: string; current?: boolean }) =>
+        unwrap(await deps.repo.listGroupMembers(args.groupId, args.legislature, args.current)),
 
       parliamentBills: async (
         _r: unknown,
