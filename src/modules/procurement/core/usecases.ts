@@ -117,7 +117,8 @@ export const listModifications = (
   repo: ProcurementRepo,
   filter: FilterInput,
   page: CursorPageRequest
-): Promise<Result<CursorPage<ProcurementModification>, ApiError>> => repo.listModifications(filter, page);
+): Promise<Result<CursorPage<ProcurementModification>, ApiError>> =>
+  repo.listModifications(filter, page);
 
 export const listModificationsAboveDelta = (
   repo: ProcurementRepo,
@@ -147,7 +148,8 @@ const withGate = async <T>(
   agg: ProcurementAggregateRepo,
   grain: ProcurementGrain,
   run: (gate: GrainQuality) => Promise<Result<T, ApiError>>,
-  empty: T
+  empty: T,
+  spendSuppressedCaveat?: (grain: ProcurementGrain) => string
 ): Promise<Result<GateResult<T>, ApiError>> => {
   const gateR = await gateFor(agg, grain);
   if (gateR.isErr()) return err(gateR.error);
@@ -165,11 +167,14 @@ const withGate = async <T>(
   const r = await run(gate);
   if (r.isErr()) return err(r.error);
   const caveats: string[] = [];
-  if (!gate.spendRankingsAllowed) {
-    caveats.push(`spend rankings not gate-approved for '${grain}' grain — ranked by flow_count, shares are count-based`);
+  if (!gate.spendRankingsAllowed && spendSuppressedCaveat !== undefined) {
+    caveats.push(spendSuppressedCaveat(grain));
   }
   return ok({ data: r.value, grain, gate, caveats });
 };
+
+const countRankedCaveat = (grain: ProcurementGrain): string =>
+  `spend rankings not gate-approved for '${grain}' grain — ranked by flow_count`;
 
 export const topSuppliers = (
   agg: ProcurementAggregateRepo,
@@ -178,14 +183,26 @@ export const topSuppliers = (
 ): Promise<Result<GateResult<readonly ProcurementEdge[]>, ApiError>> =>
   // The repo orders by value ONLY when the grain's spend rankings are gate-approved;
   // else by flow_count (the gate is data-driven, never ignored — §14.6 / I6).
-  withGate(agg, f.grain, (gate) => agg.topSuppliersForAuthority(cui, f, gate.spendRankingsAllowed), []);
+  withGate(
+    agg,
+    f.grain,
+    (gate) => agg.topSuppliersForAuthority(cui, f, gate.spendRankingsAllowed),
+    [],
+    countRankedCaveat
+  );
 
 export const topAuthorities = (
   agg: ProcurementAggregateRepo,
   cui: string,
   f: EdgeAggFilter
 ): Promise<Result<GateResult<readonly ProcurementEdge[]>, ApiError>> =>
-  withGate(agg, f.grain, (gate) => agg.topAuthoritiesForSupplier(cui, f, gate.spendRankingsAllowed), []);
+  withGate(
+    agg,
+    f.grain,
+    (gate) => agg.topAuthoritiesForSupplier(cui, f, gate.spendRankingsAllowed),
+    [],
+    countRankedCaveat
+  );
 
 export const repeatedPairs = (
   agg: ProcurementAggregateRepo,
@@ -200,7 +217,13 @@ export const authorityCpvSpend = (
   cui: string,
   f: CpvAggFilter
 ): Promise<Result<GateResult<readonly AuthorityCpvRow[]>, ApiError>> =>
-  withGate(agg, f.grain, () => agg.authorityCpvSpend(cui, f), []);
+  withGate(
+    agg,
+    f.grain,
+    (gate) => agg.authorityCpvSpend(cui, f, gate.spendRankingsAllowed),
+    [],
+    countRankedCaveat
+  );
 
 /**
  * PC-2: top suppliers by region × CPV. Region here is a BUYER (authority) region,
@@ -211,7 +234,13 @@ export const topSuppliersByRegionCpv = (
   agg: ProcurementAggregateRepo,
   f: RegionCpvAggFilter
 ): Promise<Result<GateResult<readonly import('./types.js').SupplierCpvRow[]>, ApiError>> =>
-  withGate(agg, f.grain, () => agg.topSuppliersByRegionCpv(f), []);
+  withGate(
+    agg,
+    f.grain,
+    (gate) => agg.topSuppliersByRegionCpv(f, gate.spendRankingsAllowed),
+    [],
+    countRankedCaveat
+  );
 
 /** PC-5: concentration. The repo computes basis from the gate (value vs count). */
 export const supplierConcentration = async (

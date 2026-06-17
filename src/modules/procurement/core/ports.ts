@@ -28,12 +28,7 @@ import type {
   SupplierConcentration,
   SupplierCpvRow,
 } from './types.js';
-import type {
-  ApiError,
-  CursorPage,
-  FilterInput,
-  SourcePresence,
-} from '@/modules/shared/index.js';
+import type { ApiError, CursorPage, FilterInput, SourcePresence } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** A cursor page request (first + opaque after + sort key). */
@@ -58,26 +53,44 @@ export interface OffsetResult<T> {
 
 export interface ProcurementRepo {
   // ── procedures (cursor by (publication_date desc, procedure_id desc)) ──
-  listProcedures(f: FilterInput, p: CursorPageRequest): Promise<Result<CursorPage<ProcurementProcedure>, ApiError>>;
+  listProcedures(
+    f: FilterInput,
+    p: CursorPageRequest
+  ): Promise<Result<CursorPage<ProcurementProcedure>, ApiError>>;
   getProcedure(id: string): Promise<Result<ProcurementProcedure | null, ApiError>>;
   getProcedureDetail(id: string): Promise<Result<ProcedureDetail | null, ApiError>>;
 
   // ── contracts (cursor by (contract_date desc, contract_id desc)) ──
-  listContracts(f: FilterInput, p: CursorPageRequest): Promise<Result<CursorPage<ProcurementContract>, ApiError>>;
+  listContracts(
+    f: FilterInput,
+    p: CursorPageRequest
+  ): Promise<Result<CursorPage<ProcurementContract>, ApiError>>;
   getContract(id: string): Promise<Result<ProcurementContract | null, ApiError>>;
   getContractDetail(id: string): Promise<Result<ContractDetail | null, ApiError>>;
   /** Per-contract modifications — bounded (capped, contract_id-indexed); no pagination needed. */
-  getContractModifications(id: string): Promise<Result<readonly ProcurementModification[], ApiError>>;
+  getContractModifications(
+    id: string
+  ): Promise<Result<readonly ProcurementModification[], ApiError>>;
 
   // ── direct_acquisitions (cursor ONLY by (finalization_date desc, da_id desc);
   //    selective filter REQUIRED — runtime check, §3a(1)/§7.3) ──
-  listDirectAcquisitions(f: FilterInput, p: CursorPageRequest): Promise<Result<CursorPage<ProcurementDirectAcquisition>, ApiError>>;
+  listDirectAcquisitions(
+    f: FilterInput,
+    p: CursorPageRequest
+  ): Promise<Result<CursorPage<ProcurementDirectAcquisition>, ApiError>>;
   getDirectAcquisition(id: string): Promise<Result<ProcurementDirectAcquisition | null, ApiError>>;
 
   // ── modifications (cursor by (modification_date desc, modification_id desc)) ──
-  listModifications(f: FilterInput, p: CursorPageRequest): Promise<Result<CursorPage<ProcurementModification>, ApiError>>;
+  listModifications(
+    f: FilterInput,
+    p: CursorPageRequest
+  ): Promise<Result<CursorPage<ProcurementModification>, ApiError>>;
   /** PC-8: contracts modified by > pct — delta_pct computed + threshold pushed down. */
-  listModificationsAboveDelta(pct: number, f: FilterInput, p: CursorPageRequest): Promise<Result<CursorPage<ProcurementModification>, ApiError>>;
+  listModificationsAboveDelta(
+    pct: number,
+    f: FilterInput,
+    p: CursorPageRequest
+  ): Promise<Result<CursorPage<ProcurementModification>, ApiError>>;
 
   // ── CPV discovery ──
   listCpvDivisions(): Promise<Result<readonly CpvDivision[], ApiError>>;
@@ -94,26 +107,52 @@ export interface ProcurementAggregateRepo {
   // unambiguous and the surface mirrors the plan's `(cui, f)` shape. `orderByValue`
   // is set by the usecase from the live gate (value when spend_rankings_allowed,
   // else flow_count) — the gate must NOT be ignored by the repo (§14.6 / I6).
-  topSuppliersForAuthority(cui: string, f: EdgeAggFilter, orderByValue: boolean): Promise<Result<readonly ProcurementEdge[], ApiError>>;
-  topAuthoritiesForSupplier(cui: string, f: EdgeAggFilter, orderByValue: boolean): Promise<Result<readonly ProcurementEdge[], ApiError>>;
+  topSuppliersForAuthority(
+    cui: string,
+    f: EdgeAggFilter,
+    orderByValue: boolean
+  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
+  topAuthoritiesForSupplier(
+    cui: string,
+    f: EdgeAggFilter,
+    orderByValue: boolean
+  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
   // PC-6 — repeated pairs anchored on one side. `side` picks the driving index
   // (authority_idx vs supplier_idx); explicit (not in the filter) for the same reason.
-  repeatedPairs(cui: string, side: 'authority' | 'supplier', f: EdgeAggFilter): Promise<Result<readonly ProcurementEdge[], ApiError>>;
+  repeatedPairs(
+    cui: string,
+    side: 'authority' | 'supplier',
+    f: EdgeAggFilter
+  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
 
   // PC-5 — supplier concentration / HHI over edges for one authority. `basis` is
   // chosen from the live gate (value when spend_rankings_allowed, else count).
-  supplierConcentration(cui: string, f: EdgeAggFilter, basis: 'value' | 'count'): Promise<Result<SupplierConcentration, ApiError>>;
+  supplierConcentration(
+    cui: string,
+    f: EdgeAggFilter,
+    basis: 'value' | 'count'
+  ): Promise<Result<SupplierConcentration, ApiError>>;
 
   // PC-4 — authority spend by CPV division × period.
-  authorityCpvSpend(cui: string, f: CpvAggFilter): Promise<Result<readonly AuthorityCpvRow[], ApiError>>;
+  authorityCpvSpend(
+    cui: string,
+    f: CpvAggFilter,
+    orderByValue: boolean
+  ): Promise<Result<readonly AuthorityCpvRow[], ApiError>>;
 
   // PC-2 — top suppliers by region × CPV division (buyer region; supplier region
   // is gate-blocked at the surface).
-  topSuppliersByRegionCpv(f: RegionCpvAggFilter): Promise<Result<readonly SupplierCpvRow[], ApiError>>;
+  topSuppliersByRegionCpv(
+    f: RegionCpvAggFilter,
+    orderByValue: boolean
+  ): Promise<Result<readonly SupplierCpvRow[], ApiError>>;
 
   // PC-7 — same-day DA splitting candidates (offset over a filter-bounded slice;
   // a selective filter — authorityCui or a date window — is required, §3a).
-  sameDaySplittingCandidates(f: SplitFilter, p: OffsetPageRequest): Promise<Result<OffsetResult<SameDayCandidate>, ApiError>>;
+  sameDaySplittingCandidates(
+    f: SplitFilter,
+    p: OffsetPageRequest
+  ): Promise<Result<OffsetResult<SameDayCandidate>, ApiError>>;
 
   // contributor support (§4.4).
   presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;
