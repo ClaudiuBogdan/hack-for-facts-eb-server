@@ -14,7 +14,10 @@ import { databaseError, timeoutError, type McpError } from '../../core/errors.js
 import type { McpProcurementRepo } from '../../core/ports.js';
 import type {
   ProcurementAggregateQuality,
+  ProcurementCapabilityAnswerClass,
+  ProcurementCapabilityCoverage,
   ProcurementCategoryBreakdownRow,
+  ProcurementFilterCapability,
   ProcurementFilterQuery,
   ProcurementSameDayCandidateRow,
   ProcurementSourceGrain,
@@ -37,6 +40,21 @@ interface QualityRow {
   spend_rankings_allowed: boolean;
   supplier_cui_coverage_rate: string | number;
   supplier_region_filters_allowed: boolean;
+}
+
+interface CapabilityRow {
+  allowed: boolean;
+  allowed_dimensions: string[] | null;
+  answer_class: ProcurementCapabilityAnswerClass;
+  blockers: string[] | null;
+  capability_version: string;
+  caveats: string[] | null;
+  coverage: Record<string, unknown> | null;
+  projection_version: string;
+  ranking_mode: string | null;
+  refreshed_at: Date | string | null;
+  required_projection: string;
+  source_grain: ProcurementSourceGrain;
 }
 
 interface SupplierRankingRow {
@@ -130,6 +148,37 @@ class KyselyMcpProcurementRepo implements McpProcurementRepo {
           supplierRegionFiltersAllowed: row.supplier_region_filters_allowed,
         }))
       );
+    } catch (error) {
+      return err(toQueryError(error));
+    }
+  }
+
+  async getFilterCapabilities(
+    sourceGrains: ProcurementSourceGrain[]
+  ): Promise<Result<ProcurementFilterCapability[], McpError>> {
+    try {
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
+
+      const result = await sql<CapabilityRow>`
+        select
+          capability_version,
+          source_grain,
+          answer_class,
+          allowed,
+          ranking_mode,
+          required_projection,
+          allowed_dimensions,
+          coverage,
+          blockers,
+          caveats,
+          projection_version,
+          refreshed_at
+        from procurement.public_contracts_filter_capabilities_v1
+        where source_grain = any(${sourceGrains})
+        order by source_grain, answer_class
+      `.execute(this.db);
+
+      return ok(result.rows.map(mapCapabilityRow));
     } catch (error) {
       return err(toQueryError(error));
     }
@@ -346,6 +395,62 @@ function mapSameDayRow(row: SameDayCandidateRow): ProcurementSameDayCandidateRow
   };
 }
 
+function mapCapabilityRow(row: CapabilityRow): ProcurementFilterCapability {
+  return {
+    allowed: row.allowed,
+    allowedDimensions: row.allowed_dimensions ?? [],
+    answerClass: row.answer_class,
+    blockers: row.blockers ?? [],
+    capabilityVersion: row.capability_version,
+    caveats: row.caveats ?? [],
+    coverage: mapCapabilityCoverage(row.coverage),
+    projectionVersion: row.projection_version,
+    rankingMode: mapRankingMode(row.ranking_mode),
+    refreshedAt: toIsoTimestamp(row.refreshed_at),
+    requiredProjection: row.required_projection,
+    sourceGrain: row.source_grain,
+  };
+}
+
+function mapCapabilityCoverage(
+  coverage: Record<string, unknown> | null
+): ProcurementCapabilityCoverage {
+  if (coverage === null) {
+    throw new Error('Missing procurement capability coverage');
+  }
+  return {
+    amountCoverageRate: coverageNumber(coverage, 'amount_coverage_rate'),
+    authorityCuiCoverageRate: coverageNumber(coverage, 'authority_cui_coverage_rate'),
+    authorityTerritoryCoverageRate: coverageNumber(coverage, 'authority_territory_coverage_rate'),
+    cpvCoverageRate: coverageNumber(coverage, 'cpv_coverage_rate'),
+    cpvDivisionCoverageRate: coverageNumber(coverage, 'cpv_division_coverage_rate'),
+    dateCoverageRate: coverageNumber(coverage, 'date_coverage_rate'),
+    rowsCount: coverageNumber(coverage, 'rows_count'),
+    supplierCuiCoverageRate: coverageNumber(coverage, 'supplier_cui_coverage_rate'),
+  };
+}
+
+function coverageNumber(source: Record<string, unknown>, key: string): number {
+  const value = source[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  throw new Error(`Invalid procurement capability coverage ${key}`);
+}
+
+function mapRankingMode(value: string | null): ProcurementFilterCapability['rankingMode'] {
+  if (value === 'amount_ron' || value === 'flow_count' || value === 'count' || value === 'value') {
+    return value;
+  }
+  return null;
+}
+
 function compactRefs(value: string[] | null): string[] {
   return (value ?? []).filter((item) => item.length > 0);
 }
@@ -354,6 +459,12 @@ function toIsoDate(value: Date | string | null): string | null {
   if (value === null) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return value.slice(0, 10);
+}
+
+function toIsoTimestamp(value: Date | string | null): string | null {
+  if (value === null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return value;
 }
 
 function toNumber(value: string | number | null): number {

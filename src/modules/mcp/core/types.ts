@@ -163,6 +163,16 @@ export type ProcurementAnswerStatus = 'allowed' | 'abstained';
 
 export type ProcurementAnswerClass = 'filter' | 'spend_ranking' | 'review_signal';
 
+export type ProcurementCapabilityAnswerClass =
+  | 'buyer_region_filter'
+  | 'count_ranked_top_n'
+  | 'cpv_category_filter'
+  | 'filter_count'
+  | 'llm_generated_filter'
+  | 'same_day_direct_acquisition_signal'
+  | 'spend_ranked_top_n'
+  | 'supplier_region_filter';
+
 export type ProcurementRankBy = 'amount_ron' | 'flow_count';
 
 export type ProcurementSourceGrain = 'direct_acquisition' | 'procurement_contract';
@@ -180,6 +190,32 @@ export interface ProcurementAggregateQuality {
   spendRankingsAllowed: boolean;
   supplierCuiCoverageRate: number;
   supplierRegionFiltersAllowed: boolean;
+}
+
+export interface ProcurementCapabilityCoverage {
+  amountCoverageRate: number;
+  authorityCuiCoverageRate: number;
+  authorityTerritoryCoverageRate: number;
+  cpvCoverageRate: number;
+  cpvDivisionCoverageRate: number;
+  dateCoverageRate: number;
+  rowsCount: number;
+  supplierCuiCoverageRate: number;
+}
+
+export interface ProcurementFilterCapability {
+  allowed: boolean;
+  allowedDimensions: string[];
+  answerClass: ProcurementCapabilityAnswerClass;
+  blockers: string[];
+  capabilityVersion: string;
+  caveats: string[];
+  coverage: ProcurementCapabilityCoverage;
+  projectionVersion: string;
+  rankingMode: ProcurementRankBy | 'count' | 'value' | null;
+  refreshedAt: string | null;
+  requiredProjection: string;
+  sourceGrain: ProcurementSourceGrain;
 }
 
 export interface ProcurementFilterQuery {
