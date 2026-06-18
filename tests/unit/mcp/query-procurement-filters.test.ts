@@ -50,6 +50,17 @@ const CONTRACT_QUALITY: ProcurementAggregateQuality = {
   supplierRegionFiltersAllowed: false,
 };
 
+const LIVE_BLOCKED_CONTRACT_QUALITY: ProcurementAggregateQuality = {
+  ...CONTRACT_QUALITY,
+  blockers: [
+    'procurement_contract authority CUI coverage below 0.95',
+    'procurement_contract supplier CUI coverage below 0.95',
+    'procurement_contract date coverage below 0.85',
+  ],
+  filterAnswersAllowed: false,
+  spendRankingsAllowed: false,
+};
+
 const DEFAULT_CAPABILITY_COVERAGE = {
   amountCoverageRate: 0.999,
   authorityCuiCoverageRate: 0.99,
@@ -257,6 +268,70 @@ describe('queryProcurementFilters', () => {
     expect(output.caveats[0]).toContain('flows.money_flows');
   });
 
+  it('canonicalizes buyer-region diacritics and dash variants before querying deterministic rollups', async () => {
+    const cases = [
+      { input: ' București-Ilfov ', expected: 'Bucuresti-Ilfov' },
+      { input: 'București\u2013Ilfov', expected: 'Bucuresti-Ilfov' },
+      { input: 'Nord\u2011Est', expected: 'Nord-Est' },
+      { input: 'Sud Vest Oltenia', expected: 'Sud-Vest Oltenia' },
+    ];
+    const queries: ProcurementFilterQuery[] = [];
+    const baseRepo = makeFakeProcurementRepo();
+    const repo: McpProcurementRepo = {
+      ...baseRepo,
+      async rankSuppliers(query: ProcurementFilterQuery) {
+        queries.push(query);
+        return ok([makeSupplierRow({ supplierCui: '30372855' })]);
+      },
+    };
+
+    for (const { expected, input } of cases) {
+      const result = await queryProcurementFilters(makeDeps(repo), {
+        analysis: 'top_suppliers',
+        authorityRegion: input,
+        cpvDivisionCode: '45',
+        rankBy: 'flow_count',
+        sourceGrain: 'direct_acquisition',
+      });
+
+      expect(result.isOk()).toBe(true);
+      const output = result._unsafeUnwrap();
+      expect(output.status).toBe('allowed');
+      expect(output.query.authorityRegion).toBe(expected);
+      expect(output.capabilities?.map((capability) => capability.answerClass)).toEqual([
+        'count_ranked_top_n',
+        'buyer_region_filter',
+        'cpv_category_filter',
+      ]);
+    }
+    expect(queries.map((query) => query.authorityRegion)).toEqual(
+      cases.map((candidate) => candidate.expected)
+    );
+  });
+
+  it('rejects unknown buyer regions instead of returning false-confidence empty answers', async () => {
+    let ranked = false;
+    const baseRepo = makeFakeProcurementRepo();
+    const repo: McpProcurementRepo = {
+      ...baseRepo,
+      async rankSuppliers(query: ProcurementFilterQuery) {
+        ranked = true;
+        return baseRepo.rankSuppliers(query);
+      },
+    };
+
+    const result = await queryProcurementFilters(makeDeps(repo), {
+      analysis: 'top_suppliers',
+      authorityRegion: 'Transilvania',
+      sourceGrain: 'direct_acquisition',
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().code).toBe('INVALID_INPUT');
+    expect(result._unsafeUnwrapErr().message).toContain('authorityRegion must be one of');
+    expect(ranked).toBe(false);
+  });
+
   it('abstains from procurement-contract spend rankings when amount coverage is blocked', async () => {
     const result = await queryProcurementFilters(makeDeps(), {
       analysis: 'top_suppliers',
@@ -287,6 +362,34 @@ describe('queryProcurementFilters', () => {
     expect(output.status).toBe('allowed');
     expect(output.answerClass).toBe('filter');
     expect(output.rows).toHaveLength(1);
+  });
+
+  it('abstains from procurement-contract count rankings when live filter coverage is blocked', async () => {
+    let ranked = false;
+    const baseRepo = makeFakeProcurementRepo({
+      quality: [DIRECT_ACQUISITION_QUALITY, LIVE_BLOCKED_CONTRACT_QUALITY],
+    });
+    const repo: McpProcurementRepo = {
+      ...baseRepo,
+      async rankSuppliers(query: ProcurementFilterQuery) {
+        ranked = true;
+        return baseRepo.rankSuppliers(query);
+      },
+    };
+
+    const result = await queryProcurementFilters(makeDeps(repo), {
+      analysis: 'top_suppliers',
+      authorityCui: '36727850',
+      rankBy: 'flow_count',
+      sourceGrain: 'procurement_contract',
+    });
+
+    expect(result.isOk()).toBe(true);
+    const output = result._unsafeUnwrap();
+    expect(output.status).toBe('abstained');
+    expect(output.rows).toEqual([]);
+    expect(output.summary).toContain('filter coverage is not approved');
+    expect(ranked).toBe(false);
   });
 
   it('abstains when the capability view blocks a requested buyer-region filter', async () => {

@@ -7,6 +7,8 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { foldDiacritics } from '@/modules/shared/index.js';
+
 import { databaseError, invalidInputError, type McpError } from '../errors.js';
 
 import type { McpProcurementRepo } from '../ports.js';
@@ -24,6 +26,25 @@ import type {
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
+const AUTHORITY_REGION_CANONICAL_VALUES = [
+  'Bucuresti-Ilfov',
+  'Centru',
+  'Nord-Est',
+  'Nord-Vest',
+  'Sud-Est',
+  'Sud-Muntenia',
+  'Sud-Vest Oltenia',
+  'Vest',
+] as const;
+const AUTHORITY_REGION_BY_FOLDED = new Map<string, string>(
+  AUTHORITY_REGION_CANONICAL_VALUES.flatMap((region) => {
+    const folded = normalizeRegionKey(region);
+    return [
+      [folded, region],
+      [folded.replace(/-/gu, ' '), region],
+    ];
+  })
+);
 
 export interface QueryProcurementFiltersDeps {
   procurementRepo: McpProcurementRepo;
@@ -135,6 +156,10 @@ function normalizeInput(
   const sourceGrain = input.sourceGrain ?? 'direct_acquisition';
   const rankBy = input.rankBy ?? 'amount_ron';
   const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const authorityRegion =
+    input.authorityRegion === undefined
+      ? undefined
+      : normalizeAuthorityRegion(input.authorityRegion);
 
   if (
     input.analysis === 'same_day_direct_acquisition_candidates' &&
@@ -165,6 +190,14 @@ function normalizeInput(
     );
   }
 
+  if (authorityRegion === null) {
+    return err(
+      invalidInputError(
+        `authorityRegion must be one of: ${AUTHORITY_REGION_CANONICAL_VALUES.join(', ')}`
+      )
+    );
+  }
+
   return ok({
     analysis: input.analysis,
     limit,
@@ -176,8 +209,8 @@ function normalizeInput(
     ...(input.authorityCui !== undefined && {
       authorityCui: input.authorityCui.trim(),
     }),
-    ...(input.authorityRegion !== undefined && {
-      authorityRegion: input.authorityRegion.trim(),
+    ...(authorityRegion !== undefined && {
+      authorityRegion,
     }),
     ...(input.cpvDivisionCode !== undefined && {
       cpvDivisionCode: input.cpvDivisionCode.trim(),
@@ -185,6 +218,18 @@ function normalizeInput(
     ...(input.yearEnd !== undefined && { yearEnd: input.yearEnd }),
     ...(input.yearStart !== undefined && { yearStart: input.yearStart }),
   });
+}
+
+function normalizeAuthorityRegion(input: string): string | null {
+  const trimmed = input.trim();
+  return AUTHORITY_REGION_BY_FOLDED.get(normalizeRegionKey(trimmed)) ?? null;
+}
+
+function normalizeRegionKey(input: string): string {
+  return foldDiacritics(input)
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/gu, '-')
+    .replace(/\s*-\s*/gu, '-')
+    .replace(/\s+/gu, ' ');
 }
 
 function hasScopedFilter(input: QueryProcurementFiltersInput): boolean {

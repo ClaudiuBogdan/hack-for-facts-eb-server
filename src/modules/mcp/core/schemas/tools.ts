@@ -424,8 +424,9 @@ export const QueryProcurementFiltersInputSchema = Type.Object(
     ),
     authorityRegion: Type.Optional(
       Type.String({
-        description: 'Buyer development region. Uses authority territory only.',
-        examples: ['București-Ilfov'],
+        description:
+          'Buyer development region. Uses authority territory only; Romanian diacritics are canonicalized to production region names.',
+        examples: ['Bucuresti-Ilfov'],
       })
     ),
     cpvDivisionCode: Type.Optional(
