@@ -284,7 +284,12 @@ export const QueryProcurementFiltersInputZod = z.object({
     .describe('Procurement question type'),
   authorityCountyCode: z.string().describe('Buyer county code').optional(),
   authorityCui: z.string().describe('Buyer/public authority CUI').optional(),
-  authorityRegion: z.string().describe('Buyer development region').optional(),
+  authorityRegion: z
+    .string()
+    .describe(
+      'Buyer development region; Romanian diacritics are canonicalized to production region names'
+    )
+    .optional(),
   cpvDivisionCode: z
     .string()
     .regex(/^[0-9]{2}$/)

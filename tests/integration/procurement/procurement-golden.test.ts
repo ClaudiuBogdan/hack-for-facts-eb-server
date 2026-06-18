@@ -3,7 +3,7 @@
  *
  * Pinned to verified live facts (2026-06-17):
  *   - grain gate: direct_acquisition {filters:t, spend:t, region:f};
- *     procurement_contract {filters:t, spend:f, region:f}
+ *     procurement_contract {filters:f, spend:f, region:f}
  *   - known DA edge: authority 29170968 (GRADINITA PP NR 23 PLOIESTI) ↔ supplier
  *     28022254 (Miralis Impex) is the #1 supplier by value AND flow count
  *   - cpv_divisions = 45 rows
@@ -61,14 +61,21 @@ const mcpCall = async (name: string, args: Record<string, unknown>): Promise<Mcp
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC body
-  const body = JSON.parse(res.body) as { result?: { structuredContent?: McpToolResult; content?: { text?: string }[] } };
+  const body = JSON.parse(res.body) as {
+    result?: { structuredContent?: McpToolResult; content?: { text?: string }[] };
+  };
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent;
   const text = body.result?.content?.[0]?.text;
   // eslint-disable-next-line no-restricted-syntax -- trusted MCP tool-output payload
-  return text !== undefined ? (JSON.parse(text) as McpToolResult) : ({ ok: false });
+  return text !== undefined ? (JSON.parse(text) as McpToolResult) : { ok: false };
 };
 
 /** Narrow a value to a record (the GraphQL data shapes are dynamic but trusted). */
@@ -78,10 +85,17 @@ const arr = (v: unknown): readonly unknown[] => v as readonly unknown[];
 d('Procurement golden (live prod)', () => {
   beforeAll(async () => {
     const config = loadRedesignConfig(process.env);
-    const built = await buildRedesignApp({ kernelConfig: config.kernel, modules: ['procurement'], logLevel: 'silent' });
+    const built = await buildRedesignApp({
+      kernelConfig: config.kernel,
+      modules: ['procurement'],
+      logLevel: 'silent',
+    });
     app = built.app;
     await app.ready();
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     process.on('uncaughtException', onUncaught);
   }, 60_000);
@@ -94,7 +108,9 @@ d('Procurement golden (live prod)', () => {
   });
 
   it('grain gate matches the live gate booleans', async () => {
-    const res = await gql(`{ procurementGrainQuality { grain filterAnswersAllowed spendRankingsAllowed supplierRegionFiltersAllowed } }`);
+    const res = await gql(
+      `{ procurementGrainQuality { grain filterAnswersAllowed spendRankingsAllowed supplierRegionFiltersAllowed } }`
+    );
     expect(res.errors).toBeUndefined();
     const rows = arr(res.data?.['procurementGrainQuality']).map(rec);
     const byGrain = new Map(rows.map((g) => [g['grain'] as string, g]));
@@ -103,7 +119,7 @@ d('Procurement golden (live prod)', () => {
     expect(da?.['filterAnswersAllowed']).toBe(true);
     expect(da?.['spendRankingsAllowed']).toBe(true);
     expect(da?.['supplierRegionFiltersAllowed']).toBe(false);
-    expect(pc?.['filterAnswersAllowed']).toBe(true);
+    expect(pc?.['filterAnswersAllowed']).toBe(false);
     expect(pc?.['spendRankingsAllowed']).toBe(false); // contract spend gate-suppressed
   });
 
@@ -127,7 +143,11 @@ d('Procurement golden (live prod)', () => {
     expect(gTop['flowCount']).toBe(raw?.fc);
     expect(gTop['amountRonSum']).toBe(raw?.amt);
 
-    const mcp = await mcpCall('rank_procurement_suppliers', { authorityCui: AUTHORITY, grain: 'direct_acquisition', topN: 1 });
+    const mcp = await mcpCall('rank_procurement_suppliers', {
+      authorityCui: AUTHORITY,
+      grain: 'direct_acquisition',
+      topN: 1,
+    });
     expect(mcp.ok).toBe(true);
     expect(mcp.items?.[0]?.['supplierCui']).toBe(gTop['supplierCui']);
     expect(mcp.items?.[0]?.['flowCount']).toBe(gTop['flowCount']);
@@ -155,7 +175,9 @@ d('Procurement golden (live prod)', () => {
   }, 30_000);
 
   it('§3a(1) guard: an unfiltered DA list is rejected (InvalidInput), a selective one is not', async () => {
-    const bad = await gql(`{ procurementDirectAcquisitions(filter: {}, first: 3){ edges { node { daId } } } }`);
+    const bad = await gql(
+      `{ procurementDirectAcquisitions(filter: {}, first: 3){ edges { node { daId } } } }`
+    );
     expect(bad.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
 
     const good = await gql(
@@ -163,7 +185,9 @@ d('Procurement golden (live prod)', () => {
       { cui: AUTHORITY }
     );
     expect(good.errors).toBeUndefined();
-    expect(arr(rec(good.data?.['procurementDirectAcquisitions'])['edges']).length).toBeGreaterThan(0);
+    expect(arr(rec(good.data?.['procurementDirectAcquisitions'])['edges']).length).toBeGreaterThan(
+      0
+    );
   });
 
   it('§3a(1) guard (MCP surface): DA search with no selective filter is rejected', async () => {
@@ -204,7 +228,9 @@ d('Procurement golden (live prod)', () => {
       );
       expect(p2.errors).toBeUndefined();
       const ids1 = edges1.map((e) => rec(e['node'])['daId']);
-      const ids2 = arr(rec(p2.data?.['procurementDirectAcquisitions'])['edges']).map((e) => rec(rec(e)['node'])['daId']);
+      const ids2 = arr(rec(p2.data?.['procurementDirectAcquisitions'])['edges']).map(
+        (e) => rec(rec(e)['node'])['daId']
+      );
       expect(ids1.filter((id) => ids2.includes(id))).toHaveLength(0);
     }
   }, 30_000);

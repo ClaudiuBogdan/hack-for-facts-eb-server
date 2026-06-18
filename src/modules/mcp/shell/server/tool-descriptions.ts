@@ -126,7 +126,7 @@ export const QUERY_PROCUREMENT_FILTERS_DESCRIPTION = `Query deterministic Public
 - sourceGrain (optional): "direct_acquisition" (default) | "procurement_contract"
 - rankBy (optional): "amount_ron" (default) | "flow_count"
 - authorityCui (optional): buyer/public authority CUI for institution-specific answers
-- authorityCountyCode / authorityRegion (optional): buyer territory filters, not supplier headquarters
+- authorityCountyCode / authorityRegion (optional): buyer territory filters, not supplier headquarters; authorityRegion accepts Romanian diacritics and canonicalizes to production region names such as "Bucuresti-Ilfov"
 - cpvDivisionCode (optional): two-digit CPV division, e.g. "45" for construction works
 - yearStart / yearEnd (optional): inclusive calendar-year filter
 - limit (optional): 1-50 rows, default 10
