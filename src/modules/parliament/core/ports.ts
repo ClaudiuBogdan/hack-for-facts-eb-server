@@ -14,7 +14,6 @@ import type {
   ParliamentBillActLink,
   ParliamentBillDocument,
   ParliamentBillEvent,
-  ParliamentBillInitiator,
   ParliamentBillVoteLink,
   ParliamentControlItem,
   ParliamentDeclarationMeta,
@@ -75,6 +74,13 @@ export interface ParliamentRepo {
   // members; omit/false = ALL mandate rows. Composition/roster ONLY (never attribution).
   listGroupCounts(legislature: string, chamber?: string, current?: boolean): Promise<Result<readonly ParliamentGroup[], ApiError>>;
   listGroupMembers(groupId: string, legislature?: string, current?: boolean): Promise<Result<readonly ParliamentMember[], ApiError>>;
+  /**
+   * Resolve a single group by its `group_id` slug against the `parliamentary_groups`
+   * registry (73 rows; covers historical/migrated groups like POT/PIR that no longer
+   * have a current member). Used by the `ParliamentGroupInterval.group` resolver (the
+   * interval row carries only the slug). Slug-keyed → unambiguous; null if unknown.
+   */
+  findGroup(groupId: string): Promise<Result<ParliamentGroup | null, ApiError>>;
   findPerson(personId: string): Promise<Result<ParliamentPerson | null, ApiError>>; // persons_pkey
   listPersonMandates(personId: string): Promise<Result<readonly ParliamentMember[], ApiError>>; // members_person_idx
   listGroupIntervals(mandateKey: string): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>; // pk prefix
@@ -98,7 +104,11 @@ export interface ParliamentRepo {
   findBill(billKey: string): Promise<Result<ParliamentBill | null, ApiError>>; // bills_pkey
   getBillEvents(billKey: string): Promise<Result<readonly ParliamentBillEvent[], ApiError>>;
   getBillDocuments(billKey: string): Promise<Result<readonly ParliamentBillDocument[], ApiError>>;
-  getBillInitiators(billKey: string): Promise<Result<readonly ParliamentBillInitiator[], ApiError>>;
+  // Initiators are surfaced AS ParliamentMember in the SDL; return the FULL member
+  // (not a reduced projection) so every ParliamentMember field — legislature,
+  // normalizedName, constituencyName, birthDate, and the nested group/person/interval
+  // resolvers — is populated regardless of entry path (H10).
+  getBillInitiators(billKey: string): Promise<Result<readonly ParliamentMember[], ApiError>>;
   getBillActLinks(billKey: string): Promise<Result<readonly ParliamentBillActLink[], ApiError>>;
   getBillVoteLinks(billKey: string): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>;
 
