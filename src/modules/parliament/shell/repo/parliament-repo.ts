@@ -115,8 +115,9 @@ const largestRemainderPct = (counts: readonly number[], total: number): number[]
   const deficit = 10000 - floors.reduce((a, b) => a + b, 0);
   const byFrac = scaled.map((x, i) => ({ i, frac: x - Math.floor(x) })).sort((a, b) => b.frac - a.frac);
   for (let k = 0; k < deficit && k < byFrac.length; k++) {
-    const idx = byFrac[k]!.i;
-    floors[idx] = (floors[idx] ?? 0) + 1;
+    const entry = byFrac[k];
+    if (entry === undefined) break;
+    floors[entry.i] = (floors[entry.i] ?? 0) + 1;
   }
   return floors.map((u) => u / 100);
 };
@@ -272,42 +273,46 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // listGroupCounts + listGroupMembers; it is NEVER threaded into any
     // vote_records / initiative / control / member-detail / career query.
     for (const key of ['legislature', 'chamber', 'current'] as const) {
-      if (filter[key] !== undefined) physical[key] = filter[key];
+      // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN arrive
+      // as null at runtime — skip it (treat null as absent) so the kernel composer never
+      // sees a null value (which it would mishandle).
+      const v: unknown = filter[key];
+      if (v !== undefined && v !== null) physical[key] = v;
     }
     const built = toConditionBuilders(membersFilterSpec, physical as FilterInput);
     if (built.isErr()) return err(built.error);
     const conds: RawBuilder<unknown>[] = [...built.value];
 
+    // group/judet are VIRTUAL (repo-intercepted), but they MUST follow the kernel op
+    // contract: multiple ops on one field are ANDed, and an EXPLICIT empty `in: []`
+    // matches NOTHING (#60h) — even alongside an `eq`. H6: match the chamber-slug
+    // group_id OR the party-name group_name (case-insensitive; the two value sets never
+    // overlap). H7: empty in:[] -> sql`false`, not a dropped predicate (which matched all).
+    const matchGroupCols = (vals: readonly string[]): RawBuilder<unknown> => {
+      const inList = sql.join(vals.map((v) => sql`${v.toLowerCase()}`), sql`, `);
+      return sql`(lower(m.group_name) in (${inList}) or lower(m.group_id) in (${inList}))`;
+    };
     const groupF = fieldFilter(filter, 'group');
-    const group = stringValues(groupF);
-    const groupVals = [...(group.eq !== undefined ? [group.eq] : []), ...(group.in ?? [])];
-    const groupEmptyIn =
-      groupF !== undefined && Array.isArray(groupF['in']) && (groupF['in'] as unknown[]).length === 0 && group.eq === undefined;
-    if (groupVals.length > 0) {
-      // H6: the `group` filter accepts EITHER the party NAME ("PNL") OR the chamber-slug
-      // group_id ("pnl-senat" — exactly what groupIntervals[].groupId emits), matched
-      // case-insensitively, so the obvious round-trip (read an interval's groupId, feed
-      // it back) returns rows. group_id and group_name value sets never overlap, so a
-      // single combined IN is unambiguous.
-      const folded = groupVals.map((g) => g.toLowerCase());
-      const inList = sql.join(folded.map((g) => sql`${g}`), sql`, `);
-      conds.push(sql`(lower(m.group_name) in (${inList}) or lower(m.group_id) in (${inList}))`);
-    } else if (groupEmptyIn) {
-      // H7: an EXPLICIT empty `in: []` matches NOTHING (mirror the #60h/enumSelection
-      // contract used by the physical filters), NOT "all members" (a dropped predicate).
-      conds.push(sql`false`);
+    if (groupF !== undefined) {
+      const { eq, in: inVals } = stringValues(groupF);
+      if (eq !== undefined) conds.push(matchGroupCols([eq]));
+      if (Array.isArray(groupF['in'])) {
+        conds.push(inVals !== undefined && inVals.length > 0 ? matchGroupCols(inVals) : sql`false`);
+      }
     }
 
-    const judetF = fieldFilter(filter, 'judet');
-    const judet = stringValues(judetF);
-    const judetVals = [...(judet.eq !== undefined ? [judet.eq] : []), ...(judet.in ?? [])].map((v) => foldDiacritics(v));
-    const judetEmptyIn =
-      judetF !== undefined && Array.isArray(judetF['in']) && (judetF['in'] as unknown[]).length === 0 && judet.eq === undefined;
-    if (judetVals.length > 0) {
+    const matchJudetCol = (vals: readonly string[]): RawBuilder<unknown> => {
       const foldedCol = sql`lower(translate(m.constituency_name, ${FOLD_FROM}, ${FOLD_TO}))`;
-      conds.push(sql`${foldedCol} in (${sql.join(judetVals.map((v) => sql`${v}`), sql`, `)})`);
-    } else if (judetEmptyIn) {
-      conds.push(sql`false`); // H7: explicit empty in:[] → match nothing.
+      const inList = sql.join(vals.map((v) => sql`${foldDiacritics(v)}`), sql`, `);
+      return sql`${foldedCol} in (${inList})`;
+    };
+    const judetF = fieldFilter(filter, 'judet');
+    if (judetF !== undefined) {
+      const { eq, in: inVals } = stringValues(judetF);
+      if (eq !== undefined) conds.push(matchJudetCol([eq]));
+      if (Array.isArray(judetF['in'])) {
+        conds.push(inVals !== undefined && inVals.length > 0 ? matchJudetCol(inVals) : sql`false`);
+      }
     }
 
     const q = containsValue(fieldFilter(filter, 'q'));
@@ -924,7 +929,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   const buildVoteConditions = (filter: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
     const physical: Record<string, unknown> = {};
     for (const key of ['chamber', 'outcome', 'voteDate', 'billKey'] as const) {
-      if (filter[key] !== undefined) physical[key] = filter[key];
+      // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN arrive
+      // as null at runtime — skip it (treat null as absent) so the kernel composer never
+      // sees a null value (which it would mishandle).
+      const v: unknown = filter[key];
+      if (v !== undefined && v !== null) physical[key] = v;
     }
     const built = toConditionBuilders(votesFilterSpec, physical as FilterInput);
     if (built.isErr()) return err(built.error);
@@ -1339,7 +1348,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   const buildControlConditions = (filter: FilterInput): { conds: RawBuilder<unknown>[]; error?: ApiError } => {
     const physical: Record<string, unknown> = {};
     for (const key of ['controlType', 'responseStatus', 'itemDate'] as const) {
-      if (filter[key] !== undefined) physical[key] = filter[key];
+      // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN arrive
+      // as null at runtime — skip it (treat null as absent) so the kernel composer never
+      // sees a null value (which it would mishandle).
+      const v: unknown = filter[key];
+      if (v !== undefined && v !== null) physical[key] = v;
     }
     const built = toConditionBuilders(controlItemsFilterSpec, physical as FilterInput);
     if (built.isErr()) return { conds: [], error: built.error };

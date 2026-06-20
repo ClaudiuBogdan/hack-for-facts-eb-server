@@ -59,8 +59,11 @@ const VOTE_CHAMBER_SET = new Set(VOTE_CHAMBERS_OK);
  * it emits no SQL predicate, so it would not actually bound the scan).
  */
 const fieldHasValue = (filter: FilterInput, name: string): boolean => {
-  const ff = filter[name];
-  if (typeof ff !== 'object') return false;
+  // Read as unknown: FilterInput omits null, but a GraphQL-nullable filter field can
+  // arrive as `null` at runtime; `typeof null === 'object'`, so guard it before
+  // Object.values (else `filter:{q:null}` throws a raw TypeError).
+  const ff: unknown = filter[name];
+  if (ff === null || typeof ff !== 'object') return false;
   for (const v of Object.values(ff as Record<string, unknown>)) {
     if (v === undefined || v === null) continue;
     if (typeof v === 'string') {
