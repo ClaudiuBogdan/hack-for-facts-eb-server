@@ -31,7 +31,7 @@ reload/recompute) and tracked in
 | H8 | ✅ FIXED — ballots-200 cap documented; clamp kept (codex D2) | server |
 | H9 | ✅ FIXED — 1000 cap dropped | server |
 | H10 | ✅ FIXED — full member shape | server |
-| H11 | GATED — interpelari attribution (LOADER-only; server resolver was correct) | data-ops P2 |
+| H11 | ✅ DONE — interpelari attribution backfilled (split_pass author/mandate 0→41,929 via sender_idm→2:leg:idm; loader fix `main 7aaea29` + serving recompute; 0 FK orphans, idempotent) | data-ops P2 |
 | H12 | GATED — net-new senate control/decl extraction | data-ops P3 |
 | H13 | ✅ FIXED | server |
 | H14 | ✅ FIXED — caveats report omitted; roles:["all"] widens. **Default unchanged — changing it is escalated to the user** | server |
@@ -44,7 +44,7 @@ reload/recompute) and tracked in
 | M6 | RECLASSIFIED — not a bug (date absent at source); documented | server doc |
 | M7 | ✅ FIXED — registry resolves historical slugs (audit overstated) | server |
 | M8 | GATED — slugifier dot-collapse | data-ops P3 |
-| M9 | GATED — control-stream unification | data-ops P2 |
+| M9 | ✅ DONE — control-stream unification: combined_pass refined to question 32,962 / interpellation 6,751 via item_number A/B (127 no-suffix kept question_or_interpellation); provenance preserved | data-ops P2 |
 | M10 | ✅ FIXED — declarationYear + synthesized label | server |
 | M11 | ✅ FIXED — SDL doc (statusText raw; use status filter) | server |
 | M12 | ✅ FIXED — largest-remainder → sum 100.00 | server |
