@@ -345,6 +345,8 @@ export const listControlItems = (
 // ── lineage (the marquee) ──────────────────────────────────────────────────────
 
 export const DEFAULT_LINEAGE_ROLES = ['final_adoption', 'final_rejection'] as const;
+/** Sentinel role: `roles:["all"]` widens lineage to every linked vote (H14). */
+export const LINEAGE_ROLE_ALL = 'all';
 
 export interface LineageInput {
   readonly actId: string;
@@ -359,19 +361,27 @@ export const getLineageForAct = async (
   // act_id is numeric; validate BEFORE the repo casts it to ::bigint (else a
   // non-numeric id surfaces as a DB 500 instead of a clean InvalidInput — Codex SF).
   if (!/^\d+$/u.test(input.actId)) return err(invalidInput('actId must be a numeric act_id', 'actId'));
-  const roles = input.roles !== undefined && input.roles.length > 0 ? input.roles : [...DEFAULT_LINEAGE_ROLES];
-  const [bills, lineageVotes] = await Promise.all([
+  const requestedRoles = input.roles !== undefined && input.roles.length > 0 ? input.roles : [...DEFAULT_LINEAGE_ROLES];
+  const showAllRoles = requestedRoles.includes(LINEAGE_ROLE_ALL);
+  const [bills, allVotes] = await Promise.all([
     deps.repo.billsForActId(input.actId),
-    deps.repo.votesForActId(input.actId, roles),
+    // Fetch ALL linked votes (no SQL role filter) and apply the role filter in TS, so the
+    // omitted non-default-role votes can be REPORTED in caveats (H14/M15) instead of
+    // silently disappearing — bill.voteLinks is unfiltered, so the two views now reconcile.
+    deps.repo.votesForActId(input.actId, []),
   ]);
   if (bills.isErr()) return err(bills.error);
-  if (lineageVotes.isErr()) return err(lineageVotes.error);
+  if (allVotes.isErr()) return err(allVotes.error);
+  const allLinked = allVotes.value;
 
-  // No act mapping at all (no bills, no votes) → null so callers can 404 vs empty.
-  if (bills.value.length === 0 && lineageVotes.value.length === 0) return ok(null);
+  // No act mapping at all (no bills, no linked votes) → null so callers can 404 vs empty.
+  if (bills.value.length === 0 && allLinked.length === 0) return ok(null);
+
+  // H14: default is final adoption/rejection; roles:["all"] widens to every linked vote.
+  const shown = showAllRoles ? allLinked : allLinked.filter((lv) => requestedRoles.includes(lv.role));
 
   const votes: ParliamentLineageVote[] = [];
-  for (const lv of lineageVotes.value) {
+  for (const lv of shown) {
     let ballotsTotal: number | null = null;
     let ballotsResolved: number | null = null;
     if (input.includeBallots === true) {
@@ -400,9 +410,26 @@ export const getLineageForAct = async (
     });
   }
 
+  // M15: caveats now carry real coverage signals (were empty for every act with a
+  // lineage). They let a consumer reconcile this view with the unfiltered bill.voteLinks.
   const caveats: string[] = [];
-  if (votes.length === 0) {
-    caveats.push('No final-adoption/rejection vote is linked for this act (lineage covers the dense-vote era ~2016+).');
+  if (allLinked.length === 0) {
+    caveats.push('No vote is linked for this act (lineage covers the dense-vote era ~2016+).');
+  } else if (shown.length === 0) {
+    caveats.push(
+      `${String(allLinked.length)} linked vote(s) exist but none match the requested role(s) (default: final adoption/rejection); pass roles:["all"] to include every linked vote.`
+    );
+  } else {
+    const omitted = allLinked.length - shown.length;
+    if (omitted > 0) {
+      caveats.push(
+        `${String(omitted)} additional linked vote(s) of other roles (e.g. amendment, procedural) are omitted by the role filter; pass roles:["all"] to include them.`
+      );
+    }
+  }
+  const lowConfidence = shown.filter((lv) => lv.confidenceLabel === 'low').length;
+  if (lowConfidence > 0) {
+    caveats.push(`${String(lowConfidence)} of the ${String(shown.length)} shown vote-link(s) are low-confidence matches.`);
   }
   return ok({ actId: input.actId, bills: bills.value, votes, caveats });
 };

@@ -286,6 +286,7 @@ export interface ParliamentSpeech {
 export interface ParliamentDeclarationMeta {
   readonly declarationType: string;
   readonly declarationDate: string | null;
+  readonly declarationYear: number | null; // recovered from the file_url path (M10)
   readonly label: string | null;
   readonly fileUrl: string;
 }

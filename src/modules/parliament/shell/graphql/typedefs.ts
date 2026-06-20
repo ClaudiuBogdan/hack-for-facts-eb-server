@@ -148,8 +148,13 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   type ParliamentBillEvent {
-    position: Int!  eventDate: Date  eventDateText: String  description: String
-    chamberCode: String  committee: String  voteIdv: String  docs: JSON
+    position: Int!
+    "Event date; null for ~56% of cdep procedural/committee rows whose source row carries no date (absent at source, NOT a parse gap — M6). Position ordering is always intact, so use position for chronology when eventDate is null."
+    eventDate: Date
+    eventDateText: String  description: String  chamberCode: String
+    "Committee name. Known-null in prod today — the committee is embedded in the 'description' text; structured extraction is a pending scrapper task (M5)."
+    committee: String
+    voteIdv: String  docs: JSON
   }
   type ParliamentBillDocument { url: String!  label: String  kind: String  position: Int }
 
@@ -172,9 +177,9 @@ const objectsAndQuery = /* GraphQL */ `
     billKey: ID!
     plxNumber: String  plxYear: Int  senateNumber: String  senateYear: Int
     title: String  finalLawNumber: String  finalLawYear: Int
-    "Source-stored current-status string (CDEP/Senate status_text, e.g. 'Lege 423/2023 …', 'respins'). The real status the client derived from title+events."
+    "RAW source status string (CDEP/Senate status_text, e.g. 'Lege 423/2023 …', 'respins'). May contain glued tokens/typos on the cdep side — use the 'status' FILTER (promulgated/rejected/in_progress) for the normalized lifecycle signal (M11)."
     statusText: String
-    "Source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). null when the source carries no procedure block."
+    "RAW source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). The billType FILTER buckets this by prefix into government/parliamentary; senat bills carry no procedure block, so the field is null and they match NEITHER bucket (M4). null when the source has no procedure block."
     billType: String
     "Date of the most recent timeline event (attrs.last_event_date). This is the key the default 'updated_desc' sort uses — exposed so the client can show/verify recency."
     lastEventDate: Date
@@ -199,8 +204,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Registration date (parsed from registration_date_text). null for ~4.3% date-less legacy rows. The member-initiatives list is ordered by this DESC (newest first)."
     registrationDate: Date
   }
-  "Declaration metadata ONLY — no file_hash, no content (§2.6)."
-  type ParliamentDeclarationMeta { declarationType: String!  declarationDate: Date  label: String  fileUrl: String! }
+  "Declaration metadata ONLY — no file_hash, no content (§2.6). declarationDate is null (the CDEP index carries no per-declaration date); declarationYear is recovered from the file_url path and label is synthesized as '<type> <year>' when the source has none (M10)."
+  type ParliamentDeclarationMeta { declarationType: String!  declarationDate: Date  declarationYear: Int  label: String  fileUrl: String! }
 
   "Marquee: act → bills → final votes → ballots. caveats flag era/coverage limits — never a silent empty."
   type ParliamentActLineage {
@@ -271,7 +276,7 @@ const objectsAndQuery = /* GraphQL */ `
     parliamentVote(voteKey: ID!): ParliamentVote
     "Standalone control-items list (cursor; REQUIRES a date window or recipient/author bound)."
     parliamentControlItems(filter: ParliamentControlItemsFilter, first: Int, after: String): ParliamentControlItemConnection
-    "Marquee: act → bills → final votes → ballots. roles default final_adoption,final_rejection; pass an explicit non-empty roles list (e.g. [amendment, procedural]) to widen — note bill.voteLinks is UNFILTERED, so the two views diverge by design (lineage.caveats reports the count of non-default linked votes omitted)."
+    "Marquee: act → bills → final votes → ballots. roles default to final_adoption,final_rejection; pass specific roles (e.g. [amendment, procedural]) or roles:[all] to widen to every linked vote. bill.voteLinks is UNFILTERED, so by default the two views differ — lineage.caveats reports how many non-default linked votes were omitted so they reconcile."
     parliamentActLineage(actId: ID!, roles: [String!], includeBallots: Boolean): ParliamentActLineage
     "Party cohesion over a bounded vote set (billKey OR chamber+from+to; hard-cap 500 votes — a wider window returns an INVALID_INPUT error in errors[], the field itself null)."
     parliamentVoteCohesion(billKey: ID, chamber: ParliamentChamber, from: Date, to: Date, group: String): [ParliamentGroupCohesion!]
