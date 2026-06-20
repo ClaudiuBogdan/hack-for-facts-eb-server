@@ -118,7 +118,7 @@ export interface BillEventsTable {
   event_date_text: string | null;
   description: string | null;
   chamber_code: string | null;
-  committee: string | null;
+  committee: string[] | null;
   vote_idv: string | null;
   docs: Jsonb;
 }

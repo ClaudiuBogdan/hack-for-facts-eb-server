@@ -134,7 +134,7 @@ export interface ParliamentBillEvent {
   readonly eventDateText: string | null;
   readonly description: string | null;
   readonly chamberCode: string | null;
-  readonly committee: string | null;
+  readonly committee: readonly string[] | null;
   readonly voteIdv: string | null; // explicit timeline→vote evidence
   readonly docs: readonly unknown[];
 }

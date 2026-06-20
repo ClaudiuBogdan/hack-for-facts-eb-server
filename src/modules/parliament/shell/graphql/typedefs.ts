@@ -152,8 +152,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Event date; null for ~56% of cdep procedural/committee rows whose source row carries no date (absent at source, NOT a parse gap — M6). Position ordering is always intact, so use position for chronology when eventDate is null."
     eventDate: Date
     eventDateText: String  description: String  chamberCode: String
-    "Committee name. Known-null in prod today — the committee is embedded in the 'description' text; structured extraction is a pending scrapper task (M5)."
-    committee: String
+    "Referral committee(s) for this event, extracted from the description (M5). An event commonly references more than one (e.g. report + opinion); null when the event references none (votes, readings). The full text remains in 'description'."
+    committee: [String!]
     voteIdv: String  docs: JSON
   }
   type ParliamentBillDocument { url: String!  label: String  kind: String  position: Int }
