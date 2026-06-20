@@ -40,7 +40,7 @@ reload/recompute) and tracked in
 | M2 | ✅ FIXED — reject kept; H2 isolates it (audit overstated "unimplemented") | server |
 | M3 | ✅ DONE — collapsed into H5 (parseFinalLaw is date-aware); 837 senat bills have year≠senate_year proving the date-derived year | data-ops P1 |
 | M4 | ✅ FIXED — SDL clarity (field raw vs bucketed filter) | server |
-| M5 | ✅ server doc (known-null); extraction GATED | server + data-ops P2 |
+| M5 | ✅ DONE — committee extracted from description into text[] (87,894 events, 94 committees, 0 junk); server `committee: [String!]` (`dev 0176059`) + client array (`dev d16453c`) + scrapper `main 6c396ae` | server + data-ops P2 |
 | M6 | RECLASSIFIED — not a bug (date absent at source); documented | server doc |
 | M7 | ✅ FIXED — registry resolves historical slugs (audit overstated) | server |
 | M8 | ✅ DONE — slugify folds acronym dots (`main 8ed6eac`); S.O.S. RO merged into sos-ro-senat (12 mandates, 20 merged intervals; s-o-s-ro-senat removed, 0 refs, idempotent) | data-ops P3 |
