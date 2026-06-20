@@ -136,6 +136,7 @@ const objectsAndQuery = /* GraphQL */ `
     lawReference: String
     tallyMismatch: Boolean!
     groupBreakdown: [ParliamentVoteGroupBreakdown!]!
+    "Ballots for this vote (cursor). 'first' is capped at 200 — deliberately higher than the 100 root-collection cap because a single vote's ballot set is parent-bound and bounded by chamber size."
     ballots(first: Int, after: String): ParliamentBallotConnection!
   }
 
@@ -180,7 +181,8 @@ const objectsAndQuery = /* GraphQL */ `
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!
-    relatedVotes: [ParliamentVote!]!
+    "DEPRECATED — use voteLinks. relatedVotes is 'votes WHERE bill_key = this bill' only: it drops the cross-chamber vote twin (stored under the other chamber's bill key) and carries no role/resolutionStatus."
+    relatedVotes: [ParliamentVote!]! @deprecated(reason: "Use voteLinks (role-bearing, cross-chamber). relatedVotes omits the cross-chamber vote twin and has no role/resolutionStatus.")
     actLinks: [ParliamentBillActLink!]!
     voteLinks: [ParliamentBillVoteLink!]!
   }
@@ -215,7 +217,8 @@ const objectsAndQuery = /* GraphQL */ `
 
   type ParliamentGroupCohesion {
     groupName: String!  forPct: Float!  againstPct: Float!  abstainPct: Float!  absentPct: Float!
-    cohesionIndex: Float!  voteCount: Int!
+    "Rice cohesion |for-against|/(for+against), 0..1. NULL when the group cast no DECIDED (for/against) votes in the set — Rice is undefined there, NOT 0 (a 0 would read as 'maximally divided'; M13). Gauge significance with voteCount."
+    cohesionIndex: Float  voteCount: Int!
   }
 
   type ParliamentResolveHit { dim: ParliamentFilterDim!  value: String!  label: String!  kind: String!  score: Float }
@@ -237,39 +240,45 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentVoteEdge { node: ParliamentVote!  cursor: String! }
   type ParliamentVoteConnection { edges: [ParliamentVoteEdge!]!  pageInfo: PageInfo! }
   type ParliamentBallotEdge { node: ParliamentBallot!  cursor: String! }
-  "Ballots for ONE vote (parented by vote_key; low hundreds). The 4.13M table is never scanned flat."
-  type ParliamentBallotConnection { edges: [ParliamentBallotEdge!]!  pageInfo: PageInfo! }
+  "Ballots for ONE vote (parented by vote_key; low hundreds). The 4.13M table is never scanned flat. 'total' is the EXACT ballot count for the vote (so a client need not paginate to size the set — M16)."
+  type ParliamentBallotConnection { edges: [ParliamentBallotEdge!]!  pageInfo: PageInfo!  total: Int! }
   type ParliamentMemberVoteEdge { node: ParliamentMemberVote!  cursor: String! }
   "A member's voting record (parented by mandate_key; bounded set). total is an EXACT count over the member slice."
   type ParliamentMemberVoteConnection { edges: [ParliamentMemberVoteEdge!]!  pageInfo: PageInfo!  total: Int! }
   type ParliamentControlItemEdge { node: ParliamentControlItem!  cursor: String! }
   type ParliamentControlItemConnection { edges: [ParliamentControlItemEdge!]!  pageInfo: PageInfo! }
 
+  # H2: the list/cohesion/resolve root fields are NULLABLE (no trailing !). A guard
+  # error (bad cursor, unbounded window, over-cap cohesion, missing API key) is then
+  # isolated to its own field (resolves null + an entry in errors[]) instead of
+  # propagating a non-null violation to the root Query and wiping every sibling field.
+  # This matches the already-nullable parliamentActLineage and the in-band MCP {ok:false}
+  # behaviour. The INNER types stay non-null ([T!] / connection edges).
   extend type Query {
     "Members of a legislature (default = latest). Offset page bounded by legislature."
-    parliamentMembers(filter: ParliamentMembersFilter, page: Int, pageSize: Int): ParliamentMemberPage!
+    parliamentMembers(filter: ParliamentMembersFilter, page: Int, pageSize: Int): ParliamentMemberPage
     parliamentMember(mandateKey: ID!): ParliamentMember
     "Cross-mandate person career (all mandates, group history, career totals)."
     parliamentPerson(personId: ID!): ParliamentPerson
     "Group composition counts. current:true (SC-1) = currently-seated only (e.g. camera 330 / senat 134); omit/false = all-mandate counts (335 / 137)."
-    parliamentGroups(legislature: String, chamber: String, current: Boolean): [ParliamentGroup!]!
-    "Roster for a group. groupId accepts EITHER a per-chamber group_id slug (from the chamber-scoped parliamentGroups list) OR a party-level group_name (from the whole-parliament list, whose groupId is the chamber-agnostic party name) — both resolve. Each member carries its own chamber, so the client buckets a party-level roster by chamber. current:true (SC-1) = currently-seated roster only."
-    parliamentGroupMembers(groupId: ID!, legislature: String, current: Boolean): [ParliamentMember!]!
-    parliamentBills(filter: ParliamentBillsFilter, sort: ParliamentBillSort, page: Int, pageSize: Int): ParliamentBillPage!
+    parliamentGroups(legislature: String, chamber: String, current: Boolean): [ParliamentGroup!]
+    "Roster for a group. groupId accepts EITHER a per-chamber group_id slug (from the chamber-scoped parliamentGroups list) OR a party-level group_name (from the whole-parliament list, whose groupId is the chamber-agnostic party name) — both resolve, case-insensitively. Each member carries its own chamber, so the client buckets a party-level roster by chamber. current:true (SC-1) = currently-seated roster only. No row cap — the full cross-chamber roster is returned."
+    parliamentGroupMembers(groupId: ID!, legislature: String, current: Boolean): [ParliamentMember!]
+    parliamentBills(filter: ParliamentBillsFilter, sort: ParliamentBillSort, page: Int, pageSize: Int): ParliamentBillPage
     parliamentBill(billKey: ID!): ParliamentBill
     "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here."
-    parliamentVotes(filter: ParliamentVotesFilter, sort: ParliamentVoteSort, first: Int, after: String): ParliamentVoteConnection!
+    parliamentVotes(filter: ParliamentVotesFilter, sort: ParliamentVoteSort, first: Int, after: String): ParliamentVoteConnection
     parliamentVote(voteKey: ID!): ParliamentVote
     "Standalone control-items list (cursor; REQUIRES a date window or recipient/author bound)."
-    parliamentControlItems(filter: ParliamentControlItemsFilter, first: Int, after: String): ParliamentControlItemConnection!
-    "Marquee: act → bills → final votes → ballots. roles default final_adoption,final_rejection."
+    parliamentControlItems(filter: ParliamentControlItemsFilter, first: Int, after: String): ParliamentControlItemConnection
+    "Marquee: act → bills → final votes → ballots. roles default final_adoption,final_rejection; pass an explicit non-empty roles list (e.g. [amendment, procedural]) to widen — note bill.voteLinks is UNFILTERED, so the two views diverge by design (lineage.caveats reports the count of non-default linked votes omitted)."
     parliamentActLineage(actId: ID!, roles: [String!], includeBallots: Boolean): ParliamentActLineage
-    "Party cohesion over a bounded vote set (billKey OR chamber+from+to; hard-cap 500 votes)."
-    parliamentVoteCohesion(billKey: ID, chamber: ParliamentChamber, from: Date, to: Date, group: String): [ParliamentGroupCohesion!]!
+    "Party cohesion over a bounded vote set (billKey OR chamber+from+to; hard-cap 500 votes — a wider window returns an INVALID_INPUT error in errors[], the field itself null)."
+    parliamentVoteCohesion(billKey: ID, chamber: ParliamentChamber, from: Date, to: Date, group: String): [ParliamentGroupCohesion!]
     "Resolve a free-text query to a filter value (group/person/constituency/recipient/control_type/outcome/chamber)."
-    parliamentResolveFilter(dim: ParliamentFilterDim!, q: String!, legislature: String): [ParliamentResolveHit!]!
+    parliamentResolveFilter(dim: ParliamentFilterDim!, q: String!, legislature: String): [ParliamentResolveHit!]
     "Person-identity review queue (API-key gated; lean projection — no evidence/method)."
-    parliamentPersonCandidates(status: String, page: Int, pageSize: Int): ParliamentPersonCandidatePage!
+    parliamentPersonCandidates(status: String, page: Int, pageSize: Int): ParliamentPersonCandidatePage
   }
 
   extend type Entity {

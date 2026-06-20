@@ -339,7 +339,7 @@ export interface ParliamentGroupCohesion {
   readonly againstPct: number;
   readonly abstainPct: number;
   readonly absentPct: number;
-  readonly cohesionIndex: number; // Rice-style 0..1
+  readonly cohesionIndex: number | null; // Rice-style 0..1; null when no decided votes (M13)
   readonly voteCount: number;
 }
 
