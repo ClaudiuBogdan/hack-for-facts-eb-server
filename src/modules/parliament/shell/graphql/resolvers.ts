@@ -77,6 +77,21 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
 const clampFirst = (first: number | undefined, max: number): number =>
   Math.min(Math.max(first ?? 20, 1), max);
 
+/**
+ * Drop filter fields whose value is `null`. A GraphQL-nullable input field can arrive as
+ * `null` ({legislature:null}, {q:null}); treat that as ABSENT so the default-latest /
+ * bound logic applies and the kernel composer never sees a null value (which it would
+ * mishandle). Op-level nulls ({field:{eq:null}}) are already handled downstream.
+ */
+const sansNull = (filter: FilterInput | undefined): FilterInput => {
+  // Read as unknown: the type omits null, but `filter: null` can arrive at runtime.
+  const f: unknown = filter;
+  if (f === null || typeof f !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(f as Record<string, unknown>).filter(([, v]) => v !== null)
+  ) as FilterInput;
+};
+
 export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<string, unknown> => {
   const { legalActLoader } = deps;
 
@@ -139,7 +154,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         args: { filter?: FilterInput; page?: number; pageSize?: number }
       ) => {
         const res = unwrap(
-          await listMembers(deps, { filter: args.filter ?? {}, sort: 'name', page: { ...(args.page !== undefined && { page: args.page }), ...(args.pageSize !== undefined && { pageSize: args.pageSize }) } })
+          await listMembers(deps, { filter: sansNull(args.filter), sort: 'name', page: { ...(args.page !== undefined && { page: args.page }), ...(args.pageSize !== undefined && { pageSize: args.pageSize }) } })
         );
         return { members: res.rows, total: res.total, totalEstimated: res.estimated };
       },
@@ -171,7 +186,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         args: { filter?: FilterInput; sort?: string; page?: number; pageSize?: number }
       ) => {
         const res = unwrap(
-          await listBills(deps, { filter: args.filter ?? {}, sort: args.sort ?? 'updated_desc', page: { ...(args.page !== undefined && { page: args.page }), ...(args.pageSize !== undefined && { pageSize: args.pageSize }) } })
+          await listBills(deps, { filter: sansNull(args.filter), sort: args.sort ?? 'updated_desc', page: { ...(args.page !== undefined && { page: args.page }), ...(args.pageSize !== undefined && { pageSize: args.pageSize }) } })
         );
         return { bills: res.rows, total: res.total, totalEstimated: res.estimated };
       },
@@ -199,7 +214,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       ) => {
         const sort = args.sort === 'voteKey' ? 'voteKey' : 'voteDate';
         const dir = 'desc' as const;
-        const filter = (args.filter ?? {}) as FilterInput;
+        const filter = sansNull(args.filter as FilterInput | undefined);
         const page = { first: clampFirst(args.first, 100), ...(args.after !== undefined && { after: args.after }) };
         const res = unwrap(await listVotes(deps, { filter, sort, dir, page, searchEngineUp: deps.searchEngineUp }));
         // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with
@@ -218,7 +233,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         _r: unknown,
         args: { filter?: Record<string, unknown>; first?: number; after?: string }
       ) => {
-        const filter = (args.filter ?? {}) as FilterInput;
+        const filter = sansNull(args.filter as FilterInput | undefined);
         const page = { first: clampFirst(args.first, 100), ...(args.after !== undefined && { after: args.after }) };
         const res = unwrap(await listControlItems(deps, filter, page));
         const fhash = fhashFor(controlItemsFilterSpec, filter);

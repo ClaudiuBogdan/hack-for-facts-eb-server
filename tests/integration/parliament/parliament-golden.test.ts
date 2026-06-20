@@ -1257,4 +1257,35 @@ d('Parliament golden (live prod)', () => {
     // were 100% null before; now the year is parsed from the path and the label synthesized.
     expect(decls.every((d) => d.declarationYear !== null && d.label !== null)).toBe(true);
   });
+
+  // Codex code-review follow-ups: kernel-contract op semantics + null-input safety.
+  it('group filter ANDs eq+in and treats an explicit empty in:[] as match-nothing even with eq', async () => {
+    const data = expectGqlData(
+      await gql<{
+        eqIn: { readonly total: number };
+        eqEmpty: { readonly total: number };
+        eqOnly: { readonly total: number };
+      }>(
+        `{
+          eqIn: parliamentMembers(pageSize:1, filter:{ group:{ eq:"PSD", in:["PNL"] } }) { total }
+          eqEmpty: parliamentMembers(pageSize:1, filter:{ group:{ eq:"PSD", in:[] } }) { total }
+          eqOnly: parliamentMembers(pageSize:1, filter:{ group:{ eq:"PSD" } }) { total }
+        }`
+      )
+    );
+    expect(data.eqIn.total).toBe(0); // eq=PSD AND in=[PNL] is impossible
+    expect(data.eqEmpty.total).toBe(0); // explicit empty in:[] → nothing, even with eq
+    expect(data.eqOnly.total).toBeGreaterThan(0); // eq alone still matches
+  });
+
+  it('null filter fields are treated as absent (no 500): legislature:null applies the default; q:null is fine', async () => {
+    const members = await gql<{ withNull: { readonly total: number } | null; base: { readonly total: number } | null }>(
+      `{ withNull: parliamentMembers(pageSize:1, filter:{ legislature:null }) { total } base: parliamentMembers(pageSize:1) { total } }`
+    );
+    expect(members.errors).toBeUndefined();
+    expect(members.data?.withNull?.total).toBe(members.data?.base?.total); // null == omitted (default-latest)
+
+    const votes = await gql<{ parliamentVotes: unknown }>(`{ parliamentVotes(filter:{ q:null }, first:1) { edges { cursor } } }`);
+    expect(votes.errors).toBeUndefined(); // q:null no longer throws a raw TypeError
+  });
 });
