@@ -104,6 +104,24 @@ const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool
 const escapeLike = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
 
 /**
+ * Largest-remainder (Hamilton) apportionment of `counts` to 2-decimal percentages that
+ * sum to EXACTLY 100.00 when total>0 (else all zero). Naive per-field half-up rounding
+ * drifts to 99.99 / 100.01 (M12). Works in hundredths-of-a-percent (the set sums to 10000).
+ */
+const largestRemainderPct = (counts: readonly number[], total: number): number[] => {
+  if (total <= 0) return counts.map(() => 0);
+  const scaled = counts.map((n) => (n / total) * 10000);
+  const floors = scaled.map((x) => Math.floor(x));
+  const deficit = 10000 - floors.reduce((a, b) => a + b, 0);
+  const byFrac = scaled.map((x, i) => ({ i, frac: x - Math.floor(x) })).sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < deficit && k < byFrac.length; k++) {
+    const idx = byFrac[k]!.i;
+    floors[idx] = (floors[idx] ?? 0) + 1;
+  }
+  return floors.map((u) => u / 100);
+};
+
+/**
  * Validate a decoded cursor's key tuple BEFORE trusting it in SQL (Codex BLOCKER
  * #2). `decodeCursor` only checks the envelope/fhash, so a client that flips
  * `keys` (wrong arity, a non-numeric integer key) would otherwise reach the query
@@ -1502,16 +1520,23 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           const abtinere = Number(r.abtinere);
           const absent = Number(r.nu_a_votat);
           const total = pentru + impotriva + abtinere + absent;
-          const pct = (n: number): number => (total > 0 ? Math.round((n / total) * 10000) / 100 : 0);
-          // Rice cohesion: |for - against| / (for + against), 0..1.
+          // M12: largest-remainder (Hamilton) apportionment so the four percentages sum
+          // to EXACTLY 100.00 — independent half-up rounding of each could yield 99.99/100.01.
+          const [forPct = 0, againstPct = 0, abstainPct = 0, absentPct = 0] = largestRemainderPct(
+            [pentru, impotriva, abtinere, absent],
+            total
+          );
+          // Rice cohesion: |for - against| / (for + against), 0..1. M13: NULL when there
+          // are no DECIDED votes (for+against=0) — Rice is undefined, not 0 (a 0 would
+          // read as "maximally divided" for an abstain/absent-only group).
           const decided = pentru + impotriva;
-          const cohesionIndex = decided > 0 ? Math.round((Math.abs(pentru - impotriva) / decided) * 1000) / 1000 : 0;
+          const cohesionIndex = decided > 0 ? Math.round((Math.abs(pentru - impotriva) / decided) * 1000) / 1000 : null;
           return {
             groupName: r.group_name ?? '(none)',
-            forPct: pct(pentru),
-            againstPct: pct(impotriva),
-            abstainPct: pct(abtinere),
-            absentPct: pct(absent),
+            forPct,
+            againstPct,
+            abstainPct,
+            absentPct,
             cohesionIndex,
             voteCount: Number(r.vote_count),
           };

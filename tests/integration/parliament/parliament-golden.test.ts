@@ -1162,4 +1162,62 @@ d('Parliament golden (live prod)', () => {
     // vote's own bill key (or null), never a foreign cdep key.
     expect(senatVotes.every((v) => v.billKey === null || v.billKey.startsWith('senat:'))).toBe(true);
   });
+
+  it('H2: a guard error on a nullable root field isolates (the sibling query survives)', async () => {
+    // A malformed cursor makes parliamentVotes throw; because the field is now nullable
+    // the error stays on that field instead of nullifying the whole Query.
+    const res = await gql<{ bad: unknown; ok: { readonly total: number } | null }>(
+      `{ bad: parliamentVotes(after:"NOT_A_CURSOR") { edges { cursor } } ok: parliamentBills(pageSize:1) { total } }`
+    );
+    expect(res.errors?.length).toBeGreaterThan(0); // the error is still reported…
+    expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+    expect(res.data?.bad).toBeNull(); // …isolated to the offending field…
+    expect(res.data?.ok?.total).toBeGreaterThan(0); // …and the sibling survives.
+  });
+
+  it('M16: ballots connection exposes the EXACT total count', async () => {
+    const data = expectGqlData(
+      await gql<{ parliamentVote: { readonly ballots: { readonly total: number; readonly edges: readonly unknown[] } } | null }>(
+        `query($k: ID!){ parliamentVote(voteKey:$k){ ballots(first:2){ total edges { node { rowIndex } } } } }`,
+        { k: VOTE }
+      )
+    );
+    const ballots = requireValue(data.parliamentVote?.ballots, 'ballots');
+    expect(ballots.total).toBeGreaterThan(ballots.edges.length); // total is the full set, not the page
+  });
+
+  it('M12/M13: cohesion percentages sum to 100.00 and cohesionIndex is null for no-decided-vote groups', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentVoteCohesion: readonly {
+          readonly forPct: number;
+          readonly againstPct: number;
+          readonly abstainPct: number;
+          readonly absentPct: number;
+          readonly cohesionIndex: number | null;
+        }[] | null;
+      }>(
+        // bill 22086: AUR cast a single all-abstain vote → undefined Rice (null, not 0).
+        `{ parliamentVoteCohesion(billKey:"22086"){ forPct againstPct abstainPct absentPct cohesionIndex } }`
+      )
+    );
+    const rows = requireValue(data.parliamentVoteCohesion, 'cohesion rows');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      // M12: largest-remainder keeps the sum at exactly 100.00 (no 99.99/100.01 drift).
+      expect(Math.round((r.forPct + r.againstPct + r.abstainPct + r.absentPct) * 100) / 100).toBe(100);
+    }
+    // M13: at least one group has no decided votes here → null cohesionIndex (never a 0).
+    expect(rows.some((r) => r.cohesionIndex === null)).toBe(true);
+  });
+
+  it('M14: ParliamentBill.relatedVotes is deprecated (use voteLinks)', async () => {
+    const data = expectGqlData(
+      await gql<{ __type: { readonly fields: readonly { readonly name: string; readonly isDeprecated: boolean }[] } | null }>(
+        `{ __type(name:"ParliamentBill"){ fields(includeDeprecated:true){ name isDeprecated } } }`
+      )
+    );
+    const field = data.__type?.fields.find((f) => f.name === 'relatedVotes');
+    expect(field?.isDeprecated).toBe(true);
+  });
 });

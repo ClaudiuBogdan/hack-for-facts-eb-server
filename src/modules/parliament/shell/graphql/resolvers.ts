@@ -106,6 +106,9 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
   const ballotConnection = (page: CursorPage<ParliamentBallot>, voteKey: string) => {
     const fhash = filterHash(`ballots:${voteKey}`);
     return {
+      // voteKey is carried so the ParliamentBallotConnection.total field resolver can
+      // count lazily (M16) — only when the client actually selects `total`.
+      voteKey,
       edges: page.items.map((node) => ({
         node,
         cursor: buildNextCursor({ sort: 'rowIndex', dir: 'asc', fhash, lastKeys: [node.rowIndex] }),
@@ -405,6 +408,13 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     ParliamentBallot: {
       member: async (parent: { mandateKey: string | null }) =>
         parent.mandateKey === null ? null : unwrap(await deps.repo.findMember(parent.mandateKey)),
+    },
+
+    ParliamentBallotConnection: {
+      // M16: exact ballot count for the vote, resolved lazily (one count query) only
+      // when the client selects `total` — so a normal `ballots(first:n)` page pays nothing.
+      total: async (parent: { voteKey: string }) =>
+        unwrap(await deps.repo.ballotResolution(parent.voteKey)).total,
     },
 
     Entity: {

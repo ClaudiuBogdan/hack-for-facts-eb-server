@@ -167,16 +167,21 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
         ...(group !== undefined && { group }),
       });
       if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.cohesion, res.error.message);
-      const top = [...res.value].sort((a, b) => b.cohesionIndex - a.cohesionIndex)[0];
+      // cohesionIndex is null for groups with no decided votes (M13) — rank those last.
+      const top = [...res.value].sort((a, b) => (b.cohesionIndex ?? -1) - (a.cohesionIndex ?? -1))[0];
+      const topIndex = top?.cohesionIndex;
       return {
         ok: true,
         kind: PARLIAMENT_MCP_KINDS.cohesion,
-        query: { billKey: strArg(args, 'billKey'), chamber: strArg(args, 'chamber'), from: strArg(args, 'from'), to: strArg(args, 'to') },
+        // echo all inputs incl. `group` (was dropped) so the provenance matches the call.
+        query: { billKey, chamber, from, to, ...(group !== undefined && { group }) },
         link: `${clientBaseUrl}/parlament/coeziune`,
         items: res.value,
         summary:
           `${n(res.value.length)} group(s)` +
-          (top !== undefined ? `; most cohesive ${top.groupName} (index ${top.cohesionIndex.toFixed(3)}, ${n(top.voteCount)} votes).` : '.'),
+          (top !== undefined
+            ? `; most cohesive ${top.groupName} (index ${topIndex !== null && topIndex !== undefined ? topIndex.toFixed(3) : 'n/a'}, ${n(top.voteCount)} votes).`
+            : '.'),
       };
     },
   };
