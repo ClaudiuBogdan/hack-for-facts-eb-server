@@ -144,7 +144,7 @@ const buildPublicMoney = async (
   cui: string
 ): Promise<Result<CompanyPublicMoney | null, ApiError>> => {
   const [summaryRes, payersRes] = await Promise.all([
-    flowsRepo.getFlowSummary(cui, 'in'),
+    flowsRepo.getFlowSummary(cui, 'in', true), // include the per-year breakdown (Company.byYear)
     flowsRepo.getTopCounterparties(cui, 'in', TOP_PAYERS_CAP),
   ]);
   if (summaryRes.isErr()) return err(summaryRes.error);
@@ -152,8 +152,16 @@ const buildPublicMoney = async (
   const summary: FlowSummary = summaryRes.value;
   if (summary.count === 0) return ok(null);
 
-  const byYear = summary.byFlowType.map((b) => ({
-    year: null as number | null, // summary breakdown is by flow_type, not year
+  // byYear is now a real per-(year, flowType) breakdown (audit H4 — `year` was
+  // always null because the kernel only grouped by flow_type). byFlowType keeps
+  // the year-agnostic rollup the old `byYear` actually carried.
+  const byYear = summary.byYear.map((b) => ({
+    year: b.year,
+    flowType: b.flowType,
+    totalRon: b.totalAmountRon,
+    count: b.count,
+  }));
+  const byFlowType = summary.byFlowType.map((b) => ({
     flowType: b.flowType,
     totalRon: b.totalAmountRon,
     count: b.count,
@@ -164,7 +172,7 @@ const buildPublicMoney = async (
     totalRon: c.totalAmountRon,
     count: c.flowCount,
   }));
-  return ok({ totalRon: summary.totalAmountRon, flowCount: summary.count, byYear, topPayers });
+  return ok({ totalRon: summary.totalAmountRon, flowCount: summary.count, byYear, byFlowType, topPayers });
 };
 
 /**
@@ -232,8 +240,12 @@ const computeTrajectory = (
   };
   const intDiff = (a: string | null, b: string | null): string | null =>
     a === null || b === null ? null : (BigInt(a) - BigInt(b)).toString();
+  // Net result = profit − loss. ANAF stores `net_profit = 0` (NOT null) in a loss
+  // year, so `netProfit ?? -netLoss` returned 0 and the delta dropped the loss
+  // entirely (audit H1: 951,172 / 951,194 loss rows carry net_profit = 0). Subtract
+  // explicitly, treating a missing side as 0; null only when BOTH sides are absent.
   const netResult = (y: CompanyFinancialYear): string | null =>
-    y.netProfit ?? (y.netLoss !== null ? `-${y.netLoss}` : null);
+    y.netProfit === null && y.netLoss === null ? null : decDiff(y.netProfit ?? '0', y.netLoss ?? '0');
   return {
     fromYear: prior.year,
     toYear: latest.year,
@@ -332,6 +344,8 @@ export const makeCompanyResolve = async (
   limit: number
 ): Promise<Result<CompanyResolveResponse, ApiError>> => {
   const base = { dim, q, matches: [] as readonly CompanyNameHit[], caenMatches: [] as readonly CaenCodeHit[], countyMatches: [] as readonly string[], degraded: false };
+  // limit ≤ 0 means "no hits" — honor it rather than letting the repo floor it to 1 (M10).
+  if (Math.floor(limit) <= 0) return ok({ ...base, ambiguous: false });
   switch (dim) {
     case 'name': {
       const res = await deps.repo.resolveByName(q, limit, deps.meili);
@@ -355,6 +369,34 @@ export const makeCompanyResolve = async (
     }
     default:
       return err({ type: 'InvalidInput', message: `unknown resolve dim '${String(dim)}'`, field: 'dim' });
+  }
+};
+
+/**
+ * Flatten a resolve response into the uniform hit shape both surfaces emit. The
+ * GraphQL resolver AND the MCP tool call this so the two never structurally drift
+ * (audit M14 — MCP's COUNTY dim returned plain strings while every other dim and
+ * the whole GraphQL surface returned `{dim,value,label,cui,confidence}`).
+ */
+export interface CompanyResolveHitOut {
+  readonly dim: 'NAME' | 'REGNUM' | 'CAEN' | 'COUNTY';
+  readonly value: string;
+  readonly label: string;
+  readonly cui: string | null;
+  readonly confidence: number | null;
+}
+
+export const toCompanyResolveHits = (res: CompanyResolveResponse): CompanyResolveHitOut[] => {
+  switch (res.dim) {
+    case 'caen':
+      return res.caenMatches.map((c) => ({ dim: 'CAEN' as const, value: c.code, label: c.label ?? c.code, cui: null, confidence: null }));
+    case 'county':
+      return res.countyMatches.map((c) => ({ dim: 'COUNTY' as const, value: c, label: c, cui: null, confidence: null }));
+    case 'regnum':
+      return res.matches.map((m) => ({ dim: 'REGNUM' as const, value: m.value, label: m.label, cui: m.cui, confidence: m.confidence }));
+    case 'name':
+    default:
+      return res.matches.map((m) => ({ dim: 'NAME' as const, value: m.value, label: m.label, cui: m.cui, confidence: m.confidence }));
   }
 };
 

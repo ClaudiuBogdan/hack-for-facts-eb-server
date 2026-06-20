@@ -186,8 +186,16 @@ export interface CompanyAsOf {
 // Public money (kernel FlowsRepo — payee/`in` direction only, grain-gated §14.6)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Per-(year, flowType) bucket. `year` is null only when the source flow has no flow_year. */
 export interface CompanyPublicMoneyYear {
   readonly year: number | null;
+  readonly flowType: string;
+  readonly totalRon: Money;
+  readonly count: number;
+}
+
+/** Per-flowType bucket (year-agnostic rollup). */
+export interface CompanyPublicMoneyFlowType {
   readonly flowType: string;
   readonly totalRon: Money;
   readonly count: number;
@@ -204,7 +212,10 @@ export interface CompanyPublicMoneyPayer {
 export interface CompanyPublicMoney {
   readonly totalRon: Money;
   readonly flowCount: number;
+  /** Per-(year, flowType) breakdown — `year` is populated (was always null; audit H4). */
   readonly byYear: readonly CompanyPublicMoneyYear[];
+  /** Per-flowType rollup (the year-agnostic view the old `byYear` actually held). */
+  readonly byFlowType: readonly CompanyPublicMoneyFlowType[];
   readonly topPayers: readonly CompanyPublicMoneyPayer[];
 }
 

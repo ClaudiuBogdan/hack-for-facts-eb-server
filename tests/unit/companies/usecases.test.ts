@@ -78,7 +78,7 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
 });
 
 const stubFlows = (over: Partial<FlowsRepo> = {}): FlowsRepo => ({
-  getFlowSummary: vi.fn(async () => ok({ direction: 'in' as const, count: 0, totalAmountRon: '0', minYear: null, maxYear: null, byFlowType: [] })),
+  getFlowSummary: vi.fn(async () => ok({ direction: 'in' as const, count: 0, totalAmountRon: '0', minYear: null, maxYear: null, byFlowType: [], byYear: [] })),
   getTopCounterparties: vi.fn(async () => ok([])),
   listFlows: vi.fn(async () => ok({ items: [], next: null })),
   getCounterpartyNetwork: vi.fn(async () => ok({ rootCui: '', depth: 0, nodes: [], edges: [] })),
@@ -111,14 +111,24 @@ describe('makeCompanyProfile', () => {
   });
 
   it('injects public money from the kernel FlowsRepo direction=in (payee), not the repo', async () => {
-    const getFlowSummary = vi.fn(async () => ok({ direction: 'in' as const, count: 3, totalAmountRon: '1816445170.99', minYear: 2019, maxYear: 2024, byFlowType: [{ flowType: 'direct_acquisition', count: 3, totalAmountRon: '1816445170.99' }] }));
+    const getFlowSummary = vi.fn(async () => ok({
+      direction: 'in' as const, count: 3, totalAmountRon: '1816445170.99', minYear: 2019, maxYear: 2024,
+      byFlowType: [{ flowType: 'direct_acquisition', count: 3, totalAmountRon: '1816445170.99' }],
+      byYear: [
+        { year: 2024, flowType: 'direct_acquisition', count: 2, totalAmountRon: '1000000000.00' },
+        { year: 2019, flowType: 'direct_acquisition', count: 1, totalAmountRon: '816445170.99' },
+      ],
+    }));
     const d = deps({ flows: { getFlowSummary } });
     const res = await makeCompanyProfile(d, '2816464');
     expect(res.isOk()).toBe(true);
-    const pm = (res as { value: { publicMoney: { totalRon: string; flowCount: number } | null } }).value.publicMoney;
+    const pm = (res as { value: { publicMoney: { totalRon: string; flowCount: number; byYear: { year: number | null }[]; byFlowType: { flowType: string }[] } | null } }).value.publicMoney;
     expect(pm?.flowCount).toBe(3);
     expect(pm?.totalRon).toBe('1816445170.99');
-    expect(getFlowSummary).toHaveBeenCalledWith('2816464', 'in');
+    // H4: byYear carries a populated year (was always null); byFlowType is the rollup.
+    expect(pm?.byYear[0]?.year).toBe(2024);
+    expect(pm?.byFlowType[0]?.flowType).toBe('direct_acquisition');
+    expect(getFlowSummary).toHaveBeenCalledWith('2816464', 'in', true); // opts into the byYear breakdown
   });
 
   it('returns null public money when the company is not a flows payee', async () => {
