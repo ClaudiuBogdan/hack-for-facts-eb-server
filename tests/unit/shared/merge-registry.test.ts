@@ -93,6 +93,7 @@ const emptySummary = (direction: 'in' | 'out'): FlowSummary => ({
   minYear: null,
   maxYear: null,
   byFlowType: [],
+  byYear: [],
 });
 
 const makeDeps = (presences: (SourcePresence | null)[]): Entity360Deps => {

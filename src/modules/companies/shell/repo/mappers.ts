@@ -33,8 +33,17 @@ export const mapTerritory = (row: {
   county_name: string | null;
   match_confidence: string | null;
 }): CompanyTerritory | null => {
-  // No territory at all → null (the ~36.3% unmatched, rural).
-  if (row.uat_siruta_code === null && row.uat_name === null && row.county_name === null) return null;
+  const hasSiruta =
+    row.uat_siruta_code !== null || row.uat_name !== null || row.county_name !== null;
+  // Distinguish "unmatched" (a registration exists, but the urban-only SIRUTA
+  // matcher found no UAT — ~36.3% of companies) from "no data at all" (no
+  // registration row → match_confidence null → territory null). The former now
+  // surfaces an explicit `matchConfidence: 'unmatched'` object so callers can
+  // tell the two apart (audit M4 — UNMATCHED was previously never emitted).
+  if (!hasSiruta) {
+    if (row.match_confidence === null) return null;
+    return { sirutaCode: null, uatName: null, countyName: null, matchConfidence: 'unmatched' };
+  }
   return {
     sirutaCode: row.uat_siruta_code === null ? null : String(row.uat_siruta_code),
     uatName: row.uat_name,
@@ -154,6 +163,24 @@ const toSummary = (r: FinancialRow): CompanyFinancialSummary => ({
   patrimonyRegie: r.patrimony_regie,
 });
 
+/**
+ * `lines` is the full ANAF statement (jsonb). pg parses jsonb numbers into JS
+ * numbers, which violates the Money-as-string contract every other money field
+ * honors (audit M6 — `lines["Creante"]` was a bare int while `summary.receivables`
+ * was a string). Stringify numeric values so the contract is consistent and a
+ * future non-zero-cents value cannot silently lose its decimals. (Realistic ANAF
+ * RON values are < 2^53, so the jsonb→JS parse is lossless here; true bigint
+ * precision would require the upstream loader to emit the value as text.)
+ */
+const stringifyLines = (
+  lines: Record<string, unknown> | null
+): Record<string, unknown> | null => {
+  if (lines === null) return null;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(lines)) out[k] = typeof v === 'number' ? String(v) : v;
+  return out;
+};
+
 export const mapFinancialYear = (r: FinancialRow): CompanyFinancialYear => ({
   year: r.year,
   turnover: r.turnover,
@@ -161,5 +188,5 @@ export const mapFinancialYear = (r: FinancialRow): CompanyFinancialYear => ({
   netLoss: r.net_loss,
   employees: r.employees,
   summary: toSummary(r),
-  lines: r.lines,
+  lines: stringifyLines(r.lines),
 });

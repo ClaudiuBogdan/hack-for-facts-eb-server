@@ -31,6 +31,7 @@ import {
   makeCompanyPublicMoney,
   makeCompanyResolve,
   normalizeCuiFilter,
+  toCompanyResolveHits,
   type CompanyUsecaseDeps,
 } from '../../core/usecases.js';
 
@@ -136,19 +137,8 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       companyResolve: async (_r: unknown, args: { dim: string; q: string; limit?: number }) => {
         const dim = GQL_RESOLVE_DIM[args.dim] ?? 'name';
         const res = unwrap(await makeCompanyResolve(deps, dim, args.q, args.limit ?? 10));
-        if (dim === 'caen') {
-          return res.caenMatches.map((c) => ({ dim: 'CAEN', value: c.code, label: c.label ?? c.code, cui: null, confidence: null }));
-        }
-        if (dim === 'county') {
-          return res.countyMatches.map((c) => ({ dim: 'COUNTY', value: c, label: c, cui: null, confidence: null }));
-        }
-        return res.matches.map((m) => ({
-          dim: dim === 'regnum' ? 'REGNUM' : 'NAME',
-          value: m.value,
-          label: m.label,
-          cui: m.cui,
-          confidence: m.confidence,
-        }));
+        // Shared mapper — identical shape on GraphQL + MCP (audit M14).
+        return toCompanyResolveHits(res);
       },
 
       companyCountyProfile: async (_r: unknown, args: { filter?: FilterInput; groupBy?: string }) => {

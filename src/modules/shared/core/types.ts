@@ -35,7 +35,11 @@ export type IsoDateTime = string;
 
 /**
  * Normalize a Romanian CUI/CIF: uppercase, strip a leading `RO`, keep digits.
- * Returns null when nothing usable remains.
+ * Returns null when nothing usable remains OR the result is longer than 13 digits
+ * — the DB CHECK is `^[0-9]{1,13}$`, so a 14+-digit "CUI" is malformed, never a
+ * real fiscal code. Enforcing the cap here validates UNIFORMLY across every CUI
+ * entry point (entity, company, filters, …) so the two surfaces can't disagree on
+ * whether an input is acceptable (audit M12).
  */
 export const normalizeCui = (raw: string): Cui | null => {
   const result = raw
@@ -43,7 +47,7 @@ export const normalizeCui = (raw: string): Cui | null => {
     .trim()
     .replace(/^RO/u, '')
     .replace(/[^0-9]/gu, '');
-  return result.length > 0 ? result : null;
+  return result.length > 0 && result.length <= 13 ? result : null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,6 +192,14 @@ export interface FlowTypeBreakdown {
   readonly totalAmountRon: Money;
 }
 
+/** Per-(year, flow_type) flow breakdown. `year` is null only when the source row has no flow_year. */
+export interface FlowYearBreakdown {
+  readonly year: number | null;
+  readonly flowType: string;
+  readonly count: number;
+  readonly totalAmountRon: Money;
+}
+
 /** Aggregated flow summary by CUI + direction (§4.3). */
 export interface FlowSummary {
   readonly direction: FlowDirection;
@@ -196,6 +208,8 @@ export interface FlowSummary {
   readonly minYear: number | null;
   readonly maxYear: number | null;
   readonly byFlowType: readonly FlowTypeBreakdown[];
+  /** Per-(year, flow_type) breakdown (flow_year + flow_type both exist on money_flows). */
+  readonly byYear: readonly FlowYearBreakdown[];
 }
 
 /** A counterparty rollup (top payers/payees). */

@@ -25,6 +25,7 @@ import type {
   FlowDirection,
   FlowSummary,
   FlowTypeBreakdown,
+  FlowYearBreakdown,
   MoneyFlow,
   NetworkEdge,
   NetworkNode,
@@ -49,10 +50,33 @@ const flowFhash = (cui: string, o: FlowListOptions): string =>
   );
 
 export const makeFlowsRepo = (db: Db): FlowsRepo => ({
-  async getFlowSummary(cui: string, direction: FlowDirection): Promise<Result<FlowSummary, ApiError>> {
+  async getFlowSummary(
+    cui: string,
+    direction: FlowDirection,
+    includeYearBreakdown = false
+  ): Promise<Result<FlowSummary, ApiError>> {
     const col = cuiColumnFor(direction);
     try {
-      const [summary, breakdown] = await Promise.all([
+      // The per-(year, flow_type) breakdown is an EXTRA aggregate over money_flows;
+      // only run it when a caller needs it (Company.publicMoney). The entity-360 hot
+      // path exposes only byFlowType, so it leaves this off and gets an empty byYear.
+      const yearBreakdownQuery = includeYearBreakdown
+        ? db
+            .selectFrom('flows.money_flows')
+            .select([
+              'flow_year',
+              'flow_type',
+              sql<string>`count(*)`.as('count'),
+              sql<string>`coalesce(sum(amount_ron), 0)`.as('total'),
+            ])
+            .where(col, '=', cui)
+            .groupBy(['flow_year', 'flow_type'])
+            .orderBy(sql`flow_year desc nulls last`)
+            .orderBy(sql`sum(amount_ron) desc nulls last`)
+            .execute()
+        : Promise.resolve([]);
+
+      const [summary, breakdown, yearBreakdown] = await Promise.all([
         db
           .selectFrom('flows.money_flows')
           .select([
@@ -73,9 +97,17 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
           .where(col, '=', cui)
           .groupBy('flow_type')
           .execute(),
+        yearBreakdownQuery,
       ]);
 
       const byFlowType: FlowTypeBreakdown[] = breakdown.map((r) => ({
+        flowType: r.flow_type,
+        count: Number(r.count),
+        totalAmountRon: r.total,
+      }));
+
+      const byYear: FlowYearBreakdown[] = yearBreakdown.map((r) => ({
+        year: r.flow_year,
         flowType: r.flow_type,
         count: Number(r.count),
         totalAmountRon: r.total,
@@ -88,6 +120,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         minYear: summary?.min_year ?? null,
         maxYear: summary?.max_year ?? null,
         byFlowType,
+        byYear,
       });
     } catch (error) {
       return err(databaseError('getFlowSummary failed', error));
@@ -119,10 +152,26 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         .limit(cappedLimit)
         .execute();
 
+      // M2: the flows-side counterparty name is whatever the source contract spelled
+      // (diacritics dropped, `RO`+CUI prefixes, old abbreviations). Overlay the
+      // canonical `core.organizations.name` when the counterparty CUI is a known org
+      // (any kind — many payers are public entities), keeping the flows-side name as
+      // a fallback. Bounded by the ≤100 top-N, so it's one small extra lookup.
+      const cpCuis = rows.map((r) => r.cp_cui).filter((c): c is string => c !== null);
+      const canonicalName = new Map<string, string>();
+      if (cpCuis.length > 0) {
+        const orgs = await db
+          .selectFrom('core.organizations')
+          .select(['cui', 'name'])
+          .where('cui', 'in', cpCuis)
+          .execute();
+        for (const o of orgs) if (o.cui !== null) canonicalName.set(o.cui, o.name);
+      }
+
       return ok(
         rows.map((r) => ({
           cui: r.cp_cui as string,
-          name: r.cp_name,
+          name: canonicalName.get(r.cp_cui as string) ?? r.cp_name,
           totalAmountRon: r.total,
           flowCount: Number(r.flow_count),
         }))

@@ -82,10 +82,14 @@ const objectsAndQuery = /* GraphQL */ `
   type CompanyPublicMoney {
     totalRon: Money!
     flowCount: Int!
+    "Per-(year, flowType) breakdown; year is populated (flow_year)."
     byYear: [CompanyPublicMoneyYear!]!
+    "Per-flowType rollup (year-agnostic)."
+    byFlowType: [CompanyPublicMoneyFlowType!]!
     topPayers: [CompanyPublicMoneyPayer!]!
   }
   type CompanyPublicMoneyYear { year: Int  flowType: String!  totalRon: Money!  count: Int! }
+  type CompanyPublicMoneyFlowType { flowType: String!  totalRon: Money!  count: Int! }
   type CompanyPublicMoneyPayer { cui: CUI  name: String  totalRon: Money!  count: Int! }
 
   type Company {
@@ -164,14 +168,14 @@ const objectsAndQuery = /* GraphQL */ `
   extend type Query {
     "Full company profile by CUI (registry + fiscal + financials + caen + reps + flags + public money)."
     company(cui: CUI!): Company
-    "Filterable company list. q (name) resolves via Meili first, then hydrates by CUI; connection-only."
-    companies(filter: CompaniesFilter, q: String, sort: CompanySort = NAME, first: Int = 20, after: String): CompanyConnection!
+    "Filterable company list. q (name) resolves via Meili first, then hydrates by CUI; connection-only. Nullable: an error isolates to this field instead of nulling the whole response (audit H2)."
+    companies(filter: CompaniesFilter, q: String, sort: CompanySort = NAME, first: Int = 20, after: String): CompanyConnection
     "Full financials series + computed latest + trajectory."
     companyFinancials(cui: CUI!): CompanyFinancials
-    "Resolve free text to a filter value: name→CUI (Meili), regnum→CUI list (two-hop), caen-label→code, county→canonical."
-    companyResolve(dim: CompanyResolveDim!, q: String!, limit: Int = 10): [CompanyResolveHit!]!
-    "Count-ranked county/status/CAEN-division profile. groupBy=COUNTY requires a selective filter (no raw_county index)."
-    companyCountyProfile(filter: CompaniesFilter, groupBy: CompanyGroupBy = COUNTY): CompanyCountyProfile!
+    "Resolve free text to a filter value: name→CUI (Meili), regnum→CUI list (two-hop), caen-label→code, county→canonical. Nullable for per-field error isolation (audit H2)."
+    companyResolve(dim: CompanyResolveDim!, q: String!, limit: Int = 10): [CompanyResolveHit!]
+    "Count-ranked county/status/CAEN-division profile. groupBy=COUNTY requires a selective filter (no raw_county index). Nullable for per-field error isolation (audit H2)."
+    companyCountyProfile(filter: CompaniesFilter, groupBy: CompanyGroupBy = COUNTY): CompanyCountyProfile
   }
 
   extend type Entity {

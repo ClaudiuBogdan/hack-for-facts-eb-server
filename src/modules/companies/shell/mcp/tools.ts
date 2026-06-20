@@ -26,6 +26,7 @@ import {
   makeCompanyList,
   makeCompanyProfile,
   makeCompanyResolve,
+  toCompanyResolveHits,
   type CompanyUsecaseDeps,
 } from '../../core/usecases.js';
 
@@ -53,6 +54,15 @@ const filterArg = (args: Record<string, unknown>): FilterInput => {
 const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
 const n = (x: number): string => String(x);
 
+/**
+ * Present territory with the SAME matchConfidence casing the GraphQL enum
+ * serializes (SAFE/UNMATCHED) so an agent sees one value across both surfaces
+ * (audit M13 — MCP emitted the lowercase domain value 'safe' while GraphQL emitted
+ * the enum name 'SAFE').
+ */
+const mcpTerritory = (t: { matchConfidence: 'safe' | 'unmatched' } | null): unknown =>
+  t === null ? null : { ...t, matchConfidence: t.matchConfidence.toUpperCase() };
+
 export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMcpTool[] => {
   const { clientBaseUrl } = deps;
   const companyLink = (cui: string): string => `${clientBaseUrl}/companii/${cui}`;
@@ -64,7 +74,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     inputShape: {
       dim: z.enum(['name', 'regnum', 'caen', 'county']).describe('Which dimension to resolve.'),
       q: z.string().describe('The free-text query (name, registration number, CAEN label, or county).'),
-      limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
+      limit: z.number().int().min(0).max(50).optional().describe('Max hits (default 10; 0 = no hits).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const dim = strArg(args, 'dim') as CompanyResolveDim;
@@ -73,18 +83,20 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const res = await makeCompanyResolve(deps, dim, q, intArg(args, 'limit', 10));
       if (res.isErr()) return errorOut('resolution', res.error.message);
       const r = res.value;
-      const count =
-        dim === 'caen' ? r.caenMatches.length : dim === 'county' ? r.countyMatches.length : r.matches.length;
+      // Shared mapper — items are structurally identical to GraphQL on every dim,
+      // incl. county (audit M14 — county previously returned plain strings here).
+      const hits = toCompanyResolveHits(r);
       const top = r.matches[0];
       const summary =
         top !== undefined && (dim === 'name' || dim === 'regnum')
           ? `Resolved "${q}" to CUI ${top.cui ?? top.value} (${top.label}).`
-          : `Found ${n(count)} match(es) for "${q}" as ${dim}.`;
+          : `Found ${n(hits.length)} match(es) for "${q}" as ${dim}.`;
       return {
         ok: true,
         kind: 'resolution',
         query: { dim, q },
-        items: dim === 'caen' ? r.caenMatches : dim === 'county' ? r.countyMatches : r.matches,
+        items: hits,
+        meta: { count: hits.length, degraded: r.degraded },
         summary: r.degraded ? `${summary} (name search degraded — search service unavailable)` : summary,
       };
     },
@@ -121,7 +133,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           legalForm: p.legalForm,
           headlineStatus: p.headlineStatus,
           fiscal: p.fiscal,
-          territory: p.territory,
+          territory: mcpTerritory(p.territory),
           latestFinancial: latest ?? null,
           publicMoney: pm,
           asOf: p.asOf,
@@ -185,6 +197,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         query: { filter: filterArg(args), sort, page: page.page, pageSize: page.pageSize },
         link: `${clientBaseUrl}/companii`,
         items: rows,
+        // Structured totals so an agent can tell a capped estimate (≥10,000) from an
+        // exact count without parsing the summary text (audit H6).
+        meta: { totalCount: total, totalEstimated, pageCount: rows.length, ...(caveats.length > 0 && { caveats }) },
         summary:
           `${n(rows.length)} company(ies) on page ${n(page.page)}` +
           `; ${totalEstimated ? '≥' : ''}${n(total)} match(es)` +
@@ -212,6 +227,8 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         query: { groupBy, filter: filterArg(args) },
         link: `${clientBaseUrl}/companii`,
         items: res.value.groups,
+        // Structured denominator + territory coverage (audit H6 — were summary-only).
+        meta: { denominator: res.value.denominator, groupCount: res.value.groups.length, coverage: res.value.coverage },
         summary:
           `${n(res.value.groups.length)} ${groupBy} group(s); ${n(res.value.denominator)} companies` +
           (top !== undefined ? `; top ${top.label ?? top.key} = ${n(top.count)}. ${res.value.coverage.note}` : `. ${res.value.coverage.note}`),

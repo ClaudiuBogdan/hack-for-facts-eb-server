@@ -154,7 +154,18 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
   return ok(conds);
 };
 
-/** `caenCode` eq/in/prefix → EXISTS over caen_activities (index caen_activities_code_idx). */
+/**
+ * `caenCode` eq/in/prefix → a semi-join on caen_activities (index caen_activities_code_idx).
+ *
+ * The POSITIVE case compiles to `o.cui IN (select cui from caen_activities where
+ * <preds>)` rather than a correlated `EXISTS`: the subquery is non-correlated, so
+ * the planner resolves the matching CUIs via the caen_code index ONCE and
+ * semi-joins, instead of probing the EXISTS per organization row across the whole
+ * table — the per-org probe was the real cost behind the slow caenCode filter
+ * (audit M8) and the caenDivision aggregate timeouts (audit C1, mis-attributed to
+ * an alias bug). caen_activities.cui is NOT NULL (PK), so the IN is null-safe.
+ * The negate case keeps NOT EXISTS (it must include null-cui orgs, and exclude is rare).
+ */
 const caenExists = (
   f: import('@/modules/shared/index.js').FieldFilter | undefined,
   negate: boolean
@@ -172,8 +183,10 @@ const caenExists = (
   }
   if (preds.length === 0) return ok(null);
   const inner = sql.join(preds, sql` or `);
-  const exists = sql`exists (select 1 from companies.caen_activities ca where ca.cui = o.cui and (${inner}))`;
-  return ok(negate ? sql`not (${exists})` : exists);
+  if (negate) {
+    return ok(sql`not (exists (select 1 from companies.caen_activities ca where ca.cui = o.cui and (${inner})))`);
+  }
+  return ok(sql`o.cui in (select ca.cui from companies.caen_activities ca where (${inner}))`);
 };
 
 /** `county` eq/in → diacritic-folded match on r.raw_county (NO unaccent; §15.7). */
@@ -476,7 +489,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .map((r) => {
           const hay = foldDiacritics(r.normalized_name ?? r.name);
           const idx = hay.indexOf(folded);
-          const score = idx < 0 ? 0 : 1 / (1 + idx) + 1 / (1 + hay.length);
+          // Clamp to ≤1.0: an exact prefix match on a short name would otherwise
+          // exceed 1.0 (e.g. 1.125) and break the [0,1] confidence contract (M10).
+          const score = idx < 0 ? 0 : Math.min(1, 1 / (1 + idx) + 1 / (1 + hay.length));
           return { r, score };
         })
         .sort((a, b) => b.score - a.score)
@@ -495,7 +510,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   };
 
   const findByRegistrationNumber = async (cod: string): Promise<Result<readonly CompanyNameHit[], ApiError>> => {
-    const value = cod.trim();
+    // cod_inmatriculare is stored upper-case (J40/…, F40/…); upper-case the input
+    // so `j40/…` resolves like `J40/…` (audit M9 — the lookup was case-sensitive).
+    const value = cod.trim().toUpperCase();
     if (value === '') return ok([]);
     try {
       // TWO-HOP: identifiers (scheme,value) → org_id, JOIN organizations (kind='company') → cui.
@@ -519,15 +536,33 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     }
   };
 
+  /**
+   * Resolve a CAEN query to codes. The dim is "prefix/division resolution", so a
+   * numeric/code-like query resolves by CODE (exact, then prefix) — NOT only by
+   * label text (audit C4: previously `q:"6201"` did a label ILIKE and returned 0).
+   * A free-text query still matches the Romanian label. Exact-code hits rank
+   * first, then code-prefix, then label matches.
+   */
   const resolveCaen = async (label: string, limit: number): Promise<Result<readonly CaenCodeHit[], ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
-    const pattern = '%' + label.replace(/[\\%_]/gu, (m) => `\\${m}`) + '%';
+    const q = label.trim();
+    if (q === '') return ok([]);
+    const esc = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
+    const codePrefix = esc(q) + '%';
+    const labelPattern = '%' + esc(q) + '%';
     try {
       const rows = await db
         .selectFrom('core.classification_codes')
         .select(['code', 'system', 'label'])
         .where(sql<boolean>`system like 'caen\\_%' escape '\\'`)
-        .where(sql<boolean>`label ilike ${pattern} escape '\\'`)
+        .where(
+          sql<boolean>`(code = ${q} or code like ${codePrefix} escape '\\' or label ilike ${labelPattern} escape '\\')`
+        )
+        // exact code first, then code-prefix, then shortest code (broadest division) — label-only matches fall to the end.
+        .orderBy(sql`(code = ${q}) desc`)
+        .orderBy(sql`(code like ${codePrefix} escape '\\') desc`)
+        .orderBy(sql`length(code) asc`)
+        .orderBy('code', 'asc')
         .limit(capped)
         .execute();
       return ok(
@@ -559,6 +594,13 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   };
 
   // ── aggregates (count-ranked) ───────────────────────────────────────────────
+  interface CountRow {
+    key: string | null;
+    label: string | null;
+    cnt: string;
+    matched: string;
+    unmatched: string;
+  }
   const countBy = async (
     groupBy: CompanyGroupBy,
     filter: FilterInput
@@ -574,57 +616,64 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
 
     try {
       let groups: CompanyGroupCount[];
-      if (groupBy === 'status') {
-        // count(distinct o.cui): the cui is unique in registrations, but DISTINCT
-        // is the safe grain (no double-count if a future load adds rows).
-        const rows = await db
-          .selectFrom('core.organizations as o')
-          .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-          .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
-          .select(['r.status_code as key', sql<string | null>`max(r.status_label)`.as('label'), sql<string>`count(distinct o.cui)`.as('cnt')])
-          .where(where)
-          .groupBy('r.status_code')
-          .orderBy(sql`count(distinct o.cui) desc`)
-          .limit(500)
-          .execute();
-        groups = rows.map((r) => ({ key: r.key ?? '(none)', label: r.label, count: Number(r.cnt) }));
-      } else if (groupBy === 'caenDivision') {
-        // The grouping join uses alias `cad` so it does NOT collide with the `ca`
-        // the `caenCode` EXISTS subquery (in `where`) declares — otherwise the
-        // EXISTS would bind to the wrong relation and bypass the filter (B1).
-        const rows = await db
-          .selectFrom('core.organizations as o')
-          .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-          .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
-          .innerJoin('companies.caen_activities as cad', 'cad.cui', 'o.cui')
-          .select([sql<string>`left(cad.caen_code, 2)`.as('key'), sql<string>`count(distinct o.cui)`.as('cnt')])
-          .where(where)
-          .groupBy(sql`left(cad.caen_code, 2)`)
-          .orderBy(sql`count(distinct o.cui) desc`)
-          .limit(500)
-          .execute();
+      let coverage: CompanyCoverage;
+      if (groupBy === 'caenDivision') {
+        // Resolve the filtered companies FIRST in a materialized CTE, THEN fan out
+        // to their activities for the division grouping. This matters for latency:
+        // joining registrations/fiscal_status alongside the activities fan-out in one
+        // pass made the planner build the full o⋈r⋈f product before applying the
+        // filter (~27s, past the statement timeout — the real cause of audit C1, NOT
+        // the hypothesized alias bug). Materializing the filtered cui set (the IN
+        // caenCode filter resolves via the caen_code index, audit M8) keeps eq ~10s /
+        // broad-prefix ~13s. Count must be DISTINCT (a cui has many activities).
+        // Territory coverage is NOT computed at the division grain (would re-introduce
+        // distincts over the fan-out); it stays a county/status answer.
+        const rows = await sql<{ key: string; cnt: string }>`
+          with filtered as materialized (
+            select o.cui as cui
+            from core.organizations o
+            left join companies.registrations r on r.cui = o.cui
+            left join companies.fiscal_status f on f.cui = o.cui
+            where ${where}
+          )
+          select left(cad.caen_code, 2) as key, count(distinct fil.cui)::text as cnt
+          from filtered fil
+          inner join companies.caen_activities cad on cad.cui = fil.cui
+          group by left(cad.caen_code, 2)
+          order by count(distinct fil.cui) desc
+          limit 500
+        `.execute(db).then((r) => r.rows);
         groups = rows.map((r) => ({ key: r.key, label: null, count: Number(r.cnt) }));
+        coverage = { territoryMatched: null, territoryUnmatched: null, note: COMPANY_TERRITORY_COVERAGE_NOTE };
       } else {
-        // county
-        const rows = await db
-          .selectFrom('core.organizations as o')
-          .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-          .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
-          .select(['r.raw_county as key', sql<string>`count(distinct o.cui)`.as('cnt')])
-          .where(where)
-          .groupBy('r.raw_county')
-          .orderBy(sql`count(distinct o.cui) desc`)
-          .limit(500)
-          .execute();
-        groups = rows.map((r) => ({ key: r.key ?? '(none)', label: null, count: Number(r.cnt) }));
+        // status/county are 1:1 over (o ⋈ r ⋈ f) → count(*) == count(distinct cui),
+        // the cheaper form. Coverage (audit M11 — was hardcoded null) rides as two
+        // FILTER columns in the SAME grouped scan (no second scan — a concurrent
+        // coverage query doubled the cost on big sets like status=1048 ≈ 1.74M and
+        // blew the budget). Each cui lands in exactly one county/status group, so
+        // summing the per-group matched/unmatched is the exact total. `unmatched` =
+        // SIRUTA miss OR no registration row.
+        const keyExpr = groupBy === 'status' ? sql`r.status_code` : sql`r.raw_county`;
+        const labelExpr = groupBy === 'status' ? sql`max(r.status_label)` : sql`null::text`;
+        const result = await sql<CountRow>`
+          select ${keyExpr} as key, ${labelExpr} as label, count(*)::text as cnt,
+            count(*) filter (where r.match_confidence = 'safe')::text as matched,
+            count(*) filter (where r.match_confidence is distinct from 'safe')::text as unmatched
+          from core.organizations o
+          left join companies.registrations r on r.cui = o.cui
+          left join companies.fiscal_status f on f.cui = o.cui
+          where ${where}
+          group by ${keyExpr} order by count(*) desc limit 500
+        `.execute(db);
+        groups = result.rows.map((r) => ({ key: r.key ?? '(none)', label: r.label, count: Number(r.cnt) }));
+        // groupings stay well under the 500 cap (≤~90), so summing is the full total.
+        coverage = {
+          territoryMatched: result.rows.reduce((s, r) => s + Number(r.matched), 0),
+          territoryUnmatched: result.rows.reduce((s, r) => s + Number(r.unmatched), 0),
+          note: COMPANY_TERRITORY_COVERAGE_NOTE,
+        };
       }
-
       const denominator = groups.reduce((s, g) => s + g.count, 0);
-      const coverage: CompanyCoverage = {
-        territoryMatched: null,
-        territoryUnmatched: null,
-        note: COMPANY_TERRITORY_COVERAGE_NOTE,
-      };
       return ok({ groups, denominator, coverage });
     } catch (error) {
       return err(databaseError('countBy failed', error));

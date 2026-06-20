@@ -126,7 +126,7 @@ d('Companies golden (live prod)', () => {
     const y2024 = c.financials.find((f) => f.year === 2024);
     expect(y2024?.employees).toBe('12313'); // bigint as string, never a JS number
     expect(c.publicMoney?.flowCount).toBeGreaterThan(0);
-  }, 15_000); // full profile incl. the public-money slice on a 219k-flow payee.
+  }, 25_000); // full profile incl. the public-money slice (3 flow aggregates) on a 219k-flow payee.
 
   it('drops is_active: no surface emits an "active"-named boolean; declaredFiscallyInactive present', async () => {
     const res = await gql(`query($cui: CUI!){ company(cui:$cui){ fiscal { declaredFiscallyInactive } } }`, { cui: DEDEMAN });
@@ -266,4 +266,65 @@ d('Companies golden (live prod)', () => {
     const res = await gql(`query{ companies(filter: { status: { in: [] } }, first: 1){ totalCount } }`);
     expect(res.errors).toBeDefined();
   });
+
+  // ── QA-audit fixes (server doc 03-private-companies-qa-audit) ────────────────
+
+  it('C4: companyResolve(CAEN) resolves by CODE, not only label text', async () => {
+    const res = await gql(`query{ companyResolve(dim: CAEN, q: "6201"){ dim value label } }`);
+    expect(res.errors).toBeUndefined();
+    const hits = (res.data as { companyResolve: { value: string }[] }).companyResolve;
+    // "6201" must surface the 6201 code (label-only search returned 0 before).
+    expect(hits.some((h) => h.value === '6201')).toBe(true);
+  });
+
+  it('M9: companyResolve(REGNUM) is case-insensitive (lowercase j… resolves)', async () => {
+    const res = await gql(`query{ companyResolve(dim: REGNUM, q: "j1992002621040"){ cui } }`);
+    expect(res.errors).toBeUndefined();
+    const hits = (res.data as { companyResolve: { cui: string }[] }).companyResolve;
+    expect(hits.some((h) => h.cui === DEDEMAN)).toBe(true);
+  });
+
+  it('M11: county aggregate coverage is populated and sums to the denominator', async () => {
+    const res = await gql(
+      `query{ companyCountyProfile(filter: { status: { in: ["1048"] } }, groupBy: COUNTY){
+         denominator coverage { territoryMatched territoryUnmatched } } }`
+    );
+    expect(res.errors).toBeUndefined();
+    const prof = (res.data as { companyCountyProfile: { denominator: number; coverage: { territoryMatched: number | null; territoryUnmatched: number | null } } }).companyCountyProfile;
+    expect(prof.coverage.territoryMatched).not.toBeNull();
+    expect(prof.coverage.territoryUnmatched).not.toBeNull();
+    expect((prof.coverage.territoryMatched ?? 0) + (prof.coverage.territoryUnmatched ?? 0)).toBe(prof.denominator);
+  }, 15_000);
+
+  it('C1/C2: CAEN_DIVISION + caenCode runs (no timeout) and APPLIES the filter', async () => {
+    // The audit hypothesized an alias crash (C1) / ignored filter (C2). The REAL
+    // cause was a slow per-org EXISTS forcing the full o⋈r⋈f product before the
+    // filter (~27s). The IN-subquery rewrite (caenExists, audit M8) + a materialized
+    // filtered CTE bring it to ~3.6s warm (~14s on a fully cold cache — a data-volume
+    // property of the 18M-row caen_activities table; the durable fix is a precomputed
+    // (cui, division) rollup, tracked as a follow-up). Warm once, then assert the
+    // realistic (warm) behavior.
+    const q = `query{ companyCountyProfile(filter: { caenCode: { eq: "6201" } }, groupBy: CAEN_DIVISION){ denominator groups { key count } } }`;
+    await gql(q).catch(() => undefined); // warm caen_activities pages
+    const res = await gql(q);
+    expect(res.errors).toBeUndefined();
+    const prof = (res.data as { companyCountyProfile: { denominator: number; groups: { key: string }[] } }).companyCountyProfile;
+    expect(prof.groups.some((g) => g.key === '62')).toBe(true);
+    expect(prof.denominator).toBeGreaterThan(0);
+    expect(prof.denominator).toBeLessThan(1_000_000); // C2: filter applied (not the full ~1.2M universe)
+  }, 40_000);
+
+  it('H4: publicMoney.byYear carries a populated year and byFlowType is present', async () => {
+    const query = `query($cui: CUI!){ company(cui:$cui){ publicMoney {
+         flowCount byYear { year flowType totalRon } byFlowType { flowType totalRon } } } }`;
+    await gql(query, { cui: DEDEMAN }).catch(() => undefined); // warm the 219k-flow payee's pages
+    const res = await gql(query, { cui: DEDEMAN });
+    expect(res.errors).toBeUndefined();
+    const pm = (res.data as { company: { publicMoney: { byYear: { year: number | null }[]; byFlowType: { flowType: string }[] } | null } }).company.publicMoney;
+    expect(pm).not.toBeNull();
+    expect(pm?.byYear.length).toBeGreaterThan(0);
+    // at least one bucket carries a real year (was 100% null before H4).
+    expect(pm?.byYear.some((b) => b.year !== null)).toBe(true);
+    expect(pm?.byFlowType.length).toBeGreaterThan(0);
+  }, 25_000); // 3 concurrent flow aggregates on a 219k-flow payee, cold cache.
 });

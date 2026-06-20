@@ -81,7 +81,17 @@ export interface FlowListOptions {
 }
 
 export interface FlowsRepo {
-  getFlowSummary(cui: Cui, direction: FlowDirection): Promise<Result<FlowSummary, ApiError>>;
+  /**
+   * Aggregated flow summary. `byYear` (per-(year, flow_type)) is computed ONLY when
+   * `includeYearBreakdown` is true — it costs an extra aggregate over money_flows, so
+   * the entity-360 hot path (which exposes only `byFlowType`) leaves it off and gets
+   * an empty `byYear`. Company.publicMoney opts in.
+   */
+  getFlowSummary(
+    cui: Cui,
+    direction: FlowDirection,
+    includeYearBreakdown?: boolean
+  ): Promise<Result<FlowSummary, ApiError>>;
   getTopCounterparties(
     cui: Cui,
     direction: FlowDirection,

@@ -25,6 +25,13 @@ export interface McpToolOutput<T = unknown> {
   readonly link?: string;
   readonly item?: T;
   readonly items?: readonly T[];
+  /**
+   * Structured envelope metadata for list/aggregate tools — totals, coverage,
+   * pagination flags an agent must read PROGRAMMATICALLY rather than parse out of
+   * the human-readable `summary` (audit H6: totalCount/denominator/coverage were
+   * summary-text-only). Rides into the SDK `structuredContent` like every field.
+   */
+  readonly meta?: Readonly<Record<string, unknown>>;
   readonly summary?: string;
   readonly error?: string;
 }
