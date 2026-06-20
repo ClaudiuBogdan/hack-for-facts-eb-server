@@ -20,12 +20,12 @@ reload/recompute) and tracked in
 
 | ID | Status | Where |
 | -- | ------ | ----- |
-| C1 | GATED (scrapper recompute) — server M1 detector wired | data-ops P0 |
+| C1 | ✅ DONE — scrapper SQL recompute-from-nominal executed (35 inflated tallies corrected, 0 regressions); server M1 detector wired | data-ops P0 |
 | H1a/H1b | ✅ FIXED | server |
 | H2 | ✅ FIXED — 9 root fields nullable (codex found 3 beyond the 6) | server |
 | H3 | GATED — senat fişă detail-port | data-ops P1 |
 | H4 | ✅ FIXED — SDL signposts finalized vs hasLaw | server |
-| H5 | GATED — wire existing parseFinalLaw into senat lane | data-ops P1 |
+| H5 | ✅ DONE — parseFinalLaw wired into senat lane + reloaded; 1,575 senat bills now carry final_law_number/year | data-ops P1 |
 | H6 | ✅ FIXED | server |
 | H7 | ✅ FIXED | server |
 | H8 | ✅ FIXED — ballots-200 cap documented; clamp kept (codex D2) | server |
@@ -35,10 +35,10 @@ reload/recompute) and tracked in
 | H12 | GATED — net-new senate control/decl extraction | data-ops P3 |
 | H13 | ✅ FIXED | server |
 | H14 | ✅ FIXED — caveats report omitted; roles:["all"] widens. **Default unchanged — changing it is escalated to the user** | server |
-| H15 | server DEFERRED (ambiguous citation key — codex D6); data GATED | data-ops P1 |
+| H15 | ✅ DONE (data) — `correlate --stages bill-act-links` backfilled 1,498 senat act-links (0→1,498 linked, 77 unresolved, 0 ambiguous; cdep 3,410 unchanged; senat:606-2024→act 162403). Server kernel resolver still DEFERRED (codex D6) | data-ops P1 |
 | M1 | ✅ FIXED — raw-attrs presence (audit/agent `!= null` would also have failed) | server |
 | M2 | ✅ FIXED — reject kept; H2 isolates it (audit overstated "unimplemented") | server |
-| M3 | GATED — collapses into H5 (parseFinalLaw is already date-aware) | data-ops P1 |
+| M3 | ✅ DONE — collapsed into H5 (parseFinalLaw is date-aware); 837 senat bills have year≠senate_year proving the date-derived year | data-ops P1 |
 | M4 | ✅ FIXED — SDL clarity (field raw vs bucketed filter) | server |
 | M5 | ✅ server doc (known-null); extraction GATED | server + data-ops P2 |
 | M6 | RECLASSIFIED — not a bug (date absent at source); documented | server doc |
