@@ -334,11 +334,25 @@ export interface DeclarationRow {
   file_url: string;
 }
 
-export const mapDeclaration = (r: DeclarationRow): ParliamentDeclarationMeta => ({
-  declarationType: r.declaration_type,
-  declarationDate: r.declaration_date,
-  label: r.label,
-  fileUrl: r.file_url,
-});
+/** CDEP declaration URLs bucket by year in the path (.../deputati/2012/avere/x.pdf). */
+const declarationYearFromUrl = (url: string): number | null => {
+  const m = /\/((?:19|20)\d{2})(?=\/)/u.exec(url);
+  return m?.[1] !== undefined ? Number(m[1]) : null;
+};
+
+export const mapDeclaration = (r: DeclarationRow): ParliamentDeclarationMeta => {
+  // M10: the source carries no per-declaration date or label (the CDEP index is a
+  // year-bucketed list of PDF links). Recover the YEAR from the file_url path and
+  // synthesize a human label so these are not 100% null. declarationDate stays null —
+  // a full date cannot be fabricated from a year alone (honest).
+  const year = declarationYearFromUrl(r.file_url);
+  return {
+    declarationType: r.declaration_type,
+    declarationDate: r.declaration_date,
+    declarationYear: year,
+    label: r.label ?? (year !== null ? `${r.declaration_type} ${String(year)}` : r.declaration_type),
+    fileUrl: r.file_url,
+  };
+};
 
 export { tallyOf };

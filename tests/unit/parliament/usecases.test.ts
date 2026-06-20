@@ -191,10 +191,10 @@ describe('listControlItems — bound guard (§3.2)', () => {
 });
 
 describe('getLineageForAct — marquee assembly + ballots gate', () => {
-  const lineageRow = (voteKey: string): LineageVoteRow => ({
+  const lineageRow = (voteKey: string, role = 'final_adoption'): LineageVoteRow => ({
     vote: fakeVote(voteKey),
     billKey: '12760',
-    role: 'final_adoption',
+    role,
     resolutionStatus: 'linked',
     confidenceLabel: 'high',
   });
@@ -234,11 +234,28 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
     if (r.isOk()) expect(r.value).toBeNull();
   });
 
-  it('defaults roles to final_adoption,final_rejection', async () => {
+  it('fetches ALL linked votes and filters to final roles by default, reporting the omitted ones (H14/M15)', async () => {
     const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
-    const votesForActId = vi.fn(() => okp([]));
-    await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '145905' });
-    expect(votesForActId).toHaveBeenCalledWith('145905', ['final_adoption', 'final_rejection']);
+    const votesForActId = vi.fn(() =>
+      okp([lineageRow('cdep:1', 'final_adoption'), lineageRow('cdep:2', 'amendment'), lineageRow('cdep:3', 'procedural')])
+    );
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '145905' });
+    // The repo is called WITHOUT a role filter — filtering happens in TS so the omitted
+    // non-default-role votes can be reported in caveats (instead of vanishing in SQL).
+    expect(votesForActId).toHaveBeenCalledWith('145905', []);
+    expect(r.isOk()).toBe(true);
+    if (r.isOk() && r.value !== null) {
+      expect(r.value.votes.map((v) => v.role)).toEqual(['final_adoption']); // default = final only
+      expect(r.value.caveats.some((c) => c.includes('omitted'))).toBe(true);
+    }
+  });
+
+  it('roles:["all"] widens lineage to every linked vote', async () => {
+    const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
+    const votesForActId = vi.fn(() => okp([lineageRow('cdep:1', 'final_adoption'), lineageRow('cdep:2', 'amendment')]));
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '145905', roles: ['all'] });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk() && r.value !== null) expect(r.value.votes).toHaveLength(2);
   });
 
   it('propagates a repo error', async () => {

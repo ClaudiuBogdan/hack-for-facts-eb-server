@@ -211,7 +211,8 @@ export const billsFilterSpec: CollectionFilterSpec = {
       type: 'bool',
       ops: ['isNull'],
       column: { alias: 'b', column: 'final_law_number' },
-      description: 'isNull:false = became law (final_law_number IS NOT NULL). Residual.',
+      description:
+        'isNull:false = has a LAW NUMBER (final_law_number IS NOT NULL). NOT the same as hasLaw (act-registry linked): 218 cdep bills have a law number but no resolved act link, so finalized(3,628) > hasLaw(3,410). Residual.',
     },
     {
       name: 'hasLaw',
@@ -219,7 +220,8 @@ export const billsFilterSpec: CollectionFilterSpec = {
       ops: ['eq'],
       column: { alias: 'b', column: 'bill_key' },
       virtual: true,
-      description: 'true = has a linked bill_act_links row (resolution_status=linked). Repo EXISTS join.',
+      description:
+        'true = act-registry RESOLVED — a linked bill_act_links row (resolution_status=linked). Distinct from finalized (has a law number): a law number can exist without a resolved act link (the 218-bill gap). Repo EXISTS join.',
     },
     {
       name: 'actId',

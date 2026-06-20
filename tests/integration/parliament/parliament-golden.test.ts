@@ -1220,4 +1220,41 @@ d('Parliament golden (live prod)', () => {
     const field = data.__type?.fields.find((f) => f.name === 'relatedVotes');
     expect(field?.isDeprecated).toBe(true);
   });
+
+  it('H14/M15: lineage defaults to final votes, caveats report omitted non-default votes, roles:["all"] widens', async () => {
+    // act 133626 (← bill 20229) has 2 final_adoption + 38 amendment + 3 procedural linked votes.
+    const def = expectGqlData(
+      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[]; readonly caveats: readonly string[] } | null }>(
+        `{ parliamentActLineage(actId:"133626"){ votes { role } caveats } }`
+      )
+    );
+    const all = expectGqlData(
+      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null }>(
+        `{ parliamentActLineage(actId:"133626", roles:["all"]){ votes { role } } }`
+      )
+    );
+    const defaultVotes = def.parliamentActLineage?.votes ?? [];
+    const allVotes = all.parliamentActLineage?.votes ?? [];
+    expect(allVotes.length).toBeGreaterThan(defaultVotes.length); // roles:["all"] widens
+    expect(defaultVotes.every((v) => v.role === 'final_adoption' || v.role === 'final_rejection')).toBe(true);
+    // M15: the caveat is no longer empty for an act WITH a lineage — it reports the omission.
+    expect((def.parliamentActLineage?.caveats ?? []).some((c) => c.includes('omitted'))).toBe(true);
+  });
+
+  it('M10: declaration metadata recovers a year + synthesized label from the file_url', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly declarations: readonly { readonly declarationType: string; readonly declarationYear: number | null; readonly label: string | null }[];
+        } | null;
+      }>(
+        `query($k: ID!){ parliamentMember(mandateKey:$k){ declarations { declarationType declarationYear label } } }`,
+        { k: MEMBER }
+      )
+    );
+    const decls = data.parliamentMember?.declarations ?? [];
+    expect(decls.length).toBeGreaterThan(0);
+    // were 100% null before; now the year is parsed from the path and the label synthesized.
+    expect(decls.every((d) => d.declarationYear !== null && d.label !== null)).toBe(true);
+  });
 });

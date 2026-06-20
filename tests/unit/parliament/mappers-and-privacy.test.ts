@@ -168,22 +168,37 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
 });
 
 describe('mapDeclaration — metadata only, NEVER file_hash or content', () => {
-  it('projects only {type,date,label,fileUrl}', () => {
+  it('projects {type,date,year,label,fileUrl} and keeps a source-provided label', () => {
     const row: DeclarationRow = {
       declaration_type: 'avere',
       declaration_date: '2024-03-01',
       label: 'Declarație de avere',
-      file_url: 'https://example/decl.pdf',
+      file_url: 'https://example/decl.pdf', // no /YYYY/ path segment → year null
     };
     const d = mapDeclaration(row);
     expect(d).toEqual({
       declarationType: 'avere',
       declarationDate: '2024-03-01',
+      declarationYear: null,
       label: 'Declarație de avere',
       fileUrl: 'https://example/decl.pdf',
     });
     expect(Object.keys(d)).not.toContain('fileHash');
     expect(Object.keys(d)).not.toContain('content');
+  });
+
+  // M10: declarationDate + label were 100% null in prod; recover the year from the CDEP
+  // file_url path and synthesize a label so the fields are usable.
+  it('recovers the year from the CDEP path and synthesizes a label when the source has none', () => {
+    const d = mapDeclaration({
+      declaration_type: 'avere',
+      declaration_date: null,
+      label: null,
+      file_url: 'https://www.cdep.ro/declaratii/deputati/2012/avere/010f.pdf',
+    });
+    expect(d.declarationYear).toBe(2012);
+    expect(d.label).toBe('avere 2012');
+    expect(d.declarationDate).toBeNull(); // a full date is never fabricated from a year
   });
 });
 
