@@ -43,7 +43,7 @@ reload/recompute) and tracked in
 | M5 | ✅ server doc (known-null); extraction GATED | server + data-ops P2 |
 | M6 | RECLASSIFIED — not a bug (date absent at source); documented | server doc |
 | M7 | ✅ FIXED — registry resolves historical slugs (audit overstated) | server |
-| M8 | GATED — slugifier dot-collapse | data-ops P3 |
+| M8 | ✅ DONE — slugify folds acronym dots (`main 8ed6eac`); S.O.S. RO merged into sos-ro-senat (12 mandates, 20 merged intervals; s-o-s-ro-senat removed, 0 refs, idempotent) | data-ops P3 |
 | M9 | ✅ DONE — control-stream unification: combined_pass refined to question 32,962 / interpellation 6,751 via item_number A/B (127 no-suffix kept question_or_interpellation); provenance preserved | data-ops P2 |
 | M10 | ✅ FIXED — declarationYear + synthesized label | server |
 | M11 | ✅ FIXED — SDL doc (statusText raw; use status filter) | server |
