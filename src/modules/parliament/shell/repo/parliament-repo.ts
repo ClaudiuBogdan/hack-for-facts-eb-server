@@ -59,7 +59,6 @@ import { COHESION_VOTE_CAP,
   type ParliamentBallot,
   type ParliamentBill,
   type ParliamentBillActLink,
-  type ParliamentBillInitiator,
   type ParliamentBillVoteLink,
   type ParliamentControlItem,
   type ParliamentDeclarationMeta,
@@ -261,17 +260,36 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (built.isErr()) return err(built.error);
     const conds: RawBuilder<unknown>[] = [...built.value];
 
-    const group = stringValues(fieldFilter(filter, 'group'));
+    const groupF = fieldFilter(filter, 'group');
+    const group = stringValues(groupF);
     const groupVals = [...(group.eq !== undefined ? [group.eq] : []), ...(group.in ?? [])];
+    const groupEmptyIn =
+      groupF !== undefined && Array.isArray(groupF['in']) && (groupF['in'] as unknown[]).length === 0 && group.eq === undefined;
     if (groupVals.length > 0) {
-      conds.push(sql`m.group_name in (${sql.join(groupVals.map((g) => sql`${g}`), sql`, `)})`);
+      // H6: the `group` filter accepts EITHER the party NAME ("PNL") OR the chamber-slug
+      // group_id ("pnl-senat" — exactly what groupIntervals[].groupId emits), matched
+      // case-insensitively, so the obvious round-trip (read an interval's groupId, feed
+      // it back) returns rows. group_id and group_name value sets never overlap, so a
+      // single combined IN is unambiguous.
+      const folded = groupVals.map((g) => g.toLowerCase());
+      const inList = sql.join(folded.map((g) => sql`${g}`), sql`, `);
+      conds.push(sql`(lower(m.group_name) in (${inList}) or lower(m.group_id) in (${inList}))`);
+    } else if (groupEmptyIn) {
+      // H7: an EXPLICIT empty `in: []` matches NOTHING (mirror the #60h/enumSelection
+      // contract used by the physical filters), NOT "all members" (a dropped predicate).
+      conds.push(sql`false`);
     }
 
-    const judet = stringValues(fieldFilter(filter, 'judet'));
+    const judetF = fieldFilter(filter, 'judet');
+    const judet = stringValues(judetF);
     const judetVals = [...(judet.eq !== undefined ? [judet.eq] : []), ...(judet.in ?? [])].map((v) => foldDiacritics(v));
+    const judetEmptyIn =
+      judetF !== undefined && Array.isArray(judetF['in']) && (judetF['in'] as unknown[]).length === 0 && judet.eq === undefined;
     if (judetVals.length > 0) {
       const foldedCol = sql`lower(translate(m.constituency_name, ${FOLD_FROM}, ${FOLD_TO}))`;
       conds.push(sql`${foldedCol} in (${sql.join(judetVals.map((v) => sql`${v}`), sql`, `)})`);
+    } else if (judetEmptyIn) {
+      conds.push(sql`false`); // H7: explicit empty in:[] → match nothing.
     }
 
     const q = containsValue(fieldFilter(filter, 'q'));
@@ -401,17 +419,45 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       // group_name values NEVER collide (verified across all legislatures — 0
       // overlaps), so the OR is unambiguous — a party-level id resolves to its
       // full cross-chamber roster (the bug fix) while a slug stays exact.
+      const needle = groupId.toLowerCase();
       let qb = db
         .selectFrom('parliament.members as m')
         .select(MEMBER_SELECT)
-        .where((eb) => eb.or([eb('m.group_id', '=', groupId), eb('m.group_name', '=', groupId)]));
+        // Case-insensitive match on EITHER group_id slug or group_name; the two value
+        // sets never overlap, so the OR is unambiguous. (groupMembers("psd") now == "PSD".)
+        .where(sql<boolean>`(lower(m.group_id) = ${needle} or lower(m.group_name) = ${needle})`);
       if (legislature !== undefined) qb = qb.where('m.legislature', '=', legislature);
       // SC-1: current=true → currently-seated roster only (composition/roster ONLY).
       if (current === true) qb = qb.where('m.is_current', '=', true);
-      const rows = await qb.orderBy(sql`m.full_name asc nulls last`).limit(1000).execute();
+      // H9: NO .limit() — the prior .limit(1000) silently truncated a cross-chamber party
+      // roster (e.g. PSD = 1,336) with no `total` for the caller to detect the loss. The
+      // roster is naturally bounded by the members table (~5,289 rows).
+      const rows = await qb.orderBy(sql`m.full_name asc nulls last`).execute();
       return ok(rows.map((r) => mapMember(r as MemberRow)));
     } catch (e) {
       return err(databaseError('listGroupMembers failed', e));
+    }
+  };
+
+  const findGroup = async (groupId: string): Promise<Result<ParliamentGroup | null, ApiError>> => {
+    try {
+      // Resolve against the parliamentary_groups REGISTRY (73 rows, slug-keyed) — it
+      // covers historical/migrated groups (POT, PIR) that no longer appear in any
+      // current member's group_id, which is why ParliamentGroupInterval.group needs it
+      // (H1b/M7). Slug-keyed → exactly one row; case-insensitive for safety.
+      const row = await db
+        .selectFrom('parliament.parliamentary_groups as pg')
+        .select(['pg.group_id', 'pg.chamber', 'pg.name'])
+        .where(sql<boolean>`lower(pg.group_id) = ${groupId.toLowerCase()}`)
+        .limit(1)
+        .executeTakeFirst();
+      return ok(
+        row === undefined
+          ? null
+          : { groupId: row.group_id, chamber: row.chamber, name: row.name, memberCount: null }
+      );
+    } catch (e) {
+      return err(databaseError('findGroup failed', e));
     }
   };
 
@@ -772,42 +818,22 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const getBillInitiators = async (billKey: string): Promise<Result<readonly ParliamentBillInitiator[], ApiError>> => {
+  const getBillInitiators = async (billKey: string): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
+      // H10: select the FULL member columns and map via mapMember, so an initiator
+      // reached through a bill has the SAME shape as parliamentMember(s) —
+      // legislature/normalizedName/constituencyName/birthDate/profileUrl plus the nested
+      // group/person/interval resolvers. The set is NOT filtered by is_current
+      // (attribution is never gated; a superseded/deceased initiator is kept).
       const rows = await db
         .selectFrom('parliament.member_initiatives as mi')
         .innerJoin('parliament.members as m', 'm.mandate_key', 'mi.mandate_key')
-        .select([
-          'm.mandate_key',
-          'm.full_name',
-          'm.group_name',
-          'm.chamber',
-          sql<string | null>`m.person_id::text`.as('person_id'),
-          // is_current is REQUIRED here: initiators are typed as ParliamentMember in
-          // the SDL, whose isCurrent is Boolean! — without it the non-null field
-          // null-propagates (Codex BLOCKER). This is a DISPLAY field on a historical
-          // initiator; it does NOT filter the initiator set (all initiators are kept
-          // regardless of is_current — attribution is never gated).
-          'm.is_current',
-          sql<string | null>`m.mandate_end_date::text`.as('mandate_end_date'),
-          'm.mandate_end_reason',
-        ])
+        .select(MEMBER_SELECT)
         .where('mi.bill_key', '=', billKey)
         .orderBy('m.full_name', 'asc')
         .limit(500)
         .execute();
-      return ok(
-        rows.map((r) => ({
-          mandateKey: r.mandate_key,
-          fullName: r.full_name,
-          groupName: r.group_name,
-          chamber: r.chamber,
-          personId: r.person_id,
-          isCurrent: r.is_current,
-          mandateEndDate: r.mandate_end_date,
-          mandateEndReason: r.mandate_end_reason,
-        }))
-      );
+      return ok(rows.map((r) => mapMember(r as MemberRow)));
     } catch (e) {
       return err(databaseError('getBillInitiators failed', e));
     }
@@ -1552,6 +1578,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     findMember,
     listGroupCounts,
     listGroupMembers,
+    findGroup,
     findPerson,
     listPersonMandates,
     listGroupIntervals,

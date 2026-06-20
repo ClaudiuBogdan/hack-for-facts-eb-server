@@ -149,6 +149,22 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
     expect((v.attrs as Record<string, unknown>)['secret']).toBeUndefined();
     expect(VOTE_ATTR_KEYS).toContain('tally_mismatch');
   });
+
+  // M1 regression: the loader writes tally_mismatch as a JSON OBJECT, not a boolean.
+  // safeAttrs drops the object (non-primitive), so the old `attrs['tally_mismatch']
+  // === true` was false for 0/4855 votes. The flag is now read from RAW attrs (presence),
+  // and the object itself is never exposed (§2.6 — only a boolean is surfaced).
+  it('surfaces tallyMismatch=true when tally_mismatch is an OBJECT (the real loader shape)', () => {
+    const v = mapVote({ ...row, attrs: { tally_mismatch: { pentru: { official: 168, recorded: 84 } }, source_title: 'ST' } });
+    expect(v.tallyMismatch).toBe(true);
+    // the object internals must NOT leak into the whitelisted attrs view
+    expect((v.attrs as Record<string, unknown>)['tally_mismatch']).toBeUndefined();
+  });
+
+  it('leaves tallyMismatch=false when attrs carries no tally_mismatch key', () => {
+    expect(mapVote({ ...row, attrs: { source_title: 'ST' } }).tallyMismatch).toBe(false);
+    expect(mapVote({ ...row, attrs: null }).tallyMismatch).toBe(false);
+  });
 });
 
 describe('mapDeclaration — metadata only, NEVER file_hash or content', () => {

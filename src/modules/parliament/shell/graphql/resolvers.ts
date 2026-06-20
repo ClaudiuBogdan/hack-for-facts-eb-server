@@ -277,11 +277,20 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
 
     // ── field resolvers ──────────────────────────────────────────────────────
     ParliamentMember: {
-      group: async (parent: { groupId: string | null; legislature: string | null }) => {
-        if (parent.groupId === null) return null;
-        const groups = unwrap(await listGroups(deps, parent.legislature ?? undefined, undefined));
-        return groups.find((g) => g.groupId === parent.groupId) ?? null;
-      },
+      // H1a: build the group from the member's OWN fields (chamber-slug groupId +
+      // groupName + chamber) — no DB hit, no N+1. The old code called
+      // listGroups(undefined chamber) → the whole-parliament branch whose groupId is the
+      // party NAME ("PNL"), then matched it against the member's chamber-SLUG groupId
+      // ("pnl-senat") → never matched → null for 100% of members.
+      group: (parent: { groupId: string | null; groupName: string | null; chamber: string | null }) =>
+        parent.groupId === null
+          ? null
+          : {
+              groupId: parent.groupId,
+              chamber: parent.chamber ?? '',
+              name: parent.groupName ?? parent.groupId,
+              memberCount: null,
+            },
       person: async (parent: { personId: string | null; person?: unknown }) => {
         if (parent.person !== undefined) return parent.person; // eager from getMember
         if (parent.personId === null) return null;
@@ -315,6 +324,14 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       },
       declarations: async (parent: { mandateKey: string }) =>
         unwrap(await deps.repo.listMemberDeclarations(parent.mandateKey)),
+    },
+
+    ParliamentGroupInterval: {
+      // H1b: the SDL exposes ParliamentGroupInterval.group but NO resolver existed →
+      // graphql-js default resolver → parent.group (undefined) → null for 100% of
+      // intervals. Resolve the interval's groupId slug via the parliamentary_groups
+      // registry (covers historical/migrated groups like POT/PIR — M7).
+      group: async (parent: { groupId: string }) => unwrap(await deps.repo.findGroup(parent.groupId)),
     },
 
     ParliamentPerson: {

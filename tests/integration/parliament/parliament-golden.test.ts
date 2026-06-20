@@ -1047,4 +1047,119 @@ d('Parliament golden (live prod)', () => {
     expect(rootFields).not.toContain('parliamentVoteRecords');
     expect(rootFields.filter((field) => field.toLowerCase().includes('ballot'))).toEqual([]);
   });
+
+  // ── QA-audit regression (2026-06-20): group-namespace + lineage fixes ──────────
+  // The audit found these resolvers had ZERO coverage; the nullable SDL let H1 ship
+  // silently. These lock the party-NAME ↔ chamber-SLUG reconciliation + the H13 fix.
+
+  it('H1a/H1b: member.group and groupIntervals[].group resolve (party-NAME vs chamber-SLUG reconciled)', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly group: { readonly groupId: string; readonly name: string; readonly chamber: string } | null;
+          readonly groupIntervals: readonly {
+            readonly groupId: string;
+            readonly group: { readonly groupId: string; readonly name: string } | null;
+          }[];
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentMember(mandateKey:$k) {
+            group { groupId name chamber }
+            groupIntervals { groupId group { groupId name } }
+          }
+        }`,
+        { k: MEMBER }
+      )
+    );
+    const member = requireValue(data.parliamentMember, 'parliamentMember');
+    // H1a: the member's own group resolves (was null for 100% of members).
+    const group = requireValue(member.group, 'member.group');
+    expect(group.name.length).toBeGreaterThan(0);
+    expect(group.chamber.length).toBeGreaterThan(0);
+    // The resolved groupId is a chamber SLUG, and it is one of the member's interval slugs.
+    expect(member.groupIntervals.map((i) => i.groupId)).toContain(group.groupId);
+    // H1b: every interval's group resolves via the parliamentary_groups registry.
+    expect(member.groupIntervals.length).toBeGreaterThan(0);
+    expect(member.groupIntervals.every((i) => i.group !== null)).toBe(true);
+  });
+
+  it('H6/H7: the group filter round-trips a chamber slug; an explicit empty in:[] matches nothing', async () => {
+    const member = expectGqlData(
+      await gql<{ parliamentMember: { readonly groupIntervals: readonly { readonly groupId: string }[] } | null }>(
+        `query($k: ID!){ parliamentMember(mandateKey:$k){ groupIntervals { groupId } } }`,
+        { k: MEMBER }
+      )
+    );
+    const slug = requireValue(member.parliamentMember?.groupIntervals[0]?.groupId, 'an interval groupId');
+    const data = expectGqlData(
+      await gql<{
+        bySlug: { readonly total: number };
+        emptyGroup: { readonly total: number };
+        emptyJudet: { readonly total: number };
+        base: { readonly total: number };
+      }>(
+        `query($slug: String!) {
+          bySlug: parliamentMembers(pageSize:1, filter:{ group:{ eq:$slug } }) { total }
+          emptyGroup: parliamentMembers(pageSize:1, filter:{ group:{ in:[] } }) { total }
+          emptyJudet: parliamentMembers(pageSize:1, filter:{ judet:{ in:[] } }) { total }
+          base: parliamentMembers(pageSize:1) { total }
+        }`,
+        { slug }
+      )
+    );
+    expect(data.bySlug.total).toBeGreaterThan(0); // H6: the slug form now matches
+    expect(data.emptyGroup.total).toBe(0); // H7: empty in:[] is match-nothing, not match-all
+    expect(data.emptyJudet.total).toBe(0);
+    expect(data.base.total).toBeGreaterThan(0);
+  });
+
+  it('H9: parliamentGroupMembers returns the full cross-chamber roster (no 1000-row cap)', async () => {
+    const data = expectGqlData(
+      await gql<{ parliamentGroupMembers: readonly { readonly mandateKey: string }[] }>(
+        `{ parliamentGroupMembers(groupId:"PSD") { mandateKey } }`
+      )
+    );
+    // PSD spans both chambers across all legislatures (≈1,336) — the old cap silently cut it to 1000.
+    expect(data.parliamentGroupMembers.length).toBeGreaterThan(1000);
+  });
+
+  it('H10: bill initiators expose the FULL member shape (legislature/normalizedName were null)', async () => {
+    const list = expectGqlData(
+      await gql<{ parliamentBills: { readonly bills: readonly { readonly billKey: string }[] } }>(
+        `{ parliamentBills(filter:{ billType:{ eq:"parliamentary" } }, pageSize:25) { bills { billKey } } }`
+      )
+    );
+    let initiators: readonly { readonly legislature: string | null; readonly normalizedName: string | null }[] | null = null;
+    for (const bill of list.parliamentBills.bills) {
+      const dossier = expectGqlData(
+        await gql<{ parliamentBill: { readonly initiators: readonly { readonly legislature: string | null; readonly normalizedName: string | null }[] } | null }>(
+          `query($k: ID!){ parliamentBill(billKey:$k){ initiators { mandateKey legislature normalizedName constituencyName birthDate } } }`,
+          { k: bill.billKey }
+        )
+      );
+      const found = dossier.parliamentBill?.initiators ?? [];
+      if (found.length > 0) {
+        initiators = found;
+        break;
+      }
+    }
+    const resolved = requireValue(initiators, 'a bill with at least one initiator');
+    // The bug: these were null for 49/49 initiators (reduced projection). Now populated.
+    expect(resolved.some((i) => i.legislature !== null)).toBe(true);
+    expect(resolved.some((i) => i.normalizedName !== null)).toBe(true);
+  });
+
+  it('H13: lineage reports each senat vote with its OWN billKey, not the CDEP twin', async () => {
+    const data = expectGqlData(
+      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null }>(
+        `{ parliamentActLineage(actId:"101942") { votes { voteKey billKey chamber } } }`
+      )
+    );
+    const senatVotes = (data.parliamentActLineage?.votes ?? []).filter((v) => v.chamber === 'senat');
+    expect(senatVotes.length).toBeGreaterThan(0);
+    // Before the fix these returned the CDEP bvl bill key (e.g. "17335"); now each is the
+    // vote's own bill key (or null), never a foreign cdep key.
+    expect(senatVotes.every((v) => v.billKey === null || v.billKey.startsWith('senat:'))).toBe(true);
+  });
 });

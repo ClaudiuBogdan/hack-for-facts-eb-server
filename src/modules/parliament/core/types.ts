@@ -166,26 +166,15 @@ export interface ParliamentBillVoteLink {
   readonly confidenceLabel: string;
 }
 
-export interface ParliamentBillInitiator {
-  readonly mandateKey: string;
-  readonly fullName: string | null;
-  readonly groupName: string | null;
-  readonly chamber: string | null;
-  readonly personId: string | null;
-  // Initiators are surfaced AS ParliamentMember in the SDL; isCurrent is Boolean!
-  // there, so it must be present (Codex BLOCKER). DISPLAY only — the initiator set
-  // is NEVER filtered by is_current (a superseded member keeps their initiative).
-  readonly isCurrent: boolean;
-  readonly mandateEndDate: string | null;
-  readonly mandateEndReason: string | null;
-}
-
 /** The bill dossier: detail + events + docs + initiators + votes + lineage links. */
 export interface ParliamentBillDossier {
   readonly bill: ParliamentBill;
   readonly events: readonly ParliamentBillEvent[];
   readonly documents: readonly ParliamentBillDocument[];
-  readonly initiators: readonly ParliamentBillInitiator[];
+  // Initiators are FULL members (H10) — surfaced as ParliamentMember in the SDL, so
+  // every member field + nested resolver is reachable. A superseded/deceased initiator
+  // is still kept (attribution is never gated by is_current).
+  readonly initiators: readonly ParliamentMember[];
   readonly relatedVotes: readonly ParliamentVote[];
   readonly actLinks: readonly ParliamentBillActLink[];
   readonly voteLinks: readonly ParliamentBillVoteLink[];

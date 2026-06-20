@@ -242,16 +242,10 @@ export const getBillDossier = async (
     bill: b.value,
     events: events._unsafeUnwrap(),
     documents: docs._unsafeUnwrap(),
-    initiators: initiators._unsafeUnwrap().map((i) => ({
-      mandateKey: i.mandateKey,
-      fullName: i.fullName,
-      groupName: i.groupName,
-      chamber: i.chamber,
-      personId: i.personId,
-      isCurrent: i.isCurrent,
-      mandateEndDate: i.mandateEndDate,
-      mandateEndReason: i.mandateEndReason,
-    })),
+    // H10: pass the full members through (no reduced projection) so initiators expose
+    // the same shape as parliamentMember(s) — legislature/normalizedName/constituency/
+    // birthDate and the nested group/person/interval resolvers all resolve.
+    initiators: initiators._unsafeUnwrap(),
     relatedVotes: votes._unsafeUnwrap(),
     actLinks: actLinks._unsafeUnwrap(),
     voteLinks: voteLinks._unsafeUnwrap(),
@@ -388,7 +382,12 @@ export const getLineageForAct = async (
     }
     votes.push({
       voteKey: lv.vote.voteKey,
-      billKey: lv.billKey,
+      // H13: report the vote's OWN bill key, not the act-link join's bill key. For a
+      // senat-chamber vote the bvl row carries the CDEP twin's bill key (e.g. "17335"),
+      // so `lv.billKey` would point a lineage→parliamentBill walk at the wrong (CDEP)
+      // bill; the vote's own key ("senat:737-2018") is correct. Fall back to the bvl key
+      // only when the vote has no own bill key (374 camera votes — no regression).
+      billKey: lv.vote.billKey ?? lv.billKey,
       chamber: lv.vote.chamber,
       voteDate: lv.vote.voteDate,
       role: lv.role,

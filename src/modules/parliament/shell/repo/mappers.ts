@@ -234,6 +234,16 @@ export interface VoteRow {
 
 export const mapVote = (r: VoteRow): ParliamentVote => {
   const attrs = safeAttrs(r.attrs, VOTE_ATTR_KEYS);
+  // The loader writes `tally_mismatch` as a JSON OBJECT ({pentru:{official,recorded},…})
+  // on the ~454 votes whose source tally disagrees with the per-ballot count. `safeAttrs`
+  // drops non-primitive values, so the flag is detected on the RAW attrs — presence-only,
+  // surfaced as a boolean (the object internals are never exposed, §2.6). The old
+  // `attrs['tally_mismatch'] === true` could never be true (the value is an object, and
+  // safeAttrs had already stripped it) → it read false for 0/4855 votes.
+  const rawAttrs =
+    r.attrs !== null && typeof r.attrs === 'object' && !Array.isArray(r.attrs)
+      ? (r.attrs as Record<string, unknown>)
+      : {};
   return {
     voteKey: r.vote_key,
     chamber: r.chamber,
@@ -244,7 +254,7 @@ export const mapVote = (r: VoteRow): ParliamentVote => {
     divisionNumber: r.division_number,
     billKey: r.bill_key,
     lawReference: r.law_reference,
-    tallyMismatch: attrs['tally_mismatch'] === true,
+    tallyMismatch: rawAttrs['tally_mismatch'] != null,
     attrs,
   };
 };
