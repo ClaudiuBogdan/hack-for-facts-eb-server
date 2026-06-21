@@ -10,9 +10,9 @@ import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError } from '../../core/errors.js';
+import { SEARCH_ENTITY_DOC_TYPES, type Cui, type SearchHit } from '../../core/types.js';
 
 import type { SearchRepo } from '../../core/ports.js';
-import type { Cui, SearchHit } from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -68,9 +68,78 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
     }
   },
 
-  // TODO(T2): the real visibility-/entity-scoped Meili-parity fallback. T1 lands
-  // the port signature; this placeholder keeps the tree compiling until then.
-  searchEntities(): Promise<Result<readonly SearchHit[], ApiError>> {
-    return Promise.resolve(ok([]));
+  async searchEntities(
+    q: string,
+    opts: {
+      readonly docTypes?: readonly string[];
+      readonly county?: string;
+      readonly year?: number;
+      readonly limit: number;
+      readonly offset?: number;
+    }
+  ): Promise<Result<readonly SearchHit[], ApiError>> {
+    const trimmed = q.trim();
+    if (trimmed === '') return ok([]);
+
+    // Allowlist = requested ∩ entity-grade set (else the full entity-grade set),
+    // so the pg fallback can never return content/fragment doc types.
+    const allowlist =
+      opts.docTypes !== undefined
+        ? opts.docTypes.filter((t) => (SEARCH_ENTITY_DOC_TYPES as readonly string[]).includes(t))
+        : [...SEARCH_ENTITY_DOC_TYPES];
+    // A requested-but-all-invalid docTypes set narrows to nothing — no rows.
+    if (allowlist.length === 0) return ok([]);
+
+    const capped = Math.min(Math.max(opts.limit, 1), 50);
+    const escapedRaw = trimmed.replace(/[%_\\]/gu, '\\$&');
+    try {
+      // `search.documents.title` is NOT folded → match the RAW query so diacritic
+      // titles are found (engines-down fallback, parity with `fallbackTextSearch`).
+      let query = db
+        .selectFrom('search.documents')
+        .select(['doc_id', 'doc_type', 'title', 'body', 'county_name', 'url', 'cuis', 'attrs'])
+        .where(sql<boolean>`title ilike ${'%' + escapedRaw + '%'} escape '\\'`)
+        .where('doc_type', 'in', allowlist)
+        .where('visibility', '=', 'public')
+        .where('deleted_at', 'is', null);
+
+      if (opts.county !== undefined && opts.county.trim() !== '') {
+        query = query.where('county_name', '=', opts.county.trim());
+      }
+      // No `year` column on search.documents — derive it from `doc_date`.
+      if (opts.year !== undefined && Number.isInteger(opts.year)) {
+        query = query.where(sql<boolean>`extract(year from doc_date) = ${opts.year}`);
+      }
+      if (opts.offset !== undefined) query = query.offset(opts.offset);
+
+      const rows = await query.limit(capped).execute();
+      return ok(
+        rows.map((r): SearchHit => {
+          // `doc_key` = the id key (everything after the first `:`); the whole
+          // id when there is no separator.
+          const sepIdx = r.doc_id.indexOf(':');
+          const docKey = sepIdx >= 0 ? r.doc_id.slice(sepIdx + 1) : r.doc_id;
+          // No `subtitle` column on search.documents — derive it from `body`.
+          const subtitle = r.body !== null ? r.body.slice(0, 300) : undefined;
+          return {
+            id: r.doc_id,
+            docType: r.doc_type,
+            title: r.title,
+            snippet: r.body !== null ? r.body.slice(0, 200) : null,
+            score: null,
+            source: 'postgres',
+            attrs: r.attrs,
+            docId: r.doc_id,
+            docKey,
+            ...(subtitle !== undefined && { subtitle }),
+            ...(r.county_name !== null && { countyName: r.county_name }),
+            ...(r.url !== null && { url: r.url }),
+            ...(r.cuis.length > 0 && { cuis: r.cuis }),
+          };
+        })
+      );
+    } catch (error) {
+      return err(databaseError('searchEntities failed', error));
+    }
   },
 });
