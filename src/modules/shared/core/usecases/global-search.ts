@@ -19,9 +19,14 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { type ApiError } from '../errors.js';
 import { buildEntitiesFilter, normalizeCounty, validEntityDocTypes } from '../filters/meili-array.js';
+import {
+  SEARCH_ENTITY_DOC_TYPES,
+  type OrgNameMatch,
+  type SearchFacet,
+  type SearchHit,
+} from '../types.js';
 
 import type { IdentityRepo, MeiliClient, SearchRepo } from '../ports.js';
-import type { OrgNameMatch, SearchFacet, SearchHit } from '../types.js';
 
 /**
  * The minimal structured-logger contract the usecase accepts (a pino `Logger`,
@@ -126,8 +131,8 @@ export const makeGlobalSearch = async (
   // Meili and pg paths can never diverge. A requested-but-all-invalid docTypes
   // set matches nothing on either engine → short-circuit to empty (mirrors the
   // empty-q guard; no engine or org query).
-  const docTypes = validEntityDocTypes(input.docTypes);
-  if (input.docTypes !== undefined && docTypes.length === 0) {
+  const requested = validEntityDocTypes(input.docTypes);
+  if (input.docTypes !== undefined && requested.length === 0) {
     logSearch('meili', 0, 0, true);
     return ok({
       query: input.q,
@@ -138,6 +143,10 @@ export const makeGlobalSearch = async (
       estimatedTotalHits: 0,
     });
   }
+  // No docTypes requested → pin the FULL entity-grade allowlist (not just the
+  // visibility clause) so Meili matches the pg fallback exactly AND a mispointed
+  // or polluted index can never surface public non-entity docs.
+  const docTypes = input.docTypes === undefined ? [...SEARCH_ENTITY_DOC_TYPES] : requested;
   const county = normalizeCounty(input.county);
   const year = input.year !== undefined && Number.isInteger(input.year) ? input.year : undefined;
 
