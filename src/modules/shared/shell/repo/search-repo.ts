@@ -92,13 +92,26 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
 
     const capped = Math.min(Math.max(opts.limit, 1), 50);
     const escapedRaw = trimmed.replace(/[%_\\]/gu, '\\$&');
+    const like = '%' + escapedRaw + '%';
+    const isDigits = /^\d+$/u.test(trimmed);
     try {
       // `search.documents.title` is NOT folded → match the RAW query so diacritic
-      // titles are found (engines-down fallback, parity with `fallbackTextSearch`).
+      // titles are found (engines-down fallback). Parity with the Meili
+      // `searchableAttributes` (title/subtitle/cuis/doc_id): ILIKE on
+      // title/body(≈subtitle)/doc_id, plus an EXACT cui hit for all-digit queries
+      // so CUI lookups still resolve while Meili is down.
       let query = db
         .selectFrom('search.documents')
         .select(['doc_id', 'doc_type', 'title', 'body', 'county_name', 'url', 'cuis', 'attrs'])
-        .where(sql<boolean>`title ilike ${'%' + escapedRaw + '%'} escape '\\'`)
+        .where((eb) => {
+          const ors = [
+            sql<boolean>`title ilike ${like} escape '\\'`,
+            sql<boolean>`body ilike ${like} escape '\\'`,
+            sql<boolean>`doc_id ilike ${like} escape '\\'`,
+          ];
+          if (isDigits) ors.push(sql<boolean>`${trimmed} = any(cuis)`);
+          return eb.or(ors);
+        })
         .where('doc_type', 'in', allowlist)
         .where('visibility', '=', 'public')
         .where('deleted_at', 'is', null);

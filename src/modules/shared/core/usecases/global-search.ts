@@ -15,10 +15,10 @@
  * Exactly one cheap, non-throwing structured log line is emitted per search.
  */
 
-import { ok, type Result } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
 import { type ApiError } from '../errors.js';
-import { buildEntitiesFilter } from '../filters/meili-array.js';
+import { buildEntitiesFilter, normalizeCounty, validEntityDocTypes } from '../filters/meili-array.js';
 
 import type { IdentityRepo, MeiliClient, SearchRepo } from '../ports.js';
 import type { OrgNameMatch, SearchFacet, SearchHit } from '../types.js';
@@ -63,6 +63,11 @@ export interface GlobalSearchResult {
   readonly estimatedTotalHits: number;
 }
 
+const LIMIT_DEFAULT = 20;
+const LIMIT_MAX = 50;
+/** Meili stops scanning at `maxTotalHits` (default 1000); deeper offsets are pointless. */
+const OFFSET_MAX = 1000;
+
 /** Flatten Meili's `{ field: { value: count } }` distribution to typed buckets. */
 const toFacets = (
   distribution: Readonly<Record<string, Record<string, number>>>
@@ -77,8 +82,12 @@ export const makeGlobalSearch = async (
 ): Promise<Result<GlobalSearchResult, ApiError>> => {
   const { meiliClient, identityRepo, searchRepo, meiliIndexes, logger } = deps;
   const startedAt = Date.now();
-  const limit = Math.min(input.limit ?? 20, 50);
-  const offset = input.offset !== undefined && input.offset > 0 ? input.offset : undefined;
+  // Bound the page window: clamp limit to [1,50] and offset to [0,1000] so a
+  // hostile/garbage paginator can never push Meili past its scan cap or send a
+  // negative limit (which Meili rejects and pg silently clamps to 1).
+  const limit = Math.min(Math.max(input.limit ?? LIMIT_DEFAULT, 1), LIMIT_MAX);
+  const offsetClamped = Math.min(Math.max(input.offset ?? 0, 0), OFFSET_MAX);
+  const offset = offsetClamped > 0 ? offsetClamped : undefined;
 
   const logSearch = (engine: 'meili' | 'postgres', hitCount: number, facetCount: number, meiliOk: boolean): void => {
     try {
@@ -113,14 +122,33 @@ export const makeGlobalSearch = async (
     });
   }
 
-  // Org name match is cheap + always useful (Meili-primary internally, §15.7).
-  const orgMatchPromise = identityRepo.searchByName(input.q, 10);
+  // Validate filter inputs ONCE and feed the SAME set to both engines, so the
+  // Meili and pg paths can never diverge. A requested-but-all-invalid docTypes
+  // set matches nothing on either engine → short-circuit to empty (mirrors the
+  // empty-q guard; no engine or org query).
+  const docTypes = validEntityDocTypes(input.docTypes);
+  if (input.docTypes !== undefined && docTypes.length === 0) {
+    logSearch('meili', 0, 0, true);
+    return ok({
+      query: input.q,
+      hits: [],
+      organizations: [],
+      engine: 'meili',
+      facets: [],
+      estimatedTotalHits: 0,
+    });
+  }
+  const county = normalizeCounty(input.county);
+  const year = input.year !== undefined && Number.isInteger(input.year) ? input.year : undefined;
 
   const filterArgs = {
-    ...(input.docTypes !== undefined && { docTypes: input.docTypes }),
-    ...(input.county !== undefined && { county: input.county }),
-    ...(input.year !== undefined && { year: input.year }),
+    ...(docTypes.length > 0 && { docTypes }),
+    ...(county !== undefined && { county }),
+    ...(year !== undefined && { year }),
   };
+
+  // Org name match is cheap + always useful (Meili-primary internally, §15.7).
+  const orgMatchPromise = identityRepo.searchByName(input.q, 10);
 
   const index = meiliIndexes[0] ?? 'entities';
   // No Meili index configured → go straight to the bounded pg fallback.
@@ -160,7 +188,15 @@ export const makeGlobalSearch = async (
     orgMatchPromise,
   ]);
 
-  const hits = fallbackRes.isOk() ? fallbackRes.value : [];
+  // A pg fallback ERROR is a real failure (DB/schema), not a degrade — surface it
+  // rather than masking a regression as a valid empty result. (Meili being down
+  // is the expected degrade and already handled above.)
+  if (fallbackRes.isErr()) {
+    logSearch('postgres', 0, 0, false);
+    return err(fallbackRes.error);
+  }
+
+  const hits = fallbackRes.value;
   logSearch('postgres', hits.length, 0, false);
   return ok({
     query: input.q,

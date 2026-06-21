@@ -155,9 +155,12 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
       opts: { filter?: unknown; facets?: readonly string[]; limit: number; offset?: number }
     ): Promise<Result<EntitiesSearchResult, ApiError>> {
       try {
-        // `filter` is the structured ARRAY form from `buildEntitiesFilter`
-        // (`['AND', [field, op, value], …]`) — pass it straight through; Meili
-        // parameterizes the tokens, so there is no string-injection surface.
+        // `filter` is the Meili ARRAY form from `buildEntitiesFilter` (an array
+        // of allowlisted, JSON-quoted expression strings AND-ed together) — pass
+        // it straight through. `showRankingScore` is required or `_rankingScore`
+        // (→ `score`) is never returned. Highlighting is intentionally NOT
+        // requested: nothing consumes `_formatted` yet (the client highlights
+        // locally); add `attributesToHighlight` + map it when a consumer needs it.
         const resp = await fetch(`${config.host}/indexes/${index}/search`, {
           method: 'POST',
           headers: {
@@ -171,7 +174,6 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
             ...(opts.filter !== undefined && { filter: opts.filter }),
             ...(opts.facets !== undefined && { facets: opts.facets }),
             showRankingScore: true,
-            attributesToHighlight: ['title', 'subtitle'],
           }),
           signal: AbortSignal.timeout(ENTITIES_SEARCH_TIMEOUT_MS),
         });

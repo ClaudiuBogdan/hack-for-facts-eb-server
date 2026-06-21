@@ -142,16 +142,30 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };
 
       const { engine, hits, facets, estimatedTotalHits } = res.value;
-      const items = hits.map((h: SearchHit) => ({
-        docType: h.docType,
-        ...(h.docKey !== undefined && { docKey: h.docKey }),
-        ...(h.docId !== undefined && { docId: h.docId }),
-        title: h.title,
-        ...(h.subtitle !== undefined && { subtitle: h.subtitle }),
-        ...(h.countyName !== undefined && { countyName: h.countyName }),
-        ...(h.url !== undefined && { url: h.url }),
-        ...(h.cuis !== undefined && { cuis: h.cuis }),
-      }));
+      // The entities doc carries a small whitelisted `attrs` sub-object (kind,
+      // status, group_name, chamber, issuer, …). `SearchHit.attrs` is the WHOLE
+      // raw hit (it also holds `visibility`), so expose ONLY the nested
+      // whitelisted object — never the raw hit — keeping `visibility` server-side.
+      const displayAttrs = (h: SearchHit): Record<string, unknown> | undefined => {
+        const nested = h.attrs['attrs'];
+        return nested !== null && typeof nested === 'object' && !Array.isArray(nested)
+          ? (nested as Record<string, unknown>)
+          : undefined;
+      };
+      const items = hits.map((h: SearchHit) => {
+        const attrs = displayAttrs(h);
+        return {
+          docType: h.docType,
+          ...(h.docKey !== undefined && { docKey: h.docKey }),
+          ...(h.docId !== undefined && { docId: h.docId }),
+          title: h.title,
+          ...(h.subtitle !== undefined && { subtitle: h.subtitle }),
+          ...(h.countyName !== undefined && { countyName: h.countyName }),
+          ...(h.url !== undefined && { url: h.url }),
+          ...(h.cuis !== undefined && { cuis: h.cuis }),
+          ...(attrs !== undefined && Object.keys(attrs).length > 0 && { attrs }),
+        };
+      });
       return {
         ok: true,
         kind: 'entity_search',

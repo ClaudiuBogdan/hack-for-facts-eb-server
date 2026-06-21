@@ -119,10 +119,18 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         ...(args.limit !== undefined && { limit: args.limit }),
         ...(args.offset !== undefined && { offset: args.offset }),
       };
-      // Short TTL cache (index changes ≤ once/cron); key normalizes arg order so
-      // equivalent queries collide. Degrade-not-error behavior is inside the usecase.
-      const part = (v: number | undefined): string => (v === undefined ? '' : String(v));
-      const cacheKey = `entities-search:${args.q}|${(args.docTypes ?? []).slice().sort().join(',')}|${args.county ?? ''}|${part(args.year)}|${part(args.limit)}|${part(args.offset)}`;
+      // Short TTL cache (index changes ≤ once/cron). Key = a structured JSON
+      // signature of the normalized args (NOT delimiter-joined — `q="a|b"` with no
+      // types must not collide with `q="a", docTypes=["b"]`). Degrade-not-error
+      // behavior lives inside the usecase.
+      const cacheKey = `entities-search:${JSON.stringify({
+        q: args.q,
+        docTypes: (args.docTypes ?? []).slice().sort(),
+        county: args.county ?? null,
+        year: args.year ?? null,
+        limit: args.limit ?? null,
+        offset: args.offset ?? null,
+      })}`;
       return unwrap(
         await deps.cache.wrap(cacheKey, () => makeGlobalSearch(deps.globalSearchDeps, searchInput))
       );
