@@ -52,6 +52,8 @@ export interface KernelConfig {
   readonly dbSsl?: boolean;
   readonly meiliHost: string;
   readonly meiliApiKey: string;
+  /** Search-only Meili key; falls back to `meiliApiKey` when unset. */
+  readonly meiliSearchApiKey?: string;
   readonly opensearchUrl: string;
   readonly syntheticBaseUrl?: string;
   readonly syntheticApiKey?: string;
@@ -62,6 +64,8 @@ export interface KernelConfig {
   readonly cacheMaxEntries?: number;
   /** Meili indexes the global search queries by default. */
   readonly meiliIndexes?: readonly string[];
+  /** Optional structured logger for boot-time warnings (e.g. Meili host unset). */
+  readonly logger?: Logger;
 }
 
 export interface KernelClients {
@@ -106,7 +110,10 @@ export interface Kernel {
   close(): Promise<void>;
 }
 
-const DEFAULT_MEILI_INDEXES = ['organizations', 'documents'] as const;
+// The global entity search queries the single `entities` index (the scrapper's
+// entity-grade contract). The legacy `['organizations','documents']` default is
+// retired — `entities` is the prod toggle (search module plan, item 1).
+const DEFAULT_MEILI_INDEXES = ['entities'] as const;
 
 export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const { db, pool } = createProdDb({
@@ -121,7 +128,19 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const searchRepo = makeSearchRepo(db);
   const documentRepo = makeDocumentRepo(db);
 
-  const meiliClient = makeMeiliClient({ host: config.meiliHost, apiKey: config.meiliApiKey });
+  // Prefer the search-only key (read paths shouldn't carry the master key);
+  // fall back to the general Meili key when no dedicated search key is set.
+  if (config.meiliHost === '') {
+    const log = config.logger ?? console;
+    log.warn(
+      { component: 'kernel.meili' },
+      'PROD_MEILI_HOST is empty — global search will degrade to the Postgres fallback'
+    );
+  }
+  const meiliClient = makeMeiliClient({
+    host: config.meiliHost,
+    apiKey: config.meiliSearchApiKey ?? config.meiliApiKey,
+  });
   const openSearchClient = makeOpenSearchClient({ url: config.opensearchUrl });
   const syntheticClient = makeSyntheticClient({
     baseUrl: config.syntheticBaseUrl ?? '',
@@ -247,6 +266,8 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
         searchRepo,
         registry: contributors,
         health,
+        cache,
+        rateLimiter,
       });
       return { typeDefs: merged.typeDefs, resolvers };
     },

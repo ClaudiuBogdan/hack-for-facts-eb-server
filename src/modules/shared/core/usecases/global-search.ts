@@ -12,7 +12,7 @@ import { ok, type Result } from 'neverthrow';
 import { type ApiError } from '../errors.js';
 
 import type { IdentityRepo, MeiliClient, SearchRepo } from '../ports.js';
-import type { OrgNameMatch, SearchHit } from '../types.js';
+import type { OrgNameMatch, SearchFacet, SearchHit } from '../types.js';
 
 export interface GlobalSearchDeps {
   readonly meiliClient: MeiliClient;
@@ -33,6 +33,10 @@ export interface GlobalSearchResult {
   readonly hits: readonly SearchHit[];
   readonly organizations: readonly OrgNameMatch[];
   readonly engine: 'meili' | 'postgres';
+  /** Facet distribution (e.g. `doc_type` → counts) backing the type-filter chips. */
+  readonly facets: readonly SearchFacet[];
+  /** Meili's approximate total (capped by `maxTotalHits`, default 1000); 0 on the pg path. */
+  readonly estimatedTotalHits: number;
 }
 
 export const makeGlobalSearch = async (
@@ -59,6 +63,10 @@ export const makeGlobalSearch = async (
       hits,
       organizations: orgs.isOk() ? orgs.value : [],
       engine: 'meili',
+      // Facets + estimatedTotalHits are populated by the dedicated entities path
+      // (T3); the legacy multiSearch path does not request facets.
+      facets: [],
+      estimatedTotalHits: hits.length,
     });
   }
 
@@ -68,10 +76,13 @@ export const makeGlobalSearch = async (
     orgMatchPromise,
   ]);
 
+  const hits = fallbackRes.isOk() ? fallbackRes.value : [];
   return ok({
     query: input.q,
-    hits: fallbackRes.isOk() ? fallbackRes.value : [],
+    hits,
     organizations: orgs.isOk() ? orgs.value : [],
     engine: 'postgres',
+    facets: [],
+    estimatedTotalHits: hits.length,
   });
 };

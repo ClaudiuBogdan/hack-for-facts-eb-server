@@ -15,6 +15,10 @@ const RedesignEnvSchema = Type.Object({
   PROD_DATABASE_URL: Type.String({ minLength: 1 }),
   PROD_MEILI_HOST: Type.String({ default: '' }),
   PROD_MEILI_API_KEY: Type.String({ default: '' }),
+  /** Search-only Meili key (preferred over the master key for read paths). */
+  PROD_MEILI_SEARCH_API_KEY: Type.Optional(Type.String()),
+  /** Comma-separated Meili index names the global search queries (default `entities`). */
+  PROD_MEILI_INDEXES: Type.Optional(Type.String()),
   PROD_OPENSEARCH_URL: Type.String({ default: '' }),
   PORT: Type.Optional(Type.String()),
   HOST: Type.Optional(Type.String()),
@@ -43,6 +47,10 @@ export interface RedesignConfig {
     readonly prodDatabaseUrl: string;
     readonly meiliHost: string;
     readonly meiliApiKey: string;
+    /** Search-only Meili key; the kernel falls back to `meiliApiKey` when unset. */
+    readonly meiliSearchApiKey?: string;
+    /** Meili indexes the global search queries (from PROD_MEILI_INDEXES). */
+    readonly meiliIndexes?: readonly string[];
     readonly opensearchUrl: string;
     readonly poolMax?: number;
     readonly dbSsl?: boolean;
@@ -70,6 +78,15 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
   }
   const e = cleaned;
 
+  const splitCsv = (raw: string | undefined): readonly string[] =>
+    raw === undefined
+      ? []
+      : raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s !== '');
+  const meiliIndexes = splitCsv(e.PROD_MEILI_INDEXES);
+
   return {
     port: parseIntOr(e.PORT, 3010),
     host: e.HOST ?? '0.0.0.0',
@@ -84,6 +101,10 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
       meiliHost: e.PROD_MEILI_HOST,
       meiliApiKey: e.PROD_MEILI_API_KEY,
+      ...(e.PROD_MEILI_SEARCH_API_KEY !== undefined && {
+        meiliSearchApiKey: e.PROD_MEILI_SEARCH_API_KEY,
+      }),
+      ...(meiliIndexes.length > 0 && { meiliIndexes }),
       opensearchUrl: e.PROD_OPENSEARCH_URL,
       ...(e.PROD_DB_POOL_MAX !== undefined && { poolMax: parseIntOr(e.PROD_DB_POOL_MAX, 15) }),
       ...(e.PROD_DB_SSL !== undefined && { dbSsl: e.PROD_DB_SSL === 'true' }),

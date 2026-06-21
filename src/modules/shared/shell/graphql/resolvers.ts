@@ -24,6 +24,8 @@ import {
 
 import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
 import type { FlowSummary, SourcePresence, Territory } from '../../core/types.js';
+import type { KernelCache } from '../middleware/cache.js';
+import type { RateLimiter } from '../middleware/rate-limiter.js';
 import type { Result } from 'neverthrow';
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
@@ -45,6 +47,10 @@ export interface KernelResolverDeps {
   readonly searchRepo: SearchRepo;
   readonly registry: ContributorRegistry;
   readonly health: () => Promise<unknown>;
+  /** Kernel response cache — the searchEntities resolver wraps hot queries (T3). */
+  readonly cache: KernelCache;
+  /** Kernel rate limiter — the searchEntities resolver guards the palette (T3). */
+  readonly rateLimiter: RateLimiter;
 }
 
 interface EntityArgs {
