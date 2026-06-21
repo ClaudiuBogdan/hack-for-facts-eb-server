@@ -103,6 +103,7 @@ export const baseTypeDefs = /* GraphQL */ `
     attrs: JSON!
   }
 
+  "A hybrid-search hit (entities Meili index, pg fallback). Entity projection fields are nullable (present only for entity-index hits). \`visibility\`/raw \`attrs\` are deliberately NOT exposed."
   type SearchHit {
     id: String!
     docType: String!
@@ -110,6 +111,27 @@ export const baseTypeDefs = /* GraphQL */ `
     snippet: String
     score: Float
     source: String!
+    "Stable source id (the type:key form) — the Postgres hydration join key."
+    docId: String
+    "The id key (substring after the first \`:\`) — for native deep-links."
+    docKey: String
+    "Secondary display line (the entity doc's subtitle)."
+    subtitle: String
+    countyName: String
+    "External/source URL — interim deep-link for types without a native page."
+    url: String
+    "Precomputed importance (sort signal)."
+    rankBoost: Float
+    "Associated CUI identifiers (exact-match filter / CUI-spine deep-link)."
+    cuis: [String!]
+    year: Int
+  }
+
+  "One facet bucket (e.g. doc_type distribution → the type-filter chips)."
+  type SearchFacet {
+    field: String!
+    value: String!
+    count: Int!
   }
 
   type OrgNameMatch {
@@ -146,6 +168,11 @@ export const baseTypeDefs = /* GraphQL */ `
     query: String!
     engine: String!
     hits: [SearchHit!]!
+    "Doc-type facet distribution → type-filter chips (empty on the pg fallback)."
+    facets: [SearchFacet!]!
+    "Meili's approximate total (capped by maxTotalHits, default 1000); on the pg path it is the hit count."
+    estimatedTotalHits: Int!
+    "Deprecated: overlaps doc_type=organization hits; consume \`hits\` instead."
     organizations: [OrgNameMatch!]!
   }
 
@@ -168,7 +195,14 @@ export const baseTypeDefs = /* GraphQL */ `
     health: HealthReport!
     "Cross-source entity-360 addressed by CUI."
     entity(cui: CUI!): Entity
-    "Hybrid global search (Meili-primary, pg fallback)."
-    searchEntities(q: String!, docTypes: [String!], limit: Int): GlobalSearchResult!
+    "Hybrid global search (Meili-primary, pg fallback). county = canonical county name; year = exact match."
+    searchEntities(
+      q: String!
+      docTypes: [String!]
+      county: String
+      year: Int
+      limit: Int
+      offset: Int
+    ): GlobalSearchResult!
   }
 `;

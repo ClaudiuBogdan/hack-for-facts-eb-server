@@ -59,8 +59,24 @@ interface EntityArgs {
 interface SearchArgs {
   q: string;
   docTypes?: string[];
+  county?: string;
+  year?: number;
   limit?: number;
+  offset?: number;
 }
+
+/**
+ * The slice of the Mercurius GraphQL context the kernel resolvers read. Mercurius
+ * exposes `{ app, reply }`; `reply.request.ip` is the caller IP (Fastify honors
+ * `X-Forwarded-For` because the app is built with `trustProxy: true`).
+ */
+interface KernelGraphqlContext {
+  reply?: { request?: { ip?: string } };
+}
+
+/** Best-effort caller IP for the per-IP rate-limit bucket; falls back to a constant. */
+const callerIp = (context: KernelGraphqlContext | undefined): string =>
+  context?.reply?.request?.ip ?? 'anon';
 
 export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, unknown> => ({
   ...scalarResolvers,
@@ -80,14 +96,37 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
       return result.value;
     },
 
-    searchEntities: async (_root: unknown, args: SearchArgs) =>
-      unwrap(
-        await makeGlobalSearch(deps.globalSearchDeps, {
-          q: args.q,
-          ...(args.docTypes !== undefined && { docTypes: args.docTypes }),
-          ...(args.limit !== undefined && { limit: args.limit }),
-        })
-      ),
+    searchEntities: async (
+      _root: unknown,
+      args: SearchArgs,
+      context: KernelGraphqlContext
+    ) => {
+      // Rate-limit the palette per caller IP (it has no other guard). On exhaustion,
+      // surface a structured GraphQLError the client can detect (extensions.code).
+      const ip = callerIp(context);
+      const limit = deps.rateLimiter.consume(`searchEntities:${ip}`);
+      if (!limit.allowed) {
+        throw new GraphQLError('Rate limit exceeded for searchEntities.', {
+          extensions: { code: 'RATE_LIMITED', retryAfterMs: limit.retryAfterMs },
+        });
+      }
+
+      const searchInput = {
+        q: args.q,
+        ...(args.docTypes !== undefined && { docTypes: args.docTypes }),
+        ...(args.county !== undefined && { county: args.county }),
+        ...(args.year !== undefined && { year: args.year }),
+        ...(args.limit !== undefined && { limit: args.limit }),
+        ...(args.offset !== undefined && { offset: args.offset }),
+      };
+      // Short TTL cache (index changes ≤ once/cron); key normalizes arg order so
+      // equivalent queries collide. Degrade-not-error behavior is inside the usecase.
+      const part = (v: number | undefined): string => (v === undefined ? '' : String(v));
+      const cacheKey = `entities-search:${args.q}|${(args.docTypes ?? []).slice().sort().join(',')}|${args.county ?? ''}|${part(args.year)}|${part(args.limit)}|${part(args.offset)}`;
+      return unwrap(
+        await deps.cache.wrap(cacheKey, () => makeGlobalSearch(deps.globalSearchDeps, searchInput))
+      );
+    },
   },
 
   // Field-level resolvers — each computed lazily per-request, so a query pays

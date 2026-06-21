@@ -167,6 +167,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     identityRepo,
     searchRepo,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
+    ...(config.logger !== undefined && { logger: config.logger }),
   };
 
   const chatModel = config.chatModel ?? 'auto';
@@ -174,6 +175,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const mcpTools = makeKernelMcpTools({
     identityRepo,
     entity360Deps,
+    globalSearchDeps,
     clientBaseUrl: config.clientBaseUrl ?? 'https://transparenta.eu',
   });
 
