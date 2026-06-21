@@ -10,7 +10,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { upstreamError, type ApiError } from '../../core/errors.js';
 
-import type { MeiliClient, MeiliSearchResult } from '../../core/ports.js';
+import type { EntitiesSearchResult, MeiliClient, MeiliSearchResult } from '../../core/ports.js';
 import type { SearchHit } from '../../core/types.js';
 
 export interface MeiliClientConfig {
@@ -115,6 +115,19 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
         const msg = error instanceof Error ? error.message : 'unknown error';
         return err(upstreamError(`meilisearch request failed: ${msg}`, 'meilisearch', error));
       }
+    },
+
+    // TODO(T2): the real single-index `entities` search — POST
+    // /indexes/<index>/search with the array `filter`, `facets`,
+    // `showRankingScore:true`, and `attributesToHighlight`, mapping
+    // facetDistribution + estimatedTotalHits. T1 lands the port signature; this
+    // placeholder keeps the tree compiling until then.
+    searchEntities(
+      _q: string,
+      _index: string,
+      _opts: { filter?: unknown; facets?: readonly string[]; limit: number; offset?: number }
+    ): Promise<Result<EntitiesSearchResult, ApiError>> {
+      return Promise.resolve(ok({ hits: [], facetDistribution: {}, estimatedTotalHits: 0 }));
     },
 
     async healthCheck(): Promise<Result<void, ApiError>> {

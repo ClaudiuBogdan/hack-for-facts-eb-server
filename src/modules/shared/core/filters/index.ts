@@ -12,3 +12,4 @@ export * from './composer.js';
 export * from './derive.js';
 export * from './surfaces.js';
 export * from './territory.js';
+export * from './meili-array.js';

@@ -67,4 +67,10 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
       return err(databaseError('fallbackTextSearch failed', error));
     }
   },
+
+  // TODO(T2): the real visibility-/entity-scoped Meili-parity fallback. T1 lands
+  // the port signature; this placeholder keeps the tree compiling until then.
+  searchEntities(): Promise<Result<readonly SearchHit[], ApiError>> {
+    return Promise.resolve(ok([]));
+  },
 });

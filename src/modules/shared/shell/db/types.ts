@@ -130,6 +130,9 @@ export interface SearchDocuments {
   county_name: string | null;
   url: string | null;
   attrs: Jsonb;
+  visibility: string; // 'public' | 'restricted' — query-time gate
+  rank_boost: number | null; // precomputed importance (sort signal)
+  deleted_at: Tstz | null; // tombstone — exclude from serving when set
   updated_at: Tstz;
   embedded_at: Tstz | null;
   indexed_meili_at: Tstz | null;

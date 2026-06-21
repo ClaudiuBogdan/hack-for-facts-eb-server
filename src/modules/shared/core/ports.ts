@@ -122,6 +122,22 @@ export interface SearchRepo {
     docTypes: readonly string[],
     limit: number
   ): Promise<Result<readonly SearchHit[], ApiError>>;
+  /**
+   * Visibility-scoped, entity-doc-type-scoped Postgres fallback for the global
+   * entity search — always filters `visibility='public'` + `deleted_at IS NULL`
+   * + the entity-grade `doc_type` set, optionally narrowed by `docTypes`/county/
+   * year. The Meili-parity degrade path (impl lands in T2). Empty `q` → no rows.
+   */
+  searchEntities(
+    q: string,
+    opts: {
+      readonly docTypes?: readonly string[];
+      readonly county?: string;
+      readonly year?: number;
+      readonly limit: number;
+      readonly offset?: number;
+    }
+  ): Promise<Result<readonly SearchHit[], ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,12 +159,41 @@ export interface MeiliSearchResult {
   readonly totalHits: number;
 }
 
+/**
+ * The result of a single-index `entities` search: mapped hits, the raw facet
+ * distribution from Meili (`{ field: { value: count } }`), and the approximate
+ * total (capped by `maxTotalHits`). The usecase flattens `facetDistribution`
+ * into the typed `SearchFacet[]`.
+ */
+export interface EntitiesSearchResult {
+  readonly hits: readonly SearchHit[];
+  readonly facetDistribution: Readonly<Record<string, Record<string, number>>>;
+  readonly estimatedTotalHits: number;
+}
+
 export interface MeiliClient {
   multiSearch(
     q: string,
     indexes: readonly string[],
     limit: number
   ): Promise<Result<readonly MeiliSearchResult[], ApiError>>;
+  /**
+   * Single-index search against the `entities` index. `filter` is Meili's array
+   * filter form (built by `buildEntitiesFilter` — never a hand-built string);
+   * `facets` requests a facet distribution. The impl sets `showRankingScore` +
+   * `attributesToHighlight` (lands in T2). A missing/corrupt index is surfaced
+   * as an error so the usecase can degrade to Postgres.
+   */
+  searchEntities(
+    q: string,
+    index: string,
+    opts: {
+      readonly filter?: unknown;
+      readonly facets?: readonly string[];
+      readonly limit: number;
+      readonly offset?: number;
+    }
+  ): Promise<Result<EntitiesSearchResult, ApiError>>;
   healthCheck(): Promise<Result<void, ApiError>>;
 }
 

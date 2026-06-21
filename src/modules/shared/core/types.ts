@@ -261,7 +261,15 @@ export interface Document {
   readonly attrs: Record<string, unknown>;
 }
 
-/** A hybrid-search hit (Meili / OpenSearch / pg fallback). */
+/**
+ * A hybrid-search hit (Meili / OpenSearch / pg fallback).
+ *
+ * The core fields (`id/docType/title/snippet/score/source/attrs`) are the stable
+ * v1 contract. The remaining fields are OPTIONAL projections of the `entities`
+ * Meili document (see the scrapper's ENTITIES_INDEX_CONTRACT.md) — present when
+ * the hit comes from the entity index, absent for other engines/indexes. Keeping
+ * them optional means existing producers/consumers are unaffected.
+ */
 export interface SearchHit {
   readonly id: string;
   readonly docType: string;
@@ -270,7 +278,62 @@ export interface SearchHit {
   readonly score: number | null;
   readonly source: 'meili' | 'opensearch' | 'postgres';
   readonly attrs: Record<string, unknown>;
+  /** Stable source id `"<type>:<key>"` — the Postgres hydration join key. */
+  readonly docId?: string;
+  /** The id key (substring after the first `:`) — for native deep-links. */
+  readonly docKey?: string;
+  /** Secondary display line (the entity doc's `subtitle`; also mapped to `snippet`). */
+  readonly subtitle?: string;
+  /** County (facet/display). */
+  readonly countyName?: string;
+  /** External/source URL — interim deep-link for types without a native page. */
+  readonly url?: string;
+  /** Precomputed importance (sort signal). */
+  readonly rankBoost?: number;
+  /** Associated CUI identifiers (exact-match filter). */
+  readonly cuis?: readonly string[];
+  /** Year (facet/sort). */
+  readonly year?: number;
 }
+
+/**
+ * One facet bucket from a faceted search (e.g. `doc_type` distribution → the
+ * type-filter chips). `field` is included now because a second facet is coming
+ * (county/year), so consumers can disambiguate buckets across fields.
+ */
+export interface SearchFacet {
+  readonly field: string;
+  readonly value: string;
+  readonly count: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entity-grade search doc types (§4.5) — mirrors the scrapper `entities` index
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The entity-grade `doc_type` set of the `entities` Meili index — the allowlist
+ * for global-search filters. KEEP IN SYNC with `ENTITY_DOC_TYPES` in the
+ * scrapper's `entities-index.ts` / `ENTITIES_INDEX_CONTRACT.md`. This is
+ * deliberately DISTINCT from the kernel's `DOC_TYPES` (the full, stale
+ * `search.documents` set, which lacks company/organization/member/bill/ngo/
+ * public_enterprise) — validate entity-search filters against THIS constant.
+ */
+export const SEARCH_ENTITY_DOC_TYPES = [
+  'organization',
+  'company',
+  'public_enterprise',
+  'ngo',
+  'member',
+  'bill',
+  'legal_act',
+  'mo_act',
+  'pnrr_project',
+  'pnrr_entity',
+  'procurement_contract',
+  'procurement_procedure',
+] as const;
+export type SearchEntityDocType = (typeof SEARCH_ENTITY_DOC_TYPES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-source aggregation shapes (§4.4 — canonical open shapes)
