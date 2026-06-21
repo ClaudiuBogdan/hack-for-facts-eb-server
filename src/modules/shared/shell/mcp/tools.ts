@@ -13,13 +13,16 @@
 import { z } from 'zod';
 
 import { makeEntity360, type Entity360Deps } from '../../core/usecases/entity-360.js';
+import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
 
 import type { KernelMcpTool, McpToolOutput } from './types.js';
 import type { IdentityRepo } from '../../core/ports.js';
+import type { SearchHit } from '../../core/types.js';
 
 export interface KernelMcpDeps {
   readonly identityRepo: IdentityRepo;
   readonly entity360Deps: Entity360Deps;
+  readonly globalSearchDeps: GlobalSearchDeps;
   readonly clientBaseUrl: string;
 }
 
@@ -106,5 +109,62 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
     },
   };
 
-  return [resolveEntity, getEntitySnapshot];
+  const searchEntities: KernelMcpTool = {
+    name: 'search_entities',
+    description:
+      'Free-text global search across every entity-grade type (companies, organizations, legal acts, members, bills, procurement, PNRR, …). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / county / year. Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
+    inputShape: {
+      query: z.string().describe('Free-text query (entity name, keyword, or CUI).'),
+      docTypes: z
+        .array(z.string())
+        .optional()
+        .describe('Restrict to these entity doc types (e.g. ["company","legal_act"]).'),
+      county: z.string().optional().describe('Canonical county name (case-sensitive, e.g. "Cluj").'),
+      year: z.number().int().optional().describe('Exact year filter.'),
+      limit: z.number().int().optional().describe('Max hits to return (default 20, max 50).'),
+    },
+    async handler(args): Promise<McpToolOutput> {
+      const query = strArg(args, 'query');
+      const docTypes = Array.isArray(args['docTypes'])
+        ? args['docTypes'].filter((t): t is string => typeof t === 'string')
+        : undefined;
+      const county = typeof args['county'] === 'string' ? args['county'] : undefined;
+      const year = typeof args['year'] === 'number' ? args['year'] : undefined;
+      const limit = typeof args['limit'] === 'number' ? args['limit'] : undefined;
+
+      const res = await makeGlobalSearch(deps.globalSearchDeps, {
+        q: query,
+        ...(docTypes !== undefined && { docTypes }),
+        ...(county !== undefined && { county }),
+        ...(year !== undefined && { year }),
+        ...(limit !== undefined && { limit }),
+      });
+      if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };
+
+      const { engine, hits, facets, estimatedTotalHits } = res.value;
+      const items = hits.map((h: SearchHit) => ({
+        docType: h.docType,
+        ...(h.docKey !== undefined && { docKey: h.docKey }),
+        ...(h.docId !== undefined && { docId: h.docId }),
+        title: h.title,
+        ...(h.subtitle !== undefined && { subtitle: h.subtitle }),
+        ...(h.countyName !== undefined && { countyName: h.countyName }),
+        ...(h.url !== undefined && { url: h.url }),
+        ...(h.cuis !== undefined && { cuis: h.cuis }),
+      }));
+      return {
+        ok: true,
+        kind: 'entity_search',
+        query,
+        items,
+        meta: { engine, estimatedTotalHits, returned: items.length, facets },
+        summary:
+          items.length === 0
+            ? `No entities matched "${query}".`
+            : `${String(items.length)} of ~${String(estimatedTotalHits)} matches for "${query}" (engine: ${engine}).`,
+      };
+    },
+  };
+
+  return [resolveEntity, getEntitySnapshot, searchEntities];
 };
