@@ -14,6 +14,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import { upstreamError, databaseError, type ApiError } from '@/modules/shared/core/errors.js';
+import { SEARCH_ENTITY_DOC_TYPES, type OrgNameMatch, type SearchHit } from '@/modules/shared/core/types.js';
 import {
   makeGlobalSearch,
   type GlobalSearchDeps,
@@ -25,7 +26,6 @@ import type {
   MeiliClient,
   SearchRepo,
 } from '@/modules/shared/core/ports.js';
-import type { OrgNameMatch, SearchHit } from '@/modules/shared/core/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Builders
@@ -345,7 +345,35 @@ describe('makeGlobalSearch — limit/offset clamping', () => {
   it('clamps the same limit/offset on the pg degrade path', async () => {
     const { deps, spies } = makeDeps({ meiliIndexes: [], repo: ok([]) });
     await makeGlobalSearch(deps, { q: 'acme', limit: 9999, offset: 99999 });
-    expect(spies.repoSearch).toHaveBeenCalledWith('acme', { limit: 50, offset: 1000 });
+    expect(spies.repoSearch).toHaveBeenCalledWith(
+      'acme',
+      expect.objectContaining({ limit: 50, offset: 1000 })
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Allowlist pin when docTypes omitted (Codex final P1a — Meili/pg parity)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('makeGlobalSearch — allowlist pin when docTypes omitted', () => {
+  it('pins the FULL entity allowlist on the Meili filter (not just visibility)', async () => {
+    const { deps, spies } = makeDeps({});
+    await makeGlobalSearch(deps, { q: 'acme' });
+
+    const filter = (spies.meiliSearch.mock.calls[0]?.[2] as { filter: readonly string[] }).filter;
+    expect(filter).toContain('visibility = "public"');
+    const expectedIn = `doc_type IN [${SEARCH_ENTITY_DOC_TYPES.map((t) => `"${t}"`).join(', ')}]`;
+    expect(filter).toContain(expectedIn);
+  });
+
+  it('forwards the full allowlist to the pg fallback too (engines stay symmetric)', async () => {
+    const { deps, spies } = makeDeps({ meiliIndexes: [], repo: ok([]) });
+    await makeGlobalSearch(deps, { q: 'acme' });
+    expect(spies.repoSearch).toHaveBeenCalledWith(
+      'acme',
+      expect.objectContaining({ docTypes: [...SEARCH_ENTITY_DOC_TYPES] })
+    );
   });
 });
 

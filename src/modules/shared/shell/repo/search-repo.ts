@@ -125,7 +125,13 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
       }
       if (opts.offset !== undefined) query = query.offset(opts.offset);
 
-      const rows = await query.limit(capped).execute();
+      // Deterministic order so limit/offset paging can't skip or duplicate rows
+      // across requests on the degraded path: importance first, doc_id tiebreak.
+      const rows = await query
+        .orderBy(sql`rank_boost desc nulls last`)
+        .orderBy('doc_id', 'asc')
+        .limit(capped)
+        .execute();
       return ok(
         rows.map((r): SearchHit => {
           // `doc_key` = the id key (everything after the first `:`); the whole
