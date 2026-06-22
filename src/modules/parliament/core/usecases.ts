@@ -522,7 +522,14 @@ export const resolveFilters = async (
     }
     case 'control_type':
       return ok(
-        ['question', 'interpellation', 'question_or_interpellation', 'motion']
+        [
+          'question',
+          'interpellation',
+          'question_or_interpellation',
+          'motion',
+          'interpellation_pm',
+          'political_declaration',
+        ]
           .filter((v) => v.includes(folded))
           .map((v) => ({ dim, value: v, label: v, kind: 'enum', score: null }))
       );

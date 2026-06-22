@@ -51,7 +51,7 @@ const objectsAndQuery = /* GraphQL */ `
   enum ParliamentChamber { camera_deputatilor senat comun }
   enum ParliamentVoteOutcome { adoptat respins }
   enum ParliamentVoteChoice { pentru impotriva abtinere nu_a_votat }
-  enum ParliamentControlType { question interpellation question_or_interpellation motion }
+  enum ParliamentControlType { question interpellation question_or_interpellation motion interpellation_pm political_declaration }
   enum ParliamentPersonConfidence { high medium low }
   enum ParliamentFilterDim { group person constituency recipient control_type outcome chamber }
   enum ParliamentBillSort { updated_desc updated_asc title_asc title_desc }
@@ -162,6 +162,8 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentBillActLink {
     relationshipKind: String!
     targetActId: ID  targetActType: String  targetActNumber: String  targetActYear: Int
+    "Monitorul Oficial publication key when resolutionStatus='linked_mo': the law is published in MO but absent from the consolidated act registry, so targetActId/legalAct are null. Distinct from hasLaw (registry-resolved 'linked')."
+    targetMoActKey: String
     resolutionStatus: String!  confidenceLabel: String!  primaryMethod: String!
     legalAct: ParliamentLegalActRef
   }
@@ -195,7 +197,7 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentControlItem {
     itemKey: ID!  controlType: ParliamentControlType  controlTypeProvenance: String
     title: String  recipient: String  itemDate: Date  responseStatus: String
-    authorName: String  member: ParliamentMember
+    chamber: String  authorName: String  member: ParliamentMember
   }
   type ParliamentSpeech { speechKey: ID!  spokenAt: Date  title: String  summary: String  chamber: String }
   type ParliamentInitiative {

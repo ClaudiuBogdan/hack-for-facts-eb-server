@@ -673,11 +673,19 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       if (typeof year['lte'] === 'number') conds.push(yOr(sql`<=`, year['lte']));
     }
 
-    // hasLaw (virtual): EXISTS a linked bill_act_links row.
+    // hasLaw (virtual): EXISTS a linked (consolidated act) bill_act_links row.
     const hasLaw = fieldFilter(filter, 'hasLaw');
     if (hasLaw !== undefined && typeof hasLaw['eq'] === 'boolean') {
       const exists = sql`exists (select 1 from parliament.bill_act_links bal where bal.bill_key = b.bill_key and bal.resolution_status = 'linked')`;
       conds.push(hasLaw['eq'] ? exists : sql`not (${exists})`);
+    }
+
+    // publishedInMo (virtual, H4): EXISTS a linked_mo bill_act_links row (MO-published,
+    // not yet consolidated). The third resolution state between hasLaw and unresolved.
+    const publishedInMo = fieldFilter(filter, 'publishedInMo');
+    if (publishedInMo !== undefined && typeof publishedInMo['eq'] === 'boolean') {
+      const exists = sql`exists (select 1 from parliament.bill_act_links bal where bal.bill_key = b.bill_key and bal.resolution_status = 'linked_mo')`;
+      conds.push(publishedInMo['eq'] ? exists : sql`not (${exists})`);
     }
 
     // actId (virtual): reverse lineage — bills that became act X. Validate numeric
@@ -868,6 +876,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     target_act_type: string | null;
     target_act_number: string | null;
     target_act_year: number | null;
+    target_mo_act_key: string | null;
     resolution_status: string;
     confidence_label: string | null;
     primary_method: string | null;
@@ -877,6 +886,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     targetActType: r.target_act_type,
     targetActNumber: r.target_act_number,
     targetActYear: r.target_act_year,
+    targetMoActKey: r.target_mo_act_key,
     resolutionStatus: r.resolution_status,
     confidenceLabel: r.confidence_label ?? 'none',
     primaryMethod: r.primary_method ?? 'unknown',
@@ -892,6 +902,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bal.target_act_type',
           'bal.target_act_number',
           'bal.target_act_year',
+          'bal.target_mo_act_key',
           'bal.resolution_status',
           'bal.confidence_label',
           'bal.primary_method',

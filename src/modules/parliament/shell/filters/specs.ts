@@ -31,15 +31,19 @@ import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 export const VOTE_CHAMBERS = VOTE_CHAMBERS_OK;
 export const VOTE_OUTCOMES = ['adoptat', 'respins'] as const;
 /**
- * control_type live values: `question_or_interpellation` is the combined bucket
- * (control_type_provenance='combined_pass'); split rows are `question` /
- * `interpellation`. `motion` is rare (6 rows). NOT `unknown` (plan was stale).
+ * control_type live values. CDEP: `question_or_interpellation` is the combined
+ * bucket (control_type_provenance='combined_pass'); split rows are `question` /
+ * `interpellation`; `motion` is rare (6 rows). SENATE (provenance='senate_direct',
+ * H12): `question` / `interpellation` / `interpellation_pm` (interpelare adresată
+ * Primului Ministru) / `political_declaration` (declaraţie politică). NOT `unknown`.
  */
 export const CONTROL_TYPES = [
   'question',
   'interpellation',
   'question_or_interpellation',
   'motion',
+  'interpellation_pm',
+  'political_declaration',
 ] as const;
 
 /**
@@ -83,7 +87,7 @@ export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // a non-virtual plx_year-only field silently drops Senate-only bills).
 // `billType`/`status` are virtual: they classify jsonb attrs (prefix on
 // procedure.tip_initiativa / bucket on status_text), not a plain column op.
-export const BILLS_VIRTUAL_FIELDS = ['q', 'hasLaw', 'actId', 'year', 'billType', 'status'] as const;
+export const BILLS_VIRTUAL_FIELDS = ['q', 'hasLaw', 'publishedInMo', 'actId', 'year', 'billType', 'status'] as const;
 export const CONTROL_VIRTUAL_FIELDS = ['recipient', 'author', 'q'] as const;
 
 // ── votes (cursor; driving votes_chamber_date_idx) ───────────────────────────
@@ -212,7 +216,7 @@ export const billsFilterSpec: CollectionFilterSpec = {
       ops: ['isNull'],
       column: { alias: 'b', column: 'final_law_number' },
       description:
-        'isNull:false = has a LAW NUMBER (final_law_number IS NOT NULL). NOT the same as hasLaw (act-registry linked): 218 cdep bills have a law number but no resolved act link, so finalized(3,628) > hasLaw(3,410). Residual.',
+        'isNull:false = has a LAW NUMBER (final_law_number IS NOT NULL). NOT the same as hasLaw (act-registry linked): some bills have a law number but no resolved consolidated act, so finalized > hasLaw (the H4 gap, narrowed by publishedInMo). Residual.',
     },
     {
       name: 'hasLaw',
@@ -221,7 +225,16 @@ export const billsFilterSpec: CollectionFilterSpec = {
       column: { alias: 'b', column: 'bill_key' },
       virtual: true,
       description:
-        'true = act-registry RESOLVED — a linked bill_act_links row (resolution_status=linked). Distinct from finalized (has a law number): a law number can exist without a resolved act link (the 218-bill gap). Repo EXISTS join.',
+        'true = act-registry RESOLVED — a linked bill_act_links row (resolution_status=linked, consolidated act). Distinct from finalized (has a law number) and from publishedInMo (resolution_status=linked_mo: published in Monitorul Oficial but not yet consolidated, targetActId NULL). Repo EXISTS join.',
+    },
+    {
+      name: 'publishedInMo',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'b', column: 'bill_key' },
+      virtual: true,
+      description:
+        'true = MO-evidence resolved (H4) — a bill_act_links row with resolution_status=linked_mo: the law is published in Monitorul Oficial but absent from the consolidated act registry (targetActId NULL, targetMoActKey set). The third resolution state between hasLaw (consolidated) and unresolved (no evidence). Repo EXISTS join.',
     },
     {
       name: 'actId',
