@@ -273,6 +273,15 @@ export interface ControlItemRow {
   mandate_key: string | null;
 }
 
+/** Chamber from the mandate_key prefix: '1:'=senat, '2:'=camera_deputatilor. */
+const chamberFromMandateKey = (mandateKey: string | null): string | null => {
+  if (mandateKey == null) return null;
+  const prefix = mandateKey.split(':')[0];
+  if (prefix === '1') return 'senat';
+  if (prefix === '2') return 'camera_deputatilor';
+  return null;
+};
+
 export const mapControlItem = (r: ControlItemRow): ParliamentControlItem => ({
   itemKey: r.item_key,
   controlType: r.control_type,
@@ -281,6 +290,7 @@ export const mapControlItem = (r: ControlItemRow): ParliamentControlItem => ({
   recipient: r.recipient,
   itemDate: r.item_date,
   responseStatus: r.response_status,
+  chamber: chamberFromMandateKey(r.mandate_key),
   authorName: r.author_name,
   mandateKey: r.mandate_key,
 });

@@ -152,7 +152,8 @@ export interface ParliamentBillActLink {
   readonly targetActType: string | null;
   readonly targetActNumber: string | null;
   readonly targetActYear: number | null;
-  readonly resolutionStatus: string; // linked | unresolved | not_applicable …
+  readonly targetMoActKey: string | null; // H4: Monitorul Oficial publication key when resolutionStatus='linked_mo' (published in MO, no consolidated act → targetActId NULL)
+  readonly resolutionStatus: string; // linked | linked_mo | unresolved | ambiguous | not_applicable
   readonly confidenceLabel: string; // exact | high | medium | low | none
   readonly primaryMethod: string;
   // legalAct resolved by the kernel LegalActByIdLoader on the GraphQL resolver (§6.7)
@@ -249,12 +250,13 @@ export interface ParliamentVoteDetail {
 
 export interface ParliamentControlItem {
   readonly itemKey: string;
-  readonly controlType: string | null; // question | interpellation | question_or_interpellation | motion
-  readonly controlTypeProvenance: string | null; // split_pass | combined_pass
+  readonly controlType: string | null; // cdep: question|interpellation|question_or_interpellation|motion; senate: +interpellation_pm|political_declaration
+  readonly controlTypeProvenance: string | null; // split_pass | combined_pass | senate_direct
   readonly title: string | null;
   readonly recipient: string | null;
   readonly itemDate: string | null;
   readonly responseStatus: string | null;
+  readonly chamber: string | null; // senat | camera_deputatilor, derived from mandate_key prefix (1:/2:)
   readonly authorName: string | null;
   readonly mandateKey: string | null;
 }

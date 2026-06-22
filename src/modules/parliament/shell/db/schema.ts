@@ -141,6 +141,7 @@ export interface BillActLinksTable {
   target_act_number: string | null;
   target_act_year: number | null; // smallint
   target_issuer_slug: string | null;
+  target_mo_act_key: string | null; // H4: Monitorul Oficial publication key when resolution_status='linked_mo' (act published in MO but absent from the consolidated registry → target_act_id NULL)
   resolution_status: string;
   confidence: string | null; // numeric(4,3) → string (precision-safe)
   confidence_label: string | null;
