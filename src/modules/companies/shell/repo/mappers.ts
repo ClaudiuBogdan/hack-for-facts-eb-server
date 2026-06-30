@@ -18,6 +18,32 @@ import type {
   CompanyTerritory,
 } from '../../core/types.js';
 
+export const mapCountyDisplayName = (raw: string | null): string | null => {
+  if (raw === null) return null;
+  const withoutPrefix = raw
+    .trim()
+    .replace(/^jude[țţ]ul\s+/iu, '')
+    .replace(/^municipiul\s+/iu, '');
+  if (withoutPrefix === '') return null;
+  return withoutPrefix
+    .toLocaleLowerCase('ro-RO')
+    .replace(
+      /(^|[\s-])(\p{L})/gu,
+      (_m, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase('ro-RO')}`
+    );
+};
+
+const mapLocalityDisplayName = (raw: string | null): string | null =>
+  raw === null
+    ? null
+    : raw
+        .trim()
+        .toLocaleLowerCase('ro-RO')
+        .replace(
+          /(^|[\s-])(\p{L})/gu,
+          (_m, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase('ro-RO')}`
+        );
+
 /** Headline status from registrations code/label (mojibake-repaired nomenclature fallback). */
 export const mapHeadlineStatus = (
   code: string | null,
@@ -28,7 +54,7 @@ export const mapHeadlineStatus = (
 };
 
 export const mapTerritory = (row: {
-  uat_siruta_code: number | null;
+  uat_siruta_code: number | string | null;
   uat_name: string | null;
   county_name: string | null;
   match_confidence: string | null;
@@ -46,8 +72,8 @@ export const mapTerritory = (row: {
   }
   return {
     sirutaCode: row.uat_siruta_code === null ? null : String(row.uat_siruta_code),
-    uatName: row.uat_name,
-    countyName: row.county_name,
+    uatName: mapLocalityDisplayName(row.uat_name),
+    countyName: mapCountyDisplayName(row.county_name),
     matchConfidence: row.match_confidence === 'safe' ? 'safe' : 'unmatched',
   };
 };
@@ -58,18 +84,20 @@ export const mapAddress = (row: {
   raw_locality: string | null;
 }): CompanyAddress => ({
   display: row.raw_address ?? '',
-  county: row.raw_county,
-  locality: row.raw_locality,
+  county: mapCountyDisplayName(row.raw_county),
+  locality: mapLocalityDisplayName(row.raw_locality),
 });
 
 export const mapFiscal = (
-  row: {
-    is_vat_payer: boolean | null;
-    is_inactive: boolean | null;
-    main_caen_code: string | null;
-    registered_name: string | null;
-    snapshot_at: string | null;
-  } | undefined
+  row:
+    | {
+        is_vat_payer: boolean | null;
+        is_inactive: boolean | null;
+        main_caen_code: string | null;
+        registered_name: string | null;
+        snapshot_at: string | null;
+      }
+    | undefined
 ): CompanyFiscal | null => {
   if (row === undefined) return null;
   return {
@@ -81,7 +109,10 @@ export const mapFiscal = (
   };
 };
 
-export const mapStatusFlag = (row: { status_code: string; status_label: string | null }): CompanyStatusFlag => ({
+export const mapStatusFlag = (row: {
+  status_code: string;
+  status_label: string | null;
+}): CompanyStatusFlag => ({
   code: row.status_code,
   label: row.status_label,
 });
@@ -172,9 +203,7 @@ const toSummary = (r: FinancialRow): CompanyFinancialSummary => ({
  * RON values are < 2^53, so the jsonb→JS parse is lossless here; true bigint
  * precision would require the upstream loader to emit the value as text.)
  */
-const stringifyLines = (
-  lines: Record<string, unknown> | null
-): Record<string, unknown> | null => {
+const stringifyLines = (lines: Record<string, unknown> | null): Record<string, unknown> | null => {
   if (lines === null) return null;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(lines)) out[k] = typeof v === 'number' ? String(v) : v;

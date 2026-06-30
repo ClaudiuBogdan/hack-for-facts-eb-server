@@ -11,8 +11,17 @@ import {
   COMPANY_VIRTUAL_FIELDS,
   companiesFilterSpec,
 } from '@/modules/companies/core/filters.js';
-import { splitVirtual } from '@/modules/companies/shell/repo/filter-helpers.js';
-import { canonicalizeFilters, fhashFor, toConditionBuilders, toGraphQLInput, toTypeBox } from '@/modules/shared/index.js';
+import {
+  normalizeCountyNeedle,
+  splitVirtual,
+} from '@/modules/companies/shell/repo/filter-helpers.js';
+import {
+  canonicalizeFilters,
+  fhashFor,
+  toConditionBuilders,
+  toGraphQLInput,
+  toTypeBox,
+} from '@/modules/shared/index.js';
 
 describe('companies filter spec', () => {
   it('sort excludes value sorts (turnover/employees) — §13-R3', () => {
@@ -31,9 +40,9 @@ describe('companies filter spec', () => {
     expect(companiesFilterSpec.fields.some((f) => f.column.column === 'is_active')).toBe(false);
   });
 
-  it('county drives off raw_county (not county_name); mandatory isNull on registrationDatePresent', () => {
+  it('county drives off v2 selected_county_name; mandatory isNull on registrationDatePresent', () => {
     const county = companiesFilterSpec.fields.find((f) => f.name === 'county');
-    expect(county?.column.column).toBe('raw_county');
+    expect(county?.column.column).toBe('selected_county_name');
     const present = companiesFilterSpec.fields.find((f) => f.name === 'registrationDatePresent');
     expect(present?.ops).toContain('isNull');
   });
@@ -82,10 +91,20 @@ describe('splitVirtual', () => {
   });
 
   it('strips virtual fields from the exclude sub-object too', () => {
-    const { physical } = splitVirtual({ exclude: { county: { in: ['Cluj'] }, status: { in: ['1084'] } } });
+    const { physical } = splitVirtual({
+      exclude: { county: { in: ['Cluj'] }, status: { in: ['1084'] } },
+    });
     const ex = physical.exclude as Record<string, unknown> | undefined;
     expect(ex).toBeDefined();
     expect(Object.keys(ex ?? {})).toEqual(['status']);
+  });
+});
+
+describe('v2 county filter normalization', () => {
+  it('accepts both display labels and ONRC-prefixed labels as the same county', () => {
+    expect(normalizeCountyNeedle('Bacău')).toBe('bacau');
+    expect(normalizeCountyNeedle('JUDEŢUL BACĂU')).toBe('bacau');
+    expect(normalizeCountyNeedle('MUNICIPIUL BUCUREŞTI')).toBe('bucuresti');
   });
 });
 

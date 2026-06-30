@@ -3,12 +3,12 @@
  *
  * Pinned to measured live data (verified 2026-06-16 on transparenta-prod-postgres-1):
  *   - core.organizations kind='company' = 3,985,167 (the CUI spine)
- *   - golden CUI 2816464 = DEDEMAN SRL, org_id 1517396, county Bacău (raw_county),
+ *   - golden CUI 2816464 = DEDEMAN SRL, org_id 1517396, county Bacău (v2 selected county),
  *     status 1048 funcțiune, legal_form SRL, regnum J1992002621040, vat=true,
  *     is_inactive=false, employees(2024)=12313, also a flows payee.
  *
  * Tri-surface: the GraphQL `company(cui)` / `entity(cui).company` payload == the
- * MCP `get_company_snapshot` profile == raw SQL over `companies.*`. Skips cleanly
+ * MCP `get_company_snapshot` profile == raw SQL over `companies_v2.*`. Skips cleanly
  * when PROD_DATABASE_URL is absent (CI without the tunnel).
  */
 
@@ -35,7 +35,10 @@ const onUncaught = (err: unknown): void => {
   throw err;
 };
 
-const gql = async (query: string, variables?: Record<string, unknown>): Promise<{ data?: unknown; errors?: unknown }> => {
+const gql = async (
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<{ data?: unknown; errors?: unknown }> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -50,10 +53,17 @@ const mcpCall = async (name: string, args: Record<string, unknown>): Promise<unk
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC response body
-  const body = JSON.parse(res.body) as { result?: { structuredContent?: unknown; content?: { text?: string }[] } };
+  const body = JSON.parse(res.body) as {
+    result?: { structuredContent?: unknown; content?: { text?: string }[] };
+  };
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent;
   const text = body.result?.content?.[0]?.text;
   // eslint-disable-next-line no-restricted-syntax -- test parses the trusted MCP tool-output text payload
@@ -67,7 +77,10 @@ d('Companies golden (live prod)', () => {
     app = built.app;
     close = built.app.close.bind(built.app);
     await app.ready();
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     process.on('uncaughtException', onUncaught);
   }, 60_000);
@@ -80,7 +93,9 @@ d('Companies golden (live prod)', () => {
   });
 
   it('the CUI spine count is the measured 3,985,167', async () => {
-    const r = await pool.query<{ cnt: string }>(`select count(*) cnt from core.organizations where kind='company'`);
+    const r = await pool.query<{ cnt: string }>(
+      `select count(*) cnt from core.organizations where kind='company'`
+    );
     expect(Number(r.rows[0]?.cnt)).toBe(3_985_167);
   });
 
@@ -98,21 +113,24 @@ d('Companies golden (live prod)', () => {
       { cui: DEDEMAN }
     );
     expect(res.errors).toBeUndefined();
-    const c = (res.data as {
-      company: {
-        name: string;
-        orgId: string;
-        legalForm: string;
-        codInmatriculare: string;
-        registrationDate: string;
-        registrationDatePresent: boolean;
-        headlineStatus: { code: string };
-        address: { county: string };
-        fiscal: { vatPayer: boolean; declaredFiscallyInactive: boolean };
-        financials: { year: number; employees: string }[];
-        publicMoney: { flowCount: number } | null;
-      };
-    }).company;
+    const c = (
+      res.data as {
+        company: {
+          name: string;
+          orgId: string;
+          legalForm: string;
+          codInmatriculare: string;
+          registrationDate: string;
+          registrationDatePresent: boolean;
+          headlineStatus: { code: string };
+          address: { county: string };
+          fiscal: { vatPayer: boolean; declaredFiscallyInactive: boolean };
+          financials: { year: number; employees: string }[];
+          representatives: { name: string; role: string }[];
+          publicMoney: { flowCount: number } | null;
+        };
+      }
+    ).company;
     expect(c.name).toBe('DEDEMAN SRL');
     expect(c.orgId).toBe('1517396');
     expect(c.legalForm).toBe('SRL');
@@ -125,29 +143,44 @@ d('Companies golden (live prod)', () => {
     expect(c.fiscal.declaredFiscallyInactive).toBe(false);
     const y2024 = c.financials.find((f) => f.year === 2024);
     expect(y2024?.employees).toBe('12313'); // bigint as string, never a JS number
+    expect(c.representatives).toEqual([]); // v2 person/role tables are restricted.
     expect(c.publicMoney?.flowCount).toBeGreaterThan(0);
   }, 25_000); // full profile incl. the public-money slice (3 flow aggregates) on a 219k-flow payee.
 
   it('drops is_active: no surface emits an "active"-named boolean; declaredFiscallyInactive present', async () => {
-    const res = await gql(`query($cui: CUI!){ company(cui:$cui){ fiscal { declaredFiscallyInactive } } }`, { cui: DEDEMAN });
+    const res = await gql(
+      `query($cui: CUI!){ company(cui:$cui){ fiscal { declaredFiscallyInactive } } }`,
+      { cui: DEDEMAN }
+    );
     const str = JSON.stringify(res.data);
     expect(str).toContain('declaredFiscallyInactive');
     expect(/"is_?active"/i.test(str)).toBe(false);
-    // is_active == NOT is_inactive on all rows (the drop rationale, R1).
-    const r = await pool.query<{ mismatch: string }>(
-      `select count(*) mismatch from companies.fiscal_status where is_active is distinct from (not is_inactive)`
+    // v2 no longer has the misleading complement column at all.
+    const r = await pool.query<{ cnt: string }>(
+      `select count(*) cnt
+         from information_schema.columns
+        where table_schema='companies_v2'
+          and table_name='fiscal_status'
+          and column_name='is_active'`
     );
-    expect(Number(r.rows[0]?.mismatch)).toBe(0);
+    expect(Number(r.rows[0]?.cnt)).toBe(0);
   });
 
-  it('companies list is bounded (county+status filter, raw_county)', async () => {
+  it('companies list is bounded (county+status filter, v2 selected county)', async () => {
     const res = await gql(
       `query{ companies(filter: { county: { in: ["Bacău"] }, status: { in: ["1048"] } }, first: 5){
          totalCount totalEstimated edges { node { cui name county headlineStatus { code } } } pageInfo { hasNextPage }
        } }`
     );
     expect(res.errors).toBeUndefined();
-    const conn = (res.data as { companies: { totalCount: number; edges: { node: { county: string; headlineStatus: { code: string } } }[] } }).companies;
+    const conn = (
+      res.data as {
+        companies: {
+          totalCount: number;
+          edges: { node: { county: string; headlineStatus: { code: string } } }[];
+        };
+      }
+    ).companies;
     expect(conn.edges.length).toBeGreaterThan(0);
     expect(conn.edges.length).toBeLessThanOrEqual(5);
     for (const e of conn.edges) {
@@ -158,15 +191,32 @@ d('Companies golden (live prod)', () => {
   });
 
   it('county filter folds diacritics with NO unaccent (Bacău matches; SQL fold == TS fold)', async () => {
-    const res = await gql(`query{ companies(filter: { county: { in: ["bacau"] } }, first: 1){ totalCount edges { node { county } } } }`);
-    const conn = (res.data as { companies: { totalCount: number; edges: { node: { county: string } }[] } }).companies;
+    const res = await gql(
+      `query{ companies(filter: { county: { in: ["bacau"] } }, first: 1){ totalCount edges { node { county } } } }`
+    );
+    const conn = (
+      res.data as { companies: { totalCount: number; edges: { node: { county: string } }[] } }
+    ).companies;
     // "bacau" (folded, no diacritics) must match the stored "Bacău".
     expect(conn.edges[0]?.node.county).toBe('Bacău');
     expect(conn.totalCount).toBeGreaterThan(0);
   });
 
+  it('county filter strips ONRC prefixes from user input', async () => {
+    const res = await gql(
+      `query{ companies(filter: { county: { in: ["JUDEŢUL BACĂU"] } }, first: 1){ totalCount edges { node { county } } } }`
+    );
+    const conn = (
+      res.data as { companies: { totalCount: number; edges: { node: { county: string } }[] } }
+    ).companies;
+    expect(conn.edges[0]?.node.county).toBe('Bacău');
+    expect(conn.totalCount).toBeGreaterThan(0);
+  });
+
   it('companyResolve(REGNUM) is a two-hop list resolving to the golden CUI', async () => {
-    const res = await gql(`query{ companyResolve(dim: REGNUM, q: "J1992002621040"){ dim value label cui } }`);
+    const res = await gql(
+      `query{ companyResolve(dim: REGNUM, q: "J1992002621040"){ dim value label cui } }`
+    );
     const hits = (res.data as { companyResolve: { cui: string; value: string }[] }).companyResolve;
     expect(hits.length).toBeGreaterThanOrEqual(1);
     expect(hits[0]?.cui).toBe(DEDEMAN);
@@ -174,7 +224,9 @@ d('Companies golden (live prod)', () => {
   });
 
   it('companyResolve(NAME) returns the golden company (Meili-primary or pg fallback)', async () => {
-    const res = await gql(`query{ companyResolve(dim: NAME, q: "DEDEMAN", limit: 5){ value label cui } }`);
+    const res = await gql(
+      `query{ companyResolve(dim: NAME, q: "DEDEMAN", limit: 5){ value label cui } }`
+    );
     const hits = (res.data as { companyResolve: { cui: string | null }[] }).companyResolve;
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.some((h) => h.cui === DEDEMAN)).toBe(true);
@@ -182,21 +234,35 @@ d('Companies golden (live prod)', () => {
 
   it('tri-surface: GraphQL company == Entity.company == MCP snapshot == raw SQL', async () => {
     const sqlRes = await pool.query<{ name: string; status_code: string; legal_form: string }>(
-      `select o.name, r.status_code, r.legal_form
-         from core.organizations o join companies.registrations r on r.cui=o.cui
+      `select o.name, r.onrc_lifecycle_status_code as status_code, r.legal_form
+         from core.organizations o join companies_v2.registrations r on r.cui=o.cui
         where o.cui=$1 and o.kind='company'`,
       [DEDEMAN]
     );
     const raw = sqlRes.rows[0];
     expect(raw).toBeDefined();
 
-    const g = await gql(`query($cui: CUI!){ company(cui:$cui){ name legalForm headlineStatus { code } } }`, { cui: DEDEMAN });
-    const gc = (g.data as { company: { name: string; legalForm: string; headlineStatus: { code: string } } }).company;
+    const g = await gql(
+      `query($cui: CUI!){ company(cui:$cui){ name legalForm headlineStatus { code } } }`,
+      { cui: DEDEMAN }
+    );
+    const gc = (
+      g.data as { company: { name: string; legalForm: string; headlineStatus: { code: string } } }
+    ).company;
 
-    const e = await gql(`query($cui: CUI!){ entity(cui:$cui){ company { name legalForm headlineStatus { code } } } }`, { cui: DEDEMAN });
-    const ec = (e.data as { entity: { company: { name: string; legalForm: string; headlineStatus: { code: string } } } }).entity.company;
+    const e = await gql(
+      `query($cui: CUI!){ entity(cui:$cui){ company { name legalForm headlineStatus { code } } } }`,
+      { cui: DEDEMAN }
+    );
+    const ec = (
+      e.data as {
+        entity: { company: { name: string; legalForm: string; headlineStatus: { code: string } } };
+      }
+    ).entity.company;
 
-    const m = (await mcpCall('get_company_snapshot', { cui: DEDEMAN })) as { item: { name: string; legalForm: string; headlineStatus: { code: string } } };
+    const m = (await mcpCall('get_company_snapshot', { cui: DEDEMAN })) as {
+      item: { name: string; legalForm: string; headlineStatus: { code: string } };
+    };
 
     expect(gc.name).toBe(raw?.name);
     expect(ec.name).toBe(raw?.name);
@@ -213,7 +279,10 @@ d('Companies golden (live prod)', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/mcp',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
       payload: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     });
     // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC response
@@ -227,8 +296,10 @@ d('Companies golden (live prod)', () => {
   });
 
   it('county aggregate is gated without a selective predicate', async () => {
-    const res = await gql(`query{ companyCountyProfile(groupBy: COUNTY){ denominator groups { key count } } }`);
-    // groupBy=COUNTY with no filter must be rejected (no raw_county index).
+    const res = await gql(
+      `query{ companyCountyProfile(groupBy: COUNTY){ denominator groups { key count } } }`
+    );
+    // groupBy=COUNTY with no filter must be rejected (no broad county aggregate).
     expect(res.errors).toBeDefined();
   });
 
@@ -237,7 +308,8 @@ d('Companies golden (live prod)', () => {
       `query{ companyCountyProfile(filter: { status: { in: ["1048"] } }, groupBy: COUNTY){ denominator coverage { note } groups { key count } } }`
     );
     expect(res.errors).toBeUndefined();
-    const prof = (res.data as { companyCountyProfile: { denominator: number; groups: unknown[] } }).companyCountyProfile;
+    const prof = (res.data as { companyCountyProfile: { denominator: number; groups: unknown[] } })
+      .companyCountyProfile;
     expect(prof.denominator).toBeGreaterThan(0);
     expect(prof.groups.length).toBeGreaterThan(0);
   });
@@ -245,9 +317,12 @@ d('Companies golden (live prod)', () => {
   it('territory.matchConfidence serializes to the SDL enum (SAFE) on a safe-matched company', async () => {
     // CUI 33243634 has a safe-matched UAT territory; the lowercase domain value
     // 'safe' must serialize to the GraphQL enum SAFE (not error).
-    const res = await gql(`query{ company(cui: "33243634"){ territory { matchConfidence sirutaCode } } }`);
+    const res = await gql(
+      `query{ company(cui: "33243634"){ territory { matchConfidence sirutaCode } } }`
+    );
     expect(res.errors).toBeUndefined();
-    const t = (res.data as { company: { territory: { matchConfidence: string } | null } }).company.territory;
+    const t = (res.data as { company: { territory: { matchConfidence: string } | null } }).company
+      .territory;
     expect(t?.matchConfidence).toBe('SAFE');
   });
 
@@ -263,7 +338,9 @@ d('Companies golden (live prod)', () => {
   });
 
   it('rejects an empty in: [] (would otherwise match all companies)', async () => {
-    const res = await gql(`query{ companies(filter: { status: { in: [] } }, first: 1){ totalCount } }`);
+    const res = await gql(
+      `query{ companies(filter: { status: { in: [] } }, first: 1){ totalCount } }`
+    );
     expect(res.errors).toBeDefined();
   });
 
@@ -290,10 +367,19 @@ d('Companies golden (live prod)', () => {
          denominator coverage { territoryMatched territoryUnmatched } } }`
     );
     expect(res.errors).toBeUndefined();
-    const prof = (res.data as { companyCountyProfile: { denominator: number; coverage: { territoryMatched: number | null; territoryUnmatched: number | null } } }).companyCountyProfile;
+    const prof = (
+      res.data as {
+        companyCountyProfile: {
+          denominator: number;
+          coverage: { territoryMatched: number | null; territoryUnmatched: number | null };
+        };
+      }
+    ).companyCountyProfile;
     expect(prof.coverage.territoryMatched).not.toBeNull();
     expect(prof.coverage.territoryUnmatched).not.toBeNull();
-    expect((prof.coverage.territoryMatched ?? 0) + (prof.coverage.territoryUnmatched ?? 0)).toBe(prof.denominator);
+    expect((prof.coverage.territoryMatched ?? 0) + (prof.coverage.territoryUnmatched ?? 0)).toBe(
+      prof.denominator
+    );
   }, 15_000);
 
   it('C1/C2: CAEN_DIVISION + caenCode runs (no timeout) and APPLIES the filter', async () => {
@@ -301,14 +387,16 @@ d('Companies golden (live prod)', () => {
     // cause was a slow per-org EXISTS forcing the full o⋈r⋈f product before the
     // filter (~27s). The IN-subquery rewrite (caenExists, audit M8) + a materialized
     // filtered CTE bring it to ~3.6s warm (~14s on a fully cold cache — a data-volume
-    // property of the 18M-row caen_activities table; the durable fix is a precomputed
+    // property of the v2 CAEN profile table; the durable fix is a precomputed
     // (cui, division) rollup, tracked as a follow-up). Warm once, then assert the
     // realistic (warm) behavior.
     const q = `query{ companyCountyProfile(filter: { caenCode: { eq: "6201" } }, groupBy: CAEN_DIVISION){ denominator groups { key count } } }`;
-    await gql(q).catch(() => undefined); // warm caen_activities pages
+    await gql(q).catch(() => undefined); // warm CAEN profile pages
     const res = await gql(q);
     expect(res.errors).toBeUndefined();
-    const prof = (res.data as { companyCountyProfile: { denominator: number; groups: { key: string }[] } }).companyCountyProfile;
+    const prof = (
+      res.data as { companyCountyProfile: { denominator: number; groups: { key: string }[] } }
+    ).companyCountyProfile;
     expect(prof.groups.some((g) => g.key === '62')).toBe(true);
     expect(prof.denominator).toBeGreaterThan(0);
     expect(prof.denominator).toBeLessThan(1_000_000); // C2: filter applied (not the full ~1.2M universe)
@@ -320,7 +408,16 @@ d('Companies golden (live prod)', () => {
     await gql(query, { cui: DEDEMAN }).catch(() => undefined); // warm the 219k-flow payee's pages
     const res = await gql(query, { cui: DEDEMAN });
     expect(res.errors).toBeUndefined();
-    const pm = (res.data as { company: { publicMoney: { byYear: { year: number | null }[]; byFlowType: { flowType: string }[] } | null } }).company.publicMoney;
+    const pm = (
+      res.data as {
+        company: {
+          publicMoney: {
+            byYear: { year: number | null }[];
+            byFlowType: { flowType: string }[];
+          } | null;
+        };
+      }
+    ).company.publicMoney;
     expect(pm).not.toBeNull();
     expect(pm?.byYear.length).toBeGreaterThan(0);
     // at least one bucket carries a real year (was 100% null before H4).

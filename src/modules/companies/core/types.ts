@@ -1,7 +1,7 @@
 /**
  * Companies module — domain view-model types (plan §2).
  *
- * camelCase view models mapped from the live `companies.*` + `core.organizations`
+ * camelCase view models mapped from the live `companies_v2.*` + `core.organizations`
  * schema. All money is a nullable `string` (§14.1 — never float), dates are
  * `'YYYY-MM-DD'` strings, `org_id` is a `string` (bigint, identity only — the
  * cross-source link key is ALWAYS the CUI). `employees` is a `string` (bigint:
@@ -10,10 +10,9 @@
  * Identity is link-not-merge (plan §2.1): a company is addressed by normalized CUI;
  * this module never reassigns/merges `org_id`s across registries.
  *
- * Dropped by contract (§13-R1): `companies.fiscal_status.is_active` — it is the
- * exact complement of `is_inactive` on every row, carries a misleading "active"
- * name, and is NOT an operating indicator. Only `declaredFiscallyInactive`
- * (= is_inactive) is exposed. No view-model field is named `is_active`/`active`.
+ * Dropped by contract (§13-R1): the old `companies.fiscal_status.is_active`
+ * complement is not recreated from v2. Only `declaredFiscallyInactive`
+ * (= is_inactive) is exposed.
  */
 
 import type { BigIntString, Cui, IsoDate, Money, Siruta } from '@/modules/shared/index.js';
@@ -24,7 +23,12 @@ import type { BigIntString, Cui, IsoDate, Money, Siruta } from '@/modules/shared
 
 /** Filter dimensions the resolve surface can map free text → filter value. */
 export type CompanyResolveDim = 'name' | 'regnum' | 'caen' | 'county';
-export const COMPANY_RESOLVE_DIMS: readonly CompanyResolveDim[] = ['name', 'regnum', 'caen', 'county'];
+export const COMPANY_RESOLVE_DIMS: readonly CompanyResolveDim[] = [
+  'name',
+  'regnum',
+  'caen',
+  'county',
+];
 
 /**
  * A name→value discovery hit. `value` is the filter value to feed back (CUI for
@@ -64,8 +68,8 @@ export interface CompanyTerritory {
 }
 
 /**
- * Postal address. `county` is `raw_county` (99.996% coverage, the honest county
- * filter), deliberately distinct from `CompanyTerritory.countyName` (SIRUTA-matched).
+ * Postal address. `county` is the registry display county, deliberately distinct
+ * from `CompanyTerritory.countyName` (SIRUTA-matched).
  */
 export interface CompanyAddress {
   readonly display: string;
@@ -130,7 +134,7 @@ export interface CompanyFinancialYear {
   /** bigint as string — source outliers (max 5,009,387,154) overflow int4; never a JS number. */
   readonly employees: BigIntString | null;
   readonly summary: CompanyFinancialSummary;
-  /** Full statement (221 variable indicator names); render-only, never filtered/summed. */
+  /** Nullable in v2 profiles; canonical statement lines live in companies_v2.financial_indicators. */
   readonly lines: Record<string, unknown> | null;
 }
 
@@ -160,7 +164,7 @@ export interface CompanyCaenActivity {
   readonly label: string | null;
 }
 
-/** Public registry data (ONRC publishes representatives) — NOT PII (plan §2.3). */
+/** Public field kept for compatibility; v2 person rows are restricted until API-gated. */
 export interface CompanyRepresentative {
   readonly name: string;
   readonly role: string;
@@ -253,7 +257,7 @@ export interface CompanyListRow {
   readonly name: string;
   readonly legalForm: string | null;
   readonly headlineStatus: CompanyStatus | null;
-  readonly county: string | null; // raw_county
+  readonly county: string | null;
   readonly vatPayer: boolean | null;
   readonly declaredFiscallyInactive: boolean | null;
   readonly registrationDate: IsoDate | null;
@@ -306,6 +310,6 @@ export interface CompanyEntitySlice {
 export type CompanySort = 'name' | 'registrationDate' | 'cui';
 export const COMPANY_SORTS: readonly CompanySort[] = ['name', 'registrationDate', 'cui'];
 
-/** Coverage note surfaced on territory-grain answers (~36.3% unmatched). */
+/** Coverage note surfaced on territory-grain answers. */
 export const COMPANY_TERRITORY_COVERAGE_NOTE =
-  'Territory (SIRUTA/UAT) is matched by an urban-only matcher; ~36.3% of companies have no UAT match. County (raw_county) coverage is 99.996% — use county for filtering, UAT only for the matched subset.';
+  'Territory uses v2 registry resolution: ONRC rows carry safe UAT/SIRUTA matches where available; ANAF-only additions mostly add county/sector coverage, not UAT-level SIRUTA resolution.';

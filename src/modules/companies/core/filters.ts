@@ -5,21 +5,21 @@
  *
  * Aliases MUST match the repo FROM clause:
  *   `o`  core.organizations
- *   `r`  companies.registrations
- *   `f`  companies.fiscal_status
- *   `ca` companies.caen_activities (EXISTS subquery — virtual, repo-intercepted)
+ *   `r`  companies_v2.registrations
+ *   `f`  companies_v2.fiscal_status
+ *   `ca` companies_v2.caen_profile (EXISTS subquery — virtual, repo-intercepted)
  *
  * Two fields are VIRTUAL (no direct kernel-composable column) and are intercepted
  * by the repo (like the pnrr `year`/`role` precedent), so they surface in GraphQL
  * + the fhash but the kernel composer never compiles them:
- *   - `caenCode`  → `EXISTS (companies.caen_activities WHERE cui=o.cui AND caen_code …)`
+ *   - `caenCode`  → `EXISTS (companies_v2.caen_profile WHERE cui=o.cui AND caen_code …)`
  *   - `county`    → a diacritic-folded match (NO `unaccent()` — not installed, §13-R4)
- *   - `hasFinancials` → `EXISTS (companies.financials …)` (isNull-style presence)
+ *   - `hasFinancials` → `EXISTS (companies_v2.financials …)` (isNull-style presence)
  *
  * Index-bound note: `county`/`legalForm`/`vatPayer`/`declaredFiscallyInactive`/
  * `registrationDate*`/`mainCaenCode` have no index; the list `total` is bounded
  * (cap 10,000) so a residual filter scan stays cheap, but a `groupBy=county`
- * aggregate is gated to require a selective predicate (no raw_county index).
+ * aggregate is gated to require a selective predicate.
  */
 
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
@@ -27,7 +27,7 @@ import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 /** Repo-intercepted virtual filter fields (kernel composer must skip these). */
 export const COMPANY_VIRTUAL_FIELDS = ['caenCode', 'county', 'hasFinancials'] as const;
 
-/** Driving predicates that bound a `groupBy=county` aggregate (no raw_county index). */
+/** Driving predicates that bound a `groupBy=county` aggregate. */
 export const COMPANY_AGGREGATE_DRIVING_FIELDS = ['county', 'status', 'caenCode'] as const;
 
 export const companiesFilterSpec: CollectionFilterSpec = {
@@ -46,19 +46,21 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       name: 'county',
       type: 'string',
       ops: ['eq', 'in'],
-      column: { alias: 'r', column: 'raw_county' },
+      column: { alias: 'r', column: 'selected_county_name' },
       array: true,
       exclude: true,
-      description: 'raw_county (99.996% coverage). Diacritic-folded in TS (no unaccent). NOT county_name.',
+      description:
+        'Display county from v2 selected_county_name. Diacritic-folded in TS/SQL (no unaccent).',
     },
     {
       name: 'status',
       type: 'string',
       ops: ['eq', 'in'],
-      column: { alias: 'r', column: 'status_code' },
+      column: { alias: 'r', column: 'onrc_lifecycle_status_code' },
       array: true,
       exclude: true,
-      description: 'Headline lifecycle status_code (e.g. 1084 radiată, 1048 funcțiune). registrations_status_idx.',
+      description:
+        'ONRC lifecycle status code (e.g. 1084 radiată, 1048 funcțiune). registrations_status_idx.',
     },
     {
       name: 'caenCode',
@@ -67,7 +69,8 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       column: { alias: 'ca', column: 'caen_code' },
       array: true,
       exclude: true,
-      description: 'Authorized CAEN code (EXISTS over caen_activities_code_idx). prefix → CAEN division (sargable LIKE).',
+      description:
+        'CAEN code (EXISTS over companies_v2.caen_profile/caen_profile_code_idx). prefix → CAEN division (sargable LIKE).',
     },
     {
       name: 'legalForm',
@@ -115,14 +118,16 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       type: 'bool',
       ops: ['isNull'],
       column: { alias: 'r', column: 'registration_date' },
-      description: 'Mandatory isNull presence (§14.2) — isNull:true returns the 256,142 NULL-date rows.',
+      description:
+        'Mandatory isNull presence (§14.2) — isNull:true returns the 256,142 NULL-date rows.',
     },
     {
       name: 'hasFinancials',
       type: 'bool',
       ops: ['isNull'],
       column: { alias: 'r', column: 'cui' },
-      description: 'EXISTS over companies.financials (coverage probe; repo-intercepted virtual).',
+      description:
+        'EXISTS over companies_v2.financials (coverage probe; repo-intercepted virtual).',
     },
   ],
   sort: { default: 'name', allowed: ['name', 'registrationDate', 'cui'] },

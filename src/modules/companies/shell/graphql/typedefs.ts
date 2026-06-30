@@ -17,13 +17,35 @@ import { companiesFilterSpec } from '../../core/filters.js';
 const filterInput = toGraphQLInput(companiesFilterSpec);
 
 const objectsAndQuery = /* GraphQL */ `
-  enum CompanySort { NAME REGISTRATION_DATE CUI }
-  enum CompanyResolveDim { NAME REGNUM CAEN COUNTY }
-  enum CompanyMatchConfidence { SAFE UNMATCHED }
-  enum CompanyGroupBy { COUNTY STATUS CAEN_DIVISION }
+  enum CompanySort {
+    NAME
+    REGISTRATION_DATE
+    CUI
+  }
+  enum CompanyResolveDim {
+    NAME
+    REGNUM
+    CAEN
+    COUNTY
+  }
+  enum CompanyMatchConfidence {
+    SAFE
+    UNMATCHED
+  }
+  enum CompanyGroupBy {
+    COUNTY
+    STATUS
+    CAEN_DIVISION
+  }
 
-  type CompanyStatus { code: String!  label: String! }
-  type CompanyStatusFlag { code: String!  label: String }
+  type CompanyStatus {
+    code: String!
+    label: String!
+  }
+  type CompanyStatusFlag {
+    code: String!
+    label: String
+  }
 
   type CompanyTerritory {
     sirutaCode: SIRUTA
@@ -32,8 +54,12 @@ const objectsAndQuery = /* GraphQL */ `
     matchConfidence: CompanyMatchConfidence!
   }
 
-  "address.county = raw_county (99.996% coverage); deliberately distinct from CompanyTerritory.countyName (SIRUTA-matched, urban-only)."
-  type CompanyAddress { display: String!  county: String  locality: String }
+  "address.county = display county from the registry source; deliberately distinct from CompanyTerritory.countyName (SIRUTA-matched)."
+  type CompanyAddress {
+    display: String!
+    county: String
+    locality: String
+  }
 
   type CompanyFiscal {
     vatPayer: Boolean
@@ -44,10 +70,23 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: Date
   }
 
-  type CompanyCaenActivity { code: String!  rev: String!  label: String  source: String! }
-  "Public ONRC registry data — NOT PII."
-  type CompanyRepresentative { name: String!  role: String! }
-  type CompanyEuBranch { branchName: String  country: String  euid: String  fiscalCode: String }
+  type CompanyCaenActivity {
+    code: String!
+    rev: String!
+    label: String
+    source: String!
+  }
+  "Restricted in companies_v2; public profile returns an empty list until an authorized surface is added."
+  type CompanyRepresentative {
+    name: String!
+    role: String!
+  }
+  type CompanyEuBranch {
+    branchName: String
+    country: String
+    euid: String
+    fiscalCode: String
+  }
 
   type CompanyFinancialYear {
     year: Int!
@@ -58,7 +97,7 @@ const objectsAndQuery = /* GraphQL */ `
     employees: BigInt
     "The 20 typed metrics."
     summary: JSON!
-    "Full statement (render-only; never filtered/summed)."
+    "Nullable in v2 profiles; canonical statement lines live in companies_v2.financial_indicators."
     lines: JSON
   }
 
@@ -76,7 +115,10 @@ const objectsAndQuery = /* GraphQL */ `
     trajectory: CompanyFinancialTrajectory
   }
 
-  type CompanyAsOf { onrc: Date  anaf: Date }
+  type CompanyAsOf {
+    onrc: Date
+    anaf: Date
+  }
 
   "Public money RECEIVED (company = payee). Kernel FlowsRepo (grain-gated). Never mixes registry + flow grains."
   type CompanyPublicMoney {
@@ -88,9 +130,23 @@ const objectsAndQuery = /* GraphQL */ `
     byFlowType: [CompanyPublicMoneyFlowType!]!
     topPayers: [CompanyPublicMoneyPayer!]!
   }
-  type CompanyPublicMoneyYear { year: Int  flowType: String!  totalRon: Money!  count: Int! }
-  type CompanyPublicMoneyFlowType { flowType: String!  totalRon: Money!  count: Int! }
-  type CompanyPublicMoneyPayer { cui: CUI  name: String  totalRon: Money!  count: Int! }
+  type CompanyPublicMoneyYear {
+    year: Int
+    flowType: String!
+    totalRon: Money!
+    count: Int!
+  }
+  type CompanyPublicMoneyFlowType {
+    flowType: String!
+    totalRon: Money!
+    count: Int!
+  }
+  type CompanyPublicMoneyPayer {
+    cui: CUI
+    name: String
+    totalRon: Money!
+    count: Int!
+  }
 
   type Company {
     cui: CUI!
@@ -106,6 +162,7 @@ const objectsAndQuery = /* GraphQL */ `
     address: CompanyAddress!
     fiscal: CompanyFiscal
     caenActivities: [CompanyCaenActivity!]!
+    "Public representative names are withheld until the v2 restricted person data has an access-gated API path."
     representatives: [CompanyRepresentative!]!
     financials: [CompanyFinancialYear!]!
     euBranches: [CompanyEuBranch!]!
@@ -129,11 +186,29 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: CompanyAsOf!
   }
 
-  type CompanyResolveHit { dim: CompanyResolveDim!  value: String!  label: String!  cui: CUI  confidence: Float }
-  type CompanyCaenHit { code: String!  rev: String!  label: String }
+  type CompanyResolveHit {
+    dim: CompanyResolveDim!
+    value: String!
+    label: String!
+    cui: CUI
+    confidence: Float
+  }
+  type CompanyCaenHit {
+    code: String!
+    rev: String!
+    label: String
+  }
 
-  type CompanyGroupCount { key: String!  label: String  count: Int! }
-  type CompanyCoverage { territoryMatched: Int  territoryUnmatched: Int  note: String! }
+  type CompanyGroupCount {
+    key: String!
+    label: String
+    count: Int!
+  }
+  type CompanyCoverage {
+    territoryMatched: Int
+    territoryUnmatched: Int
+    note: String!
+  }
   type CompanyCountyProfile {
     groupBy: CompanyGroupBy!
     groups: [CompanyGroupCount!]!
@@ -148,7 +223,7 @@ const objectsAndQuery = /* GraphQL */ `
     name: String!
     legalForm: String
     headlineStatus: CompanyStatus
-    "raw_county (99.996% coverage)."
+    "Display county from the company registry source."
     county: String
     vatPayer: Boolean
     declaredFiscallyInactive: Boolean
@@ -156,7 +231,10 @@ const objectsAndQuery = /* GraphQL */ `
     registrationDatePresent: Boolean!
   }
 
-  type CompanyEdge { node: CompanyListItem!  cursor: String! }
+  type CompanyEdge {
+    node: CompanyListItem!
+    cursor: String!
+  }
   "totalCount is bounded ≤10,000; totalEstimated flags the cap (§14.4)."
   type CompanyConnection {
     edges: [CompanyEdge!]!
@@ -169,13 +247,22 @@ const objectsAndQuery = /* GraphQL */ `
     "Full company profile by CUI (registry + fiscal + financials + caen + reps + flags + public money)."
     company(cui: CUI!): Company
     "Filterable company list. q (name) resolves via Meili first, then hydrates by CUI; connection-only. Nullable: an error isolates to this field instead of nulling the whole response (audit H2)."
-    companies(filter: CompaniesFilter, q: String, sort: CompanySort = NAME, first: Int = 20, after: String): CompanyConnection
+    companies(
+      filter: CompaniesFilter
+      q: String
+      sort: CompanySort = NAME
+      first: Int = 20
+      after: String
+    ): CompanyConnection
     "Full financials series + computed latest + trajectory."
     companyFinancials(cui: CUI!): CompanyFinancials
-    "Resolve free text to a filter value: name→CUI (Meili), regnum→CUI list (two-hop), caen-label→code, county→canonical. Nullable for per-field error isolation (audit H2)."
+    "Resolve free text to a filter value: name→CUI (Meili), regnum→CUI list, caen-label→code, county→canonical. Nullable for per-field error isolation (audit H2)."
     companyResolve(dim: CompanyResolveDim!, q: String!, limit: Int = 10): [CompanyResolveHit!]
-    "Count-ranked county/status/CAEN-division profile. groupBy=COUNTY requires a selective filter (no raw_county index). Nullable for per-field error isolation (audit H2)."
-    companyCountyProfile(filter: CompaniesFilter, groupBy: CompanyGroupBy = COUNTY): CompanyCountyProfile
+    "Count-ranked county/status/CAEN-division profile. groupBy=COUNTY requires a selective filter. Nullable for per-field error isolation (audit H2)."
+    companyCountyProfile(
+      filter: CompaniesFilter
+      groupBy: CompanyGroupBy = COUNTY
+    ): CompanyCountyProfile
   }
 
   extend type Entity {

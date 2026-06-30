@@ -1,6 +1,6 @@
 /**
- * Companies module — repository over the live `companies.*` + allowed `core.*`
- * schema (plan §3). The ONLY place that reads `companies.*`. Reads through the
+ * Companies module — repository over the live `companies_v2.*` + allowed `core.*`
+ * schema (plan §3). The ONLY place that reads `companies_v2.*`. Reads through the
  * kernel's typed Kysely instance (`Kysely<ProdDatabase>` augmented by
  * `shell/db/schema.ts`).
  *
@@ -8,10 +8,11 @@
  *  - **link-not-merge** (§2.1): a company is addressed by normalized CUI; per-CUI
  *    seeks hit `organizations_cui_uq`; `org_id` is projected for identity only and
  *    NEVER used as a cross-source key or reassigned.
- *  - **`is_active` dropped** (§13-R1): no method selects `fiscal_status.is_active`.
- *  - **two-hop regnum** (§2.1): `findByRegistrationNumber` seeks
- *    `organization_identifiers (scheme='onrc-cod-inmatriculare', value)` → org_id,
- *    JOIN `organizations (kind='company')` → cui. Returns a LIST (one-to-many).
+ *  - **`is_active` dropped** (§13-R1): v2 has no `fiscal_status.is_active`;
+ *    no method recreates it.
+ *  - **regnum lookup** (§2.1): `findByRegistrationNumber` seeks v2
+ *    `registration_identifiers (scheme='onrc-cod-inmatriculare', value)` → CUI,
+ *    validated against `organizations (kind='company')`. Returns a LIST.
  *  - **no-unaccent name search** (§15.7): the pg fallback folds diacritics in TS
  *    and is hard-capped; the default path is Meili. The repo never calls `unaccent()`.
  *  - **money/bigint as strings** (§14.1): cast `::text` at the SQL boundary;
@@ -22,12 +23,23 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, invalidInput, normalizeCui, offsetFor, toConditionBuilders, type ApiError, type FilterInput, type MeiliClient, type OffsetParams  } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  invalidInput,
+  normalizeCui,
+  offsetFor,
+  toConditionBuilders,
+  type ApiError,
+  type FilterInput,
+  type MeiliClient,
+  type OffsetParams,
+} from '@/modules/shared/index.js';
 import { foldDiacritics } from '@/modules/shared/shell/repo/fold.js';
 
 import {
   fieldOf,
   isNullValue,
+  normalizeCountyNeedle,
   requireAggregateDriver,
   splitVirtual,
   stringValues,
@@ -39,15 +51,12 @@ import {
   mapFinancialYear,
   mapFiscal,
   mapHeadlineStatus,
-  mapRepresentative,
+  mapCountyDisplayName,
   mapStatusFlag,
   mapTerritory,
   type FinancialRow,
 } from './mappers.js';
-import {
-  COMPANY_AGGREGATE_DRIVING_FIELDS,
-  companiesFilterSpec,
-} from '../../core/filters.js';
+import { COMPANY_AGGREGATE_DRIVING_FIELDS, companiesFilterSpec } from '../../core/filters.js';
 import {
   COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
@@ -61,8 +70,12 @@ import {
   type CompanySort,
 } from '../../core/types.js';
 
-import type { CompaniesRepository, CompanyListResult, CompanyPresenceCounts, CompanyProfileData } from '../../core/ports.js';
-
+import type {
+  CompaniesRepository,
+  CompanyListResult,
+  CompanyPresenceCounts,
+  CompanyProfileData,
+} from '../../core/ports.js';
 
 type Db = Kysely<import('@/modules/shared/index.js').ProdDatabase>;
 
@@ -107,7 +120,9 @@ const financialColumns = () =>
     sql<string | null>`provisions::text`.as('provisions'),
     sql<string | null>`total_equity::text`.as('total_equity'),
     sql<string | null>`patrimony_regie::text`.as('patrimony_regie'),
-    'lines',
+    // v2 keeps the canonical full statement in financial_indicators, not as the
+    // old financials.lines jsonb. Keep the public nullable field stable.
+    sql<Record<string, unknown> | null>`null::jsonb`.as('lines'),
   ] as const;
 
 /**
@@ -135,8 +150,8 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
     const wantPresent = !hasFin;
     conds.push(
       wantPresent
-        ? sql`exists (select 1 from companies.financials fz where fz.cui = o.cui)`
-        : sql`not exists (select 1 from companies.financials fz where fz.cui = o.cui)`
+        ? sql`exists (select 1 from companies_v2.financials fz where fz.cui = o.cui)`
+        : sql`not exists (select 1 from companies_v2.financials fz where fz.cui = o.cui)`
     );
   }
 
@@ -155,15 +170,15 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
 };
 
 /**
- * `caenCode` eq/in/prefix → a semi-join on caen_activities (index caen_activities_code_idx).
+ * `caenCode` eq/in/prefix → a semi-join on caen_profile (index caen_profile_code_idx).
  *
- * The POSITIVE case compiles to `o.cui IN (select cui from caen_activities where
+ * The POSITIVE case compiles to `o.cui IN (select cui from caen_profile where
  * <preds>)` rather than a correlated `EXISTS`: the subquery is non-correlated, so
  * the planner resolves the matching CUIs via the caen_code index ONCE and
  * semi-joins, instead of probing the EXISTS per organization row across the whole
  * table — the per-org probe was the real cost behind the slow caenCode filter
  * (audit M8) and the caenDivision aggregate timeouts (audit C1, mis-attributed to
- * an alias bug). caen_activities.cui is NOT NULL (PK), so the IN is null-safe.
+ * an alias bug). caen_profile.cui is NOT NULL (PK), so the IN is null-safe.
  * The negate case keeps NOT EXISTS (it must include null-cui orgs, and exclude is rare).
  */
 const caenExists = (
@@ -175,7 +190,12 @@ const caenExists = (
   const preds: RawBuilder<unknown>[] = [];
   if (eq !== undefined) preds.push(sql`ca.caen_code = ${eq}`);
   if (inV !== undefined && inV.length > 0) {
-    preds.push(sql`ca.caen_code in (${sql.join(inV.map((v) => sql`${v}`), sql`, `)})`);
+    preds.push(
+      sql`ca.caen_code in (${sql.join(
+        inV.map((v) => sql`${v}`),
+        sql`, `
+      )})`
+    );
   }
   if (prefix !== undefined) {
     const esc = prefix.replace(/[\\%_]/gu, (m) => `\\${m}`);
@@ -184,26 +204,33 @@ const caenExists = (
   if (preds.length === 0) return ok(null);
   const inner = sql.join(preds, sql` or `);
   if (negate) {
-    return ok(sql`not (exists (select 1 from companies.caen_activities ca where ca.cui = o.cui and (${inner})))`);
+    return ok(
+      sql`not (exists (select 1 from companies_v2.caen_profile ca where ca.cui = o.cui and (${inner})))`
+    );
   }
-  return ok(sql`o.cui in (select ca.cui from companies.caen_activities ca where (${inner}))`);
+  return ok(sql`o.cui in (select ca.cui from companies_v2.caen_profile ca where (${inner}))`);
 };
 
-/** `county` eq/in → diacritic-folded match on r.raw_county (NO unaccent; §15.7). */
+/** `county` eq/in → diacritic-folded match on v2 selected county (NO unaccent; §15.7). */
 const countyFolded = (
   f: import('@/modules/shared/index.js').FieldFilter | undefined,
   negate: boolean
 ): Result<RawBuilder<unknown> | null, ApiError> => {
   if (f === undefined) return ok(null);
   const { eq, in: inV } = stringValues(f);
-  const wanted = [...(eq !== undefined ? [eq] : []), ...(inV ?? [])].map((v) => foldDiacritics(v));
+  const wanted = [...(eq !== undefined ? [eq] : []), ...(inV ?? [])].map((v) =>
+    normalizeCountyNeedle(v)
+  );
   if (wanted.length === 0) return ok(null);
   // Fold the column in SQL with translate() (no unaccent) + lower, matching the
-  // TS fold map exactly. Cheap residual filter (bounded by the 10k list cap).
-  const foldedCol = sql`lower(translate(r.raw_county, ${FOLD_FROM}, ${FOLD_TO}))`;
-  const cond = sql`${foldedCol} in (${sql.join(wanted.map((w) => sql`${w}`), sql`, `)})`;
+  // TS fold map exactly. v2 ONRC labels include prefixes such as "JUDEŢUL".
+  const foldedCol = sql`regexp_replace(lower(translate(r.selected_county_name, ${FOLD_FROM}, ${FOLD_TO})), '^(judetul|municipiul) ', '')`;
+  const cond = sql`${foldedCol} in (${sql.join(
+    wanted.map((w) => sql`${w}`),
+    sql`, `
+  )})`;
   // Negate keeps NULL-county rows (NOT IN over NULL is UNKNOWN → would drop them).
-  return ok(negate ? sql`(r.raw_county is null or not (${cond}))` : cond);
+  return ok(negate ? sql`(r.selected_county_name is null or not (${cond}))` : cond);
 };
 
 const orderByFor = (sort: CompanySort): RawBuilder<unknown> => {
@@ -224,10 +251,10 @@ const LIST_SELECT = () =>
     'o.org_id',
     'o.name',
     'r.legal_form',
-    'r.status_code',
-    'r.status_label',
-    'r.raw_county',
-    'r.registration_date',
+    sql<string | null>`r.onrc_lifecycle_status_code`.as('status_code'),
+    sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
+    sql<string | null>`r.selected_county_name`.as('raw_county'),
+    sql<string | null>`r.registration_date::text`.as('registration_date'),
     'f.is_vat_payer',
     'f.is_inactive',
   ] as const;
@@ -249,7 +276,7 @@ const mapListRow = (row: {
   name: row.name,
   legalForm: row.legal_form,
   headlineStatus: mapHeadlineStatus(row.status_code, row.status_label),
-  county: row.raw_county,
+  county: mapCountyDisplayName(row.raw_county),
   vatPayer: row.is_vat_payer,
   declaredFiscallyInactive: row.is_inactive,
   registrationDate: row.registration_date,
@@ -258,7 +285,9 @@ const mapListRow = (row: {
 
 export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
-  const getProfileData = async (rawCui: string): Promise<Result<CompanyProfileData | null, ApiError>> => {
+  const getProfileData = async (
+    rawCui: string
+  ): Promise<Result<CompanyProfileData | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
@@ -272,56 +301,65 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .executeTakeFirst();
       if (org === undefined) return ok(null);
 
-      const [reg, fiscal, fin, caen, reps, flags, branches] = await Promise.all([
+      const [reg, fiscal, fin, caen, flags, branches] = await Promise.all([
         db
-          .selectFrom('companies.registrations')
+          .selectFrom('companies_v2.registrations')
           .select([
-            'cod_inmatriculare', 'legal_form',
+            'cod_inmatriculare',
+            'legal_form',
             sql<string | null>`registration_date::text`.as('registration_date'),
-            'status_code', 'status_label', 'raw_address', 'raw_county', 'raw_locality',
-            'uat_siruta_code', 'uat_name', 'county_name', 'match_confidence',
-            sql<string | null>`snapshot_at::date::text`.as('onrc_as_of'),
+            sql<string | null>`onrc_lifecycle_status_code`.as('status_code'),
+            sql<string | null>`onrc_lifecycle_status_label`.as('status_label'),
+            sql<string | null>`''::text`.as('raw_address'),
+            sql<string | null>`selected_county_name`.as('raw_county'),
+            sql<string | null>`selected_locality_name`.as('raw_locality'),
+            sql<string | null>`selected_uat_siruta_code`.as('uat_siruta_code'),
+            sql<string | null>`selected_locality_name`.as('uat_name'),
+            sql<string | null>`selected_county_name`.as('county_name'),
+            sql<string | null>`territory_match_confidence`.as('match_confidence'),
+            sql<string | null>`updated_at::date::text`.as('onrc_as_of'),
           ])
           .where('cui', '=', cui)
           .limit(1)
           .executeTakeFirst(),
         db
-          .selectFrom('companies.fiscal_status')
+          .selectFrom('companies_v2.fiscal_status')
           .select([
-            'is_vat_payer', 'is_inactive', 'main_caen_code', 'registered_name',
-            sql<string | null>`snapshot_at::date::text`.as('snapshot_at'),
+            'is_vat_payer',
+            'is_inactive',
+            'main_caen_code',
+            'registered_name',
+            sql<string | null>`coalesce(snapshot_at, retrieved_at, updated_at)::date::text`.as(
+              'snapshot_at'
+            ),
           ])
           .where('cui', '=', cui)
           .limit(1)
           .executeTakeFirst(),
         db
-          .selectFrom('companies.financials')
+          .selectFrom('companies_v2.financials')
           .select(financialColumns())
           .where('cui', '=', cui)
           .orderBy('year', 'desc')
           .execute(),
         db
-          .selectFrom('companies.caen_activities as ca')
+          .selectFrom('companies_v2.caen_profile as ca')
           .leftJoin('core.classification_codes as cc', (join) =>
-            join.onRef('cc.code', '=', 'ca.caen_code').on('cc.system', '=', sql`'caen_' || ca.caen_rev`)
+            join
+              .onRef('cc.code', '=', 'ca.caen_code')
+              .on('cc.system', '=', sql`'caen_' || ca.caen_rev`)
           )
           .select(['ca.caen_code', 'ca.caen_rev', 'ca.source', 'cc.label'])
           .where('ca.cui', '=', cui)
           .orderBy('ca.caen_code', 'asc')
           .execute(),
         db
-          .selectFrom('companies.representatives')
-          .select(['name', 'role'])
-          .where('cui', '=', cui)
-          .orderBy('name', 'asc')
-          .execute(),
-        db
-          .selectFrom('companies.status_flags')
+          .selectFrom('companies_v2.status_flags')
           .select(['status_code', 'status_label'])
           .where('cui', '=', cui)
           .execute(),
         db
-          .selectFrom('companies.eu_branches')
+          .selectFrom('companies_v2.eu_branches')
           .select(['branch_name', 'country', 'euid', 'fiscal_code'])
           .where('cui', '=', cui)
           .execute(),
@@ -356,7 +394,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         }),
         fiscal: mapFiscal(fiscal),
         caenActivities: caen.map(mapCaen),
-        representatives: reps.map(mapRepresentative),
+        // v2 person/role tables are privacy_class='restricted'. Keep the public
+        // field stable but do not leak representative names without an API gate.
+        representatives: [],
         financials: fin.map((r) => mapFinancialYear(r)),
         euBranches: branches.map(mapEuBranch),
         asOf: { onrc: onrcAsOf, anaf: anafAsOf },
@@ -367,12 +407,14 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     }
   };
 
-  const getFinancials = async (rawCui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>> => {
+  const getFinancials = async (
+    rawCui: string
+  ): Promise<Result<readonly CompanyFinancialYear[], ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
       const rows = await db
-        .selectFrom('companies.financials')
+        .selectFrom('companies_v2.financials')
         .select(financialColumns())
         .where('cui', '=', cui)
         .orderBy('year', 'desc')
@@ -395,8 +437,8 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     try {
       const rows = await db
         .selectFrom('core.organizations as o')
-        .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
+        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
+        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
         .select(LIST_SELECT())
         .where(where)
         .orderBy(orderByFor(sort))
@@ -410,8 +452,8 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .selectFrom(
           db
             .selectFrom('core.organizations as o')
-            .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-            .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
+            .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
+            .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
             .select(sql<number>`1`.as('one'))
             .where(where)
             .limit(LIST_TOTAL_CAP + 1)
@@ -448,7 +490,8 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         const seen = new Set<string>();
         for (const result of m.value) {
           for (const hit of result.hits) {
-            const cui = typeof hit.attrs['cui'] === 'string' ? normalizeCui(hit.attrs['cui']) : null;
+            const cui =
+              typeof hit.attrs['cui'] === 'string' ? normalizeCui(hit.attrs['cui']) : null;
             if (cui === null || seen.has(cui)) continue;
             seen.add(cui);
             ordered.push({ cui, label: hit.title, score: hit.score });
@@ -459,13 +502,29 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
             .selectFrom('core.organizations')
             .select(['cui', 'name'])
             .where('kind', '=', 'company')
-            .where('cui', 'in', ordered.map((o) => o.cui))
+            .where(
+              'cui',
+              'in',
+              ordered.map((o) => o.cui)
+            )
             .execute();
-          const nameByCui = new Map(valid.filter((v): v is { cui: string; name: string } => v.cui !== null).map((v) => [v.cui, v.name]));
+          const nameByCui = new Map(
+            valid
+              .filter((v): v is { cui: string; name: string } => v.cui !== null)
+              .map((v) => [v.cui, v.name])
+          );
           const hits = ordered
             .filter((o) => nameByCui.has(o.cui))
             .slice(0, capped)
-            .map((o): CompanyNameHit => ({ dim: 'name', value: o.cui, label: nameByCui.get(o.cui) ?? o.label, cui: o.cui, confidence: o.score }));
+            .map(
+              (o): CompanyNameHit => ({
+                dim: 'name',
+                value: o.cui,
+                label: nameByCui.get(o.cui) ?? o.label,
+                cui: o.cui,
+                confidence: o.score,
+              })
+            );
           if (hits.length > 0) return ok({ hits, degraded: false });
         }
         // Meili reachable but no company hit (e.g. company index not built yet) → pg fallback.
@@ -496,40 +555,52 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         })
         .sort((a, b) => b.score - a.score)
         .slice(0, capped)
-        .map(({ r, score }): CompanyNameHit => ({
-          dim: 'name',
-          value: r.cui ?? '',
-          label: r.name,
-          cui: r.cui,
-          confidence: score,
-        }));
+        .map(
+          ({ r, score }): CompanyNameHit => ({
+            dim: 'name',
+            value: r.cui ?? '',
+            label: r.name,
+            cui: r.cui,
+            confidence: score,
+          })
+        );
       return ok({ hits: ranked, degraded: true });
     } catch (error) {
       return err(databaseError('resolveByName fallback failed', error));
     }
   };
 
-  const findByRegistrationNumber = async (cod: string): Promise<Result<readonly CompanyNameHit[], ApiError>> => {
+  const findByRegistrationNumber = async (
+    cod: string
+  ): Promise<Result<readonly CompanyNameHit[], ApiError>> => {
     // cod_inmatriculare is stored upper-case (J40/…, F40/…); upper-case the input
     // so `j40/…` resolves like `J40/…` (audit M9 — the lookup was case-sensitive).
     const value = cod.trim().toUpperCase();
     if (value === '') return ok([]);
     try {
-      // TWO-HOP: identifiers (scheme,value) → org_id, JOIN organizations (kind='company') → cui.
+      // v2 stores registration identifiers directly by CUI. Returns a LIST
+      // (one-to-many possible) while still validating against core company identity.
       // Returns a LIST (one-to-many — research finding 3).
       const rows = await db
-        .selectFrom('core.organization_identifiers as oi')
-        .innerJoin('core.organizations as o', 'o.org_id', 'oi.org_id')
+        .selectFrom('companies_v2.registration_identifiers as ri')
+        .innerJoin('core.organizations as o', 'o.cui', 'ri.cui')
         .select(['o.cui', 'o.name'])
-        .where('oi.scheme', '=', REGNUM_SCHEME)
-        .where('oi.value', '=', value)
+        .where('ri.scheme', '=', REGNUM_SCHEME)
+        .where('ri.value', '=', value)
+        .where('ri.is_current', '=', true)
         .where('o.kind', '=', 'company')
         .limit(50)
         .execute();
       return ok(
         rows
           .filter((r): r is { cui: string; name: string } => r.cui !== null)
-          .map((r) => ({ dim: 'regnum', value: r.cui, label: r.name, cui: r.cui, confidence: null }))
+          .map((r) => ({
+            dim: 'regnum',
+            value: r.cui,
+            label: r.name,
+            cui: r.cui,
+            confidence: null,
+          }))
       );
     } catch (error) {
       return err(databaseError('findByRegistrationNumber failed', error));
@@ -543,7 +614,10 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
    * A free-text query still matches the Romanian label. Exact-code hits rank
    * first, then code-prefix, then label matches.
    */
-  const resolveCaen = async (label: string, limit: number): Promise<Result<readonly CaenCodeHit[], ApiError>> => {
+  const resolveCaen = async (
+    label: string,
+    limit: number
+  ): Promise<Result<readonly CaenCodeHit[], ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
     const q = label.trim();
     if (q === '') return ok([]);
@@ -574,20 +648,22 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   };
 
   const resolveCounty = async (q: string): Promise<Result<readonly string[], ApiError>> => {
-    const folded = foldDiacritics(q);
+    const folded = normalizeCountyNeedle(q);
     try {
       const rows = await db
-        .selectFrom('companies.registrations')
-        .select(['raw_county'])
-        .where('raw_county', 'is not', null)
+        .selectFrom('companies_v2.registrations')
+        .select(sql<string | null>`selected_county_name`.as('raw_county'))
+        .where('selected_county_name', 'is not', null)
         .where(
-          sql<boolean>`lower(translate(raw_county, ${FOLD_FROM}, ${FOLD_TO})) like ${'%' + folded.replace(/[%_\\]/gu, '\\$&') + '%'} escape '\\'`
+          sql<boolean>`regexp_replace(lower(translate(selected_county_name, ${FOLD_FROM}, ${FOLD_TO})), '^(judetul|municipiul) ', '') like ${'%' + folded.replace(/[%_\\]/gu, '\\$&') + '%'} escape '\\'`
         )
-        .groupBy('raw_county')
-        .orderBy('raw_county', 'asc')
+        .groupBy('selected_county_name')
+        .orderBy('selected_county_name', 'asc')
         .limit(50)
         .execute();
-      return ok(rows.map((r) => r.raw_county).filter((c): c is string => c !== null));
+      return ok(
+        rows.map((r) => mapCountyDisplayName(r.raw_county)).filter((c): c is string => c !== null)
+      );
     } catch (error) {
       return err(databaseError('resolveCounty failed', error));
     }
@@ -604,10 +680,19 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   const countBy = async (
     groupBy: CompanyGroupBy,
     filter: FilterInput
-  ): Promise<Result<{ groups: readonly CompanyGroupCount[]; denominator: number; coverage: CompanyCoverage }, ApiError>> => {
-    // groupBy=county has no raw_county index → require a selective predicate.
+  ): Promise<
+    Result<
+      { groups: readonly CompanyGroupCount[]; denominator: number; coverage: CompanyCoverage },
+      ApiError
+    >
+  > => {
+    // groupBy=county still needs a selective predicate; avoid broad county scans.
     if (groupBy === 'county') {
-      const gate = requireAggregateDriver(filter, COMPANY_AGGREGATE_DRIVING_FIELDS, 'county / status / caenCode');
+      const gate = requireAggregateDriver(
+        filter,
+        COMPANY_AGGREGATE_DRIVING_FIELDS,
+        'county / status / caenCode'
+      );
       if (gate.isErr()) return err(gate.error);
     }
     const condsRes = buildListConditions(filter);
@@ -632,19 +717,25 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           with filtered as materialized (
             select o.cui as cui
             from core.organizations o
-            left join companies.registrations r on r.cui = o.cui
-            left join companies.fiscal_status f on f.cui = o.cui
+            left join companies_v2.registrations r on r.cui = o.cui
+            left join companies_v2.fiscal_status f on f.cui = o.cui
             where ${where}
           )
           select left(cad.caen_code, 2) as key, count(distinct fil.cui)::text as cnt
           from filtered fil
-          inner join companies.caen_activities cad on cad.cui = fil.cui
+          inner join companies_v2.caen_profile cad on cad.cui = fil.cui
           group by left(cad.caen_code, 2)
           order by count(distinct fil.cui) desc
           limit 500
-        `.execute(db).then((r) => r.rows);
+        `
+          .execute(db)
+          .then((r) => r.rows);
         groups = rows.map((r) => ({ key: r.key, label: null, count: Number(r.cnt) }));
-        coverage = { territoryMatched: null, territoryUnmatched: null, note: COMPANY_TERRITORY_COVERAGE_NOTE };
+        coverage = {
+          territoryMatched: null,
+          territoryUnmatched: null,
+          note: COMPANY_TERRITORY_COVERAGE_NOTE,
+        };
       } else {
         // status/county are 1:1 over (o ⋈ r ⋈ f) → count(*) == count(distinct cui),
         // the cheaper form. Coverage (audit M11 — was hardcoded null) rides as two
@@ -653,19 +744,26 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         // blew the budget). Each cui lands in exactly one county/status group, so
         // summing the per-group matched/unmatched is the exact total. `unmatched` =
         // SIRUTA miss OR no registration row.
-        const keyExpr = groupBy === 'status' ? sql`r.status_code` : sql`r.raw_county`;
-        const labelExpr = groupBy === 'status' ? sql`max(r.status_label)` : sql`null::text`;
+        const keyExpr =
+          groupBy === 'status' ? sql`r.onrc_lifecycle_status_code` : sql`r.selected_county_name`;
+        const labelExpr =
+          groupBy === 'status' ? sql`max(r.onrc_lifecycle_status_label)` : sql`null::text`;
         const result = await sql<CountRow>`
           select ${keyExpr} as key, ${labelExpr} as label, count(*)::text as cnt,
-            count(*) filter (where r.match_confidence = 'safe')::text as matched,
-            count(*) filter (where r.match_confidence is distinct from 'safe')::text as unmatched
+            count(*) filter (where r.territory_match_confidence = 'safe')::text as matched,
+            count(*) filter (where r.territory_match_confidence is distinct from 'safe')::text as unmatched
           from core.organizations o
-          left join companies.registrations r on r.cui = o.cui
-          left join companies.fiscal_status f on f.cui = o.cui
+          left join companies_v2.registrations r on r.cui = o.cui
+          left join companies_v2.fiscal_status f on f.cui = o.cui
           where ${where}
           group by ${keyExpr} order by count(*) desc limit 500
         `.execute(db);
-        groups = result.rows.map((r) => ({ key: r.key ?? '(none)', label: r.label, count: Number(r.cnt) }));
+        groups = result.rows.map((r) => ({
+          key:
+            groupBy === 'county' ? (mapCountyDisplayName(r.key) ?? '(none)') : (r.key ?? '(none)'),
+          label: r.label,
+          count: Number(r.cnt),
+        }));
         // groupings stay well under the 500 cap (≤~90), so summing is the full total.
         coverage = {
           territoryMatched: result.rows.reduce((s, r) => s + Number(r.matched), 0),
@@ -683,13 +781,22 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   // ── contributor support ─────────────────────────────────────────────────────
   const sliceSelect = () =>
     [
-      'o.cui', 'o.name',
-      'r.legal_form', 'r.status_code', 'r.status_label',
+      'o.cui',
+      'o.name',
+      'r.legal_form',
+      sql<string | null>`r.onrc_lifecycle_status_code`.as('status_code'),
+      sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
       sql<string | null>`r.registration_date::text`.as('registration_date'),
-      'r.uat_siruta_code', 'r.uat_name', 'r.county_name', 'r.match_confidence',
-      sql<string | null>`r.snapshot_at::date::text`.as('onrc_as_of'),
-      'f.is_vat_payer', 'f.is_inactive',
-      sql<string | null>`f.snapshot_at::date::text`.as('anaf_as_of'),
+      sql<string | null>`r.selected_uat_siruta_code`.as('uat_siruta_code'),
+      sql<string | null>`r.selected_locality_name`.as('uat_name'),
+      sql<string | null>`r.selected_county_name`.as('county_name'),
+      sql<string | null>`r.territory_match_confidence`.as('match_confidence'),
+      sql<string | null>`r.updated_at::date::text`.as('onrc_as_of'),
+      'f.is_vat_payer',
+      'f.is_inactive',
+      sql<string | null>`coalesce(f.snapshot_at, f.retrieved_at, f.updated_at)::date::text`.as(
+        'anaf_as_of'
+      ),
     ] as const;
 
   interface SliceRow {
@@ -699,7 +806,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     status_code: string | null;
     status_label: string | null;
     registration_date: string | null;
-    uat_siruta_code: number | null;
+    uat_siruta_code: string | null;
     uat_name: string | null;
     county_name: string | null;
     match_confidence: string | null;
@@ -730,10 +837,12 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   });
 
   /** Latest financial year per CUI in ONE query (DISTINCT ON walks financials_pkey). */
-  const latestFinancialsByCui = async (cuis: readonly string[]): Promise<Map<string, FinancialRow>> => {
+  const latestFinancialsByCui = async (
+    cuis: readonly string[]
+  ): Promise<Map<string, FinancialRow>> => {
     if (cuis.length === 0) return new Map();
     const rows = await db
-      .selectFrom('companies.financials')
+      .selectFrom('companies_v2.financials')
       .select(['cui', ...financialColumns()])
       .where('cui', 'in', [...cuis])
       .distinctOn('cui')
@@ -745,14 +854,16 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     return out;
   };
 
-  const profileSlice = async (rawCui: string): Promise<Result<CompanyEntitySlice | null, ApiError>> => {
+  const profileSlice = async (
+    rawCui: string
+  ): Promise<Result<CompanyEntitySlice | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
       const row = await db
         .selectFrom('core.organizations as o')
-        .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
+        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
+        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
         .select(sliceSelect())
         .where('o.cui', '=', cui)
         .where('o.kind', '=', 'company')
@@ -769,14 +880,16 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   const profileSlicesForCuis = async (
     cuis: readonly string[]
   ): Promise<Result<ReadonlyMap<string, CompanyEntitySlice>, ApiError>> => {
-    const normalized = [...new Set(cuis.map((c) => normalizeCui(c)).filter((c): c is string => c !== null))];
+    const normalized = [
+      ...new Set(cuis.map((c) => normalizeCui(c)).filter((c): c is string => c !== null)),
+    ];
     if (normalized.length === 0) return ok(new Map());
     try {
       const [rows, latest] = await Promise.all([
         db
           .selectFrom('core.organizations as o')
-          .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-          .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
+          .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
+          .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
           .select(sliceSelect())
           .where('o.kind', '=', 'company')
           .where('o.cui', 'in', normalized)
@@ -794,28 +907,40 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     }
   };
 
-  const presenceCounts = async (rawCui: string): Promise<Result<CompanyPresenceCounts | null, ApiError>> => {
+  const presenceCounts = async (
+    rawCui: string
+  ): Promise<Result<CompanyPresenceCounts | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
       const org = await db
         .selectFrom('core.organizations as o')
-        .leftJoin('companies.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies.fiscal_status as f', 'f.cui', 'o.cui')
+        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
+        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
         .select([
-          'o.name', 'r.status_label',
-          sql<string | null>`r.snapshot_at::date::text`.as('onrc_as_of'),
-          sql<string | null>`f.snapshot_at::date::text`.as('anaf_as_of'),
+          'o.name',
+          sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
+          sql<string | null>`r.updated_at::date::text`.as('onrc_as_of'),
+          sql<string | null>`coalesce(f.snapshot_at, f.retrieved_at, f.updated_at)::date::text`.as(
+            'anaf_as_of'
+          ),
         ])
         .where('o.cui', '=', cui)
         .where('o.kind', '=', 'company')
         .limit(1)
         .executeTakeFirst();
       if (org === undefined) return ok(null);
-      const [fin, caen, reps] = await Promise.all([
-        db.selectFrom('companies.financials').select(sql<string>`count(*)`.as('cnt')).where('cui', '=', cui).executeTakeFirst(),
-        db.selectFrom('companies.caen_activities').select(sql<string>`count(*)`.as('cnt')).where('cui', '=', cui).executeTakeFirst(),
-        db.selectFrom('companies.representatives').select(sql<string>`count(*)`.as('cnt')).where('cui', '=', cui).executeTakeFirst(),
+      const [fin, caen] = await Promise.all([
+        db
+          .selectFrom('companies_v2.financials')
+          .select(sql<string>`count(*)`.as('cnt'))
+          .where('cui', '=', cui)
+          .executeTakeFirst(),
+        db
+          .selectFrom('companies_v2.caen_profile')
+          .select(sql<string>`count(*)`.as('cnt'))
+          .where('cui', '=', cui)
+          .executeTakeFirst(),
       ]);
       return ok({
         cui,
@@ -823,7 +948,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         headlineStatus: org.status_label,
         financials: Number(fin?.cnt ?? 0),
         caenActivities: Number(caen?.cnt ?? 0),
-        representatives: Number(reps?.cnt ?? 0),
+        representatives: 0,
         onrcAsOf: org.onrc_as_of,
         anafAsOf: org.anaf_as_of,
       });
