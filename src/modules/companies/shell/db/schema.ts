@@ -2,61 +2,75 @@
  * Companies module — `ProdDatabase` augmentation (foundation §3, §14
  * module-augmentation pattern).
  *
- * Types the live `companies.*` tables onto the single kernel Kysely instance via
+ * Types the live `companies_v2.*` tables onto the single kernel Kysely instance via
  * TS declaration merging. Table keys are the schema-qualified live names exactly
- * as the prod snapshot (`'companies.registrations'`). The `core.*` tables this
+ * as the prod snapshot (`'companies_v2.registrations'`). The `core.*` tables this
  * module also reads (`organizations`, `organization_identifiers`,
  * `classification_codes`) are already typed by the kernel.
  *
  * Scalars (§14.1): `numeric` columns are `string` (money precision preserved),
  * `bigint` columns (`employees`) are `string` (the pool's int8 parser), `date`
- * columns are `'YYYY-MM-DD'` strings, `timestamptz` are ISO strings. `lines jsonb`
- * is read-only and render-only.
+ * columns are `'YYYY-MM-DD'` strings, `timestamptz` are ISO strings.
  *
- * `companies.fiscal_status.is_active` is typed here (it physically exists) but is
- * NEVER selected by any repo method — it is dropped from every surface (§13-R1).
+ * `companies_v2.fiscal_status` does not expose the old misleading `is_active`;
+ * the public surface keeps only `declaredFiscallyInactive` (`is_inactive`).
  */
 
 import type { ColumnType } from 'kysely';
 
 /** A read-only timestamptz returned as an ISO string. */
 type Tstz = ColumnType<string, never, never>;
-/** jsonb column read-only (server is read-only). */
-type Jsonb = ColumnType<Record<string, unknown>, never, never>;
 
 export interface CompaniesRegistrationsTable {
   cui: string;
+  organization_id: string;
+  legal_name: string;
+  normalized_legal_name: string;
   cod_inmatriculare: string | null;
+  onrc_euid: string | null;
   legal_form: string | null;
   registration_date: string | null; // date
-  status_code: string | null;
-  status_label: string | null;
-  raw_address: string | null;
-  raw_county: string | null;
-  raw_locality: string | null;
-  uat_siruta_code: number | null; // integer
-  uat_name: string | null;
-  county_name: string | null; // SIRUTA-matched (urban-only) — NOT the filter county
-  match_confidence: string | null; // 'safe' | 'unmatched'
-  snapshot_at: Tstz | null;
+  registration_date_source: string;
+  registration_year_hint: number | null;
+  registration_year_hint_source: string | null;
+  onrc_lifecycle_status_code: string | null;
+  onrc_lifecycle_status_label: string | null;
+  website: string | null;
+  foreign_parent_country: string | null;
+  selected_territory_source: string | null;
+  selected_uat_siruta_code: string | null;
+  selected_uat_code: string | null;
+  selected_county_name: string | null;
+  selected_locality_name: string | null;
+  territory_match_confidence: string | null; // 'safe' | 'unmatched' etc.
+  cui_quality: string;
+  updated_at: Tstz;
 }
 
 export interface CompaniesFiscalStatusTable {
   cui: string;
   registered_name: string | null;
-  is_active: boolean | null; // DROPPED — never selected (§13-R1)
+  normalized_registered_name: string | null;
   is_vat_payer: boolean | null;
   is_inactive: boolean | null; // → declaredFiscallyInactive
+  is_split_vat: boolean | null;
+  status_date: string | null;
+  main_caen_rev: string | null;
   main_caen_code: string | null;
+  retrieved_at: Tstz | null;
   snapshot_at: Tstz | null;
+  updated_at: Tstz;
 }
 
 export interface CompaniesFinancialsTable {
   cui: string;
   year: number; // integer
+  statement_profile_hash: string | null;
+  metric_rule_version: string;
   turnover: string | null; // numeric → string
   net_profit: string | null;
   net_loss: string | null;
+  net_result: string | null;
   employees: string | null; // bigint → string (overflow-safe)
   total_revenue: string | null;
   total_expenses: string | null;
@@ -74,20 +88,20 @@ export interface CompaniesFinancialsTable {
   provisions: string | null;
   total_equity: string | null;
   patrimony_regie: string | null;
-  lines: Jsonb | null;
-}
-
-export interface CompaniesRepresentativesTable {
-  cui: string;
-  name: string;
-  role: string;
+  source_indicator_count: number;
+  selected_metric_count: number;
+  metric_issue_count: number;
+  quality_flag_count: number;
+  derived_at: Tstz;
 }
 
 export interface CompaniesCaenActivitiesTable {
   cui: string;
+  source: string;
   caen_rev: string;
   caen_code: string;
-  source: string;
+  relation: string;
+  authorization_type: string | null;
 }
 
 export interface CompaniesStatusFlagsTable {
@@ -107,20 +121,25 @@ export interface CompaniesEuBranchesTable {
 }
 
 /**
- * Declaration-merge the `companies.*` tables onto the kernel `ProdDatabase`.
+ * Declaration-merge the `companies_v2.*` tables onto the kernel `ProdDatabase`.
  * Importing the module barrel (which re-exports this file) pulls the augmentation
  * into scope.
  */
 declare module '@/modules/shared/shell/db/types.js' {
   interface ProdDatabase {
     /* eslint-disable @typescript-eslint/naming-convention -- Kysely table keys are the schema-qualified live names (foundation §3) */
-    'companies.registrations': CompaniesRegistrationsTable;
-    'companies.fiscal_status': CompaniesFiscalStatusTable;
-    'companies.financials': CompaniesFinancialsTable;
-    'companies.representatives': CompaniesRepresentativesTable;
-    'companies.caen_activities': CompaniesCaenActivitiesTable;
-    'companies.status_flags': CompaniesStatusFlagsTable;
-    'companies.eu_branches': CompaniesEuBranchesTable;
+    'companies_v2.registrations': CompaniesRegistrationsTable;
+    'companies_v2.fiscal_status': CompaniesFiscalStatusTable;
+    'companies_v2.financials': CompaniesFinancialsTable;
+    'companies_v2.caen_profile': CompaniesCaenActivitiesTable;
+    'companies_v2.status_flags': CompaniesStatusFlagsTable;
+    'companies_v2.eu_branches': CompaniesEuBranchesTable;
+    'companies_v2.registration_identifiers': {
+      scheme: string;
+      value: string;
+      cui: string;
+      is_current: boolean;
+    };
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

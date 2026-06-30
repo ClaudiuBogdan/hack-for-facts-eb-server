@@ -11,10 +11,15 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FieldFilter, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type FieldFilter,
+  type FilterInput,
+} from '@/modules/shared/index.js';
+import { foldDiacritics } from '@/modules/shared/shell/repo/fold.js';
 
 import { COMPANY_VIRTUAL_FIELDS } from '../../core/filters.js';
-
 
 export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {
   const v = input[name];
@@ -44,7 +49,9 @@ export const omitFields = (input: FilterInput, names: readonly string[]): Filter
 };
 
 /** Split a FilterInput into the composer-safe part and the virtual fields. */
-export const splitVirtual = (input: FilterInput): { physical: FilterInput; virtual: FilterInput } => {
+export const splitVirtual = (
+  input: FilterInput
+): { physical: FilterInput; virtual: FilterInput } => {
   const virtual: Record<string, unknown> = {};
   for (const name of COMPANY_VIRTUAL_FIELDS) {
     const f = input[name];
@@ -77,7 +84,9 @@ export const hasField = (input: FilterInput, name: string): boolean => {
 };
 
 /** Pull string `eq`/`in` values for a (virtual) field. */
-export const stringValues = (f: FieldFilter | undefined): { eq?: string; in?: readonly string[]; prefix?: string } => {
+export const stringValues = (
+  f: FieldFilter | undefined
+): { eq?: string; in?: readonly string[]; prefix?: string } => {
   if (f === undefined) return {};
   const out: { eq?: string; in?: readonly string[]; prefix?: string } = {};
   const eq = f['eq'];
@@ -88,6 +97,11 @@ export const stringValues = (f: FieldFilter | undefined): { eq?: string; in?: re
   if (typeof pre === 'string') out.prefix = pre;
   return out;
 };
+
+export const normalizeCountyNeedle = (value: string): string =>
+  foldDiacritics(value)
+    .replace(/^(judetul|municipiul)\s+/u, '')
+    .trim();
 
 export const boolEq = (f: FieldFilter | undefined): boolean | undefined => {
   if (f === undefined) return undefined;
@@ -103,7 +117,7 @@ export const isNullValue = (f: FieldFilter | undefined): boolean | undefined => 
   return v === true || v === 'true';
 };
 
-/** Enforce the aggregate driving-predicate rule (groupBy=county has no raw_county index). */
+/** Enforce the aggregate driving-predicate rule (groupBy=county must be bounded). */
 export const requireAggregateDriver = (
   input: FilterInput,
   drivingFields: readonly string[],

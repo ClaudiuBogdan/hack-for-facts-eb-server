@@ -2,16 +2,16 @@
  * Companies module — repository port (plan §3).
  *
  * One `CompaniesRepository`; every method returns `Result<T, ApiError>`
- * (neverthrow). Reads `companies.*` + the kernel read schemas it is allowed
- * (`core.organizations`, `core.organization_identifiers`,
+ * (neverthrow). Reads `companies_v2.*` + the kernel read schemas it is allowed
+ * (`core.organizations`,
  * `core.classification_codes`). It does NOT query `flows.money_flows` — the
  * public-money slice comes from the kernel `FlowsRepo` (contract §4.3/§14.6),
  * injected by the usecase, never the repo.
  *
  * Identity is link-not-merge (§2.1): per-CUI seeks are addressed by normalized
  * CUI against the partial-unique `organizations_cui_uq`; the module never resolves
- * or reassigns `org_id` across registries. Reverse regnum lookup is TWO-HOP
- * (`organization_identifiers` has no cui column) and one-to-many → returns a LIST.
+ * or reassigns `org_id` across registries. Reverse regnum lookup uses v2
+ * `registration_identifiers` and one-to-many → returns a LIST.
  *
  * Money/bigint columns are cast `::text` at the SQL boundary (precision-safe
  * strings; `employees` never coerced to a JS number).
@@ -29,12 +29,7 @@ import type {
   CompanyProfile,
   CompanySort,
 } from './types.js';
-import type {
-  ApiError,
-  FilterInput,
-  MeiliClient,
-  OffsetParams,
-} from '@/modules/shared/index.js';
+import type { ApiError, FilterInput, MeiliClient, OffsetParams } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** The data half of a profile (no public-money — the usecase injects that). */
@@ -77,17 +72,22 @@ export interface CompaniesRepository {
     limit: number,
     meili: MeiliClient | null
   ): Promise<Result<{ hits: readonly CompanyNameHit[]; degraded: boolean }, ApiError>>;
-  /** TWO-HOP: identifiers(scheme,value)→org_id, JOIN organizations(kind='company')→cui. Returns a LIST. */
+  /** registration_identifiers(scheme,value)→CUI, validated against organizations(kind='company'). Returns a LIST. */
   findByRegistrationNumber(cod: string): Promise<Result<readonly CompanyNameHit[], ApiError>>;
   resolveCaen(label: string, limit: number): Promise<Result<readonly CaenCodeHit[], ApiError>>;
   resolveCounty(q: string): Promise<Result<readonly string[], ApiError>>;
 
   // ── aggregates (count-ranked; value-ranked NOT offered §13-R3) ──
-  /** GROUP BY → groups; `groupBy=county` requires a selective predicate (no raw_county index). */
+  /** GROUP BY → groups; `groupBy=county` requires a selective predicate. */
   countBy(
     groupBy: CompanyGroupBy,
     filter: FilterInput
-  ): Promise<Result<{ groups: readonly CompanyGroupCount[]; denominator: number; coverage: CompanyCoverage }, ApiError>>;
+  ): Promise<
+    Result<
+      { groups: readonly CompanyGroupCount[]; denominator: number; coverage: CompanyCoverage },
+      ApiError
+    >
+  >;
 
   // ── contributor support (§4) ──
   profileSlice(cui: string): Promise<Result<CompanyEntitySlice | null, ApiError>>;

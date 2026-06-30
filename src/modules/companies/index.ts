@@ -4,7 +4,7 @@
  * kernel FlowsRepo (public-money, payee) + the kernel Meili client (name search).
  *
  * Importing this barrel pulls in `shell/db/schema.ts`, whose `declare module`
- * augments `ProdDatabase` with the `companies.*` tables. The module is the CUI
+ * augments `ProdDatabase` with the `companies_v2.*` tables. The module is the CUI
  * identity spine: it links to the kernel identity hub by CUI (link-not-merge) and
  * never reassigns `org_id`s.
  */

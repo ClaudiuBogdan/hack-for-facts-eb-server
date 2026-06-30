@@ -7,7 +7,7 @@
  * THIS (via the kernel `makeEntityProfileSlice`), not a divergent path.
  *
  * Identity is link-not-merge: presence is keyed by CUI in `core.organizations`
- * (kind='company') / `companies.registrations`; this module never reassigns
+ * (kind='company') / `companies_v2.registrations`; this module never reassigns
  * `org_id`s. `flow_type` registered: NONE (companies only appear as a flows
  * payee, never originating a flow type — §4 grain gate).
  */
