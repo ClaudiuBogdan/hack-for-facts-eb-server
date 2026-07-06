@@ -9,13 +9,18 @@
  */
 
 import type {
+  ParliamentAiBillMetadata,
+  ParliamentAiControlItemMetadata,
   ParliamentBallot,
   ParliamentBill,
   ParliamentBillActLink,
   ParliamentBillDocument,
   ParliamentBillEvent,
   ParliamentBillVoteLink,
+  ParliamentCommittee,
+  ParliamentCommitteeMembership,
   ParliamentControlItem,
+  ParliamentDataFreshness,
   ParliamentDeclarationMeta,
   ParliamentGroup,
   ParliamentGroupCohesion,
@@ -72,8 +77,16 @@ export interface ParliamentRepo {
   findMember(mandateKey: string): Promise<Result<ParliamentMember | null, ApiError>>; // members_pkey
   // `current` (SC-1) restricts composition counts / roster to currently-seated
   // members; omit/false = ALL mandate rows. Composition/roster ONLY (never attribution).
-  listGroupCounts(legislature: string, chamber?: string, current?: boolean): Promise<Result<readonly ParliamentGroup[], ApiError>>;
-  listGroupMembers(groupId: string, legislature?: string, current?: boolean): Promise<Result<readonly ParliamentMember[], ApiError>>;
+  listGroupCounts(
+    legislature: string,
+    chamber?: string,
+    current?: boolean
+  ): Promise<Result<readonly ParliamentGroup[], ApiError>>;
+  listGroupMembers(
+    groupId: string,
+    legislature?: string,
+    current?: boolean
+  ): Promise<Result<readonly ParliamentMember[], ApiError>>;
   /**
    * Resolve a single group by its `group_id` slug against the `parliamentary_groups`
    * registry (73 rows; covers historical/migrated groups like POT/PIR that no longer
@@ -83,15 +96,29 @@ export interface ParliamentRepo {
   findGroup(groupId: string): Promise<Result<ParliamentGroup | null, ApiError>>;
   findPerson(personId: string): Promise<Result<ParliamentPerson | null, ApiError>>; // persons_pkey
   listPersonMandates(personId: string): Promise<Result<readonly ParliamentMember[], ApiError>>; // members_person_idx
-  listGroupIntervals(mandateKey: string): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>; // pk prefix
+  listGroupIntervals(
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>; // pk prefix
   /** Cross-mandate group history for a whole person (union over its mandates). */
-  listGroupIntervalsForPerson(personId: string): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>;
+  listGroupIntervalsForPerson(
+    personId: string
+  ): Promise<Result<readonly ParliamentGroupInterval[], ApiError>>;
   /** persons_normalized_name_idx; qNorm is pre-folded in TS (C-locale, §13-R1). */
-  searchPersonsByName(qNorm: string, limit: number): Promise<Result<readonly ParliamentPerson[], ApiError>>;
+  searchPersonsByName(
+    qNorm: string,
+    limit: number
+  ): Promise<Result<readonly ParliamentPerson[], ApiError>>;
   /** group_name slugs present in a legislature (resolve dim=group). */
-  resolveGroups(qFolded: string, legislature: string | null, limit: number): Promise<Result<readonly { value: string; label: string }[], ApiError>>;
+  resolveGroups(
+    qFolded: string,
+    legislature: string | null,
+    limit: number
+  ): Promise<Result<readonly { value: string; label: string }[], ApiError>>;
   /** constituency_name values (resolve dim=constituency). */
-  resolveConstituencies(qFolded: string, limit: number): Promise<Result<readonly string[], ApiError>>;
+  resolveConstituencies(
+    qFolded: string,
+    limit: number
+  ): Promise<Result<readonly string[], ApiError>>;
   /** recipient strings (resolve dim=recipient). */
   resolveRecipients(qFolded: string, limit: number): Promise<Result<readonly string[], ApiError>>;
 
@@ -133,7 +160,9 @@ export interface ParliamentRepo {
     voteKey: string,
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ParliamentBallot>, ApiError>>;
-  voteGroupBreakdown(voteKey: string): Promise<Result<readonly ParliamentVoteGroupBreakdown[], ApiError>>; // pk prefix, group_by
+  voteGroupBreakdown(
+    voteKey: string
+  ): Promise<Result<readonly ParliamentVoteGroupBreakdown[], ApiError>>; // pk prefix, group_by
   ballotResolution(voteKey: string): Promise<Result<BallotResolution, ApiError>>; // count(*) + count(mandate_key)
 
   // ── member activity (always parented by mandate_key) ──────────────────────────
@@ -148,10 +177,21 @@ export interface ParliamentRepo {
     mandateKey: string,
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>>;
-  listMemberControlItems(mandateKey: string, page: OffsetParams): Promise<Result<OffsetResult<ParliamentControlItem>, ApiError>>;
-  listMemberSpeeches(mandateKey: string, page: OffsetParams): Promise<Result<OffsetResult<ParliamentSpeech>, ApiError>>;
-  listMemberInitiatives(mandateKey: string, page: OffsetParams): Promise<Result<OffsetResult<ParliamentInitiative>, ApiError>>;
-  listMemberDeclarations(mandateKey: string): Promise<Result<readonly ParliamentDeclarationMeta[], ApiError>>;
+  listMemberControlItems(
+    mandateKey: string,
+    page: OffsetParams
+  ): Promise<Result<OffsetResult<ParliamentControlItem>, ApiError>>;
+  listMemberSpeeches(
+    mandateKey: string,
+    page: OffsetParams
+  ): Promise<Result<OffsetResult<ParliamentSpeech>, ApiError>>;
+  listMemberInitiatives(
+    mandateKey: string,
+    page: OffsetParams
+  ): Promise<Result<OffsetResult<ParliamentInitiative>, ApiError>>;
+  listMemberDeclarations(
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentDeclarationMeta[], ApiError>>;
 
   // ── control items list (standalone; bounded — §3.2) ───────────────────────────
   // fhash derived internally from the spec + filter (repo owns the spec).
@@ -162,7 +202,10 @@ export interface ParliamentRepo {
 
   // ── lineage (the marquee path) ────────────────────────────────────────────────
   /** bill_act_links_target_idx → bill_vote_links_bill_idx → votes_pkey. All small, indexed. */
-  votesForActId(actId: string, roles: readonly string[]): Promise<Result<readonly LineageVoteRow[], ApiError>>;
+  votesForActId(
+    actId: string,
+    roles: readonly string[]
+  ): Promise<Result<readonly LineageVoteRow[], ApiError>>;
   billsForActId(actId: string): Promise<Result<readonly ParliamentBill[], ApiError>>;
 
   // ── cohesion (bounded vote set → group_by; HARD-CAP 500 votes) ────────────────
@@ -187,7 +230,10 @@ export interface ParliamentRepo {
    * caller MUST have already capped the set at ≤ COHESION_VOTE_CAP; this method
    * defensively rejects an over-cap set (InvalidInput) rather than scanning.
    */
-  cohesionForVoteKeys(voteKeys: readonly string[], group?: string): Promise<Result<readonly ParliamentGroupCohesion[], ApiError>>;
+  cohesionForVoteKeys(
+    voteKeys: readonly string[],
+    group?: string
+  ): Promise<Result<readonly ParliamentGroupCohesion[], ApiError>>;
 
   // ── data-quality / correlation surface (api-key gated; lean projection) ───────
   listPersonCandidates(
@@ -196,10 +242,44 @@ export interface ParliamentRepo {
   ): Promise<Result<OffsetResult<ParliamentPersonCandidate>, ApiError>>; // person_candidates_status_idx
 
   // ── contributor support (deferred until recipient→CUI canonicalization) ───────
-  controlPresenceForRecipient(cui: string): Promise<Result<ParliamentControlSummaryCount | null, ApiError>>;
+  controlPresenceForRecipient(
+    cui: string
+  ): Promise<Result<ParliamentControlSummaryCount | null, ApiError>>;
 
   // ── freshness watermark ───────────────────────────────────────────────────────
   loaderWatermark(): Promise<Result<string | null, ApiError>>;
+  /** B4: newest vote date + last load stamp over parliament.votes (cheap; 20.7k rows). */
+  dataFreshness(): Promise<Result<ParliamentDataFreshness, ApiError>>;
+
+  // ── AI enrichment metadata (B1 — inference-only, NON-AUTHORITATIVE) ────────────
+  /** Latest valid, public AI metadata for a bill (parliament_bill_metadata_bill_idx). */
+  findBillAiMetadata(billKey: string): Promise<Result<ParliamentAiBillMetadata | null, ApiError>>;
+  /** Latest valid, PUBLIC-only AI metadata for a control item (restricted rows filtered). */
+  findControlItemAiMetadata(
+    itemKey: string
+  ): Promise<Result<ParliamentAiControlItemMetadata | null, ApiError>>;
+
+  // ── committees (B2) ────────────────────────────────────────────────────────────
+  listCommittees(
+    chamber: string | undefined,
+    legislature: string | undefined,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>>; // keyset committee_key
+  findCommittee(committeeKey: string): Promise<Result<ParliamentCommittee | null, ApiError>>; // committees_pkey
+  /** Committee roster: cdep via mandate_key, senate via the current-roster attr join; senate_profile excluded. */
+  listCommitteeRoster(
+    committeeKey: string
+  ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>>;
+  /** Bills linked to a committee's documents (resolution_status='linked', canonical). Bounded + exact total. */
+  listCommitteeLinkedBills(
+    committeeKey: string,
+    cap: number
+  ): Promise<Result<{ bills: readonly ParliamentBill[]; total: number }, ApiError>>;
+  committeeMeetingsCount(committeeKey: string): Promise<Result<number, ApiError>>;
+  /** A member's committee seats (cdep by mandate_key; senate_committee via the attr join when the member is a current senator). */
+  listMemberCommitteeMemberships(
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>>;
 }
 
 /** Internal count shape backing the (deferred) recipient→CUI contributor. */

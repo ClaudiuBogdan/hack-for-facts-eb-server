@@ -11,7 +11,16 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { foldDiacritics, invalidInput, normalizeOffset, type ApiError, type CursorPage, type CursorPageRequest, type FilterInput, type MeiliClient } from '@/modules/shared/index.js';
+import {
+  foldDiacritics,
+  invalidInput,
+  normalizeOffset,
+  type ApiError,
+  type CursorPage,
+  type CursorPageRequest,
+  type FilterInput,
+  type MeiliClient,
+} from '@/modules/shared/index.js';
 
 import {
   COHESION_VOTE_CAP,
@@ -23,7 +32,10 @@ import {
   type ParliamentBallot,
   type ParliamentBill,
   type ParliamentBillDossier,
+  type ParliamentCommittee,
+  type ParliamentCommitteeDetail,
   type ParliamentControlItem,
+  type ParliamentDataFreshness,
   type ParliamentGroup,
   type ParliamentGroupCohesion,
   type ParliamentInitiative,
@@ -81,10 +93,14 @@ const fieldHasValue = (filter: FilterInput, name: string): boolean => {
 };
 
 const hasVoteBound = (filter: FilterInput): boolean =>
-  fieldHasValue(filter, 'chamber') || fieldHasValue(filter, 'voteDate') || fieldHasValue(filter, 'billKey');
+  fieldHasValue(filter, 'chamber') ||
+  fieldHasValue(filter, 'voteDate') ||
+  fieldHasValue(filter, 'billKey');
 
 const hasControlBound = (filter: FilterInput): boolean =>
-  fieldHasValue(filter, 'itemDate') || fieldHasValue(filter, 'recipient') || fieldHasValue(filter, 'author');
+  fieldHasValue(filter, 'itemDate') ||
+  fieldHasValue(filter, 'recipient') ||
+  fieldHasValue(filter, 'author');
 
 // ── members / persons / groups ───────────────────────────────────────────────
 
@@ -105,7 +121,11 @@ export const listMembers = async (
     if (latest.isErr()) return err(latest.error);
     if (latest.value !== null) filter = { ...filter, legislature: { eq: latest.value } };
   }
-  return deps.repo.listMembers(filter, input.sort, normalizeOffset(input.page.page, input.page.pageSize));
+  return deps.repo.listMembers(
+    filter,
+    input.sort,
+    normalizeOffset(input.page.page, input.page.pageSize)
+  );
 };
 
 export const getMember = async (
@@ -118,7 +138,9 @@ export const getMember = async (
   const member = m.value;
 
   const [person, intervals, counts] = await Promise.all([
-    member.personId !== null ? deps.repo.findPerson(member.personId) : Promise.resolve(ok<ParliamentPerson | null, ApiError>(null)),
+    member.personId !== null
+      ? deps.repo.findPerson(member.personId)
+      : Promise.resolve(ok<ParliamentPerson | null, ApiError>(null)),
     deps.repo.listGroupIntervals(mandateKey),
     activityCounts(deps.repo, mandateKey),
   ]);
@@ -126,7 +148,12 @@ export const getMember = async (
   if (intervals.isErr()) return err(intervals.error);
   if (counts.isErr()) return err(counts.error);
 
-  return ok({ member, person: person.value, groupIntervals: intervals.value, activityCounts: counts.value });
+  return ok({
+    member,
+    person: person.value,
+    groupIntervals: intervals.value,
+    activityCounts: counts.value,
+  });
 };
 
 const activityCounts = async (
@@ -220,7 +247,11 @@ export const listBills = (
   deps: ParliamentUsecaseDeps,
   input: BillsInput
 ): Promise<Result<OffsetResult<ParliamentBill>, ApiError>> =>
-  deps.repo.listBills(input.filter, input.sort, normalizeOffset(input.page.page, input.page.pageSize));
+  deps.repo.listBills(
+    input.filter,
+    input.sort,
+    normalizeOffset(input.page.page, input.page.pageSize)
+  );
 
 export const getBillDossier = async (
   deps: ParliamentUsecaseDeps,
@@ -276,7 +307,12 @@ export const listVotes = (
     const f = input.filter;
     const hasQ = fieldHasValue(f, 'q');
     if (hasQ && !input.searchEngineUp && !hasVoteBound(f)) {
-      return err(invalidInput('votes q-search requires a chamber or date bound when the search service is unavailable', 'q'));
+      return err(
+        invalidInput(
+          'votes q-search requires a chamber or date bound when the search service is unavailable',
+          'q'
+        )
+      );
     }
     return deps.repo.listVotes(f, input.sort, input.dir, input.page);
   })();
@@ -297,7 +333,8 @@ export const getVoteBallots = (
   deps: ParliamentUsecaseDeps,
   voteKey: string,
   page: CursorPageRequest
-): Promise<Result<CursorPage<ParliamentBallot>, ApiError>> => deps.repo.listVoteRecords(voteKey, page);
+): Promise<Result<CursorPage<ParliamentBallot>, ApiError>> =>
+  deps.repo.listVoteRecords(voteKey, page);
 
 // ── member activity ──────────────────────────────────────────────────────────
 
@@ -340,7 +377,12 @@ export const listControlItems = (
     // BOUND guard (§3.2): a standalone control-items list must carry a date window
     // OR a recipient/author bound — there is no item_date index.
     if (!hasControlBound(filter)) {
-      return err(invalidInput('control-items list requires a date window (from/to) or a recipient/author bound', 'filter'));
+      return err(
+        invalidInput(
+          'control-items list requires a date window (from/to) or a recipient/author bound',
+          'filter'
+        )
+      );
     }
     return deps.repo.listControlItems(filter, page);
   })();
@@ -363,8 +405,10 @@ export const getLineageForAct = async (
 ): Promise<Result<ParliamentActLineage | null, ApiError>> => {
   // act_id is numeric; validate BEFORE the repo casts it to ::bigint (else a
   // non-numeric id surfaces as a DB 500 instead of a clean InvalidInput — Codex SF).
-  if (!/^\d+$/u.test(input.actId)) return err(invalidInput('actId must be a numeric act_id', 'actId'));
-  const requestedRoles = input.roles !== undefined && input.roles.length > 0 ? input.roles : [...DEFAULT_LINEAGE_ROLES];
+  if (!/^\d+$/u.test(input.actId))
+    return err(invalidInput('actId must be a numeric act_id', 'actId'));
+  const requestedRoles =
+    input.roles !== undefined && input.roles.length > 0 ? input.roles : [...DEFAULT_LINEAGE_ROLES];
   const showAllRoles = requestedRoles.includes(LINEAGE_ROLE_ALL);
   const [bills, allVotes] = await Promise.all([
     deps.repo.billsForActId(input.actId),
@@ -381,7 +425,9 @@ export const getLineageForAct = async (
   if (bills.value.length === 0 && allLinked.length === 0) return ok(null);
 
   // H14: default is final adoption/rejection; roles:["all"] widens to every linked vote.
-  const shown = showAllRoles ? allLinked : allLinked.filter((lv) => requestedRoles.includes(lv.role));
+  const shown = showAllRoles
+    ? allLinked
+    : allLinked.filter((lv) => requestedRoles.includes(lv.role));
 
   const votes: ParliamentLineageVote[] = [];
   for (const lv of shown) {
@@ -432,7 +478,9 @@ export const getLineageForAct = async (
   }
   const lowConfidence = shown.filter((lv) => lv.confidenceLabel === 'low').length;
   if (lowConfidence > 0) {
-    caveats.push(`${String(lowConfidence)} of the ${String(shown.length)} shown vote-link(s) are low-confidence matches.`);
+    caveats.push(
+      `${String(lowConfidence)} of the ${String(shown.length)} shown vote-link(s) are low-confidence matches.`
+    );
   }
   return ok({ actId: input.actId, bills: bills.value, votes, caveats });
 };
@@ -452,13 +500,21 @@ export const rankVoteCohesion = async (
   input: CohesionInput
 ): Promise<Result<readonly ParliamentGroupCohesion[], ApiError>> => {
   const billMode = input.billKey !== undefined;
-  const windowMode = input.chamber !== undefined && input.from !== undefined && input.to !== undefined;
+  const windowMode =
+    input.chamber !== undefined && input.from !== undefined && input.to !== undefined;
   // EXACTLY ONE mode (Codex SHOULD-FIX).
   if (billMode === windowMode) {
-    return err(invalidInput('cohesion requires EXACTLY ONE of: billKey, or (chamber + from + to)', 'cohesion'));
+    return err(
+      invalidInput(
+        'cohesion requires EXACTLY ONE of: billKey, or (chamber + from + to)',
+        'cohesion'
+      )
+    );
   }
   if (windowMode && !VOTE_CHAMBER_SET.has(input.chamber as VoteChamber)) {
-    return err(invalidInput('cohesion chamber must be camera_deputatilor | senat | comun', 'chamber'));
+    return err(
+      invalidInput('cohesion chamber must be camera_deputatilor | senat | comun', 'chamber')
+    );
   }
 
   let voteKeys: readonly string[];
@@ -467,18 +523,32 @@ export const rankVoteCohesion = async (
     if (r.isErr()) return err(r.error);
     voteKeys = r.value;
     if (voteKeys.length > COHESION_VOTE_CAP) {
-      return err(invalidInput(`cohesion vote set exceeds cap (${String(COHESION_VOTE_CAP)})`, 'billKey'));
+      return err(
+        invalidInput(`cohesion vote set exceeds cap (${String(COHESION_VOTE_CAP)})`, 'billKey')
+      );
     }
   } else if (input.chamber !== undefined && input.from !== undefined && input.to !== undefined) {
-    const r = await deps.repo.voteKeysForWindow(input.chamber, input.from, input.to, COHESION_VOTE_CAP);
+    const r = await deps.repo.voteKeysForWindow(
+      input.chamber,
+      input.from,
+      input.to,
+      COHESION_VOTE_CAP
+    );
     if (r.isErr()) return err(r.error);
     if (r.value.overflow) {
-      return err(invalidInput('cohesion vote window too large; narrow the date range (cap 500 votes)', 'to'));
+      return err(
+        invalidInput('cohesion vote window too large; narrow the date range (cap 500 votes)', 'to')
+      );
     }
     voteKeys = r.value.voteKeys;
   } else {
     // Unreachable (the mode guard above already validated EXACTLY ONE mode).
-    return err(invalidInput('cohesion requires EXACTLY ONE of: billKey, or (chamber + from + to)', 'cohesion'));
+    return err(
+      invalidInput(
+        'cohesion requires EXACTLY ONE of: billKey, or (chamber + from + to)',
+        'cohesion'
+      )
+    );
   }
   if (voteKeys.length === 0) return ok([]);
   return deps.repo.cohesionForVoteKeys(voteKeys, input.group);
@@ -503,17 +573,29 @@ export const resolveFilters = async (
     case 'group': {
       const r = await deps.repo.resolveGroups(folded, legislature ?? null, capped);
       if (r.isErr()) return err(r.error);
-      return ok(r.value.map((g) => ({ dim, value: g.value, label: g.label, kind: 'group', score: null })));
+      return ok(
+        r.value.map((g) => ({ dim, value: g.value, label: g.label, kind: 'group', score: null }))
+      );
     }
     case 'person': {
       const r = await deps.repo.searchPersonsByName(folded, capped);
       if (r.isErr()) return err(r.error);
-      return ok(r.value.map((p) => ({ dim, value: p.personId, label: p.canonicalName, kind: 'person', score: null })));
+      return ok(
+        r.value.map((p) => ({
+          dim,
+          value: p.personId,
+          label: p.canonicalName,
+          kind: 'person',
+          score: null,
+        }))
+      );
     }
     case 'constituency': {
       const r = await deps.repo.resolveConstituencies(folded, capped);
       if (r.isErr()) return err(r.error);
-      return ok(r.value.map((c) => ({ dim, value: c, label: c, kind: 'constituency', score: null })));
+      return ok(
+        r.value.map((c) => ({ dim, value: c, label: c, kind: 'constituency', score: null }))
+      );
     }
     case 'recipient': {
       const r = await deps.repo.resolveRecipients(folded, capped);
@@ -535,7 +617,9 @@ export const resolveFilters = async (
       );
     case 'outcome':
       return ok(
-        ['adoptat', 'respins'].filter((v) => v.includes(folded)).map((v) => ({ dim, value: v, label: v, kind: 'enum', score: null }))
+        ['adoptat', 'respins']
+          .filter((v) => v.includes(folded))
+          .map((v) => ({ dim, value: v, label: v, kind: 'enum', score: null }))
       );
     case 'chamber':
       return ok(
@@ -555,6 +639,51 @@ export const dataQualityCandidates = (
 ): Promise<Result<OffsetResult<ParliamentPersonCandidate>, ApiError>> =>
   deps.repo.listPersonCandidates(status, normalizeOffset(page.page, page.pageSize));
 
+// ── data freshness (B4) ────────────────────────────────────────────────────────
+
+export const getDataFreshness = (
+  deps: ParliamentUsecaseDeps
+): Promise<Result<ParliamentDataFreshness, ApiError>> => deps.repo.dataFreshness();
+
+// ── committees (B2) ─────────────────────────────────────────────────────────────
+
+/** The linked-bills bounded cap for a committee detail (like the ballots 200 cap). */
+export const COMMITTEE_LINKED_BILLS_CAP = 200;
+
+export const listCommittees = (
+  deps: ParliamentUsecaseDeps,
+  chamber: string | undefined,
+  legislature: string | undefined,
+  page: CursorPageRequest
+): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>> =>
+  deps.repo.listCommittees(chamber, legislature, page);
+
+export const getCommittee = async (
+  deps: ParliamentUsecaseDeps,
+  committeeKey: string
+): Promise<Result<ParliamentCommitteeDetail | null, ApiError>> => {
+  const c = await deps.repo.findCommittee(committeeKey);
+  if (c.isErr()) return err(c.error);
+  if (c.value === null) return ok(null);
+
+  const [roster, linked, meetings] = await Promise.all([
+    deps.repo.listCommitteeRoster(committeeKey),
+    deps.repo.listCommitteeLinkedBills(committeeKey, COMMITTEE_LINKED_BILLS_CAP),
+    deps.repo.committeeMeetingsCount(committeeKey),
+  ]);
+  if (roster.isErr()) return err(roster.error);
+  if (linked.isErr()) return err(linked.error);
+  if (meetings.isErr()) return err(meetings.error);
+
+  return ok({
+    committee: c.value,
+    members: roster.value,
+    linkedBills: linked.value.bills,
+    linkedBillsTotal: linked.value.total,
+    meetingsCount: meetings.value,
+  });
+};
+
 // ── member-activity bundle (MCP) ───────────────────────────────────────────────
 
 export interface MemberActivityBundle {
@@ -568,9 +697,17 @@ export interface MemberActivityBundle {
 
 export const getMemberActivityBundle = async (
   deps: ParliamentUsecaseDeps,
-  args: { mandateKey?: string; personId?: string; kinds?: readonly MemberActivityKind[]; limit: number }
+  args: {
+    mandateKey?: string;
+    personId?: string;
+    kinds?: readonly MemberActivityKind[];
+    limit: number;
+  }
 ): Promise<Result<MemberActivityBundle | null, ApiError>> => {
-  const kinds = args.kinds !== undefined && args.kinds.length > 0 ? args.kinds : (['votes', 'control', 'speeches', 'initiatives'] as const);
+  const kinds =
+    args.kinds !== undefined && args.kinds.length > 0
+      ? args.kinds
+      : (['votes', 'control', 'speeches', 'initiatives'] as const);
   const want = new Set<MemberActivityKind>(kinds);
   const limit = Math.min(Math.max(args.limit, 1), 100);
 
@@ -614,17 +751,26 @@ export const getMemberActivityBundle = async (
       votes.push(...r.value.items);
     }
     if (want.has('control') && control.length < limit) {
-      const r = await deps.repo.listMemberControlItems(mk, { page: 1, pageSize: limit - control.length });
+      const r = await deps.repo.listMemberControlItems(mk, {
+        page: 1,
+        pageSize: limit - control.length,
+      });
       if (r.isErr()) return err(r.error);
       control.push(...r.value.rows);
     }
     if (want.has('speeches') && speeches.length < limit) {
-      const r = await deps.repo.listMemberSpeeches(mk, { page: 1, pageSize: limit - speeches.length });
+      const r = await deps.repo.listMemberSpeeches(mk, {
+        page: 1,
+        pageSize: limit - speeches.length,
+      });
       if (r.isErr()) return err(r.error);
       speeches.push(...r.value.rows);
     }
     if (want.has('initiatives') && initiatives.length < limit) {
-      const r = await deps.repo.listMemberInitiatives(mk, { page: 1, pageSize: limit - initiatives.length });
+      const r = await deps.repo.listMemberInitiatives(mk, {
+        page: 1,
+        pageSize: limit - initiatives.length,
+      });
       if (r.isErr()) return err(r.error);
       initiatives.push(...r.value.rows);
     }

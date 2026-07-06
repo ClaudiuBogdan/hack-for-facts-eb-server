@@ -260,6 +260,130 @@ export interface MemberDeclarationsTable {
   created_at: Tstz | null;
 }
 
+// ── AI enrichment metadata (B1 — NON-AUTHORITATIVE, inference-only) ───────────
+
+/**
+ * `parliament.bill_metadata` (C3 prod projection). Only the display-safe columns
+ * are typed. The generation-provenance + PII/discovery columns
+ * (`input_text_sha256`, `raw_metadata_id`, `source_hash`, `model_input_sha256`,
+ * `input_truncated`, `validation_issues`, `semantic_text`, `agent_discovery_title`,
+ * `agent_discovery_description`) are deliberately OMITTED — a stray select is a
+ * compile error (the birth_date_text privacy pattern). Values are inference-only
+ * (enrichment gate publishable=false) — NEVER a search facet/filter/index body.
+ */
+export interface ParliamentBillMetadataTable {
+  bill_key: string;
+  config_key: string;
+  prompt_version: string;
+  schema_version: number;
+  model: string;
+  validation_status: string; // 'valid' | 'invalid'
+  value_class: string; // 'standard' | 'low_value'
+  confidence: string | null; // numeric → string (precision-safe)
+  summary: string | null;
+  topic: string | null;
+  domains: string[];
+  keywords: string[];
+  source_updated_at: Tstz | null;
+  privacy_class: string; // 'public' | 'restricted'
+  loaded_at: Tstz | null;
+}
+
+/**
+ * `parliament.control_item_metadata` (C3 prod projection). Display-safe columns
+ * only. The provenance/PII/geographic/institution columns
+ * (`input_text_sha256`, `raw_metadata_id`, `source_hash`, `model_input_sha256`,
+ * `input_truncated`, `validation_issues`, `semantic_text`, `agent_discovery_*`,
+ * `geographic_scope`, `target_institutions`, `mentioned_institutions`,
+ * `organizations`, `localities`, `counties`, `law_references`, `years`,
+ * `personal_data_present`, `redaction_applied`, `omitted_personal_data_types`)
+ * are OMITTED. 4,706 of 9,345 rows are privacy_class='restricted' — the repo query
+ * MUST filter privacy_class='public'. NO value_class column on this table.
+ */
+export interface ParliamentControlItemMetadataTable {
+  item_key: string;
+  config_key: string;
+  prompt_version: string;
+  schema_version: number;
+  model: string;
+  validation_status: string; // 'valid' | 'invalid'
+  confidence: string | null;
+  summary: string | null;
+  policy_domains: string[];
+  issue_types: string[];
+  urgency: string | null;
+  keywords: string[];
+  source_updated_at: Tstz | null;
+  privacy_class: string; // 'public' | 'restricted'
+  loaded_at: Tstz | null;
+}
+
+// ── committees (B2) ──────────────────────────────────────────────────────────
+// privacy_class='public' verified via migration 20260701T175000; source_url NOT
+// NULL = the traceability terminator on every committee table. The raw
+// `parliamentary_group` / `role_raw` / `member_name` columns are DELIBERATELY
+// UNBOUND (PDL-003 — raw event labels/names must never be served; omitting them
+// from the Kysely interface makes a stray select a compile error).
+
+export interface ParliamentCommitteesTable {
+  committee_key: string;
+  chamber: string; // 'cdep' | 'senate'
+  native_id: string | null;
+  legislature: string | null;
+  committee_type: string | null;
+  name: string;
+  meeting_tip: string | null;
+  source_url: string; // NOT NULL — traceability terminator
+  source_scope: string | null;
+  privacy_class: string; // 'public'
+  attrs: Jsonb;
+}
+
+export interface ParliamentCommitteeMembershipsTable {
+  membership_key: string;
+  membership_source: string; // 'cdep_committee' | 'senate_committee' | 'senate_profile'
+  committee_key: string | null;
+  chamber: string; // 'cdep' | 'senate'
+  mandate_key: string | null; // FK-safe (cdep set; senate null)
+  senate_parlamentar_id: string | null; // the senate attr-join key
+  role: string | null;
+  joined_date: DateCol | null;
+  left_date: DateCol | null;
+  is_bureau: boolean | null;
+  match_status: string;
+  source_url: string; // NOT NULL — traceability terminator
+  privacy_class: string; // 'public'
+  // parliamentary_group / role_raw / member_name — PDL-003; NEVER served; OMITTED
+}
+
+export interface ParliamentCommitteeDocumentsTable {
+  committee_document_key: string;
+  committee_key: string | null;
+  doc_type: string | null;
+  doc_date: DateCol | null;
+  title: string | null;
+  document_url: string | null;
+  source_url: string; // NOT NULL — traceability terminator
+  privacy_class: string; // 'public'
+}
+
+export interface ParliamentCommitteeBillLinksTable {
+  committee_document_key: string;
+  bill_key: string | null;
+  resolution_status: string; // 'linked' | 'unresolved'
+  source_url: string;
+  privacy_class: string; // 'public'
+}
+
+export interface ParliamentCommitteeMeetingsTable {
+  meeting_key: string;
+  committee_key: string | null;
+  meeting_date: DateCol | null;
+  meeting_kind: string | null;
+  location_text: string | null;
+  source_url: string; // NOT NULL — traceability terminator
+}
+
 /**
  * Declaration-merge the `parliament.*` tables onto the kernel `ProdDatabase`.
  * Importing the module barrel (`parliament/index.ts`) pulls this in.
@@ -283,6 +407,13 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.member_initiatives': MemberInitiativesTable;
     'parliament.speeches': SpeechesTable;
     'parliament.member_declarations': MemberDeclarationsTable;
+    'parliament.bill_metadata': ParliamentBillMetadataTable;
+    'parliament.control_item_metadata': ParliamentControlItemMetadataTable;
+    'parliament.committees': ParliamentCommitteesTable;
+    'parliament.committee_memberships': ParliamentCommitteeMembershipsTable;
+    'parliament.committee_documents': ParliamentCommitteeDocumentsTable;
+    'parliament.committee_bill_links': ParliamentCommitteeBillLinksTable;
+    'parliament.committee_meetings': ParliamentCommitteeMeetingsTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

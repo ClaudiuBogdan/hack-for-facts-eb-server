@@ -18,7 +18,13 @@
  * reach a public GraphQL/MCP surface. Any view-model `attrs` field is a
  * `SafeAttrs` (a whitelisted subset), not the raw column.
  */
-export const MEMBER_ATTR_KEYS = ['last_event_date', 'source_title', 'procedure', 'profile_url'] as const;
+export const MEMBER_ATTR_KEYS = [
+  'last_event_date',
+  'source_title',
+  'procedure',
+  'profile_url',
+  'cv_pdf_url',
+] as const;
 export const BILL_ATTR_KEYS = [
   'status_text',
   'last_event_date',
@@ -47,6 +53,9 @@ export interface ParliamentMember {
   // the member contact tab. ~5.3k of 5.3k members carry it. NOT a contact email/
   // phone/photo — those have no source (documented gap 4).
   readonly profileUrl: string | null;
+  // B3: the official CDep/Senate CV PDF (attrs.cv_pdf_url), surfaced flat for the
+  // member contact tab. Present for a minority of members; null otherwise.
+  readonly cvPdfUrl: string | null;
   // SC-1 seat lifecycle. isCurrent = this mandate row is a CURRENTLY-SEATED member
   // (for chamber composition / current rosters ONLY — it does NOT affect this
   // member's vote/initiative/control attribution, which always reads ALL rows).
@@ -382,6 +391,112 @@ export interface ParliamentResolveHit {
   readonly label: string;
   readonly kind: string; // 'group' | 'person' | 'enum' | 'constituency' | 'recipient'
   readonly score: number | null;
+}
+
+// ── data freshness (B4) ──────────────────────────────────────────────────────
+
+/** Loader/data freshness signals: the newest vote date and the last load stamp. */
+export interface ParliamentDataFreshness {
+  readonly latestVoteDate: string | null; // max(vote_date)::text
+  readonly lastLoadedAt: string | null; // max(updated_at)::text (timestamptz ISO)
+}
+
+// ── AI metadata (B1 — inference-only, NON-AUTHORITATIVE) ──────────────────────
+
+/**
+ * AI-enrichment trust class + disclaimer stamped on EVERY AI-metadata row (B1).
+ * These fields are inference-only (enrichment gate `publishable=false`) and are
+ * exposed by explicit user decision for client display ONLY — they must NEVER
+ * become search facets, filters, or index body.
+ */
+export const AI_TRUST_CLASS = 'inference_only_label';
+export const AI_DISCLAIMER =
+  'Rezumat generat automat de un model AI. Nu este un document oficial și poate conține erori — verificați sursa oficială.';
+
+/**
+ * AI-generated bill metadata (parliament.bill_metadata). NON-AUTHORITATIVE.
+ * PII/provenance/hash/discovery columns are NEVER carried (compile-guarded in the
+ * shell DB augmentation — the birth_date_text pattern).
+ */
+export interface ParliamentAiBillMetadata {
+  readonly summary: string | null;
+  readonly topic: string | null;
+  readonly domains: readonly string[];
+  readonly keywords: readonly string[];
+  readonly valueClass: string; // 'standard' | 'low_value'
+  readonly configKey: string;
+  readonly promptVersion: string;
+  readonly schemaVersion: number;
+  readonly model: string;
+  readonly validationStatus: string;
+  readonly confidence: string | null; // numeric → string (precision-safe)
+  readonly sourceUpdatedAt: string | null; // timestamptz ISO
+  readonly loadedAt: string | null; // timestamptz ISO
+  readonly privacyClass: string; // 'public' | 'restricted'
+  readonly trustClass: string; // AI_TRUST_CLASS
+  readonly disclaimer: string; // AI_DISCLAIMER
+}
+
+/**
+ * AI-generated control-item metadata (parliament.control_item_metadata).
+ * NON-AUTHORITATIVE. Restricted rows are filtered out at the repo (privacy_class
+ * = 'public' only); geographic/institution/PII columns are never carried.
+ */
+export interface ParliamentAiControlItemMetadata {
+  readonly summary: string | null;
+  readonly policyDomains: readonly string[];
+  readonly issueTypes: readonly string[];
+  readonly urgency: string | null;
+  readonly keywords: readonly string[];
+  readonly configKey: string;
+  readonly promptVersion: string;
+  readonly schemaVersion: number;
+  readonly model: string;
+  readonly validationStatus: string;
+  readonly confidence: string | null;
+  readonly sourceUpdatedAt: string | null;
+  readonly loadedAt: string | null;
+  readonly privacyClass: string;
+  readonly trustClass: string; // AI_TRUST_CLASS
+  readonly disclaimer: string; // AI_DISCLAIMER
+}
+
+// ── committees (B2) ──────────────────────────────────────────────────────────
+
+/** A parliamentary committee (CDep + Senate). source_url is the traceability terminator. */
+export interface ParliamentCommittee {
+  readonly committeeKey: string;
+  readonly chamber: string; // translated: 'camera_deputatilor' | 'senat'
+  readonly name: string;
+  readonly legislature: string | null;
+  readonly committeeType: string | null;
+  readonly sourceUrl: string;
+}
+
+/**
+ * A committee seat. NO parliamentary_group / role_raw / member_name (PDL-003 — raw
+ * event labels/names are never served). `committee` is the soft-link in the member
+ * direction; `member` is the resolved (nullable) member in the committee-roster
+ * direction — unlinked rows still appear with role/dates and a null member.
+ */
+export interface ParliamentCommitteeMembership {
+  readonly membershipKey: string; // opaque ID (may contain '|'); never parsed
+  readonly role: string | null;
+  readonly joinedDate: string | null;
+  readonly leftDate: string | null;
+  readonly isBureau: boolean | null;
+  readonly sourceUrl: string;
+  readonly committee: ParliamentCommittee | null;
+  readonly member: ParliamentMember | null;
+}
+
+/** The committee detail view: committee + roster + linked bills + a meetings count. */
+export interface ParliamentCommitteeDetail {
+  readonly committee: ParliamentCommittee;
+  readonly members: readonly ParliamentCommitteeMembership[];
+  readonly linkedBills: readonly ParliamentBill[];
+  readonly linkedBillsTotal: number;
+  readonly meetingsCount: number;
 }
 
 // ── sort keys ────────────────────────────────────────────────────────────────

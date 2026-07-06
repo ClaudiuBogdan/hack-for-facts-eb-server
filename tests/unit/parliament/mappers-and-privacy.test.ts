@@ -9,14 +9,28 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { makeLegalActLoader, type LegalActsRepo } from '@/modules/legal/index.js';
-import { BILL_ATTR_KEYS, MEMBER_ATTR_KEYS, VOTE_ATTR_KEYS } from '@/modules/parliament/core/types.js';
 import {
+  AI_DISCLAIMER,
+  AI_TRUST_CLASS,
+  BILL_ATTR_KEYS,
+  MEMBER_ATTR_KEYS,
+  VOTE_ATTR_KEYS,
+} from '@/modules/parliament/core/types.js';
+import {
+  mapAiBillMetadata,
+  mapAiControlItemMetadata,
   mapBill,
+  mapCommittee,
+  mapCommitteeMembership,
   mapDeclaration,
   mapMember,
   mapVote,
   safeAttrs,
+  type AiBillMetadataRow,
+  type AiControlItemMetadataRow,
   type BillRow,
+  type CommitteeMembershipCoreRow,
+  type CommitteeRow,
   type DeclarationRow,
   type MemberRow,
   type VoteRow,
@@ -44,7 +58,10 @@ describe('safeAttrs — privacy whitelist (Codex BLOCKER #4)', () => {
   });
 
   it('drops non-primitive values (objects/arrays) even for whitelisted keys', () => {
-    const out = safeAttrs({ status_text: { nested: 'object' }, source_title: ['a'] }, BILL_ATTR_KEYS);
+    const out = safeAttrs(
+      { status_text: { nested: 'object' }, source_title: ['a'] },
+      BILL_ATTR_KEYS
+    );
     expect(out['status_text']).toBeUndefined();
     expect(out['source_title']).toBeUndefined();
   });
@@ -92,6 +109,13 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
   it('leaves profileUrl null when attrs carries no profile_url', () => {
     const noProfile: MemberRow = { ...row, attrs: { source_title: 'X' } };
     expect(mapMember(noProfile).profileUrl).toBeNull();
+  });
+
+  it('surfaces cvPdfUrl flat from the whitelisted attrs (B3), null when absent', () => {
+    expect(MEMBER_ATTR_KEYS).toContain('cv_pdf_url');
+    const withCv: MemberRow = { ...row, attrs: { cv_pdf_url: 'https://cdep.ro/cv/12.pdf' } };
+    expect(mapMember(withCv).cvPdfUrl).toBe('https://cdep.ro/cv/12.pdf');
+    expect(mapMember(row).cvPdfUrl).toBeNull(); // base row has no cv_pdf_url
   });
 
   it('the member view model has no birthDateText / clusterKey field at all', () => {
@@ -155,7 +179,10 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
   // === true` was false for 0/4855 votes. The flag is now read from RAW attrs (presence),
   // and the object itself is never exposed (§2.6 — only a boolean is surfaced).
   it('surfaces tallyMismatch=true when tally_mismatch is an OBJECT (the real loader shape)', () => {
-    const v = mapVote({ ...row, attrs: { tally_mismatch: { pentru: { official: 168, recorded: 84 } }, source_title: 'ST' } });
+    const v = mapVote({
+      ...row,
+      attrs: { tally_mismatch: { pentru: { official: 168, recorded: 84 } }, source_title: 'ST' },
+    });
     expect(v.tallyMismatch).toBe(true);
     // the object internals must NOT leak into the whitelisted attrs view
     expect((v.attrs as Record<string, unknown>)['tally_mismatch']).toBeUndefined();
@@ -272,6 +299,114 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
     const b = mapBill(row);
     expect(b.statusText).toBeNull();
     expect(b.billType).toBeNull();
+  });
+});
+
+describe('mapAiBillMetadata / mapAiControlItemMetadata — stamps trust class + disclaimer (B1)', () => {
+  const billRow: AiBillMetadataRow = {
+    summary: 'Rezumat pe scurt.',
+    topic: 'fiscal',
+    domains: ['fiscal', 'buget'],
+    keywords: ['tva', 'accize'],
+    value_class: 'standard',
+    config_key: 'bill-v1',
+    prompt_version: 'p3',
+    schema_version: 2,
+    model: 'glm-5.2',
+    validation_status: 'valid',
+    confidence: '0.870',
+    source_updated_at: '2026-06-20T00:00:00Z',
+    loaded_at: '2026-06-21T00:00:00Z',
+    privacy_class: 'public',
+  };
+
+  it('stamps AI_TRUST_CLASS + AI_DISCLAIMER on every bill row and defends the arrays', () => {
+    const m = mapAiBillMetadata(billRow);
+    expect(m.trustClass).toBe(AI_TRUST_CLASS);
+    expect(m.trustClass).toBe('inference_only_label');
+    expect(m.disclaimer).toBe(AI_DISCLAIMER);
+    expect(m.domains).toEqual(['fiscal', 'buget']);
+    expect(m.keywords).toEqual(['tva', 'accize']);
+    expect(m.valueClass).toBe('standard');
+    expect(m.confidence).toBe('0.870'); // numeric → string (precision-safe)
+  });
+
+  it('serves low_value rows (client hides them) and tolerates null/absent arrays', () => {
+    const m = mapAiBillMetadata({
+      ...billRow,
+      value_class: 'low_value',
+      domains: null,
+      keywords: undefined,
+    });
+    expect(m.valueClass).toBe('low_value');
+    expect(m.domains).toEqual([]);
+    expect(m.keywords).toEqual([]);
+  });
+
+  it('stamps the trust class + disclaimer on control rows too (no value_class field)', () => {
+    const controlRow: AiControlItemMetadataRow = {
+      summary: 'Întrebare către minister.',
+      policy_domains: ['sanatate'],
+      issue_types: ['intrebare'],
+      urgency: 'normal',
+      keywords: ['spital'],
+      config_key: 'ctrl-v1',
+      prompt_version: 'p2',
+      schema_version: 1,
+      model: 'glm-5.2',
+      validation_status: 'valid',
+      confidence: null,
+      source_updated_at: null,
+      loaded_at: '2026-06-21T00:00:00Z',
+      privacy_class: 'public',
+    };
+    const m = mapAiControlItemMetadata(controlRow);
+    expect(m.trustClass).toBe('inference_only_label');
+    expect(m.disclaimer).toBe(AI_DISCLAIMER);
+    expect(m.policyDomains).toEqual(['sanatate']);
+    expect(m.issueTypes).toEqual(['intrebare']);
+    expect(m.privacyClass).toBe('public');
+    // control metadata has no value_class — the view model must not invent one.
+    expect(Object.keys(m)).not.toContain('valueClass');
+  });
+});
+
+describe('mapCommittee / mapCommitteeMembership — chamber translation + PDL-003 guard (B2)', () => {
+  it('translates the raw chamber code to the module enum value', () => {
+    const cdep: CommitteeRow = {
+      committee_key: 'cdep:2:2024:1',
+      chamber: 'cdep',
+      name: 'Comisia pentru buget',
+      legislature: '2024',
+      committee_type: 'permanent',
+      source_url: 'https://cdep.ro/comisii/buget',
+    };
+    expect(mapCommittee(cdep).chamber).toBe('camera_deputatilor');
+    expect(mapCommittee({ ...cdep, chamber: 'senate' }).chamber).toBe('senat');
+    expect(mapCommittee(cdep).sourceUrl).toBe('https://cdep.ro/comisii/buget');
+  });
+
+  it('PDL-003: the membership view model carries NO parliamentaryGroup / memberName / roleRaw keys', () => {
+    const row: CommitteeMembershipCoreRow = {
+      membership_key: 'senate:abc|def|membru|2024',
+      membership_role: 'membru',
+      joined_date: '2024-02-01',
+      left_date: null,
+      membership_is_bureau: false,
+      membership_source_url: 'https://senat.ro/comisii/x',
+    };
+    const m = mapCommitteeMembership(row, null, null);
+    expect(m.membershipKey).toBe('senate:abc|def|membru|2024'); // opaque, unparsed
+    expect(m.role).toBe('membru');
+    expect(m.isBureau).toBe(false);
+    expect(m.committee).toBeNull();
+    expect(m.member).toBeNull();
+    // PDL-003 regression guard: raw group / name / role_raw are NEVER served.
+    const keys = Object.keys(m);
+    expect(keys).not.toContain('parliamentaryGroup');
+    expect(keys).not.toContain('memberName');
+    expect(keys).not.toContain('roleRaw');
+    expect(keys).not.toContain('group');
   });
 });
 
