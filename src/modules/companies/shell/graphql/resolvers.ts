@@ -50,7 +50,9 @@ export interface CompaniesResolverDeps extends CompanyUsecaseDeps {
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, { extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type } });
+  new GraphQLError(error.message, {
+    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+  });
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -100,7 +102,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         // `keys[0]` is the 1-based page index, validated against fhash/sort/dir so a
         // filter-mismatched cursor is rejected (§14.3) — not silently re-applied.
         let pageFromCursor: number | undefined;
-        if (args.after !== undefined) {
+        if (args.after != null) {
           const decoded = decodeCursor(args.after, { sort, dir: 'asc', fhash });
           if (decoded.isErr()) throw toGraphqlError(decoded.error);
           const prev = Number(decoded.value.keys[0]);
@@ -112,7 +114,12 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
 
         const page = normalizeOffset(pageFromCursor, pageSize);
         const res = unwrap(
-          await makeCompanyList(deps, { filter, ...(args.q !== undefined && { q: args.q }), sort, page })
+          await makeCompanyList(deps, {
+            filter,
+            ...(args.q !== undefined && { q: args.q }),
+            sort,
+            page,
+          })
         );
         const edges = res.rows.map((node) => ({
           node,
@@ -123,7 +130,8 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         return {
           edges,
           pageInfo: {
-            hasNextPage: res.rows.length === page.pageSize && (res.totalEstimated || res.total > consumed),
+            hasNextPage:
+              res.rows.length === page.pageSize && (res.totalEstimated || res.total > consumed),
             endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
           },
           totalCount: res.total,
@@ -141,7 +149,10 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         return toCompanyResolveHits(res);
       },
 
-      companyCountyProfile: async (_r: unknown, args: { filter?: FilterInput; groupBy?: string }) => {
+      companyCountyProfile: async (
+        _r: unknown,
+        args: { filter?: FilterInput; groupBy?: string }
+      ) => {
         const groupBy = GQL_GROUP_BY[args.groupBy ?? 'COUNTY'] ?? 'county';
         const res = unwrap(await makeCompanyCountyProfile(deps, groupBy, args.filter ?? {}));
         return {

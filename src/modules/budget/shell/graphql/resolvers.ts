@@ -22,10 +22,7 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
-import {
-  budgetCommitmentFactFilterSpec,
-  budgetFactFilterSpec,
-} from '../../core/filters.js';
+import { budgetCommitmentFactFilterSpec, budgetFactFilterSpec } from '../../core/filters.js';
 import {
   aggregateByClassification,
   budgetAsOf,
@@ -73,7 +70,9 @@ export interface BudgetResolverDeps {
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, { extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type } });
+  new GraphQLError(error.message, {
+    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+  });
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -95,7 +94,10 @@ const toConnection = <T>(
   sort: string,
   dir: 'asc' | 'desc',
   keysOf: (node: T) => readonly (string | number | null)[]
-): { edges: { node: T; cursor: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } => {
+): {
+  edges: { node: T; cursor: string }[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+} => {
   const fhash = fhashFor(spec, filter);
   const edges = page.items.map((node) => ({
     node,
@@ -110,7 +112,8 @@ const toConnection = <T>(
   };
 };
 
-const dirOf = (sort: string | undefined): 'asc' | 'desc' => (sort === 'AMOUNT_ASC' ? 'asc' : 'desc');
+const dirOf = (sort: string | undefined): 'asc' | 'desc' =>
+  sort === 'AMOUNT_ASC' ? 'asc' : 'desc';
 
 export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, unknown> => {
   const { repo, discovery, registry } = deps;
@@ -132,7 +135,12 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
     Query: {
       budgetExecutionLineItem: async (
         _r: unknown,
-        args: { year: number; reportType: ExecutionReportType; accountCategory: AccountCategory; id: string }
+        args: {
+          year: number;
+          reportType: ExecutionReportType;
+          accountCategory: AccountCategory;
+          id: string;
+        }
       ) => unwrap(await getExecutionLineItem(repo, args)),
 
       budgetExecutionLineItems: async (_r: unknown, args: PageArgs) => {
@@ -142,11 +150,19 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           await listExecutionLineItems(repo, {
             filter,
             sort,
-            page: { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) },
+            page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
-        return toConnection(page, budgetFactFilterSpec, filter, sort, dirOf(sort), (n: ExecutionLineItem) =>
-          sort === 'LINE_ORDER' ? [n.executionLineItemId] : [amountOf(n, filter), n.executionLineItemId]
+        return toConnection(
+          page,
+          budgetFactFilterSpec,
+          filter,
+          sort,
+          dirOf(sort),
+          (n: ExecutionLineItem) =>
+            sort === 'LINE_ORDER'
+              ? [n.executionLineItemId]
+              : [amountOf(n, filter), n.executionLineItemId]
         );
       },
 
@@ -162,17 +178,32 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             filter,
             metric,
             sort,
-            page: { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) },
+            page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
-        return toConnection(page, budgetCommitmentFactFilterSpec, filter, sort, dirOf(sort), (n: CommitmentLineItem) =>
-          sort === 'LINE_ORDER' ? [n.commitmentLineItemId] : [commitmentAmountOf(n, metric, filter), n.commitmentLineItemId]
+        return toConnection(
+          page,
+          budgetCommitmentFactFilterSpec,
+          filter,
+          sort,
+          dirOf(sort),
+          (n: CommitmentLineItem) =>
+            sort === 'LINE_ORDER'
+              ? [n.commitmentLineItemId]
+              : [commitmentAmountOf(n, metric, filter), n.commitmentLineItemId]
         );
       },
 
       budgetEntitySummary: async (
         _r: unknown,
-        args: { cui: string; year?: number; yearFrom?: number; yearTo?: number; frequency?: BudgetFrequency; reportType?: ExecutionReportType }
+        args: {
+          cui: string;
+          year?: number;
+          yearFrom?: number;
+          yearTo?: number;
+          frequency?: BudgetFrequency;
+          reportType?: ExecutionReportType;
+        }
       ) =>
         unwrap(
           await getEntityBudget(repo, args.cui, {
@@ -186,7 +217,14 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetCommitmentSummary: async (
         _r: unknown,
-        args: { cui: string; year?: number; yearFrom?: number; yearTo?: number; frequency?: BudgetFrequency; reportType?: CommitmentReportType }
+        args: {
+          cui: string;
+          year?: number;
+          yearFrom?: number;
+          yearTo?: number;
+          frequency?: BudgetFrequency;
+          reportType?: CommitmentReportType;
+        }
       ) =>
         unwrap(
           await getEntityCommitments(repo, args.cui, {
@@ -200,7 +238,15 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetTimeseries: async (
         _r: unknown,
-        args: { cui: string; reportType: ExecutionReportType; metric: BudgetRankingMetric; frequency: BudgetFrequency; yearFrom?: number; yearTo?: number; normalization?: BudgetNormalization }
+        args: {
+          cui: string;
+          reportType: ExecutionReportType;
+          metric: BudgetRankingMetric;
+          frequency: BudgetFrequency;
+          yearFrom?: number;
+          yearTo?: number;
+          normalization?: BudgetNormalization;
+        }
       ) =>
         unwrap(
           await budgetTimeseries(repo, {
@@ -216,7 +262,14 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetCommitmentTimeseries: async (
         _r: unknown,
-        args: { cui: string; reportType: CommitmentReportType; metric: CommitmentRankingMetric; frequency: BudgetFrequency; yearFrom?: number; yearTo?: number }
+        args: {
+          cui: string;
+          reportType: CommitmentReportType;
+          metric: CommitmentRankingMetric;
+          frequency: BudgetFrequency;
+          yearFrom?: number;
+          yearTo?: number;
+        }
       ) =>
         unwrap(
           await commitmentTimeseries(repo, {
@@ -231,7 +284,13 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetEntityRanking: async (
         _r: unknown,
-        args: { filter?: FilterInput; metric?: BudgetRankingMetric; normalization?: BudgetNormalization; ascending?: boolean; limit?: number }
+        args: {
+          filter?: FilterInput;
+          metric?: BudgetRankingMetric;
+          normalization?: BudgetNormalization;
+          ascending?: boolean;
+          limit?: number;
+        }
       ) => {
         const ranking = parseRankingFilter(args.filter ?? {});
         return unwrap(
@@ -247,7 +306,12 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetCommitmentRanking: async (
         _r: unknown,
-        args: { year: number; reportType: CommitmentReportType; metric?: CommitmentRankingMetric; limit?: number }
+        args: {
+          year: number;
+          reportType: CommitmentReportType;
+          metric?: CommitmentRankingMetric;
+          limit?: number;
+        }
       ) =>
         unwrap(
           await rankCommitmentEntities(repo, {
@@ -260,7 +324,13 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetAggregateByClassification: async (
         _r: unknown,
-        args: { filter: FilterInput; normalization?: BudgetNormalization; minAmount?: string; maxAmount?: string; limit?: number }
+        args: {
+          filter: FilterInput;
+          normalization?: BudgetNormalization;
+          minAmount?: string;
+          maxAmount?: string;
+          limit?: number;
+        }
       ) =>
         unwrap(
           await aggregateByClassification(repo, {
@@ -274,7 +344,12 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetCountyHeatmap: async (
         _r: unknown,
-        args: { year: number; reportType: ExecutionReportType; metric?: BudgetRankingMetric; normalization?: BudgetNormalization }
+        args: {
+          year: number;
+          reportType: ExecutionReportType;
+          metric?: BudgetRankingMetric;
+          normalization?: BudgetNormalization;
+        }
       ) =>
         unwrap(
           await countyHeatmap(repo, {
@@ -285,26 +360,84 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           })
         ),
 
-      budgetReports: async (_r: unknown, args: { filter: FilterInput; page?: number; pageSize?: number }) =>
-        unwrap(await listReports(repo, { filter: args.filter, page: args.page ?? 1, pageSize: args.pageSize ?? 20 })),
-      budgetReport: async (_r: unknown, args: { reportId: string }) => unwrap(await repo.getReport(args.reportId)),
+      budgetReports: async (
+        _r: unknown,
+        args: { filter: FilterInput; page?: number; pageSize?: number }
+      ) =>
+        unwrap(
+          await listReports(repo, {
+            filter: args.filter,
+            page: args.page ?? 1,
+            pageSize: args.pageSize ?? 20,
+          })
+        ),
+      budgetReport: async (_r: unknown, args: { reportId: string }) =>
+        unwrap(await repo.getReport(args.reportId)),
 
-      budgetFunctionalClassifications: async (_r: unknown, args: { search?: string; codes?: string[]; limit?: number }) =>
-        unwrap(await listFunctionalClassifications(repo, { limit: args.limit ?? 50, ...(args.search !== undefined && { search: args.search }), ...(args.codes !== undefined && { codes: args.codes }) })),
-      budgetEconomicClassifications: async (_r: unknown, args: { search?: string; codes?: string[]; limit?: number }) =>
-        unwrap(await listEconomicClassifications(repo, { limit: args.limit ?? 50, ...(args.search !== undefined && { search: args.search }), ...(args.codes !== undefined && { codes: args.codes }) })),
+      budgetFunctionalClassifications: async (
+        _r: unknown,
+        args: { search?: string; codes?: string[]; limit?: number }
+      ) =>
+        unwrap(
+          await listFunctionalClassifications(repo, {
+            limit: args.limit ?? 50,
+            ...(args.search !== undefined && { search: args.search }),
+            ...(args.codes !== undefined && { codes: args.codes }),
+          })
+        ),
+      budgetEconomicClassifications: async (
+        _r: unknown,
+        args: { search?: string; codes?: string[]; limit?: number }
+      ) =>
+        unwrap(
+          await listEconomicClassifications(repo, {
+            limit: args.limit ?? 50,
+            ...(args.search !== undefined && { search: args.search }),
+            ...(args.codes !== undefined && { codes: args.codes }),
+          })
+        ),
       budgetSectors: async (_r: unknown, args: { search?: string; ids?: number[] }) =>
-        unwrap(await listBudgetSectors(repo, { ...(args.search !== undefined && { search: args.search }), ...(args.ids !== undefined && { ids: args.ids }) })),
+        unwrap(
+          await listBudgetSectors(repo, {
+            ...(args.search !== undefined && { search: args.search }),
+            ...(args.ids !== undefined && { ids: args.ids }),
+          })
+        ),
       budgetFundingSources: async (_r: unknown, args: { search?: string; ids?: number[] }) =>
-        unwrap(await listFundingSources(repo, { ...(args.search !== undefined && { search: args.search }), ...(args.ids !== undefined && { ids: args.ids }) })),
+        unwrap(
+          await listFundingSources(repo, {
+            ...(args.search !== undefined && { search: args.search }),
+            ...(args.ids !== undefined && { ids: args.ids }),
+          })
+        ),
 
-      budgetApprovedFacts: async (_r: unknown, args: { filter?: FilterInput; page?: number; pageSize?: number }) =>
-        unwrap(await listApprovedBudgetFacts(repo, { filter: args.filter ?? {}, page: args.page ?? 1, pageSize: args.pageSize ?? 20 })),
-      budgetVsExecution: async (_r: unknown, args: { budgetYear?: number; page?: number; pageSize?: number }) =>
-        unwrap(await budgetVsExecution(repo, { page: args.page ?? 1, pageSize: args.pageSize ?? 20, ...(args.budgetYear !== undefined && { budgetYear: args.budgetYear }) })),
+      budgetApprovedFacts: async (
+        _r: unknown,
+        args: { filter?: FilterInput; page?: number; pageSize?: number }
+      ) =>
+        unwrap(
+          await listApprovedBudgetFacts(repo, {
+            filter: args.filter ?? {},
+            page: args.page ?? 1,
+            pageSize: args.pageSize ?? 20,
+          })
+        ),
+      budgetVsExecution: async (
+        _r: unknown,
+        args: { budgetYear?: number; page?: number; pageSize?: number }
+      ) =>
+        unwrap(
+          await budgetVsExecution(repo, {
+            page: args.page ?? 1,
+            pageSize: args.pageSize ?? 20,
+            ...(args.budgetYear !== undefined && { budgetYear: args.budgetYear }),
+          })
+        ),
 
-      budgetResolve: async (_r: unknown, args: { dim: BudgetResolveDim; q: string; limit?: number }) =>
-        unwrap(await resolveBudgetFilter(discovery, args.dim, args.q, args.limit ?? 10)),
+      budgetResolve: async (
+        _r: unknown,
+        args: { dim: BudgetResolveDim; q: string; limit?: number }
+      ) => unwrap(await resolveBudgetFilter(discovery, args.dim, args.q, args.limit ?? 10)),
       budgetAsOf: async () => unwrap(await budgetAsOf(repo)),
     },
 
@@ -329,19 +462,24 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
     // `entity` lazy join: hand the kernel Entity resolver a { cui } so its own
     // field resolvers (organization/territory/flows/presence) take over by CUI.
     BudgetExecutionLineItem: {
-      entity: (p: { entityCui: string | null }) => (p.entityCui !== null ? { cui: p.entityCui } : null),
+      entity: (p: { entityCui: string | null }) =>
+        p.entityCui !== null ? { cui: p.entityCui } : null,
     },
     BudgetCommitmentLineItem: {
-      entity: (p: { entityCui: string | null }) => (p.entityCui !== null ? { cui: p.entityCui } : null),
+      entity: (p: { entityCui: string | null }) =>
+        p.entityCui !== null ? { cui: p.entityCui } : null,
     },
     BudgetRankedEntity: {
-      entity: (p: { entityCui: string | null }) => (p.entityCui !== null ? { cui: p.entityCui } : null),
+      entity: (p: { entityCui: string | null }) =>
+        p.entityCui !== null ? { cui: p.entityCui } : null,
     },
     BudgetRankedCommitmentEntity: {
-      entity: (p: { entityCui: string | null }) => (p.entityCui !== null ? { cui: p.entityCui } : null),
+      entity: (p: { entityCui: string | null }) =>
+        p.entityCui !== null ? { cui: p.entityCui } : null,
     },
     BudgetReport: {
-      entity: (p: { entityCui: string | null }) => (p.entityCui !== null ? { cui: p.entityCui } : null),
+      entity: (p: { entityCui: string | null }) =>
+        p.entityCui !== null ? { cui: p.entityCui } : null,
     },
 
     Entity: {
@@ -398,7 +536,11 @@ const sliceToProfile = (slice: { data?: Record<string, unknown> } | null): Entit
 /** Pick the cursor amount for an execution node, by the active frequency. */
 const amountOf = (n: ExecutionLineItem, filter: FilterInput): string => {
   const freq = readEq(filter, 'frequency') ?? 'YEAR';
-  return freq === 'MONTH' ? n.monthlyAmount : freq === 'QUARTER' ? (n.quarterlyAmount ?? '') : n.ytdAmount;
+  return freq === 'MONTH'
+    ? n.monthlyAmount
+    : freq === 'QUARTER'
+      ? (n.quarterlyAmount ?? '')
+      : n.ytdAmount;
 };
 
 /**
@@ -406,7 +548,11 @@ const amountOf = (n: ExecutionLineItem, filter: FilterInput): string => {
  * column `${prefix}${metric}` (ytd/monthly/quarterly by the active frequency), or
  * the keyset cursor skips/duplicates rows across pages (R1 review).
  */
-const commitmentAmountOf = (n: CommitmentLineItem, metric: CommitmentRankingMetric, filter: FilterInput): string => {
+const commitmentAmountOf = (
+  n: CommitmentLineItem,
+  metric: CommitmentRankingMetric,
+  filter: FilterInput
+): string => {
   const m = n[metricToField(metric)];
   const freq = readEq(filter, 'frequency') ?? 'YEAR';
   const v = freq === 'MONTH' ? m.monthly : freq === 'QUARTER' ? m.quarterly : m.ytd;
@@ -432,7 +578,9 @@ const readEq = (filter: FilterInput, name: string): string | undefined => {
   const f = filter[name];
   if (f === undefined || typeof f !== 'object') return undefined;
   const eq = (f as Record<string, unknown>)['eq'];
-  return typeof eq === 'string' || typeof eq === 'number' || typeof eq === 'boolean' ? String(eq) : undefined;
+  return typeof eq === 'string' || typeof eq === 'number' || typeof eq === 'boolean'
+    ? String(eq)
+    : undefined;
 };
 
 /** Parse the ranking FilterInput (year/reportType + geo) into an EntityRankingQuery core. */
@@ -450,7 +598,9 @@ const parseRankingFilter = (
   const yearStr = readEq(filter, 'year');
   const year = yearStr !== undefined ? Number(yearStr) : NaN;
   if (!Number.isInteger(year)) {
-    throw new GraphQLError('ranking requires filter.year', { extensions: { code: 'INVALID_INPUT', type: 'InvalidInput' } });
+    throw new GraphQLError('ranking requires filter.year', {
+      extensions: { code: 'INVALID_INPUT', type: 'InvalidInput' },
+    });
   }
   const reportType = (readEq(filter, 'reportType') ?? 'EXECUTION_DETAILED') as ExecutionReportType;
   const counties = readIn(filter, 'countyCodes');
@@ -464,8 +614,10 @@ const parseRankingFilter = (
     ...(counties !== undefined && { countyCodes: counties }),
     ...(regions !== undefined && { regions }),
     ...(isUatStr !== undefined && { isUat: isUatStr === 'true' }),
-    ...(minPop !== undefined && Number.isFinite(Number(minPop)) && { minPopulation: Number(minPop) }),
-    ...(maxPop !== undefined && Number.isFinite(Number(maxPop)) && { maxPopulation: Number(maxPop) }),
+    ...(minPop !== undefined &&
+      Number.isFinite(Number(minPop)) && { minPopulation: Number(minPop) }),
+    ...(maxPop !== undefined &&
+      Number.isFinite(Number(maxPop)) && { maxPopulation: Number(maxPop) }),
   };
 };
 

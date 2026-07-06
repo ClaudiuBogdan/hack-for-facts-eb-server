@@ -64,7 +64,9 @@ export interface ProcurementResolverDeps {
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, { extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type } });
+  new GraphQLError(error.message, {
+    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+  });
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -78,7 +80,10 @@ const toConnection = <T>(
   filter: FilterInput,
   sortKey: string,
   keysOf: (node: T) => readonly (string | null)[]
-): { edges: { node: T; cursor: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } => {
+): {
+  edges: { node: T; cursor: string }[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+} => {
   const fhash = fhashFor(spec, filter);
   const edges = page.items.map((node) => ({
     node,
@@ -102,19 +107,26 @@ interface ListArgs {
   after?: string;
 }
 
-export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<string, unknown> => {
+export const makeProcurementResolvers = (
+  deps: ProcurementResolverDeps
+): Record<string, unknown> => {
   const { repo, aggregate, registry } = deps;
 
   // The CPV division catalog is 45 static rows — load once, cache for the process,
   // and resolve `cpvDivision` labels from the map (no per-row catalog read).
-  let divisionMap: Map<string, { code: string; labelEn: string; labelRo: string | null }> | null = null;
-  const divisions = async (): Promise<Map<string, { code: string; labelEn: string; labelRo: string | null }>> => {
+  let divisionMap: Map<string, { code: string; labelEn: string; labelRo: string | null }> | null =
+    null;
+  const divisions = async (): Promise<
+    Map<string, { code: string; labelEn: string; labelRo: string | null }>
+  > => {
     if (divisionMap !== null) return divisionMap;
     const r = await repo.listCpvDivisions();
     divisionMap = new Map(r.isOk() ? r.value.map((d) => [d.code, d]) : []);
     return divisionMap;
   };
-  const resolveDivision = async (code: string | null): Promise<{ code: string; labelEn: string; labelRo: string | null } | null> => {
+  const resolveDivision = async (
+    code: string | null
+  ): Promise<{ code: string; labelEn: string; labelRo: string | null } | null> => {
     if (code === null) return null;
     const hit = (await divisions()).get(code);
     return hit ?? { code, labelEn: '', labelRo: null };
@@ -133,61 +145,90 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
 
   return {
     Query: {
-      procurementProcedure: async (_r: unknown, a: { id: string }) => unwrap(await repo.getProcedure(a.id)),
+      procurementProcedure: async (_r: unknown, a: { id: string }) =>
+        unwrap(await repo.getProcedure(a.id)),
       procurementProcedureDetail: async (_r: unknown, a: { id: string }) =>
         unwrap(await getProcedureDetail(repo, a.id)),
       procurementProcedures: async (_r: unknown, a: ListArgs) => {
         const filter = a.filter ?? {};
         const page = unwrap(
-          await searchProcedures(repo, filter, { first: a.first ?? 20, ...(a.after !== undefined && { after: a.after }) })
+          await searchProcedures(repo, filter, {
+            first: a.first ?? 20,
+            ...(a.after != null && { after: a.after }),
+          })
         );
-        return toConnection(page, procedureFilterSpec, filter, 'publication_date', (n: ProcurementProcedure) => [
-          n.publicationDate,
-          n.procedureId,
-        ]);
+        return toConnection(
+          page,
+          procedureFilterSpec,
+          filter,
+          'publication_date',
+          (n: ProcurementProcedure) => [n.publicationDate, n.procedureId]
+        );
       },
 
-      procurementContract: async (_r: unknown, a: { id: string }) => unwrap(await repo.getContract(a.id)),
+      procurementContract: async (_r: unknown, a: { id: string }) =>
+        unwrap(await repo.getContract(a.id)),
       procurementContractDetail: async (_r: unknown, a: { id: string }) =>
         unwrap(await getContractDetail(repo, a.id)),
       procurementContracts: async (_r: unknown, a: ListArgs) => {
         const filter = a.filter ?? {};
         const page = unwrap(
-          await searchContracts(repo, filter, { first: a.first ?? 20, ...(a.after !== undefined && { after: a.after }) })
+          await searchContracts(repo, filter, {
+            first: a.first ?? 20,
+            ...(a.after != null && { after: a.after }),
+          })
         );
-        return toConnection(page, contractFilterSpec, filter, 'contract_date', (n: ProcurementContract) => [
-          n.contractDate,
-          n.contractId,
-        ]);
+        return toConnection(
+          page,
+          contractFilterSpec,
+          filter,
+          'contract_date',
+          (n: ProcurementContract) => [n.contractDate, n.contractId]
+        );
       },
 
-      procurementDirectAcquisitions: async (_r: unknown, a: { filter: FilterInput; first?: number; after?: string }) => {
+      procurementDirectAcquisitions: async (
+        _r: unknown,
+        a: { filter: FilterInput; first?: number; after?: string }
+      ) => {
         const filter = a.filter;
         const page = unwrap(
-          await searchDirectAcquisitions(repo, filter, { first: a.first ?? 20, ...(a.after !== undefined && { after: a.after }) })
+          await searchDirectAcquisitions(repo, filter, {
+            first: a.first ?? 20,
+            ...(a.after != null && { after: a.after }),
+          })
         );
-        return toConnection(page, daFilterSpec, filter, 'finalization_date', (n: ProcurementDirectAcquisition) => [
-          n.finalizationDate,
-          n.daId,
-        ]);
+        return toConnection(
+          page,
+          daFilterSpec,
+          filter,
+          'finalization_date',
+          (n: ProcurementDirectAcquisition) => [n.finalizationDate, n.daId]
+        );
       },
       procurementDirectAcquisition: async (_r: unknown, a: { id: string }) =>
         unwrap(await repo.getDirectAcquisition(a.id)),
 
       procurementModifications: async (_r: unknown, a: ListArgs & { minDeltaPct?: number }) => {
         const filter = a.filter ?? {};
-        const pageReq = { first: a.first ?? 20, ...(a.after !== undefined && { after: a.after }) };
+        const pageReq = { first: a.first ?? 20, ...(a.after != null && { after: a.after }) };
         const page = unwrap(
           a.minDeltaPct !== undefined
             ? await listModificationsAboveDelta(repo, a.minDeltaPct, filter, pageReq)
             : await listModifications(repo, filter, pageReq)
         );
         // Sort key MUST mirror the repo (it binds minDeltaPct into the cursor — Codex #7).
-        const sortKey = a.minDeltaPct !== undefined ? `modification_date|d${String(a.minDeltaPct)}` : 'modification_date';
-        return toConnection(page, modificationFilterSpec, filter, sortKey, (n: ProcurementModification) => [
-          n.modificationDate,
-          n.modificationId,
-        ]);
+        const sortKey =
+          a.minDeltaPct !== undefined
+            ? `modification_date|d${String(a.minDeltaPct)}`
+            : 'modification_date';
+        return toConnection(
+          page,
+          modificationFilterSpec,
+          filter,
+          sortKey,
+          (n: ProcurementModification) => [n.modificationDate, n.modificationId]
+        );
       },
 
       procurementTopSuppliers: async (_r: unknown, a: EdgeArgs & { authorityCui: string }) => {
@@ -203,15 +244,22 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
         a: EdgeArgs & { authorityCui?: string; supplierCui?: string; minMonths?: number }
       ) => {
         if ((a.authorityCui === undefined) === (a.supplierCui === undefined)) {
-          throw new GraphQLError('repeatedPairs requires exactly one of authorityCui / supplierCui', {
-            extensions: { code: 'INVALID_INPUT', type: 'InvalidInput' },
-          });
+          throw new GraphQLError(
+            'repeatedPairs requires exactly one of authorityCui / supplierCui',
+            {
+              extensions: { code: 'INVALID_INPUT', type: 'InvalidInput' },
+            }
+          );
         }
-        const side: 'authority' | 'supplier' = a.authorityCui !== undefined ? 'authority' : 'supplier';
+        const side: 'authority' | 'supplier' =
+          a.authorityCui !== undefined ? 'authority' : 'supplier';
         // Exactly one of authorityCui / supplierCui is defined (the XOR check above).
         const cui = a.authorityCui ?? a.supplierCui ?? '';
         const r = unwrap(
-          await repeatedPairs(aggregate, cui, side, { ...edgeFilter(a), ...(a.minMonths !== undefined && { minMonths: a.minMonths }) })
+          await repeatedPairs(aggregate, cui, side, {
+            ...edgeFilter(a),
+            ...(a.minMonths !== undefined && { minMonths: a.minMonths }),
+          })
         );
         return edgeResult(r);
       },
@@ -220,7 +268,14 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
 
       procurementAuthorityCpvSpend: async (
         _r: unknown,
-        a: { authorityCui: string; grain?: string; cpvDivision?: string[]; monthFrom?: string; monthTo?: string; topN?: number }
+        a: {
+          authorityCui: string;
+          grain?: string;
+          cpvDivision?: string[];
+          monthFrom?: string;
+          monthTo?: string;
+          topN?: number;
+        }
       ) => {
         const r = unwrap(
           await authorityCpvSpend(aggregate, a.authorityCui, {
@@ -231,12 +286,24 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
             ...(a.monthTo !== undefined && { monthTo: a.monthTo }),
           })
         );
-        return { grain: r.grain, items: r.data, caveats: r.caveats, refreshedAt: r.gate.refreshedAt };
+        return {
+          grain: r.grain,
+          items: r.data,
+          caveats: r.caveats,
+          refreshedAt: r.gate.refreshedAt,
+        };
       },
 
       procurementTopSuppliersByRegionCpv: async (
         _r: unknown,
-        a: { region: string; cpvDivision: string; grain?: string; monthFrom?: string; monthTo?: string; topN?: number }
+        a: {
+          region: string;
+          cpvDivision: string;
+          grain?: string;
+          monthFrom?: string;
+          monthTo?: string;
+          topN?: number;
+        }
       ) => {
         const r = unwrap(
           await topSuppliersByRegionCpv(aggregate, {
@@ -253,7 +320,15 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
 
       procurementSameDayCandidates: async (
         _r: unknown,
-        a: { authorityCui?: string; dateFrom?: string; dateTo?: string; cpvDivision?: string; minSameDayCount?: number; page?: number; pageSize?: number }
+        a: {
+          authorityCui?: string;
+          dateFrom?: string;
+          dateTo?: string;
+          cpvDivision?: string;
+          minSameDayCount?: number;
+          page?: number;
+          pageSize?: number;
+        }
       ) => {
         const res = unwrap(
           await sameDaySplittingCandidates(
@@ -279,7 +354,12 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
         // territory (region/county) dims resolve via the kernel's own resolve query.
         if (a.dim === 'cpvDivision' || a.dim === 'cpv') {
           const hits = unwrap(await resolveCpv(repo, a.q, a.limit ?? 10));
-          return hits.map((m) => ({ value: m.code, label: m.label, kind: m.level, confidence: m.confidence }));
+          return hits.map((m) => ({
+            value: m.code,
+            label: m.label,
+            kind: m.level,
+            confidence: m.confidence,
+          }));
         }
         return [];
       },
@@ -290,18 +370,24 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
     // Entity resolver a { cui } so its own field resolvers take over (lazy join).
     ProcurementProcedure: {
       cpvDivision: (p: ProcurementProcedure) => resolveDivision(p.cpvDivisionCode),
-      authority: (p: ProcurementProcedure) => (p.authorityCui !== null ? { cui: p.authorityCui } : null),
+      authority: (p: ProcurementProcedure) =>
+        p.authorityCui !== null ? { cui: p.authorityCui } : null,
     },
     ProcurementContract: {
       cpvDivision: (p: ProcurementContract) => resolveDivision(p.cpvDivisionCode),
-      authority: (p: ProcurementContract) => (p.authorityCui !== null ? { cui: p.authorityCui } : null),
-      supplier: (p: ProcurementContract) => (p.supplierCui !== null ? { cui: p.supplierCui } : null),
-      modifications: async (p: ProcurementContract) => unwrap(await repo.getContractModifications(p.contractId)),
+      authority: (p: ProcurementContract) =>
+        p.authorityCui !== null ? { cui: p.authorityCui } : null,
+      supplier: (p: ProcurementContract) =>
+        p.supplierCui !== null ? { cui: p.supplierCui } : null,
+      modifications: async (p: ProcurementContract) =>
+        unwrap(await repo.getContractModifications(p.contractId)),
     },
     ProcurementDirectAcquisition: {
       cpvDivision: (p: ProcurementDirectAcquisition) => resolveDivision(p.cpvDivisionCode),
-      authority: (p: ProcurementDirectAcquisition) => (p.authorityCui !== null ? { cui: p.authorityCui } : null),
-      supplier: (p: ProcurementDirectAcquisition) => (p.supplierCui !== null ? { cui: p.supplierCui } : null),
+      authority: (p: ProcurementDirectAcquisition) =>
+        p.authorityCui !== null ? { cui: p.authorityCui } : null,
+      supplier: (p: ProcurementDirectAcquisition) =>
+        p.supplierCui !== null ? { cui: p.supplierCui } : null,
     },
 
     Entity: {
@@ -320,7 +406,9 @@ interface EdgeArgs {
   topN?: number;
 }
 
-const edgeFilter = (a: EdgeArgs): { grain: ProcurementGrain; topN: number; monthFrom?: string; monthTo?: string } => ({
+const edgeFilter = (
+  a: EdgeArgs
+): { grain: ProcurementGrain; topN: number; monthFrom?: string; monthTo?: string } => ({
   grain: grainOf(a.grain),
   topN: a.topN ?? 20,
   ...(a.monthFrom !== undefined && { monthFrom: a.monthFrom }),
@@ -332,7 +420,13 @@ const edgeResult = (r: {
   data: readonly unknown[];
   caveats: readonly string[];
   gate: { refreshedAt: string | null; projectionVersion: string };
-}): { grain: ProcurementGrain; items: readonly unknown[]; caveats: readonly string[]; refreshedAt: string | null; projectionVersion: string } => ({
+}): {
+  grain: ProcurementGrain;
+  items: readonly unknown[];
+  caveats: readonly string[];
+  refreshedAt: string | null;
+  projectionVersion: string;
+} => ({
   grain: r.grain,
   items: r.data,
   caveats: r.caveats,
@@ -350,7 +444,9 @@ interface EntitySummaryShape {
 }
 
 /** Project a kernel profile slice into the GraphQL `ProcurementEntitySummary` shape. */
-const sliceToSummary = (slice: { data?: Record<string, unknown> } | null): EntitySummaryShape | null => {
+const sliceToSummary = (
+  slice: { data?: Record<string, unknown> } | null
+): EntitySummaryShape | null => {
   const d = slice?.data;
   if (d === undefined) return null;
   return {

@@ -64,7 +64,9 @@ export interface MonitorulGraphqlDeps {
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, { extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type } });
+  new GraphQLError(error.message, {
+    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+  });
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -74,18 +76,62 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
 // ── SDL ──────────────────────────────────────────────────────────────────────
 
 const moObjectsAndQuery = /* GraphQL */ `
-  enum MoPartCode { PI PII PIM PIII PIV PV PVI PVII }
-  enum MoResolution { unique ambiguous unmatched }
+  enum MoPartCode {
+    PI
+    PII
+    PIM
+    PIII
+    PIV
+    PV
+    PVI
+    PVII
+  }
+  enum MoResolution {
+    unique
+    ambiguous
+    unmatched
+  }
   "Edge resolution. 'mo_only' ↔ DB 'mo-only' (value-translated)."
-  enum MoEdgeResolution { unique mo_only ambiguous unresolved }
-  enum MoRelation { promulga aproba respinge rectifica republica }
+  enum MoEdgeResolution {
+    unique
+    mo_only
+    ambiguous
+    unresolved
+  }
+  enum MoRelation {
+    promulga
+    aproba
+    respinge
+    rectifica
+    republica
+  }
   "MO status kind. 'aprobare_oug'/'aprobare_og' ↔ DB hyphenated values."
-  enum MoStatusKind { promulgare aprobare_oug aprobare_og rectificare republicare }
+  enum MoStatusKind {
+    promulgare
+    aprobare_oug
+    aprobare_og
+    rectificare
+    republicare
+  }
   "'act_year'/'issue_year' ↔ DB 'act-year'/'issue-year'."
-  enum MoMatchedVia { act_year issue_year }
-  enum MoIssueSort { ISSUE_DATE_DESC ISSUE_DATE_ASC ISSUE_YEAR_DESC }
-  enum MoPublicationSort { ACT_YEAR_DESC ACT_YEAR_ASC }
-  enum MoAggGroupBy { issuer act_type year }
+  enum MoMatchedVia {
+    act_year
+    issue_year
+  }
+  enum MoIssueSort {
+    ISSUE_DATE_DESC
+    ISSUE_DATE_ASC
+    ISSUE_YEAR_DESC
+  }
+  enum MoPublicationSort {
+    ACT_YEAR_DESC
+    ACT_YEAR_ASC
+  }
+  enum MoAggGroupBy {
+    issuer
+    act_type
+    year
+  }
 
   "A gazette issue (one Monitorul Oficial issue). Storage internals (s3/sha256) excluded."
   type MoIssue {
@@ -161,11 +207,28 @@ const moObjectsAndQuery = /* GraphQL */ `
     eventSource: String!
   }
 
-  type MoIssuerYearCount { issuerSlug: String  actType: String  year: Int  count: Int! }
-  type MoPartCount { partCode: MoPartCode!  count: Int! }
-  type MoResolutionRates { unique: Int!  ambiguous: Int!  unmatched: Int! }
+  type MoIssuerYearCount {
+    issuerSlug: String
+    actType: String
+    year: Int
+    count: Int!
+  }
+  type MoPartCount {
+    partCode: MoPartCode!
+    count: Int!
+  }
+  type MoResolutionRates {
+    unique: Int!
+    ambiguous: Int!
+    unmatched: Int!
+  }
   "Per-collection coverage honesty (catalog Core Rule). resolutionRates is publication-only."
-  type MoCoverage { yearMin: Int  yearMax: Int  gaps: [String!]!  resolutionRates: MoResolutionRates }
+  type MoCoverage {
+    yearMin: Int
+    yearMax: Int
+    gaps: [String!]!
+    resolutionRates: MoResolutionRates
+  }
 
   "Issuer-keyed entity summary (best-effort; MO has no CUI — matchConfidence labels it)."
   type MoEntitySummary {
@@ -178,21 +241,56 @@ const moObjectsAndQuery = /* GraphQL */ `
   }
 
   "The where-published answer (MO-4): publications + coverage."
-  type MoPublicationEvents { publications: [MoActPublication!]!  coverage: MoCoverage! }
+  type MoPublicationEvents {
+    publications: [MoActPublication!]!
+    coverage: MoCoverage!
+  }
   "The act-lifecycle answer (MO-3/LG-2 MO slice): status events + in-edges + coverage."
-  type MoActLifecycle { statusEvents: [MoStatusEvent!]!  inEdges: [MoLifecycleEdge!]!  coverage: MoCoverage! }
+  type MoActLifecycle {
+    statusEvents: [MoStatusEvent!]!
+    inEdges: [MoLifecycleEdge!]!
+    coverage: MoCoverage!
+  }
   "MO-1 aggregate: grouped counts + denominator + coverage."
-  type MoIssuerBreakdown { items: [MoIssuerYearCount!]!  denominator: Int!  coverage: MoCoverage! }
+  type MoIssuerBreakdown {
+    items: [MoIssuerYearCount!]!
+    denominator: Int!
+    coverage: MoCoverage!
+  }
 
-  type MoIssueConnection { edges: [MoIssueEdge!]!  pageInfo: PageInfo!  total: Int }
-  type MoIssueEdge { node: MoIssue!  cursor: String! }
-  type MoActPublicationConnection { edges: [MoActPublicationEdge!]!  pageInfo: PageInfo! }
-  type MoActPublicationEdge { node: MoActPublication!  cursor: String! }
-  type MoLifecycleEdgeConnection { edges: [MoLifecycleEdgeEdge!]!  pageInfo: PageInfo! }
-  type MoLifecycleEdgeEdge { node: MoLifecycleEdge!  cursor: String! }
+  type MoIssueConnection {
+    edges: [MoIssueEdge!]!
+    pageInfo: PageInfo!
+    total: Int
+  }
+  type MoIssueEdge {
+    node: MoIssue!
+    cursor: String!
+  }
+  type MoActPublicationConnection {
+    edges: [MoActPublicationEdge!]!
+    pageInfo: PageInfo!
+  }
+  type MoActPublicationEdge {
+    node: MoActPublication!
+    cursor: String!
+  }
+  type MoLifecycleEdgeConnection {
+    edges: [MoLifecycleEdgeEdge!]!
+    pageInfo: PageInfo!
+  }
+  type MoLifecycleEdgeEdge {
+    node: MoLifecycleEdge!
+    cursor: String!
+  }
 
   "A name→value discovery hit (issuer/part/act-type)."
-  type MoResolveHit { kind: String!  value: String!  label: String!  count: Int }
+  type MoResolveHit {
+    kind: String!
+    value: String!
+    label: String!
+    count: Int
+  }
 
   input MoPublicationAggFilter {
     year: Int!
@@ -205,11 +303,21 @@ const moObjectsAndQuery = /* GraphQL */ `
     "A gazette issue by id."
     moIssue(moIssueId: BigInt!): MoIssue
     "Browse gazette issues. Requires a year filter (bounds the scan); offset-paged."
-    moIssues(filter: MoIssuesFilter, page: Int = 1, pageSize: Int = 20, sort: MoIssueSort = ISSUE_DATE_DESC): MoIssueConnection!
+    moIssues(
+      filter: MoIssuesFilter
+      page: Int = 1
+      pageSize: Int = 20
+      sort: MoIssueSort = ISSUE_DATE_DESC
+    ): MoIssueConnection!
     "A publication event by its content key."
     moPublication(moActKey: ID!): MoActPublication
     "List publication events. Requires ≥1 bounding predicate (actYear/issuerSlug/actId/moIssueId)."
-    moPublications(filter: MoPublicationsFilter!, first: Int = 20, after: String, sort: MoPublicationSort = ACT_YEAR_DESC): MoActPublicationConnection!
+    moPublications(
+      filter: MoPublicationsFilter!
+      first: Int = 20
+      after: String
+      sort: MoPublicationSort = ACT_YEAR_DESC
+    ): MoActPublicationConnection!
     "List lifecycle edges (bounded by relation and/or targetActId)."
     moEdges(filter: MoEdgesFilter!, first: Int = 20, after: String): MoLifecycleEdgeConnection!
     "MO-1: grouped publication counts for a year."
@@ -344,7 +452,9 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
         const sort = ISSUE_SORT_FROM_GQL[args.sort ?? 'ISSUE_DATE_DESC'] ?? 'issue_date_desc';
         const pageNum = args.page ?? 1;
         const pageSize = args.pageSize ?? 20;
-        const page = unwrap(await browseIssues(repo, coverage, filter, { page: pageNum, pageSize }, sort));
+        const page = unwrap(
+          await browseIssues(repo, coverage, filter, { page: pageNum, pageSize }, sort)
+        );
         return issueConnection(page, pageNum, pageSize);
       },
       moPublication: async (_r: unknown, args: { moActKey: string }) =>
@@ -357,23 +467,36 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
         const sort = PUB_SORT_FROM_GQL[args.sort ?? 'ACT_YEAR_DESC'] ?? 'act_year_desc';
         const dir = sort === 'act_year_asc' ? 'asc' : 'desc';
         const page = unwrap(
-          await listPublications(repo, filter, { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) }, sort)
+          await listPublications(
+            repo,
+            filter,
+            { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
+            sort
+          )
         );
         return cursorConnection(page, moPublicationsSpec, filter, sort, dir, (n) => [
           n.actYear === null ? '' : String(n.actYear),
           n.moActKey,
         ]);
       },
-      moEdges: async (_r: unknown, args: { filter?: FilterInput; first?: number; after?: string }) => {
+      moEdges: async (
+        _r: unknown,
+        args: { filter?: FilterInput; first?: number; after?: string }
+      ) => {
         const filter = args.filter ?? {};
         const page = unwrap(
-          await listEdges(repo, filter, { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) })
+          await listEdges(repo, filter, {
+            first: args.first ?? 20,
+            ...(args.after != null && { after: args.after }),
+          })
         );
         return cursorConnection(page, moEdgesSpec, filter, 'edge_id', 'asc', (n) => [n.edgeId]);
       },
       moPublicationsByIssuerYear: async (
         _r: unknown,
-        args: { filter: { year: number; issuerSlug?: string; actType?: string[]; groupBy?: string } }
+        args: {
+          filter: { year: number; issuerSlug?: string; actType?: string[]; groupBy?: string };
+        }
       ) => {
         const f = args.filter;
         return unwrap(
@@ -399,7 +522,7 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
         const page = unwrap(
           await getIssueContents(repo, parent.moIssueId, {
             first: args.first ?? 20,
-            ...(args.after !== undefined && { after: args.after }),
+            ...(args.after != null && { after: args.after }),
           })
         );
         // Same cursor contract as the repo: sort mo_act_key asc, fhash bound to the issue.
