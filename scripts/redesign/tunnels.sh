@@ -19,7 +19,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tunnels already running ($SESSION) — skipping (kill-session to reset)"
 else
   echo "discovering prod-namespace ClusterIPs on griffin..."
-  read -r DB MEILI OS REDIS < <(ssh -o ConnectTimeout=12 griffin "kubectl get svc -n $NS -o jsonpath='{.items[?(@.metadata.name==\"transparenta-prod-postgres-rw\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-meilisearch\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-opensearch\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-redis\")].spec.clusterIP}'")
+  read -r DB MEILI OS REDIS < <(ssh -o ConnectTimeout=12 griffin "kubectl get svc -n $NS -o jsonpath='{.items[?(@.metadata.name==\"transparenta-prod-postgres-rw\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-meilisearch\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-opensearch\")].spec.clusterIP} {.items[?(@.metadata.name==\"transparenta-eu-etl-redis\")].spec.clusterIP}'") || true  # jsonpath has no trailing newline; read returns 1 at EOF under set -e
   echo "  db=$DB meili=$MEILI opensearch=$OS redis=$REDIS"
   [ -n "$DB" ] || { echo "ERROR: could not resolve prod DB ClusterIP"; exit 1; }
   tmux new-session -d -s "$SESSION" \

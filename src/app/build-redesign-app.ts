@@ -26,7 +26,13 @@ import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
 import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
-import { makeKernel, type Kernel, type KernelConfig, type GraphqlSlice, type KernelMcpTool } from '../modules/shared/index.js';
+import {
+  makeKernel,
+  type Kernel,
+  type KernelConfig,
+  type GraphqlSlice,
+  type KernelMcpTool,
+} from '../modules/shared/index.js';
 
 export interface BuildRedesignAppDeps {
   readonly kernelConfig: KernelConfig;
@@ -156,7 +162,40 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     credentials: true,
   });
 
+  const kernel = await registerRedesignSurface(app, deps);
+
+  return { app, kernel };
+};
+
+/**
+ * Registers the redesign kernel surface (GraphQL + MCP + health/ready) onto an
+ * EXISTING Fastify scope. Does NOT create the Fastify instance and does NOT
+ * register CORS — the caller owns those.
+ *
+ * Two callers:
+ *  - `buildRedesignApp` (above): standalone redesign server — creates the app +
+ *    its own CORS, then calls this.
+ *  - legacy `buildApp`: mounts this on an encapsulated child scope so the
+ *    redesign GraphQL/MCP is served on the SAME port as the legacy API, reusing
+ *    the legacy app's global CORS. Mount with `enableGraphiQL: false` to avoid a
+ *    duplicate `GET /graphiql` route (legacy Mercurius already declares it).
+ *
+ * The kernel's `onClose` hook is added to the passed scope, so it closes when
+ * the owning app closes.
+ */
+export const registerRedesignSurface = async (
+  app: FastifyInstance,
+  deps: BuildRedesignAppDeps
+): Promise<Kernel> => {
   const kernel = await makeKernel(deps.kernelConfig);
+
+  // Release the kernel (pg pool + clients) when the owning scope closes.
+  // Registered right after creation — BEFORE the wiring below — so that if any
+  // step throws (the legacy mount catches it and continues legacy-only), the pool
+  // is still owned by this scope and freed on `app.close()` rather than leaking.
+  app.addHook('onClose', async () => {
+    await kernel.close();
+  });
 
   // ── Source modules (built on the kernel) ─────────────────────────────────────
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
@@ -246,7 +285,8 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     const procurement = makeProcurementModule({
       db: kernel.db,
       registry: kernel.contributors,
-      ...(Number.isFinite(windowEnv) && windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
+      ...(Number.isFinite(windowEnv) &&
+        windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(procurement.contributor);
@@ -304,7 +344,8 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       registry: kernel.contributors,
       legalActLoader: kernel.legalActLoader(),
       meili: kernel.clients.meiliClient,
-      searchEngineUp: kernel.searchCapabilities.engines.meili || kernel.searchCapabilities.engines.opensearch,
+      searchEngineUp:
+        kernel.searchCapabilities.engines.meili || kernel.searchCapabilities.engines.opensearch,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(parliament.contributor);
@@ -382,9 +423,5 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     return reply.code(ready ? 200 : 503).send({ ready, ...report });
   });
 
-  app.addHook('onClose', async () => {
-    await kernel.close();
-  });
-
-  return { app, kernel };
+  return kernel;
 };

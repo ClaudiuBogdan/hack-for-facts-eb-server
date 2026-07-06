@@ -11,6 +11,11 @@ import fastifyLib, { type FastifyInstance, type FastifyError } from 'fastify';
 import { err, ok, type Result } from 'neverthrow';
 
 import { resolveBuildPlan, type AppOptions } from './build-plan.js';
+// NOTE: `registerRedesignSurface` (and the whole redesign module graph it pulls in)
+// is loaded via a dynamic import() inside the feature-gated block below — NOT a
+// static import — so that with REDESIGN_SURFACE_ENABLED unset (deployed legacy
+// servers) the redesign code is never even imported, and an import-time error in
+// that subtree can never affect legacy boot.
 import {
   wrapCountyAnalyticsRepo,
   wrapUATAnalyticsRepo,
@@ -292,6 +297,15 @@ import {
 export type { AppDeps, AppOptions } from './build-plan.js';
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
+// Redesign kernel surface (mounted on the same port when REDESIGN_SURFACE_ENABLED).
+// Public read-only data — the standalone redesign server has no auth — so these are
+// exempt from the legacy global auth preHandler.
+const REDESIGN_SURFACE_ROUTE_PATHS = new Set([
+  '/api/v1/graphql',
+  '/api/v1/mcp',
+  '/api/v1/health',
+  '/api/v1/ready',
+]);
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
@@ -376,6 +390,10 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
   }
 
   if (isNotificationAdminRoute(path)) {
+    return true;
+  }
+
+  if (REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
     return true;
   }
 
@@ -966,6 +984,47 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       ...(graphQLContext !== undefined && { context: graphQLContext }),
     })
   );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Optionally mount the redesign kernel surface on the SAME port (/api/v1/*)
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Feature-flagged + fail-safe. Only when REDESIGN_SURFACE_ENABLED=true AND the
+  // redesign kernel config (griffin-prod) is provided — deployed legacy servers
+  // satisfy neither, so this is a no-op there and the app is unchanged.
+  //
+  // Registered in an ENCAPSULATED child scope so its Mercurius instance lives in a
+  // sibling context and does not collide with the legacy Mercurius (`makeGraphQLPlugin`
+  // is a plain plugin, so neither decorates the root). The surface reuses the legacy
+  // global CORS (no second CORS) and is mounted with GraphiQL disabled to avoid a
+  // duplicate `GET /graphiql` route. The kernel pg pool is lazy and Meili/OpenSearch
+  // capability probing degrades rather than throwing, so a down griffin does not fail
+  // boot. The inner try/catch additionally guards any unexpected boot-time throw so
+  // the legacy API always comes up.
+  if (config.redesignSurface.enabled && deps.redesignKernelConfig !== undefined) {
+    const redesignKernelConfig = deps.redesignKernelConfig;
+    const redesignClientBaseUrl = deps.redesignClientBaseUrl;
+    // Dynamic import: the redesign module graph is only loaded when the flag is on.
+    const { registerRedesignSurface } = await import('./build-redesign-app.js');
+    await app.register(async (child) => {
+      try {
+        await registerRedesignSurface(child, {
+          kernelConfig: redesignKernelConfig,
+          // Disabled to avoid a duplicate `GET /graphiql` route (legacy owns it).
+          enableGraphiQL: false,
+          logLevel: config.logger.level,
+          ...(redesignClientBaseUrl !== undefined && { clientBaseUrl: redesignClientBaseUrl }),
+        });
+        child.log.info(
+          'Redesign surface mounted on this port at /api/v1/graphql (+ /api/v1/mcp, /api/v1/health, /api/v1/ready)'
+        );
+      } catch (error) {
+        child.log.error(
+          { err: error },
+          'Failed to mount redesign surface — continuing with the legacy API only'
+        );
+      }
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Setup Notifications Module (REST API)
