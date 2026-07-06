@@ -132,6 +132,12 @@ export interface ParliamentBill {
   // This is the key the default 'updated_desc' sort uses — surfaced flat so the
   // client can show/verify recency.
   readonly lastEventDate: string | null;
+  // B1 canonicality (§3). isCanonical = this row is in the default-visible set; a
+  // non-canonical row is a suppressed bicameral (Senate navetă) twin whose
+  // canonicalBillKey points to the canonical CDep bill to redirect to. The default
+  // bill LIST returns canonical rows only; findBill still resolves either (deep links).
+  readonly isCanonical: boolean;
+  readonly canonicalBillKey: string | null;
   readonly attrs: SafeAttrs; // whitelisted to BILL_ATTR_KEYS by the mapper
   readonly sourceUpdatedAt: string | null; // timestamptz ISO
   readonly updatedAt: string | null;

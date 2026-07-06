@@ -1,10 +1,12 @@
 /**
  * Parliament golden + tri-surface tests against LIVE transparenta_prod (read-only).
  *
- * Pinned to the verified 2026-06-17 parliament serving anchors:
+ * Pinned to the verified parliament serving anchors:
  *   - Legea nr. 423/2023 => legal act_id 145905, bill_key 12760,
  *     final adoption vote cdep:29892.
- *   - Gabriel Andronache 2020 Chamber mandate => 2:2020:12, person_id 2264.
+ *   - Gabriel Andronache 2020 Chamber mandate => 2:2020:12. (person_id is a LIVE
+ *     serving surrogate — PARLIAMENT_CONTRACT §2 — NOT pinned; it is resolved
+ *     dynamically from the member and reassigned by identity rebuilds.)
  *
  * Skips cleanly when PROD_DATABASE_URL is absent (CI without the prod tunnel).
  */
@@ -22,7 +24,8 @@ const PARL = '145905';
 const BILL = '12760';
 const VOTE = 'cdep:29892';
 const MEMBER = '2:2020:12';
-const PERSON = '2264';
+// NOTE: person_id is a serving surrogate only (PARLIAMENT_CONTRACT §2), NOT a stable
+// cross-rebuild identity — it is resolved dynamically from the member, never pinned.
 const ABRUDEAN = '1:2024:1'; // Mircea Abrudean — senate current, 2 committee seats (B2)
 
 const d = HAS_DB ? describe : describe.skip;
@@ -190,7 +193,9 @@ d('Parliament golden (live prod)', () => {
     expect(counts.get('vote_records')).toBeGreaterThanOrEqual(4_156_243);
     expect(counts.get('bills')).toBeGreaterThanOrEqual(9935);
     expect(counts.get('persons')).toBeGreaterThanOrEqual(2988);
-    expect(counts.get('groups')).toBe(73);
+    // The group registry count follows live data (identity-v2 / finish-wave rebuilds
+    // merge or retire historical groups) — assert a floor, not an exact pin.
+    expect(counts.get('groups')).toBeGreaterThanOrEqual(72);
     expect(counts.get('control_items')).toBeGreaterThanOrEqual(81513);
   }, 30_000);
 
@@ -304,7 +309,10 @@ d('Parliament golden (live prod)', () => {
     expect(bill.finalLawNumber).toBe('423');
     expect(bill.finalLawYear).toBe(2023);
     // Gap 2: source-stored classification, surfaced flat (was attrs-only / unreachable).
-    expect(bill.statusText).toBe('Lege 423/2023 29.12.2023');
+    // statusText is the RAW source status string; the finish-wave rebuild dropped the
+    // trailing publication date (live is now 'Lege 423/2023'). Assert the stable law-id
+    // prefix rather than the volatile full string.
+    expect(bill.statusText?.startsWith('Lege 423/2023')).toBe(true);
     expect(bill.billType).toBe('Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012');
 
     const firstActLink = requireValue(bill.actLinks[0], 'first act link');
@@ -467,7 +475,13 @@ d('Parliament golden (live prod)', () => {
     expect(member.profileUrl).toBe(
       'https://www.cdep.ro/ords/pls/parlam/structura2015.mp?idm=12&cam=2&leg=2020'
     );
-    expect(member.person?.personId).toBe(PERSON);
+    // PARLIAMENT_CONTRACT §2: person_id is a serving surrogate ONLY, not cross-rebuild
+    // identity — the identity-v2 rebuild reassigned Andronache from 2264 (now gone) to
+    // a new surrogate. Assert the STABLE facts (person present, canonical name) and
+    // carry the LIVE surrogate forward for the round-trip query below; never pin it.
+    const livePerson = requireValue(member.person, 'member.person');
+    expect(livePerson.canonicalName).toContain('Andronache');
+    const livePersonId = livePerson.personId;
     expect(member.votes.total).toBeGreaterThanOrEqual(6000);
     expect(member.votes.edges.length).toBeGreaterThan(0);
     expect(member.activityCounts.votes).toBeGreaterThanOrEqual(6000);
@@ -493,11 +507,13 @@ d('Parliament golden (live prod)', () => {
           careerTotals { mandates votes initiatives speeches }
         }
       }`,
-      { personId: PERSON }
+      { personId: livePersonId }
     );
     const personData = expectGqlData(personRes);
     const person = requireValue(personData.parliamentPerson, 'parliamentPerson');
-    expect(person.personId).toBe(PERSON);
+    // Round-trips the LIVE surrogate (not a pinned id — contract §2); the stable
+    // identity assertion is the canonical name.
+    expect(person.personId).toBe(livePersonId);
     expect(person.canonicalName).toContain('Andronache');
     expect(person.careerTotals.mandates).toBeGreaterThanOrEqual(1);
   });
@@ -608,7 +624,13 @@ d('Parliament golden (live prod)', () => {
       )
     );
     expect(personResolve.parliamentResolveFilter.length).toBeGreaterThanOrEqual(1);
-    expect(personResolve.parliamentResolveFilter.some((hit) => hit.value === PERSON)).toBe(true);
+    // Match on the STABLE label (canonical name), not the volatile person_id surrogate
+    // (contract §2 — reassigned by the identity-v2 rebuild).
+    expect(
+      personResolve.parliamentResolveFilter.some(
+        (hit) => hit.kind === 'person' && hit.label.includes('Andronache')
+      )
+    ).toBe(true);
 
     const cohesion = expectGqlData(
       await gql<{ parliamentVoteCohesion: readonly ParliamentGroupCohesion[] }>(
@@ -815,40 +837,54 @@ d('Parliament golden (live prod)', () => {
     expect(initiators.every((i) => !i.isCurrent)).toBe(true); // 2012 cohort, all superseded
   }, 30_000);
 
-  it('bill billType + status filters return the live prod classification counts', async () => {
-    const billsTotal = async (filter: string): Promise<number> => {
+  it('bill billType + status filters return the live prod classification slices', async () => {
+    // The default bill list is CANONICAL-only (contract §3), ~22.9k rows live — still
+    // past the 10k list cap, so per-bucket totals are CAPPED + estimated. Assert the
+    // filter LOGIC — floors, structural relations, and the stable edge cases — not the
+    // volatile exact counts that drift with every daily load. (billType buckets are
+    // unchanged by canonicalization; status buckets ~halved — the navetă twins were
+    // promulgated/rejected duplicates — so the floors below stay conservative.)
+    const bills = async (filter: string): Promise<number> => {
+      const data = expectGqlData(
+        await gql<{ parliamentBills: { readonly total: number } }>(
+          `{ parliamentBills(filter:${filter}, page:1, pageSize:1) { total } }`
+        )
+      );
+      return data.parliamentBills.total;
+    };
+    const billsMeta = async (filter: string): Promise<{ total: number; estimated: boolean }> => {
       const data = expectGqlData(
         await gql<{
           parliamentBills: { readonly total: number; readonly totalEstimated: boolean };
         }>(`{ parliamentBills(filter:${filter}, page:1, pageSize:1) { total totalEstimated } }`)
       );
-      // All buckets are < the 10k list cap, so total is EXACT (never estimated).
-      expect(data.parliamentBills.totalEstimated).toBe(false);
-      return data.parliamentBills.total;
+      return { total: data.parliamentBills.total, estimated: data.parliamentBills.totalEstimated };
     };
 
-    // billType (initiative-kind badge), prefix on procedure.tip_initiativa. The
-    // kernel renders enum filter fields as GraphQL String (literal-union validated
-    // server-side), so values are passed as quoted strings.
-    expect(await billsTotal('{billType:{eq:"government"}}')).toBe(5271);
-    expect(await billsTotal('{billType:{eq:"parliamentary"}}')).toBe(3005);
-    // in:[both] is the OR — the union (bills carrying a procedure block).
-    expect(await billsTotal('{billType:{in:["government","parliamentary"]}}')).toBe(8276);
+    // billType (initiative-kind badge), prefix on procedure.tip_initiativa. The kernel
+    // renders enum filter fields as GraphQL String (literal-union validated server-side).
+    const government = await bills('{billType:{eq:"government"}}');
+    const parliamentary = await bills('{billType:{eq:"parliamentary"}}');
+    const union = await bills('{billType:{in:["government","parliamentary"]}}');
+    expect(government).toBeGreaterThanOrEqual(5000);
+    expect(parliamentary).toBeGreaterThanOrEqual(3000);
+    // in:[both] is the OR union → at least as large as either part.
+    expect(union).toBeGreaterThanOrEqual(government);
+    expect(union).toBeGreaterThanOrEqual(parliamentary);
 
-    // status buckets on status_text — a clean partition of all 9,958 bills.
-    // promulgated unions BOTH became-law phrasings ('Lege …' 3,606 + 'A devenit
-    // Legea …' 864 = 4,470); the 864 carry no final_law_number, so omitting them
-    // would mis-bucket them as in_progress (the dual-model critique finding).
-    const promulgated = await billsTotal('{status:{eq:"promulgated"}}');
-    const rejected = await billsTotal('{status:{eq:"rejected"}}');
-    const inProgress = await billsTotal('{status:{eq:"in_progress"}}');
-    expect(promulgated).toBe(4470);
-    expect(rejected).toBe(1939);
-    expect(inProgress).toBe(3549);
-    expect(promulgated + rejected + inProgress).toBe(9958); // partition is exhaustive
+    // status buckets on status_text (promulgated unions both became-law phrasings).
+    const promulgated = await bills('{status:{eq:"promulgated"}}');
+    const rejected = await bills('{status:{eq:"rejected"}}');
+    const inProgress = await bills('{status:{eq:"in_progress"}}');
+    expect(promulgated).toBeGreaterThanOrEqual(4000);
+    expect(rejected).toBeGreaterThanOrEqual(1900);
+    expect(inProgress).toBeGreaterThanOrEqual(3000);
 
-    // Combined filters AND together (government bills that became law).
-    expect(await billsTotal('{billType:{eq:"government"}, status:{eq:"promulgated"}}')).toBe(3270);
+    // Combined filters AND together (government bills that became law) → a subset of each.
+    const govPromulgated = await bills('{billType:{eq:"government"}, status:{eq:"promulgated"}}');
+    expect(govPromulgated).toBeGreaterThanOrEqual(3000);
+    expect(govPromulgated).toBeLessThanOrEqual(government);
+    expect(govPromulgated).toBeLessThanOrEqual(promulgated);
 
     // An unknown enum value is a clean InvalidInput (repo enumSelection guard) —
     // NOT a silent empty result. (The kernel renders these virtual enums as String
@@ -859,15 +895,77 @@ d('Parliament golden (live prod)', () => {
     expect(bad.errors).toBeDefined();
     expect(bad.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
 
-    // Edge cases from the dual-model critique (Codex round 2):
+    // Edge cases (stable regardless of corpus size):
     // (a) explicit empty in:[] is "match nothing" (#60h), NOT "match all".
-    const totalAll = await billsTotal('{}');
-    expect(totalAll).toBe(9958);
-    expect(await billsTotal('{billType:{in:[]}}')).toBe(0);
-    expect(await billsTotal('{status:{in:[]}}')).toBe(0);
-    // (b) explicit null on a virtual field is treated as ABSENT (no crash, no filter).
-    expect(await billsTotal('{status:null}')).toBe(9958);
-    expect(await billsTotal('{billType:null, status:null}')).toBe(9958);
+    const base = await bills('{}');
+    expect(base).toBeGreaterThan(0);
+    expect(await bills('{billType:{in:[]}}')).toBe(0);
+    expect(await bills('{status:{in:[]}}')).toBe(0);
+    // (b) explicit null on a virtual field is treated as ABSENT (same result as base).
+    expect(await bills('{status:null}')).toBe(base);
+    expect(await bills('{billType:null, status:null}')).toBe(base);
+
+    // DISCRIMINATING (a filter-IGNORING regression must FAIL): the unfiltered base is
+    // capped + estimated (~22.9k > 10k), but each of these buckets is UNDER the cap, so
+    // a real filter returns an EXACT (non-estimated) count strictly smaller than the base.
+    // If billType/status were ignored, every bucket would collapse to the capped base —
+    // estimated=true and total===base — and every assertion below would fail.
+    const baseMeta = await billsMeta('{}');
+    expect(baseMeta.estimated).toBe(true);
+    for (const filter of [
+      '{status:{eq:"rejected"}}',
+      '{status:{eq:"in_progress"}}',
+      '{billType:{eq:"parliamentary"}}',
+    ]) {
+      const bucket = await billsMeta(filter);
+      expect(bucket.estimated).toBe(false); // an EXACT count → a genuine filtered subset
+      expect(bucket.total).toBeLessThan(baseMeta.total); // strictly smaller than the capped base
+    }
+    // Strict cross-bucket ordering: rejected (exact ~6.4k) < promulgated (larger became-law
+    // bucket). A status-ignoring repo returns base for both → equal → this fails.
+    expect(await bills('{status:{eq:"rejected"}}')).toBeLessThan(
+      await bills('{status:{eq:"promulgated"}}')
+    );
+  }, 30_000);
+
+  it('§3 canonicality: the default list is canonical-only; a non-canonical deep link still resolves with a redirect key', async () => {
+    // A suppressed Senate navetă twin (source-owned key, stable) resolves via
+    // parliamentBill (deep link — findBill is unfiltered) but is EXCLUDED from the
+    // default parliamentBills list. It carries the canonical CDep key to redirect to.
+    const twin = expectGqlData(
+      await gql<{
+        parliamentBill: {
+          readonly billKey: string;
+          readonly isCanonical: boolean;
+          readonly canonicalBillKey: string | null;
+        } | null;
+      }>(`{ parliamentBill(billKey:"senat:1-1998") { billKey isCanonical canonicalBillKey } }`)
+    );
+    const t = requireValue(twin.parliamentBill, 'non-canonical twin senat:1-1998');
+    expect(t.isCanonical).toBe(false);
+    const canonicalKey = requireValue(t.canonicalBillKey, 'twin canonicalBillKey');
+
+    // The canonical target resolves and IS canonical.
+    const canon = expectGqlData(
+      await gql<{ parliamentBill: { readonly isCanonical: boolean } | null }>(
+        `query($k: ID!){ parliamentBill(billKey:$k){ isCanonical } }`,
+        { k: canonicalKey }
+      )
+    );
+    expect(requireValue(canon.parliamentBill, 'canonical target').isCanonical).toBe(true);
+
+    // The default list NEVER surfaces a non-canonical row (contract §3): every row on a
+    // page is canonical, and a canonical anchor (12760) is listable.
+    const page = expectGqlData(
+      await gql<{
+        parliamentBills: {
+          readonly bills: readonly { readonly billKey: string; readonly isCanonical: boolean }[];
+          readonly total: number;
+        };
+      }>(`{ parliamentBills(page:1, pageSize:50) { total bills { billKey isCanonical } } }`)
+    );
+    expect(page.parliamentBills.bills.length).toBeGreaterThan(0);
+    expect(page.parliamentBills.bills.every((b) => b.isCanonical)).toBe(true);
   }, 30_000);
 
   it('member initiatives are ordered newest-registration-first (sort bug fix)', async () => {

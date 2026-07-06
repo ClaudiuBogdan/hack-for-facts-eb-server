@@ -298,6 +298,10 @@ const objectsAndQuery = /* GraphQL */ `
     billType: String
     "Date of the most recent timeline event (attrs.last_event_date). This is the key the default 'updated_desc' sort uses — exposed so the client can show/verify recency."
     lastEventDate: Date
+    "B1 canonicality (§3): true = this bill is in the default-visible set. A bicameral bill is stored under both chambers' keys; the suppressed Senate navetă twin is NON-canonical and EXCLUDED from the default bill list. A deep link to a non-canonical key still resolves via parliamentBill — read canonicalBillKey to notice/redirect to the canonical view."
+    isCanonical: Boolean!
+    "On a non-canonical (suppressed) twin, the canonical CDep bill_key to redirect to; null on a canonical bill."
+    canonicalBillKey: String
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!

@@ -106,6 +106,12 @@ export interface ParliamentBillsTable {
   title: string | null;
   final_law_number: string | null;
   final_law_year: number | null;
+  // B1 canonicality (migration 20260701T173000): is_canonical is the default-visible
+  // flag (§3); canonical_bill_key points a suppressed Senate navetă twin at its
+  // canonical CDep key (null on canonical rows). dup_group_id / canonical_match_* /
+  // dup_review / decision_chamber are internal dedup provenance — deliberately UNBOUND.
+  is_canonical: boolean;
+  canonical_bill_key: string | null;
   attrs: Jsonb;
   source_updated_at: Tstz | null;
   updated_at: Tstz | null;

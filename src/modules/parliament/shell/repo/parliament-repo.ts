@@ -212,6 +212,10 @@ const BILL_SELECT = [
   // 'updated_desc' sort uses; surfaced flat so the client can show/verify recency.
   sql<string | null>`b.attrs->>'last_event_date'`.as('last_event_date'),
   'b.attrs',
+  // B1 canonicality (§3): is_canonical drives default list visibility; canonical_bill_key
+  // points a suppressed Senate twin at its canonical CDep key (null on a canonical row).
+  'b.is_canonical',
+  'b.canonical_bill_key',
   sql<string | null>`b.source_updated_at::text`.as('source_updated_at'),
   sql<string | null>`b.updated_at::text`.as('updated_at'),
 ] as const;
@@ -836,7 +840,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<OffsetResult<ParliamentBill>, ApiError>> => {
     const condsRes = buildBillConditions(filter);
     if (condsRes.isErr()) return err(condsRes.error);
-    const where = composeWhere(condsRes.value);
+    // PARLIAMENT_CONTRACT §3 (LOCKED): the default-visible bill list is the B1 CANONICAL
+    // set only. Without this the list double-surfaces bicameral bills (22,248 suppressed
+    // navetă twins as of the 2026-07-01 finish-wave). Applied to BOTH the rows and the
+    // count `where` (shared below). Explicit-key reads (findBill, lineage) stay unfiltered.
+    const where = composeWhere([...condsRes.value, sql<boolean>`b.is_canonical`]);
     try {
       const rows = await db
         .selectFrom('parliament.bills as b')

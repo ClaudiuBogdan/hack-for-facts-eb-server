@@ -150,6 +150,8 @@ export interface BillRow {
   status_text: string | null;
   bill_type: string | null;
   last_event_date: string | null;
+  is_canonical: boolean;
+  canonical_bill_key: string | null;
   attrs: unknown;
   source_updated_at: string | null;
   updated_at: string | null;
@@ -167,6 +169,8 @@ export const mapBill = (r: BillRow): ParliamentBill => ({
   statusText: r.status_text,
   billType: r.bill_type,
   lastEventDate: r.last_event_date,
+  isCanonical: r.is_canonical,
+  canonicalBillKey: r.canonical_bill_key,
   attrs: safeAttrs(r.attrs, BILL_ATTR_KEYS),
   sourceUpdatedAt: r.source_updated_at,
   updatedAt: r.updated_at,
