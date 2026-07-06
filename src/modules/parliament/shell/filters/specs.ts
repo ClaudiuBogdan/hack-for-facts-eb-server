@@ -23,13 +23,20 @@
  * rather than naming a non-existent index (the "no speculative index" rule).
  */
 
-import { VOTE_CHAMBERS_OK } from '../../core/types.js';
+import {
+  canonicalizeFilters,
+  filterHash,
+  type CollectionFilterSpec,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
-import type { CollectionFilterSpec } from '@/modules/shared/index.js';
+import { VOTE_CHAMBERS_OK } from '../../core/types.js';
 
 /** Live enum domains (verified against transparenta_prod 2026-06-17). */
 export const VOTE_CHAMBERS = VOTE_CHAMBERS_OK;
 export const VOTE_OUTCOMES = ['adoptat', 'respins'] as const;
+/** A ballot's per-member choice (parliament.vote_records.choice live domain). */
+export const VOTE_CHOICES = ['pentru', 'impotriva', 'abtinere', 'nu_a_votat'] as const;
 /**
  * control_type live values. CDEP: `question_or_interpellation` is the combined
  * bucket (control_type_provenance='combined_pass'); split rows are `question` /
@@ -87,7 +94,15 @@ export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // a non-virtual plx_year-only field silently drops Senate-only bills).
 // `billType`/`status` are virtual: they classify jsonb attrs (prefix on
 // procedure.tip_initiativa / bucket on status_text), not a plain column op.
-export const BILLS_VIRTUAL_FIELDS = ['q', 'hasLaw', 'publishedInMo', 'actId', 'year', 'billType', 'status'] as const;
+export const BILLS_VIRTUAL_FIELDS = [
+  'q',
+  'hasLaw',
+  'publishedInMo',
+  'actId',
+  'year',
+  'billType',
+  'status',
+] as const;
 export const CONTROL_VIRTUAL_FIELDS = ['recipient', 'author', 'q'] as const;
 
 // ── votes (cursor; driving votes_chamber_date_idx) ───────────────────────────
@@ -139,6 +154,58 @@ export const votesFilterSpec: CollectionFilterSpec = {
   sort: { default: 'voteDate', allowed: ['voteDate', 'voteKey'] },
 };
 
+// ── member votes (a member's ballots ⋈ votes; parented by mandate_key) ────────
+
+export const memberVotesFilterSpec: CollectionFilterSpec = {
+  collection: 'parliamentMemberVotes',
+  fields: [
+    {
+      name: 'voteDate',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 'v', column: 'vote_date' },
+      description:
+        'Vote date range (post-scan filter over the member slice; the mandate index has no date).',
+    },
+    {
+      name: 'chamber',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'v', column: 'chamber' },
+      enumValues: [...VOTE_CHAMBERS],
+      array: true,
+      description:
+        'Assembly of the vote. A member ballots ONLY in their own chamber or in `comun` — filtering by the OTHER chamber matches nothing.',
+    },
+    {
+      name: 'outcome',
+      type: 'enum',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'v', column: 'outcome' },
+      enumValues: [...VOTE_OUTCOMES],
+      description: 'Vote-level result (adoptat | respins | null). NOT the bill outcome (§2.4).',
+    },
+    {
+      name: 'choice',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'vr', column: 'choice' },
+      enumValues: [...VOTE_CHOICES],
+      array: true,
+      description: "This member's ballot: pentru | impotriva | abtinere | nu_a_votat.",
+    },
+  ],
+  sort: { default: 'voteDate', allowed: ['voteDate'] },
+};
+
+/**
+ * Parent-bound fhash for a member-votes cursor: the mandate AND the filter derive
+ * it (Codex #2), so a cursor cannot be replayed against a different member OR a
+ * different filter. Mirrors `fhashFor` but keys the mandate into the seed.
+ */
+export const memberVotesFhash = (mandateKey: string, filter: FilterInput): string =>
+  filterHash(`memberVotes:${mandateKey}:${canonicalizeFilters(memberVotesFilterSpec, filter)}`);
+
 // ── members (offset+total; bounded by legislature) ───────────────────────────
 
 export const membersFilterSpec: CollectionFilterSpec = {
@@ -183,7 +250,8 @@ export const membersFilterSpec: CollectionFilterSpec = {
       column: { alias: 'm', column: 'constituency_name' },
       array: true,
       virtual: true,
-      description: 'County/diaspora slug → constituency_name (diacritic-folded). Repo-intercepted; NOT SIRUTA.',
+      description:
+        'County/diaspora slug → constituency_name (diacritic-folded). Repo-intercepted; NOT SIRUTA.',
     },
     {
       name: 'q',
@@ -191,7 +259,8 @@ export const membersFilterSpec: CollectionFilterSpec = {
       ops: ['contains'],
       column: { alias: 'm', column: 'full_name' },
       virtual: true,
-      description: 'Member-name search (unaccent-free ILIKE, bounded by legislature). Repo-intercepted.',
+      description:
+        'Member-name search (unaccent-free ILIKE, bounded by legislature). Repo-intercepted.',
     },
   ],
   sort: { default: 'name', allowed: ['name', 'mandateKey'] },
@@ -208,7 +277,8 @@ export const billsFilterSpec: CollectionFilterSpec = {
       ops: ['eq', 'gte', 'lte'],
       column: { alias: 'b', column: 'plx_year' },
       virtual: true,
-      description: 'Bill year — matches plx_year OR senate_year (repo-intercepted; covers Senate-only stubs). Residual.',
+      description:
+        'Bill year — matches plx_year OR senate_year (repo-intercepted; covers Senate-only stubs). Residual.',
     },
     {
       name: 'finalized',
@@ -242,7 +312,8 @@ export const billsFilterSpec: CollectionFilterSpec = {
       ops: ['eq'],
       column: { alias: 'b', column: 'bill_key' },
       virtual: true,
-      description: 'Reverse lineage: bills that became act X (bill_act_links_target_idx). Repo-intercepted.',
+      description:
+        'Reverse lineage: bills that became act X (bill_act_links_target_idx). Repo-intercepted.',
     },
     {
       name: 'billType',
@@ -272,10 +343,14 @@ export const billsFilterSpec: CollectionFilterSpec = {
       ops: ['contains'],
       column: { alias: 'b', column: 'title' },
       virtual: true,
-      description: 'Title / plx-number / senate-number search. Meili-backed; ILIKE fallback. Repo-intercepted.',
+      description:
+        'Title / plx-number / senate-number search. Meili-backed; ILIKE fallback. Repo-intercepted.',
     },
   ],
-  sort: { default: 'updated_desc', allowed: [...['title_asc', 'title_desc', 'updated_asc', 'updated_desc']] },
+  sort: {
+    default: 'updated_desc',
+    allowed: [...['title_asc', 'title_desc', 'updated_asc', 'updated_desc']],
+  },
 };
 
 // ── control_items (cursor; bounded by date window or recipient/author) ────────
@@ -290,7 +365,8 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       column: { alias: 'c', column: 'control_type' },
       enumValues: [...CONTROL_TYPES],
       array: true,
-      description: 'question | interpellation | question_or_interpellation | motion. Residual (no index).',
+      description:
+        'question | interpellation | question_or_interpellation | motion. Residual (no index).',
     },
     {
       name: 'responseStatus',
@@ -304,7 +380,8 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       type: 'date',
       ops: ['gte', 'lte', 'between'],
       column: { alias: 'c', column: 'item_date' },
-      description: 'Item date range. AT LEAST ONE bound required (no date index) — enforced at the handler.',
+      description:
+        'Item date range. AT LEAST ONE bound required (no date index) — enforced at the handler.',
     },
     {
       name: 'recipient',
@@ -312,7 +389,8 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       ops: ['eq', 'contains'],
       column: { alias: 'c', column: 'recipient' },
       virtual: true,
-      description: 'Ministry/institution addressed (resolved via dim=recipient). Bounds the scan. Repo-intercepted.',
+      description:
+        'Ministry/institution addressed (resolved via dim=recipient). Bounds the scan. Repo-intercepted.',
     },
     {
       name: 'author',
@@ -328,7 +406,8 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       ops: ['contains'],
       column: { alias: 'c', column: 'title' },
       virtual: true,
-      description: 'Title search (ILIKE). Does NOT by itself bound the scan — pair with itemDate/recipient/author. Repo-intercepted.',
+      description:
+        'Title search (ILIKE). Does NOT by itself bound the scan — pair with itemDate/recipient/author. Repo-intercepted.',
     },
   ],
   sort: { default: 'itemDate', allowed: ['itemDate', 'itemKey'] },
@@ -336,6 +415,7 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
 
 export const PARLIAMENT_FILTER_SPECS = {
   parliamentVotes: votesFilterSpec,
+  parliamentMemberVotes: memberVotesFilterSpec,
   parliamentMembers: membersFilterSpec,
   parliamentBills: billsFilterSpec,
   parliamentControlItems: controlItemsFilterSpec,

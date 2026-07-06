@@ -35,6 +35,7 @@ import {
   getMemberControlItems,
   getMemberInitiatives,
   getMemberSpeeches,
+  getMemberVoteActivity,
   getMemberVotes,
   getPersonCareer,
   getVoteBallots,
@@ -49,7 +50,7 @@ import {
   resolveFilters,
   type ParliamentUsecaseDeps,
 } from '../../core/usecases.js';
-import { controlItemsFilterSpec, votesFilterSpec } from '../filters/specs.js';
+import { controlItemsFilterSpec, memberVotesFhash, votesFilterSpec } from '../filters/specs.js';
 
 import type {
   ParliamentBallot,
@@ -160,9 +161,12 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
 
   const memberVoteConnection = (
     page: CursorPage<ParliamentMemberVote> & { total: number },
-    mandateKey: string
+    mandateKey: string,
+    filter: FilterInput
   ) => {
-    const fhash = filterHash(`memberVotes:${mandateKey}`);
+    // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with
+    // (memberVotesFhash(mandateKey, filter)) so paging on an edge cursor matches.
+    const fhash = memberVotesFhash(mandateKey, filter);
     return {
       edges: page.items.map((node) => ({
         node,
@@ -444,14 +448,25 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           }
         );
       },
-      votes: async (parent: { mandateKey: string }, args: { first?: number; after?: string }) => {
+      votes: async (
+        parent: { mandateKey: string },
+        args: { first?: number; after?: string; filter?: FilterInput }
+      ) => {
+        const filter = sansNull(args.filter);
         const page = {
           first: clampFirst(args.first, 100),
           ...(args.after != null && { after: args.after }),
         };
-        const res = unwrap(await getMemberVotes(deps, parent.mandateKey, page));
-        return memberVoteConnection(res, parent.mandateKey);
+        const res = unwrap(await getMemberVotes(deps, parent.mandateKey, page, filter));
+        return memberVoteConnection(res, parent.mandateKey, filter);
       },
+      voteActivity: async (
+        parent: { mandateKey: string },
+        args: { year: number; filter?: FilterInput }
+      ) =>
+        unwrap(
+          await getMemberVoteActivity(deps, parent.mandateKey, args.year, sansNull(args.filter))
+        ),
       controlItems: async (
         parent: { mandateKey: string },
         args: { page?: number; pageSize?: number }
