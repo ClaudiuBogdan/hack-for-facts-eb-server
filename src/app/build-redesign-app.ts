@@ -34,6 +34,26 @@ import {
   type KernelMcpTool,
 } from '../modules/shared/index.js';
 
+import type { UserDatabase } from '../infra/database/user/types.js';
+import type { AgentModuleConfig } from '../modules/agent/index.js';
+import type { QuotaRedis } from '../modules/agent/shell/quota/quota-store.js';
+import type { AuthProvider } from '../modules/auth/index.js';
+import type { Kysely } from 'kysely';
+
+/**
+ * Deps for the OPTIONAL agent service module (docs/AGENT-MODULE-SPEC.md).
+ * Only the legacy mount passes this — it needs the user DB, Redis, and the
+ * Clerk auth provider, none of which exist on the standalone redesign server.
+ * The module itself is loaded dynamically so the standalone server never pulls
+ * the AI SDK graph.
+ */
+export interface RedesignAgentDeps {
+  readonly userDb: Kysely<UserDatabase>;
+  readonly redis: QuotaRedis | null;
+  readonly authProvider: AuthProvider;
+  readonly config: AgentModuleConfig;
+}
+
 export interface BuildRedesignAppDeps {
   readonly kernelConfig: KernelConfig;
   readonly logLevel?: string;
@@ -69,6 +89,8 @@ export interface BuildRedesignAppDeps {
     | 'procurement'
     | 'primarii-transparency'
   )[];
+  /** When set, mounts the authenticated agent surface at /api/v1/agent. */
+  readonly agent?: RedesignAgentDeps;
 }
 
 export interface RedesignApp {
@@ -409,6 +431,26 @@ export const registerRedesignSurface = async (
   app.addHook('onClose', async () => {
     await mcpDispatcher.close();
   });
+
+  // ── Agent (optional, authenticated) ──────────────────────────────────────────
+  // Consumes the SAME tool definitions as /api/v1/mcp (shared registry, spec
+  // §2.4). Dynamic import keeps the AI SDK out of the standalone server graph.
+  if (deps.agent !== undefined) {
+    const { makeAgentModule } = await import('../modules/agent/index.js');
+    const agent = makeAgentModule({
+      tools: [...kernel.mcpTools, ...moduleMcpTools],
+      userDb: deps.agent.userDb,
+      redis: deps.agent.redis,
+      authProvider: deps.agent.authProvider,
+      config: deps.agent.config,
+    });
+    if (agent.configuredProviders.length === 0) {
+      app.log.warn(
+        'Agent surface mounted with NO LLM provider key — /api/v1/agent/chat will return 503'
+      );
+    }
+    await app.register(agent.routesPlugin, { prefix: '/api/v1/agent' });
+  }
 
   // ── Health / readiness ───────────────────────────────────────────────────────
   app.get('/api/v1/health', async (_request, reply) => {

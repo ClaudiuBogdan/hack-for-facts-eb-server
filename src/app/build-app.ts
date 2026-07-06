@@ -1012,6 +1012,73 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const redesignClientBaseUrl = deps.redesignClientBaseUrl;
     // Dynamic import: the redesign module graph is only loaded when the flag is on.
     const { registerRedesignSurface } = await import('./build-redesign-app.js');
+
+    // Agent surface deps (docs/AGENT-MODULE-SPEC.md): needs the user DB, the
+    // Clerk auth provider, and (optionally) Redis for quota counters. Auth on
+    // /api/v1/agent/* is enforced INSIDE the agent plugin (strict Clerk), so
+    // the paths need no entry in the global-auth bypass set.
+    let agentDeps: import('./build-redesign-app.js').RedesignAgentDeps | undefined;
+    if (config.agent.enabled) {
+      if (deps.userDb !== undefined && deps.authProvider !== undefined) {
+        let agentRedis: import('ioredis').Redis | null = null;
+        if (config.redis.url !== undefined && config.redis.url !== '') {
+          const { Redis } = await import('ioredis');
+          const redisClient = new Redis(config.redis.url, {
+            ...(config.redis.password !== undefined && config.redis.password !== ''
+              ? { password: config.redis.password }
+              : {}),
+            lazyConnect: true,
+            maxRetriesPerRequest: 2,
+          });
+          redisClient.on('error', (error) => {
+            app.log.warn({ err: error }, 'Agent quota Redis connection error');
+          });
+          app.addHook('onClose', async () => {
+            await redisClient.quit().catch(() => {
+              redisClient.disconnect();
+            });
+          });
+          agentRedis = redisClient;
+        } else {
+          app.log.warn('AGENT_ENABLED without REDIS_URL — using in-memory quota counters');
+        }
+        agentDeps = {
+          userDb: deps.userDb,
+          redis: agentRedis,
+          authProvider: deps.authProvider,
+          config: {
+            clientBaseUrl:
+              redesignClientBaseUrl ??
+              (config.mcp.clientBaseUrl !== ''
+                ? config.mcp.clientBaseUrl
+                : 'https://transparenta.eu'),
+            dailyTokenBudget: config.agent.dailyTokenBudget,
+            unlimitedUserIds: config.agent.unlimitedUserIds,
+            ...(config.agent.anthropicApiKey !== undefined && {
+              anthropicApiKey: config.agent.anthropicApiKey,
+            }),
+            ...(config.agent.openaiApiKey !== undefined && {
+              openaiApiKey: config.agent.openaiApiKey,
+            }),
+            ...(config.agent.openrouterApiKey !== undefined && {
+              openrouterApiKey: config.agent.openrouterApiKey,
+            }),
+            tierModels: {
+              ...(config.agent.chatModel !== undefined && { chat: config.agent.chatModel }),
+              ...(config.agent.titleModel !== undefined && { title: config.agent.titleModel }),
+              ...(config.agent.researchModel !== undefined && {
+                research: config.agent.researchModel,
+              }),
+            },
+          },
+        };
+      } else {
+        app.log.warn(
+          'AGENT_ENABLED=true but USER_DATABASE_URL or Clerk auth is not configured — agent surface NOT mounted'
+        );
+      }
+    }
+
     await app.register(async (child) => {
       try {
         await registerRedesignSurface(child, {
@@ -1020,6 +1087,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           enableGraphiQL: false,
           logLevel: config.logger.level,
           ...(redesignClientBaseUrl !== undefined && { clientBaseUrl: redesignClientBaseUrl }),
+          ...(agentDeps !== undefined && { agent: agentDeps }),
         });
         child.log.info(
           'Redesign surface mounted on this port at /api/v1/graphql (+ /api/v1/mcp, /api/v1/health, /api/v1/ready)'

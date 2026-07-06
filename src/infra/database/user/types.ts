@@ -324,6 +324,23 @@ export interface AdvancedMapDatasetRows {
   value_json: JSONColumnType<Record<string, unknown> | null>;
 }
 
+// Agent conversations (docs/AGENT-MODULE-SPEC.md §2.6)
+export interface AgentConversations {
+  id: string; // useChat chat id (client-generated)
+  user_id: string;
+  title: string | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface AgentMessages {
+  id: string; // AI SDK UIMessage id
+  conversation_id: string;
+  role: string;
+  parts: JSONColumnType<unknown[]>;
+  created_at: Generated<Timestamp>;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
@@ -343,4 +360,6 @@ export interface UserDatabase {
   advancedmapanalyticssnapshots: AdvancedMapAnalyticsSnapshots;
   advancedmapdatasets: AdvancedMapDatasets;
   advancedmapdatasetrows: AdvancedMapDatasetRows;
+  agentconversations: AgentConversations;
+  agentmessages: AgentMessages;
 }

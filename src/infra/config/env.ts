@@ -94,6 +94,20 @@ export const EnvSchema = Type.Object({
   // SECURITY: Minimum 32 characters for sufficient entropy
   GPT_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
 
+  // Agent (in-app AI agent — docs/AGENT-MODULE-SPEC.md)
+  AGENT_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  ANTHROPIC_API_KEY: Type.Optional(Type.String({ minLength: 10 })),
+  OPENAI_API_KEY: Type.Optional(Type.String({ minLength: 10 })),
+  OPENROUTER_API_KEY: Type.Optional(Type.String({ minLength: 10 })),
+  /** `provider/model` per tier, e.g. anthropic/claude-sonnet-4-5 */
+  AGENT_CHAT_MODEL: Type.Optional(Type.String({ minLength: 3 })),
+  AGENT_TITLE_MODEL: Type.Optional(Type.String({ minLength: 3 })),
+  AGENT_RESEARCH_MODEL: Type.Optional(Type.String({ minLength: 3 })),
+  /** Daily input+output token budget per user */
+  AGENT_DAILY_TOKEN_BUDGET: Type.Optional(Type.Number({ minimum: 1000, default: 250000 })),
+  /** Comma-separated Clerk user ids exempt from the budget */
+  AGENT_UNLIMITED_USER_IDS: Type.Optional(Type.String()),
+
   // Email (Resend)
   /** Resend API key for sending emails */
   RESEND_API_KEY: Type.Optional(Type.String({ minLength: 20 })),
@@ -253,6 +267,19 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
         : 3600,
     // GPT REST API
     GPT_API_KEY: env['GPT_API_KEY'],
+    // Agent
+    AGENT_ENABLED: env['AGENT_ENABLED'] === 'true',
+    ANTHROPIC_API_KEY: env['ANTHROPIC_API_KEY'],
+    OPENAI_API_KEY: env['OPENAI_API_KEY'],
+    OPENROUTER_API_KEY: env['OPENROUTER_API_KEY'],
+    AGENT_CHAT_MODEL: env['AGENT_CHAT_MODEL'],
+    AGENT_TITLE_MODEL: env['AGENT_TITLE_MODEL'],
+    AGENT_RESEARCH_MODEL: env['AGENT_RESEARCH_MODEL'],
+    AGENT_DAILY_TOKEN_BUDGET:
+      env['AGENT_DAILY_TOKEN_BUDGET'] != null && env['AGENT_DAILY_TOKEN_BUDGET'] !== ''
+        ? Number.parseInt(env['AGENT_DAILY_TOKEN_BUDGET'], 10)
+        : 250000,
+    AGENT_UNLIMITED_USER_IDS: env['AGENT_UNLIMITED_USER_IDS'],
     // Email (Resend)
     RESEND_API_KEY: env['RESEND_API_KEY'],
     RESEND_WEBHOOK_SECRET: env['RESEND_WEBHOOK_SECRET'],
@@ -417,6 +444,21 @@ export const createConfig = (env: Env) => ({
     sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
     /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
     clientBaseUrl: env.CLIENT_BASE_URL ?? '',
+  },
+  agent: {
+    /** Whether the in-app AI agent surface (/api/v1/agent) is enabled */
+    enabled: env.AGENT_ENABLED ?? false,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
+    openrouterApiKey: env.OPENROUTER_API_KEY,
+    chatModel: env.AGENT_CHAT_MODEL,
+    titleModel: env.AGENT_TITLE_MODEL,
+    researchModel: env.AGENT_RESEARCH_MODEL,
+    dailyTokenBudget: env.AGENT_DAILY_TOKEN_BUDGET ?? 250000,
+    unlimitedUserIds: (env.AGENT_UNLIMITED_USER_IDS ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id !== ''),
   },
   gpt: {
     /** API key for GPT REST API authentication */
