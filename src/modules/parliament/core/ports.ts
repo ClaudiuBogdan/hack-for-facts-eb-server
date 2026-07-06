@@ -27,6 +27,7 @@ import type {
   ParliamentGroupInterval,
   ParliamentInitiative,
   ParliamentMember,
+  ParliamentMemberSpeechActivity,
   ParliamentMemberVote,
   ParliamentMemberVoteActivity,
   ParliamentPerson,
@@ -201,6 +202,40 @@ export interface ParliamentRepo {
     mandateKey: string,
     page: OffsetParams
   ): Promise<Result<OffsetResult<ParliamentSpeech>, ApiError>>;
+  /**
+   * A member's speeches via SQL keyset pagination on `(spoken_at desc, speech_key
+   * desc)` (per-mandate can reach ~35k rows — no in-memory materialize). The
+   * memberSpeechesFilterSpec conditions (spokenAt/chamber) AND the repo-intercepted
+   * text token `q` (title/summary + speech_texts.full_text when present) narrow the
+   * set, so `total` is the EXACT filtered count. The cursor `fhash` is derived
+   * INTERNALLY from `mandateKey`, the filter AND `q` (Codex #2) — rejected if
+   * replayed against a different member, filter, or search term.
+   */
+  listMemberSpeechesCursor(
+    mandateKey: string,
+    page: CursorPageRequest,
+    filter: FilterInput,
+    q: string | undefined
+  ): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>>;
+  /**
+   * Per-day speech activity for one calendar year, under the SAME memberSpeechesFilterSpec
+   * conditions + `q` as listMemberSpeechesCursor (drives the interventii heatmap). Each
+   * day carries `comun` (joint-sitting turns) and `proprie` (= total - comun).
+   * `availableYears` is every year with any (filtered) turn — NOT bounded by the year
+   * argument. `spokenAt` is rejected by the usecase (the year bounds the range).
+   */
+  memberSpeechActivity(
+    mandateKey: string,
+    year: number,
+    filter: FilterInput,
+    q: string | undefined
+  ): Promise<Result<ParliamentMemberSpeechActivity, ApiError>>;
+  /**
+   * The verbatim transcript for one speech (parliament.speech_texts.full_text),
+   * resolved LAZILY (only when the client selects fullText). Returns null when the
+   * speech_texts table or the row is absent — never throws into the speech query.
+   */
+  getSpeechFullText(speechKey: string): Promise<Result<string | null, ApiError>>;
   listMemberInitiatives(
     mandateKey: string,
     page: OffsetParams

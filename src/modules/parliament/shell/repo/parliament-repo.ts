@@ -81,6 +81,7 @@ import {
   type ParliamentGroupInterval,
   type ParliamentInitiative,
   type ParliamentMember,
+  type ParliamentMemberSpeechActivity,
   type ParliamentMemberVote,
   type ParliamentMemberVoteActivity,
   type ParliamentPerson,
@@ -94,6 +95,8 @@ import {
   BILL_TYPES,
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberSpeechesFhash,
+  memberSpeechesFilterSpec,
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
@@ -119,6 +122,26 @@ const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
 
 const escapeLike = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
+
+/** Negative-TTL for the speech_texts usability probe (see `speechTextsExists`). */
+const SPEECH_TEXTS_NEG_TTL_MS = 60_000;
+
+/**
+ * Member-speech full-text `q` predicate: a literal (diacritic-sensitive) ILIKE
+ * substring over `s.title` OR `s.summary`, plus — only when `speech_texts` exists —
+ * an EXISTS over `parliament.speech_texts.full_text`. LIKE wildcards in the user
+ * token are escaped (`escapeLike` + `ESCAPE '\'`). `hasTexts` MUST come from the
+ * memoized `speechTextsExists` probe: referencing a missing relation fails at PARSE
+ * time regardless of any runtime `to_regclass` guard, so the branch is added only
+ * when the table is present. Exported for unit coverage (escape + branch shape).
+ */
+export const speechSearchPredicate = (q: string, hasTexts: boolean): RawBuilder<unknown> => {
+  const needle = '%' + escapeLike(q) + '%';
+  const textsBranch = hasTexts
+    ? sql` or exists (select 1 from parliament.speech_texts t where t.speech_key = s.speech_key and t.full_text ilike ${needle} escape '\\')`
+    : sql``;
+  return sql`(s.title ilike ${needle} escape '\\' or s.summary ilike ${needle} escape '\\'${textsBranch})`;
+};
 
 /**
  * Largest-remainder (Hamilton) apportionment of `counts` to 2-decimal percentages that
@@ -196,6 +219,19 @@ const VOTE_SELECT = [
   'v.bill_key',
   'v.law_reference',
   'v.attrs',
+] as const;
+
+/** Speech projection reused by the offset list AND the cursor connection (dates `::text`). */
+const SPEECH_SELECT = [
+  's.speech_key',
+  's.mandate_key',
+  's.speaker_name',
+  's.chamber',
+  sql<string | null>`s.spoken_at::text`.as('spoken_at'),
+  's.title',
+  's.summary',
+  's.source_url',
+  's.source_url_kind',
 ] as const;
 
 const BILL_SELECT = [
@@ -285,6 +321,38 @@ const containsValue = (f: Record<string, unknown> | undefined): string | undefin
 };
 
 export const makeParliamentRepo = (db: Db): ParliamentRepo => {
+  // `parliament.speech_texts` is created by a parallel backfill that may be running
+  // RIGHT NOW, so we probe USABILITY (can we read full_text?), not mere catalog
+  // existence — and we do NOT permanently memoize a negative result: a TRUE result is
+  // cached for the process lifetime, but a false/error is cached only for a short
+  // negative-TTL so the table appearing mid-process enables transcripts WITHOUT a
+  // restart. Single-flight: concurrent callers share one in-flight probe. Raw SQL (not
+  // `selectFrom`) keeps the read independent of the Kysely schema types, which do not
+  // yet carry the table.
+  let speechTextsUsable = false;
+  let lastNegativeProbeAt = 0;
+  let speechTextsProbeInFlight: Promise<boolean> | undefined;
+  const speechTextsExists = (): Promise<boolean> => {
+    if (speechTextsUsable) return Promise.resolve(true);
+    if (speechTextsProbeInFlight !== undefined) return speechTextsProbeInFlight;
+    if (Date.now() - lastNegativeProbeAt < SPEECH_TEXTS_NEG_TTL_MS) return Promise.resolve(false);
+    speechTextsProbeInFlight = (async () => {
+      try {
+        // `limit 0` proves the relation AND the `full_text` column are queryable
+        // without reading a row; a missing table/column throws → caught below.
+        await sql`select full_text from parliament.speech_texts limit 0`.execute(db);
+        speechTextsUsable = true;
+        return true;
+      } catch {
+        lastNegativeProbeAt = Date.now();
+        return false;
+      } finally {
+        speechTextsProbeInFlight = undefined;
+      }
+    })();
+    return speechTextsProbeInFlight;
+  };
+
   // ── members / groups / persons ──────────────────────────────────────────────
   const latestLegislature = async (): Promise<Result<string | null, ApiError>> => {
     try {
@@ -1459,15 +1527,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       async (p) => {
         const rows = await db
           .selectFrom('parliament.speeches as s')
-          .select([
-            's.speech_key',
-            's.mandate_key',
-            's.speaker_name',
-            's.chamber',
-            sql<string | null>`s.spoken_at::text`.as('spoken_at'),
-            's.title',
-            's.summary',
-          ])
+          .select(SPEECH_SELECT)
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false) // §2.6 — quarantined excluded by default
           .orderBy('s.spoken_at', 'desc')
@@ -1484,6 +1544,149 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       },
       page
     );
+
+  // Per-mandate speeches can reach ~35k rows (median 72), so — unlike member votes —
+  // we do NOT materialize + sort in memory. This is SQL keyset pagination on
+  // (spoken_at desc, speech_key desc), served index-ordered by speeches_mandate_idx.
+  const listMemberSpeechesCursor = async (
+    mandateKey: string,
+    page: CursorPageRequest,
+    filter: FilterInput,
+    q: string | undefined
+  ): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>> => {
+    const limit = Math.min(Math.max(page.first, 1), 100);
+    const fhash = memberSpeechesFhash(mandateKey, filter, q);
+    // Non-virtual spec (spokenAt/chamber on `s`) → compiles straight to SQL.
+    const built = toConditionBuilders(memberSpeechesFilterSpec, filter);
+    if (built.isErr()) return err(built.error);
+    const hasTexts = await speechTextsExists();
+    // baseConds = the FILTERED member slice (drives the exact total); the keyset
+    // predicate is added ON TOP for the page but MUST NOT touch the count.
+    const baseConds: RawBuilder<unknown>[] = [
+      sql`s.mandate_key = ${mandateKey}`,
+      sql`s.quarantined = false`, // §2.6 — quarantined excluded by default
+      ...built.value,
+    ];
+    if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
+
+    // Keyset on (spoken_at, speech_key), both DESC. Coalesce NULL date → '' in BOTH
+    // the ORDER BY and the predicate so a NULL-date turn sorts LAST (== NULLS LAST)
+    // and pagination never skips/duplicates at the null boundary. spoken_at::text is
+    // YYYY-MM-DD (lexical == chrono); speech_key is text (plain `<`).
+    const dateKey = sql`coalesce(s.spoken_at::text, '')`;
+    const pageConds = [...baseConds];
+    if (page.after !== undefined) {
+      const dec = decodeCursor(page.after, { sort: 'spokenAt', dir: 'desc', fhash });
+      if (dec.isErr()) return err(dec.error);
+      const keys = requireCursorKeys(dec.value.keys, 2);
+      if (keys.isErr()) return err(keys.error);
+      const [kDate, kKey] = keys.value;
+      pageConds.push(sql`(${dateKey}, s.speech_key) < (${kDate ?? ''}, ${kKey ?? ''})`);
+    }
+    try {
+      const [rows, cnt] = await Promise.all([
+        db
+          .selectFrom('parliament.speeches as s')
+          .select(SPEECH_SELECT)
+          .where(composeWhere(pageConds))
+          .orderBy(sql`${dateKey} desc, s.speech_key desc`)
+          .limit(limit + 1)
+          .execute(),
+        db
+          .selectFrom('parliament.speeches as s')
+          .select(sql<string>`count(*)`.as('cnt'))
+          .where(composeWhere(baseConds))
+          .executeTakeFirst(),
+      ]);
+      const hasMore = rows.length > limit;
+      const sliced = hasMore ? rows.slice(0, limit) : rows;
+      const items = sliced.map(mapSpeech);
+      const last = sliced[sliced.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({
+              sort: 'spokenAt',
+              dir: 'desc',
+              fhash,
+              lastKeys: [last.spoken_at ?? '', last.speech_key],
+            })
+          : null;
+      return ok({ items, next, total: Number(cnt?.cnt ?? 0) });
+    } catch (e) {
+      return err(databaseError('listMemberSpeechesCursor failed', e));
+    }
+  };
+
+  const memberSpeechActivity = async (
+    mandateKey: string,
+    year: number,
+    filter: FilterInput,
+    q: string | undefined
+  ): Promise<Result<ParliamentMemberSpeechActivity, ApiError>> => {
+    const built = toConditionBuilders(memberSpeechesFilterSpec, filter);
+    if (built.isErr()) return err(built.error);
+    const hasTexts = await speechTextsExists();
+    const baseConds: RawBuilder<unknown>[] = [
+      sql`s.mandate_key = ${mandateKey}`,
+      sql`s.quarantined = false`,
+      ...built.value,
+    ];
+    if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
+    // The year bounds the per-day window (the usecase rejects a spokenAt filter, so
+    // the year is the only date bound). availableYears is NOT year-bounded.
+    const yearStart = `${String(year)}-01-01`;
+    const yearEnd = `${String(year)}-12-31`;
+    const daysWhere = composeWhere([
+      ...baseConds,
+      sql`s.spoken_at >= ${yearStart}`,
+      sql`s.spoken_at <= ${yearEnd}`,
+    ]);
+    const yearsWhere = composeWhere([...baseConds, sql`s.spoken_at is not null`]);
+    try {
+      const [dayRows, yearRows] = await Promise.all([
+        db
+          .selectFrom('parliament.speeches as s')
+          .select([
+            sql<string>`s.spoken_at::text`.as('date'),
+            sql<string>`count(*)`.as('total'),
+            sql<string>`count(*) filter (where s.chamber = 'comun')`.as('comun'),
+          ])
+          .where(daysWhere)
+          .groupBy('s.spoken_at')
+          .orderBy('s.spoken_at', 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.speeches as s')
+          .select(sql<number>`extract(year from s.spoken_at)::int`.as('year'))
+          .distinct()
+          .where(yearsWhere)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+      ]);
+      const days = dayRows.map((r) => {
+        const total = Number(r.total);
+        const comun = Number(r.comun);
+        return { date: r.date, total, proprie: total - comun, comun };
+      });
+      return ok({ year, days, availableYears: yearRows.map((r) => r.year) });
+    } catch (e) {
+      return err(databaseError('memberSpeechActivity failed', e));
+    }
+  };
+
+  const getSpeechFullText = async (speechKey: string): Promise<Result<string | null, ApiError>> => {
+    // Degrade gracefully: no speech_texts table (parallel slice not landed) → null.
+    if (!(await speechTextsExists())) return ok(null);
+    try {
+      const r = await sql<{ full_text: string }>`
+        select t.full_text from parliament.speech_texts t where t.speech_key = ${speechKey} limit 1
+      `.execute(db);
+      return ok(r.rows[0]?.full_text ?? null);
+    } catch {
+      // A transient read error must never break the enclosing speech query.
+      return ok(null);
+    }
+  };
 
   const listMemberInitiatives = (mandateKey: string, page: OffsetParams) =>
     offsetActivity<ParliamentInitiative>(
@@ -2250,6 +2453,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     memberVoteActivity,
     listMemberControlItems,
     listMemberSpeeches,
+    listMemberSpeechesCursor,
+    memberSpeechActivity,
+    getSpeechFullText,
     listMemberInitiatives,
     listMemberDeclarations,
     listControlItems,

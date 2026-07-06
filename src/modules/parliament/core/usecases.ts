@@ -42,6 +42,7 @@ import {
   type ParliamentLineageVote,
   type ParliamentMember,
   type ParliamentMemberDetail,
+  type ParliamentMemberSpeechActivity,
   type ParliamentMemberVote,
   type ParliamentMemberVoteActivity,
   type ParliamentPerson,
@@ -383,6 +384,66 @@ export const getMemberSpeeches = (
   page: { page?: number; pageSize?: number }
 ): Promise<Result<OffsetResult<ParliamentSpeech>, ApiError>> =>
   deps.repo.listMemberSpeeches(mandateKey, normalizeOffset(page.page, page.pageSize));
+
+/** Max length of the member-speech search token (guards a pathological ILIKE). */
+export const SPEECH_Q_MAX = 200;
+
+/**
+ * Normalize a member-speech `q`: trim, LOWER-CASE, and treat empty as ABSENT
+ * (undefined). Pure + idempotent — the resolver threads the SAME normalized value into
+ * both the repo call and the connection's cursor fhash so paging never mismatches on
+ * the search term. Lower-casing is load-bearing for cursor identity: the predicate is
+ * `ILIKE` (case-insensitive), so 'Lege' and 'lege' are the SAME effective query and
+ * MUST share the fhash — normalizing to one canonical form guarantees they do.
+ */
+export const normalizeSpeechQ = (q: string | null | undefined): string | undefined => {
+  if (q === null || q === undefined) return undefined;
+  const t = q.trim().toLowerCase();
+  return t === '' ? undefined : t;
+};
+
+export const getMemberSpeechesConnection = (
+  deps: ParliamentUsecaseDeps,
+  mandateKey: string,
+  page: CursorPageRequest,
+  filter: FilterInput = {},
+  rawQ?: string | null
+): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>> =>
+  (async () => {
+    const q = normalizeSpeechQ(rawQ);
+    if (q !== undefined && q.length > SPEECH_Q_MAX) {
+      return err(invalidInput(`q must be at most ${String(SPEECH_Q_MAX)} characters`, 'q'));
+    }
+    return deps.repo.listMemberSpeechesCursor(mandateKey, page, filter, q);
+  })();
+
+export const getMemberSpeechActivity = (
+  deps: ParliamentUsecaseDeps,
+  mandateKey: string,
+  year: number,
+  filter: FilterInput = {},
+  rawQ?: string | null
+): Promise<Result<ParliamentMemberSpeechActivity, ApiError>> =>
+  (async () => {
+    // spokenAt is not a client bound here — the year argument bounds the range (a
+    // spokenAt filter would double-bound the per-day window and confuse the caller).
+    if (fieldHasValue(filter, 'spokenAt')) {
+      return err(
+        invalidInput(
+          'spokenAt is not accepted on speechActivity; the year argument bounds the range',
+          'spokenAt'
+        )
+      );
+    }
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
+    }
+    const q = normalizeSpeechQ(rawQ);
+    if (q !== undefined && q.length > SPEECH_Q_MAX) {
+      return err(invalidInput(`q must be at most ${String(SPEECH_Q_MAX)} characters`, 'q'));
+    }
+    return deps.repo.memberSpeechActivity(mandateKey, year, filter, q);
+  })();
 
 export const getMemberInitiatives = (
   deps: ParliamentUsecaseDeps,

@@ -43,6 +43,7 @@ import { toGraphQLInput } from '@/modules/shared/index.js';
 import {
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberSpeechesFilterSpec,
   memberVotesFilterSpec,
   membersFilterSpec,
   votesFilterSpec,
@@ -50,6 +51,7 @@ import {
 
 const votesFilter = toGraphQLInput(votesFilterSpec);
 const memberVotesFilter = toGraphQLInput(memberVotesFilterSpec);
+const memberSpeechesFilter = toGraphQLInput(memberSpeechesFilterSpec);
 const membersFilter = toGraphQLInput(membersFilterSpec);
 const billsFilter = toGraphQLInput(billsFilterSpec);
 const controlFilter = toGraphQLInput(controlItemsFilterSpec);
@@ -170,7 +172,22 @@ const objectsAndQuery = /* GraphQL */ `
     "Per-day voting activity for one calendar year (drives the activity heatmap). Reflects the SAME filter as the votes connection; a voteDate inside filter is rejected — the year argument bounds the range."
     voteActivity(year: Int!, filter: ParliamentMemberVotesFilter): ParliamentMemberVoteActivity!
     controlItems(page: Int, pageSize: Int): ParliamentControlItemPage!
+    "This member's speeches, LEGACY offset page (kept for existing callers). For a filterable/searchable, keyset-paginated view use speechesConnection."
     speeches(page: Int, pageSize: Int): ParliamentSpeechPage!
+    "This member's speeches (cursor; keyset spokenAt desc, speechKey desc). The optional filter (spokenAt/chamber) and free-text q (title + summary + verbatim transcript) narrow the set; connection.total is then the EXACT filtered count. A turn is one intervention; per-mandate volume can be very large, so this is SQL keyset — always page via the cursor."
+    speechesConnection(
+      first: Int
+      after: String
+      filter: ParliamentMemberSpeechesFilter
+      "Free-text substring (case-insensitive, diacritic-sensitive) over title + summary + the verbatim transcript. Part of the cursor identity: a cursor minted under one q cannot replay under another."
+      q: String
+    ): ParliamentMemberSpeechConnection!
+    "Per-day speech activity for one calendar year (drives the interventii heatmap). Reflects the SAME filter + q as speechesConnection; a spokenAt inside filter is rejected — the year argument bounds the range."
+    speechActivity(
+      year: Int!
+      filter: ParliamentMemberSpeechesFilter
+      q: String
+    ): ParliamentMemberSpeechActivity!
     initiatives(page: Int, pageSize: Int): ParliamentInitiativePage!
     declarations: [ParliamentDeclarationMeta!]!
     "Committee seats for this member (B2). cdep seats link by mandate; senate seats via the current-roster join (a current senator's committee memberships). Senate committee coverage is the CURRENT roster ONLY — a historical (non-current) senator returns an empty list by data availability, not by error. Ordered current-first. No group / raw name (PDL-003)."
@@ -256,6 +273,32 @@ const objectsAndQuery = /* GraphQL */ `
   type ParliamentMemberVoteActivity {
     year: Int!
     days: [ParliamentMemberVoteActivityDay!]!
+    availableYears: [Int!]!
+  }
+
+  type ParliamentMemberSpeechEdge {
+    node: ParliamentSpeech!
+    cursor: String!
+  }
+  "A member's speeches (parented by mandate_key; keyset spokenAt desc). total is the EXACT count over the filtered/searched slice."
+  type ParliamentMemberSpeechConnection {
+    edges: [ParliamentMemberSpeechEdge!]!
+    pageInfo: PageInfo!
+    total: Int!
+  }
+  "One calendar day of a member's speeches (the interventii-heatmap cell); proprie + comun = total."
+  type ParliamentMemberSpeechActivityDay {
+    date: Date!
+    total: Int!
+    "Turns in this member's own chamber (total - comun)."
+    proprie: Int!
+    "Turns in a joint sitting (chamber = comun)."
+    comun: Int!
+  }
+  "A member's per-day speech activity for one year. availableYears is every year the member has any (filtered) turn, NOT bounded by the requested year."
+  type ParliamentMemberSpeechActivity {
+    year: Int!
+    days: [ParliamentMemberSpeechActivityDay!]!
     availableYears: [Int!]!
   }
 
@@ -361,6 +404,12 @@ const objectsAndQuery = /* GraphQL */ `
     title: String
     summary: String
     chamber: String
+    "Link back to the source stenogram. See sourceUrlKind for how precisely it locates this turn."
+    sourceUrl: String
+    "'exact' → deep-links this turn (safe to present as an authoritative link). 'lossy_root' → resolves only to the sitting/section root (Senate stenograms carry no per-turn anchor); do NOT present as an exact deep-link to this speech."
+    sourceUrlKind: String
+    "Verbatim transcript text (parliament.speech_texts). Resolved lazily — only fetched when selected — and null when the transcript is not yet loaded for this turn."
+    fullText: String
   }
   type ParliamentInitiative {
     initiativeKey: ID!
@@ -689,4 +738,4 @@ const objectsAndQuery = /* GraphQL */ `
   }
 `;
 
-export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
+export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;

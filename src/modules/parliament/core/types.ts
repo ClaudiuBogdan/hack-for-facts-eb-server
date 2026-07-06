@@ -314,6 +314,33 @@ export interface ParliamentSpeech {
   readonly spokenAt: string | null;
   readonly title: string | null;
   readonly summary: string | null; // quarantined rows EXCLUDED by default (§2.6)
+  // Source-traceability path (§ source-traceability). `sourceUrlKind`:
+  //  - 'exact'      → deep-links the turn; safe to present as an authoritative link.
+  //  - 'lossy_root' → resolves only to the sitting/section root (Senate stenograms
+  //    carry no per-turn anchor); do NOT present as an exact deep-link.
+  readonly sourceUrl: string | null;
+  readonly sourceUrlKind: string | null;
+  // Verbatim transcript text (parliament.speech_texts.full_text). Resolved LAZILY at
+  // the GraphQL layer ONLY when selected — never materialized in list/count queries —
+  // and null when the speech_texts table/row is absent. Not part of the mapped row.
+  readonly fullText?: string | null;
+}
+
+/** One calendar day of a member's speeches (the activity-heatmap cell). */
+export interface ParliamentMemberSpeechActivityDay {
+  readonly date: string; // YYYY-MM-DD
+  readonly total: number;
+  // `comun` = turns in a joint sitting (chamber='comun'); `proprie` = own-chamber
+  // turns (total - comun). The two partition `total`.
+  readonly proprie: number;
+  readonly comun: number;
+}
+
+/** A member's per-day speech activity for one year + the years with any activity. */
+export interface ParliamentMemberSpeechActivity {
+  readonly year: number;
+  readonly days: readonly ParliamentMemberSpeechActivityDay[];
+  readonly availableYears: readonly number[];
 }
 
 /** Declaration metadata ONLY — never content; `fileHash` excluded (§2.6). */
