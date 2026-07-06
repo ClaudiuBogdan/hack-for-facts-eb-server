@@ -378,7 +378,10 @@ function isCampaignSubscriptionStatsRoute(url: string): boolean {
   );
 }
 
-function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequest): boolean {
+function shouldBypassGlobalAuthValidation(
+  request: import('fastify').FastifyRequest,
+  redesignSurfaceMounted: boolean
+): boolean {
   const path = getRequestPath(request.url);
 
   if (request.method === 'OPTIONS') {
@@ -393,7 +396,11 @@ function shouldBypassGlobalAuthValidation(request: import('fastify').FastifyRequ
     return true;
   }
 
-  if (REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
+  // Only bypass for the redesign surface when it is actually mounted — with the
+  // flag off these paths are unregistered, and an unauthenticated request to
+  // them must behave exactly as before the flag existed (401 from the auth
+  // middleware, not a 404 short-circuit).
+  if (redesignSurfaceMounted && REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
     return true;
   }
 
@@ -1038,8 +1045,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     if (deps.authProvider !== undefined) {
       // Full auth middleware with token verification
       const authMiddleware = makeAuthMiddleware({ authProvider: deps.authProvider });
+      // Same effective condition as the mount block above: both the flag AND the
+      // kernel config must be present for the redesign routes to exist.
+      const redesignSurfaceMounted =
+        config.redesignSurface.enabled && deps.redesignKernelConfig !== undefined;
       app.addHook('preHandler', async (request, reply) => {
-        if (shouldBypassGlobalAuthValidation(request)) {
+        if (shouldBypassGlobalAuthValidation(request, redesignSurfaceMounted)) {
           request.auth = ANONYMOUS_SESSION;
           return;
         }
