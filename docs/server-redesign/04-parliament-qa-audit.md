@@ -18,42 +18,42 @@ tests). **Scrapper/data-origin bugs are GATED** (need approval before any
 reload/recompute) and tracked in
 `hack-for-facts-eb-scrapper/prod-db/PARLIAMENT_QA_DATA_OPS.md`.
 
-| ID | Status | Where |
-| -- | ------ | ----- |
-| C1 | ✅ DONE — scrapper SQL recompute-from-nominal executed (35 inflated tallies corrected, 0 regressions); server M1 detector wired | data-ops P0 |
-| H1a/H1b | ✅ FIXED | server |
-| H2 | ✅ FIXED — 9 root fields nullable (codex found 3 beyond the 6) | server |
-| H3 | GATED — senat fişă detail-port | data-ops P1 |
-| H4 | ✅ FIXED — SDL signposts finalized vs hasLaw | server |
-| H5 | ✅ DONE — parseFinalLaw wired into senat lane + reloaded; 1,575 senat bills now carry final_law_number/year | data-ops P1 |
-| H6 | ✅ FIXED | server |
-| H7 | ✅ FIXED | server |
-| H8 | ✅ FIXED — ballots-200 cap documented; clamp kept (codex D2) | server |
-| H9 | ✅ FIXED — 1000 cap dropped | server |
-| H10 | ✅ FIXED — full member shape | server |
-| H11 | ✅ DONE — interpelari attribution backfilled (split_pass author/mandate 0→41,929 via sender_idm→2:leg:idm; loader fix `main 7aaea29` + serving recompute; 0 FK orphans, idempotent) | data-ops P2 |
-| H12 | GATED — net-new senate control/decl extraction | data-ops P3 |
-| H13 | ✅ FIXED | server |
-| H14 | ✅ FIXED — caveats report omitted; roles:["all"] widens. **Default unchanged — changing it is escalated to the user** | server |
-| H15 | ✅ DONE (data) — `correlate --stages bill-act-links` backfilled 1,498 senat act-links (0→1,498 linked, 77 unresolved, 0 ambiguous; cdep 3,410 unchanged; senat:606-2024→act 162403). Server kernel resolver still DEFERRED (codex D6) | data-ops P1 |
-| M1 | ✅ FIXED — raw-attrs presence (audit/agent `!= null` would also have failed) | server |
-| M2 | ✅ FIXED — reject kept; H2 isolates it (audit overstated "unimplemented") | server |
-| M3 | ✅ DONE — collapsed into H5 (parseFinalLaw is date-aware); 837 senat bills have year≠senate_year proving the date-derived year | data-ops P1 |
-| M4 | ✅ FIXED — SDL clarity (field raw vs bucketed filter) | server |
-| M5 | ✅ DONE — committee extracted from description into text[] (87,894 events, 94 committees, 0 junk); server `committee: [String!]` (`dev 0176059`) + client array (`dev d16453c`) + scrapper `main 6c396ae` | server + data-ops P2 |
-| M6 | RECLASSIFIED — not a bug (date absent at source); documented | server doc |
-| M7 | ✅ FIXED — registry resolves historical slugs (audit overstated) | server |
-| M8 | ✅ DONE — slugify folds acronym dots (`main 8ed6eac`); S.O.S. RO merged into sos-ro-senat (12 mandates, 20 merged intervals; s-o-s-ro-senat removed, 0 refs, idempotent) | data-ops P3 |
-| M9 | ✅ DONE — control-stream unification: combined_pass refined to question 32,962 / interpellation 6,751 via item_number A/B (127 no-suffix kept question_or_interpellation); provenance preserved | data-ops P2 |
-| M10 | ✅ FIXED — declarationYear + synthesized label | server |
-| M11 | ✅ FIXED — SDL doc (statusText raw; use status filter) | server |
-| M12 | ✅ FIXED — largest-remainder → sum 100.00 | server |
-| M13 | ✅ FIXED — cohesionIndex nullable, null when no decided votes | server |
-| M14 | ✅ FIXED — relatedVotes @deprecated → voteLinks | server |
-| M15 | ✅ FIXED — caveats carry real content | server |
-| M16 | ✅ FIXED — BallotConnection.total. **OVERSTATED**: ballotsTotal/Resolved are not dead (conditional on includeBallots) | server |
-| M17 | NOT-A-BUG — latent only (DDL enforces NOT NULL); left as-is | — |
-| M18 | DECISION — REST is a platform-wide roadmap item, GraphQL+MCP-first by design | doc/roadmap |
+| ID      | Status                                                                                                                                                                                                                                | Where                |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| C1      | ✅ DONE — scrapper SQL recompute-from-nominal executed (35 inflated tallies corrected, 0 regressions); server M1 detector wired                                                                                                       | data-ops P0          |
+| H1a/H1b | ✅ FIXED                                                                                                                                                                                                                              | server               |
+| H2      | ✅ FIXED — 9 root fields nullable (codex found 3 beyond the 6)                                                                                                                                                                        | server               |
+| H3      | GATED — senat fişă detail-port                                                                                                                                                                                                        | data-ops P1          |
+| H4      | ✅ FIXED — SDL signposts finalized vs hasLaw                                                                                                                                                                                          | server               |
+| H5      | ✅ DONE — parseFinalLaw wired into senat lane + reloaded; 1,575 senat bills now carry final_law_number/year                                                                                                                           | data-ops P1          |
+| H6      | ✅ FIXED                                                                                                                                                                                                                              | server               |
+| H7      | ✅ FIXED                                                                                                                                                                                                                              | server               |
+| H8      | ✅ FIXED — ballots-200 cap documented; clamp kept (codex D2)                                                                                                                                                                          | server               |
+| H9      | ✅ FIXED — 1000 cap dropped                                                                                                                                                                                                           | server               |
+| H10     | ✅ FIXED — full member shape                                                                                                                                                                                                          | server               |
+| H11     | ✅ DONE — interpelari attribution backfilled (split_pass author/mandate 0→41,929 via sender_idm→2:leg:idm; loader fix `main 7aaea29` + serving recompute; 0 FK orphans, idempotent)                                                   | data-ops P2          |
+| H12     | GATED — net-new senate control/decl extraction                                                                                                                                                                                        | data-ops P3          |
+| H13     | ✅ FIXED                                                                                                                                                                                                                              | server               |
+| H14     | ✅ FIXED — caveats report omitted; roles:["all"] widens. **Default unchanged — changing it is escalated to the user**                                                                                                                 | server               |
+| H15     | ✅ DONE (data) — `correlate --stages bill-act-links` backfilled 1,498 senat act-links (0→1,498 linked, 77 unresolved, 0 ambiguous; cdep 3,410 unchanged; senat:606-2024→act 162403). Server kernel resolver still DEFERRED (codex D6) | data-ops P1          |
+| M1      | ✅ FIXED — raw-attrs presence (audit/agent `!= null` would also have failed)                                                                                                                                                          | server               |
+| M2      | ✅ FIXED — reject kept; H2 isolates it (audit overstated "unimplemented")                                                                                                                                                             | server               |
+| M3      | ✅ DONE — collapsed into H5 (parseFinalLaw is date-aware); 837 senat bills have year≠senate_year proving the date-derived year                                                                                                        | data-ops P1          |
+| M4      | ✅ FIXED — SDL clarity (field raw vs bucketed filter)                                                                                                                                                                                 | server               |
+| M5      | ✅ DONE — committee extracted from description into text[] (87,894 events, 94 committees, 0 junk); server `committee: [String!]` (`dev 0176059`) + client array (`dev d16453c`) + scrapper `main 6c396ae`                             | server + data-ops P2 |
+| M6      | RECLASSIFIED — not a bug (date absent at source); documented                                                                                                                                                                          | server doc           |
+| M7      | ✅ FIXED — registry resolves historical slugs (audit overstated)                                                                                                                                                                      | server               |
+| M8      | ✅ DONE — slugify folds acronym dots (`main 8ed6eac`); S.O.S. RO merged into sos-ro-senat (12 mandates, 20 merged intervals; s-o-s-ro-senat removed, 0 refs, idempotent)                                                              | data-ops P3          |
+| M9      | ✅ DONE — control-stream unification: combined_pass refined to question 32,962 / interpellation 6,751 via item_number A/B (127 no-suffix kept question_or_interpellation); provenance preserved                                       | data-ops P2          |
+| M10     | ✅ FIXED — declarationYear + synthesized label                                                                                                                                                                                        | server               |
+| M11     | ✅ FIXED — SDL doc (statusText raw; use status filter)                                                                                                                                                                                | server               |
+| M12     | ✅ FIXED — largest-remainder → sum 100.00                                                                                                                                                                                             | server               |
+| M13     | ✅ FIXED — cohesionIndex nullable, null when no decided votes                                                                                                                                                                         | server               |
+| M14     | ✅ FIXED — relatedVotes @deprecated → voteLinks                                                                                                                                                                                       | server               |
+| M15     | ✅ FIXED — caveats carry real content                                                                                                                                                                                                 | server               |
+| M16     | ✅ FIXED — BallotConnection.total. **OVERSTATED**: ballotsTotal/Resolved are not dead (conditional on includeBallots)                                                                                                                 | server               |
+| M17     | NOT-A-BUG — latent only (DDL enforces NOT NULL); left as-is                                                                                                                                                                           | —                    |
+| M18     | DECISION — REST is a platform-wide roadmap item, GraphQL+MCP-first by design                                                                                                                                                          | doc/roadmap          |
 
 **Audit claims corrected by the investigation (verified):** C1 scope 13/2-days →
 **32 votes / 5 days**, root cause = senat.ro group-totals inflation (NOT a double
@@ -412,3 +412,34 @@ These checks establish what works and should not be re-litigated without reason:
 ## Appendix B — Reproducibility
 
 All raw evidence (specialist reports + query files + JSON outputs) is retained in the audit workspace outside the repo. Key reproduction snippets are inline in each bug entry above. The GraphQL endpoint and helper conventions are documented in the audit's `SCHEMA.md` reference (field names verified via introspection — note that several field names differ from the design doc, e.g. `ParliamentGroup.name` not `groupName`).
+
+---
+
+## Appendix C — Re-verification after data fix (2026-06-20)
+
+> **Context:** After a parliament data fix was applied, every headline bug from this report was re-verified against the live API (`localhost:3001`), then the still-present set was double-checked at scale by a 4-agent team (reports in `team/recheck-*.md`). The CRITICAL bug is fixed with **no regressions**; 11 of the original 16 HIGH/MED bugs are resolved; 7 remain, of which 2 are partially mitigated.
+
+### Fixed (11) — confirmed resolved, no regression
+
+C1 (Senate tally ×2 — all 13 keys clean, 0 impossible tallies on the 2 days or in recent sample), H1 (`group` resolver — member.group 0/10 null, interval.group 0/21 null), H2 (non-null error propagation — sibling fields now survive), H5 (1,575 null `finalLawNumber` → 0/5,203), H6 (`group` filter slug form — `pnl-senat` 0→23), H7 (`members.group.in:[]` → 0, consistent), H9 (`groupMembers` 1000 cap → PSD now 1,336), H10 (`bill.initiators` — 0/4 fields null), H13 (lineage senat vote `billKey` → correct `senat:128-2026`), H15 (senat laws reachable — 9/11 now `linked`), plus M3 (senat `finalLawYear`) and the Senate `nuAVotat` null data-quality issue (100% null → 0%).
+
+### Still present (7) — double-checked at scale
+
+| ID      | Verdict             | Scale-verified evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H3**  | CONFIRMED           | **57/57** senat bills (3 statuses, 2016–2026, both resolvers): `billType=null`, 0 initiators/events/documents. Only `finalLawNumber` got fixed (H5); relations 100% untouched. cdep is 93–100% populated.                                                                                                                                                                                                                                                                                                                                             |
+| **H4**  | CONFIRMED           | Diff **295** (widened from 218; cdep 218 / senat 77), strictly one-directional: `hasLaw:true` (4,908) ⊊ `finalized:notNull` (5,203), **0 reverse cases**. All 295 have a parsed `finalLawNumber` but their `becomes_law` actLink stuck at `resolutionStatus="unresolved"`. The H5 backfill outpaced actLink matching.                                                                                                                                                                                                                                 |
+| **H8**  | CONFIRMED           | `pageSize:0/-1→20`, `101/99999→100`; cursor `first:0/-1→1`, `101→100`. **No validation** — silent coercion. Asymmetry: `pageSize:0→20` but `first:0→1`. Source fallbacks still at `pagination.ts:45-55`, `resolvers.ts:77`.                                                                                                                                                                                                                                                                                                                           |
+| **H12** | CONFIRMED           | **134/134** current senators (and 430 mandates across 2016/2020/2024): controlItems=0, declarations=0. The entire 18,100+ control dataset is cdep-only (`cdep_control:` prefix) — zero senat items under any filter. **Scope is precise:** votes/speeches/initiatives DO work for senat (avg 1,089 votes, 114 speeches, 52 initiatives/senator). Root cause: no senat.ro control/declarations feed wired in (since ≥2016).                                                                                                                            |
+| **M2**  | CONFIRMED           | Cap nailed to 500 votes: cdep 2024-01-01→**Sep 23 = 488 OK**, →**Sep 24 = 510 THROWS**. Hard-throws on **both** GraphQL and MCP. No `overflow` field in SDL or MCP. `rankVoteCohesion` converts `voteKeysForWindow.overflow` into a hard error (`usecases.ts:475`).                                                                                                                                                                                                                                                                                   |
+| **M1**  | **PARTIALLY FIXED** | Code bug fixed — `mapVote` now reads `rawAttrs['tally_mismatch'] != null` (`mappers.ts:257`) instead of the always-false `attrs['tally_mismatch'] === true`. BUT the flag is still never true (0/~1,800 votes) because the `tally_mismatch` attr is **absent from the data** — the C1 fix reconciled those votes cleanly, so there is nothing to flag. Now dead for a _data_ reason, not _code_.                                                                                                                                                      |
+| **H14** | **PARTIALLY FIXED** | Default still drops **59/293 (20.1%)** of linked votes (`unknown` 36/36, `procedural` 10/10, `amendment` 13/13; incl. 23 HIGH-confidence); headline case `senat:49A7F3F3` still omitted. **Two mitigations landed:** (1) `caveats` now populated on **46/154 (29.9%)** of acts with a partial-vs-total-omission message; (2) a new **`roles:["all"]` argument works** — recovers every dropped vote (verified on 5 acts). The `roles` arg is undocumented in `SCHEMA.md`; default behavior still hard-filters without surfacing the dropped voteKeys. |
+
+### Regression check
+
+The C1 fix introduced **no new corrupted votes**: 0 impossible tallies (`pentru > present`) on 2022-05-09 (8 votes), 2022-06-15 (10 votes), or a recent 100-vote senat sample. The 3 formerly-"missing" C1 keys were a script artifact; all 13 are present and reconciled (tally == ballots, groupBreakdown sums match).
+
+### Outstanding work
+
+- **Scrapper gaps (data):** H3 (senat bill relations — initiators/events/documents/billType) and H12 (senat control items + declarations feed) — both trace to missing senat.ro ingestion, present since ≥2016.
+- **Server (quick wins, root-caused):** H8 (validate `pageSize`/`first` bounds — one-liner in `pagination.ts`/`resolvers.ts`) and M2 (surface `overflow` instead of throwing — `usecases.ts:475`). H4 (resolve the 295 `unresolved` actLinks or document `hasLaw` as advisory-only). H14 (document `roles:["all"]`; consider making default include all linked votes).

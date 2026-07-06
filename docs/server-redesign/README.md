@@ -36,25 +36,32 @@ Decisions locked by the user (2026-06-16): plans in the server repo; **one plan
 per data source**; **module-per-source + shared kernel**; **full REST + GraphQL +
 MCP** per module.
 
-| # | Source | Prod schema | Status | Plan |
-|---|--------|-------------|--------|------|
-| — | **shared kernel** | `core`, `flows`, `search` | foundation | [`00`](00-foundation-shared-kernel.md) |
-| 01 | reference (ins + mfin + public-entities) | `core` | live (hub overlaps kernel) | [`01`](01-reference.md) |
-| 02 | budget (budget-official + anaf-extranet) | `budget`, `budget_staging` | live (heavy/partitioned) | [`02`](02-budget.md) |
-| 03 | private-companies | `companies` | live (3.98M CUI spine) | [`03`](03-private-companies.md) |
-| 04 | parliament | `parliament` | live | [`04`](04-parliament.md) |
-| 05 | portal-legislativ | `legal` (acts) | live — **owns `legal` module skeleton** | [`05`](05-portal-legislativ.md) |
-| 06 | monitorul-oficial | `legal` (mo_*) | live — **extends `legal` skeleton** | [`06`](06-monitorul-oficial.md) |
-| 07 | pnrr | `pnrr` | live (most complete prior art) | [`07`](07-pnrr.md) |
-| 08 | judicial-cases | `justice` | live — **privacy-critical** | [`08`](08-judicial-cases.md) |
-| 09 | ngos | `ngo` (absent) | **forward-looking** — ships disabled | [`09`](09-ngos.md) |
-| 10 | public-contracts | `procurement` | live (17M+ rows, heavy) | [`10`](10-public-contracts.md) |
-| 11 | primarii-transparency | `primarii_transparency` | live (DDL recent; some tables empty) | [`11`](11-primarii-transparency.md) |
-| 12 | wikipedia-local-politics | `local_politics` (absent) | **forward-looking** — raw-only, non-authoritative | [`12`](12-wikipedia-local-politics.md) |
+| #   | Source                                   | Prod schema                | Status                                            | Plan                                   |
+| --- | ---------------------------------------- | -------------------------- | ------------------------------------------------- | -------------------------------------- |
+| —   | **shared kernel**                        | `core`, `flows`, `search`  | foundation                                        | [`00`](00-foundation-shared-kernel.md) |
+| 01  | reference (ins + mfin + public-entities) | `core`                     | live (hub overlaps kernel)                        | [`01`](01-reference.md)                |
+| 02  | budget (budget-official + anaf-extranet) | `budget`, `budget_staging` | live (heavy/partitioned)                          | [`02`](02-budget.md)                   |
+| 03  | private-companies                        | `companies`                | live (3.98M CUI spine)                            | [`03`](03-private-companies.md)        |
+| 04  | parliament                               | `parliament`               | live                                              | [`04`](04-parliament.md)               |
+| 05  | portal-legislativ                        | `legal` (acts)             | live — **owns `legal` module skeleton**           | [`05`](05-portal-legislativ.md)        |
+| 06  | monitorul-oficial                        | `legal` (mo\_\*)           | live — **extends `legal` skeleton**               | [`06`](06-monitorul-oficial.md)        |
+| 07  | pnrr                                     | `pnrr`                     | live (most complete prior art)                    | [`07`](07-pnrr.md)                     |
+| 08  | judicial-cases                           | `justice`                  | live — **privacy-critical**                       | [`08`](08-judicial-cases.md)           |
+| 09  | ngos                                     | `ngo` (absent)             | **forward-looking** — ships disabled              | [`09`](09-ngos.md)                     |
+| 10  | public-contracts                         | `procurement`              | live (17M+ rows, heavy)                           | [`10`](10-public-contracts.md)         |
+| 11  | primarii-transparency                    | `primarii_transparency`    | live (DDL recent; some tables empty)              | [`11`](11-primarii-transparency.md)    |
+| 12  | wikipedia-local-politics                 | `local_politics` (absent)  | **forward-looking** — raw-only, non-authoritative | [`12`](12-wikipedia-local-politics.md) |
 
 **v1-deliverable now:** 01–08, 10, 11 (10 modules, grounded in live data). **Not
 v1 (ship feature-flag-disabled, gated on a scrapper data slice):** 09 (ngos), 12
 (wikipedia-local-politics).
+
+### Audit reports
+
+| Source | Report                                                                 | Summary                                                                                                                                                                                                                                                                                                                                                                        |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 03     | [`03-private-companies-qa-audit.md`](03-private-companies-qa-audit.md) | Data-accuracy & API audit (2026-06-20): ~30 bugs (4 CRITICAL, 7 HIGH) + ~10 DQ issues found by a 7-agent team at prod scale. Headline: `groupBy:CAEN_DIVISION` crash/silent-bypass cluster (C1–C4), `netResultDelta` ignores `netLoss` (H1, 42% misleading), non-null error propagation (H2), `byYear.year` 100% null (H4). Spine identity is bulletproof. Fix priority in §9. |
+| 04     | [`04-parliament-qa-audit.md`](04-parliament-qa-audit.md)               | Data-accuracy & API audit (2026-06-20): 35 bugs (1 CRITICAL, 15 HIGH) + ~20 DQ issues found by an 8-agent team at prod scale. Headline: Senate tally ×2 corruption (C1), non-null error propagation (H2), broken `group` resolver (H1), and the Senate data-deficit cluster. Fix priority in §8 of the report.                                                                 |
 
 ## Architecture in one paragraph
 
@@ -82,39 +89,39 @@ the kernel filter pipeline, contributor registry, cursor encoder, and scalar tab
 without inventing its own. These are the resolved cross-plan items (all folded into
 `00` §14/§15; recorded here as the canonical decision log):
 
-| # | Item | Resolution |
-|---|------|------------|
-| R1 | **doc_type names** were stale in the contract | Corrected to live: MO = `mo_act` (not `mo_publication`); portal sections = `portal_section`; **no `pnrr_payment` doc_type** (per-payment docs excluded); PNRR uses entity/announcement/acquisition/contractor/measure. Full list in `00` §4.5. |
-| R2 | **GraphQL namespacing vs kernel base types** | §14.8 "always prefix" applies to *module-owned* types only. Kernel `shared/core` types (`Entity`, `Organization`, `Territory`, `MoneyFlow`, `Document`, `PageInfo`, scalars) are reused un-prefixed and never re-declared. (`LegalAct` is portal-owned → stays `Legal*`.) |
-| R3 | **`SourcePresence`/`EntityProfileSlice` shape** unspecified (every contributor assumed a different one) | Canonical **open** shapes specified in `00` §4.4: common fields + a per-source `attrs`/`data` payload. Old fixed boolean record retired. GraphQL `Entity.<source>` resolvers call the same `contributor.profileSlice` (tri-surface parity). |
-| R4 | **Search capability** can't be one global boolean | Per-domain `SearchCapabilities` slots (`00` §14.5): `legal` semantic is LIVE (HNSW exists); `judicial` is policy-OFF even if pgvector lands (person-leak audit pending); all others OFF (no vector column). |
-| R5 | **CUI→territory** needed but `TerritoryRepo` is SIRUTA-keyed | New kernel `IdentityRepo.territoryForCui(cui)` (`00` §15.3). Until it ships, the CUI-only modules' (11, 12) geo filters are capability-gated, not silently wrong. |
-| R6 | **`act_id → LegalAct` cross-module resolution** (04 + 08 need it; §2 forbids importing the legal module) | Kernel owns a `LegalActByIdLoader` port; the `legal` module (05) provides the implementation (`findActsByIds`) and registers it; it tolerates dangling `target_act_id` (returns `null` + status, never errors). `00` §15.4. |
-| R7 | **legal module 05↔06** field-set + contributor-count mismatch | ONE `makeLegalModule` (portal-owned skeleton + `LegalAct` base + `LegalRepoBase` + shared `act_type`/`issuer`/`domain`/`year` filters); MO contributes `makeMonitorulSurface`. MO extends `LegalAct` with the **gazette field set** (`gazettePublications`/`gazetteStatusEvents`/`gazetteInEdges`) — portal permits the multi-field extension. Module registers exactly **one** contributor (`monitorul-oficial`); portal registers none in v1. Fixed in both plans + `00` §9. |
-| R8 | **Money nullability** | `Money` is nullable where the column is (PNRR amounts, procurement values) — GraphQL uses `Money` not `Money!` there. `00` §15.5. |
-| R9 | **Array-typed filter fields** | Compile to membership (`@>`/overlap), not trigram substring (reference `tags`, legal `domains`). `00` §15.6. |
-| R10 | **Name folding** | `unaccent` is NOT installed and C-locale `lower()` doesn't fold RO diacritics, and `core.organizations.name` has no trigram index → kernel name search is Meili-primary with a bounded pg fallback folded in TS. `00` §15.7. |
-| R11 | **Grain gate (§14.6)** | Verified COMPLIANT across budget/procurement/pnrr/companies — source-native top-N/HHI/concentration come from each source's own rollups; only the unified entity-360 flow summary uses `flows.money_flows`; no plan mixes grains in one number. |
+| #   | Item                                                                                                     | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R1  | **doc_type names** were stale in the contract                                                            | Corrected to live: MO = `mo_act` (not `mo_publication`); portal sections = `portal_section`; **no `pnrr_payment` doc_type** (per-payment docs excluded); PNRR uses entity/announcement/acquisition/contractor/measure. Full list in `00` §4.5.                                                                                                                                                                                                                                 |
+| R2  | **GraphQL namespacing vs kernel base types**                                                             | §14.8 "always prefix" applies to _module-owned_ types only. Kernel `shared/core` types (`Entity`, `Organization`, `Territory`, `MoneyFlow`, `Document`, `PageInfo`, scalars) are reused un-prefixed and never re-declared. (`LegalAct` is portal-owned → stays `Legal*`.)                                                                                                                                                                                                      |
+| R3  | **`SourcePresence`/`EntityProfileSlice` shape** unspecified (every contributor assumed a different one)  | Canonical **open** shapes specified in `00` §4.4: common fields + a per-source `attrs`/`data` payload. Old fixed boolean record retired. GraphQL `Entity.<source>` resolvers call the same `contributor.profileSlice` (tri-surface parity).                                                                                                                                                                                                                                    |
+| R4  | **Search capability** can't be one global boolean                                                        | Per-domain `SearchCapabilities` slots (`00` §14.5): `legal` semantic is LIVE (HNSW exists); `judicial` is policy-OFF even if pgvector lands (person-leak audit pending); all others OFF (no vector column).                                                                                                                                                                                                                                                                    |
+| R5  | **CUI→territory** needed but `TerritoryRepo` is SIRUTA-keyed                                             | New kernel `IdentityRepo.territoryForCui(cui)` (`00` §15.3). Until it ships, the CUI-only modules' (11, 12) geo filters are capability-gated, not silently wrong.                                                                                                                                                                                                                                                                                                              |
+| R6  | **`act_id → LegalAct` cross-module resolution** (04 + 08 need it; §2 forbids importing the legal module) | Kernel owns a `LegalActByIdLoader` port; the `legal` module (05) provides the implementation (`findActsByIds`) and registers it; it tolerates dangling `target_act_id` (returns `null` + status, never errors). `00` §15.4.                                                                                                                                                                                                                                                    |
+| R7  | **legal module 05↔06** field-set + contributor-count mismatch                                            | ONE `makeLegalModule` (portal-owned skeleton + `LegalAct` base + `LegalRepoBase` + shared `act_type`/`issuer`/`domain`/`year` filters); MO contributes `makeMonitorulSurface`. MO extends `LegalAct` with the **gazette field set** (`gazettePublications`/`gazetteStatusEvents`/`gazetteInEdges`) — portal permits the multi-field extension. Module registers exactly **one** contributor (`monitorul-oficial`); portal registers none in v1. Fixed in both plans + `00` §9. |
+| R8  | **Money nullability**                                                                                    | `Money` is nullable where the column is (PNRR amounts, procurement values) — GraphQL uses `Money` not `Money!` there. `00` §15.5.                                                                                                                                                                                                                                                                                                                                              |
+| R9  | **Array-typed filter fields**                                                                            | Compile to membership (`@>`/overlap), not trigram substring (reference `tags`, legal `domains`). `00` §15.6.                                                                                                                                                                                                                                                                                                                                                                   |
+| R10 | **Name folding**                                                                                         | `unaccent` is NOT installed and C-locale `lower()` doesn't fold RO diacritics, and `core.organizations.name` has no trigram index → kernel name search is Meili-primary with a bounded pg fallback folded in TS. `00` §15.7.                                                                                                                                                                                                                                                   |
+| R11 | **Grain gate (§14.6)**                                                                                   | Verified COMPLIANT across budget/procurement/pnrr/companies — source-native top-N/HHI/concentration come from each source's own rollups; only the unified entity-360 flow summary uses `flows.money_flows`; no plan mixes grains in one number.                                                                                                                                                                                                                                |
 
 ---
 
 ## Cross-plan dependency matrix
 
-| Plan | Depends on | For |
-|------|-----------|-----|
-| all 01–12 | kernel `IdentityRepo` (§4.1) | CUI resolution / `Entity` join / name→CUI |
-| 01,02,03,07,08,10,11,12 | kernel `TerritoryRepo` (§4.2) + `territoryForCui` (R5) | SIRUTA/county/region/population filters |
-| 02,03,07,10 | kernel `FlowsRepo` (§4.3) | cross-source flow summary / public-money-as-payee (grain gate) |
-| all | kernel filter pipeline + cursor encoder (§14.2/§14.3) | derive REST/GraphQL/MCP filters + pagination + `fhash` |
-| all w/ contributor | kernel `SourceContributor` registry + open `SourcePresence`/`EntityProfileSlice` (R3) | entity-360 fan-out |
-| **04 → 05**, **08 → 05** | `LegalActByIdLoader` (kernel port, 05 impl — R6) | bill↔law / case-legal-ref resolution, dangling-tolerant |
-| **06 → 05** | legal skeleton: `makeLegalModule`, `LegalAct`, `LegalRepoBase`, shared filters (R7) | MO extends, never redefines |
-| **05 ← 06** | `mo_act_publications.act_id` FK (authoritative join, not the typed `mo_part/number/date` columns) | `LegalAct` gazette extension |
-| 02,10 → 01 | reference's `public_entity` + `territory` resolve dimensions | buyer-institution / territory filter resolution (don't fork) |
-| 07 → 03 | companies registry present | `hubs=[companies]` on PNRR entity links |
-| 12 → 11 (via kernel) | UAT-360 by CUI+SIRUTA | composed in kernel usecase, never module import |
-| 09 → 03 + scrapper | `kind='ngo'` overlay + `ngo.*` schema | NGO native surface (BLOCKED) |
-| all → scrapper `search` lane | `search.documents` population | search integration (server reads only) |
+| Plan                         | Depends on                                                                                        | For                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| all 01–12                    | kernel `IdentityRepo` (§4.1)                                                                      | CUI resolution / `Entity` join / name→CUI                      |
+| 01,02,03,07,08,10,11,12      | kernel `TerritoryRepo` (§4.2) + `territoryForCui` (R5)                                            | SIRUTA/county/region/population filters                        |
+| 02,03,07,10                  | kernel `FlowsRepo` (§4.3)                                                                         | cross-source flow summary / public-money-as-payee (grain gate) |
+| all                          | kernel filter pipeline + cursor encoder (§14.2/§14.3)                                             | derive REST/GraphQL/MCP filters + pagination + `fhash`         |
+| all w/ contributor           | kernel `SourceContributor` registry + open `SourcePresence`/`EntityProfileSlice` (R3)             | entity-360 fan-out                                             |
+| **04 → 05**, **08 → 05**     | `LegalActByIdLoader` (kernel port, 05 impl — R6)                                                  | bill↔law / case-legal-ref resolution, dangling-tolerant        |
+| **06 → 05**                  | legal skeleton: `makeLegalModule`, `LegalAct`, `LegalRepoBase`, shared filters (R7)               | MO extends, never redefines                                    |
+| **05 ← 06**                  | `mo_act_publications.act_id` FK (authoritative join, not the typed `mo_part/number/date` columns) | `LegalAct` gazette extension                                   |
+| 02,10 → 01                   | reference's `public_entity` + `territory` resolve dimensions                                      | buyer-institution / territory filter resolution (don't fork)   |
+| 07 → 03                      | companies registry present                                                                        | `hubs=[companies]` on PNRR entity links                        |
+| 12 → 11 (via kernel)         | UAT-360 by CUI+SIRUTA                                                                             | composed in kernel usecase, never module import                |
+| 09 → 03 + scrapper           | `kind='ngo'` overlay + `ngo.*` schema                                                             | NGO native surface (BLOCKED)                                   |
+| all → scrapper `search` lane | `search.documents` population                                                                     | search integration (server reads only)                         |
 
 **Critical path:** the kernel `SourcePresence` shape (R3) blocks every contributor;
 `LegalActByIdLoader` (R6) blocks 04 + 08; the 05 legal skeleton blocks 06;
@@ -138,9 +145,9 @@ without inventing its own. These are the resolved cross-plan items (all folded i
    lookup seq-scans 8.07M; 01 stays cursor+capped+cached until added.
 6. `legal.acts(status, in_degree desc, act_id)` index — **recommended pre-launch**
    (05 R1 default sort is guaranteed day-one, not earned-if-slow).
-7. `search.documents` projection population for deferred doc_types (`budget_*`,
-   `company`, `judicial_case` [must carry the publishable gate — cross-repo privacy
-   invariant], `local_politics_council`).
+7. `search.documents` projection population for deferred doc*types (`budget*\*`,
+`company`, `judicial_case`[must carry the publishable gate — cross-repo privacy
+invariant],`local_politics_council`).
 8. budget `flows.money_flows` projection (none yet) — budget entity-360 is
    summary-only for v1 (acceptable).
 9. earned composite indexes (MO issue/publication, companies county+turnover,
@@ -164,7 +171,7 @@ into `00` as recommendations; confirm or redirect.
 5. **NGO kind-collision strategy** — a CUI can be both `company` and `ngo`; a blind
    `kind='ngo'` upsert overwrites company-kind (merge-by-mutation, forbidden).
    Recommend NGO-ness as an additive identifier / `attrs.is_ngo` flag, not a `kind`
-   overwrite. *Needs your call before the scrapper ngo migration.*
+   overwrite. _Needs your call before the scrapper ngo migration._
 6. **Promote non-authoritative Wikipedia data to serving at all?** (module 12) — or
    keep raw-only / a flagged client overlay. If no, 12 is descoped.
 
