@@ -203,6 +203,7 @@ export async function getClient(): Promise<GoldenMasterClient> {
         sslRejectUnauthorized: true,
       },
       redis: { url: undefined, password: undefined, prefix: undefined },
+      redesignSurface: { enabled: false },
       cache: {
         backend: 'memory',
         defaultTtlMs: 60 * 24 * 60 * 60 * 1000,

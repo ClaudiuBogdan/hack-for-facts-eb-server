@@ -15,6 +15,7 @@ import type {
 import type { HealthChecker } from '../modules/health/index.js';
 import type { CorrespondenceRecoveryRuntimeFactory } from '../modules/institution-correspondence/index.js';
 import type { NotificationDeliveryRuntimeFactory } from '../modules/notification-delivery/index.js';
+import type { KernelConfig } from '../modules/shared/index.js';
 import type { UserEventRuntimeFactory } from '../modules/user-events/index.js';
 import type { FastifyServerOptions } from 'fastify';
 
@@ -51,6 +52,15 @@ export interface AppDeps {
   adminEventRuntimeFactory?: AdminEventRuntimeFactory;
   /** Optional correspondence recovery runtime factory for tests */
   correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
+  /**
+   * Redesign kernel config (griffin-prod data source). When provided AND
+   * `config.redesignSurface.enabled` is true, `buildApp` mounts the redesign
+   * GraphQL (`/api/v1/graphql`) + MCP (`/api/v1/mcp`) + health surface on the
+   * same port. Omitted in deployed legacy servers, so the surface is never built.
+   */
+  redesignKernelConfig?: KernelConfig;
+  /** Client base URL passed to the mounted redesign surface (MCP deep links). */
+  redesignClientBaseUrl?: string;
 }
 
 /**

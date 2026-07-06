@@ -11,6 +11,7 @@ import { jwtVerify, importSPKI } from 'jose';
 
 import { buildApp } from './app/build-app.js';
 import { parseEnv, createConfig, type AppConfig } from './infra/config/index.js';
+import { loadRedesignConfig } from './infra/config/redesign-env.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
 import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './modules/auth/index.js';
@@ -71,6 +72,15 @@ const createAuthProvider = (config: AppConfig, logger: Logger): AuthProvider | u
 };
 
 const main = async (): Promise<void> => {
+  // The app configures Postgres SSL explicitly via DATABASE_SSL / per-pool options
+  // and never connects through bare libpq PG* vars. Strip the ambient libpq
+  // `PGSSLMODE` so it can't silently flip `ssl` on the pg clients — e.g. when a dev
+  // has sourced `.claude/redesign-psql.env` (griffin psql tooling, PGSSLMODE=require)
+  // into the shell that runs `pnpm dev`, which would otherwise force SSL onto the
+  // plain phoenix-dev DB forwards. Deployed servers never set PGSSLMODE, so this is
+  // a no-op there.
+  delete process.env['PGSSLMODE'];
+
   // Parse and validate environment
   const env = parseEnv(process.env);
   const config = createConfig(env);
@@ -118,6 +128,26 @@ const main = async (): Promise<void> => {
   // Create auth provider if configured
   const authProvider = createAuthProvider(config, logger);
 
+  // Optionally resolve the redesign kernel config (griffin-prod) so the redesign
+  // GraphQL/MCP surface can be mounted on this same port (/api/v1/*). The flag
+  // defaults off and is only set for local dev — deployed legacy servers skip this
+  // entirely. Wrapped so a missing/invalid redesign env can never crash the server.
+  let redesignKernelConfig: ReturnType<typeof loadRedesignConfig>['kernel'] | undefined;
+  let redesignClientBaseUrl: string | undefined;
+  if (config.redesignSurface.enabled) {
+    try {
+      const redesign = loadRedesignConfig(process.env);
+      redesignKernelConfig = redesign.kernel;
+      redesignClientBaseUrl = redesign.kernel.clientBaseUrl;
+      logger.info('Redesign surface enabled — mounting /api/v1/graphql on the legacy port');
+    } catch (error) {
+      logger.warn(
+        { err: error },
+        'REDESIGN_SURFACE_ENABLED is set but the redesign env is missing/invalid — starting the legacy API only'
+      );
+    }
+  }
+
   // Build application - let Fastify create its own logger based on config
   const app = await buildApp({
     fastifyOptions: {
@@ -146,6 +176,8 @@ const main = async (): Promise<void> => {
       datasetRepo,
       config,
       ...(authProvider !== undefined && { authProvider }),
+      ...(redesignKernelConfig !== undefined && { redesignKernelConfig }),
+      ...(redesignClientBaseUrl !== undefined && { redesignClientBaseUrl }),
     },
     version: getVersion(),
   });
