@@ -243,17 +243,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
         sessionTtlSeconds: 3600,
         clientBaseUrl: '',
       },
-      agent: {
-        enabled: false,
-        anthropicApiKey: undefined,
-        openaiApiKey: undefined,
-        openrouterApiKey: undefined,
-        chatModel: undefined,
-        titleModel: undefined,
-        researchModel: undefined,
-        dailyTokenBudget: 250000,
-        unlimitedUserIds: [],
-      },
       gpt: {
         apiKey: undefined,
       },
