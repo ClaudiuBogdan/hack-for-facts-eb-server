@@ -217,8 +217,46 @@ export interface ParliamentSpeech {
   readonly spokenAt: string | null;
   readonly title: string | null;
   readonly summary: string | null; // quarantined rows EXCLUDED by default (§2.6)
+  readonly sourceUrl: string | null; // source-traceability path (stenogram link)
+  readonly sourceUrlKind: string | null; // 'exact' (per-turn) | 'lossy_root' (sitting root — Senate)
+  readonly fullText?: string | null; // verbatim transcript; LAZY, from parliament.speech_texts (§3.1.2)
 }
 ```
+
+**Member-speeches surface (interventii page).** Beyond the legacy offset
+`speeches(page,pageSize)` list, a member's speeches get a filterable + searchable
+cursor connection and a per-day activity heatmap, mirroring the member-votes
+surface (§3.1.1) but with **SQL keyset** instead of materialize-and-sort:
+
+- `speechesConnection(first, after, filter, q)` → `ParliamentMemberSpeechConnection`
+  (`edges/pageInfo/total`). `filter` = **`memberSpeechesFilterSpec`** (`spokenAt`
+  range + `chamber` eq/in over `camera_deputatilor|senat|comun`). `total` is the
+  **EXACT filtered + searched count**. Per-mandate volume can reach ~35k turns
+  (median 72) — far past the votes materialize-in-memory bar — so this is **keyset
+  pagination on `(spoken_at desc, speech_key desc)`** served by the existing
+  `speeches_mandate_idx`; **no new index** (measured page 37ms, count 62ms on the
+  worst mandate).
+- `q` (free text) is **NOT a spec field**: it spans `title` + `summary` **and** the
+  sibling `parliament.speech_texts.full_text` — a multi-column, cross-table OR the
+  kernel `contains` op can't express — so it enters as a **separate GraphQL/repo
+  argument**, repo-intercepted (like `membersFilterSpec.q`). It is a literal
+  (diacritic-sensitive) `ILIKE %q%` with LIKE wildcards escaped, and it is folded
+  into the cursor fhash: `memberSpeechesFhash(mandateKey, filter, q)`. A cursor
+  minted under one member / filter / q **cannot replay** under another (Codex #2).
+  `q` is trimmed, empty→absent, max 200 chars.
+- `speechActivity(year, filter, q)` → per-day `{date, total, proprie, comun}`
+  (`proprie = total - comun`, i.e. own-chamber vs joint-sitting) + `availableYears`
+  (every year with any filtered turn, NOT year-bounded). A `spokenAt` inside
+  `filter` is rejected — the `year` argument bounds the range (mirrors
+  `voteActivity`).
+- `fullText` is resolved **lazily** (a single-row `speech_texts` lookup, only when
+  selected). `parliament.speech_texts` is created by a parallel slice and **may not
+  exist yet** on a given DB: the repo probes it ONCE (memoized `to_regclass`) and
+  degrades to `null` (both the `q` full-text branch and `fullText` are gated on the
+  probe, since a missing relation fails at PARSE time regardless of a runtime guard).
+- `sourceUrlKind='lossy_root'` (Senate stenograms carry no per-turn anchor) marks a
+  link that resolves only to the sitting root — clients must **not** present it as an
+  exact deep-link to the turn.
 
 ### 2.6 Identity / territory linkage; PII & excluded columns
 
@@ -315,7 +353,20 @@ export interface ParliamentRepo {
     mandateKey: string,
     q: PageQuery
   ): Promise<Result<Page<ControlItemRow>, ApiError>>; // control_items_mandate_idx
-  listMemberSpeeches(mandateKey: string, q: PageQuery): Promise<Result<Page<SpeechRow>, ApiError>>; // speeches_mandate_idx
+  listMemberSpeeches(mandateKey: string, q: PageQuery): Promise<Result<Page<SpeechRow>, ApiError>>; // speeches_mandate_idx (LEGACY offset; kept for activityCounts/careerTotals/MCP)
+  listMemberSpeechesCursor(
+    mandateKey: string,
+    q: CursorQuery,
+    filter: FilterInput,
+    text: string | undefined
+  ): Promise<Result<CursorPage<SpeechRow> & { total: number }, ApiError>>; // KEYSET (spoken_at desc, speech_key desc) on speeches_mandate_idx; filter (memberSpeechesFilterSpec: spokenAt/chamber) + text q (title/summary + speech_texts.full_text) → total is the exact FILTERED+SEARCHED count; fhash = memberSpeechesFhash(mandate, filter, q)
+  memberSpeechActivity(
+    mandateKey: string,
+    year: number,
+    filter: FilterInput,
+    text: string | undefined
+  ): Promise<Result<MemberSpeechActivity, ApiError>>; // per-day {total, proprie, comun} (year-bounded) + distinct availableYears (not year-bounded), SAME filter+q
+  getSpeechFullText(speechKey: string): Promise<Result<string | null, ApiError>>; // LAZY single-row parliament.speech_texts read; null when table/row absent (never throws)
   listMemberInitiatives(
     mandateKey: string,
     q: PageQuery
@@ -417,6 +468,20 @@ vote_date DESC)` for the list; `votes_bill_idx` for bill-scoped; cursor on
   the **handler boundary** (a guard that rejects `q`-only-without-bound with
   `InvalidInput` when the search engine is down), because the kernel filter
   deriver expresses per-field ops, not cross-field requirements — see §7.
+- **`speeches`** member surface — **keyset, NOT materialize-and-sort.** Unlike
+  `listMemberVotes` (§3.1), a single mandate can hold **~35k** turns (median 72), so
+  the in-memory materialize bar is unsafe. `listMemberSpeechesCursor` uses **SQL
+  keyset pagination on `(spoken_at desc, speech_key desc)`** (a uniform 2-tuple the
+  kernel comparator supports), served by `speeches_mandate_idx (mandate_key,
+spoken_at desc)` with a `top-N` sort tail — **no new index** (worst-mandate
+  measured: count 62ms, page 37ms, per-day agg 32ms, `ILIKE` over title+summary
+  62ms; end-to-end warm ~230ms over the SSH tunnel). NULL `spoken_at` is coalesced to
+  `''` in BOTH the `ORDER BY` and the keyset predicate → NULLS-LAST on desc, so
+  pagination never skips/duplicates at the null boundary. `total` is an exact
+  `COUNT(*)` over the filtered slice (WITHOUT the keyset predicate). The `q`
+  full-text branch adds an `EXISTS` over `parliament.speech_texts` **only when the
+  memoized `to_regclass` probe says the table exists** (a missing relation fails at
+  PARSE time, so a runtime `to_regclass` guard inside the SQL would NOT save it).
 - **`speeches`** (1.41M) / **`control_items`** (81.5k) / **`member_initiatives`**
   (172k): only ever read parented by `mandate_key` (their respective mandate
   indexes) for member-activity, or — for the standalone control-items list —
@@ -557,9 +622,26 @@ type ParliamentMember {
   birthDate: Date
   person: ParliamentPerson
   groupIntervals: [ParliamentGroupInterval!]!
-  votes(first: Int, after: String): ParliamentMemberVoteConnection!
+  votes(
+    first: Int
+    after: String
+    filter: ParliamentMemberVotesFilter
+  ): ParliamentMemberVoteConnection!
+  voteActivity(year: Int!, filter: ParliamentMemberVotesFilter): ParliamentMemberVoteActivity!
   controlItems(first: Int, after: String): ParliamentControlItemConnection!
-  speeches(first: Int, after: String): ParliamentSpeechConnection!
+  speeches(page: Int, pageSize: Int): ParliamentSpeechPage! # LEGACY offset
+  # filterable + searchable keyset connection + heatmap (interventii page)
+  speechesConnection(
+    first: Int
+    after: String
+    filter: ParliamentMemberSpeechesFilter
+    q: String
+  ): ParliamentMemberSpeechConnection!
+  speechActivity(
+    year: Int!
+    filter: ParliamentMemberSpeechesFilter
+    q: String
+  ): ParliamentMemberSpeechActivity!
   initiatives(first: Int, after: String): ParliamentInitiativeConnection!
   declarations: [ParliamentDeclarationMeta!]! # metadata only
 }
@@ -673,6 +755,30 @@ type ParliamentSpeech {
   title: String
   summary: String
   chamber: String
+  sourceUrl: String # stenogram link
+  sourceUrlKind: String # 'exact' (per-turn) | 'lossy_root' (sitting root — Senate)
+  fullText: String # verbatim transcript; LAZY, from parliament.speech_texts (null when absent)
+}
+type ParliamentMemberSpeechConnection {
+  edges: [ParliamentMemberSpeechEdge!]!
+  pageInfo: PageInfo!
+  total: Int!
+}
+type ParliamentMemberSpeechEdge {
+  node: ParliamentSpeech!
+  cursor: String!
+}
+# proprie + comun = total (own-chamber vs joint-sitting turns)
+type ParliamentMemberSpeechActivityDay {
+  date: Date!
+  total: Int!
+  proprie: Int!
+  comun: Int!
+}
+type ParliamentMemberSpeechActivity {
+  year: Int!
+  days: [ParliamentMemberSpeechActivityDay!]!
+  availableYears: [Int!]!
 }
 type ParliamentInitiative {
   initiativeKey: ID!

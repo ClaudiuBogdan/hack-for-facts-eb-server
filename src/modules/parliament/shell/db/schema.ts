@@ -251,6 +251,13 @@ export interface SpeechesTable {
   summary: string | null;
   attrs: Jsonb;
   source_updated_at: Tstz | null;
+  privacy_class: string | null;
+  // Source-traceability path (§ source-traceability): source_url + its precision.
+  // source_url_kind: 'exact' (per-turn deep link) | 'lossy_root' (sitting/section root,
+  // e.g. Senate stenograms that carry no per-turn anchor).
+  source_url: string | null;
+  source_url_kind: string | null;
+  source_ref: Jsonb | null;
 }
 
 export interface MemberDeclarationsTable {

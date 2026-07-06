@@ -81,6 +81,31 @@ describe('parliament SDL — builds with the new B1–B4 surface', () => {
     expect(votesArgs).toContain('filter');
   });
 
+  it('declares the member-speech connection + activity types, the speechesConnection/speechActivity fields, and ParliamentSpeech.fullText', () => {
+    expect(schema.getType('ParliamentMemberSpeechConnection')).toBeDefined();
+    expect(schema.getType('ParliamentMemberSpeechEdge')).toBeDefined();
+    expect(schema.getType('ParliamentMemberSpeechActivity')).toBeDefined();
+    expect(schema.getType('ParliamentMemberSpeechActivityDay')).toBeDefined();
+    expect(schema.getType('ParliamentMemberSpeechesFilter')).toBeDefined();
+    const member = schema.getType('ParliamentMember');
+    const memberFields =
+      member !== undefined && member !== null && 'getFields' in member ? member.getFields() : {};
+    // the legacy offset field stays; the new cursor + activity fields are additive.
+    expect(memberFields['speeches']).toBeDefined();
+    expect(memberFields['speechesConnection']).toBeDefined();
+    expect(memberFields['speechActivity']).toBeDefined();
+    const connField = memberFields['speechesConnection'];
+    const connArgs =
+      connField !== undefined && 'args' in connField ? connField.args.map((a) => a.name) : [];
+    for (const arg of ['first', 'after', 'filter', 'q']) expect(connArgs).toContain(arg);
+    // ParliamentSpeech gained the source-trace + verbatim-text fields.
+    const speech = schema.getType('ParliamentSpeech');
+    const speechFields =
+      speech !== undefined && speech !== null && 'getFields' in speech ? speech.getFields() : {};
+    for (const name of ['sourceUrl', 'sourceUrlKind', 'fullText'])
+      expect(speechFields[name]).toBeDefined();
+  });
+
   it('the committee detail carries roster + linked bills + meetings count', () => {
     const detail = schema.getType('ParliamentCommitteeDetail');
     const fields =

@@ -206,6 +206,55 @@ export const memberVotesFilterSpec: CollectionFilterSpec = {
 export const memberVotesFhash = (mandateKey: string, filter: FilterInput): string =>
   filterHash(`memberVotes:${mandateKey}:${canonicalizeFilters(memberVotesFilterSpec, filter)}`);
 
+// ── member speeches (a member's turns; parented by mandate_key) ───────────────
+//
+// The full-text search token `q` is NOT a spec field: it spans title + summary AND
+// the sibling `parliament.speech_texts.full_text` (a multi-column + cross-table OR
+// the kernel `contains` op cannot express), so it enters as a separate GraphQL/repo
+// argument and is repo-intercepted (like `membersFilterSpec.q`). It is folded into
+// the cursor fhash by `memberSpeechesFhash` so a cursor minted under one `q` cannot
+// replay under another — the same binding the filter fields get.
+
+export const memberSpeechesFilterSpec: CollectionFilterSpec = {
+  collection: 'parliamentMemberSpeeches',
+  fields: [
+    {
+      name: 'spokenAt',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 's', column: 'spoken_at' },
+      description:
+        'Speech-date range over the member slice (the mandate index carries spoken_at, so a bound is index-ordered).',
+    },
+    {
+      name: 'chamber',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 's', column: 'chamber' },
+      enumValues: [...VOTE_CHAMBERS],
+      array: true,
+      description:
+        'Assembly the turn was delivered in: camera_deputatilor | senat | comun (a joint sitting).',
+    },
+  ],
+  sort: { default: 'spokenAt', allowed: ['spokenAt'] },
+};
+
+/**
+ * Parent-bound fhash for a member-speeches cursor: the mandate, the filter AND the
+ * normalized text token `q` derive it (Codex #2), so a cursor cannot be replayed
+ * against a different member, filter OR search term. Callers MUST pass the SAME
+ * normalized `q` the repo used (see `normalizeSpeechQ`); the hash does not normalize.
+ */
+export const memberSpeechesFhash = (
+  mandateKey: string,
+  filter: FilterInput,
+  q: string | undefined
+): string =>
+  filterHash(
+    `memberSpeeches:${mandateKey}:${canonicalizeFilters(memberSpeechesFilterSpec, filter)}:${q ?? ''}`
+  );
+
 // ── members (offset+total; bounded by legislature) ───────────────────────────
 
 export const membersFilterSpec: CollectionFilterSpec = {
@@ -416,6 +465,7 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
 export const PARLIAMENT_FILTER_SPECS = {
   parliamentVotes: votesFilterSpec,
   parliamentMemberVotes: memberVotesFilterSpec,
+  parliamentMemberSpeeches: memberSpeechesFilterSpec,
   parliamentMembers: membersFilterSpec,
   parliamentBills: billsFilterSpec,
   parliamentControlItems: controlItemsFilterSpec,

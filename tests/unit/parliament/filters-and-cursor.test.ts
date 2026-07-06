@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberSpeechesFhash,
+  memberSpeechesFilterSpec,
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
@@ -176,5 +178,102 @@ describe('memberVotesFhash — parent + filter binding (Codex #2)', () => {
     const dec = decodeCursor(cursor, { sort: 'memberVote', dir: 'desc', fhash: fhashB });
     expect(dec.isErr()).toBe(true);
     if (dec.isErr()) expect(dec.error.type).toBe('InvalidInput');
+  });
+});
+
+describe('memberSpeeches filter spec — derivation + conditions', () => {
+  it('derives a GraphQL input block with spokenAt (a date range) + chamber, and NO q field', () => {
+    const sdl = toGraphQLInput(memberSpeechesFilterSpec);
+    expect(sdl).toContain('input ParliamentMemberSpeechesFilter');
+    expect(sdl).toContain('spokenAt:');
+    expect(sdl).toContain('chamber:');
+    expect(sdl).toContain('SpokenAtRange');
+    // q is a repo-intercepted GraphQL argument, NOT a spec field → the input carries
+    // ONLY spokenAt + chamber (q never appears as a spec field).
+    expect(memberSpeechesFilterSpec.fields.map((f) => f.name)).toEqual(['spokenAt', 'chamber']);
+  });
+
+  it('has NO virtual fields (every field compiles to SQL)', () => {
+    expect(memberSpeechesFilterSpec.fields.some((f) => f.virtual === true)).toBe(false);
+  });
+
+  it('compiles {chamber:{in:["comun","senat"]}} → 1 condition', () => {
+    const r = toConditionBuilders(memberSpeechesFilterSpec, {
+      chamber: { in: ['comun', 'senat'] },
+    });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).toHaveLength(1);
+  });
+
+  it('compiles a spokenAt between-range → 1 condition', () => {
+    const r = toConditionBuilders(memberSpeechesFilterSpec, {
+      spokenAt: { between: { from: '2025-01-01', to: '2025-12-31' } },
+    });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).toHaveLength(1);
+  });
+
+  it('rejects an out-of-enum chamber value (InvalidInput)', () => {
+    const r = toConditionBuilders(memberSpeechesFilterSpec, { chamber: { eq: 'plen' } });
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+  });
+
+  it('an explicit empty {chamber:{in:[]}} still emits exactly 1 (match-none) condition (H6/H7)', () => {
+    const r = toConditionBuilders(memberSpeechesFilterSpec, { chamber: { in: [] } });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).toHaveLength(1);
+  });
+});
+
+describe('memberSpeechesFhash — parent + filter + q binding (Codex #2)', () => {
+  it('differs across mandates for the same filter + q', () => {
+    const filter = { chamber: { eq: 'senat' } };
+    expect(memberSpeechesFhash('1:2024:79', filter, 'lege')).not.toEqual(
+      memberSpeechesFhash('2:2000:92', filter, 'lege')
+    );
+  });
+
+  it('differs across filters for the same mandate + q', () => {
+    const mk = '1:2024:79';
+    expect(memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, 'lege')).not.toEqual(
+      memberSpeechesFhash(mk, { chamber: { eq: 'comun' } }, 'lege')
+    );
+  });
+
+  it('differs across the q token for the same mandate + filter', () => {
+    const mk = '1:2024:79';
+    expect(memberSpeechesFhash(mk, {}, 'lege')).not.toEqual(memberSpeechesFhash(mk, {}, 'buget'));
+    // absent q vs a present q also differ.
+    expect(memberSpeechesFhash(mk, {}, undefined)).not.toEqual(memberSpeechesFhash(mk, {}, 'lege'));
+  });
+
+  it('rejects a cursor encoded under q=A, decoded under q=B (same mandate + filter)', () => {
+    const mk = '1:2024:79';
+    const fhashA = memberSpeechesFhash(mk, {}, 'lege');
+    const fhashB = memberSpeechesFhash(mk, {}, 'buget');
+    const cursor = buildNextCursor({
+      sort: 'spokenAt',
+      dir: 'desc',
+      fhash: fhashA,
+      lastKeys: ['2025-06-01', 'senat:123'],
+    });
+    const dec = decodeCursor(cursor, { sort: 'spokenAt', dir: 'desc', fhash: fhashB });
+    expect(dec.isErr()).toBe(true);
+    if (dec.isErr()) expect(dec.error.type).toBe('InvalidInput');
+  });
+
+  it('round-trips a speeches cursor under the SAME mandate + filter + q (2-tuple keyset)', () => {
+    const mk = '1:2024:79';
+    const fhash = memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, undefined);
+    const cursor = buildNextCursor({
+      sort: 'spokenAt',
+      dir: 'desc',
+      fhash,
+      lastKeys: ['2025-06-01', 'senat:123'],
+    });
+    const dec = decodeCursor(cursor, { sort: 'spokenAt', dir: 'desc', fhash });
+    expect(dec.isOk()).toBe(true);
+    if (dec.isOk()) expect(dec.value.keys).toEqual(['2025-06-01', 'senat:123']);
   });
 });

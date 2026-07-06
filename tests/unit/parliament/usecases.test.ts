@@ -13,13 +13,17 @@ import {
   getCommittee,
   getDataFreshness,
   getLineageForAct,
+  getMemberSpeechActivity,
+  getMemberSpeechesConnection,
   getMemberVoteActivity,
   getMemberVotes,
   listControlItems,
   listVotes,
+  normalizeSpeechQ,
   rankVoteCohesion,
   type ParliamentUsecaseDeps,
 } from '@/modules/parliament/core/usecases.js';
+import { memberSpeechesFhash } from '@/modules/parliament/index.js';
 
 import type { LineageVoteRow, ParliamentRepo } from '@/modules/parliament/core/ports.js';
 import type { ApiError } from '@/modules/shared/index.js';
@@ -265,6 +269,129 @@ describe('getMemberVoteActivity — voteDate + year guards (never hits the repo 
     );
     expect(r.isOk()).toBe(true);
     expect(memberVoteActivity).toHaveBeenCalledWith('1:2024:1', 2026, filter);
+  });
+});
+
+describe('normalizeSpeechQ — trim + lower-case + empty→undefined (idempotent)', () => {
+  it('trims, maps empty/whitespace to undefined, and is idempotent', () => {
+    expect(normalizeSpeechQ('  lege  ')).toBe('lege');
+    expect(normalizeSpeechQ('')).toBeUndefined();
+    expect(normalizeSpeechQ('   ')).toBeUndefined();
+    expect(normalizeSpeechQ(null)).toBeUndefined();
+    expect(normalizeSpeechQ(undefined)).toBeUndefined();
+    // idempotent: normalizing an already-normalized value is a no-op.
+    expect(normalizeSpeechQ(normalizeSpeechQ('  lege  '))).toBe('lege');
+  });
+
+  it('lower-cases so case variants collapse to ONE cursor identity (ILIKE is case-insensitive)', () => {
+    expect(normalizeSpeechQ('Lege')).toBe('lege');
+    expect(normalizeSpeechQ('  LEGE ')).toBe('lege');
+    expect(normalizeSpeechQ('Lege')).toBe(normalizeSpeechQ('lege'));
+    // diacritics are preserved (the predicate is diacritic-sensitive); only case folds.
+    expect(normalizeSpeechQ('Întrebare')).toBe('întrebare');
+  });
+});
+
+describe('memberSpeechesFhash — case-insensitivity of q (shared cursor identity)', () => {
+  it("'Lege' and 'lege' produce the SAME fhash via the normalized token", () => {
+    // The fhash consumes the normalized value, so case variants must not fork cursors.
+    expect(memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('Lege'))).toEqual(
+      memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('lege'))
+    );
+  });
+});
+
+describe('getMemberSpeechesConnection — forwards filter + normalized q; length guard', () => {
+  it('threads mandate/page/filter and the NORMALIZED q to the repo', async () => {
+    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    const filter = { chamber: { eq: 'senat' } };
+    const r = await getMemberSpeechesConnection(
+      deps(makeRepo({ listMemberSpeechesCursor })),
+      '1:2024:79',
+      { first: 20 },
+      filter,
+      '  lege  '
+    );
+    expect(r.isOk()).toBe(true);
+    expect(listMemberSpeechesCursor).toHaveBeenCalledWith(
+      '1:2024:79',
+      { first: 20 },
+      filter,
+      'lege'
+    );
+  });
+
+  it('rejects a q longer than the max BEFORE the repo', async () => {
+    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    const r = await getMemberSpeechesConnection(
+      deps(makeRepo({ listMemberSpeechesCursor })),
+      '1:2024:79',
+      { first: 20 },
+      {},
+      'x'.repeat(201)
+    );
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+    expect(listMemberSpeechesCursor).not.toHaveBeenCalled();
+  });
+
+  it('passes q=undefined when the token normalizes to empty', async () => {
+    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    await getMemberSpeechesConnection(
+      deps(makeRepo({ listMemberSpeechesCursor })),
+      '1:2024:79',
+      { first: 20 },
+      {},
+      '   '
+    );
+    expect(listMemberSpeechesCursor).toHaveBeenCalledWith(
+      '1:2024:79',
+      { first: 20 },
+      {},
+      undefined
+    );
+  });
+});
+
+describe('getMemberSpeechActivity — spokenAt + year guards (never hits the repo on a guard error)', () => {
+  it('rejects a filter carrying a spokenAt value and NEVER calls the repo', async () => {
+    const memberSpeechActivity = vi.fn(() => okp({ year: 2025, days: [], availableYears: [] }));
+    const r = await getMemberSpeechActivity(
+      deps(makeRepo({ memberSpeechActivity })),
+      '1:2024:79',
+      2025,
+      { spokenAt: { gte: '2025-01-01' } }
+    );
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+    expect(memberSpeechActivity).not.toHaveBeenCalled();
+  });
+
+  it('rejects an out-of-range year (123) BEFORE the repo', async () => {
+    const memberSpeechActivity = vi.fn(() => okp({ year: 123, days: [], availableYears: [] }));
+    const r = await getMemberSpeechActivity(
+      deps(makeRepo({ memberSpeechActivity })),
+      '1:2024:79',
+      123,
+      {}
+    );
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+    expect(memberSpeechActivity).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid (mandate, year, filter, normalized q) through to the repo', async () => {
+    const memberSpeechActivity = vi.fn(() => okp({ year: 2025, days: [], availableYears: [2025] }));
+    const filter = { chamber: { eq: 'senat' } };
+    const r = await getMemberSpeechActivity(
+      deps(makeRepo({ memberSpeechActivity })),
+      '1:2024:79',
+      2025,
+      filter,
+      ' întrebare '
+    );
+    expect(r.isOk()).toBe(true);
+    expect(memberSpeechActivity).toHaveBeenCalledWith('1:2024:79', 2025, filter, 'întrebare');
   });
 });
 

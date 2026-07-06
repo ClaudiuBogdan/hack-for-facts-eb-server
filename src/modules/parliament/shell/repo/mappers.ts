@@ -316,6 +316,8 @@ export interface SpeechRow {
   spoken_at: string | null;
   title: string | null;
   summary: string | null;
+  source_url: string | null;
+  source_url_kind: string | null;
 }
 
 export const mapSpeech = (r: SpeechRow): ParliamentSpeech => ({
@@ -326,6 +328,8 @@ export const mapSpeech = (r: SpeechRow): ParliamentSpeech => ({
   spokenAt: r.spoken_at,
   title: r.title,
   summary: r.summary,
+  sourceUrl: r.source_url,
+  sourceUrlKind: r.source_url_kind,
 });
 
 export interface InitiativeRow {

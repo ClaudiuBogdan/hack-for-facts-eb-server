@@ -1773,4 +1773,267 @@ d('Parliament golden (live prod)', () => {
     );
     expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
   });
+
+  // ── filterable + searchable member speeches + per-day activity (2026-07-06) ───
+  // Anchored on Luminiţa Păucean-Fernandes (senat, mandate 1:2024:79). Live golden
+  // numbers pinned vs transparenta_prod: 83 non-quarantined turns (81 senat + 2 comun),
+  // 61 in 2025, 7 matching 'întrebare'. Totals that a backfill can grow use >=.
+  const PAUCEAN = '1:2024:79';
+  const WORST_SPEECH = '2:2000:92'; // ~35k turns — the keyset-latency floor case.
+
+  interface SpeechNode {
+    readonly speechKey: string;
+    readonly spokenAt: string | null;
+    readonly chamber: string | null;
+    readonly sourceUrl: string | null;
+    readonly sourceUrlKind: string | null;
+  }
+  interface SpeechConn {
+    readonly total: number;
+    readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+    readonly edges: readonly { readonly cursor: string; readonly node: SpeechNode }[];
+  }
+  const memberSpeeches = async (
+    args: string,
+    first = 5,
+    after?: string
+  ): Promise<
+    GqlResponse<{ parliamentMember: { readonly speechesConnection: SpeechConn } | null }>
+  > => {
+    const afterArg = after !== undefined ? `, after:${JSON.stringify(after)}` : '';
+    return gql<{ parliamentMember: { readonly speechesConnection: SpeechConn } | null }>(
+      `{
+        parliamentMember(mandateKey:"${PAUCEAN}") {
+          speechesConnection(first:${String(first)}${args}${afterArg}) {
+            total
+            pageInfo { hasNextPage endCursor }
+            edges { cursor node { speechKey spokenAt chamber sourceUrl sourceUrlKind } }
+          }
+        }
+      }`
+    );
+  };
+  const speechesConn = async (args: string, first = 5, after?: string): Promise<SpeechConn> =>
+    requireValue(
+      expectGqlData(await memberSpeeches(args, first, after)).parliamentMember,
+      'Păucean speeches'
+    ).speechesConnection;
+
+  it('member speeches total is the EXACT filtered count (chamber + date + q slices)', async () => {
+    // unfiltered floor (extraction backfill can only add turns).
+    expect((await speechesConn('')).total).toBeGreaterThanOrEqual(83);
+    // chamber partitions the set: a senator speaks only in senat or the joint comun sitting.
+    const senat = (await speechesConn(', filter:{chamber:{eq:"senat"}}')).total;
+    const comun = (await speechesConn(', filter:{chamber:{eq:"comun"}}')).total;
+    const all = (await speechesConn('')).total;
+    expect(senat + comun).toBe(all);
+    expect(senat).toBeGreaterThanOrEqual(81);
+    expect(comun).toBeGreaterThanOrEqual(2);
+    // 2025 is frozen → exact.
+    expect(
+      (await speechesConn(', filter:{spokenAt:{between:{from:"2025-01-01",to:"2025-12-31"}}}'))
+        .total
+    ).toBe(61);
+    // q is a strict subset of the full set and non-empty.
+    const q = (await speechesConn(', q:"întrebare"')).total;
+    expect(q).toBeGreaterThan(0);
+    expect(q).toBeLessThan(all);
+  }, 30_000);
+
+  it('filtered speech pagination is keyset-stable and the cursor is bound to filter + q', async () => {
+    const page1 = await speechesConn(', filter:{chamber:{eq:"senat"}}', 5);
+    expect(page1.edges).toHaveLength(5);
+    expect(page1.edges.every((e) => e.node.chamber === 'senat')).toBe(true);
+    // spokenAt desc, speechKey desc → the page is non-increasing on (spokenAt, speechKey).
+    for (let i = 1; i < page1.edges.length; i++) {
+      const prev = page1.edges[i - 1]?.node;
+      const cur = page1.edges[i]?.node;
+      if (prev != null && cur != null)
+        expect((prev.spokenAt ?? '') >= (cur.spokenAt ?? '')).toBe(true);
+    }
+    const endCursor = requireValue(page1.pageInfo.endCursor, 'page-1 endCursor');
+    expect(page1.pageInfo.hasNextPage).toBe(true);
+
+    // page 2 under the SAME filter: no speechKey overlap with page 1.
+    const page2 = await speechesConn(', filter:{chamber:{eq:"senat"}}', 5, endCursor);
+    const keys1 = new Set(page1.edges.map((e) => e.node.speechKey));
+    expect(page2.edges.some((e) => keys1.has(e.node.speechKey))).toBe(false);
+
+    // replaying the page-1 cursor under a DIFFERENT q → INVALID_INPUT (fhash bound).
+    const crossed = await memberSpeeches(', filter:{chamber:{eq:"senat"}}, q:"lege"', 5, endCursor);
+    expect(crossed.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 30_000);
+
+  it('senate speeches carry a lossy_root source link (do-not-deep-link semantics)', async () => {
+    const page = await speechesConn(', filter:{chamber:{eq:"senat"}}', 3);
+    expect(page.edges.length).toBeGreaterThan(0);
+    // every senate turn resolves to a URL, flagged lossy_root (no per-turn anchor).
+    for (const e of page.edges) {
+      expect(e.node.sourceUrl).not.toBeNull();
+      expect(e.node.sourceUrlKind).toBe('lossy_root');
+    }
+  }, 30_000);
+
+  interface ActivityDay {
+    readonly date: string;
+    readonly total: number;
+    readonly proprie: number;
+    readonly comun: number;
+  }
+  interface SpeechActivity {
+    readonly year: number;
+    readonly days: readonly ActivityDay[];
+    readonly availableYears: readonly number[];
+  }
+  const speechActivity = async (year: number, args = ''): Promise<SpeechActivity> =>
+    requireValue(
+      expectGqlData(
+        await gql<{ parliamentMember: { readonly speechActivity: SpeechActivity } | null }>(
+          `{
+            parliamentMember(mandateKey:"${PAUCEAN}") {
+              speechActivity(year:${String(year)}${args}) {
+                year days { date total proprie comun } availableYears
+              }
+            }
+          }`
+        )
+      ).parliamentMember,
+      'Păucean speechActivity'
+    ).speechActivity;
+
+  it('speechActivity(2025) sums to the frozen 2025 total, partitions per day, sorted availableYears', async () => {
+    const act = await speechActivity(2025);
+    expect(act.year).toBe(2025);
+    expect(act.days.reduce((s, day) => s + day.total, 0)).toBe(61);
+    // proprie + comun == total on every day.
+    expect(act.days.every((day) => day.proprie + day.comun === day.total)).toBe(true);
+    // availableYears is DISTINCT + ascending and contains the years with turns.
+    expect([...act.availableYears].sort((a, b) => a - b)).toEqual([...act.availableYears]);
+    expect(act.availableYears).toContain(2025);
+    expect(act.availableYears).toContain(2026);
+  }, 30_000);
+
+  it('speechActivity reflects a chamber filter: a comun day total equals the unfiltered same-day comun', async () => {
+    const base = await speechActivity(2025);
+    const filtered = await speechActivity(2025, ', filter:{chamber:{eq:"comun"}}');
+    const baseComunByDate = new Map(base.days.map((day) => [day.date, day.comun]));
+    // under chamber=comun, each day's total is exactly the unfiltered comun count, and
+    // proprie is 0 (no own-chamber turns survive the filter).
+    expect(filtered.days.every((day) => day.total === (baseComunByDate.get(day.date) ?? -1))).toBe(
+      true
+    );
+    expect(filtered.days.every((day) => day.proprie === 0)).toBe(true);
+  }, 30_000);
+
+  it('speechActivity reflects the q token: its 2025 day-sum equals the connection total under the SAME q', async () => {
+    // The activity heatmap and the connection MUST agree under the same free-text q.
+    const act = await speechActivity(2025, ', q:"întrebare"');
+    const daySum = act.days.reduce((s, day) => s + day.total, 0);
+    const connTotal = (
+      await speechesConn(
+        ', q:"întrebare", filter:{spokenAt:{between:{from:"2025-01-01",to:"2025-12-31"}}}'
+      )
+    ).total;
+    expect(daySum).toBe(connTotal);
+    // q narrows: non-empty but strictly less than the unfiltered 2025 total (61).
+    expect(daySum).toBeGreaterThan(0);
+    expect(daySum).toBeLessThan(61);
+    // per-day partition still holds under q.
+    expect(act.days.every((day) => day.proprie + day.comun === day.total)).toBe(true);
+  }, 30_000);
+
+  it('speechActivity rejects a spokenAt inside the filter (year is the range bound)', async () => {
+    const res = await gql<{ parliamentMember: unknown }>(
+      `{ parliamentMember(mandateKey:"${PAUCEAN}") {
+          speechActivity(year:2025, filter:{ spokenAt:{ gte:"2025-01-01" } }) { year }
+        } }`
+    );
+    expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  });
+
+  it('the worst-case mandate (~35k turns) returns a fast first keyset page', async () => {
+    const started = Date.now();
+    const res = await gql<{
+      parliamentMember: { readonly speechesConnection: SpeechConn } | null;
+    }>(
+      `{ parliamentMember(mandateKey:"${WORST_SPEECH}") {
+          speechesConnection(first:50) { total edges { node { speechKey } } pageInfo { hasNextPage } }
+        } }`
+    );
+    const conn = requireValue(
+      expectGqlData(res).parliamentMember,
+      'worst mandate'
+    ).speechesConnection;
+    expect(conn.edges).toHaveLength(50);
+    expect(conn.total).toBeGreaterThanOrEqual(35_000);
+    expect(conn.pageInfo.hasNextPage).toBe(true);
+    // Generous ceiling (SQL page measured ~38ms; this bounds the whole GraphQL round-trip).
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 30_000);
+
+  it('keyset breaks same-date ties by speechKey DESC (worst mandate has many same-day rows)', async () => {
+    const res = await gql<{
+      parliamentMember: {
+        readonly speechesConnection: {
+          edges: { node: { speechKey: string; spokenAt: string | null } }[];
+        };
+      } | null;
+    }>(
+      `{ parliamentMember(mandateKey:"${WORST_SPEECH}") {
+          speechesConnection(first:100) { edges { node { speechKey spokenAt } } }
+        } }`
+    );
+    const nodes = requireValue(
+      expectGqlData(res).parliamentMember,
+      'worst mandate ties'
+    ).speechesConnection.edges.map((e) => e.node);
+    expect(nodes.length).toBe(100);
+    let sameDatePairs = 0;
+    for (let i = 1; i < nodes.length; i++) {
+      const prev = nodes[i - 1];
+      const cur = nodes[i];
+      if (prev === undefined || cur === undefined) continue;
+      // global order: (spokenAt, speechKey) is strictly non-increasing.
+      const prevDate = prev.spokenAt ?? '';
+      const curDate = cur.spokenAt ?? '';
+      expect(prevDate >= curDate).toBe(true);
+      if (prevDate === curDate) {
+        sameDatePairs++;
+        // the tiebreaker: within a same-date run, speechKey strictly descends (PK unique).
+        expect(prev.speechKey > cur.speechKey).toBe(true);
+      }
+    }
+    // the mandate genuinely has same-day runs, so the tiebreaker is actually exercised.
+    expect(sameDatePairs).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('fullText resolves from speech_texts when present, else degrades to null (table-gated)', async () => {
+    const reg = await pool.query<{ reg: string | null }>(
+      `select to_regclass('parliament.speech_texts')::text as reg`
+    );
+    const hasTexts = reg.rows[0]?.reg != null;
+    const res = await gql<{
+      parliamentMember: {
+        readonly speechesConnection: { edges: { node: { fullText: string | null } }[] };
+      } | null;
+    }>(
+      `{ parliamentMember(mandateKey:"${PAUCEAN}") {
+          speechesConnection(first:3) { edges { node { fullText } } }
+        } }`
+    );
+    // The query must NEVER error, whether or not speech_texts exists.
+    const conn = requireValue(
+      expectGqlData(res).parliamentMember,
+      'Păucean fullText'
+    ).speechesConnection;
+    if (!hasTexts) {
+      // Table absent (parallel slice not landed): every fullText degrades to null.
+      expect(conn.edges.every((e) => e.node.fullText === null)).toBe(true);
+    } else {
+      // Table present: fullText is a string-or-null per row (loaded coverage may be partial).
+      expect(
+        conn.edges.every((e) => e.node.fullText === null || typeof e.node.fullText === 'string')
+      ).toBe(true);
+    }
+  }, 30_000);
 });

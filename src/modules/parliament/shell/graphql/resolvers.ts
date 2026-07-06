@@ -35,9 +35,12 @@ import {
   getMemberControlItems,
   getMemberInitiatives,
   getMemberSpeeches,
+  getMemberSpeechActivity,
+  getMemberSpeechesConnection,
   getMemberVoteActivity,
   getMemberVotes,
   getPersonCareer,
+  normalizeSpeechQ,
   getVoteBallots,
   getVoteDetail,
   listBills,
@@ -50,13 +53,19 @@ import {
   resolveFilters,
   type ParliamentUsecaseDeps,
 } from '../../core/usecases.js';
-import { controlItemsFilterSpec, memberVotesFhash, votesFilterSpec } from '../filters/specs.js';
+import {
+  controlItemsFilterSpec,
+  memberSpeechesFhash,
+  memberVotesFhash,
+  votesFilterSpec,
+} from '../filters/specs.js';
 
 import type {
   ParliamentBallot,
   ParliamentCommittee,
   ParliamentMemberVote,
   ParliamentResolveDim,
+  ParliamentSpeech,
   ParliamentVote,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
@@ -175,6 +184,31 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           dir: 'desc',
           fhash,
           lastKeys: [node.voteDate ?? '', node.voteKey, node.rowIndex],
+        }),
+      })),
+      pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+      total: page.total,
+    };
+  };
+
+  const memberSpeechConnection = (
+    page: CursorPage<ParliamentSpeech> & { total: number },
+    mandateKey: string,
+    filter: FilterInput,
+    q: string | undefined
+  ) => {
+    // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with
+    // (memberSpeechesFhash(mandateKey, filter, q)) and the SAME keyset shape
+    // ([spokenAt, speechKey]) so paging on an edge cursor matches.
+    const fhash = memberSpeechesFhash(mandateKey, filter, q);
+    return {
+      edges: page.items.map((node) => ({
+        node,
+        cursor: buildNextCursor({
+          sort: 'spokenAt',
+          dir: 'desc',
+          fhash,
+          lastKeys: [node.spokenAt ?? '', node.speechKey],
         }),
       })),
       pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
@@ -491,6 +525,36 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         );
         return { speeches: res.rows, total: res.total, totalEstimated: res.estimated };
       },
+      speechesConnection: async (
+        parent: { mandateKey: string },
+        args: { first?: number; after?: string; filter?: FilterInput; q?: string }
+      ) => {
+        const filter = sansNull(args.filter);
+        // Normalize q ONCE and thread the SAME value to the usecase (→ repo fhash) and
+        // the connection builder, so the per-edge cursor fhash matches the repo's.
+        const q = normalizeSpeechQ(args.q);
+        const page = {
+          first: clampFirst(args.first, 100),
+          ...(args.after != null && { after: args.after }),
+        };
+        const res = unwrap(
+          await getMemberSpeechesConnection(deps, parent.mandateKey, page, filter, q)
+        );
+        return memberSpeechConnection(res, parent.mandateKey, filter, q);
+      },
+      speechActivity: async (
+        parent: { mandateKey: string },
+        args: { year: number; filter?: FilterInput; q?: string }
+      ) =>
+        unwrap(
+          await getMemberSpeechActivity(
+            deps,
+            parent.mandateKey,
+            args.year,
+            sansNull(args.filter),
+            normalizeSpeechQ(args.q)
+          )
+        ),
       initiatives: async (
         parent: { mandateKey: string },
         args: { page?: number; pageSize?: number }
@@ -508,6 +572,16 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       // B2: lazy — only hit when the client selects committeeMemberships.
       committeeMemberships: async (parent: { mandateKey: string }) =>
         unwrap(await deps.repo.listMemberCommitteeMemberships(parent.mandateKey)),
+    },
+
+    ParliamentSpeech: {
+      // fullText is LAZY: a single-row lookup into parliament.speech_texts, run ONLY
+      // when the client selects it (never materialized in the list/count queries).
+      // Degrades to null when the transcript table/row is absent (parallel slice).
+      fullText: async (parent: { speechKey: string; fullText?: string | null }) =>
+        parent.fullText !== undefined
+          ? parent.fullText
+          : unwrap(await deps.repo.getSpeechFullText(parent.speechKey)),
     },
 
     ParliamentGroupInterval: {

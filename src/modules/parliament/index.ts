@@ -82,6 +82,8 @@ export {
   PARLIAMENT_FILTER_SPECS,
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberSpeechesFhash,
+  memberSpeechesFilterSpec,
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
