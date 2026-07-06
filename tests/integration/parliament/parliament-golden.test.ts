@@ -23,6 +23,7 @@ const BILL = '12760';
 const VOTE = 'cdep:29892';
 const MEMBER = '2:2020:12';
 const PERSON = '2264';
+const ABRUDEAN = '1:2024:1'; // Mircea Abrudean — senate current, 2 committee seats (B2)
 
 const d = HAS_DB ? describe : describe.skip;
 
@@ -621,10 +622,15 @@ d('Parliament golden (live prod)', () => {
   }, 30_000);
 
   it('group roster resolves a PARTY-LEVEL groupId to its full cross-chamber set, and a per-chamber slug exactly', async () => {
-    const roster = async (groupId: string): Promise<readonly { readonly mandateKey: string; readonly chamber: string | null }[]> => {
+    const roster = async (
+      groupId: string
+    ): Promise<readonly { readonly mandateKey: string; readonly chamber: string | null }[]> => {
       const data = expectGqlData(
         await gql<{
-          parliamentGroupMembers: readonly { readonly mandateKey: string; readonly chamber: string | null }[];
+          parliamentGroupMembers: readonly {
+            readonly mandateKey: string;
+            readonly chamber: string | null;
+          }[];
         }>(
           `query($groupId: ID!, $legislature: String) {
             parliamentGroupMembers(groupId:$groupId, legislature:$legislature) { mandateKey chamber }
@@ -650,9 +656,9 @@ d('Parliament golden (live prod)', () => {
     // The party-level rosters partition the legislature: every 2024 member belongs to
     // exactly one party, so the per-party roster sizes sum to the chamber totals.
     const groups = expectGqlData(
-      await gql<{ parliamentGroups: readonly { readonly groupId: string; readonly chamber: string }[] }>(
-        `{ parliamentGroups(legislature:"2024") { groupId chamber } }`
-      )
+      await gql<{
+        parliamentGroups: readonly { readonly groupId: string; readonly chamber: string }[];
+      }>(`{ parliamentGroups(legislature:"2024") { groupId chamber } }`)
     );
     // Whole-parliament list → party-level rows (chamber === "").
     const partyIds = groups.parliamentGroups.filter((g) => g.chamber === '').map((g) => g.groupId);
@@ -678,16 +684,29 @@ d('Parliament golden (live prod)', () => {
       );
       return data.parliamentMembers.total;
     };
-    expect(await memberTotal('{legislature:{eq:"2024"}, chamber:{eq:"camera_deputatilor"}, current:{eq:true}}')).toBe(330);
-    expect(await memberTotal('{legislature:{eq:"2024"}, chamber:{eq:"senat"}, current:{eq:true}}')).toBe(134);
+    expect(
+      await memberTotal(
+        '{legislature:{eq:"2024"}, chamber:{eq:"camera_deputatilor"}, current:{eq:true}}'
+      )
+    ).toBe(330);
+    expect(
+      await memberTotal('{legislature:{eq:"2024"}, chamber:{eq:"senat"}, current:{eq:true}}')
+    ).toBe(134);
     expect(await memberTotal('{legislature:{eq:"2024"}, current:{eq:true}}')).toBe(464);
     // all-mandate counts UNCHANGED when current is omitted.
     expect(await memberTotal('{legislature:{eq:"2024"}}')).toBe(472);
 
     // (b) current-only group roster: AUR current 90 (62 camera + 28 senat) vs all 91.
-    const roster = async (current: boolean): Promise<readonly { readonly chamber: string | null; readonly isCurrent: boolean }[]> => {
+    const roster = async (
+      current: boolean
+    ): Promise<readonly { readonly chamber: string | null; readonly isCurrent: boolean }[]> => {
       const data = expectGqlData(
-        await gql<{ parliamentGroupMembers: readonly { readonly chamber: string | null; readonly isCurrent: boolean }[] }>(
+        await gql<{
+          parliamentGroupMembers: readonly {
+            readonly chamber: string | null;
+            readonly isCurrent: boolean;
+          }[];
+        }>(
           `query($c: Boolean) {
             parliamentGroupMembers(groupId:"AUR", legislature:"2024", current:$c) { chamber isCurrent }
           }`,
@@ -706,7 +725,12 @@ d('Parliament golden (live prod)', () => {
     // (c) composition counts: parliamentGroups current:true → AUR current 90; default 91.
     const aurCount = async (current: boolean): Promise<number> => {
       const data = expectGqlData(
-        await gql<{ parliamentGroups: readonly { readonly name: string; readonly memberCount: number | null }[] }>(
+        await gql<{
+          parliamentGroups: readonly {
+            readonly name: string;
+            readonly memberCount: number | null;
+          }[];
+        }>(
           `query($c: Boolean) { parliamentGroups(legislature:"2024", current:$c) { name memberCount } }`,
           { c: current }
         )
@@ -761,8 +785,12 @@ d('Parliament golden (live prod)', () => {
         `{ parliamentGroupMembers(groupId:"Minoritati", legislature:"2024", current:true) { mandateKey } }`
       )
     );
-    expect(minoritatiAll.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(true);
-    expect(minoritatiCurrent.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(false);
+    expect(minoritatiAll.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(
+      true
+    );
+    expect(minoritatiCurrent.parliamentGroupMembers.some((x) => x.mandateKey === SUPERSEDED)).toBe(
+      false
+    );
 
     // (f) Codex BLOCKER guard: bill initiators are typed ParliamentMember (isCurrent
     // is Boolean!), so the lean initiator projection MUST carry isCurrent or the
@@ -790,9 +818,9 @@ d('Parliament golden (live prod)', () => {
   it('bill billType + status filters return the live prod classification counts', async () => {
     const billsTotal = async (filter: string): Promise<number> => {
       const data = expectGqlData(
-        await gql<{ parliamentBills: { readonly total: number; readonly totalEstimated: boolean } }>(
-          `{ parliamentBills(filter:${filter}, page:1, pageSize:1) { total totalEstimated } }`
-        )
+        await gql<{
+          parliamentBills: { readonly total: number; readonly totalEstimated: boolean };
+        }>(`{ parliamentBills(filter:${filter}, page:1, pageSize:1) { total totalEstimated } }`)
       );
       // All buckets are < the 10k list cap, so total is EXACT (never estimated).
       expect(data.parliamentBills.totalEstimated).toBe(false);
@@ -886,11 +914,12 @@ d('Parliament golden (live prod)', () => {
     const data = expectGqlData(
       await gql<{
         parliamentBills: {
-          readonly bills: readonly { readonly billKey: string; readonly lastEventDate: string | null }[];
+          readonly bills: readonly {
+            readonly billKey: string;
+            readonly lastEventDate: string | null;
+          }[];
         };
-      }>(
-        `{ parliamentBills(page:1, pageSize:10) { bills { billKey lastEventDate } } }`
-      )
+      }>(`{ parliamentBills(page:1, pageSize:10) { bills { billKey lastEventDate } } }`)
     );
     const bills = data.parliamentBills.bills;
     expect(bills.length).toBe(10);
@@ -1056,7 +1085,11 @@ d('Parliament golden (live prod)', () => {
     const data = expectGqlData(
       await gql<{
         parliamentMember: {
-          readonly group: { readonly groupId: string; readonly name: string; readonly chamber: string } | null;
+          readonly group: {
+            readonly groupId: string;
+            readonly name: string;
+            readonly chamber: string;
+          } | null;
           readonly groupIntervals: readonly {
             readonly groupId: string;
             readonly group: { readonly groupId: string; readonly name: string } | null;
@@ -1086,12 +1119,18 @@ d('Parliament golden (live prod)', () => {
 
   it('H6/H7: the group filter round-trips a chamber slug; an explicit empty in:[] matches nothing', async () => {
     const member = expectGqlData(
-      await gql<{ parliamentMember: { readonly groupIntervals: readonly { readonly groupId: string }[] } | null }>(
-        `query($k: ID!){ parliamentMember(mandateKey:$k){ groupIntervals { groupId } } }`,
-        { k: MEMBER }
-      )
+      await gql<{
+        parliamentMember: {
+          readonly groupIntervals: readonly { readonly groupId: string }[];
+        } | null;
+      }>(`query($k: ID!){ parliamentMember(mandateKey:$k){ groupIntervals { groupId } } }`, {
+        k: MEMBER,
+      })
     );
-    const slug = requireValue(member.parliamentMember?.groupIntervals[0]?.groupId, 'an interval groupId');
+    const slug = requireValue(
+      member.parliamentMember?.groupIntervals[0]?.groupId,
+      'an interval groupId'
+    );
     const data = expectGqlData(
       await gql<{
         bySlug: { readonly total: number };
@@ -1130,10 +1169,19 @@ d('Parliament golden (live prod)', () => {
         `{ parliamentBills(filter:{ billType:{ eq:"parliamentary" } }, pageSize:25) { bills { billKey } } }`
       )
     );
-    let initiators: readonly { readonly legislature: string | null; readonly normalizedName: string | null }[] | null = null;
+    let initiators:
+      | readonly { readonly legislature: string | null; readonly normalizedName: string | null }[]
+      | null = null;
     for (const bill of list.parliamentBills.bills) {
       const dossier = expectGqlData(
-        await gql<{ parliamentBill: { readonly initiators: readonly { readonly legislature: string | null; readonly normalizedName: string | null }[] } | null }>(
+        await gql<{
+          parliamentBill: {
+            readonly initiators: readonly {
+              readonly legislature: string | null;
+              readonly normalizedName: string | null;
+            }[];
+          } | null;
+        }>(
           `query($k: ID!){ parliamentBill(billKey:$k){ initiators { mandateKey legislature normalizedName constituencyName birthDate } } }`,
           { k: bill.billKey }
         )
@@ -1152,15 +1200,19 @@ d('Parliament golden (live prod)', () => {
 
   it('H13: lineage reports each senat vote with its OWN billKey, not the CDEP twin', async () => {
     const data = expectGqlData(
-      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null }>(
-        `{ parliamentActLineage(actId:"101942") { votes { voteKey billKey chamber } } }`
-      )
+      await gql<{
+        parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null;
+      }>(`{ parliamentActLineage(actId:"101942") { votes { voteKey billKey chamber } } }`)
     );
-    const senatVotes = (data.parliamentActLineage?.votes ?? []).filter((v) => v.chamber === 'senat');
+    const senatVotes = (data.parliamentActLineage?.votes ?? []).filter(
+      (v) => v.chamber === 'senat'
+    );
     expect(senatVotes.length).toBeGreaterThan(0);
     // Before the fix these returned the CDEP bvl bill key (e.g. "17335"); now each is the
     // vote's own bill key (or null), never a foreign cdep key.
-    expect(senatVotes.every((v) => v.billKey === null || v.billKey.startsWith('senat:'))).toBe(true);
+    expect(senatVotes.every((v) => v.billKey === null || v.billKey.startsWith('senat:'))).toBe(
+      true
+    );
   });
 
   it('H2: a guard error on a nullable root field isolates (the sibling query survives)', async () => {
@@ -1177,7 +1229,11 @@ d('Parliament golden (live prod)', () => {
 
   it('M16: ballots connection exposes the EXACT total count', async () => {
     const data = expectGqlData(
-      await gql<{ parliamentVote: { readonly ballots: { readonly total: number; readonly edges: readonly unknown[] } } | null }>(
+      await gql<{
+        parliamentVote: {
+          readonly ballots: { readonly total: number; readonly edges: readonly unknown[] };
+        } | null;
+      }>(
         `query($k: ID!){ parliamentVote(voteKey:$k){ ballots(first:2){ total edges { node { rowIndex } } } } }`,
         { k: VOTE }
       )
@@ -1189,13 +1245,15 @@ d('Parliament golden (live prod)', () => {
   it('M12/M13: cohesion percentages sum to 100.00 and cohesionIndex is null for no-decided-vote groups', async () => {
     const data = expectGqlData(
       await gql<{
-        parliamentVoteCohesion: readonly {
-          readonly forPct: number;
-          readonly againstPct: number;
-          readonly abstainPct: number;
-          readonly absentPct: number;
-          readonly cohesionIndex: number | null;
-        }[] | null;
+        parliamentVoteCohesion:
+          | readonly {
+              readonly forPct: number;
+              readonly againstPct: number;
+              readonly abstainPct: number;
+              readonly absentPct: number;
+              readonly cohesionIndex: number | null;
+            }[]
+          | null;
       }>(
         // bill 22086: AUR cast a single all-abstain vote → undefined Rice (null, not 0).
         `{ parliamentVoteCohesion(billKey:"22086"){ forPct againstPct abstainPct absentPct cohesionIndex } }`
@@ -1205,7 +1263,9 @@ d('Parliament golden (live prod)', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
       // M12: largest-remainder keeps the sum at exactly 100.00 (no 99.99/100.01 drift).
-      expect(Math.round((r.forPct + r.againstPct + r.abstainPct + r.absentPct) * 100) / 100).toBe(100);
+      expect(Math.round((r.forPct + r.againstPct + r.abstainPct + r.absentPct) * 100) / 100).toBe(
+        100
+      );
     }
     // M13: at least one group has no decided votes here → null cohesionIndex (never a 0).
     expect(rows.some((r) => r.cohesionIndex === null)).toBe(true);
@@ -1213,9 +1273,12 @@ d('Parliament golden (live prod)', () => {
 
   it('M14: ParliamentBill.relatedVotes is deprecated (use voteLinks)', async () => {
     const data = expectGqlData(
-      await gql<{ __type: { readonly fields: readonly { readonly name: string; readonly isDeprecated: boolean }[] } | null }>(
-        `{ __type(name:"ParliamentBill"){ fields(includeDeprecated:true){ name isDeprecated } } }`
-      )
+      await gql<{
+        // eslint-disable-next-line @typescript-eslint/naming-convention -- `__type` is the GraphQL introspection root field.
+        __type: {
+          readonly fields: readonly { readonly name: string; readonly isDeprecated: boolean }[];
+        } | null;
+      }>(`{ __type(name:"ParliamentBill"){ fields(includeDeprecated:true){ name isDeprecated } } }`)
     );
     const field = data.__type?.fields.find((f) => f.name === 'relatedVotes');
     expect(field?.isDeprecated).toBe(true);
@@ -1224,28 +1287,201 @@ d('Parliament golden (live prod)', () => {
   it('H14/M15: lineage defaults to final votes, caveats report omitted non-default votes, roles:["all"] widens', async () => {
     // act 133626 (← bill 20229) has 2 final_adoption + 38 amendment + 3 procedural linked votes.
     const def = expectGqlData(
-      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[]; readonly caveats: readonly string[] } | null }>(
-        `{ parliamentActLineage(actId:"133626"){ votes { role } caveats } }`
-      )
+      await gql<{
+        parliamentActLineage: {
+          readonly votes: readonly ParliamentLineageVote[];
+          readonly caveats: readonly string[];
+        } | null;
+      }>(`{ parliamentActLineage(actId:"133626"){ votes { role } caveats } }`)
     );
     const all = expectGqlData(
-      await gql<{ parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null }>(
-        `{ parliamentActLineage(actId:"133626", roles:["all"]){ votes { role } } }`
-      )
+      await gql<{
+        parliamentActLineage: { readonly votes: readonly ParliamentLineageVote[] } | null;
+      }>(`{ parliamentActLineage(actId:"133626", roles:["all"]){ votes { role } } }`)
     );
     const defaultVotes = def.parliamentActLineage?.votes ?? [];
     const allVotes = all.parliamentActLineage?.votes ?? [];
     expect(allVotes.length).toBeGreaterThan(defaultVotes.length); // roles:["all"] widens
-    expect(defaultVotes.every((v) => v.role === 'final_adoption' || v.role === 'final_rejection')).toBe(true);
+    expect(
+      defaultVotes.every((v) => v.role === 'final_adoption' || v.role === 'final_rejection')
+    ).toBe(true);
     // M15: the caveat is no longer empty for an act WITH a lineage — it reports the omission.
     expect((def.parliamentActLineage?.caveats ?? []).some((c) => c.includes('omitted'))).toBe(true);
+  });
+
+  // ── Workstream B serving additions (2026-07-06): cvPdfUrl, freshness, AI, committees ──
+
+  it('B3/B2: member 2:2020:12 exposes cvPdfUrl and 4 committee seats (cdep, mandate-linked)', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly cvPdfUrl: string | null;
+          readonly committeeMemberships: readonly {
+            readonly membershipKey: string;
+            readonly role: string | null;
+            readonly committee: {
+              readonly committeeKey: string;
+              readonly name: string;
+              readonly chamber: string;
+            } | null;
+            readonly member: { readonly mandateKey: string } | null;
+          }[];
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentMember(mandateKey:$k) {
+            cvPdfUrl
+            committeeMemberships {
+              membershipKey role
+              committee { committeeKey name chamber }
+              member { mandateKey }
+            }
+          }
+        }`,
+        { k: MEMBER }
+      )
+    );
+    const member = requireValue(data.parliamentMember, 'parliamentMember 2:2020:12');
+    // B3: the official CV PDF is surfaced flat (present for this member).
+    expect(member.cvPdfUrl).not.toBeNull();
+    // B2: 4 committee seats, each with a resolved committee soft-link; member is null
+    // in the member→memberships direction (the client already knows the member).
+    expect(member.committeeMemberships).toHaveLength(4);
+    expect(member.committeeMemberships.every((m) => m.committee !== null)).toBe(true);
+    expect(member.committeeMemberships.every((m) => m.member === null)).toBe(true);
+  });
+
+  it('B2: senator 1:2024:1 (Abrudean) has 2 committee seats via the current-roster attr join', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentMember: {
+          readonly committeeMemberships: readonly {
+            readonly role: string | null;
+            readonly isBureau: boolean | null;
+            readonly committee: { readonly name: string; readonly chamber: string } | null;
+          }[];
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentMember(mandateKey:$k) {
+            committeeMemberships { role isBureau committee { name chamber } }
+          }
+        }`,
+        { k: ABRUDEAN }
+      )
+    );
+    const member = requireValue(data.parliamentMember, 'parliamentMember 1:2024:1');
+    expect(member.committeeMemberships).toHaveLength(2);
+    // Every senate seat resolves to a senat committee (the attr join, 376/376 live).
+    expect(member.committeeMemberships.every((m) => m.committee?.chamber === 'senat')).toBe(true);
+    // At least one bureau seat (vicepreședinte on the OCDE special committee).
+    expect(member.committeeMemberships.some((m) => m.isBureau === true)).toBe(true);
+  });
+
+  it('B2: parliamentCommittees lists committees and parliamentCommittee returns roster + linked bills + meetings', async () => {
+    const list = expectGqlData(
+      await gql<{
+        parliamentCommittees: {
+          readonly edges: readonly {
+            readonly node: {
+              readonly committeeKey: string;
+              readonly chamber: string;
+              readonly sourceUrl: string;
+            };
+          }[];
+        } | null;
+      }>(
+        `{ parliamentCommittees(chamber:"camera_deputatilor", first:5) { edges { node { committeeKey chamber sourceUrl } } } }`
+      )
+    );
+    const edges = requireValue(list.parliamentCommittees, 'parliamentCommittees').edges;
+    expect(edges.length).toBeGreaterThan(0);
+    expect(edges.every((e) => e.node.chamber === 'camera_deputatilor')).toBe(true);
+    // source_url is NOT NULL — the traceability terminator.
+    expect(edges.every((e) => e.node.sourceUrl.length > 0)).toBe(true);
+
+    const key = requireValue(edges[0]?.node.committeeKey, 'a committee key');
+    const detail = expectGqlData(
+      await gql<{
+        parliamentCommittee: {
+          readonly committeeKey: string;
+          readonly name: string;
+          readonly members: readonly { readonly membershipKey: string }[];
+          readonly linkedBills: readonly { readonly billKey: string }[];
+          readonly linkedBillsTotal: number;
+          readonly meetingsCount: number;
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentCommittee(committeeKey:$k) {
+            committeeKey name
+            members { membershipKey }
+            linkedBills { billKey }
+            linkedBillsTotal
+            meetingsCount
+          }
+        }`,
+        { k: key }
+      )
+    );
+    const committee = requireValue(detail.parliamentCommittee, 'parliamentCommittee detail');
+    expect(committee.committeeKey).toBe(key);
+    expect(committee.name.length).toBeGreaterThan(0);
+    expect(committee.linkedBills.length).toBeLessThanOrEqual(committee.linkedBillsTotal);
+  }, 30_000);
+
+  it('B1: bill 12760 aiMetadata is non-null, NON-AUTHORITATIVE (trust class + disclaimer + valueClass)', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentBill: {
+          readonly aiMetadata: {
+            readonly summary: string | null;
+            readonly valueClass: string;
+            readonly trustClass: string;
+            readonly disclaimer: string;
+            readonly privacyClass: string;
+          } | null;
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentBill(billKey:$k) {
+            aiMetadata { summary valueClass trustClass disclaimer privacyClass }
+          }
+        }`,
+        { k: BILL }
+      )
+    );
+    const bill = requireValue(data.parliamentBill, 'parliamentBill 12760');
+    const ai = requireValue(bill.aiMetadata, 'bill aiMetadata');
+    expect(ai.trustClass).toBe('inference_only_label');
+    expect(ai.disclaimer.length).toBeGreaterThan(0);
+    expect(['standard', 'low_value']).toContain(ai.valueClass);
+    expect(ai.privacyClass).toBe('public');
+  });
+
+  it('B4: parliamentDataFreshness reports both freshness signals', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentDataFreshness: {
+          readonly latestVoteDate: string | null;
+          readonly lastLoadedAt: string | null;
+        } | null;
+      }>(`{ parliamentDataFreshness { latestVoteDate lastLoadedAt } }`)
+    );
+    const fresh = requireValue(data.parliamentDataFreshness, 'parliamentDataFreshness');
+    expect(fresh.latestVoteDate).not.toBeNull();
+    expect(fresh.lastLoadedAt).not.toBeNull();
   });
 
   it('M10: declaration metadata recovers a year + synthesized label from the file_url', async () => {
     const data = expectGqlData(
       await gql<{
         parliamentMember: {
-          readonly declarations: readonly { readonly declarationType: string; readonly declarationYear: number | null; readonly label: string | null }[];
+          readonly declarations: readonly {
+            readonly declarationType: string;
+            readonly declarationYear: number | null;
+            readonly label: string | null;
+          }[];
         } | null;
       }>(
         `query($k: ID!){ parliamentMember(mandateKey:$k){ declarations { declarationType declarationYear label } } }`,
@@ -1279,13 +1515,18 @@ d('Parliament golden (live prod)', () => {
   });
 
   it('null filter fields are treated as absent (no 500): legislature:null applies the default; q:null is fine', async () => {
-    const members = await gql<{ withNull: { readonly total: number } | null; base: { readonly total: number } | null }>(
+    const members = await gql<{
+      withNull: { readonly total: number } | null;
+      base: { readonly total: number } | null;
+    }>(
       `{ withNull: parliamentMembers(pageSize:1, filter:{ legislature:null }) { total } base: parliamentMembers(pageSize:1) { total } }`
     );
     expect(members.errors).toBeUndefined();
     expect(members.data?.withNull?.total).toBe(members.data?.base?.total); // null == omitted (default-latest)
 
-    const votes = await gql<{ parliamentVotes: unknown }>(`{ parliamentVotes(filter:{ q:null }, first:1) { edges { cursor } } }`);
+    const votes = await gql<{ parliamentVotes: unknown }>(
+      `{ parliamentVotes(filter:{ q:null }, first:1) { edges { cursor } } }`
+    );
     expect(votes.errors).toBeUndefined(); // q:null no longer throws a raw TypeError
   });
 });

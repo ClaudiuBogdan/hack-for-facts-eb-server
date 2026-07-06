@@ -38,9 +38,13 @@ import {
 import { foldDiacritics } from '@/modules/shared/shell/repo/fold.js';
 
 import {
+  mapAiBillMetadata,
+  mapAiControlItemMetadata,
   mapBill,
   mapBillDocument,
   mapBillEvent,
+  mapCommittee,
+  mapCommitteeMembership,
   mapControlItem,
   mapDeclaration,
   mapGroupInterval,
@@ -49,18 +53,28 @@ import {
   mapPerson,
   mapSpeech,
   mapVote,
+  type AiBillMetadataRow,
+  type AiControlItemMetadataRow,
   type BillRow,
+  type CommitteeMembershipCoreRow,
+  type CommitteeRow,
   type ControlItemRow,
   type MemberRow,
   type PersonRow,
   type VoteRow,
 } from './mappers.js';
-import { COHESION_VOTE_CAP,
+import {
+  COHESION_VOTE_CAP,
+  type ParliamentAiBillMetadata,
+  type ParliamentAiControlItemMetadata,
   type ParliamentBallot,
   type ParliamentBill,
   type ParliamentBillActLink,
   type ParliamentBillVoteLink,
+  type ParliamentCommittee,
+  type ParliamentCommitteeMembership,
   type ParliamentControlItem,
+  type ParliamentDataFreshness,
   type ParliamentDeclarationMeta,
   type ParliamentGroup,
   type ParliamentGroupCohesion,
@@ -72,7 +86,8 @@ import { COHESION_VOTE_CAP,
   type ParliamentPersonCandidate,
   type ParliamentSpeech,
   type ParliamentVote,
-  type ParliamentVoteGroupBreakdown } from '../../core/types.js';
+  type ParliamentVoteGroupBreakdown,
+} from '../../core/types.js';
 import {
   BILL_STATUSES,
   BILL_TYPES,
@@ -81,7 +96,6 @@ import {
   membersFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
-
 
 import type {
   BallotResolution,
@@ -113,7 +127,9 @@ const largestRemainderPct = (counts: readonly number[], total: number): number[]
   const scaled = counts.map((n) => (n / total) * 10000);
   const floors = scaled.map((x) => Math.floor(x));
   const deficit = 10000 - floors.reduce((a, b) => a + b, 0);
-  const byFrac = scaled.map((x, i) => ({ i, frac: x - Math.floor(x) })).sort((a, b) => b.frac - a.frac);
+  const byFrac = scaled
+    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+    .sort((a, b) => b.frac - a.frac);
   for (let k = 0; k < deficit && k < byFrac.length; k++) {
     const entry = byFrac[k];
     if (entry === undefined) break;
@@ -134,7 +150,8 @@ const requireCursorKeys = (
   arity: number,
   numericIdx: readonly number[] = []
 ): Result<readonly string[], ApiError> => {
-  if (keys.length !== arity) return err(invalidInput('malformed cursor; restart pagination', 'cursor'));
+  if (keys.length !== arity)
+    return err(invalidInput('malformed cursor; restart pagination', 'cursor'));
   for (const i of numericIdx) {
     if (!Number.isInteger(Number(keys[i]))) {
       return err(invalidInput('malformed cursor; restart pagination', 'cursor'));
@@ -207,7 +224,9 @@ const fieldFilter = (input: FilterInput, name: string): Record<string, unknown> 
   // guard it — else `filter:{field:null}` would be treated as a field-filter object
   // and `stringValues(null)` would crash on `null['eq']` (Codex round-2 #2).
   const v: unknown = input[name];
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : undefined;
 };
 
 /** Pull eq/in string value(s) from a field filter. */
@@ -215,7 +234,8 @@ const stringValues = (f: Record<string, unknown> | undefined): { eq?: string; in
   if (f === undefined) return {};
   const out: { eq?: string; in?: string[] } = {};
   if (typeof f['eq'] === 'string') out.eq = f['eq'];
-  if (Array.isArray(f['in'])) out.in = (f['in'] as unknown[]).filter((x): x is string => typeof x === 'string');
+  if (Array.isArray(f['in']))
+    out.in = (f['in'] as unknown[]).filter((x): x is string => typeof x === 'string');
   return out;
 };
 
@@ -235,15 +255,21 @@ const enumSelection = (
   allowed: readonly string[]
 ): Result<{ values: string[]; matchNothing: boolean }, ApiError> => {
   const { eq, in: inVals } = stringValues(f);
-  const explicitEmptyIn = f !== undefined && Array.isArray(f['in']) && (f['in'] as unknown[]).length === 0;
+  const explicitEmptyIn =
+    f !== undefined && Array.isArray(f['in']) && (f['in'] as unknown[]).length === 0;
   const picked = [...(eq !== undefined ? [eq] : []), ...(inVals ?? [])];
   const deduped = [...new Set(picked)];
   for (const v of deduped) {
     if (!allowed.includes(v)) {
-      return err(invalidInput(`unknown value '${v}'; expected one of ${allowed.join(', ')}`, 'filter'));
+      return err(
+        invalidInput(`unknown value '${v}'; expected one of ${allowed.join(', ')}`, 'filter')
+      );
     }
   }
-  return ok({ values: deduped, matchNothing: deduped.length === 0 && eq === undefined && explicitEmptyIn });
+  return ok({
+    values: deduped,
+    matchNothing: deduped.length === 0 && eq === undefined && explicitEmptyIn,
+  });
 };
 
 const containsValue = (f: Record<string, unknown> | undefined): string | undefined => {
@@ -289,7 +315,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // group_id OR the party-name group_name (case-insensitive; the two value sets never
     // overlap). H7: empty in:[] -> sql`false`, not a dropped predicate (which matched all).
     const matchGroupCols = (vals: readonly string[]): RawBuilder<unknown> => {
-      const inList = sql.join(vals.map((v) => sql`${v.toLowerCase()}`), sql`, `);
+      const inList = sql.join(
+        vals.map((v) => sql`${v.toLowerCase()}`),
+        sql`, `
+      );
       return sql`(lower(m.group_name) in (${inList}) or lower(m.group_id) in (${inList}))`;
     };
     const groupF = fieldFilter(filter, 'group');
@@ -303,7 +332,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
     const matchJudetCol = (vals: readonly string[]): RawBuilder<unknown> => {
       const foldedCol = sql`lower(translate(m.constituency_name, ${FOLD_FROM}, ${FOLD_TO}))`;
-      const inList = sql.join(vals.map((v) => sql`${foldDiacritics(v)}`), sql`, `);
+      const inList = sql.join(
+        vals.map((v) => sql`${foldDiacritics(v)}`),
+        sql`, `
+      );
       return sql`${foldedCol} in (${inList})`;
     };
     const judetF = fieldFilter(filter, 'judet');
@@ -333,9 +365,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const condsRes = buildMemberConditions(filter);
     if (condsRes.isErr()) return err(condsRes.error);
     const where = composeWhere(condsRes.value);
-    const orderBy = sort === 'mandateKey'
-      ? sql`m.mandate_key asc`
-      : sql`m.full_name asc nulls last, m.mandate_key asc`;
+    const orderBy =
+      sort === 'mandateKey'
+        ? sql`m.mandate_key asc`
+        : sql`m.full_name asc nulls last, m.mandate_key asc`;
     try {
       const rows = await db
         .selectFrom('parliament.members as m')
@@ -357,7 +390,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const findMember = async (mandateKey: string): Promise<Result<ParliamentMember | null, ApiError>> => {
+  const findMember = async (
+    mandateKey: string
+  ): Promise<Result<ParliamentMember | null, ApiError>> => {
     try {
       const row = await db
         .selectFrom('parliament.members as m')
@@ -414,7 +449,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where('m.legislature', '=', legislature)
         .where('m.group_name', 'is not', null);
       if (current === true) qb = qb.where('m.is_current', '=', true);
-      const rows = await qb.groupBy('m.group_name').orderBy(sql`count(*) desc`).execute();
+      const rows = await qb
+        .groupBy('m.group_name')
+        .orderBy(sql`count(*) desc`)
+        .execute();
       return ok(
         rows.map((r) => ({
           // groupId is the chamber-agnostic party slug at parliament scope.
@@ -492,7 +530,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     'p.confidence',
   ] as const;
 
-  const findPerson = async (personId: string): Promise<Result<ParliamentPerson | null, ApiError>> => {
+  const findPerson = async (
+    personId: string
+  ): Promise<Result<ParliamentPerson | null, ApiError>> => {
     try {
       const row = await db
         .selectFrom('parliament.persons as p')
@@ -506,7 +546,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const listPersonMandates = async (personId: string): Promise<Result<readonly ParliamentMember[], ApiError>> => {
+  const listPersonMandates = async (
+    personId: string
+  ): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.members as m')
@@ -529,7 +571,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     'gi.vote_count',
   ] as const;
 
-  const listGroupIntervals = async (mandateKey: string): Promise<Result<readonly ParliamentGroupInterval[], ApiError>> => {
+  const listGroupIntervals = async (
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentGroupInterval[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.group_membership_intervals as gi')
@@ -602,7 +646,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<boolean>`lower(translate(m.group_name, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
         );
       }
-      const rows = await qb.groupBy('m.group_name').orderBy('m.group_name', 'asc').limit(capped).execute();
+      const rows = await qb
+        .groupBy('m.group_name')
+        .orderBy('m.group_name', 'asc')
+        .limit(capped)
+        .execute();
       return ok(
         rows
           .filter((r): r is { group_name: string } => r.group_name !== null)
@@ -613,7 +661,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const resolveConstituencies = async (qFolded: string, limit: number): Promise<Result<readonly string[], ApiError>> => {
+  const resolveConstituencies = async (
+    qFolded: string,
+    limit: number
+  ): Promise<Result<readonly string[], ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
     try {
       let qb = db
@@ -626,14 +677,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<boolean>`lower(translate(m.constituency_name, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
         );
       }
-      const rows = await qb.groupBy('m.constituency_name').orderBy('m.constituency_name', 'asc').limit(capped).execute();
+      const rows = await qb
+        .groupBy('m.constituency_name')
+        .orderBy('m.constituency_name', 'asc')
+        .limit(capped)
+        .execute();
       return ok(rows.map((r) => r.constituency_name).filter((c): c is string => c !== null));
     } catch (e) {
       return err(databaseError('resolveConstituencies failed', e));
     }
   };
 
-  const resolveRecipients = async (qFolded: string, limit: number): Promise<Result<readonly string[], ApiError>> => {
+  const resolveRecipients = async (
+    qFolded: string,
+    limit: number
+  ): Promise<Result<readonly string[], ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
     if (qFolded.trim() === '') return ok([]);
     try {
@@ -642,7 +700,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.control_items as c')
         .select(['c.recipient'])
         .where('c.recipient', 'is not', null)
-        .where(sql<boolean>`lower(translate(c.recipient, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`)
+        .where(
+          sql<boolean>`lower(translate(c.recipient, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
+        )
         .groupBy('c.recipient')
         .orderBy(sql`count(*) desc`)
         .limit(capped)
@@ -692,7 +752,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // BEFORE the ::bigint cast (a non-numeric id would surface as a DB 500 — #SF).
     const actId = stringValues(fieldFilter(filter, 'actId'));
     if (actId.eq !== undefined) {
-      if (!/^\d+$/u.test(actId.eq)) return err(invalidInput('actId must be a numeric act_id', 'actId'));
+      if (!/^\d+$/u.test(actId.eq))
+        return err(invalidInput('actId must be a numeric act_id', 'actId'));
       conds.push(
         sql`exists (select 1 from parliament.bill_act_links bal where bal.bill_key = b.bill_key and bal.target_act_id = ${actId.eq}::bigint)`
       );
@@ -704,7 +765,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // Bills with no procedure block match neither value (NULL ILIKE → NULL).
     const billTypeVals = enumSelection(fieldFilter(filter, 'billType'), BILL_TYPES);
     if (billTypeVals.isErr()) return err(billTypeVals.error);
-    if (billTypeVals.value.matchNothing) conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
+    if (billTypeVals.value.matchNothing)
+      conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
     else if (billTypeVals.value.values.length > 0) {
       const pred = (v: string): RawBuilder<unknown> =>
         v === 'government'
@@ -723,7 +785,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // NOT(promulgated OR rejected) so the three buckets stay an exhaustive partition.
     const statusVals = enumSelection(fieldFilter(filter, 'status'), BILL_STATUSES);
     if (statusVals.isErr()) return err(statusVals.error);
-    if (statusVals.value.matchNothing) conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
+    if (statusVals.value.matchNothing)
+      conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
     else if (statusVals.value.values.length > 0) {
       const st = sql`lower(coalesce(b.attrs->>'status_text', ''))`;
       const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege' or ${st} like 'a devenit lege%')`;
@@ -786,13 +849,22 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       // bills is ~10k — a direct count is cheap; cap defensively.
       const countRow = await db
         .selectFrom(
-          db.selectFrom('parliament.bills as b').select(sql<number>`1`.as('one')).where(where).limit(LIST_TOTAL_CAP + 1).as('capped')
+          db
+            .selectFrom('parliament.bills as b')
+            .select(sql<number>`1`.as('one'))
+            .where(where)
+            .limit(LIST_TOTAL_CAP + 1)
+            .as('capped')
         )
         .select(sql<string>`count(*)`.as('cnt'))
         .executeTakeFirst();
       const rawCount = Number(countRow?.cnt ?? 0);
       const estimated = rawCount > LIST_TOTAL_CAP;
-      return ok({ rows: rows.map((r) => mapBill(r as BillRow)), total: estimated ? LIST_TOTAL_CAP : rawCount, estimated });
+      return ok({
+        rows: rows.map((r) => mapBill(r as BillRow)),
+        total: estimated ? LIST_TOTAL_CAP : rawCount,
+        estimated,
+      });
     } catch (e) {
       return err(databaseError('listBills failed', e));
     }
@@ -849,7 +921,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const getBillInitiators = async (billKey: string): Promise<Result<readonly ParliamentMember[], ApiError>> => {
+  const getBillInitiators = async (
+    billKey: string
+  ): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
       // H10: select the FULL member columns and map via mapMember, so an initiator
       // reached through a bill has the SAME shape as parliamentMember(s) —
@@ -892,7 +966,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     primaryMethod: r.primary_method ?? 'unknown',
   });
 
-  const getBillActLinks = async (billKey: string): Promise<Result<readonly ParliamentBillActLink[], ApiError>> => {
+  const getBillActLinks = async (
+    billKey: string
+  ): Promise<Result<readonly ParliamentBillActLink[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_act_links as bal')
@@ -915,11 +991,19 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const getBillVoteLinks = async (billKey: string): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>> => {
+  const getBillVoteLinks = async (
+    billKey: string
+  ): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_vote_links as bvl')
-        .select(['bvl.vote_key', 'bvl.bill_key', 'bvl.role', 'bvl.resolution_status', 'bvl.confidence_label'])
+        .select([
+          'bvl.vote_key',
+          'bvl.bill_key',
+          'bvl.role',
+          'bvl.resolution_status',
+          'bvl.confidence_label',
+        ])
         .where('bvl.bill_key', '=', billKey)
         .execute();
       return ok(
@@ -1041,7 +1125,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const listVotesForBill = async (billKey: string): Promise<Result<readonly ParliamentVote[], ApiError>> => {
+  const listVotesForBill = async (
+    billKey: string
+  ): Promise<Result<readonly ParliamentVote[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.votes as v')
@@ -1116,7 +1202,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const voteGroupBreakdown = async (voteKey: string): Promise<Result<readonly ParliamentVoteGroupBreakdown[], ApiError>> => {
+  const voteGroupBreakdown = async (
+    voteKey: string
+  ): Promise<Result<readonly ParliamentVoteGroupBreakdown[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.vote_records as vr')
@@ -1149,7 +1237,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     try {
       const row = await db
         .selectFrom('parliament.vote_records as vr')
-        .select([sql<string>`count(*)`.as('total'), sql<string>`count(vr.mandate_key)`.as('resolved')])
+        .select([
+          sql<string>`count(*)`.as('total'),
+          sql<string>`count(vr.mandate_key)`.as('resolved'),
+        ])
         .where('vr.vote_key', '=', voteKey)
         .executeTakeFirst();
       return ok({ total: Number(row?.total ?? 0), resolved: Number(row?.resolved ?? 0) });
@@ -1162,7 +1253,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   const listMemberVotes = async (
     mandateKey: string,
     page: CursorPageRequest
-  ): Promise<Result<(CursorPage<ParliamentMemberVote> & { total: number }), ApiError>> => {
+  ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>> => {
     const limit = Math.min(Math.max(page.first, 1), 100);
     const fhash = memberVoteFhash(mandateKey);
     // Materialize the member's bounded ballot set ⋈ votes; stable in-memory sort
@@ -1223,7 +1314,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const hasMore = startIdx + limit < sorted.length;
       const next =
         hasMore && last !== undefined
-          ? buildNextCursor({ sort: 'memberVote', dir: 'desc', fhash, lastKeys: [last.voteDate ?? '', last.voteKey, last.rowIndex] })
+          ? buildNextCursor({
+              sort: 'memberVote',
+              dir: 'desc',
+              fhash,
+              lastKeys: [last.voteDate ?? '', last.voteKey, last.rowIndex],
+            })
           : null;
       return ok({ items: slice, next, total });
     } catch (e) {
@@ -1251,9 +1347,15 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         const rows = await db
           .selectFrom('parliament.control_items as c')
           .select([
-            'c.item_key', 'c.control_type', 'c.control_type_provenance', 'c.title', 'c.recipient',
+            'c.item_key',
+            'c.control_type',
+            'c.control_type_provenance',
+            'c.title',
+            'c.recipient',
             sql<string | null>`c.item_date::text`.as('item_date'),
-            'c.response_status', 'c.author_name', 'c.mandate_key',
+            'c.response_status',
+            'c.author_name',
+            'c.mandate_key',
           ])
           .where('c.mandate_key', '=', mandateKey)
           .orderBy('c.item_date', 'desc')
@@ -1277,8 +1379,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         const rows = await db
           .selectFrom('parliament.speeches as s')
           .select([
-            's.speech_key', 's.mandate_key', 's.speaker_name', 's.chamber',
-            sql<string | null>`s.spoken_at::text`.as('spoken_at'), 's.title', 's.summary',
+            's.speech_key',
+            's.mandate_key',
+            's.speaker_name',
+            's.chamber',
+            sql<string | null>`s.spoken_at::text`.as('spoken_at'),
+            's.title',
+            's.summary',
           ])
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false) // §2.6 — quarantined excluded by default
@@ -1321,8 +1428,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         const rows = await db
           .selectFrom('parliament.member_initiatives as mi')
           .select([
-            'mi.initiative_key', 'mi.mandate_key', 'mi.bill_key', 'mi.title', 'mi.status',
-            'mi.promulgated_law_number', 'mi.promulgated_law_year',
+            'mi.initiative_key',
+            'mi.mandate_key',
+            'mi.bill_key',
+            'mi.title',
+            'mi.status',
+            'mi.promulgated_law_number',
+            'mi.promulgated_law_year',
             sql<string | null>`${regDateIso}`.as('registration_date'),
           ])
           .where('mi.mandate_key', '=', mandateKey)
@@ -1341,11 +1453,18 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       page
     );
 
-  const listMemberDeclarations = async (mandateKey: string): Promise<Result<readonly ParliamentDeclarationMeta[], ApiError>> => {
+  const listMemberDeclarations = async (
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentDeclarationMeta[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.member_declarations as d')
-        .select(['d.declaration_type', sql<string | null>`d.declaration_date::text`.as('declaration_date'), 'd.label', 'd.file_url'])
+        .select([
+          'd.declaration_type',
+          sql<string | null>`d.declaration_date::text`.as('declaration_date'),
+          'd.label',
+          'd.file_url',
+        ])
         .where('d.mandate_key', '=', mandateKey)
         .orderBy('d.declaration_date', 'desc')
         .execute();
@@ -1356,7 +1475,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   // ── standalone control-items list (cursor; bounded — §3.2) ─────────────────────
-  const buildControlConditions = (filter: FilterInput): { conds: RawBuilder<unknown>[]; error?: ApiError } => {
+  const buildControlConditions = (
+    filter: FilterInput
+  ): { conds: RawBuilder<unknown>[]; error?: ApiError } => {
     const physical: Record<string, unknown> = {};
     for (const key of ['controlType', 'responseStatus', 'itemDate'] as const) {
       // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN arrive
@@ -1375,18 +1496,24 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const rc = containsValue(recipient);
       if (rc !== undefined) {
         const needle = '%' + escapeLike(foldDiacritics(rc)) + '%';
-        conds.push(sql`lower(translate(coalesce(c.recipient, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`);
+        conds.push(
+          sql`lower(translate(coalesce(c.recipient, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
+        );
       }
     }
     const author = containsValue(fieldFilter(filter, 'author'));
     if (author !== undefined) {
       const needle = '%' + escapeLike(foldDiacritics(author)) + '%';
-      conds.push(sql`lower(translate(coalesce(c.author_name, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`);
+      conds.push(
+        sql`lower(translate(coalesce(c.author_name, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
+      );
     }
     const q = containsValue(fieldFilter(filter, 'q'));
     if (q !== undefined && q.trim() !== '') {
       const needle = '%' + escapeLike(foldDiacritics(q)) + '%';
-      conds.push(sql`lower(translate(coalesce(c.title, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`);
+      conds.push(
+        sql`lower(translate(coalesce(c.title, ''), ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
+      );
     }
     return { conds };
   };
@@ -1414,9 +1541,15 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const rows = await db
         .selectFrom('parliament.control_items as c')
         .select([
-          'c.item_key', 'c.control_type', 'c.control_type_provenance', 'c.title', 'c.recipient',
+          'c.item_key',
+          'c.control_type',
+          'c.control_type_provenance',
+          'c.title',
+          'c.recipient',
           sql<string | null>`c.item_date::text`.as('item_date'),
-          'c.response_status', 'c.author_name', 'c.mandate_key',
+          'c.response_status',
+          'c.author_name',
+          'c.mandate_key',
         ])
         .where(composeWhere(conds))
         .orderBy(sql`${dateKey} desc, c.item_key desc`)
@@ -1428,7 +1561,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const last = sliced[sliced.length - 1] as ControlItemRow | undefined;
       const next =
         hasMore && last !== undefined
-          ? buildNextCursor({ sort: 'itemDate', dir: 'desc', fhash, lastKeys: [last.item_date ?? '', last.item_key] })
+          ? buildNextCursor({
+              sort: 'itemDate',
+              dir: 'desc',
+              fhash,
+              lastKeys: [last.item_date ?? '', last.item_key],
+            })
           : null;
       return ok({ items, next });
     } catch (e) {
@@ -1437,13 +1575,22 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   // ── lineage (the marquee) ──────────────────────────────────────────────────────
-  const votesForActId = async (actId: string, roles: readonly string[]): Promise<Result<readonly LineageVoteRow[], ApiError>> => {
+  const votesForActId = async (
+    actId: string,
+    roles: readonly string[]
+  ): Promise<Result<readonly LineageVoteRow[], ApiError>> => {
     try {
       let qb = db
         .selectFrom('parliament.bill_act_links as bal')
         .innerJoin('parliament.bill_vote_links as bvl', 'bvl.bill_key', 'bal.bill_key')
         .innerJoin('parliament.votes as v', 'v.vote_key', 'bvl.vote_key')
-        .select([...VOTE_SELECT, 'bvl.bill_key as bvl_bill_key', 'bvl.role', 'bvl.resolution_status as bvl_status', 'bvl.confidence_label as bvl_conf'])
+        .select([
+          ...VOTE_SELECT,
+          'bvl.bill_key as bvl_bill_key',
+          'bvl.role',
+          'bvl.resolution_status as bvl_status',
+          'bvl.confidence_label as bvl_conf',
+        ])
         .where(sql`bal.target_act_id`, '=', sql`${actId}::bigint`)
         .where('bal.resolution_status', '=', 'linked');
       if (roles.length > 0) qb = qb.where('bvl.role', 'in', [...roles]);
@@ -1462,7 +1609,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const billsForActId = async (actId: string): Promise<Result<readonly ParliamentBill[], ApiError>> => {
+  const billsForActId = async (
+    actId: string
+  ): Promise<Result<readonly ParliamentBill[], ApiError>> => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_act_links as bal')
@@ -1520,7 +1669,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<readonly ParliamentGroupCohesion[], ApiError>> => {
     if (voteKeys.length === 0) return ok([]);
     if (voteKeys.length > COHESION_VOTE_CAP) {
-      return err(invalidInput(`cohesion vote set exceeds cap (${String(COHESION_VOTE_CAP)})`, 'voteKeys'));
+      return err(
+        invalidInput(`cohesion vote set exceeds cap (${String(COHESION_VOTE_CAP)})`, 'voteKeys')
+      );
     }
     try {
       let qb = db
@@ -1554,7 +1705,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           // are no DECIDED votes (for+against=0) — Rice is undefined, not 0 (a 0 would
           // read as "maximally divided" for an abstain/absent-only group).
           const decided = pentru + impotriva;
-          const cohesionIndex = decided > 0 ? Math.round((Math.abs(pentru - impotriva) / decided) * 1000) / 1000 : null;
+          const cohesionIndex =
+            decided > 0 ? Math.round((Math.abs(pentru - impotriva) / decided) * 1000) / 1000 : null;
           return {
             groupName: r.group_name ?? '(none)',
             forPct,
@@ -1579,16 +1731,28 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     try {
       let qb = db
         .selectFrom('parliament.person_identity_candidates as pc')
-        .select(['pc.mandate_key', sql<string | null>`pc.person_id::text`.as('person_id'), 'pc.status']);
+        .select([
+          'pc.mandate_key',
+          sql<string | null>`pc.person_id::text`.as('person_id'),
+          'pc.status',
+        ]);
       if (status !== undefined) qb = qb.where('pc.status', '=', status);
-      const rows = await qb.orderBy('pc.mandate_key', 'asc').limit(page.pageSize).offset(offsetFor(page)).execute();
+      const rows = await qb
+        .orderBy('pc.mandate_key', 'asc')
+        .limit(page.pageSize)
+        .offset(offsetFor(page))
+        .execute();
       let cntQb = db
         .selectFrom('parliament.person_identity_candidates as pc')
         .select(sql<string>`count(*)`.as('cnt'));
       if (status !== undefined) cntQb = cntQb.where('pc.status', '=', status);
       const cnt = await cntQb.executeTakeFirst();
       return ok({
-        rows: rows.map((r) => ({ mandateKey: r.mandate_key, personId: r.person_id, status: r.status })),
+        rows: rows.map((r) => ({
+          mandateKey: r.mandate_key,
+          personId: r.person_id,
+          status: r.status,
+        })),
         total: Number(cnt?.cnt ?? 0),
         estimated: false,
       });
@@ -1603,8 +1767,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   // `async` (no DB hit) — returns an already-resolved Promise to satisfy the port.
   const controlPresenceForRecipient = (
     _cui: string
-  ): Promise<Result<ParliamentControlSummaryCount | null, ApiError>> =>
-    Promise.resolve(ok(null));
+  ): Promise<Result<ParliamentControlSummaryCount | null, ApiError>> => Promise.resolve(ok(null));
 
   // ── freshness watermark ─────────────────────────────────────────────────────────
   const loaderWatermark = async (): Promise<Result<string | null, ApiError>> => {
@@ -1618,6 +1781,359 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       return ok(row?.w ?? null);
     } catch (e) {
       return err(databaseError('loaderWatermark failed', e));
+    }
+  };
+
+  // ── data freshness (B4) ─────────────────────────────────────────────────────────
+  const dataFreshness = async (): Promise<Result<ParliamentDataFreshness, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.votes')
+        .select([
+          sql<string | null>`max(vote_date)::text`.as('latest_vote_date'),
+          sql<string | null>`max(updated_at)::text`.as('last_loaded_at'),
+        ])
+        .executeTakeFirst();
+      return ok({
+        latestVoteDate: row?.latest_vote_date ?? null,
+        lastLoadedAt: row?.last_loaded_at ?? null,
+      });
+    } catch (e) {
+      return err(databaseError('dataFreshness failed', e));
+    }
+  };
+
+  // ── AI enrichment metadata (B1 — inference-only; NON-AUTHORITATIVE) ──────────────
+  // Latest deterministic pick per key (loaded_at desc, schema_version desc). Only
+  // valid + public rows are served (control has 4,706 restricted rows that MUST be
+  // filtered; bill is all-public today but the filter is future-proof). confidence
+  // is numeric → ::text (precision-safe).
+  const findBillAiMetadata = async (
+    billKey: string
+  ): Promise<Result<ParliamentAiBillMetadata | null, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.bill_metadata as bm')
+        .select([
+          'bm.summary',
+          'bm.topic',
+          'bm.domains',
+          'bm.keywords',
+          'bm.value_class',
+          'bm.config_key',
+          'bm.prompt_version',
+          'bm.schema_version',
+          'bm.model',
+          'bm.validation_status',
+          sql<string | null>`bm.confidence::text`.as('confidence'),
+          sql<string | null>`bm.source_updated_at::text`.as('source_updated_at'),
+          sql<string | null>`bm.loaded_at::text`.as('loaded_at'),
+          'bm.privacy_class',
+        ])
+        .where('bm.bill_key', '=', billKey)
+        .where('bm.validation_status', '=', 'valid')
+        .where('bm.privacy_class', '=', 'public')
+        .orderBy('bm.loaded_at', 'desc')
+        .orderBy('bm.schema_version', 'desc')
+        // Final stable tiebreakers so the served summary is deterministic when two
+        // rows share (loaded_at, schema_version) — the versioned PK guarantees these
+        // fully disambiguate.
+        .orderBy('bm.config_key', 'desc')
+        .orderBy('bm.prompt_version', 'desc')
+        .limit(1)
+        .executeTakeFirst();
+      return ok(row === undefined ? null : mapAiBillMetadata(row as AiBillMetadataRow));
+    } catch (e) {
+      return err(databaseError('findBillAiMetadata failed', e));
+    }
+  };
+
+  const findControlItemAiMetadata = async (
+    itemKey: string
+  ): Promise<Result<ParliamentAiControlItemMetadata | null, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.control_item_metadata as cm')
+        .select([
+          'cm.summary',
+          'cm.policy_domains',
+          'cm.issue_types',
+          'cm.urgency',
+          'cm.keywords',
+          'cm.config_key',
+          'cm.prompt_version',
+          'cm.schema_version',
+          'cm.model',
+          'cm.validation_status',
+          sql<string | null>`cm.confidence::text`.as('confidence'),
+          sql<string | null>`cm.source_updated_at::text`.as('source_updated_at'),
+          sql<string | null>`cm.loaded_at::text`.as('loaded_at'),
+          'cm.privacy_class',
+        ])
+        .where('cm.item_key', '=', itemKey)
+        .where('cm.validation_status', '=', 'valid')
+        // CRITICAL (B1): 4,706 of 9,345 rows are restricted — serve public only.
+        .where('cm.privacy_class', '=', 'public')
+        .orderBy('cm.loaded_at', 'desc')
+        .orderBy('cm.schema_version', 'desc')
+        // Final stable tiebreakers (deterministic summary when loaded_at/schema_version tie).
+        .orderBy('cm.config_key', 'desc')
+        .orderBy('cm.prompt_version', 'desc')
+        .limit(1)
+        .executeTakeFirst();
+      return ok(
+        row === undefined ? null : mapAiControlItemMetadata(row as AiControlItemMetadataRow)
+      );
+    } catch (e) {
+      return err(databaseError('findControlItemAiMetadata failed', e));
+    }
+  };
+
+  // ── committees (B2) ──────────────────────────────────────────────────────────────
+  const COMMITTEE_SELECT = [
+    'co.committee_key',
+    'co.chamber',
+    'co.name',
+    'co.legislature',
+    'co.committee_type',
+    'co.source_url',
+  ] as const;
+
+  /** Translate the module-enum chamber to the raw committees.chamber code. */
+  const rawCommitteeChamber = (chamber: string): string =>
+    chamber === 'camera_deputatilor' ? 'cdep' : chamber === 'senat' ? 'senate' : chamber;
+
+  // The senate roster attr-join: a senate_committee membership carries a
+  // senate_parlamentar_id; it links to the CURRENT senator whose attrs carry the
+  // matching senate_current_roster_parlamentar_id (376/376 match on live data).
+  const SENATE_ROSTER_JOIN = sql<boolean>`(
+    cm.membership_source = 'cdep_committee' and m.mandate_key = cm.mandate_key
+  ) or (
+    cm.membership_source = 'senate_committee' and m.is_current
+      and m.attrs->>'senate_current_roster_parlamentar_id' = cm.senate_parlamentar_id::text
+  )`;
+
+  const listCommittees = async (
+    chamber: string | undefined,
+    legislature: string | undefined,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>> => {
+    const limit = Math.min(Math.max(page.first, 1), 100);
+    const fhash = filterHash(`committees:${chamber ?? ''}:${legislature ?? ''}`);
+    const conds: RawBuilder<unknown>[] = [];
+    if (chamber !== undefined) conds.push(sql`co.chamber = ${rawCommitteeChamber(chamber)}`);
+    if (legislature !== undefined) conds.push(sql`co.legislature = ${legislature}`);
+    if (page.after !== undefined) {
+      const dec = decodeCursor(page.after, { sort: 'committeeKey', dir: 'asc', fhash });
+      if (dec.isErr()) return err(dec.error);
+      const keys = requireCursorKeys(dec.value.keys, 1);
+      if (keys.isErr()) return err(keys.error);
+      conds.push(sql`co.committee_key > ${keys.value[0] ?? ''}`);
+    }
+    try {
+      const rows = await db
+        .selectFrom('parliament.committees as co')
+        .select(COMMITTEE_SELECT)
+        .where(composeWhere(conds))
+        .orderBy('co.committee_key', 'asc')
+        .limit(limit + 1)
+        .execute();
+      const hasMore = rows.length > limit;
+      const sliced = hasMore ? rows.slice(0, limit) : rows;
+      const items = sliced.map((r) => mapCommittee(r as CommitteeRow));
+      const last = sliced[sliced.length - 1] as CommitteeRow | undefined;
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({
+              sort: 'committeeKey',
+              dir: 'asc',
+              fhash,
+              lastKeys: [last.committee_key],
+            })
+          : null;
+      return ok({ items, next });
+    } catch (e) {
+      return err(databaseError('listCommittees failed', e));
+    }
+  };
+
+  const findCommittee = async (
+    committeeKey: string
+  ): Promise<Result<ParliamentCommittee | null, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.committees as co')
+        .select(COMMITTEE_SELECT)
+        .where('co.committee_key', '=', committeeKey)
+        .limit(1)
+        .executeTakeFirst();
+      return ok(row === undefined ? null : mapCommittee(row as CommitteeRow));
+    } catch (e) {
+      return err(databaseError('findCommittee failed', e));
+    }
+  };
+
+  const listCommitteeRoster = async (
+    committeeKey: string
+  ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>> => {
+    try {
+      // cdep rows link by mandate_key; senate_committee rows via the current-roster
+      // attr join (unlinked rows still appear with a null member — no member_name,
+      // PDL-003). senate_profile rows are EXCLUDED (no member link + noise).
+      const rows = await db
+        .selectFrom('parliament.committee_memberships as cm')
+        .leftJoin('parliament.members as m', (join) => join.on(SENATE_ROSTER_JOIN))
+        .select([
+          ...MEMBER_SELECT,
+          'cm.membership_key',
+          'cm.role as membership_role',
+          sql<string | null>`cm.joined_date::text`.as('joined_date'),
+          sql<string | null>`cm.left_date::text`.as('left_date'),
+          'cm.is_bureau as membership_is_bureau',
+          'cm.source_url as membership_source_url',
+        ])
+        .where('cm.committee_key', '=', committeeKey)
+        .where('cm.membership_source', 'in', ['cdep_committee', 'senate_committee'])
+        .orderBy(
+          sql`(cm.left_date is null) desc, cm.joined_date desc nulls last, m.full_name asc nulls last`
+        )
+        // Empirically safe: the largest committee roster is ~57 seats (measured live
+        // 2026-07-06, max cdep:2:2012:33) — the 500 cap never truncates a real roster.
+        .limit(500)
+        .execute();
+      return ok(
+        rows.map((r) => {
+          // The LEFT JOIN makes every member column nullable at runtime (Kysely still
+          // infers mandate_key as non-null from the table type) — override it so the
+          // unlinked-seat branch is a REAL conditional, not a type-lie.
+          const row = r as Omit<MemberRow, 'mandate_key'> &
+            CommitteeMembershipCoreRow & { mandate_key: string | null };
+          // member is null when the seat did not resolve to a member (unlinked row).
+          const member = row.mandate_key !== null ? mapMember(row as MemberRow) : null;
+          return mapCommitteeMembership(row, null, member);
+        })
+      );
+    } catch (e) {
+      return err(databaseError('listCommitteeRoster failed', e));
+    }
+  };
+
+  const listMemberCommitteeMemberships = async (
+    mandateKey: string
+  ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>> => {
+    try {
+      // The member's committee seats: cdep by mandate_key; senate_committee via the
+      // attr join when this member is a CURRENTLY-SEATED senator. The committee is
+      // the soft-link (nullable). No member_name / group / role_raw (PDL-003).
+      const rows = await db
+        .selectFrom('parliament.committee_memberships as cm')
+        .innerJoin('parliament.members as m', (join) =>
+          join.on(sql<boolean>`m.mandate_key = ${mandateKey}`)
+        )
+        .leftJoin('parliament.committees as co', 'co.committee_key', 'cm.committee_key')
+        .select([
+          ...COMMITTEE_SELECT,
+          'cm.membership_key',
+          'cm.role as membership_role',
+          sql<string | null>`cm.joined_date::text`.as('joined_date'),
+          sql<string | null>`cm.left_date::text`.as('left_date'),
+          'cm.is_bureau as membership_is_bureau',
+          'cm.source_url as membership_source_url',
+        ])
+        .where('cm.membership_source', 'in', ['cdep_committee', 'senate_committee'])
+        .where(SENATE_ROSTER_JOIN)
+        .orderBy(
+          sql`(cm.left_date is null) desc, cm.joined_date desc nulls last, co.name asc nulls last`
+        )
+        // Empirically safe: a member holds single-digit committee seats (measured live
+        // 2026-07-06; busiest members ≤ a handful) — the 200 cap never truncates.
+        .limit(200)
+        .execute();
+      return ok(
+        rows.map((r) => {
+          const row = r as CommitteeMembershipCoreRow & {
+            committee_key: string | null;
+            chamber: string | null;
+            name: string | null;
+            legislature: string | null;
+            committee_type: string | null;
+            source_url: string | null;
+          };
+          // The committee soft-link (null only if the FK was unresolved).
+          const committee =
+            row.committee_key !== null && row.source_url !== null
+              ? mapCommittee({
+                  committee_key: row.committee_key,
+                  chamber: row.chamber,
+                  name: row.name ?? '',
+                  legislature: row.legislature,
+                  committee_type: row.committee_type,
+                  source_url: row.source_url,
+                })
+              : null;
+          return mapCommitteeMembership(row, committee, null);
+        })
+      );
+    } catch (e) {
+      return err(databaseError('listMemberCommitteeMemberships failed', e));
+    }
+  };
+
+  const listCommitteeLinkedBills = async (
+    committeeKey: string,
+    cap: number
+  ): Promise<Result<{ bills: readonly ParliamentBill[]; total: number }, ApiError>> => {
+    try {
+      // committee → documents → resolved (linked) bill; canonical bills only. A bill
+      // can link via several documents, so DISTINCT dedupes; the total is the exact
+      // distinct count (bounded — 29,983 links resolve across 114 committees).
+      const rows = await db
+        .selectFrom('parliament.committee_bill_links as cbl')
+        .innerJoin(
+          'parliament.committee_documents as cd',
+          'cd.committee_document_key',
+          'cbl.committee_document_key'
+        )
+        .innerJoin('parliament.bills as b', 'b.bill_key', 'cbl.bill_key')
+        .select(BILL_SELECT)
+        .distinct()
+        .where('cd.committee_key', '=', committeeKey)
+        .where('cbl.resolution_status', '=', 'linked')
+        .where(sql<boolean>`b.is_canonical`)
+        .orderBy('b.bill_key', 'asc')
+        .limit(cap)
+        .execute();
+      const cntRow = await db
+        .selectFrom('parliament.committee_bill_links as cbl')
+        .innerJoin(
+          'parliament.committee_documents as cd',
+          'cd.committee_document_key',
+          'cbl.committee_document_key'
+        )
+        .innerJoin('parliament.bills as b', 'b.bill_key', 'cbl.bill_key')
+        .select(sql<string>`count(distinct b.bill_key)`.as('cnt'))
+        .where('cd.committee_key', '=', committeeKey)
+        .where('cbl.resolution_status', '=', 'linked')
+        .where(sql<boolean>`b.is_canonical`)
+        .executeTakeFirst();
+      return ok({ bills: rows.map((r) => mapBill(r as BillRow)), total: Number(cntRow?.cnt ?? 0) });
+    } catch (e) {
+      return err(databaseError('listCommitteeLinkedBills failed', e));
+    }
+  };
+
+  const committeeMeetingsCount = async (
+    committeeKey: string
+  ): Promise<Result<number, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.committee_meetings as cmm')
+        .select(sql<string>`count(*)`.as('cnt'))
+        .where('cmm.committee_key', '=', committeeKey)
+        .executeTakeFirst();
+      return ok(Number(row?.cnt ?? 0));
+    } catch (e) {
+      return err(databaseError('committeeMeetingsCount failed', e));
     }
   };
 
@@ -1663,6 +2179,15 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     listPersonCandidates,
     controlPresenceForRecipient,
     loaderWatermark,
+    dataFreshness,
+    findBillAiMetadata,
+    findControlItemAiMetadata,
+    listCommittees,
+    findCommittee,
+    listCommitteeRoster,
+    listCommitteeLinkedBills,
+    committeeMeetingsCount,
+    listMemberCommitteeMemberships,
   };
 };
 

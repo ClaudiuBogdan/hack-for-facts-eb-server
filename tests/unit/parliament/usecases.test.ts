@@ -9,6 +9,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { COHESION_VOTE_CAP } from '@/modules/parliament/core/types.js';
 import {
+  COMMITTEE_LINKED_BILLS_CAP,
+  getCommittee,
+  getDataFreshness,
   getLineageForAct,
   listControlItems,
   listVotes,
@@ -90,14 +93,21 @@ describe('rankVoteCohesion — mode + cap guards (Codex BLOCKER #1)', () => {
       from: '2020-01-01',
       to: '2020-12-31',
     });
-    expect(voteKeysForWindow).toHaveBeenCalledWith('senat', '2020-01-01', '2020-12-31', COHESION_VOTE_CAP);
+    expect(voteKeysForWindow).toHaveBeenCalledWith(
+      'senat',
+      '2020-01-01',
+      '2020-12-31',
+      COHESION_VOTE_CAP
+    );
   });
 
   it('rejects a bill whose vote set exceeds the cap', async () => {
     const many = Array.from({ length: COHESION_VOTE_CAP + 1 }, (_, i) => `cdep:${String(i)}`);
     const voteKeysForBill = vi.fn(() => okp(many as readonly string[]));
     const cohesionForVoteKeys = vi.fn(() => okp([]));
-    const r = await rankVoteCohesion(deps(makeRepo({ voteKeysForBill, cohesionForVoteKeys })), { billKey: 'b1' });
+    const r = await rankVoteCohesion(deps(makeRepo({ voteKeysForBill, cohesionForVoteKeys })), {
+      billKey: 'b1',
+    });
     expect(r.isErr()).toBe(true);
     expect(cohesionForVoteKeys).not.toHaveBeenCalled();
   });
@@ -155,7 +165,11 @@ describe('listVotes — q-only bound guard', () => {
 
 describe('listControlItems — bound guard (§3.2)', () => {
   it('rejects an unbounded control-items list', async () => {
-    const r = await listControlItems(deps(makeRepo({})), { controlType: { eq: 'question' } }, { first: 20 });
+    const r = await listControlItems(
+      deps(makeRepo({})),
+      { controlType: { eq: 'question' } },
+      { first: 20 }
+    );
     expect(r.isErr()).toBe(true);
   });
 
@@ -165,7 +179,11 @@ describe('listControlItems — bound guard (§3.2)', () => {
     const r2 = await listControlItems(deps(makeRepo({})), { itemDate: {} }, { first: 20 });
     expect(r2.isErr()).toBe(true);
     // An empty contains string is also not a bound (would compile to LIKE '%%').
-    const r3 = await listControlItems(deps(makeRepo({})), { author: { contains: '' } }, { first: 20 });
+    const r3 = await listControlItems(
+      deps(makeRepo({})),
+      { author: { contains: '' } },
+      { first: 20 }
+    );
     expect(r3.isErr()).toBe(true);
   });
 
@@ -203,10 +221,13 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
     const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
     const votesForActId = vi.fn(() => okp([lineageRow('cdep:29892')]));
     const ballotResolution = vi.fn(() => okp({ total: 277, resolved: 277 }));
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId, ballotResolution })), {
-      actId: '145905',
-      includeBallots: true,
-    });
+    const r = await getLineageForAct(
+      deps(makeRepo({ billsForActId, votesForActId, ballotResolution })),
+      {
+        actId: '145905',
+        includeBallots: true,
+      }
+    );
     expect(r.isOk()).toBe(true);
     if (r.isOk() && r.value !== null) {
       expect(r.value.actId).toBe('145905');
@@ -222,14 +243,18 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
     const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
     const votesForActId = vi.fn(() => okp([lineageRow('cdep:29892')]));
     const ballotResolution = vi.fn(() => okp({ total: 0, resolved: 0 }));
-    await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId, ballotResolution })), { actId: '145905' });
+    await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId, ballotResolution })), {
+      actId: '145905',
+    });
     expect(ballotResolution).not.toHaveBeenCalled();
   });
 
   it('returns null (not an empty object) when the act has no parliamentary mapping', async () => {
     const billsForActId = vi.fn(() => okp([]));
     const votesForActId = vi.fn(() => okp([]));
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '999999999' });
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), {
+      actId: '999999999',
+    });
     expect(r.isOk()).toBe(true);
     if (r.isOk()) expect(r.value).toBeNull();
   });
@@ -237,9 +262,15 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
   it('fetches ALL linked votes and filters to final roles by default, reporting the omitted ones (H14/M15)', async () => {
     const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
     const votesForActId = vi.fn(() =>
-      okp([lineageRow('cdep:1', 'final_adoption'), lineageRow('cdep:2', 'amendment'), lineageRow('cdep:3', 'procedural')])
+      okp([
+        lineageRow('cdep:1', 'final_adoption'),
+        lineageRow('cdep:2', 'amendment'),
+        lineageRow('cdep:3', 'procedural'),
+      ])
     );
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '145905' });
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), {
+      actId: '145905',
+    });
     // The repo is called WITHOUT a role filter — filtering happens in TS so the omitted
     // non-default-role votes can be reported in caveats (instead of vanishing in SQL).
     expect(votesForActId).toHaveBeenCalledWith('145905', []);
@@ -252,24 +283,129 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
 
   it('roles:["all"] widens lineage to every linked vote', async () => {
     const billsForActId = vi.fn(() => okp([{ billKey: '12760' } as never]));
-    const votesForActId = vi.fn(() => okp([lineageRow('cdep:1', 'final_adoption'), lineageRow('cdep:2', 'amendment')]));
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '145905', roles: ['all'] });
+    const votesForActId = vi.fn(() =>
+      okp([lineageRow('cdep:1', 'final_adoption'), lineageRow('cdep:2', 'amendment')])
+    );
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), {
+      actId: '145905',
+      roles: ['all'],
+    });
     expect(r.isOk()).toBe(true);
     if (r.isOk() && r.value !== null) expect(r.value.votes).toHaveLength(2);
   });
 
   it('propagates a repo error', async () => {
-    const billsForActId = vi.fn(() => Promise.resolve(err<never, ApiError>({ type: 'Database', message: 'boom' })));
+    const billsForActId = vi.fn(() =>
+      Promise.resolve(err<never, ApiError>({ type: 'Database', message: 'boom' }))
+    );
     const votesForActId = vi.fn(() => okp([]));
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), { actId: '1' });
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId, votesForActId })), {
+      actId: '1',
+    });
     expect(r.isErr()).toBe(true);
   });
 
   it('rejects a non-numeric actId with InvalidInput BEFORE hitting the repo (Codex SF)', async () => {
     const billsForActId = vi.fn(() => okp([]));
-    const r = await getLineageForAct(deps(makeRepo({ billsForActId })), { actId: "1; drop table" });
+    const r = await getLineageForAct(deps(makeRepo({ billsForActId })), { actId: '1; drop table' });
     expect(r.isErr()).toBe(true);
     if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
     expect(billsForActId).not.toHaveBeenCalled();
+  });
+});
+
+describe('getCommittee — detail assembly (B2)', () => {
+  const committee = {
+    committeeKey: 'cdep:2:2024:1',
+    chamber: 'camera_deputatilor',
+    name: 'Comisia pentru buget',
+    legislature: '2024',
+    committeeType: 'permanent',
+    sourceUrl: 'https://cdep.ro/comisii/buget',
+  };
+  const membership = {
+    membershipKey: 'm1',
+    role: 'membru',
+    joinedDate: '2024-02-01',
+    leftDate: null,
+    isBureau: false,
+    sourceUrl: 'https://cdep.ro/comisii/buget',
+    committee: null,
+    member: null,
+  };
+
+  it('returns null when the committee does not exist (never an empty object)', async () => {
+    const findCommittee = vi.fn(() => okp(null));
+    const r = await getCommittee(deps(makeRepo({ findCommittee })), 'nope');
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).toBeNull();
+  });
+
+  it('assembles committee + roster + linked bills (with cap) + meetings count', async () => {
+    const findCommittee = vi.fn(() => okp(committee));
+    const listCommitteeRoster = vi.fn(() => okp([membership]));
+    const listCommitteeLinkedBills = vi.fn(() =>
+      okp({ bills: [{ billKey: '12760' } as never], total: 3 })
+    );
+    const committeeMeetingsCount = vi.fn(() => okp(42));
+    const r = await getCommittee(
+      deps(
+        makeRepo({
+          findCommittee,
+          listCommitteeRoster,
+          listCommitteeLinkedBills,
+          committeeMeetingsCount,
+        })
+      ),
+      'cdep:2:2024:1'
+    );
+    expect(r.isOk()).toBe(true);
+    if (r.isOk() && r.value !== null) {
+      expect(r.value.committee.committeeKey).toBe('cdep:2:2024:1');
+      expect(r.value.members).toHaveLength(1);
+      expect(r.value.linkedBills).toHaveLength(1);
+      expect(r.value.linkedBillsTotal).toBe(3);
+      expect(r.value.meetingsCount).toBe(42);
+    }
+    // linked bills are fetched with the bounded cap.
+    expect(listCommitteeLinkedBills).toHaveBeenCalledWith(
+      'cdep:2:2024:1',
+      COMMITTEE_LINKED_BILLS_CAP
+    );
+  });
+
+  it('propagates a repo error from the roster', async () => {
+    const findCommittee = vi.fn(() => okp(committee));
+    const listCommitteeRoster = vi.fn(() =>
+      Promise.resolve(err<never, ApiError>({ type: 'Database', message: 'boom' }))
+    );
+    const listCommitteeLinkedBills = vi.fn(() => okp({ bills: [], total: 0 }));
+    const committeeMeetingsCount = vi.fn(() => okp(0));
+    const r = await getCommittee(
+      deps(
+        makeRepo({
+          findCommittee,
+          listCommitteeRoster,
+          listCommitteeLinkedBills,
+          committeeMeetingsCount,
+        })
+      ),
+      'cdep:2:2024:1'
+    );
+    expect(r.isErr()).toBe(true);
+  });
+});
+
+describe('getDataFreshness — passthrough (B4)', () => {
+  it('returns the repo freshness signals', async () => {
+    const dataFreshness = vi.fn(() =>
+      okp({ latestVoteDate: '2026-06-30', lastLoadedAt: '2026-07-01T00:00:00Z' })
+    );
+    const r = await getDataFreshness(deps(makeRepo({ dataFreshness })));
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) {
+      expect(r.value.latestVoteDate).toBe('2026-06-30');
+      expect(r.value.lastLoadedAt).toBe('2026-07-01T00:00:00Z');
+    }
   });
 });

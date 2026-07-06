@@ -6,12 +6,18 @@
  */
 
 import {
+  AI_DISCLAIMER,
+  AI_TRUST_CLASS,
   BILL_ATTR_KEYS,
   MEMBER_ATTR_KEYS,
   VOTE_ATTR_KEYS,
+  type ParliamentAiBillMetadata,
+  type ParliamentAiControlItemMetadata,
   type ParliamentBill,
   type ParliamentBillDocument,
   type ParliamentBillEvent,
+  type ParliamentCommittee,
+  type ParliamentCommitteeMembership,
   type ParliamentControlItem,
   type ParliamentDeclarationMeta,
   type ParliamentGroupInterval,
@@ -74,6 +80,8 @@ export const mapMember = (r: MemberRow): ParliamentMember => {
   // profile_url is already in the MEMBER_ATTR_KEYS whitelist; surface it flat
   // (string only — defend against a non-string primitive sneaking through).
   const profileUrl = typeof attrs['profile_url'] === 'string' ? attrs['profile_url'] : null;
+  // B3: cv_pdf_url is whitelisted in MEMBER_ATTR_KEYS; surface it flat (string only).
+  const cvPdfUrl = typeof attrs['cv_pdf_url'] === 'string' ? attrs['cv_pdf_url'] : null;
   return {
     mandateKey: r.mandate_key,
     chamber: r.chamber,
@@ -89,6 +97,7 @@ export const mapMember = (r: MemberRow): ParliamentMember => {
     mandateEndDate: r.mandate_end_date,
     mandateEndReason: r.mandate_end_reason,
     profileUrl,
+    cvPdfUrl,
     attrs,
   };
 };
@@ -360,9 +369,148 @@ export const mapDeclaration = (r: DeclarationRow): ParliamentDeclarationMeta => 
     declarationType: r.declaration_type,
     declarationDate: r.declaration_date,
     declarationYear: year,
-    label: r.label ?? (year !== null ? `${r.declaration_type} ${String(year)}` : r.declaration_type),
+    label:
+      r.label ?? (year !== null ? `${r.declaration_type} ${String(year)}` : r.declaration_type),
     fileUrl: r.file_url,
   };
 };
+
+// ── AI metadata (B1 — stamps the trust class + disclaimer on every row) ────────
+
+/** A text[] pg column: already an array of strings on read; defend against null. */
+const strArray = (v: unknown): readonly string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+export interface AiBillMetadataRow {
+  summary: string | null;
+  topic: string | null;
+  domains: unknown;
+  keywords: unknown;
+  value_class: string;
+  config_key: string;
+  prompt_version: string;
+  schema_version: number;
+  model: string;
+  validation_status: string;
+  confidence: string | null;
+  source_updated_at: string | null;
+  loaded_at: string | null;
+  privacy_class: string;
+}
+
+export const mapAiBillMetadata = (r: AiBillMetadataRow): ParliamentAiBillMetadata => ({
+  summary: r.summary,
+  topic: r.topic,
+  domains: strArray(r.domains),
+  keywords: strArray(r.keywords),
+  valueClass: r.value_class,
+  configKey: r.config_key,
+  promptVersion: r.prompt_version,
+  schemaVersion: r.schema_version,
+  model: r.model,
+  validationStatus: r.validation_status,
+  confidence: r.confidence,
+  sourceUpdatedAt: r.source_updated_at,
+  loadedAt: r.loaded_at,
+  privacyClass: r.privacy_class,
+  trustClass: AI_TRUST_CLASS,
+  disclaimer: AI_DISCLAIMER,
+});
+
+export interface AiControlItemMetadataRow {
+  summary: string | null;
+  policy_domains: unknown;
+  issue_types: unknown;
+  urgency: string | null;
+  keywords: unknown;
+  config_key: string;
+  prompt_version: string;
+  schema_version: number;
+  model: string;
+  validation_status: string;
+  confidence: string | null;
+  source_updated_at: string | null;
+  loaded_at: string | null;
+  privacy_class: string;
+}
+
+export const mapAiControlItemMetadata = (
+  r: AiControlItemMetadataRow
+): ParliamentAiControlItemMetadata => ({
+  summary: r.summary,
+  policyDomains: strArray(r.policy_domains),
+  issueTypes: strArray(r.issue_types),
+  urgency: r.urgency,
+  keywords: strArray(r.keywords),
+  configKey: r.config_key,
+  promptVersion: r.prompt_version,
+  schemaVersion: r.schema_version,
+  model: r.model,
+  validationStatus: r.validation_status,
+  confidence: r.confidence,
+  sourceUpdatedAt: r.source_updated_at,
+  loadedAt: r.loaded_at,
+  privacyClass: r.privacy_class,
+  trustClass: AI_TRUST_CLASS,
+  disclaimer: AI_DISCLAIMER,
+});
+
+// ── committees (B2) ──────────────────────────────────────────────────────────
+
+/** Translate the raw chamber code to the module-consistent enum value. */
+const committeeChamber = (raw: string | null): string => {
+  if (raw === 'cdep') return 'camera_deputatilor';
+  if (raw === 'senate') return 'senat';
+  return raw ?? '';
+};
+
+export interface CommitteeRow {
+  committee_key: string;
+  chamber: string | null;
+  name: string;
+  legislature: string | null;
+  committee_type: string | null;
+  source_url: string;
+}
+
+export const mapCommittee = (r: CommitteeRow): ParliamentCommittee => ({
+  committeeKey: r.committee_key,
+  chamber: committeeChamber(r.chamber),
+  name: r.name,
+  legislature: r.legislature,
+  committeeType: r.committee_type,
+  sourceUrl: r.source_url,
+});
+
+/** A committee-membership row's SERVABLE core fields (PDL-003: no group/raw name). */
+export interface CommitteeMembershipCoreRow {
+  membership_key: string;
+  membership_role: string | null;
+  joined_date: string | null;
+  left_date: string | null;
+  membership_is_bureau: boolean | null;
+  membership_source_url: string;
+}
+
+/**
+ * Map a committee-membership row to the view model. PDL-003 REGRESSION GUARD: the
+ * output carries NO parliamentaryGroup / role_raw / memberName — those raw columns
+ * are unbound in the schema and never projected. `committee` (member direction) and
+ * `member` (roster direction) are the soft-links the repo resolves per query.
+ */
+export const mapCommitteeMembership = (
+  r: CommitteeMembershipCoreRow,
+  committee: ParliamentCommittee | null,
+  member: ParliamentMember | null
+): ParliamentCommitteeMembership => ({
+  membershipKey: r.membership_key,
+  role: r.membership_role,
+  joinedDate: r.joined_date,
+  leftDate: r.left_date,
+  isBureau: r.membership_is_bureau,
+  sourceUrl: r.membership_source_url,
+  committee,
+  member,
+});
 
 export { tallyOf };
