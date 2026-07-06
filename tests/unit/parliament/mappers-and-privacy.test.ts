@@ -243,6 +243,8 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       status_text: 'Lege 423/2023 29.12.2023',
       bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
       last_event_date: '2023-12-01',
+      is_canonical: true,
+      canonical_bill_key: null,
       attrs: { status_text: 'adoptat', last_event_date: '2023-12-01', internal_secret: 'x' },
       source_updated_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-02T00:00:00Z',
@@ -269,6 +271,8 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       status_text: 'Lege 423/2023 29.12.2023',
       bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
       last_event_date: '2023-12-29',
+      is_canonical: true,
+      canonical_bill_key: null,
       attrs: {},
       source_updated_at: null,
       updated_at: null,
@@ -292,6 +296,9 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       status_text: null,
       bill_type: null,
       last_event_date: null,
+      // A suppressed bicameral (Senate navetá) twin: non-canonical, points at its CDep twin.
+      is_canonical: false,
+      canonical_bill_key: '12760',
       attrs: {},
       source_updated_at: null,
       updated_at: null,
@@ -299,6 +306,9 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
     const b = mapBill(row);
     expect(b.statusText).toBeNull();
     expect(b.billType).toBeNull();
+    // B1 canonicality is surfaced flat for the client redirect (§3).
+    expect(b.isCanonical).toBe(false);
+    expect(b.canonicalBillKey).toBe('12760');
   });
 });
 
