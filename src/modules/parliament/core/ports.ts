@@ -28,6 +28,7 @@ import type {
   ParliamentInitiative,
   ParliamentMember,
   ParliamentMemberVote,
+  ParliamentMemberVoteActivity,
   ParliamentPerson,
   ParliamentPersonCandidate,
   ParliamentResolveDim,
@@ -169,14 +170,29 @@ export interface ParliamentRepo {
   /**
    * vote_records_mandate_idx ⋈ votes; materialize the member's bounded set +
    * in-memory sort by `(vote_date desc, vote_key desc, row_index)` (§3.1.1 — the
-   * mandate index carries ONLY mandate_key, so this is NOT an index seek). `total`
-   * is an EXACT count over the member's slice of the mandate index (cheap). The
-   * cursor `fhash` is derived INTERNALLY from `mandateKey` (parent-bound; #2).
+   * mandate index carries ONLY mandate_key, so this is NOT an index seek). The
+   * optional `filter` (memberVotesFilterSpec: voteDate/chamber/outcome/choice)
+   * compiles to WHERE conditions ANDed onto the mandate bound, so `total` is the
+   * EXACT count over the FILTERED member slice. The cursor `fhash` is derived
+   * INTERNALLY from `mandateKey` AND the filter (parent-bound; #2) — a cursor is
+   * rejected if replayed against a different member or a different filter.
    */
   listMemberVotes(
     mandateKey: string,
-    page: CursorPageRequest
+    page: CursorPageRequest,
+    filter?: FilterInput
   ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>>;
+  /**
+   * Per-day voting activity for one calendar year, under the SAME memberVotesFilterSpec
+   * conditions as listMemberVotes (drives the activity heatmap). `availableYears` is
+   * the DISTINCT set of years the member has any (filtered) ballot in — NOT bounded by
+   * the year argument. `voteDate` is rejected by the usecase (the year bounds the range).
+   */
+  memberVoteActivity(
+    mandateKey: string,
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentMemberVoteActivity, ApiError>>;
   listMemberControlItems(
     mandateKey: string,
     page: OffsetParams

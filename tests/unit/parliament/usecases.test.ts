@@ -13,6 +13,8 @@ import {
   getCommittee,
   getDataFreshness,
   getLineageForAct,
+  getMemberVoteActivity,
+  getMemberVotes,
   listControlItems,
   listVotes,
   rankVoteCohesion,
@@ -205,6 +207,64 @@ describe('listControlItems — bound guard (§3.2)', () => {
       { first: 20 }
     );
     expect(r.isOk()).toBe(true);
+  });
+});
+
+describe('getMemberVotes — forwards the filter to the repo', () => {
+  it('threads the filter through to listMemberVotes', async () => {
+    const listMemberVotes = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    const filter = { choice: { eq: 'pentru' } };
+    const r = await getMemberVotes(
+      deps(makeRepo({ listMemberVotes })),
+      '1:2024:1',
+      { first: 20 },
+      filter
+    );
+    expect(r.isOk()).toBe(true);
+    expect(listMemberVotes).toHaveBeenCalledWith('1:2024:1', { first: 20 }, filter);
+  });
+});
+
+describe('getMemberVoteActivity — voteDate + year guards (never hits the repo on a guard error)', () => {
+  it('rejects a filter carrying a voteDate value and NEVER calls the repo', async () => {
+    const memberVoteActivity = vi.fn(() => okp({ year: 2026, days: [], availableYears: [] }));
+    const r = await getMemberVoteActivity(
+      deps(makeRepo({ memberVoteActivity })),
+      '1:2024:1',
+      2026,
+      {
+        voteDate: { gte: '2026-01-01' },
+      }
+    );
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+    expect(memberVoteActivity).not.toHaveBeenCalled();
+  });
+
+  it('rejects an out-of-range year (123) BEFORE the repo', async () => {
+    const memberVoteActivity = vi.fn(() => okp({ year: 123, days: [], availableYears: [] }));
+    const r = await getMemberVoteActivity(
+      deps(makeRepo({ memberVoteActivity })),
+      '1:2024:1',
+      123,
+      {}
+    );
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.type).toBe('InvalidInput');
+    expect(memberVoteActivity).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid (mandate, year, filter) through to the repo', async () => {
+    const memberVoteActivity = vi.fn(() => okp({ year: 2026, days: [], availableYears: [2026] }));
+    const filter = { choice: { eq: 'pentru' } };
+    const r = await getMemberVoteActivity(
+      deps(makeRepo({ memberVoteActivity })),
+      '1:2024:1',
+      2026,
+      filter
+    );
+    expect(r.isOk()).toBe(true);
+    expect(memberVoteActivity).toHaveBeenCalledWith('1:2024:1', 2026, filter);
   });
 });
 

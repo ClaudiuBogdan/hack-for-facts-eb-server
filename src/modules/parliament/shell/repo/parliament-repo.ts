@@ -82,6 +82,7 @@ import {
   type ParliamentInitiative,
   type ParliamentMember,
   type ParliamentMemberVote,
+  type ParliamentMemberVoteActivity,
   type ParliamentPerson,
   type ParliamentPersonCandidate,
   type ParliamentSpeech,
@@ -93,6 +94,8 @@ import {
   BILL_TYPES,
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberVotesFhash,
+  memberVotesFilterSpec,
   membersFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
@@ -1152,7 +1155,6 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
   // Parent-bound fhash: a ballots cursor is bound to its vote_key (Codex #2).
   const ballotFhash = (voteKey: string): string => filterHash(`ballots:${voteKey}`);
-  const memberVoteFhash = (mandateKey: string): string => filterHash(`memberVotes:${mandateKey}`);
 
   const listVoteRecords = async (
     voteKey: string,
@@ -1260,10 +1262,17 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   // ── member activity (parented by mandate_key) ─────────────────────────────────
   const listMemberVotes = async (
     mandateKey: string,
-    page: CursorPageRequest
+    page: CursorPageRequest,
+    filter: FilterInput = {}
   ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>> => {
     const limit = Math.min(Math.max(page.first, 1), 100);
-    const fhash = memberVoteFhash(mandateKey);
+    const fhash = memberVotesFhash(mandateKey, filter);
+    // Spec conditions (voteDate/chamber/outcome on `v`, choice on `vr`) AND the
+    // mandate bound — ANDed into the same WHERE. Non-virtual spec, so the filter
+    // compiles directly.
+    const built = toConditionBuilders(memberVotesFilterSpec, filter);
+    if (built.isErr()) return err(built.error);
+    const where = composeWhere([sql`vr.mandate_key = ${mandateKey}`, ...built.value]);
     // Materialize the member's bounded ballot set ⋈ votes; stable in-memory sort
     // (vote_date desc, vote_key desc, row_index) — the mandate index has no date.
     try {
@@ -1280,7 +1289,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'v.outcome',
           'v.bill_key',
         ])
-        .where('vr.mandate_key', '=', mandateKey)
+        .where(where)
         .execute();
       const total = rows.length;
       const sorted = rows
@@ -1332,6 +1341,70 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       return ok({ items: slice, next, total });
     } catch (e) {
       return err(databaseError('listMemberVotes failed', e));
+    }
+  };
+
+  const memberVoteActivity = async (
+    mandateKey: string,
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentMemberVoteActivity, ApiError>> => {
+    // Same spec conditions as listMemberVotes; the year bounds the per-day query
+    // (the usecase rejects a voteDate filter, so the year is the only date bound).
+    const built = toConditionBuilders(memberVotesFilterSpec, filter);
+    if (built.isErr()) return err(built.error);
+    const specConds = built.value;
+    const yearStart = `${String(year)}-01-01`;
+    const yearEnd = `${String(year)}-12-31`;
+    const daysWhere = composeWhere([
+      sql`vr.mandate_key = ${mandateKey}`,
+      sql`v.vote_date >= ${yearStart}`,
+      sql`v.vote_date <= ${yearEnd}`,
+      ...specConds,
+    ]);
+    const yearsWhere = composeWhere([
+      sql`vr.mandate_key = ${mandateKey}`,
+      sql`v.vote_date is not null`,
+      ...specConds,
+    ]);
+    try {
+      const [dayRows, yearRows] = await Promise.all([
+        db
+          .selectFrom('parliament.vote_records as vr')
+          .innerJoin('parliament.votes as v', 'v.vote_key', 'vr.vote_key')
+          .select([
+            sql<string>`v.vote_date::text`.as('date'),
+            sql<string>`count(*)`.as('total'),
+            sql<string>`count(*) filter (where vr.choice = 'pentru')`.as('pentru'),
+            sql<string>`count(*) filter (where vr.choice = 'impotriva')`.as('impotriva'),
+            sql<string>`count(*) filter (where vr.choice = 'abtinere')`.as('abtinere'),
+            sql<string>`count(*) filter (where vr.choice = 'nu_a_votat')`.as('nu_a_votat'),
+          ])
+          .where(daysWhere)
+          .groupBy('v.vote_date')
+          .orderBy('v.vote_date', 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.vote_records as vr')
+          .innerJoin('parliament.votes as v', 'v.vote_key', 'vr.vote_key')
+          .select(sql<number>`extract(year from v.vote_date)::int`.as('year'))
+          .distinct()
+          .where(yearsWhere)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+      ]);
+      const days = dayRows.map((r) => ({
+        date: r.date,
+        total: Number(r.total),
+        pentru: Number(r.pentru),
+        impotriva: Number(r.impotriva),
+        abtinere: Number(r.abtinere),
+        nuAVotat: Number(r.nu_a_votat),
+      }));
+      const availableYears = yearRows.map((r) => r.year);
+      return ok({ year, days, availableYears });
+    } catch (e) {
+      return err(databaseError('memberVoteActivity failed', e));
     }
   };
 
@@ -2174,6 +2247,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     voteGroupBreakdown,
     ballotResolution,
     listMemberVotes,
+    memberVoteActivity,
     listMemberControlItems,
     listMemberSpeeches,
     listMemberInitiatives,

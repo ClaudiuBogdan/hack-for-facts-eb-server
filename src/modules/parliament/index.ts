@@ -82,6 +82,8 @@ export {
   PARLIAMENT_FILTER_SPECS,
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberVotesFhash,
+  memberVotesFilterSpec,
   membersFilterSpec,
   votesFilterSpec,
 } from './shell/filters/specs.js';

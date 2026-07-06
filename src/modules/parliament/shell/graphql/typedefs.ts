@@ -43,11 +43,13 @@ import { toGraphQLInput } from '@/modules/shared/index.js';
 import {
   billsFilterSpec,
   controlItemsFilterSpec,
+  memberVotesFilterSpec,
   membersFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
 
 const votesFilter = toGraphQLInput(votesFilterSpec);
+const memberVotesFilter = toGraphQLInput(memberVotesFilterSpec);
 const membersFilter = toGraphQLInput(membersFilterSpec);
 const billsFilter = toGraphQLInput(billsFilterSpec);
 const controlFilter = toGraphQLInput(controlItemsFilterSpec);
@@ -159,7 +161,14 @@ const objectsAndQuery = /* GraphQL */ `
     person: ParliamentPerson
     groupIntervals: [ParliamentGroupInterval!]!
     activityCounts: ParliamentActivityCounts!
-    votes(first: Int, after: String): ParliamentMemberVoteConnection!
+    "This member's ballots (cursor; default voteDate desc). The optional filter (voteDate/chamber/outcome/choice) narrows the set; connection.total is then the EXACT filtered count."
+    votes(
+      first: Int
+      after: String
+      filter: ParliamentMemberVotesFilter
+    ): ParliamentMemberVoteConnection!
+    "Per-day voting activity for one calendar year (drives the activity heatmap). Reflects the SAME filter as the votes connection; a voteDate inside filter is rejected — the year argument bounds the range."
+    voteActivity(year: Int!, filter: ParliamentMemberVotesFilter): ParliamentMemberVoteActivity!
     controlItems(page: Int, pageSize: Int): ParliamentControlItemPage!
     speeches(page: Int, pageSize: Int): ParliamentSpeechPage!
     initiatives(page: Int, pageSize: Int): ParliamentInitiativePage!
@@ -232,6 +241,22 @@ const objectsAndQuery = /* GraphQL */ `
     rowIndex: Int!
     billKey: ID
     vote: ParliamentVote
+  }
+
+  "One calendar day of a member's ballots (the activity-heatmap cell); the four choice counts sum to total."
+  type ParliamentMemberVoteActivityDay {
+    date: Date!
+    total: Int!
+    pentru: Int!
+    impotriva: Int!
+    abtinere: Int!
+    nuAVotat: Int!
+  }
+  "A member's per-day voting activity for one year. availableYears is every year the member has any (filtered) ballot, NOT bounded by the requested year."
+  type ParliamentMemberVoteActivity {
+    year: Int!
+    days: [ParliamentMemberVoteActivityDay!]!
+    availableYears: [Int!]!
   }
 
   type ParliamentBillEvent {
@@ -664,4 +689,4 @@ const objectsAndQuery = /* GraphQL */ `
   }
 `;
 
-export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
+export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;

@@ -66,6 +66,21 @@ describe('parliament SDL — builds with the new B1–B4 surface', () => {
     expect(controlFields['aiMetadata']).toBeDefined();
   });
 
+  it('declares the member-vote activity types + a member voteActivity field, and the filtered votes arg', () => {
+    expect(schema.getType('ParliamentMemberVoteActivity')).toBeDefined();
+    expect(schema.getType('ParliamentMemberVoteActivityDay')).toBeDefined();
+    expect(schema.getType('ParliamentMemberVotesFilter')).toBeDefined();
+    const member = schema.getType('ParliamentMember');
+    const memberFields =
+      member !== undefined && member !== null && 'getFields' in member ? member.getFields() : {};
+    expect(memberFields['voteActivity']).toBeDefined();
+    // the votes connection gained a filter arg (additive).
+    const votesField = memberFields['votes'];
+    const votesArgs =
+      votesField !== undefined && 'args' in votesField ? votesField.args.map((a) => a.name) : [];
+    expect(votesArgs).toContain('filter');
+  });
+
   it('the committee detail carries roster + linked bills + meetings count', () => {
     const detail = schema.getType('ParliamentCommitteeDetail');
     const fields =

@@ -255,6 +255,23 @@ export interface ParliamentMemberVote {
   readonly billKey: string | null;
 }
 
+/** One calendar day of a member's ballots (the activity-heatmap cell). */
+export interface ParliamentMemberVoteActivityDay {
+  readonly date: string; // YYYY-MM-DD
+  readonly total: number;
+  readonly pentru: number;
+  readonly impotriva: number;
+  readonly abtinere: number;
+  readonly nuAVotat: number;
+}
+
+/** A member's per-day voting activity for one year + the years with any activity. */
+export interface ParliamentMemberVoteActivity {
+  readonly year: number;
+  readonly days: readonly ParliamentMemberVoteActivityDay[];
+  readonly availableYears: readonly number[];
+}
+
 /** The vote detail view: vote + group breakdown + first page of ballots. */
 export interface ParliamentVoteDetail {
   readonly vote: ParliamentVote;

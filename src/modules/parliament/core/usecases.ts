@@ -43,6 +43,7 @@ import {
   type ParliamentMember,
   type ParliamentMemberDetail,
   type ParliamentMemberVote,
+  type ParliamentMemberVoteActivity,
   type ParliamentPerson,
   type ParliamentPersonCandidate,
   type ParliamentPersonCareer,
@@ -341,9 +342,33 @@ export const getVoteBallots = (
 export const getMemberVotes = (
   deps: ParliamentUsecaseDeps,
   mandateKey: string,
-  page: CursorPageRequest
+  page: CursorPageRequest,
+  filter: FilterInput = {}
 ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>> =>
-  deps.repo.listMemberVotes(mandateKey, page);
+  deps.repo.listMemberVotes(mandateKey, page, filter);
+
+export const getMemberVoteActivity = (
+  deps: ParliamentUsecaseDeps,
+  mandateKey: string,
+  year: number,
+  filter: FilterInput
+): Promise<Result<ParliamentMemberVoteActivity, ApiError>> =>
+  (async () => {
+    // voteDate is not a client bound here — the year argument bounds the range (a
+    // voteDate filter would double-bound the per-day window and confuse the caller).
+    if (fieldHasValue(filter, 'voteDate')) {
+      return err(
+        invalidInput(
+          'voteDate is not accepted on voteActivity; the year argument bounds the range',
+          'voteDate'
+        )
+      );
+    }
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
+    }
+    return deps.repo.memberVoteActivity(mandateKey, year, filter);
+  })();
 
 export const getMemberControlItems = (
   deps: ParliamentUsecaseDeps,

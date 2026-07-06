@@ -9,7 +9,7 @@
 > `transparenta_prod` `parliament` schema + `pg_indexes` (2026-06-16).
 > Supersedes the unified-explorer parliament surface
 > (`src/modules/unified/{shell/repo/parliament-source-repo.ts,
-> shell/rest/sources/routes-parliament.ts, core/parliament-mapping.ts}`).
+shell/rest/sources/routes-parliament.ts, core/parliament-mapping.ts}`).
 
 GraphQL type prefix: **`Parliament*`** (§14.8). REST prefix:
 **`/api/v1/parliament/`**. The module is read-only (§F5).
@@ -21,33 +21,33 @@ GraphQL type prefix: **`Parliament*`** (§14.8). REST prefix:
 Parliament is the **legislative-process spine**: bills move through chambers,
 get voted member-by-member, and become laws published in Monitorul Oficial —
 which links this source to the `legal` module. The marquee queries are lineage
-questions ("who voted for *Legea 423/2023*", "what did this bill become") and
+questions ("who voted for _Legea 423/2023_", "what did this bill become") and
 member-accountability questions ("how does deputy X vote", "which parties are
 cohesive").
 
 **In prod now** (loaded + gate-green 2026-06-12/13, full backfill;
 `PARLIAMENT_NOTES.md` load evidence):
 
-| Table | Rows | Notes |
-|---|---|---|
-| `parliament.members` | 5,289 | one row per mandate; `mandate_key` PK; 10 legislatures 1990–2024 |
-| `parliament.parliamentary_groups` | 73 | `group_id = slug(name)-<chamber>` |
-| `parliament.group_membership_intervals` | derived | gaps-and-islands over per-vote labels; vote-date granularity |
-| `parliament.persons` | 2,988 | clustered identity; 1,200 multi-mandate careers; never a hard merge |
-| `parliament.person_identity_candidates` | ~2,220 review queue | needs_review / ambiguous / rejected kept as data |
-| `parliament.bills` | 9,050 | 7,391 CDEP + ~1,659 senate stubs |
-| `parliament.bill_events` | 113,116 | per-bill timeline; `vote_idv` 3,773 |
-| `parliament.bill_documents` | 93,774 | |
-| `parliament.votes` | 20,586 | CDEP 2016+, Senate 2005+, joint 2018+ |
-| **`parliament.vote_records`** | **4,133,356** | **the heavy table — one ballot per member-vote** |
-| `parliament.control_items` | 81,513 | questions/interpellations/motions, 1997+ |
-| `parliament.member_initiatives` | 172,061 | initiative→bill (106,779 resolved) |
-| `parliament.speeches` | 1,405,905 | CDEP 1996+, Senate 2001+; `quarantined` flag |
-| `parliament.bill_act_links` | 9,050 | multi-row per bill by `relationship_kind` (currently ≈1 `becomes_law`/bill); 3,066 LINKED to real `legal.acts.act_id` |
-| `parliament.bill_vote_links` | 8,987 | roles: 4,859 final_adoption, 1,850 final_rejection, 1,498 unknown |
-| `parliament.member_declarations` | 1,670 | avere/interese, **metadata only** (link_only) |
+| Table                                   | Rows                | Notes                                                                                                                 |
+| --------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `parliament.members`                    | 5,289               | one row per mandate; `mandate_key` PK; 10 legislatures 1990–2024                                                      |
+| `parliament.parliamentary_groups`       | 73                  | `group_id = slug(name)-<chamber>`                                                                                     |
+| `parliament.group_membership_intervals` | derived             | gaps-and-islands over per-vote labels; vote-date granularity                                                          |
+| `parliament.persons`                    | 2,988               | clustered identity; 1,200 multi-mandate careers; never a hard merge                                                   |
+| `parliament.person_identity_candidates` | ~2,220 review queue | needs_review / ambiguous / rejected kept as data                                                                      |
+| `parliament.bills`                      | 9,050               | 7,391 CDEP + ~1,659 senate stubs                                                                                      |
+| `parliament.bill_events`                | 113,116             | per-bill timeline; `vote_idv` 3,773                                                                                   |
+| `parliament.bill_documents`             | 93,774              |                                                                                                                       |
+| `parliament.votes`                      | 20,586              | CDEP 2016+, Senate 2005+, joint 2018+                                                                                 |
+| **`parliament.vote_records`**           | **4,133,356**       | **the heavy table — one ballot per member-vote**                                                                      |
+| `parliament.control_items`              | 81,513              | questions/interpellations/motions, 1997+                                                                              |
+| `parliament.member_initiatives`         | 172,061             | initiative→bill (106,779 resolved)                                                                                    |
+| `parliament.speeches`                   | 1,405,905           | CDEP 1996+, Senate 2001+; `quarantined` flag                                                                          |
+| `parliament.bill_act_links`             | 9,050               | multi-row per bill by `relationship_kind` (currently ≈1 `becomes_law`/bill); 3,066 LINKED to real `legal.acts.act_id` |
+| `parliament.bill_vote_links`            | 8,987               | roles: 4,859 final_adoption, 1,850 final_rejection, 1,498 unknown                                                     |
+| `parliament.member_declarations`        | 1,670               | avere/interese, **metadata only** (link_only)                                                                         |
 
-**Deferred (declared, not built here):** declaration *content* extraction +
+**Deferred (declared, not built here):** declaration _content_ extraction +
 person→company(CUI) edges (policy-gated; v1 surfaces metadata only);
 party→CUI org-identity link (no consumer yet); pgvector/semantic parliament
 search (lexical-only v1 — `PARLIAMENT_NOTES.md` fork #8); a normalized
@@ -73,16 +73,16 @@ unified repo's `vote_date::text` precedent). `bigint` identity columns
 
 ```ts
 export interface ParliamentMember {
-  readonly mandateKey: string;          // members.mandate_key (PK; THE attribution key)
-  readonly chamber: string | null;      // 'camera_deputatilor' | 'senat' (DB value)
-  readonly legislature: string | null;  // election year, e.g. '2024'
+  readonly mandateKey: string; // members.mandate_key (PK; THE attribution key)
+  readonly chamber: string | null; // 'camera_deputatilor' | 'senat' (DB value)
+  readonly legislature: string | null; // election year, e.g. '2024'
   readonly fullName: string | null;
   readonly normalizedName: string | null;
-  readonly groupName: string | null;    // display label at mandate scope
-  readonly groupId: string | null;      // FK parliamentary_groups.group_id
+  readonly groupName: string | null; // display label at mandate scope
+  readonly groupId: string | null; // FK parliamentary_groups.group_id
   readonly constituencyName: string | null;
-  readonly birthDate: string | null;    // birth_date::text; PII-light — see §2.6
-  readonly personId: string | null;     // FK persons.person_id (bigint→string)
+  readonly birthDate: string | null; // birth_date::text; PII-light — see §2.6
+  readonly personId: string | null; // FK persons.person_id (bigint→string)
   readonly attrs: Record<string, unknown>; // last_event_date / source_title / procedure / profile_url
 }
 ```
@@ -95,17 +95,17 @@ export interface ParliamentMember {
 
 ```ts
 export interface ParliamentGroup {
-  readonly groupId: string;             // slug(name)-<chamber>
+  readonly groupId: string; // slug(name)-<chamber>
   readonly chamber: string;
   readonly name: string;
-  readonly memberCount?: number;        // computed per legislature (not stored)
+  readonly memberCount?: number; // computed per legislature (not stored)
 }
 export interface ParliamentGroupInterval {
   readonly mandateKey: string;
   readonly groupId: string;
-  readonly validFrom: string;           // date::text — vote-date granularity
-  readonly validTo: string | null;      // null = current
-  readonly source: string;              // 'derived_from_votes'
+  readonly validFrom: string; // date::text — vote-date granularity
+  readonly validTo: string | null; // null = current
+  readonly source: string; // 'derived_from_votes'
   readonly voteCount: number | null;
 }
 ```
@@ -120,24 +120,32 @@ which only knew the snapshot.
 ```ts
 export interface ParliamentBill {
   readonly billKey: string;
-  readonly plxNumber: string | null; readonly plxYear: number | null;
-  readonly senateNumber: string | null; readonly senateYear: number | null;
+  readonly plxNumber: string | null;
+  readonly plxYear: number | null;
+  readonly senateNumber: string | null;
+  readonly senateYear: number | null;
   readonly title: string | null;
-  readonly finalLawNumber: string | null; readonly finalLawYear: number | null;
-  readonly attrs: Record<string, unknown>;     // status_text / last_event_date / procedure / source_title
-  readonly sourceUpdatedAt: string | null;      // timestamptz ISO
+  readonly finalLawNumber: string | null;
+  readonly finalLawYear: number | null;
+  readonly attrs: Record<string, unknown>; // status_text / last_event_date / procedure / source_title
+  readonly sourceUpdatedAt: string | null; // timestamptz ISO
   readonly updatedAt: string | null;
 }
 export interface ParliamentBillEvent {
-  readonly position: number; readonly eventDate: string | null;
-  readonly eventDateText: string | null; readonly description: string | null;
-  readonly chamberCode: string | null; readonly committee: string | null;
-  readonly voteIdv: string | null;             // explicit timeline→vote evidence
+  readonly position: number;
+  readonly eventDate: string | null;
+  readonly eventDateText: string | null;
+  readonly description: string | null;
+  readonly chamberCode: string | null;
+  readonly committee: string | null;
+  readonly voteIdv: string | null; // explicit timeline→vote evidence
   readonly docs: readonly unknown[];
 }
 export interface ParliamentBillDocument {
-  readonly url: string; readonly label: string | null;
-  readonly kind: string | null; readonly position: number | null;
+  readonly url: string;
+  readonly label: string | null;
+  readonly kind: string | null;
+  readonly position: number | null;
 }
 ```
 
@@ -145,13 +153,18 @@ export interface ParliamentBillDocument {
 
 ```ts
 export interface ParliamentVote {
-  readonly voteKey: string;             // 'cdep:<votid>' | 'senat:<app_id>'
+  readonly voteKey: string; // 'cdep:<votid>' | 'senat:<app_id>'
   readonly chamber: string;
-  readonly voteDate: string | null;     // vote_date::text
+  readonly voteDate: string | null; // vote_date::text
   readonly title: string | null;
-  readonly tally: { pentru: number|null; impotriva: number|null;
-                    abtinere: number|null; nuAVotat: number|null; present: number|null };
-  readonly outcome: string | null;      // 'adoptat' | 'respins' | null
+  readonly tally: {
+    pentru: number | null;
+    impotriva: number | null;
+    abtinere: number | null;
+    nuAVotat: number | null;
+    present: number | null;
+  };
+  readonly outcome: string | null; // 'adoptat' | 'respins' | null
   readonly divisionNumber: number | null;
   readonly billKey: string | null;
   readonly lawReference: string | null; // Senate L-ref, title-extracted
@@ -159,17 +172,17 @@ export interface ParliamentVote {
 }
 export interface ParliamentVoteRecord {
   readonly rowIndex: number;
-  readonly memberName: string | null;   // raw source name (audit)
-  readonly groupName: string | null;    // raw group AT vote
-  readonly choice: string | null;       // 'pentru'|'impotriva'|'abtinere'|'nu_a_votat'
-  readonly rawMarker: string | null;    // chamber-native marker
-  readonly mandateKey: string | null;   // nullable BY DESIGN (collisions never auto-resolved)
+  readonly memberName: string | null; // raw source name (audit)
+  readonly groupName: string | null; // raw group AT vote
+  readonly choice: string | null; // 'pentru'|'impotriva'|'abtinere'|'nu_a_votat'
+  readonly rawMarker: string | null; // chamber-native marker
+  readonly mandateKey: string | null; // nullable BY DESIGN (collisions never auto-resolved)
   readonly matchMethod: string | null;
 }
 ```
 
 `vote.outcome` is a **vote-level** result (`pentru>impotriva`), **not** the
-bill outcome — a vote *adopting a rejection report* has `outcome='adoptat'` but
+bill outcome — a vote _adopting a rejection report_ has `outcome='adoptat'` but
 the bill is rejected. Bill outcome lives in `bill_vote_links.role`
 (`final_adoption` vs `final_rejection`). The view model never conflates them.
 
@@ -177,29 +190,40 @@ the bill is rejected. Bill outcome lives in `bill_vote_links.role`
 
 ```ts
 export interface ParliamentControlItem {
-  readonly itemKey: string; readonly controlType: string | null;     // question|interpellation|motion|unknown
-  readonly controlTypeProvenance: string | null;                     // split_pass|combined_pass
-  readonly title: string | null; readonly recipient: string | null;
-  readonly itemDate: string | null; readonly responseStatus: string | null;
-  readonly authorName: string | null; readonly mandateKey: string | null;
+  readonly itemKey: string;
+  readonly controlType: string | null; // question|interpellation|motion|unknown
+  readonly controlTypeProvenance: string | null; // split_pass|combined_pass
+  readonly title: string | null;
+  readonly recipient: string | null;
+  readonly itemDate: string | null;
+  readonly responseStatus: string | null;
+  readonly authorName: string | null;
+  readonly mandateKey: string | null;
 }
 export interface ParliamentInitiative {
-  readonly initiativeKey: string; readonly mandateKey: string; readonly billKey: string | null;
-  readonly title: string | null; readonly status: string | null;
-  readonly promulgatedLawNumber: string | null; readonly promulgatedLawYear: number | null;
+  readonly initiativeKey: string;
+  readonly mandateKey: string;
+  readonly billKey: string | null;
+  readonly title: string | null;
+  readonly status: string | null;
+  readonly promulgatedLawNumber: string | null;
+  readonly promulgatedLawYear: number | null;
 }
 export interface ParliamentSpeech {
-  readonly speechKey: string; readonly mandateKey: string | null;
-  readonly speakerName: string | null; readonly chamber: string | null;
-  readonly spokenAt: string | null; readonly title: string | null;
-  readonly summary: string | null;  // quarantined rows EXCLUDED by default (§2.6)
+  readonly speechKey: string;
+  readonly mandateKey: string | null;
+  readonly speakerName: string | null;
+  readonly chamber: string | null;
+  readonly spokenAt: string | null;
+  readonly title: string | null;
+  readonly summary: string | null; // quarantined rows EXCLUDED by default (§2.6)
 }
 ```
 
 ### 2.6 Identity / territory linkage; PII & excluded columns
 
 - **No CUI on members.** Parliament does not link to the `core.organizations`
-  identity hub at the *person* grain (people aren't orgs; party→CUI is deferred).
+  identity hub at the _person_ grain (people aren't orgs; party→CUI is deferred).
   The kernel `Entity` join (§6.6) is therefore **not** wired from a member CUI;
   parliament contributes to `Entity` only via the **`recipient`** dimension of
   control items (a minister/ministry an interpellation is addressed to) — and
@@ -213,11 +237,11 @@ export interface ParliamentSpeech {
     — provenance; not surfaced. `birth_date` (the parsed date) IS surfaced
     (public-figure DOB, already on the public CDEP profile pages).
   - `member_declarations.file_hash` — internal dedup; not surfaced. **Declaration
-    *content* is never read** (v1 `content_status='link_only'`); only
+    _content_ is never read** (v1 `content_status='link_only'`); only
     `{type, date, label, file_url}` metadata is exposed.
   - `speeches` with `quarantined=true` (joint-sitting empty shells) are
     **excluded from every default projection** (a `WHERE quarantined=false`
-    predicate in the repo; an explicit `includeQuarantined` flag is *not* offered
+    predicate in the repo; an explicit `includeQuarantined` flag is _not_ offered
     in v1).
   - `*_identity_candidates` rows with `status IN ('needs_review','rejected','ambiguous')`
     are internal correlation state — exposed only through a dedicated
@@ -244,10 +268,13 @@ schema-qualified Kysely keys (`'parliament.votes'`). **Heavy-query rule
 ```ts
 export interface ParliamentRepo {
   // ── members / groups / persons ─────────────────────────────────────────
-  latestLegislature(): Promise<Result<string | null, ApiError>>;             // max(legislature)
-  listMembers(q: MembersQuery): Promise<Result<Page<MemberRow>, ApiError>>;  // members; offset+total (bounded by legislature)
+  latestLegislature(): Promise<Result<string | null, ApiError>>; // max(legislature)
+  listMembers(q: MembersQuery): Promise<Result<Page<MemberRow>, ApiError>>; // members; offset+total (bounded by legislature)
   findMember(mandateKey: string): Promise<Result<MemberRow | null, ApiError>>; // members_pkey
-  listGroupCounts(legislature: string, chamber?: string): Promise<Result<GroupCountRow[], ApiError>>; // members (group_by)
+  listGroupCounts(
+    legislature: string,
+    chamber?: string
+  ): Promise<Result<GroupCountRow[], ApiError>>; // members (group_by)
   listConstituencies(legislature: string): Promise<Result<string[], ApiError>>;
   findPerson(personId: string): Promise<Result<PersonRow | null, ApiError>>; // persons_pkey
   listPersonMandates(personId: string): Promise<Result<MemberRow[], ApiError>>; // members_person_idx
@@ -255,27 +282,45 @@ export interface ParliamentRepo {
   searchPersonsByName(qNorm: string, limit: number): Promise<Result<PersonRow[], ApiError>>; // persons_normalized_name_idx
 
   // ── bills / timeline ───────────────────────────────────────────────────
-  listBills(q: BillsQuery): Promise<Result<Page<BillRow>, ApiError>>;        // bills; offset+total
-  findBill(billKey: string): Promise<Result<BillRow | null, ApiError>>;      // bills_pkey
+  listBills(q: BillsQuery): Promise<Result<Page<BillRow>, ApiError>>; // bills; offset+total
+  findBill(billKey: string): Promise<Result<BillRow | null, ApiError>>; // bills_pkey
   getBillEvents(billKey: string): Promise<Result<BillEventRow[], ApiError>>; // bill_events_pkey prefix
   getBillDocuments(billKey: string): Promise<Result<BillDocumentRow[], ApiError>>; // bill_documents_pkey prefix
   getBillInitiators(billKey: string): Promise<Result<InitiatorRow[], ApiError>>; // member_initiatives_bill_idx ⋈ members
-  getBillActLinks(billKey: string): Promise<Result<BillActLinkRow[], ApiError>>;  // bill_act_links_current_uq prefix
+  getBillActLinks(billKey: string): Promise<Result<BillActLinkRow[], ApiError>>; // bill_act_links_current_uq prefix
   getBillVoteLinks(billKey: string): Promise<Result<BillVoteLinkRow[], ApiError>>; // bill_vote_links_bill_idx
 
   // ── votes / records ────────────────────────────────────────────────────
-  listVotes(q: VotesQuery): Promise<Result<CursorPage<VoteRow>, ApiError>>;  // votes_chamber_date_idx (cursor)
-  findVote(voteKey: string): Promise<Result<VoteRow | null, ApiError>>;      // votes_pkey
-  listVotesForBill(billKey: string): Promise<Result<VoteRow[], ApiError>>;   // votes_bill_idx
-  listVoteRecords(voteKey: string, q: RecordsQuery): Promise<Result<CursorPage<VoteRecordRow>, ApiError>>; // vote_records_pkey (vote_key, row_index)
+  listVotes(q: VotesQuery): Promise<Result<CursorPage<VoteRow>, ApiError>>; // votes_chamber_date_idx (cursor)
+  findVote(voteKey: string): Promise<Result<VoteRow | null, ApiError>>; // votes_pkey
+  listVotesForBill(billKey: string): Promise<Result<VoteRow[], ApiError>>; // votes_bill_idx
+  listVoteRecords(
+    voteKey: string,
+    q: RecordsQuery
+  ): Promise<Result<CursorPage<VoteRecordRow>, ApiError>>; // vote_records_pkey (vote_key, row_index)
   voteGroupBreakdown(voteKey: string): Promise<Result<GroupBreakdownRow[], ApiError>>; // vote_records_pkey prefix, group_by
 
   // ── member activity (always parented by mandate_key or person_id) ───────
-  listMemberVotes(mandateKey: string, q: CursorQuery): Promise<Result<CursorPage<MemberVoteRow>, ApiError>>; // vote_records_mandate_idx ⋈ votes; materialize+sort (§3.1.1), not an index seek
-  listMemberControlItems(mandateKey: string, q: PageQuery): Promise<Result<Page<ControlItemRow>, ApiError>>; // control_items_mandate_idx
-  listMemberSpeeches(mandateKey: string, q: PageQuery): Promise<Result<Page<SpeechRow>, ApiError>>;          // speeches_mandate_idx
-  listMemberInitiatives(mandateKey: string, q: PageQuery): Promise<Result<Page<InitiativeRow>, ApiError>>;   // member_initiatives_mandate_idx
-  listMemberDeclarations(mandateKey: string): Promise<Result<DeclarationRow[], ApiError>>;                   // member_declarations_uq prefix
+  listMemberVotes(
+    mandateKey: string,
+    q: CursorQuery,
+    filter?: FilterInput
+  ): Promise<Result<CursorPage<MemberVoteRow>, ApiError>>; // vote_records_mandate_idx ⋈ votes; materialize+sort (§3.1.1), not an index seek; filter (memberVotesFilterSpec: voteDate/chamber/outcome/choice) ANDed onto the mandate bound → total is the exact FILTERED count
+  memberVoteActivity(
+    mandateKey: string,
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<MemberVoteActivity, ApiError>>; // per-day heatmap: 2 aggregates over the SAME filter — per-day counts (year-bounded) + distinct availableYears (not year-bounded)
+  listMemberControlItems(
+    mandateKey: string,
+    q: PageQuery
+  ): Promise<Result<Page<ControlItemRow>, ApiError>>; // control_items_mandate_idx
+  listMemberSpeeches(mandateKey: string, q: PageQuery): Promise<Result<Page<SpeechRow>, ApiError>>; // speeches_mandate_idx
+  listMemberInitiatives(
+    mandateKey: string,
+    q: PageQuery
+  ): Promise<Result<Page<InitiativeRow>, ApiError>>; // member_initiatives_mandate_idx
+  listMemberDeclarations(mandateKey: string): Promise<Result<DeclarationRow[], ApiError>>; // member_declarations_uq prefix
 
   // ── control items list (standalone) ─────────────────────────────────────
   listControlItems(q: ControlQuery): Promise<Result<CursorPage<ControlItemRow>, ApiError>>; // see §3.2
@@ -288,7 +333,9 @@ export interface ParliamentRepo {
   listPersonCandidates(q: CandidateQuery): Promise<Result<Page<CandidateRow>, ApiError>>; // person_candidates_status_idx
 
   // ── contributor (kernel registry, §4) ────────────────────────────────────
-  controlPresenceForRecipient(cui: string): Promise<Result<{ count: number; lastDate: string|null } | null, ApiError>>; // deferred until recipient→CUI
+  controlPresenceForRecipient(
+    cui: string
+  ): Promise<Result<{ count: number; lastDate: string | null } | null, ApiError>>; // deferred until recipient→CUI
 }
 ```
 
@@ -318,7 +365,24 @@ binding for every endpoint:
      seek. This is correct precisely because the per-member set is small and
      bounded; it would be wrong for any unparented scan. The cursor tuple
      `(vote_date, vote_key, row_index)` is the stable sort key, encoded with
-     `fhash` (§14.3); it is **not** claimed to be index-backed.
+     `fhash` (§14.3); it is **not** claimed to be index-backed. **An optional
+     `filter` (memberVotesFilterSpec: voteDate/chamber/outcome/choice) compiles
+     to WHERE conditions ANDed onto the `mandate_key` bound** — the materialize +
+     in-memory sort + `findIndex` cursor logic is unchanged; only the WHERE now
+     carries the spec-compiled conditions, so `total` is the exact count over the
+     FILTERED slice. The cursor `fhash` is now derived from the mandate **and the
+     filter** (`memberVotesFhash(mandateKey, filter)`), so a cursor is rejected if
+     replayed under a different filter. This is a one-time cursor-format break:
+     the empty-filter `fhash` changed from `memberVotes:<mandate>` to the
+     canonicalized form, so any in-flight member-votes cursor from a session open
+     across the deploy is rejected once with `INVALID_INPUT` and the client
+     re-fetches from page 1 (accepted; cursors are ephemeral).
+   - **Per-day activity** (`memberVoteActivity`): the heatmap runs two aggregates
+     over the SAME filter conditions — a per-day `GROUP BY vote_date` with
+     `count(*)` + a `FILTER (WHERE choice=…)` per choice, bounded to the requested
+     year; and a `DISTINCT extract(year …)` for `availableYears` (NOT year-bounded,
+     so the client can offer a year switcher). `voteDate` is rejected at the
+     usecase (the year argument is the range bound).
 2. **No global `GET /votes/records` endpoint.** Ballot lists exist only under a
    vote or a member. A request for "all `pentru` ballots in 2024" is answered as
    a vote-scoped or aggregate query, never a 4M-row scan.
@@ -344,7 +408,7 @@ cohesion aggregates.
 ### 3.2 Other heavy-table notes
 
 - **`votes`** (20.6k): driving index `votes_chamber_date_idx (chamber,
-  vote_date DESC)` for the list; `votes_bill_idx` for bill-scoped; cursor on
+vote_date DESC)` for the list; `votes_bill_idx` for bill-scoped; cursor on
   `(vote_date, vote_key)`. `q` text search hits `title`/`attrs->>'source_title'`
   via trigram/ILIKE (no FTS index — search service owns relevance), so a `q`
   query is **bounded by also requiring chamber and/or a date window** when no
@@ -359,7 +423,7 @@ cohesion aggregates.
   bounded by `item_date` window + `control_type` (no dedicated date index exists;
   the standalone `listControlItems` is **cursor-paginated and requires a date
   window or recipient/author bound**, declared in the spec, to stay off a full
-  scan; an `(item_date)` index is flagged as an *earned-if-measured* follow-up,
+  scan; an `(item_date)` index is flagged as an _earned-if-measured_ follow-up,
   not added speculatively per the "no speculative index" rule).
 - **Lineage** (`votesForActId`): `bill_act_links_target_idx (target_act_id)` →
   `bill_vote_links_bill_idx (bill_key)` filtered to
@@ -373,7 +437,7 @@ cohesion aggregates.
   `bills.final_law_*`, `bill_act_links.resolution_status`). Their list/filter
   predicates are therefore **post-scan filters over a few-thousand-row table** —
   cheap by row count, not by index. The plan states this plainly rather than
-  naming a non-existent driving index: these are *earned-if-measured* index
+  naming a non-existent driving index: these are _earned-if-measured_ index
   candidates, deliberately not pre-built (the "no speculative index" rule).
   `bills.hasLaw`/`actId` joins `bills` to `bill_act_links` (both ~9k) — a small
   hash/semi-join, not index-driven. The index-discipline rule (§3 contract)
@@ -386,22 +450,22 @@ cohesion aggregates.
 
 `core/usecases/` — framework-free, over the port, returning `Result`.
 
-| Usecase | Signature (→ `Result<…, ApiError>`) | Notes |
-|---|---|---|
-| `listMembers` | `(input: MembersFilter) → Page<MemberView>` | default legislature = latest |
-| `getMember` | `(mandateKey) → MemberDetailView` | mandate + person + group intervals + activity counts |
-| `getPerson` | `(personId) → PersonCareerView` | cross-mandate: all mandates, chambers, group history, career totals |
-| `listGroups` | `(legislature, chamber?) → GroupView[]` | counts aggregated; Neafiliaţi bucket |
-| `listBills` | `(input: BillsFilter) → Page<BillView>` | default sort `updated_desc` |
-| `getBill` | `(billKey) → BillDossierView` | events + documents + initiators + related votes + **act links + vote links** (improvement: lineage attached) |
-| `listVotes` | `(input: VotesFilter) → CursorPage<VoteView>` | cursor; default `vote_date DESC` |
-| `getVote` | `(voteKey) → VoteDetailView` | tally + group breakdown + ballots (paged) |
-| `getVoteBallots` | `(voteKey, cursor) → CursorPage<BallotView>` | ballot-level, parented |
-| `getMemberActivity` | `(mandateKey, kind, page) → Page<…>` | votes/control/speeches/initiatives/declarations |
-| `listControlItems` | `(input: ControlFilter) → CursorPage<ControlView>` | bounded (date window/recipient) |
-| `getLineageForAct` | `(actId, opts) → ActLineageView` | **marquee**: act→bills→final votes→ballots→persons + temporal-coverage caveats |
-| `resolveFilters` | `(dim, q) → ResolveResult` | name→value (§7.4) |
-| `dataQualityCandidates` | `(input) → Page<CandidateView>` | person-identity review queue |
+| Usecase                 | Signature (→ `Result<…, ApiError>`)                | Notes                                                                                                        |
+| ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `listMembers`           | `(input: MembersFilter) → Page<MemberView>`        | default legislature = latest                                                                                 |
+| `getMember`             | `(mandateKey) → MemberDetailView`                  | mandate + person + group intervals + activity counts                                                         |
+| `getPerson`             | `(personId) → PersonCareerView`                    | cross-mandate: all mandates, chambers, group history, career totals                                          |
+| `listGroups`            | `(legislature, chamber?) → GroupView[]`            | counts aggregated; Neafiliaţi bucket                                                                         |
+| `listBills`             | `(input: BillsFilter) → Page<BillView>`            | default sort `updated_desc`                                                                                  |
+| `getBill`               | `(billKey) → BillDossierView`                      | events + documents + initiators + related votes + **act links + vote links** (improvement: lineage attached) |
+| `listVotes`             | `(input: VotesFilter) → CursorPage<VoteView>`      | cursor; default `vote_date DESC`                                                                             |
+| `getVote`               | `(voteKey) → VoteDetailView`                       | tally + group breakdown + ballots (paged)                                                                    |
+| `getVoteBallots`        | `(voteKey, cursor) → CursorPage<BallotView>`       | ballot-level, parented                                                                                       |
+| `getMemberActivity`     | `(mandateKey, kind, page) → Page<…>`               | votes/control/speeches/initiatives/declarations                                                              |
+| `listControlItems`      | `(input: ControlFilter) → CursorPage<ControlView>` | bounded (date window/recipient)                                                                              |
+| `getLineageForAct`      | `(actId, opts) → ActLineageView`                   | **marquee**: act→bills→final votes→ballots→persons + temporal-coverage caveats                               |
+| `resolveFilters`        | `(dim, q) → ResolveResult`                         | name→value (§7.4)                                                                                            |
+| `dataQualityCandidates` | `(input) → Page<CandidateView>`                    | person-identity review queue                                                                                 |
 
 **Cross-source contributor (§4.4/§14.7).** Parliament registers a
 `SourceContributor` with `source:'parliament'`:
@@ -415,6 +479,7 @@ cohesion aggregates.
   institution" slice when available.
 
 **Registered enums:**
+
 - `flow_type`: **none.** Parliament has no money flow — it does not write to
   `flows.money_flows` and registers no `flow_type` (explicit, so the kernel
   `FLOW_TYPES` enum stays accurate).
@@ -433,28 +498,28 @@ state, §8.1/§2.6). TypeBox schemas at the boundary; `Static<typeof Schema>` is
 the handler input. Each row's freshness watermark (§10) is surfaced in
 `meta.asOf`.
 
-| # | Method · Path | Query / params (TypeBox) | Response | Pagination | Cache TTL | stmt timeout |
-|---|---|---|---|---|---|---|
-| 1 | `GET /members` | `legislature?`,`chamber?`,`group?`(slug),`judet?`(slug),`q?`,`page?`,`pageSize?(≤100)` | `{members:MemberView[]}` | offset+total (bounded by legislature → cheap) | 300s | 5s |
-| 2 | `GET /members/:mandateKey` | param | `MemberDetailView` (mandate+person+intervals+activity counts) | — | 300s | 5s |
-| 3 | `GET /members/:mandateKey/votes` | `after?`,`limit?(≤100)` | `{votes:MemberVoteView[]}` | **cursor** `(vote_date,vote_key,row_index)` | 120s | 15s |
-| 4 | `GET /members/:mandateKey/control-items` | `page?`,`pageSize?(≤100)` | `{items:ControlView[]}` | offset+total | 120s | 5s |
-| 5 | `GET /members/:mandateKey/speeches` | `page?`,`pageSize?(≤100)` | `{speeches:SpeechView[]}` (quarantined excluded) | offset+total | 120s | 5s |
-| 6 | `GET /members/:mandateKey/initiatives` | `page?`,`pageSize?` | `{initiatives:InitiativeView[]}` | offset+total | 120s | 5s |
-| 7 | `GET /members/:mandateKey/declarations` | param | `{declarations:DeclarationMetaView[]}` (metadata only) | — | 600s | 5s |
-| 8 | `GET /persons/:personId` | param | `PersonCareerView` (mandates+intervals+totals) | — | 300s | 5s |
-| 9 | `GET /groups` | `legislature?`,`chamber?` | `{groups:GroupView[]}` | — | 600s | 5s |
-| 10 | `GET /groups/:groupId/members` | `legislature?` | `{members:MemberView[]}` | — (≤ legislature size) | 300s | 5s |
-| 11 | `GET /bills` | `q?`,`year?`,`finalized?`,`hasLaw?`,`actId?`,`sortBy?`,`page?`,`pageSize?(≤100)` | `{bills:BillView[]}` | offset+total | 120s | 5s |
-| 12 | `GET /bills/:billKey` | param | `BillDossierView` (events+docs+initiators+votes+actLinks+voteLinks) | — | 120s | 15s |
-| 13 | `GET /votes` | `chamber?`,`outcome?`,`from?`,`to?`,`billKey?`,`q?`,`after?`,`limit?(≤100)` | `{votes:VoteView[]}` | **cursor** `(vote_date,vote_key)` | 120s | 5s |
-| 14 | `GET /votes/:voteKey` | param | `VoteDetailView` (tally+groupBreakdown+first page ballots) | — | 120s | 5s |
-| 15 | `GET /votes/:voteKey/ballots` | `after?`,`limit?(≤200)` | `{ballots:BallotView[]}` | **cursor** `(row_index)` | 120s | 5s |
-| 16 | `GET /control-items` | `controlType?`,`recipient?`,`author?`,`responseStatus?`,`from?`,`to?`,`after?`,`limit?(≤100)` | `{items:ControlView[]}` | **cursor** (requires date window or recipient/author) | 120s | 5s |
-| 17 | `GET /lineage/acts/:actId/votes` | `roles?`(csv default `final_adoption,final_rejection`),`minConfidence?`,`includeBallots?` | `ActLineageView` | — (bounded) | 300s | 15s |
-| 18 | `GET /filters/resolve` | `dim`(`group|person|constituency|recipient|control_type|outcome|chamber`),`q` | `{matches:ResolveMatch[]}` | — | 600s | 5s |
-| 19 | `GET /data-quality/person-candidates` | `status?`,`page?`,`pageSize?` | `{candidates:CandidateView[]}` (no `evidence`/`method` internals) | offset+total | 60s | 5s |
-| 20 | `GET /analytics/votes/cohesion` | `billKey?` **or** (`chamber`+`from`+`to`),`group?` | `{cohesion:ParliamentGroupCohesion[]}` | — (vote set hard-capped at 500 votes; `InvalidInput` if bounded range exceeds it) | 60s | 15s |
+| #   | Method · Path                            | Query / params (TypeBox)                                                                      | Response                                                            | Pagination                                                                        | Cache TTL | stmt timeout |
+| --- | ---------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------- | ------------ | ------- | ------------- | -------------------------- | --- | ---- | --- |
+| 1   | `GET /members`                           | `legislature?`,`chamber?`,`group?`(slug),`judet?`(slug),`q?`,`page?`,`pageSize?(≤100)`        | `{members:MemberView[]}`                                            | offset+total (bounded by legislature → cheap)                                     | 300s      | 5s           |
+| 2   | `GET /members/:mandateKey`               | param                                                                                         | `MemberDetailView` (mandate+person+intervals+activity counts)       | —                                                                                 | 300s      | 5s           |
+| 3   | `GET /members/:mandateKey/votes`         | `after?`,`limit?(≤100)`                                                                       | `{votes:MemberVoteView[]}`                                          | **cursor** `(vote_date,vote_key,row_index)`                                       | 120s      | 15s          |
+| 4   | `GET /members/:mandateKey/control-items` | `page?`,`pageSize?(≤100)`                                                                     | `{items:ControlView[]}`                                             | offset+total                                                                      | 120s      | 5s           |
+| 5   | `GET /members/:mandateKey/speeches`      | `page?`,`pageSize?(≤100)`                                                                     | `{speeches:SpeechView[]}` (quarantined excluded)                    | offset+total                                                                      | 120s      | 5s           |
+| 6   | `GET /members/:mandateKey/initiatives`   | `page?`,`pageSize?`                                                                           | `{initiatives:InitiativeView[]}`                                    | offset+total                                                                      | 120s      | 5s           |
+| 7   | `GET /members/:mandateKey/declarations`  | param                                                                                         | `{declarations:DeclarationMetaView[]}` (metadata only)              | —                                                                                 | 600s      | 5s           |
+| 8   | `GET /persons/:personId`                 | param                                                                                         | `PersonCareerView` (mandates+intervals+totals)                      | —                                                                                 | 300s      | 5s           |
+| 9   | `GET /groups`                            | `legislature?`,`chamber?`                                                                     | `{groups:GroupView[]}`                                              | —                                                                                 | 600s      | 5s           |
+| 10  | `GET /groups/:groupId/members`           | `legislature?`                                                                                | `{members:MemberView[]}`                                            | — (≤ legislature size)                                                            | 300s      | 5s           |
+| 11  | `GET /bills`                             | `q?`,`year?`,`finalized?`,`hasLaw?`,`actId?`,`sortBy?`,`page?`,`pageSize?(≤100)`              | `{bills:BillView[]}`                                                | offset+total                                                                      | 120s      | 5s           |
+| 12  | `GET /bills/:billKey`                    | param                                                                                         | `BillDossierView` (events+docs+initiators+votes+actLinks+voteLinks) | —                                                                                 | 120s      | 15s          |
+| 13  | `GET /votes`                             | `chamber?`,`outcome?`,`from?`,`to?`,`billKey?`,`q?`,`after?`,`limit?(≤100)`                   | `{votes:VoteView[]}`                                                | **cursor** `(vote_date,vote_key)`                                                 | 120s      | 5s           |
+| 14  | `GET /votes/:voteKey`                    | param                                                                                         | `VoteDetailView` (tally+groupBreakdown+first page ballots)          | —                                                                                 | 120s      | 5s           |
+| 15  | `GET /votes/:voteKey/ballots`            | `after?`,`limit?(≤200)`                                                                       | `{ballots:BallotView[]}`                                            | **cursor** `(row_index)`                                                          | 120s      | 5s           |
+| 16  | `GET /control-items`                     | `controlType?`,`recipient?`,`author?`,`responseStatus?`,`from?`,`to?`,`after?`,`limit?(≤100)` | `{items:ControlView[]}`                                             | **cursor** (requires date window or recipient/author)                             | 120s      | 5s           |
+| 17  | `GET /lineage/acts/:actId/votes`         | `roles?`(csv default `final_adoption,final_rejection`),`minConfidence?`,`includeBallots?`     | `ActLineageView`                                                    | — (bounded)                                                                       | 300s      | 15s          |
+| 18  | `GET /filters/resolve`                   | `dim`(`group                                                                                  | person                                                              | constituency                                                                      | recipient | control_type | outcome | chamber`),`q` | `{matches:ResolveMatch[]}` | —   | 600s | 5s  |
+| 19  | `GET /data-quality/person-candidates`    | `status?`,`page?`,`pageSize?`                                                                 | `{candidates:CandidateView[]}` (no `evidence`/`method` internals)   | offset+total                                                                      | 60s       | 5s           |
+| 20  | `GET /analytics/votes/cohesion`          | `billKey?` **or** (`chamber`+`from`+`to`),`group?`                                            | `{cohesion:ParliamentGroupCohesion[]}`                              | — (vote set hard-capped at 500 votes; `InvalidInput` if bounded range exceeds it) | 60s       | 15s          |
 
 OpenAPI: the module exports a fragment merged at `/api/v1/openapi.json`. Every
 list declares `default sort` + `allowed sort keys` (§5.4). **No mutations.**
@@ -496,7 +561,7 @@ type ParliamentMember {
   controlItems(first: Int, after: String): ParliamentControlItemConnection!
   speeches(first: Int, after: String): ParliamentSpeechConnection!
   initiatives(first: Int, after: String): ParliamentInitiativeConnection!
-  declarations: [ParliamentDeclarationMeta!]!     # metadata only
+  declarations: [ParliamentDeclarationMeta!]! # metadata only
 }
 
 type ParliamentPerson {
@@ -504,74 +569,163 @@ type ParliamentPerson {
   canonicalName: String!
   normalizedName: String!
   birthDate: Date
-  confidence: ParliamentPersonConfidence!         # HIGH|MEDIUM|LOW
+  confidence: ParliamentPersonConfidence! # HIGH|MEDIUM|LOW
   mandates: [ParliamentMember!]!
-  careerTotals: ParliamentCareerTotals!           # mandates, votes, initiatives, speeches counts
+  careerTotals: ParliamentCareerTotals! # mandates, votes, initiatives, speeches counts
 }
 
-type ParliamentGroup { groupId: ID!  chamber: String!  name: String!  memberCount: Int }
-type ParliamentGroupInterval { groupId: ID!  group: ParliamentGroup  validFrom: Date!  validTo: Date  source: String!  voteCount: Int }
+type ParliamentGroup {
+  groupId: ID!
+  chamber: String!
+  name: String!
+  memberCount: Int
+}
+type ParliamentGroupInterval {
+  groupId: ID!
+  group: ParliamentGroup
+  validFrom: Date!
+  validTo: Date
+  source: String!
+  voteCount: Int
+}
 
 type ParliamentBill {
   billKey: ID!
-  plxNumber: String  plxYear: Int  senateNumber: String  senateYear: Int
-  title: String  finalLawNumber: String  finalLawYear: Int
+  plxNumber: String
+  plxYear: Int
+  senateNumber: String
+  senateYear: Int
+  title: String
+  finalLawNumber: String
+  finalLawYear: Int
   events: [ParliamentBillEvent!]!
   documents: [ParliamentBillDocument!]!
   initiators: [ParliamentMember!]!
   relatedVotes: [ParliamentVote!]!
-  actLinks: [ParliamentBillActLink!]!             # bill↔legal.acts (kernel cross-link, §6.7)
-  voteLinks: [ParliamentBillVoteLink!]!           # role-bearing vote edges
+  actLinks: [ParliamentBillActLink!]! # bill↔legal.acts (kernel cross-link, §6.7)
+  voteLinks: [ParliamentBillVoteLink!]! # role-bearing vote edges
 }
 
 type ParliamentVote {
-  voteKey: ID!  chamber: String!  voteDate: Date  title: String
-  tally: ParliamentTally!  outcome: ParliamentVoteOutcome   # ADOPTAT|RESPINS|null
-  divisionNumber: Int  billKey: ID  lawReference: String
+  voteKey: ID!
+  chamber: String!
+  voteDate: Date
+  title: String
+  tally: ParliamentTally!
+  outcome: ParliamentVoteOutcome # ADOPTAT|RESPINS|null
+  divisionNumber: Int
+  billKey: ID
+  lawReference: String
   groupBreakdown: [ParliamentVoteGroupBreakdown!]!
   ballots(first: Int, after: String): ParliamentBallotConnection!
-  tallyMismatch: Boolean!                          # from attrs, surfaced as a warning flag
+  tallyMismatch: Boolean! # from attrs, surfaced as a warning flag
 }
-type ParliamentTally { pentru: Int  impotriva: Int  abtinere: Int  nuAVotat: Int  present: Int }
+type ParliamentTally {
+  pentru: Int
+  impotriva: Int
+  abtinere: Int
+  nuAVotat: Int
+  present: Int
+}
 type ParliamentBallot {
-  rowIndex: Int!  memberName: String  groupName: String
-  choice: ParliamentVoteChoice  mandateKey: ID  member: ParliamentMember  matchMethod: String
+  rowIndex: Int!
+  memberName: String
+  groupName: String
+  choice: ParliamentVoteChoice
+  mandateKey: ID
+  member: ParliamentMember
+  matchMethod: String
 }
 
 type ParliamentBillActLink {
-  relationshipKind: ParliamentRelationshipKind!   # BECOMES_LAW|APPROVES_ACT|REJECTS_ACT|MODIFIES_ACT|REFERENCES_ACT|UNKNOWN
-  targetActId: ID  targetActType: String  targetActNumber: String  targetActYear: Int
-  resolutionStatus: ParliamentResolutionStatus!   # LINKED|CANDIDATE|AMBIGUOUS|UNRESOLVED|NOT_APPLICABLE
-  confidenceLabel: ParliamentConfidenceLabel!      # EXACT|HIGH|MEDIUM|LOW|NONE
+  relationshipKind: ParliamentRelationshipKind! # BECOMES_LAW|APPROVES_ACT|REJECTS_ACT|MODIFIES_ACT|REFERENCES_ACT|UNKNOWN
+  targetActId: ID
+  targetActType: String
+  targetActNumber: String
+  targetActYear: Int
+  resolutionStatus: ParliamentResolutionStatus! # LINKED|CANDIDATE|AMBIGUOUS|UNRESOLVED|NOT_APPLICABLE
+  confidenceLabel: ParliamentConfidenceLabel! # EXACT|HIGH|MEDIUM|LOW|NONE
   primaryMethod: String!
   # legalAct: LegalAct  — resolved by the kernel cross-link DataLoader (§6.7), NOT by importing the legal module
 }
 type ParliamentBillVoteLink {
-  voteKey: ID!  vote: ParliamentVote  billKey: ID
-  role: ParliamentVoteRole!                         # FINAL_ADOPTION|FINAL_REJECTION|REPORT_ADOPTION|AMENDMENT|PROCEDURAL|AGENDA|PRESENCE|UNKNOWN
-  resolutionStatus: ParliamentResolutionStatus!  confidenceLabel: ParliamentConfidenceLabel!
+  voteKey: ID!
+  vote: ParliamentVote
+  billKey: ID
+  role: ParliamentVoteRole! # FINAL_ADOPTION|FINAL_REJECTION|REPORT_ADOPTION|AMENDMENT|PROCEDURAL|AGENDA|PRESENCE|UNKNOWN
+  resolutionStatus: ParliamentResolutionStatus!
+  confidenceLabel: ParliamentConfidenceLabel!
 }
 
 type ParliamentControlItem {
-  itemKey: ID!  controlType: ParliamentControlType  title: String  recipient: String
-  itemDate: Date  responseStatus: String  authorName: String  member: ParliamentMember
+  itemKey: ID!
+  controlType: ParliamentControlType
+  title: String
+  recipient: String
+  itemDate: Date
+  responseStatus: String
+  authorName: String
+  member: ParliamentMember
 }
-type ParliamentSpeech { speechKey: ID!  spokenAt: Date  title: String  summary: String  chamber: String }
-type ParliamentInitiative { initiativeKey: ID!  billKey: ID  title: String  status: String  promulgatedLawNumber: String  promulgatedLawYear: Int  bill: ParliamentBill }
-type ParliamentDeclarationMeta { declarationType: ParliamentDeclarationType!  declarationDate: Date  label: String  fileUrl: String! }   # NO file_hash, NO content
-
-type ParliamentActLineage {                          # marquee
-  actId: ID!  bills: [ParliamentBill!]!  votes: [ParliamentVote!]!
-  caveats: [String!]!                                # e.g. "lineage covers initiative era ~2010+"
+type ParliamentSpeech {
+  speechKey: ID!
+  spokenAt: Date
+  title: String
+  summary: String
+  chamber: String
+}
+type ParliamentInitiative {
+  initiativeKey: ID!
+  billKey: ID
+  title: String
+  status: String
+  promulgatedLawNumber: String
+  promulgatedLawYear: Int
+  bill: ParliamentBill
+}
+type ParliamentDeclarationMeta {
+  declarationType: ParliamentDeclarationType!
+  declarationDate: Date
+  label: String
+  fileUrl: String!
+} # NO file_hash, NO content
+type ParliamentActLineage { # marquee
+  actId: ID!
+  bills: [ParliamentBill!]!
+  votes: [ParliamentVote!]!
+  caveats: [String!]! # e.g. "lineage covers initiative era ~2010+"
 }
 
-type ParliamentVoteGroupBreakdown { groupName: String  pentru: Int!  impotriva: Int!  abtinere: Int!  nuAVotat: Int! }
-type ParliamentGroupCohesion { groupName: String!  forPct: Float!  againstPct: Float!  abstainPct: Float!  absentPct: Float!  cohesionIndex: Float!  voteCount: Int! }
-type ParliamentCareerTotals { mandates: Int!  votes: Int!  initiatives: Int!  speeches: Int! }
+type ParliamentVoteGroupBreakdown {
+  groupName: String
+  pentru: Int!
+  impotriva: Int!
+  abtinere: Int!
+  nuAVotat: Int!
+}
+type ParliamentGroupCohesion {
+  groupName: String!
+  forPct: Float!
+  againstPct: Float!
+  abstainPct: Float!
+  absentPct: Float!
+  cohesionIndex: Float!
+  voteCount: Int!
+}
+type ParliamentCareerTotals {
+  mandates: Int!
+  votes: Int!
+  initiatives: Int!
+  speeches: Int!
+}
 
 # Institutional Entity-360 slice — gated until recipient→CUI canonicalization (§4, §6.3).
 # Defined now so the kernel Entity extension compiles; resolves null until then.
-type ParliamentControlSummary { controlItemCount: Int!  lastItemDate: Date  topRecipient: String }
+type ParliamentControlSummary {
+  controlItemCount: Int!
+  lastItemDate: Date
+  topRecipient: String
+}
 ```
 
 ### 6.2 Root Query extensions
@@ -584,10 +738,22 @@ extend type Query {
   parliamentGroups(legislature: String, chamber: String): [ParliamentGroup!]!
   parliamentBills(filter: ParliamentBillsFilter, page: OffsetPage): ParliamentBillPage!
   parliamentBill(billKey: ID!): ParliamentBill
-  parliamentVotes(filter: ParliamentVotesFilter, first: Int, after: String): ParliamentVoteConnection!
+  parliamentVotes(
+    filter: ParliamentVotesFilter
+    first: Int
+    after: String
+  ): ParliamentVoteConnection!
   parliamentVote(voteKey: ID!): ParliamentVote
-  parliamentControlItems(filter: ParliamentControlFilter, first: Int, after: String): ParliamentControlItemConnection!
-  parliamentActLineage(actId: ID!, roles: [ParliamentVoteRole!], minConfidence: Float): ParliamentActLineage
+  parliamentControlItems(
+    filter: ParliamentControlFilter
+    first: Int
+    after: String
+  ): ParliamentControlItemConnection!
+  parliamentActLineage(
+    actId: ID!
+    roles: [ParliamentVoteRole!]
+    minConfidence: Float
+  ): ParliamentActLineage
   parliamentResolveFilter(dim: ParliamentFilterDim!, q: String!): [ParliamentResolveMatch!]!
 }
 ```
@@ -598,7 +764,9 @@ Parliament does **not** add a member-level field to the kernel `Entity` type
 (no member CUI). The only candidate extension is institutional:
 
 ```graphql
-extend type Entity { parliamentControls: ParliamentControlSummary }  # gated; resolves null until recipient→CUI lands
+extend type Entity {
+  parliamentControls: ParliamentControlSummary
+} # gated; resolves null until recipient→CUI lands
 ```
 
 resolved through `contributor.profileSlice(cui)` (§14.7) behind a CUI-keyed
@@ -639,47 +807,47 @@ column/index. `q` engine declared per field.
 
 ### 7.1 `votes` collection (cursor; driving `votes_chamber_date_idx`)
 
-| Field | Type | Ops | Driving column / index | REST param | GraphQL input | Notes |
-|---|---|---|---|---|---|---|
-| `chamber` | enum | `eq`,`in` | `votes.chamber` (+`,vote_date` idx) | `chamber` | `chamber:[String!]` | enum: `camera_deputatilor`,`senat`,`comun` |
-| `outcome` | enum | `eq`,`isNull` | `votes.outcome` | `outcome` | `outcome` | `adoptat`,`respins`,null |
-| `voteDate` | date | `gte`,`lte`,`between` | `votes.vote_date` (idx) | `from`/`to` | `voteDate:{from,to}` | bounds the index range |
-| `billKey` | string | `eq` | `votes_bill_idx` | `billKey` | `billKey` | |
-| `q` | string | `contains` | `votes.title`,`attrs->>'source_title'` | `q` | `q` | **Meili-backed** when up; ILIKE/trigram fallback **requires** `chamber` or date bound |
-| sort | — | — | default `voteDate desc`; allowed: `voteDate`,`voteKey` | | | cursor tuple `(vote_date,vote_key)` |
+| Field      | Type   | Ops                   | Driving column / index                                 | REST param  | GraphQL input        | Notes                                                                                 |
+| ---------- | ------ | --------------------- | ------------------------------------------------------ | ----------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `chamber`  | enum   | `eq`,`in`             | `votes.chamber` (+`,vote_date` idx)                    | `chamber`   | `chamber:[String!]`  | enum: `camera_deputatilor`,`senat`,`comun`                                            |
+| `outcome`  | enum   | `eq`,`isNull`         | `votes.outcome`                                        | `outcome`   | `outcome`            | `adoptat`,`respins`,null                                                              |
+| `voteDate` | date   | `gte`,`lte`,`between` | `votes.vote_date` (idx)                                | `from`/`to` | `voteDate:{from,to}` | bounds the index range                                                                |
+| `billKey`  | string | `eq`                  | `votes_bill_idx`                                       | `billKey`   | `billKey`            |                                                                                       |
+| `q`        | string | `contains`            | `votes.title`,`attrs->>'source_title'`                 | `q`         | `q`                  | **Meili-backed** when up; ILIKE/trigram fallback **requires** `chamber` or date bound |
+| sort       | —      | —                     | default `voteDate desc`; allowed: `voteDate`,`voteKey` |             |                      | cursor tuple `(vote_date,vote_key)`                                                   |
 
 ### 7.2 `members` collection (offset+total; bounded by `legislature`)
 
-| Field | Type | Ops | Driving column | REST | GraphQL | Notes |
-|---|---|---|---|---|---|---|
-| `legislature` | string | `eq` | `members.legislature` | `legislature` | `legislature` | default = latest; **always present** (bounds the scan) |
-| `chamber` | enum | `eq` | `members.chamber` | `chamber` | `chamber` | client `camera`/`senat` → DB value (resolver) |
-| `group` | string | `eq` | `members.group_name`/`group_id` | `group` (slug) | `group` | resolved via `/filters/resolve?dim=group` |
-| `judet` | string | `eq` | `members.constituency_name` | `judet` (slug) | `constituency` | slug→exact name |
-| `q` | string | `contains` | `members.full_name` (unaccent ILIKE) | `q` | `q` | trigram/ILIKE; bounded by legislature |
-| sort | — | — | default `full_name asc, mandate_key asc` | | | |
+| Field         | Type   | Ops        | Driving column                           | REST           | GraphQL        | Notes                                                  |
+| ------------- | ------ | ---------- | ---------------------------------------- | -------------- | -------------- | ------------------------------------------------------ |
+| `legislature` | string | `eq`       | `members.legislature`                    | `legislature`  | `legislature`  | default = latest; **always present** (bounds the scan) |
+| `chamber`     | enum   | `eq`       | `members.chamber`                        | `chamber`      | `chamber`      | client `camera`/`senat` → DB value (resolver)          |
+| `group`       | string | `eq`       | `members.group_name`/`group_id`          | `group` (slug) | `group`        | resolved via `/filters/resolve?dim=group`              |
+| `judet`       | string | `eq`       | `members.constituency_name`              | `judet` (slug) | `constituency` | slug→exact name                                        |
+| `q`           | string | `contains` | `members.full_name` (unaccent ILIKE)     | `q`            | `q`            | trigram/ILIKE; bounded by legislature                  |
+| sort          | —      | —          | default `full_name asc, mandate_key asc` |                |                |                                                        |
 
 ### 7.3 `bills` collection (offset+total)
 
-| Field | Type | Ops | Driving column | REST | GraphQL | Notes |
-|---|---|---|---|---|---|---|
-| `year` | int | `eq`,`gte`,`lte` | `bills.plx_year`/`senate_year` | `year` | `year` | |
-| `finalized` | bool | `eq` | `bills.final_law_number IS NOT NULL` | `finalized` | `finalized` | |
-| `hasLaw` | bool | `eq` | `bill_act_links.resolution_status='linked'` | `hasLaw` | `hasLaw` | join to act links |
-| `actId` | string | `eq` | `bill_act_links_target_idx` | `actId` | `actId` | reverse: bills that became act X |
-| `q` | string | `contains` | `title`,`plx_number/year`,`senate_number/year` | `q` | `q` | Meili-backed; ILIKE fallback |
-| sort | — | — | default `updated_desc` (last_event_date, ISO text, DESC NULLS LAST); allowed `title_asc/desc`,`updated_asc/desc` | | | bills expose `lastEventDate`; member-initiatives sort by a throw-proof zero-padded ISO reorder of `registration_date_text` (DESC NULLS LAST), surfaced as `registrationDate` — NOT `to_date`/`make_date` (those throw on calendar-invalid text) |
+| Field       | Type   | Ops              | Driving column                                                                                                   | REST        | GraphQL     | Notes                                                                                                                                                                                                                                           |
+| ----------- | ------ | ---------------- | ---------------------------------------------------------------------------------------------------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `year`      | int    | `eq`,`gte`,`lte` | `bills.plx_year`/`senate_year`                                                                                   | `year`      | `year`      |                                                                                                                                                                                                                                                 |
+| `finalized` | bool   | `eq`             | `bills.final_law_number IS NOT NULL`                                                                             | `finalized` | `finalized` |                                                                                                                                                                                                                                                 |
+| `hasLaw`    | bool   | `eq`             | `bill_act_links.resolution_status='linked'`                                                                      | `hasLaw`    | `hasLaw`    | join to act links                                                                                                                                                                                                                               |
+| `actId`     | string | `eq`             | `bill_act_links_target_idx`                                                                                      | `actId`     | `actId`     | reverse: bills that became act X                                                                                                                                                                                                                |
+| `q`         | string | `contains`       | `title`,`plx_number/year`,`senate_number/year`                                                                   | `q`         | `q`         | Meili-backed; ILIKE fallback                                                                                                                                                                                                                    |
+| sort        | —      | —                | default `updated_desc` (last_event_date, ISO text, DESC NULLS LAST); allowed `title_asc/desc`,`updated_asc/desc` |             |             | bills expose `lastEventDate`; member-initiatives sort by a throw-proof zero-padded ISO reorder of `registration_date_text` (DESC NULLS LAST), surfaced as `registrationDate` — NOT `to_date`/`make_date` (those throw on calendar-invalid text) |
 
 ### 7.4 `control_items` collection (cursor; bounded)
 
-| Field | Type | Ops | Driving column | REST | GraphQL | Notes |
-|---|---|---|---|---|---|---|
-| `controlType` | enum | `eq`,`in` | `control_items.control_type` | `controlType` | `controlType` | `question`,`interpellation`,`motion`,`unknown` |
-| `recipient` | string | `eq`,`contains` | `control_items.recipient` | `recipient` | `recipient` | resolved via `/filters/resolve?dim=recipient` |
-| `author` | string | `contains` | `control_items.author_name` | `author` | `author` | |
-| `responseStatus` | enum | `eq`,`isNull` | `control_items.response_status` | `responseStatus` | `responseStatus` | PR-5 timeliness |
-| `itemDate` | date | `gte`,`lte`,`between` | `control_items.item_date` | `from`/`to` | `itemDate:{from,to}` | **at least one bound required** (no date idx) |
-| sort | — | — | default `item_date desc, item_key asc` | | | cursor `(item_date,item_key)` |
+| Field            | Type   | Ops                   | Driving column                         | REST             | GraphQL              | Notes                                          |
+| ---------------- | ------ | --------------------- | -------------------------------------- | ---------------- | -------------------- | ---------------------------------------------- |
+| `controlType`    | enum   | `eq`,`in`             | `control_items.control_type`           | `controlType`    | `controlType`        | `question`,`interpellation`,`motion`,`unknown` |
+| `recipient`      | string | `eq`,`contains`       | `control_items.recipient`              | `recipient`      | `recipient`          | resolved via `/filters/resolve?dim=recipient`  |
+| `author`         | string | `contains`            | `control_items.author_name`            | `author`         | `author`             |                                                |
+| `responseStatus` | enum   | `eq`,`isNull`         | `control_items.response_status`        | `responseStatus` | `responseStatus`     | PR-5 timeliness                                |
+| `itemDate`       | date   | `gte`,`lte`,`between` | `control_items.item_date`              | `from`/`to`      | `itemDate:{from,to}` | **at least one bound required** (no date idx)  |
+| sort             | —      | —                     | default `item_date desc, item_key asc` |                  |                      | cursor `(item_date,item_key)`                  |
 
 ### 7.5 Filter↔surface + discovery (§7.3/§7.4)
 
@@ -707,15 +875,15 @@ exceeded — before any `vote_records` fan-in. This is the declared ceiling the
 
 ### 7.6 Golden question → filter (from `AI_AGENT_FILTER_QUESTION_CATALOG.md`)
 
-| Catalog | Question | Surface → filter |
-|---|---|---|
-| PR-1 | Bill dossier registration→law→MO | `GET /bills/:billKey` (events+actLinks+voteLinks) → MO via the `legal` module's act detail |
-| PR-2 | Bills by status/year | `GET /bills?finalized=true&year=2023` (topic/domain = deferred LLM labels) |
-| PR-3 | Votes by party & cohesion | `GET /analytics/votes/cohesion?billKey=…` or `?chamber=&from=&to=&group=` |
-| PR-4 | Member voting profile | `GET /members/:k/votes` + `/control-items` + `/persons/:id` career totals |
-| PR-5 | Interpellations to ministry M, timeliness | `GET /control-items?recipient=…&responseStatus=…&from=&to=` |
-| PR-6 | Bills with CCR/constitutionality events | `GET /bills?q=…` + dossier `events` (event text classification; no typed CCR column in v1 → flagged) |
-| — | "Who voted for Legea 423/2023" | resolve act via legal → `GET /lineage/acts/:actId/votes?includeBallots=true` |
+| Catalog | Question                                  | Surface → filter                                                                                     |
+| ------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| PR-1    | Bill dossier registration→law→MO          | `GET /bills/:billKey` (events+actLinks+voteLinks) → MO via the `legal` module's act detail           |
+| PR-2    | Bills by status/year                      | `GET /bills?finalized=true&year=2023` (topic/domain = deferred LLM labels)                           |
+| PR-3    | Votes by party & cohesion                 | `GET /analytics/votes/cohesion?billKey=…` or `?chamber=&from=&to=&group=`                            |
+| PR-4    | Member voting profile                     | `GET /members/:k/votes` + `/control-items` + `/persons/:id` career totals                            |
+| PR-5    | Interpellations to ministry M, timeliness | `GET /control-items?recipient=…&responseStatus=…&from=&to=`                                          |
+| PR-6    | Bills with CCR/constitutionality events   | `GET /bills?q=…` + dossier `events` (event text classification; no typed CCR column in v1 → flagged) |
+| —       | "Who voted for Legea 423/2023"            | resolve act via legal → `GET /lineage/acts/:actId/votes?includeBallots=true`                         |
 
 ---
 
@@ -739,7 +907,7 @@ loader), runs `getLineageForAct`.
 `out`: `{ ok, kind:'lineage', item:{ act, bills[], votes[{voteKey,chamber,
 voteDate,role,outcome,tally,sourceWarnings[]}], memberVotes?[{personId,name,
 groupAtVote,choice,matchMethod}] }, link, summary }`.
-`link`: `/parliament/lineage/acts/<actId>`. `summary`: "*Legea 423/2023* came
+`link`: `/parliament/lineage/acts/<actId>`. `summary`: "_Legea 423/2023_ came
 from bill 12760; final adoption vote 2022-05-04 (CD): 275 for / 1 abținere / 1
 absent; 277 ballots person-resolved." **Caveats included** when the act's era
 predates dense lineage (~2010+) — never a silent empty.
@@ -769,12 +937,12 @@ lineage/activity tools; a thin `search_parliament` wraps the search lane, §9.)
 Owned `doc_type`s (from `…search_doc_types` migration; the **scrapper** `search`
 lane writes `search.documents`, the server only reads/queries):
 
-| `doc_type` | Source rows | `title` | `body` | `cuis` | `doc_date` |
-|---|---|---|---|---|---|
-| `parliament_bill_dossier` | `bills` (+ dossier) | bill title | status_text + key events | — (no CUI) | last_event_date |
-| `parliament_bill_law_link` | `bill_act_links` linked | "PL-x → Legea N/Y" | citation + method | — | final_law year |
-| `parliament_control_item` | `control_items` | title | recipient + author | recipient CUI (when canonicalized) | item_date |
-| `parliament_speech_segment` | `speeches` (non-quarantined) | speech title | summary | — | spoken_at |
+| `doc_type`                  | Source rows                  | `title`            | `body`                   | `cuis`                             | `doc_date`      |
+| --------------------------- | ---------------------------- | ------------------ | ------------------------ | ---------------------------------- | --------------- |
+| `parliament_bill_dossier`   | `bills` (+ dossier)          | bill title         | status_text + key events | — (no CUI)                         | last_event_date |
+| `parliament_bill_law_link`  | `bill_act_links` linked      | "PL-x → Legea N/Y" | citation + method        | —                                  | final_law year  |
+| `parliament_control_item`   | `control_items`              | title              | recipient + author       | recipient CUI (when canonicalized) | item_date       |
+| `parliament_speech_segment` | `speeches` (non-quarantined) | speech title       | summary                  | —                                  | spoken_at       |
 
 - **Meilisearch** — instant prefix/autocomplete on bill titles + member names
   (index `parliament_bills`, `parliament_members`); used by `/filters/resolve`
@@ -866,7 +1034,7 @@ makeParliamentModule(deps: {
   query path issues an unparented scan of `vote_records` (plan check / EXPLAIN
   asserting the mandate or pk index is used).
 - **Golden filters**: PR-1…PR-6 + the lineage query as integration cases. The
-  marquee assertion reproduces the validated case: act *Legea 423/2023* →
+  marquee assertion reproduces the validated case: act _Legea 423/2023_ →
   lineage → 277/277 ballots person-resolved.
 - **Privacy test (tri-surface — REST, GraphQL, AND MCP)**: assert no surface
   emits `birth_date_text`, `birth_date_parse_method`, `persons.cluster_key`,
@@ -888,7 +1056,7 @@ makeParliamentModule(deps: {
    `/filters/resolve` person dimension.
 2. **`vote_records` has no date/choice index** — the entire pagination story
    depends on parenting by `vote_key`/`mandate_key` (§3.1). Any future
-   "all ballots filtered by choice/date" feature needs an *earned* index first;
+   "all ballots filtered by choice/date" feature needs an _earned_ index first;
    flagged, not pre-built.
 3. **bill↔legal cross-link timing.** `bill_act_links.target_act_id` has no DB FK
    (intentional, lifecycle isolation). The kernel `LegalActByIdLoader` must
@@ -915,4 +1083,7 @@ makeParliamentModule(deps: {
    chamber could touch many votes. Mitigation: cap the vote set (e.g. ≤ N votes
    per request, declared) before the `vote_records` fan-in; 15s timeout. Confirm
    the cap with the orchestrator (suggest 500 votes / ~235k ballots ceiling).
+
+```
+
 ```

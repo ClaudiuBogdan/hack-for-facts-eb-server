@@ -1627,4 +1627,150 @@ d('Parliament golden (live prod)', () => {
     );
     expect(votes.errors).toBeUndefined(); // q:null no longer throws a raw TypeError
   });
+
+  // ── filterable member votes + per-day activity (2026-07-06) ──────────────────
+  // Anchored on Mircea Abrudean (senat, mandate 1:2024:1). Live golden numbers pinned
+  // against transparenta_prod: 1110 ballots (648 comun + 462 senat), 846 pentru.
+
+  interface MemberVotesConn {
+    readonly total: number;
+    readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+    readonly edges: readonly {
+      readonly cursor: string;
+      readonly node: { readonly voteKey: string; readonly choice: string | null };
+    }[];
+  }
+
+  const memberVotes = async (
+    filter: string,
+    first = 1,
+    after?: string
+  ): Promise<GqlResponse<{ parliamentMember: { readonly votes: MemberVotesConn } | null }>> => {
+    const afterArg = after !== undefined ? `, after:${JSON.stringify(after)}` : '';
+    return gql<{ parliamentMember: { readonly votes: MemberVotesConn } | null }>(
+      `{
+        parliamentMember(mandateKey:"${ABRUDEAN}") {
+          votes(first:${String(first)}, filter:${filter}${afterArg}) {
+            total
+            pageInfo { hasNextPage endCursor }
+            edges { cursor node { voteKey choice } }
+          }
+        }
+      }`
+    );
+  };
+  const memberVotesTotal = async (filter: string): Promise<number> =>
+    requireValue(expectGqlData(await memberVotes(filter)).parliamentMember, 'Abrudean').votes.total;
+
+  it('member votes total is the EXACT filtered count (choice/outcome/chamber slices)', async () => {
+    expect(await memberVotesTotal('{}')).toBe(1110);
+    // choice buckets partition the full set (846 + 240 + 19 + 5 = 1110).
+    expect(await memberVotesTotal('{choice:{eq:"pentru"}}')).toBe(846);
+    expect(await memberVotesTotal('{choice:{eq:"impotriva"}}')).toBe(240);
+    expect(await memberVotesTotal('{choice:{eq:"abtinere"}}')).toBe(19);
+    expect(await memberVotesTotal('{choice:{eq:"nu_a_votat"}}')).toBe(5);
+    // outcome (vote-level result) buckets.
+    expect(await memberVotesTotal('{outcome:{eq:"adoptat"}}')).toBe(886);
+    expect(await memberVotesTotal('{outcome:{eq:"respins"}}')).toBe(224);
+    // chamber: a senator ballots only in senat or the joint comun sitting.
+    expect(await memberVotesTotal('{chamber:{eq:"comun"}}')).toBe(648);
+    expect(await memberVotesTotal('{chamber:{eq:"senat"}}')).toBe(462);
+  }, 30_000);
+
+  it('filtered member-votes pagination is stable and the cursor is bound to the filter', async () => {
+    const page1 = expectGqlData(await memberVotes('{choice:{eq:"pentru"}}', 5)).parliamentMember;
+    const conn1 = requireValue(page1, 'Abrudean').votes;
+    expect(conn1.edges).toHaveLength(5);
+    // every edge on a choice=pentru page is a pentru ballot (the filter is applied).
+    expect(conn1.edges.every((e) => e.node.choice === 'pentru')).toBe(true);
+    const endCursor = requireValue(conn1.pageInfo.endCursor, 'page-1 endCursor');
+    expect(conn1.pageInfo.hasNextPage).toBe(true);
+
+    // page 2 under the SAME filter continues cleanly, no voteKey overlap with page 1.
+    const page2 = expectGqlData(
+      await memberVotes('{choice:{eq:"pentru"}}', 5, endCursor)
+    ).parliamentMember;
+    const conn2 = requireValue(page2, 'Abrudean page 2').votes;
+    expect(conn2.edges.every((e) => e.node.choice === 'pentru')).toBe(true);
+    const keys1 = new Set(conn1.edges.map((e) => e.node.voteKey));
+    expect(conn2.edges.some((e) => keys1.has(e.node.voteKey))).toBe(false);
+
+    // replaying the page-1 cursor under a DIFFERENT filter → INVALID_INPUT (fhash bound).
+    const crossed = await memberVotes('{choice:{eq:"impotriva"}}', 5, endCursor);
+    expect(crossed.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 30_000);
+
+  interface ActivityDay {
+    readonly date: string;
+    readonly total: number;
+    readonly pentru: number;
+    readonly impotriva: number;
+    readonly abtinere: number;
+    readonly nuAVotat: number;
+  }
+  interface Activity {
+    readonly year: number;
+    readonly days: readonly ActivityDay[];
+    readonly availableYears: readonly number[];
+  }
+  const voteActivity = async (
+    filter: string
+  ): Promise<GqlResponse<{ parliamentMember: { readonly voteActivity: Activity } | null }>> =>
+    gql<{ parliamentMember: { readonly voteActivity: Activity } | null }>(
+      `{
+        parliamentMember(mandateKey:"${ABRUDEAN}") {
+          voteActivity(year:2026, filter:${filter}) {
+            year
+            days { date total pentru impotriva abtinere nuAVotat }
+            availableYears
+          }
+        }
+      }`
+    );
+
+  it('voteActivity(2026) returns per-day counts that sum + partition, and a sorted availableYears', async () => {
+    const act = requireValue(
+      expectGqlData(await voteActivity('{}')).parliamentMember,
+      'Abrudean'
+    ).voteActivity;
+    expect(act.year).toBe(2026);
+    expect(act.days).toHaveLength(25);
+    expect(act.days.reduce((s, d) => s + d.total, 0)).toBe(485);
+    const mar20 = requireValue(
+      act.days.find((d) => d.date === '2026-03-20'),
+      '2026-03-20 activity day'
+    );
+    expect(mar20.total).toBe(280);
+    // each day's four choice counts partition its total.
+    expect(
+      act.days.every((d) => d.pentru + d.impotriva + d.abtinere + d.nuAVotat === d.total)
+    ).toBe(true);
+    // availableYears is DISTINCT + ascending and includes the requested year.
+    expect(act.availableYears).toContain(2026);
+    expect([...act.availableYears].sort((a, b) => a - b)).toEqual([...act.availableYears]);
+  }, 30_000);
+
+  it('voteActivity reflects the filter: a choice=pentru day total equals the unfiltered same-day pentru', async () => {
+    const base = requireValue(
+      expectGqlData(await voteActivity('{}')).parliamentMember,
+      'Abrudean base'
+    ).voteActivity;
+    const filtered = requireValue(
+      expectGqlData(await voteActivity('{choice:{eq:"pentru"}}')).parliamentMember,
+      'Abrudean pentru'
+    ).voteActivity;
+    const basePentruByDate = new Map(base.days.map((d) => [d.date, d.pentru]));
+    // under choice=pentru, each day's total is exactly the unfiltered pentru count.
+    expect(filtered.days.every((d) => d.total === (basePentruByDate.get(d.date) ?? -1))).toBe(true);
+    expect(filtered.days.every((d) => d.total === d.pentru)).toBe(true);
+  }, 30_000);
+
+  it('voteActivity rejects a voteDate inside the filter (year is the range bound)', async () => {
+    const res = await gql<{ parliamentMember: unknown }>(
+      `{ parliamentMember(mandateKey:"${ABRUDEAN}") {
+          voteActivity(year:2026, filter:{ voteDate:{ gte:"2026-01-01" } }) { year }
+        } }`
+    );
+    expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  });
 });
