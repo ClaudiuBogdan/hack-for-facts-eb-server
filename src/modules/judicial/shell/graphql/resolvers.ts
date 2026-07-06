@@ -52,7 +52,9 @@ export interface JudicialResolverDeps {
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, { extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type } });
+  new GraphQLError(error.message, {
+    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+  });
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -69,7 +71,8 @@ const litigationFilter = (args: {
   yearTo?: number;
   category?: string[];
 }): CompanyLitigationFilter | undefined => {
-  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } = {};
+  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } =
+    {};
   if (args.courtLevel !== undefined) f.courtLevels = args.courtLevel;
   if (args.category !== undefined) f.categories = args.category;
   if (args.yearFrom !== undefined) f.yearFrom = args.yearFrom;
@@ -115,7 +118,7 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
             filter,
             sort,
             dir,
-            page: { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) },
+            page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
         return toCaseConnection(page, filter, sort, dir);
@@ -128,7 +131,13 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
 
       judicialCompanyLitigation: async (
         _r: unknown,
-        args: { cui: string; courtLevel?: string[]; yearFrom?: number; yearTo?: number; category?: string[] }
+        args: {
+          cui: string;
+          courtLevel?: string[];
+          yearFrom?: number;
+          yearTo?: number;
+          category?: string[];
+        }
       ) => unwrap(await getCompanyLitigation(repos, args.cui, litigationFilter(args))),
 
       judicialCompanyLitigationCases: async (
@@ -148,7 +157,7 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
           await listCompanyLitigationCases(
             repos,
             args.cui,
-            { first: args.first ?? 20, ...(args.after !== undefined && { after: args.after }) },
+            { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
             filter
           )
         );
@@ -162,14 +171,21 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
         const page = unwrap(
           await listCasesCitingAct(repos, args.targetActId, {
             first: args.first ?? 20,
-            ...(args.after !== undefined && { after: args.after }),
+            ...(args.after != null && { after: args.after }),
           })
         );
         return toCaseCitationConnection(page, args.targetActId);
       },
 
       judicialResolve: async (_r: unknown, args: { dim: string; q: string; limit?: number }) =>
-        unwrap(await resolveJudicialFilters(repos, args.dim as JudicialResolveDim, args.q, args.limit ?? 10)),
+        unwrap(
+          await resolveJudicialFilters(
+            repos,
+            args.dim as JudicialResolveDim,
+            args.q,
+            args.limit ?? 10
+          )
+        ),
     },
 
     JudicialCourt: {

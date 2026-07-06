@@ -276,7 +276,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         const filter = sansNull(args.filter as FilterInput | undefined);
         const page = {
           first: clampFirst(args.first, 100),
-          ...(args.after !== undefined && { after: args.after }),
+          ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(
           await listVotes(deps, { filter, sort, dir, page, searchEngineUp: deps.searchEngineUp })
@@ -300,7 +300,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         const filter = sansNull(args.filter as FilterInput | undefined);
         const page = {
           first: clampFirst(args.first, 100),
-          ...(args.after !== undefined && { after: args.after }),
+          ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await listControlItems(deps, filter, page));
         const fhash = fhashFor(controlItemsFilterSpec, filter);
@@ -381,7 +381,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       ) => {
         const page = {
           first: clampFirst(args.first, 100),
-          ...(args.after !== undefined && { after: args.after }),
+          ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await listCommittees(deps, args.chamber, args.legislature, page));
         return committeeConnection(res, args.chamber, args.legislature);
@@ -447,7 +447,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       votes: async (parent: { mandateKey: string }, args: { first?: number; after?: string }) => {
         const page = {
           first: clampFirst(args.first, 100),
-          ...(args.after !== undefined && { after: args.after }),
+          ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await getMemberVotes(deps, parent.mandateKey, page));
         return memberVoteConnection(res, parent.mandateKey);
@@ -573,7 +573,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       ballots: async (parent: { voteKey: string }, args: { first?: number; after?: string }) => {
         const page = {
           first: clampFirst(args.first, 200),
-          ...(args.after !== undefined && { after: args.after }),
+          ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await getVoteBallots(deps, parent.voteKey, page));
         return ballotConnection(res, parent.voteKey);

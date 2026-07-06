@@ -22,7 +22,8 @@ import {
   type ApiError,
   type ContributorRegistry,
   type CursorPage,
-  type FilterInput, type CollectionFilterSpec 
+  type FilterInput,
+  type CollectionFilterSpec,
 } from '@/modules/shared/index.js';
 
 import {
@@ -86,7 +87,7 @@ interface PageArgs {
 
 const pageReq = (args: PageArgs): { first: number; after?: string } => ({
   first: args.first ?? 20,
-  ...(args.after !== undefined && { after: args.after }),
+  ...(args.after != null && { after: args.after }),
 });
 
 /**
@@ -101,7 +102,10 @@ const toConnection = <T>(
   sort: string,
   dir: 'asc' | 'desc',
   keysOf: (node: T) => readonly (string | number | null)[]
-): { edges: { node: T; cursor: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } => {
+): {
+  edges: { node: T; cursor: string }[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+} => {
   const fhash = fhashFor(spec, filter);
   const edges = page.items.map((node) => ({
     node,
@@ -156,10 +160,14 @@ export const makePnrrResolvers = (deps: PnrrResolverDeps): Record<string, unknow
       pnrrCommitments: async (_r: unknown, args: PageArgs) => {
         const filter = args.filter ?? {};
         const page = unwrap(await listPnrrCommitments(repo, filter, pageReq(args)));
-        return toConnection(page, pnrrCommitmentsFilterSpec, filter, 'commitment_date', 'desc', (n) => [
-          n.commitmentDate ?? '1900-01-01',
-          n.commitmentKey,
-        ]);
+        return toConnection(
+          page,
+          pnrrCommitmentsFilterSpec,
+          filter,
+          'commitment_date',
+          'desc',
+          (n) => [n.commitmentDate ?? '1900-01-01', n.commitmentKey]
+        );
       },
       pnrrCommitmentProgress: async (_r: unknown, args: { commitmentKey: string }) =>
         unwrap(await getPnrrCommitmentProgress(repo, args.commitmentKey)),
@@ -178,15 +186,22 @@ export const makePnrrResolvers = (deps: PnrrResolverDeps): Record<string, unknow
       pnrrContractors: async (_r: unknown, args: PageArgs) => {
         const filter = args.filter ?? {};
         const page = unwrap(await listPnrrContractors(repo, filter, pageReq(args)));
-        return toConnection(page, pnrrContractorsFilterSpec, filter, 'contract_value', 'desc', (n) => [
-          n.contractValue ?? '',
-          n.contractorKey,
-        ]);
+        return toConnection(
+          page,
+          pnrrContractorsFilterSpec,
+          filter,
+          'contract_value',
+          'desc',
+          (n) => [n.contractValue ?? '', n.contractorKey]
+        );
       },
       pnrrContractorRank: async (
         _r: unknown,
         args: { filter?: FilterInput; by?: PnrrContractorRankBy; limit?: number }
-      ) => unwrap(await rankPnrrContractors(repo, args.filter ?? {}, args.by ?? 'value', args.limit ?? 20)),
+      ) =>
+        unwrap(
+          await rankPnrrContractors(repo, args.filter ?? {}, args.by ?? 'value', args.limit ?? 20)
+        ),
 
       pnrrComponents: async () => unwrap(await listPnrrComponents(repo)),
       pnrrMeasures: async (_r: unknown, args: { filter?: FilterInput }) =>
