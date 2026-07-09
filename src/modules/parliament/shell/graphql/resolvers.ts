@@ -39,6 +39,8 @@ import {
   getMemberSpeechesConnection,
   getMemberVoteActivity,
   getMemberVotes,
+  getParliamentSpeech,
+  getParliamentSpeechActivity,
   getPersonCareer,
   normalizeSpeechQ,
   getVoteBallots,
@@ -48,6 +50,7 @@ import {
   listControlItems,
   listGroups,
   listMembers,
+  listParliamentSpeeches,
   listVotes,
   rankVoteCohesion,
   resolveFilters,
@@ -57,6 +60,7 @@ import {
   controlItemsFilterSpec,
   memberSpeechesFhash,
   memberVotesFhash,
+  parliamentSpeechesFhash,
   votesFilterSpec,
 } from '../filters/specs.js';
 
@@ -66,6 +70,7 @@ import type {
   ParliamentMemberVote,
   ParliamentResolveDim,
   ParliamentSpeech,
+  ParliamentSpeechSearchDepth,
   ParliamentVote,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
@@ -216,6 +221,37 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     };
   };
 
+  const speechConnection = (
+    page: CursorPage<ParliamentSpeech> & {
+      total: number;
+      totalEstimated: boolean;
+      searchDepth: ParliamentSpeechSearchDepth | null;
+    },
+    filter: FilterInput,
+    q: string | undefined
+  ) => {
+    // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with —
+    // parliamentSpeechesFhash(filter, q, APPLIED depth; 'none' when no q) — and the
+    // SAME keyset shape ([spokenAt ?? '', speechKey]) so paging on an edge cursor
+    // matches the repo tuple predicate exactly.
+    const fhash = parliamentSpeechesFhash(filter, q, page.searchDepth ?? 'none');
+    return {
+      edges: page.items.map((node) => ({
+        node,
+        cursor: buildNextCursor({
+          sort: 'spokenAt',
+          dir: 'desc',
+          fhash,
+          lastKeys: [node.spokenAt ?? '', node.speechKey],
+        }),
+      })),
+      pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+      total: page.total,
+      totalEstimated: page.totalEstimated,
+      searchDepth: page.searchDepth,
+    };
+  };
+
   return {
     Query: {
       parliamentMembers: async (
@@ -355,6 +391,38 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           pageInfo: { hasNextPage: res.next !== null, endCursor: res.next },
         };
       },
+
+      parliamentSpeeches: async (
+        _r: unknown,
+        args: { filter?: Record<string, unknown>; q?: string; first?: number; after?: string }
+      ) => {
+        const filter = sansNull(args.filter as FilterInput | undefined);
+        // Normalize q ONCE and thread the SAME value to the usecase (→ repo fhash)
+        // and the connection builder, so the per-edge cursor fhash matches the repo's.
+        const q = normalizeSpeechQ(args.q);
+        const page = {
+          first: clampFirst(args.first, 100),
+          ...(args.after != null && { after: args.after }),
+        };
+        const res = unwrap(await listParliamentSpeeches(deps, { filter, page, q }));
+        return speechConnection(res, filter, q);
+      },
+
+      parliamentSpeechActivity: async (
+        _r: unknown,
+        args: { year: number; filter?: Record<string, unknown>; q?: string }
+      ) =>
+        unwrap(
+          await getParliamentSpeechActivity(
+            deps,
+            args.year,
+            sansNull(args.filter as FilterInput | undefined),
+            normalizeSpeechQ(args.q)
+          )
+        ),
+
+      parliamentSpeech: async (_r: unknown, args: { speechKey: string }) =>
+        unwrap(await getParliamentSpeech(deps, args.speechKey)),
 
       parliamentActLineage: async (
         _r: unknown,
@@ -582,6 +650,10 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         parent.fullText !== undefined
           ? parent.fullText
           : unwrap(await deps.repo.getSpeechFullText(parent.speechKey)),
+      // member is LAZY (the ParliamentControlItem.member pattern): one findMember
+      // lookup, only when selected; a NULL-mandate turn resolves null.
+      member: async (parent: { mandateKey: string | null }) =>
+        parent.mandateKey === null ? null : unwrap(await deps.repo.findMember(parent.mandateKey)),
     },
 
     ParliamentGroupInterval: {

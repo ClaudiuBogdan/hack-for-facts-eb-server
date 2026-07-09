@@ -2036,4 +2036,219 @@ d('Parliament golden (live prod)', () => {
       ).toBe(true);
     }
   }, 30_000);
+
+  // ── GLOBAL speeches (stenograme) roots: parliamentSpeeches / activity / speech ──
+
+  interface GlobalSpeechNode {
+    readonly speechKey: string;
+    readonly spokenAt: string | null;
+    readonly chamber: string | null;
+    readonly speakerName: string | null;
+    readonly mandateKey: string | null;
+  }
+  interface GlobalSpeechConn {
+    readonly total: number;
+    readonly totalEstimated: boolean;
+    readonly searchDepth: string | null;
+    readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+    readonly edges: readonly { readonly cursor: string; readonly node: GlobalSpeechNode }[];
+  }
+  const globalSpeechesRes = async (
+    args: string,
+    first = 5,
+    after?: string
+  ): Promise<GqlResponse<{ parliamentSpeeches: GlobalSpeechConn | null }>> => {
+    const afterArg = after !== undefined ? `, after:${JSON.stringify(after)}` : '';
+    return gql<{ parliamentSpeeches: GlobalSpeechConn | null }>(
+      `{
+        parliamentSpeeches(first:${String(first)}${args}${afterArg}) {
+          total totalEstimated searchDepth
+          pageInfo { hasNextPage endCursor }
+          edges { cursor node { speechKey spokenAt chamber speakerName mandateKey } }
+        }
+      }`
+    );
+  };
+  const globalSpeeches = async (
+    args: string,
+    first = 5,
+    after?: string
+  ): Promise<GlobalSpeechConn> =>
+    requireValue(
+      expectGqlData(await globalSpeechesRes(args, first, after)).parliamentSpeeches,
+      'parliamentSpeeches'
+    );
+
+  it('global stenograme: an UNBOUNDED list resolves null + INVALID_INPUT in errors[] (H2 nullable root)', async () => {
+    for (const args of [
+      '', // no bound at all
+      ', filter:{chamber:{eq:"senat"}}', // chamber bounds nothing
+      ', filter:{spokenAt:{gte:"2025-01-01"}}', // half-open window
+      ', filter:{spokenAt:{between:{from:"2023-01-01",to:"2024-01-02"}}}', // 367 days
+      ', filter:{mandateKey:{in:[]}}', // empty in:[] is not a bound
+      ', q:"lege"', // q bounds nothing
+    ]) {
+      const res = await globalSpeechesRes(args);
+      expect(res.data?.parliamentSpeeches, args).toBeNull();
+      expect(res.errors?.[0]?.extensions?.code, args).toBe('INVALID_INPUT');
+    }
+  }, 30_000);
+
+  it('global stenograme: year-window keyset page1→page2 with no overlap, ordered (spokenAt, speechKey) desc', async () => {
+    const WINDOW = ', filter:{spokenAt:{between:{from:"2025-01-01",to:"2025-12-31"}}}';
+    const page1 = await globalSpeeches(WINDOW, 25);
+    expect(page1.edges).toHaveLength(25);
+    expect(page1.total).toBeGreaterThan(25);
+    expect(page1.searchDepth).toBeNull(); // no q → no depth
+    expect(page1.pageInfo.hasNextPage).toBe(true);
+    for (let i = 1; i < page1.edges.length; i++) {
+      const prev = page1.edges[i - 1]?.node;
+      const cur = page1.edges[i]?.node;
+      if (prev == null || cur == null) continue;
+      const prevDate = prev.spokenAt ?? '';
+      const curDate = cur.spokenAt ?? '';
+      expect(prevDate >= curDate).toBe(true);
+      if (prevDate === curDate) expect(prev.speechKey > cur.speechKey).toBe(true);
+    }
+    const endCursor = requireValue(page1.pageInfo.endCursor, 'global page-1 endCursor');
+    const page2 = await globalSpeeches(WINDOW, 25, endCursor);
+    const keys1 = new Set(page1.edges.map((e) => e.node.speechKey));
+    expect(page2.edges.some((e) => keys1.has(e.node.speechKey))).toBe(false);
+
+    // the cursor is bound to the filter: replaying it under a different window fails.
+    const crossed = await globalSpeechesRes(
+      ', filter:{spokenAt:{between:{from:"2024-01-01",to:"2024-12-31"}}}',
+      25,
+      endCursor
+    );
+    expect(crossed.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 30_000);
+
+  it('global stenograme: mandate-bounded total matches parliamentMember.speechesConnection.total exactly', async () => {
+    const viaGlobal = await globalSpeeches(`, filter:{mandateKey:{eq:"${PAUCEAN}"}}`);
+    const viaMember = await speechesConn('');
+    expect(viaGlobal.total).toBe(viaMember.total);
+    expect(viaGlobal.totalEstimated).toBe(false);
+    expect(viaGlobal.edges.every((e) => e.node.mandateKey === PAUCEAN)).toBe(true);
+  }, 30_000);
+
+  it('global stenograme: parliamentSpeech resolves a dynamic key with speakerName/member + lazy fullText; unknown → null', async () => {
+    const first = requireValue(
+      (await globalSpeeches(`, filter:{mandateKey:{eq:"${PAUCEAN}"}}`, 1)).edges[0],
+      'a Păucean speech'
+    ).node;
+    const res = await gql<{
+      parliamentSpeech: {
+        readonly speechKey: string;
+        readonly speakerName: string | null;
+        readonly mandateKey: string | null;
+        readonly fullText: string | null;
+        readonly member: { readonly mandateKey: string; readonly fullName: string | null } | null;
+      } | null;
+    }>(
+      `{ parliamentSpeech(speechKey:${JSON.stringify(first.speechKey)}) {
+          speechKey speakerName mandateKey fullText member { mandateKey fullName }
+        } }`
+    );
+    const speech = requireValue(expectGqlData(res).parliamentSpeech, 'parliamentSpeech');
+    expect(speech.speechKey).toBe(first.speechKey);
+    expect(speech.mandateKey).toBe(PAUCEAN);
+    expect(speech.member?.mandateKey).toBe(PAUCEAN);
+    expect(speech.member?.fullName).not.toBeNull();
+    // fullText never errors: string when the transcript is loaded, else null.
+    expect(speech.fullText === null || typeof speech.fullText === 'string').toBe(true);
+
+    const missing = await gql<{ parliamentSpeech: unknown }>(
+      `{ parliamentSpeech(speechKey:"no-such-speech") { speechKey } }`
+    );
+    expect(expectGqlData(missing).parliamentSpeech).toBeNull();
+  }, 30_000);
+
+  interface GlobalActivity {
+    readonly year: number;
+    readonly days: readonly ActivityDay[];
+    readonly availableYears: readonly number[];
+    readonly searchDepth: string | null;
+  }
+  const globalActivity = async (year: number, args = ''): Promise<GlobalActivity> =>
+    requireValue(
+      expectGqlData(
+        await gql<{ parliamentSpeechActivity: GlobalActivity | null }>(
+          `{ parliamentSpeechActivity(year:${String(year)}${args}) {
+              year days { date total proprie comun } availableYears searchDepth
+            } }`
+        )
+      ).parliamentSpeechActivity,
+      'parliamentSpeechActivity'
+    );
+
+  it('global stenograme activity: proprie + comun partition every day; mandate-scoped matches the member view', async () => {
+    const act = await globalActivity(2025, `, filter:{mandateKey:{eq:"${PAUCEAN}"}}`);
+    expect(act.year).toBe(2025);
+    expect(act.days.every((day) => day.proprie + day.comun === day.total)).toBe(true);
+    expect(act.searchDepth).toBeNull();
+    // parity with the member speechActivity surface (same filter semantics).
+    const member = await speechActivity(2025);
+    expect(act.days.reduce((s, day) => s + day.total, 0)).toBe(
+      member.days.reduce((s, day) => s + day.total, 0)
+    );
+    expect(act.availableYears).toEqual(member.availableYears);
+    // spokenAt inside the filter is rejected (the year bounds the range).
+    const rejected = await gql<{ parliamentSpeechActivity: unknown }>(
+      `{ parliamentSpeechActivity(year:2025, filter:{spokenAt:{gte:"2025-01-01"}}) { year } }`
+    );
+    expect(rejected.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 30_000);
+
+  it('global stenograme: searchDepth reports FULL_TEXT under a mandate bound vs TITLE_SUMMARY under a year window', async () => {
+    const reg = await pool.query<{ reg: string | null }>(
+      `select to_regclass('parliament.speech_texts')::text as reg`
+    );
+    const hasTexts = reg.rows[0]?.reg != null;
+    const mandateQ = await globalSpeeches(`, filter:{mandateKey:{eq:"${PAUCEAN}"}}, q:"întrebare"`);
+    // Mandate-bound q is full-text ELIGIBLE; the applied depth still degrades to
+    // TITLE_SUMMARY when the transcript table has not landed (probe-false).
+    expect(mandateQ.searchDepth).toBe(hasTexts ? 'FULL_TEXT' : 'TITLE_SUMMARY');
+    // A 365-day window exceeds the 92-day full-text cap → TITLE_SUMMARY regardless.
+    const yearQ = await globalSpeeches(
+      ', filter:{spokenAt:{between:{from:"2025-01-01",to:"2025-12-31"}}}, q:"întrebare"'
+    );
+    expect(yearQ.searchDepth).toBe('TITLE_SUMMARY');
+    expect(yearQ.total).toBeGreaterThan(0);
+    // The activity surface reports the depth the same way (mandate-bound only).
+    const actDepth = (
+      await globalActivity(2025, `, filter:{mandateKey:{eq:"${PAUCEAN}"}}, q:"întrebare"`)
+    ).searchDepth;
+    expect(actDepth).toBe(hasTexts ? 'FULL_TEXT' : 'TITLE_SUMMARY');
+  }, 30_000);
+
+  it('MCP search_parliament_speeches: bounded call ok:true with meta; unbounded call in-band ok:false', async () => {
+    interface SpeechesToolOut {
+      readonly ok: boolean;
+      readonly kind: string;
+      readonly items?: readonly { readonly speechKey: string }[];
+      readonly meta?: {
+        readonly total?: number;
+        readonly totalEstimated?: boolean;
+        readonly searchDepth?: string | null;
+      };
+      readonly summary?: string;
+      readonly error?: string;
+    }
+    const bounded = await mcpCall<SpeechesToolOut>('search_parliament_speeches', {
+      mandateKey: PAUCEAN,
+      q: 'întrebare',
+      limit: 5,
+    });
+    expect(bounded.ok).toBe(true);
+    expect(bounded.kind).toBe('speeches');
+    expect(bounded.items?.length).toBeGreaterThan(0);
+    expect(bounded.meta?.total).toBeGreaterThan(0);
+    expect(bounded.meta?.totalEstimated).toBe(false);
+    expect(bounded.summary).toContain('speech');
+
+    const unbounded = await mcpCall<SpeechesToolOut>('search_parliament_speeches', { q: 'lege' });
+    expect(unbounded.ok).toBe(false);
+    expect(unbounded.error).toContain('mandateKey');
+  }, 30_000);
 });

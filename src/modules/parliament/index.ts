@@ -87,5 +87,7 @@ export {
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
+  parliamentSpeechesFhash,
+  parliamentSpeechesFilterSpec,
   votesFilterSpec,
 } from './shell/filters/specs.js';

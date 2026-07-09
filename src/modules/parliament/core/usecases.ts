@@ -51,6 +51,8 @@ import {
   type ParliamentResolveDim,
   type ParliamentResolveHit,
   type ParliamentSpeech,
+  type ParliamentSpeechActivity,
+  type ParliamentSpeechSearchDepth,
   type ParliamentVote,
   type ParliamentVoteDetail,
   type VoteChamber,
@@ -451,6 +453,234 @@ export const getMemberInitiatives = (
   page: { page?: number; pageSize?: number }
 ): Promise<Result<OffsetResult<ParliamentInitiative>, ApiError>> =>
   deps.repo.listMemberInitiatives(mandateKey, normalizeOffset(page.page, page.pageSize));
+
+// ── global speeches (stenograme) ───────────────────────────────────────────────
+
+/**
+ * Hard bound for a global-speeches `spokenAt` window (INCLUSIVE days). The only
+ * index on `parliament.speeches` is `(mandate_key, spoken_at desc)` — there is NO
+ * date index — so an unparented list is a sequential scan; a year-wide window
+ * (366 days covers a leap year) keeps that scan bounded. An unbounded list is
+ * REFUSED with InvalidInput (the `parliamentControlItems` guard precedent), never
+ * silently defaulted.
+ */
+export const SPEECHES_WINDOW_MAX_DAYS = 366;
+
+/**
+ * Max `spokenAt` window (INCLUSIVE days) for FULL-TEXT `q` depth on the global
+ * list. Rationale for 92 (a quarter): the transcript search is an EXISTS probe
+ * per candidate row into the ~1GB `parliament.speech_texts` table; a quarter is
+ * ≈20–40k EXISTS probes — parity with the accepted member-connection worst case
+ * (~35k rows per mandate). A 366-day window would mean 70–150k random heap
+ * fetches into that table — not safe. A wider (but ≤366-day) window still
+ * searches, at TITLE_SUMMARY depth; the connection reports the APPLIED depth.
+ */
+export const SPEECHES_FULLTEXT_WINDOW_MAX_DAYS = 92;
+
+/** Parse 'YYYY-MM-DD' to a UTC epoch-day integer; null when malformed/impossible. */
+const utcEpochDay = (s: unknown): number | null => {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(s)) return null;
+  const [y = 0, m = 0, d = 0] = s.split('-').map(Number);
+  const ms = Date.UTC(y, m - 1, d);
+  const dt = new Date(ms);
+  // Round-trip check rejects impossible dates ('2026-02-30' would roll to March).
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return ms / 86_400_000;
+};
+
+/**
+ * The INCLUSIVE day-span of a filter's `spokenAt` window, or null unless BOTH ends
+ * are present and valid and from ≤ to. Takes the TIGHTEST bounds across gte/lte
+ * AND between (multiple ops AND together in SQL, so the effective window is the
+ * intersection). Pure UTC integer math over 'YYYY-MM-DD' — no timezone/DST
+ * wobble. Exported for direct unit coverage.
+ */
+export const spokenAtWindowDays = (filter: FilterInput): number | null => {
+  const ff: unknown = filter['spokenAt'];
+  if (ff === null || typeof ff !== 'object' || Array.isArray(ff)) return null;
+  const f = ff as { gte?: unknown; lte?: unknown; between?: unknown };
+  const between =
+    f.between !== null && typeof f.between === 'object' && !Array.isArray(f.between)
+      ? (f.between as { from?: unknown; to?: unknown })
+      : undefined;
+  const lowers = [utcEpochDay(f.gte), utcEpochDay(between?.from)].filter(
+    (x): x is number => x !== null
+  );
+  const uppers = [utcEpochDay(f.lte), utcEpochDay(between?.to)].filter(
+    (x): x is number => x !== null
+  );
+  if (lowers.length === 0 || uppers.length === 0) return null;
+  const from = Math.max(...lowers);
+  const to = Math.min(...uppers);
+  if (from > to) return null;
+  return to - from + 1;
+};
+
+/**
+ * Cardinality cap on `mandateKey` values (eq + in, deduped). Each mandate is a
+ * bounded index slice (median 72 turns, worst ~35k), so a HANDFUL of mandates is
+ * still bounded — but an uncapped `in:` list would let a caller reassemble a
+ * near-global scan out of thousands of "bounds" (codex round-3 MAJOR).
+ */
+export const SPEECHES_MANDATE_KEYS_MAX = 20;
+
+/** The deduped non-empty mandateKey values selected by eq + in. */
+const mandateKeyValues = (filter: FilterInput): readonly string[] => {
+  const ff: unknown = filter['mandateKey'];
+  if (ff === null || typeof ff !== 'object' || Array.isArray(ff)) return [];
+  const f = ff as { eq?: unknown; in?: unknown };
+  const picked = [
+    ...(typeof f.eq === 'string' && f.eq !== '' ? [f.eq] : []),
+    ...(Array.isArray(f.in)
+      ? (f.in as unknown[]).filter((x): x is string => typeof x === 'string' && x !== '')
+      : []),
+  ];
+  return [...new Set(picked)];
+};
+
+/**
+ * True when a `spokenAt` operand is PRESENT but not a valid YYYY-MM-DD date.
+ * Checked even when a mandate bound makes the window irrelevant for boundedness:
+ * without this, `mandateKey + spokenAt:{gte:"junk"}` skips the window math and
+ * the junk reaches PostgreSQL as a DatabaseError instead of a clean InvalidInput
+ * (codex round-3 MINOR).
+ */
+const hasMalformedSpokenAt = (filter: FilterInput): boolean => {
+  const ff: unknown = filter['spokenAt'];
+  if (ff === null || ff === undefined || typeof ff !== 'object' || Array.isArray(ff)) return false;
+  const f = ff as { gte?: unknown; lte?: unknown; between?: unknown };
+  const between =
+    f.between !== null && typeof f.between === 'object' && !Array.isArray(f.between)
+      ? (f.between as { from?: unknown; to?: unknown })
+      : undefined;
+  const operands = [f.gte, f.lte, between?.from, between?.to];
+  return operands.some((x) => x !== undefined && x !== null && utcEpochDay(x) === null);
+};
+
+/**
+ * A global-speeches list is bounded iff `mandateKey` carries 1..20 REAL values
+ * (`fieldHasValue` semantics — Codex BLOCKER #1: empty `{eq:''}`/`in:[]`/`{}`
+ * never count; the cardinality cap keeps an `in:` list from reassembling a
+ * near-global scan) OR the `spokenAt` window is fully bounded (both ends) within
+ * SPEECHES_WINDOW_MAX_DAYS. `chamber`/`q` alone bound NOTHING (no index).
+ */
+export const hasSpeechesBound = (filter: FilterInput): boolean => {
+  const mandates = mandateKeyValues(filter);
+  if (mandates.length > 0 && mandates.length <= SPEECHES_MANDATE_KEYS_MAX) return true;
+  if (mandates.length > SPEECHES_MANDATE_KEYS_MAX) return false;
+  const days = spokenAtWindowDays(filter);
+  return days !== null && days <= SPEECHES_WINDOW_MAX_DAYS;
+};
+
+/**
+ * Whether the EXPENSIVE full-text `q` depth may apply: EXACTLY ONE mandateKey
+ * (the ~35k-rows-per-mandate parity argument holds per mandate, not per `in:`
+ * list — codex round-3 MAJOR) OR a fully-bounded window ≤ 92 days. The repo
+ * still intersects this with the live speech_texts probe — probe-false degrades
+ * to TITLE_SUMMARY, and the connection reports the applied depth.
+ */
+export const speechesFullTextEligible = (filter: FilterInput): boolean => {
+  if (mandateKeyValues(filter).length === 1) return true;
+  const days = spokenAtWindowDays(filter);
+  return days !== null && days <= SPEECHES_FULLTEXT_WINDOW_MAX_DAYS;
+};
+
+/** Shared pre-repo validation for the global speech surfaces (list + activity). */
+const speechesFilterGuard = (filter: FilterInput): Result<true, ApiError> => {
+  if (hasMalformedSpokenAt(filter)) {
+    return err(invalidInput('spokenAt dates must be valid YYYY-MM-DD values', 'spokenAt'));
+  }
+  if (mandateKeyValues(filter).length > SPEECHES_MANDATE_KEYS_MAX) {
+    return err(
+      invalidInput(
+        `mandateKey accepts at most ${String(SPEECHES_MANDATE_KEYS_MAX)} values`,
+        'mandateKey'
+      )
+    );
+  }
+  return ok(true);
+};
+
+export interface ParliamentSpeechesInput {
+  readonly filter: FilterInput;
+  readonly page: CursorPageRequest;
+  readonly q?: string | null | undefined;
+}
+
+export const listParliamentSpeeches = (
+  deps: ParliamentUsecaseDeps,
+  input: ParliamentSpeechesInput
+): Promise<
+  Result<
+    CursorPage<ParliamentSpeech> & {
+      total: number;
+      totalEstimated: boolean;
+      searchDepth: ParliamentSpeechSearchDepth | null;
+    },
+    ApiError
+  >
+> =>
+  (async () => {
+    const q = normalizeSpeechQ(input.q);
+    if (q !== undefined && q.length > SPEECH_Q_MAX) {
+      return err(invalidInput(`q must be at most ${String(SPEECH_Q_MAX)} characters`, 'q'));
+    }
+    const guarded = speechesFilterGuard(input.filter);
+    if (guarded.isErr()) return err(guarded.error);
+    // BOUND guard (the parliamentControlItems precedent): no date index exists on
+    // speeches, so an unbounded list is refused — never silently defaulted.
+    if (!hasSpeechesBound(input.filter)) {
+      return err(
+        invalidInput(
+          'parliamentSpeeches requires a mandateKey bound or a bounded spokenAt window (from AND to, at most 366 days)',
+          'filter'
+        )
+      );
+    }
+    return deps.repo.listSpeeches(
+      input.page,
+      input.filter,
+      q,
+      speechesFullTextEligible(input.filter)
+    );
+  })();
+
+export const getParliamentSpeechActivity = (
+  deps: ParliamentUsecaseDeps,
+  year: number,
+  filter: FilterInput = {},
+  rawQ?: string | null
+): Promise<Result<ParliamentSpeechActivity, ApiError>> =>
+  (async () => {
+    // spokenAt is not a client bound here — the year argument bounds the range (a
+    // spokenAt filter would double-bound the per-day window and confuse the caller).
+    if (fieldHasValue(filter, 'spokenAt')) {
+      return err(
+        invalidInput(
+          'spokenAt is not accepted on parliamentSpeechActivity; the year argument bounds the range',
+          'spokenAt'
+        )
+      );
+    }
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
+    }
+    const q = normalizeSpeechQ(rawQ);
+    if (q !== undefined && q.length > SPEECH_Q_MAX) {
+      return err(invalidInput(`q must be at most ${String(SPEECH_Q_MAX)} characters`, 'q'));
+    }
+    const guarded = speechesFilterGuard(filter);
+    if (guarded.isErr()) return err(guarded.error);
+    // Full-text depth: EXACTLY ONE mandateKey ONLY — the year argument is a
+    // 365/366-day window, wider than the 92-day full-text cap, so an unparented
+    // activity q stays at TITLE_SUMMARY depth.
+    return deps.repo.speechActivity(year, filter, q, speechesFullTextEligible(filter));
+  })();
+
+export const getParliamentSpeech = (
+  deps: ParliamentUsecaseDeps,
+  speechKey: string
+): Promise<Result<ParliamentSpeech | null, ApiError>> => deps.repo.findSpeech(speechKey);
 
 // ── standalone control items list ──────────────────────────────────────────────
 

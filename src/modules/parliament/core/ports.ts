@@ -34,6 +34,8 @@ import type {
   ParliamentPersonCandidate,
   ParliamentResolveDim,
   ParliamentSpeech,
+  ParliamentSpeechActivity,
+  ParliamentSpeechSearchDepth,
   ParliamentVote,
   ParliamentVoteGroupBreakdown,
 } from './types.js';
@@ -243,6 +245,60 @@ export interface ParliamentRepo {
   listMemberDeclarations(
     mandateKey: string
   ): Promise<Result<readonly ParliamentDeclarationMeta[], ApiError>>;
+
+  // ── global speeches (stenograme; bounded — the ONLY index on parliament.speeches
+  //    is (mandate_key, spoken_at desc); there is NO date index) ─────────────────
+  /**
+   * Global (unparented) speeches via SQL keyset pagination on
+   * `(coalesce(spoken_at::text,'') desc, speech_key desc)`. INDEX REALITY: a
+   * mandateKey-bound filter rides the (mandate_key, spoken_at desc) index; a
+   * date-window-only filter is a sequential scan bounded ONLY by the usecase's
+   * 366-day window guard — the caller MUST have validated the bound
+   * (hasSpeechesBound) before calling. Quarantined rows and non-public privacy
+   * classes are ALWAYS excluded; NULL-mandate rows (PM, guests, unmatched speakers)
+   * are included. `wantFullText` is the usecase's depth DECISION; the repo
+   * intersects it with the live speech_texts probe and reports the APPLIED depth in
+   * `searchDepth` (null when no q). `total` is capped at 10,000 (`totalEstimated`
+   * flags the cap). The cursor fhash is derived INTERNALLY from the filter, `q` AND
+   * the applied depth (Codex #2) — a cursor is rejected if replayed against a
+   * different filter, search term, or a probe-flipped depth.
+   */
+  listSpeeches(
+    page: CursorPageRequest,
+    filter: FilterInput,
+    q: string | undefined,
+    wantFullText: boolean
+  ): Promise<
+    Result<
+      CursorPage<ParliamentSpeech> & {
+        total: number;
+        totalEstimated: boolean;
+        searchDepth: ParliamentSpeechSearchDepth | null;
+      },
+      ApiError
+    >
+  >;
+  /**
+   * Global per-day speech activity for one calendar year, under the SAME
+   * parliamentSpeechesFilterSpec conditions + `q` as listSpeeches. Each day carries
+   * `comun` (joint-sitting turns) and `proprie` (= total - comun). `availableYears`
+   * is every year with any (filtered) turn — NOT bounded by the year argument, so
+   * without a mandateKey bound it is a sequential pass over the table (no date
+   * index; stated plainly, not hidden behind a non-existent index name). `spokenAt`
+   * is rejected by the usecase (the year argument bounds the per-day range).
+   */
+  speechActivity(
+    year: number,
+    filter: FilterInput,
+    q: string | undefined,
+    wantFullText: boolean
+  ): Promise<Result<ParliamentSpeechActivity, ApiError>>;
+  /**
+   * One speech by PK (speeches_pkey). Applies the SAME global-surface privacy
+   * predicates as the list (quarantined = false, privacy_class public) — a
+   * quarantined/non-public row resolves null, never leaks via deep link.
+   */
+  findSpeech(speechKey: string): Promise<Result<ParliamentSpeech | null, ApiError>>;
 
   // ── control items list (standalone; bounded — §3.2) ───────────────────────────
   // fhash derived internally from the spec + filter (repo owns the spec).

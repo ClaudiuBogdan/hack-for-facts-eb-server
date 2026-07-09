@@ -255,6 +255,72 @@ export const memberSpeechesFhash = (
     `memberSpeeches:${mandateKey}:${canonicalizeFilters(memberSpeechesFilterSpec, filter)}:${q ?? ''}`
   );
 
+// ── global speeches (stenograme; cursor; bounded by mandateKey OR a spokenAt
+//    window — enforced in the usecase, NOT here) ────────────────────────────────
+//
+// Like memberSpeeches, the text token `q` is NOT a spec field: it spans title +
+// summary AND (mandate/window permitting) the sibling
+// `parliament.speech_texts.full_text` — a multi-column + cross-table OR the
+// kernel `contains` op cannot express — so it enters as a separate GraphQL/MCP
+// argument and is repo-intercepted. A spec-level `q` would generate a filter
+// input field the physical extraction silently ignores (codex round-3 MAJOR);
+// keeping it out means an unknown `filter:{q:…}` fails GraphQL input validation
+// instead. The applied search depth (TITLE_SUMMARY | FULL_TEXT) is folded into
+// the cursor fhash by `parliamentSpeechesFhash`, so a speech_texts probe flip
+// mid-pagination invalidates in-flight cursors cleanly.
+
+export const parliamentSpeechesFilterSpec: CollectionFilterSpec = {
+  collection: 'parliamentSpeeches',
+  fields: [
+    {
+      name: 'spokenAt',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 's', column: 'spoken_at' },
+      description:
+        'Speech-date range (valid YYYY-MM-DD only). Without a mandateKey bound the list REQUIRES both ends (from AND to, at most 366 days) — there is NO date index on speeches, so an unbounded window is refused with InvalidInput. A window of at most 92 days additionally enables FULL_TEXT q depth.',
+    },
+    {
+      name: 'chamber',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 's', column: 'chamber' },
+      enumValues: [...VOTE_CHAMBERS],
+      array: true,
+      description:
+        'Assembly the turn was delivered in: camera_deputatilor | senat | comun (a joint sitting; there is NO separate session kind). Does NOT bound the scan by itself.',
+    },
+    {
+      name: 'mandateKey',
+      type: 'string',
+      ops: ['eq', 'in'],
+      column: { alias: 's', column: 'mandate_key' },
+      array: true,
+      description:
+        'Speaker mandate key(s). Bounds the scan via the (mandate_key, spoken_at desc) index — at most 20 values; EXACTLY ONE also enables FULL_TEXT q depth. NULL-mandate turns (PM, guests, unmatched speakers) never match a mandateKey filter.',
+    },
+  ],
+  sort: { default: 'spokenAt', allowed: ['spokenAt'] },
+};
+
+/**
+ * Cursor fhash for the global speeches connection: the filter, the normalized
+ * text token `q` AND the APPLIED search depth derive it (depth token 'none' when
+ * no q), so a cursor cannot be replayed against a different filter, search term,
+ * or a probe-flipped depth (the flip surfaces as the clean "restart pagination"
+ * error instead of a silently inconsistent page). Callers MUST pass the SAME
+ * normalized `q` the repo used (see `normalizeSpeechQ`); the hash does not
+ * normalize.
+ */
+export const parliamentSpeechesFhash = (
+  filter: FilterInput,
+  q: string | undefined,
+  depth: string
+): string =>
+  filterHash(
+    `parliamentSpeeches:${canonicalizeFilters(parliamentSpeechesFilterSpec, filter)}:${q ?? ''}:${depth}`
+  );
+
 // ── members (offset+total; bounded by legislature) ───────────────────────────
 
 export const membersFilterSpec: CollectionFilterSpec = {
@@ -466,6 +532,7 @@ export const PARLIAMENT_FILTER_SPECS = {
   parliamentVotes: votesFilterSpec,
   parliamentMemberVotes: memberVotesFilterSpec,
   parliamentMemberSpeeches: memberSpeechesFilterSpec,
+  parliamentSpeeches: parliamentSpeechesFilterSpec,
   parliamentMembers: membersFilterSpec,
   parliamentBills: billsFilterSpec,
   parliamentControlItems: controlItemsFilterSpec,
