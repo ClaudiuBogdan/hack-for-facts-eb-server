@@ -8,6 +8,12 @@
  * ∈ {null,'',RON}. So:
  *   isRon        = currency is null/''/'RON'
  *   valueSuspect = value_ron is null AND currency present AND currency ∉ {'','RON'}
+ *
+ * CURRENCY EXPOSURE (the client contract needs the token beside `valueRon`):
+ *   currency = isRon ? 'RON' : (a 3-letter alpha token, uppercased) : null
+ * The raw column's garbage tail (~2.6k rows holding CPV codes and bare amounts) can
+ * therefore never reach the wire — a non-alpha token degrades to `null`, which the
+ * paired `valueSuspect: true` already explains.
  */
 
 import {
@@ -18,12 +24,16 @@ import {
 } from '../../core/constants.js';
 
 import type {
+  CapabilityGate,
+  DuplicateRef,
+  GrainQuality,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementEdge,
   ProcurementModification,
   ProcurementProcedure,
   ProcurementGrain,
+  TedRef,
 } from '../../core/types.js';
 import type {
   ProcurementContractModificationsTable,
@@ -40,28 +50,32 @@ import type {
  */
 type ProcedureRow = Pick<
   ProcurementProceduresTable,
-  | 'procedure_id' | 'notice_no' | 'notice_kind' | 'procedure_type' | 'contract_kind'
+  | 'procedure_id' | 'source_system' | 'source_url' | 'notice_no' | 'notice_kind'
+  | 'procedure_type' | 'contract_kind'
   | 'title' | 'authority_cui' | 'authority_name' | 'cpv_code' | 'currency'
   | 'estimated_value_ron' | 'awarded_value_ron' | 'status' | 'county_name'
   | 'publication_date' | 'state_date'
 >;
 type ContractRow = Pick<
   ProcurementContractsTable,
-  | 'contract_id' | 'contract_key' | 'procedure_id' | 'notice_no' | 'contract_no'
+  | 'contract_id' | 'contract_key' | 'source_system' | 'source_url' | 'procedure_id'
+  | 'notice_no' | 'contract_no'
   | 'contract_date' | 'title' | 'authority_cui' | 'authority_name' | 'supplier_cui'
   | 'supplier_name' | 'cpv_code' | 'currency' | 'value_ron' | 'estimated_value_ron'
   | 'status' | 'county_name' | 'is_canonical' | 'dup_group_id'
 >;
 type DaRow = Pick<
   ProcurementDirectAcquisitionsTable,
-  | 'da_id' | 'da_key' | 'source_system' | 'unique_code' | 'title' | 'authority_cui'
+  | 'da_id' | 'da_key' | 'source_system' | 'source_url' | 'unique_code' | 'title'
+  | 'authority_cui'
   | 'authority_name' | 'supplier_cui' | 'supplier_name' | 'cpv_code' | 'currency'
   | 'value_ron' | 'estimated_value_ron' | 'status' | 'county_name' | 'publication_date'
   | 'finalization_date' | 'is_canonical' | 'dup_group_id'
 >;
 type ModificationRow = Pick<
   ProcurementContractModificationsTable,
-  | 'modification_id' | 'contract_id' | 'link_method' | 'link_confidence' | 'authority_cui'
+  | 'modification_id' | 'contract_id' | 'source_url' | 'link_method' | 'link_confidence'
+  | 'authority_cui'
   | 'supplier_cui' | 'contract_no' | 'notice_no' | 'modification_date'
   | 'value_before_ron' | 'value_after_ron' | 'value_delta_ron' | 'modification_type' | 'year'
 >;
@@ -93,15 +107,23 @@ const cpvDivision = (cpv: string | null): string | null => {
   return m?.[1] ?? null;
 };
 
-/** Map the repurposed `currency` flag carrier to the two derived booleans. */
-const currencyFlags = (
+/** A currency token is exposable only if it LOOKS like one (3 alpha chars). */
+const ISO_LIKE = /^[A-Za-z]{3}$/u;
+
+/**
+ * Map the repurposed `currency` flag carrier to the derived booleans + the
+ * sanitized token. The raw column is never returned: a non-ISO-like value (the
+ * garbage tail) becomes `null`, and `valueSuspect` carries the honest signal.
+ */
+export const currencyFlags = (
   currency: string | null,
   valueRon: string | null
-): { isRon: boolean; valueSuspect: boolean } => {
+): { isRon: boolean; valueSuspect: boolean; currency: string | null } => {
   const cur = (currency ?? '').trim();
   const isRon = cur === '' || cur.toUpperCase() === 'RON';
   const valueSuspect = valueRon === null && !isRon;
-  return { isRon, valueSuspect };
+  const token = isRon ? 'RON' : ISO_LIKE.test(cur) ? cur.toUpperCase() : null;
+  return { isRon, valueSuspect, currency: token };
 };
 
 const linkMethod = (m: string | null): ProcurementModification['linkMethod'] =>
@@ -123,6 +145,8 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
   const flags = currencyFlags(r.currency, r.awarded_value_ron ?? r.estimated_value_ron);
   return {
     procedureId: r.procedure_id,
+    sourceSystem: r.source_system,
+    sourceUrl: r.source_url,
     noticeNo: r.notice_no,
     noticeKind: r.notice_kind,
     procedureType: r.procedure_type,
@@ -134,6 +158,7 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
     cpvDivisionCode: cpvDivision(r.cpv_code),
     estimatedValueRon: r.estimated_value_ron,
     awardedValueRon: r.awarded_value_ron,
+    currency: flags.currency,
     isRon: flags.isRon,
     valueSuspect: flags.valueSuspect,
     status: procedureStatus(r.status),
@@ -148,6 +173,8 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
   return {
     contractId: r.contract_id,
     contractKey: r.contract_key,
+    sourceSystem: r.source_system,
+    sourceUrl: r.source_url,
     procedureId: r.procedure_id,
     noticeNo: r.notice_no,
     contractNo: r.contract_no,
@@ -161,6 +188,7 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
     cpvDivisionCode: cpvDivision(r.cpv_code),
     valueRon: r.value_ron,
     estimatedValueRon: r.estimated_value_ron,
+    currency: flags.currency,
     isRon: flags.isRon,
     valueSuspect: flags.valueSuspect,
     status: contractStatus(r.status),
@@ -176,6 +204,7 @@ export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => 
     daId: r.da_id,
     daKey: r.da_key,
     sourceSystem: daSourceSystem(r.source_system),
+    sourceUrl: r.source_url,
     uniqueCode: r.unique_code,
     title: r.title,
     authorityCui: r.authority_cui,
@@ -186,6 +215,7 @@ export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => 
     cpvDivisionCode: cpvDivision(r.cpv_code),
     valueRon: r.value_ron,
     estimatedValueRon: r.estimated_value_ron,
+    currency: flags.currency,
     isRon: flags.isRon,
     valueSuspect: flags.valueSuspect,
     status: daStatus(r.status),
@@ -200,6 +230,7 @@ export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => 
 export const mapModification = (r: ModificationRow): ProcurementModification => ({
   modificationId: r.modification_id,
   contractId: r.contract_id,
+  sourceUrl: r.source_url,
   linkMethod: linkMethod(r.link_method),
   linkConfidence: r.link_confidence,
   authorityCui: r.authority_cui,
@@ -242,4 +273,50 @@ export const mapEdge = (r: {
   firstFlowDate: r.first_flow_date,
   lastFlowDate: r.last_flow_date,
   evidenceRefsSample: r.evidence_refs_sample ?? [],
+});
+
+// ── client-facing gate / duplicate / TED projections ───────────────────────────
+
+/**
+ * A `numeric` coverage rate arrives as a decimal STRING from node-pg. Keep it a
+ * string end-to-end (the client's gate schema declares strings) rather than
+ * round-tripping through a float — the no-floats rule applies to rates too.
+ */
+const rate = (value: number): string => value.toString();
+
+/** `timestamptz` → the `YYYY-MM-DD` the `Date` scalar promises. */
+const asOfDate = (refreshedAt: string | null): string | null =>
+  refreshedAt === null ? null : (/^\d{4}-\d{2}-\d{2}/u.exec(refreshedAt)?.[0] ?? null);
+
+/**
+ * Project the internal gate onto the client contract. `cadence` is ALWAYS null:
+ * nothing in the DB declares a refresh schedule, and the MVs are demonstrably
+ * stale (refreshed_at 2026-06-29 read on 2026-07-09). `dataAsOf` tells the truth
+ * instead — see docs. `authorityTerritoryCoverageRate` / `projectionVersion` are
+ * internal and deliberately not surfaced.
+ */
+export const mapCapabilityGate = (g: GrainQuality): CapabilityGate => ({
+  sourceGrain: g.grain,
+  rowsCount: g.rowsCount,
+  authorityCuiCoverageRate: rate(g.authorityCuiCoverageRate),
+  supplierCuiCoverageRate: rate(g.supplierCuiCoverageRate),
+  amountCoverageRate: rate(g.amountCoverageRate),
+  cpvCoverageRate: rate(g.cpvCoverageRate),
+  dateCoverageRate: rate(g.dateCoverageRate),
+  filterAnswersAllowed: g.filterAnswersAllowed,
+  spendRankingsAllowed: g.spendRankingsAllowed,
+  supplierRegionFiltersAllowed: g.supplierRegionFiltersAllowed,
+  blockers: g.blockers,
+  dataAsOf: asOfDate(g.refreshedAt),
+  cadence: null,
+});
+
+export const mapDuplicateRef = (r: { id: string; source_system: string }): DuplicateRef => ({
+  sourceSystem: r.source_system,
+  id: r.id,
+});
+
+export const mapTedRef = (r: { publication_number: string; source_url: string }): TedRef => ({
+  tedNoticeNo: r.publication_number,
+  sourceUrl: r.source_url,
 });

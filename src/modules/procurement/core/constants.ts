@@ -49,6 +49,44 @@ export const DA_SOURCE_SYSTEMS = ['elicitatie_da', 'seap_da', 'seap_dan'] as con
 export type DaSourceSystem = (typeof DA_SOURCE_SYSTEMS)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;
+export const CONTRACT_SOURCE_SYSTEMS = ['elicitatie_ca_award', 'seap_contracts'] as const;
+
+// ── offset search (the client contract, graphql-api-spec.md §Pagination) ───────
+
+/** `page * pageSize` may not exceed this — a deep OFFSET is a scan, not a seek. */
+export const SEARCH_WINDOW_MAX = 10_000;
+/**
+ * The exact-count cap. We count `select 1 … limit CAP+1` in a subquery: ≤ CAP →
+ * an exact `total`; CAP+1 → `total: null` + `totalEstimated: true` ("10000+").
+ */
+export const SEARCH_COUNT_CAP = 10_000;
+export const PAGE_SIZE_MAX = 100;
+export const PAGE_SIZE_DEFAULT = 20;
+
+/** Free-text `q` bounds. Below the minimum an ILIKE `%x%` degenerates to a scan. */
+export const Q_MIN_LENGTH = 3;
+export const Q_MAX_LENGTH = 100;
+
+/** The four sorts the client offers. Mapped to a per-grain column in the repo. */
+export const SEARCH_SORTS = ['date_desc', 'date_asc', 'value_desc', 'value_asc'] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
+export const DEFAULT_SEARCH_SORT: SearchSort = 'date_desc';
+
+/**
+ * Direct acquisitions are 26M rows and `finalization_date` is NULL on 9.57M of
+ * them, so `ORDER BY finalization_date DESC NULLS LAST` cannot be served by the
+ * plain `das_finalization_date_idx` — the planner sorts whatever the WHERE clause
+ * yields. Measured live 2026-07-09 against the 15s statement timeout:
+ *   authority_cui eq         →   0.8s   ✓
+ *   supplier_cui eq          →   6.4s   ✓ (a 312k-flow supplier; the worst case)
+ *   bounded 366d window      →   6.5s   ✓
+ *   cpv division range       →  16.6s   ✗ TIMES OUT (2.8M rows to sort)
+ *   unique_code eq           →   8.0s   ✗ no index on unique_code — seq scan
+ * So the OFFSET surface admits only the three qualifying dimensions below. CPV and
+ * `q` still REFINE a qualifying filter; they just cannot drive one on their own.
+ * (The legacy cursor surface keeps its own, looser `DA_SELECTIVE_FIELDS` rule.)
+ */
+export const DA_OFFSET_SELECTIVE_FIELDS = ['authorityCui', 'supplierCui'] as const;
 
 // ── discovery dimensions (§7.6) ────────────────────────────────────────────────
 

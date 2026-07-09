@@ -13,6 +13,7 @@ import {
   topSuppliers,
   topSuppliersByRegionCpv,
 } from '@/modules/procurement/core/usecases.js';
+import { mapCapabilityGate } from '@/modules/procurement/shell/repo/mappers.js';
 
 import type { ProcurementAggregateRepo } from '@/modules/procurement/core/ports.js';
 import type { GrainQuality, ProcurementGrain } from '@/modules/procurement/core/types.js';
@@ -41,6 +42,12 @@ const mockRepo = (
   gates: readonly GrainQuality[],
   over: Partial<ProcurementAggregateRepo> = {}
 ): ProcurementAggregateRepo => ({
+  // The scope-aggregate methods are exercised in aggregate-scope.test.ts; this fake
+  // only needs the edge/cpv surface the gate usecases below call.
+  scopeStats: () => Promise.reject(new Error('unused')),
+  scopeTopParties: () => Promise.reject(new Error('unused')),
+  scopeCategoryBreakdown: () => Promise.reject(new Error('unused')),
+  scopeSpendOverTime: () => Promise.reject(new Error('unused')),
   grainQuality: () => Promise.resolve(ok(gates) as Result<readonly GrainQuality[], ApiError>),
   topSuppliersForAuthority: vi.fn(() => Promise.resolve(ok([]))),
   topAuthoritiesForSupplier: vi.fn(() => Promise.resolve(ok([]))),
@@ -238,5 +245,51 @@ describe('gate: concentration abstains when filterAnswersAllowed=false', () => {
     expect(c.supplierCount).toBe(0);
     expect(c.caveats[0]).toContain('not gate-approved');
     expect(conc).not.toHaveBeenCalled();
+  });
+});
+
+// ── the client-facing gate projection ─────────────────────────────────────────
+
+describe('mapCapabilityGate (the client contract)', () => {
+  const row = gateRow('procurement_contract', {
+    rowsCount: '970182',
+    spendRankingsAllowed: false,
+    amountCoverageRate: 0.42,
+    blockers: ['procurement_contract amount coverage below spend-ranking threshold'],
+    refreshedAt: '2026-06-29 07:26:59.000658+00',
+  });
+
+  it('stringifies the coverage rates (no float on the wire)', () => {
+    const gate = mapCapabilityGate(row);
+    expect(gate.amountCoverageRate).toBe('0.42');
+    expect(typeof gate.rowsCount).toBe('string');
+    expect(typeof gate.cpvCoverageRate).toBe('string');
+  });
+
+  it('derives dataAsOf as YYYY-MM-DD from the matview refresh watermark', () => {
+    expect(mapCapabilityGate(row).dataAsOf).toBe('2026-06-29');
+  });
+
+  it('null refreshedAt → null dataAsOf, never a fabricated "today"', () => {
+    expect(mapCapabilityGate(gateRow('direct_acquisition', { refreshedAt: null })).dataAsOf).toBeNull();
+  });
+
+  it('cadence is ALWAYS null — nothing declares a schedule and the MVs drift', () => {
+    // refreshed_at was 2026-06-29 when read on 2026-07-09: claiming "daily" would lie.
+    expect(mapCapabilityGate(row).cadence).toBeNull();
+  });
+
+  it('carries the grain, the gate booleans and the blockers verbatim', () => {
+    const gate = mapCapabilityGate(row);
+    expect(gate.sourceGrain).toBe('procurement_contract');
+    expect(gate.spendRankingsAllowed).toBe(false);
+    expect(gate.filterAnswersAllowed).toBe(true);
+    expect(gate.blockers).toHaveLength(1);
+  });
+
+  it('does not surface the internal projectionVersion / territory rate', () => {
+    const gate = mapCapabilityGate(row) as unknown as Record<string, unknown>;
+    expect('projectionVersion' in gate).toBe(false);
+    expect('authorityTerritoryCoverageRate' in gate).toBe(false);
   });
 });

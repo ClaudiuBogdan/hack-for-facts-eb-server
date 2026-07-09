@@ -7,26 +7,37 @@
  * totals go through the kernel `FlowsRepo`, NOT here (§4.3/§14.6).
  */
 
+import type { ProcurementSearchFilter } from './search.js';
 import type {
   AuthorityCpvRow,
+  CategoryRow,
   ContractDetail,
   CpvAggFilter,
   CpvDivision,
   CpvMatch,
+  DirectAcquisitionDetail,
   EdgeAggFilter,
   GrainQuality,
+  MonthlyPoint,
+  OffsetSearchRequest,
+  OffsetSearchResult,
   ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementEdge,
+  ProcurementGrain,
   ProcurementModification,
   ProcurementProcedure,
   ProcurementProfileSlice,
+  ProcurementStats,
   RegionCpvAggFilter,
   SameDayCandidate,
+  ScopeFilter,
   SplitFilter,
   SupplierConcentration,
   SupplierCpvRow,
+  SupplierRecordConnection,
+  TopPartyRow,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput, SourcePresence } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -79,6 +90,7 @@ export interface ProcurementRepo {
     p: CursorPageRequest
   ): Promise<Result<CursorPage<ProcurementDirectAcquisition>, ApiError>>;
   getDirectAcquisition(id: string): Promise<Result<ProcurementDirectAcquisition | null, ApiError>>;
+  getDirectAcquisitionDetail(id: string): Promise<Result<DirectAcquisitionDetail | null, ApiError>>;
 
   // ── modifications (cursor by (modification_date desc, modification_id desc)) ──
   listModifications(
@@ -95,7 +107,49 @@ export interface ProcurementRepo {
   // ── CPV discovery ──
   listCpvDivisions(): Promise<Result<readonly CpvDivision[], ApiError>>;
   resolveCpv(q: string, limit: number): Promise<Result<readonly CpvMatch[], ApiError>>;
+
+  // ── offset search (the client contract; ADDITIVE — the cursor lists above stay
+  //    exactly as the MCP tools use them) ──
+  searchProceduresOffset(
+    f: ProcurementSearchFilter,
+    p: OffsetSearchRequest
+  ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>>;
+  searchContractsOffset(
+    f: ProcurementSearchFilter,
+    p: OffsetSearchRequest
+  ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>>;
+  searchDirectAcquisitionsOffset(
+    f: ProcurementSearchFilter,
+    p: OffsetSearchRequest
+  ): Promise<Result<OffsetSearchResult<ProcurementDirectAcquisition>, ApiError>>;
+  searchModificationsOffset(
+    f: ProcurementSearchFilter,
+    p: OffsetSearchRequest
+  ): Promise<Result<OffsetSearchResult<ProcurementModification>, ApiError>>;
+
+  // ── detail-bundle support (batched; DataLoader-backed at the resolver) ──
+  modificationsForContracts(
+    contractIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, readonly ProcurementModification[]>, ApiError>>;
+  contractsByIds(
+    contractIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ProcurementContract>, ApiError>>;
+  supplierRecords(
+    supplierCui: string,
+    first: number,
+    after: string | undefined
+  ): Promise<Result<SupplierRecordConnection, ApiError>>;
+
+  /**
+   * `procurementStats.proceduresCount` for a scope. Procedures have NO supplier
+   * column, so a `supplierCui` scope counts the distinct procedures under which
+   * that supplier won a canonical contract — never a fabricated zero.
+   */
+  countProceduresInScope(scope: ScopeFilter): Promise<Result<string, ApiError>>;
 }
+
+/** `ProcurementStats` minus the base-table `proceduresCount` (see below). */
+export type ScopeFlowStats = Omit<ProcurementStats, 'proceduresCount'>;
 
 export interface ProcurementAggregateRepo {
   /** The gate — read FIRST by every aggregate usecase (live per request, §0/C1). */
@@ -153,6 +207,38 @@ export interface ProcurementAggregateRepo {
     f: SplitFilter,
     p: OffsetPageRequest
   ): Promise<Result<OffsetResult<SameDayCandidate>, ApiError>>;
+
+  // ── scope aggregates (the 5 shared client queries) ──
+  //
+  // `grains` is the RESOLVED grain set (one grain, or both when the request omits
+  // it) and `spendGrains` the subset whose `spend_rankings_allowed` is true — the
+  // usecase derives both from the live gate, so the repo never re-reads it. Money
+  // is summed ONLY over `spendGrains`; counts over all of `grains`.
+  //
+  // `proceduresCount` is NOT here: procedures are a base table, not a rollup, so the
+  // usecase composes this with `ProcurementRepo.countProceduresInScope`.
+  scopeStats(
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<ScopeFlowStats, ApiError>>;
+  scopeTopParties(
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[],
+    side: 'authority' | 'supplier',
+    topN: number
+  ): Promise<Result<readonly TopPartyRow[], ApiError>>;
+  scopeCategoryBreakdown(
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<readonly CategoryRow[], ApiError>>;
+  scopeSpendOverTime(
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<readonly MonthlyPoint[], ApiError>>;
 
   // contributor support (§4.4).
   presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;

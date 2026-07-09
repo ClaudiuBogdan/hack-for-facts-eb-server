@@ -15,9 +15,15 @@
 
 // ── base entity tables ─────────────────────────────────────────────────────────
 
+/**
+ * NOTE (verified live 2026-07-09): `procedures` has NO `is_canonical` / `dup_group_id`
+ * columns — the dedup pass runs on contracts + DAs only. The procedure surface
+ * therefore reports `isCanonical: true` / `dupGroupId: null` structurally.
+ */
 export interface ProcurementProceduresTable {
   procedure_id: string; // bigint → string
   source_system: string;
+  source_url: string | null;
   notice_no: string | null;
   notice_kind: string | null;
   procedure_type: string | null;
@@ -39,6 +45,7 @@ export interface ProcurementContractsTable {
   contract_id: string;
   contract_key: string;
   source_system: string;
+  source_url: string | null;
   procedure_id: string | null;
   notice_no: string | null;
   contract_no: string | null;
@@ -62,6 +69,7 @@ export interface ProcurementDirectAcquisitionsTable {
   da_id: string;
   da_key: string;
   source_system: string;
+  source_url: string | null;
   unique_code: string | null;
   title: string | null;
   authority_cui: string | null;
@@ -80,9 +88,11 @@ export interface ProcurementDirectAcquisitionsTable {
   dup_group_id: string | null;
 }
 
+/** No `source_system` column live (unlike the other three grains) — the spec does not ask for one. */
 export interface ProcurementContractModificationsTable {
   modification_id: string;
   contract_id: string | null;
+  source_url: string | null;
   link_method: string | null;
   link_confidence: number | null; // real
   authority_cui: string | null;
@@ -114,6 +124,28 @@ export interface ProcurementCpvCodesTable {
   label_ro: string | null;
   parent_code: string | null; // 100% NULL (corrupt)
   cpv_level: number | null; // 100% NULL (corrupt)
+}
+
+// ── TED (Tenders Electronic Daily) linkage ─────────────────────────────────────
+//
+// Only the SERVED columns are declared. `procedure_ted_links` bridges a procedure
+// to the EU notice; verified live 2026-07-09 both `procedure_id` and
+// `ted_notice_id` are 100% populated across all 57 965 rows, so the link is a
+// direct two-table join — `procedure_details` is NOT needed to recover the
+// procedure id and is deliberately not declared here.
+//
+// `procedure_addresses` is contact PII and is NEVER declared nor selected.
+
+export interface ProcurementTedNoticesTable {
+  ted_notice_id: string; // bigint → string
+  publication_number: string;
+  source_url: string;
+}
+
+export interface ProcurementProcedureTedLinksTable {
+  ted_link_id: string;
+  procedure_id: string | null;
+  ted_notice_id: string | null;
 }
 
 // ── materialized views (the aggregate path) ────────────────────────────────────
@@ -245,6 +277,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'procurement.contract_modifications': ProcurementContractModificationsTable;
     'procurement.cpv_divisions': ProcurementCpvDivisionsTable;
     'procurement.cpv_codes': ProcurementCpvCodesTable;
+    'procurement.ted_notices': ProcurementTedNoticesTable;
+    'procurement.procedure_ted_links': ProcurementProcedureTedLinksTable;
     'procurement.org_edge_monthly_rollups': ProcurementOrgEdgeRollupTable;
     'procurement.authority_cpv_division_monthly_rollups': ProcurementAuthorityCpvRollupTable;
     'procurement.supplier_cpv_division_monthly_rollups': ProcurementSupplierCpvRollupTable;
