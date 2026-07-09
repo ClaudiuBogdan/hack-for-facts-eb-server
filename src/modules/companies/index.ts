@@ -11,9 +11,11 @@
 
 import './shell/db/schema.js';
 
+import { makeCompanyHubStats } from './core/usecases.js';
 import { makeCompaniesContributor } from './shell/contributor.js';
 import { makeCompaniesResolvers } from './shell/graphql/resolvers.js';
 import { companiesTypeDefs } from './shell/graphql/typedefs.js';
+import { makeHubStatsProvider } from './shell/hub-stats-cache.js';
 import { makeCompaniesMcpTools } from './shell/mcp/tools.js';
 import { makeCompaniesRepo } from './shell/repo/companies-repo.js';
 
@@ -36,6 +38,8 @@ export interface CompaniesModuleDeps {
   /** Kernel Meili client for name resolution (null → pg fallback only). */
   readonly meili: MeiliClient | null;
   readonly clientBaseUrl?: string;
+  /** `companyHubStats` cache TTL. Defaults to 6h (`HUB_STATS_DEFAULT_TTL_MS`). */
+  readonly hubStatsTtlMs?: number;
 }
 
 export interface CompaniesModule {
@@ -52,11 +56,19 @@ export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule 
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
   const usecaseDeps = { repo, flowsRepo: deps.flowsRepo, meili: deps.meili };
 
+  // ONE provider for both surfaces: GraphQL `companyHubStats` and MCP
+  // `company_hub_stats` therefore always agree, and the ~30s compute happens at
+  // most once per TTL window per process (singleflight + stale-while-revalidate).
+  const hubStats = makeHubStatsProvider(
+    () => makeCompanyHubStats({ repo }),
+    deps.hubStatsTtlMs !== undefined ? { ttlMs: deps.hubStatsTtlMs } : {}
+  );
+
   return {
     repo,
     graphqlSlice: { source: 'companies', typeDefs: companiesTypeDefs },
-    graphqlResolvers: makeCompaniesResolvers({ ...usecaseDeps, registry: deps.registry }),
-    mcpTools: makeCompaniesMcpTools({ ...usecaseDeps, clientBaseUrl }),
+    graphqlResolvers: makeCompaniesResolvers({ ...usecaseDeps, registry: deps.registry, hubStats }),
+    mcpTools: makeCompaniesMcpTools({ ...usecaseDeps, clientBaseUrl, hubStats }),
     contributor,
   };
 };
@@ -66,3 +78,8 @@ export * from './core/types.js';
 export { companiesFilterSpec, COMPANIES_FILTER_SPECS } from './core/filters.js';
 export { makeCompaniesContributor } from './shell/contributor.js';
 export { makeCompaniesRepo } from './shell/repo/companies-repo.js';
+export {
+  makeHubStatsProvider,
+  HUB_STATS_DEFAULT_TTL_MS,
+  type HubStatsProvider,
+} from './shell/hub-stats-cache.js';

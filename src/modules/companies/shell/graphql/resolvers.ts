@@ -42,11 +42,14 @@ import type {
   CompanyResolveDim,
   CompanySort,
 } from '../../core/types.js';
+import type { HubStatsProvider } from '../hub-stats-cache.js';
 import type { Result } from 'neverthrow';
 
 export interface CompaniesResolverDeps extends CompanyUsecaseDeps {
   readonly repo: CompaniesRepository;
   readonly registry: ContributorRegistry;
+  /** Shared with the MCP tool, so both surfaces read the SAME cached snapshot. */
+  readonly hubStats: HubStatsProvider;
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
@@ -162,6 +165,9 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
           coverage: res.coverage,
         };
       },
+
+      // Cache-only: `hubStats.get()` never runs the ~30s legs on a warm process.
+      companyHubStats: async () => unwrap(await deps.hubStats.get()),
     },
 
     Company: {

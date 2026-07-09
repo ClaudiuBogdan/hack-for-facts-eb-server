@@ -30,9 +30,13 @@ import {
   type CompanyUsecaseDeps,
 } from '../../core/usecases.js';
 
+import type { HubStatsProvider } from '../hub-stats-cache.js';
+
 
 export interface CompaniesMcpDeps extends CompanyUsecaseDeps {
   readonly clientBaseUrl: string;
+  /** Shared with the GraphQL resolver, so both surfaces read the SAME cached snapshot. */
+  readonly hubStats: HubStatsProvider;
 }
 
 const strArg = (args: Record<string, unknown>, key: string): string => {
@@ -236,5 +240,35 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     },
   };
 
-  return [resolveFilter, getSnapshot, listCompanies, getFinancials, countyProfile];
+  const hubStats: KernelMcpTool = {
+    name: 'company_hub_stats',
+    description:
+      'Registry-wide company overview: total and active company counts, the full ONRC status mix, the top 10 counties by active companies, and the CAEN-division breakdown of active companies. Takes no arguments. Served from a 6h cache — computedAt says when the underlying scans ran. Use for "how many companies …" / "which county has most companies" questions instead of paging list_companies.',
+    inputShape: {},
+    async handler(): Promise<McpToolOutput> {
+      const res = await deps.hubStats.get();
+      if (res.isErr()) return errorOut('aggregate', res.error.message);
+      const s = res.value;
+      const topCounty = s.topCounties[0];
+      return {
+        ok: true,
+        kind: 'aggregate',
+        link: `${clientBaseUrl}/companii`,
+        item: s,
+        // Structured totals + as-of so an agent never parses the summary text (audit H6).
+        meta: {
+          totalCompanies: s.totalCompanies,
+          activeCompanies: s.activeCompanies,
+          computedAt: s.computedAt,
+          coverage: s.coverage,
+        },
+        summary:
+          `${n(s.totalCompanies)} companies on the registry spine; ${n(s.activeCompanies)} active (funcțiune)` +
+          (topCounty !== undefined ? `; most active in ${topCounty.key} (${n(topCounty.count)})` : '') +
+          `; ${n(s.caenDivisions.length)} CAEN division(s). Computed ${s.computedAt}. ${s.coverage.note}`,
+      };
+    },
+  };
+
+  return [resolveFilter, getSnapshot, listCompanies, getFinancials, countyProfile, hubStats];
 };

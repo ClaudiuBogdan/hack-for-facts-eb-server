@@ -287,6 +287,39 @@ export interface CompanyCoverage {
   readonly note: string;
 }
 
+/**
+ * The /companies hub landing aggregate: three heavy `countBy` legs composed into
+ * one answer. ~30s to compute end-to-end (status ≈4.5s, county ≈1.9s, caenDivision
+ * ≈23.6s — measured on prod 2026-07-09), so it is ONLY ever served from the
+ * module's stale-while-revalidate cache, never computed on a request path.
+ *
+ * `computedAt` is stamped by the shell (no clock in core).
+ */
+export interface CompanyHubStats {
+  /** Every company on the CUI spine (= the STATUS leg's denominator). */
+  readonly totalCompanies: number;
+  /** Companies in ONRC lifecycle status `1048` (funcțiune). */
+  readonly activeCompanies: number;
+  /** Full status breakdown, count-desc. Labels fall back to the nomenclature. */
+  readonly statusMix: readonly CompanyGroupCount[];
+  /**
+   * Top 10 counties among ACTIVE companies, count-desc. The `(none)` bucket
+   * (companies with no registry county — 39% of active) is excluded: it is not a
+   * county. Its mass is disclosed via `coverage`.
+   */
+  readonly topCounties: readonly CompanyGroupCount[];
+  /**
+   * CAEN division (2-digit) breakdown among ACTIVE companies, count-desc. Every
+   * `key` is exactly 2 digits: the empty-code bucket (239,950 source rows carry an
+   * empty `caen_code`) is excluded — an empty string is not a division.
+   */
+  readonly caenDivisions: readonly CompanyGroupCount[];
+  /** Territory coverage of the ACTIVE population (from the county leg). */
+  readonly coverage: CompanyCoverage;
+  /** ISO-8601 instant the underlying legs were computed. Shell-stamped. */
+  readonly computedAt: string;
+}
+
 /** The contributor's compact entity slice (Entity.company + entity-360). */
 export interface CompanyEntitySlice {
   readonly cui: Cui;
