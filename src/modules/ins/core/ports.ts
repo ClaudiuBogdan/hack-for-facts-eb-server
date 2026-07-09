@@ -15,6 +15,8 @@ import type {
   InsLatestDatasetValue,
   InsObservation,
   InsObservationConnection,
+  InsTerritoryConnection,
+  InsTerritoryFilter,
   ListInsLatestDatasetValuesInput,
   ListInsObservationsInput,
 } from './types.js';
@@ -36,6 +38,12 @@ export interface InsRepository {
     limit: number,
     offset: number
   ): Promise<Result<InsContextConnection, InsError>>;
+
+  listTerritories(
+    filter: InsTerritoryFilter,
+    limit: number,
+    offset: number
+  ): Promise<Result<InsTerritoryConnection, InsError>>;
 
   getDatasetByCode(code: string): Promise<Result<InsDataset | null, InsError>>;
 

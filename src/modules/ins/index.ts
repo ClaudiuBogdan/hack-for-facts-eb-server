@@ -20,6 +20,7 @@ export { getInsUatDashboard } from './core/usecases/get-ins-uat-dashboard.js';
 export { listInsDimensionValues } from './core/usecases/list-ins-dimension-values.js';
 export { listInsDatasetDimensionValues } from './core/usecases/list-ins-dataset-dimension-values.js';
 export { listInsContexts } from './core/usecases/list-ins-contexts.js';
+export { listInsTerritories } from './core/usecases/list-ins-territories.js';
 export { listInsLatestDatasetValues } from './core/usecases/list-ins-latest-dataset-values.js';
 
 // =============================================================================
@@ -50,6 +51,9 @@ export type {
   InsObservationConnection,
   InsObservationPageInfo,
   InsTerritory,
+  InsTerritoryConnection,
+  InsTerritoryFilter,
+  InsTerritoryPageInfo,
   InsTimePeriod,
   InsUnit,
   InsClassificationType,
@@ -71,7 +75,9 @@ export {
   MAX_DATASET_LIMIT,
   MAX_OBSERVATION_LIMIT,
   MAX_DIMENSION_VALUES_LIMIT,
+  MAX_TERRITORY_LIMIT,
   MAX_UAT_DASHBOARD_LIMIT,
+  DEFAULT_TERRITORY_LIMIT,
 } from './core/types.js';
 
 // =============================================================================

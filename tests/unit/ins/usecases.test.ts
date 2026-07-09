@@ -18,6 +18,9 @@ import {
   type InsObservation,
   type InsObservationConnection,
   type InsObservationFilter,
+  type InsTerritoryConnection,
+  type InsTerritoryFilter,
+  MAX_TERRITORY_LIMIT,
 } from '@/modules/ins/core/types.js';
 import { compareInsUats } from '@/modules/ins/core/usecases/compare-ins-uat.js';
 import { getInsUatDashboard } from '@/modules/ins/core/usecases/get-ins-uat-dashboard.js';
@@ -28,6 +31,7 @@ import { listInsDatasets } from '@/modules/ins/core/usecases/list-ins-datasets.j
 import { listInsDimensionValues } from '@/modules/ins/core/usecases/list-ins-dimension-values.js';
 import { listInsLatestDatasetValues } from '@/modules/ins/core/usecases/list-ins-latest-dataset-values.js';
 import { listInsObservations } from '@/modules/ins/core/usecases/list-ins-observations.js';
+import { listInsTerritories } from '@/modules/ins/core/usecases/list-ins-territories.js';
 
 import type { InsRepository } from '@/modules/ins/core/ports.js';
 
@@ -47,6 +51,11 @@ const emptyDimensionValueConnection: InsDimensionValueConnection = {
 };
 
 const emptyObservationConnection: InsObservationConnection = {
+  nodes: [],
+  pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
+};
+
+const emptyTerritoryConnection: InsTerritoryConnection = {
   nodes: [],
   pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
 };
@@ -103,6 +112,7 @@ const makeObservation = (overrides: Partial<InsObservation> = {}): InsObservatio
 const makeRepo = (overrides: Partial<InsRepository> = {}): InsRepository => ({
   listDatasets: async () => ok(emptyDatasetConnection),
   listContexts: async () => ok(emptyContextConnection),
+  listTerritories: async () => ok(emptyTerritoryConnection),
   getDatasetByCode: async () => ok(null),
   listDimensions: async () => ok([]),
   listDimensionValues: async () => ok(emptyDimensionValueConnection),
@@ -199,6 +209,74 @@ describe('INS usecases', () => {
       const capturedValue = captured as { limit: number; offset: number };
       expect(capturedValue.limit).toBe(MAX_DATASET_LIMIT);
       expect(capturedValue.offset).toBe(0);
+    });
+  });
+
+  describe('listInsTerritories', () => {
+    it('clamps limit and offset', async () => {
+      let captured: { limit: number; offset: number } | null = null;
+
+      const repo = makeRepo({
+        listTerritories: async (_filter, limit, offset) => {
+          captured = { limit, offset };
+          return ok(emptyTerritoryConnection);
+        },
+      });
+
+      const result = await listInsTerritories(
+        { insRepo: repo },
+        { filter: {}, limit: MAX_TERRITORY_LIMIT + 10, offset: -5 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      if (captured === null) {
+        throw new Error('Expected listTerritories to be called');
+      }
+      const capturedValue = captured as { limit: number; offset: number };
+      expect(capturedValue.limit).toBe(MAX_TERRITORY_LIMIT);
+      expect(capturedValue.offset).toBe(0);
+    });
+
+    it('raises a limit of zero to one', async () => {
+      let captured: { limit: number } | null = null;
+
+      const repo = makeRepo({
+        listTerritories: async (_filter, limit) => {
+          captured = { limit };
+          return ok(emptyTerritoryConnection);
+        },
+      });
+
+      await listInsTerritories({ insRepo: repo }, { filter: {}, limit: 0, offset: 0 });
+
+      expect((captured as { limit: number } | null)?.limit).toBe(1);
+    });
+
+    it('forwards the filter to the repository unchanged', async () => {
+      let captured: InsTerritoryFilter | null = null;
+
+      const repo = makeRepo({
+        listTerritories: async (filter) => {
+          captured = filter;
+          return ok(emptyTerritoryConnection);
+        },
+      });
+
+      await listInsTerritories(
+        { insRepo: repo },
+        {
+          filter: { search: 'Cluj', levels: ['LAU'], parent_code: 'CJ', siruta_codes: ['54975'] },
+          limit: 20,
+          offset: 0,
+        }
+      );
+
+      expect(captured as InsTerritoryFilter | null).toEqual({
+        search: 'Cluj',
+        levels: ['LAU'],
+        parent_code: 'CJ',
+        siruta_codes: ['54975'],
+      });
     });
   });
 

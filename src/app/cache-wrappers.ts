@@ -78,6 +78,7 @@ import type { InsRepository } from '../modules/ins/core/ports.js';
 import type {
   InsDatasetFilter,
   InsObservationFilter,
+  InsTerritoryFilter,
   ListInsLatestDatasetValuesInput,
   ListInsObservationsInput,
 } from '../modules/ins/core/types.js';
@@ -113,6 +114,17 @@ const normalizeDatasetFilterForCache = (filter: InsDatasetFilter): InsDatasetFil
     ...(normalizedPeriodicity !== undefined ? { periodicity: normalizedPeriodicity } : {}),
     ...(normalizedSyncStatus !== undefined ? { sync_status: normalizedSyncStatus } : {}),
     ...(normalizedDataStatus !== undefined ? { data_status: normalizedDataStatus } : {}),
+  };
+};
+
+const normalizeTerritoryFilterForCache = (filter: InsTerritoryFilter): InsTerritoryFilter => {
+  const normalizedLevels = toSortedUniqueArray(filter.levels);
+  const normalizedSirutaCodes = toSortedUniqueArray(filter.siruta_codes);
+
+  return {
+    ...filter,
+    ...(normalizedLevels !== undefined ? { levels: normalizedLevels } : {}),
+    ...(normalizedSirutaCodes !== undefined ? { siruta_codes: normalizedSirutaCodes } : {}),
   };
 };
 
@@ -268,6 +280,19 @@ export const wrapInsRepo = (
       keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
         method: 'listContexts',
         filter,
+        limit,
+        offset,
+      }),
+    INS_CACHE_TTL_MS
+  ),
+
+  listTerritories: wrapWithCache(
+    repo.listTerritories.bind(repo),
+    cache,
+    ([filter, limit, offset]) =>
+      keyBuilder.fromFilter(CacheNamespace.INS_QUERIES, {
+        method: 'listTerritories',
+        filter: normalizeTerritoryFilterForCache(filter),
         limit,
         offset,
       }),
