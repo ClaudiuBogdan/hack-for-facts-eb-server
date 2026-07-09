@@ -43,6 +43,8 @@ import {
   type InsLatestMatchStrategy,
   type InsPeriodicity,
   type InsTerritory,
+  type InsTerritoryConnection,
+  type InsTerritoryFilter,
   type InsTerritoryLevel,
   type InsTimePeriod,
   type InsUnit,
@@ -155,6 +157,19 @@ interface DimensionValueRow {
   unit_code: string | null;
   unit_symbol: string | null;
   unit_names: unknown;
+  total_count?: string | number | null;
+}
+
+interface TerritoryRow {
+  id: number;
+  code: string;
+  siruta_code: string | null;
+  level: InsTerritoryLevel;
+  name_ro: string | null;
+  path: string | null;
+  parent_id: number | null;
+  parent_code: string | null;
+  parent_name_ro: string | null;
   total_count?: string | number | null;
 }
 
@@ -583,6 +598,48 @@ class KyselyInsRepo implements InsRepository {
         return err(createTimeoutError('INS listContexts timed out', error));
       }
       return err(createDatabaseError('INS listContexts failed', error));
+    }
+  }
+
+  async listTerritories(
+    filter: InsTerritoryFilter,
+    limit: number,
+    offset: number
+  ): Promise<Result<InsTerritoryConnection, InsError>> {
+    try {
+      await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
+
+      let countQuery: DynamicQuery = this.db.selectFrom('v_territories');
+      countQuery = this.applyTerritoryFilters(countQuery, filter);
+
+      const countRow = await countQuery
+        .select(sql<string>`COUNT(*)`.as('total_count'))
+        .executeTakeFirst();
+
+      const totalCount = countRow !== undefined ? (toNumber(countRow.total_count) ?? 0) : 0;
+
+      let dataQuery: DynamicQuery = this.db.selectFrom('v_territories').selectAll();
+      dataQuery = this.applyTerritoryFilters(dataQuery, filter)
+        .orderBy('name_normalized', 'asc')
+        .orderBy('code', 'asc')
+        .limit(limit)
+        .offset(offset);
+
+      const rows: TerritoryRow[] = await dataQuery.execute();
+
+      return ok({
+        nodes: rows.map((row) => this.mapTerritoryRow(row)),
+        pageInfo: {
+          totalCount,
+          hasNextPage: offset + limit < totalCount,
+          hasPreviousPage: offset > 0,
+        },
+      });
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return err(createTimeoutError('INS listTerritories timed out', error));
+      }
+      return err(createDatabaseError('INS listTerritories failed', error));
     }
   }
 
@@ -1426,6 +1483,8 @@ class KyselyInsRepo implements InsRepository {
             name_ro: row.territory_name ?? '',
             path: row.territory_path,
             parent_id: row.territory_parent_id,
+            parent_code: null,
+            parent_name_ro: null,
           }
         : null;
 
@@ -1505,6 +1564,8 @@ class KyselyInsRepo implements InsRepository {
             name_ro: row.territory_name ?? '',
             path: row.territory_path,
             parent_id: row.territory_parent_id,
+            parent_code: null,
+            parent_name_ro: null,
           }
         : null;
 
@@ -1691,6 +1752,45 @@ class KyselyInsRepo implements InsRepository {
     }
 
     return query;
+  }
+
+  private applyTerritoryFilters(query: DynamicQuery, filter: InsTerritoryFilter): DynamicQuery {
+    if (filter.search !== undefined && filter.search.trim() !== '') {
+      // `name_normalized` is the unaccented name, so the needle must be
+      // unaccented too for the match to be diacritic-insensitive. It is
+      // lowercased in prod but uppercased by the dev schema's normalize_label,
+      // hence ilike rather than like.
+      const pattern = `%${escapeILikePattern(normalizeScoreText(filter.search.trim()))}%`;
+      query = query.where('name_normalized', 'ilike', pattern);
+    }
+
+    if (filter.levels !== undefined && filter.levels.length > 0) {
+      query = query.where('level', 'in', filter.levels);
+    }
+
+    if (filter.parent_code !== undefined && filter.parent_code.trim() !== '') {
+      query = query.where('parent_code', '=', filter.parent_code.trim());
+    }
+
+    if (filter.siruta_codes !== undefined && filter.siruta_codes.length > 0) {
+      query = query.where('siruta_code', 'in', filter.siruta_codes);
+    }
+
+    return query;
+  }
+
+  private mapTerritoryRow(row: TerritoryRow): InsTerritory {
+    return {
+      id: row.id,
+      code: row.code,
+      siruta_code: row.siruta_code,
+      level: row.level,
+      name_ro: row.name_ro ?? '',
+      path: row.path,
+      parent_id: row.parent_id,
+      parent_code: row.parent_code,
+      parent_name_ro: row.parent_name_ro,
+    };
   }
 
   private applyEntitySelectorFilter(

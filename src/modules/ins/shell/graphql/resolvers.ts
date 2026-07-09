@@ -17,6 +17,7 @@ import { listInsDatasets } from '../../core/usecases/list-ins-datasets.js';
 import { listInsDimensionValues } from '../../core/usecases/list-ins-dimension-values.js';
 import { listInsLatestDatasetValues } from '../../core/usecases/list-ins-latest-dataset-values.js';
 import { listInsObservations } from '../../core/usecases/list-ins-observations.js';
+import { listInsTerritories } from '../../core/usecases/list-ins-territories.js';
 
 import type { InsRepository } from '../../core/ports.js';
 import type {
@@ -29,6 +30,8 @@ import type {
   InsEntitySelectorInput,
   InsObservation,
   InsObservationFilter,
+  InsTerritoryFilter,
+  InsTerritoryLevel,
   ListInsObservationsInput,
 } from '../../core/types.js';
 import type {
@@ -59,6 +62,13 @@ interface GqlInsContextFilterInput {
   level?: number;
   parentCode?: string;
   rootContextCode?: string;
+}
+
+interface GqlInsTerritoryFilterInput {
+  search?: string;
+  levels?: InsTerritoryLevel[];
+  parentCode?: string;
+  sirutaCodes?: string[];
 }
 
 interface GqlInsEntitySelectorInput {
@@ -117,6 +127,21 @@ const mapContextFilter = (input?: GqlInsContextFilterInput): InsContextFilter =>
   if (input.level !== undefined) filter.level = input.level;
   if (input.parentCode !== undefined) filter.parent_code = input.parentCode;
   if (input.rootContextCode !== undefined) filter.root_context_code = input.rootContextCode;
+
+  return filter;
+};
+
+const mapTerritoryFilter = (input?: GqlInsTerritoryFilterInput): InsTerritoryFilter => {
+  const filter: InsTerritoryFilter = {};
+
+  if (input === undefined) {
+    return filter;
+  }
+
+  if (input.search !== undefined) filter.search = input.search;
+  if (input.levels !== undefined) filter.levels = input.levels;
+  if (input.parentCode !== undefined) filter.parent_code = input.parentCode;
+  if (input.sirutaCodes !== undefined) filter.siruta_codes = input.sirutaCodes;
 
   return filter;
 };
@@ -281,6 +306,29 @@ export const makeInsResolvers = (deps: MakeInsResolversDeps): IResolvers => {
             },
             '[INS] list dataset dimension values failed'
           );
+          throw new Error(`[${result.error.type}] ${result.error.message}`);
+        }
+
+        return result.value;
+      },
+
+      insTerritories: async (
+        _parent: unknown,
+        args: { filter?: GqlInsTerritoryFilterInput; limit?: number; offset?: number },
+        context: MercuriusContext
+      ) => {
+        const filter = mapTerritoryFilter(args.filter);
+        const result = await listInsTerritories(
+          { insRepo },
+          {
+            filter,
+            limit: args.limit ?? 20,
+            offset: args.offset ?? 0,
+          }
+        );
+
+        if (result.isErr()) {
+          context.reply.log.error({ err: result.error, filter }, '[INS] list territories failed');
           throw new Error(`[${result.error.type}] ${result.error.message}`);
         }
 

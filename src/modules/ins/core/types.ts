@@ -30,6 +30,12 @@ export const DEFAULT_DIMENSION_VALUES_LIMIT = 50;
 /** Maximum allowed page size for dimension values */
 export const MAX_DIMENSION_VALUES_LIMIT = 1000;
 
+/** Default page size for territory listing */
+export const DEFAULT_TERRITORY_LIMIT = 20;
+
+/** Maximum allowed page size for territory listing (3,239 territories exist in total) */
+export const MAX_TERRITORY_LIMIT = 500;
+
 /** Max rows returned for UAT indicator queries (non-paginated) */
 export const MAX_UAT_INDICATORS_LIMIT = 2000;
 
@@ -198,6 +204,27 @@ export interface InsTerritory {
   name_ro: string;
   path: string | null;
   parent_id: number | null;
+  /** Resolved from `parent_id`; for LAU rows this is the containing county. Null unless the row was loaded through listTerritories. */
+  parent_code: string | null;
+  parent_name_ro: string | null;
+}
+
+export interface InsTerritoryFilter {
+  search?: string;
+  levels?: InsTerritoryLevel[];
+  parent_code?: string;
+  siruta_codes?: string[];
+}
+
+export interface InsTerritoryPageInfo {
+  totalCount: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface InsTerritoryConnection {
+  nodes: InsTerritory[];
+  pageInfo: InsTerritoryPageInfo;
 }
 
 export interface InsTimePeriod {

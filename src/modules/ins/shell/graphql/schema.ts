@@ -177,6 +177,27 @@ export const InsSchema = /* GraphQL */ `
     name_ro: String!
     path: String
     parent_id: Int
+    """
+    Parent territory (the containing county, for LAU rows). Only populated by
+    the insTerritories query.
+    """
+    parent_code: String
+    parent_name_ro: String
+  }
+
+  type InsTerritoryConnection {
+    nodes: [InsTerritory!]!
+    pageInfo: PageInfo!
+  }
+
+  input InsTerritoryFilterInput {
+    """
+    Diacritic-insensitive substring match on the territory name.
+    """
+    search: String
+    levels: [InsTerritoryLevel!]
+    parentCode: String
+    sirutaCodes: [String!]
   }
 
   """
@@ -344,6 +365,15 @@ export const InsSchema = /* GraphQL */ `
       limit: Int = 50
       offset: Int = 0
     ): InsDimensionValueConnection!
+
+    """
+    List INS territories (NUTS + LAU hierarchy) with optional filtering.
+    """
+    insTerritories(
+      filter: InsTerritoryFilterInput
+      limit: Int = 20
+      offset: Int = 0
+    ): InsTerritoryConnection!
 
     """
     List INS contexts (taxonomy nodes) with optional filtering.

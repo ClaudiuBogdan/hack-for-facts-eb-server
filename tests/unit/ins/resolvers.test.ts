@@ -18,6 +18,11 @@ function createFakeRepo(overrides: Partial<InsRepository> = {}): InsRepository {
         nodes: [],
         pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
       }),
+    listTerritories: async () =>
+      ok({
+        nodes: [],
+        pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false },
+      }),
     getDatasetByCode: async () =>
       ok({
         id: 1,

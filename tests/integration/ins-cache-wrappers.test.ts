@@ -15,6 +15,7 @@ import { createInvalidFilterError } from '@/modules/ins/core/errors.js';
 import type { InsRepository } from '@/modules/ins/core/ports.js';
 import type {
   InsContextConnection,
+  InsTerritoryConnection,
   InsDataset,
   InsDatasetConnection,
   InsDimension,
@@ -75,6 +76,8 @@ const createObservation = (overrides: Partial<InsObservation> = {}): InsObservat
     name_ro: 'Romania',
     path: null,
     parent_id: null,
+    parent_code: null,
+    parent_name_ro: null,
   },
   time_period: {
     id: 1,
@@ -106,6 +109,27 @@ const dataset = createDataset();
 
 const datasetConnection: InsDatasetConnection = {
   nodes: [dataset],
+  pageInfo: {
+    totalCount: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+};
+
+const territoryConnection: InsTerritoryConnection = {
+  nodes: [
+    {
+      id: 2,
+      code: 'CJ_54975',
+      siruta_code: '54975',
+      level: 'LAU',
+      name_ro: 'Cluj-Napoca',
+      path: 'RO.CJ.54975',
+      parent_id: 1,
+      parent_code: 'CJ',
+      parent_name_ro: 'Cluj',
+    },
+  ],
   pageInfo: {
     totalCount: 1,
     hasNextPage: false,
@@ -214,6 +238,7 @@ const uatDatasetsWithObservations: { dataset: InsDataset; observations: InsObser
 interface MethodCounters {
   listDatasets: number;
   listContexts: number;
+  listTerritories: number;
   getDatasetByCode: number;
   listDimensions: number;
   listDimensionValues: number;
@@ -225,6 +250,7 @@ interface MethodCounters {
 const createCounters = (): MethodCounters => ({
   listDatasets: 0,
   listContexts: 0,
+  listTerritories: 0,
   getDatasetByCode: 0,
   listDimensions: 0,
   listDimensionValues: 0,
@@ -241,6 +267,10 @@ const createRepo = (counters: MethodCounters): InsRepository => ({
   listContexts: async () => {
     counters.listContexts += 1;
     return ok(contextConnection);
+  },
+  listTerritories: async () => {
+    counters.listTerritories += 1;
+    return ok(territoryConnection);
   },
   getDatasetByCode: async () => {
     counters.getDatasetByCode += 1;
@@ -302,6 +332,9 @@ describe('INS cache wrappers', () => {
     await cachedRepo.listContexts({}, 20, 0);
     await cachedRepo.listContexts({}, 20, 0);
 
+    await cachedRepo.listTerritories({ levels: ['LAU'] }, 20, 0);
+    await cachedRepo.listTerritories({ levels: ['LAU'] }, 20, 0);
+
     await cachedRepo.getDatasetByCode('POP107D');
     await cachedRepo.getDatasetByCode('POP107D');
 
@@ -319,6 +352,7 @@ describe('INS cache wrappers', () => {
 
     expect(counters.listDatasets).toBe(1);
     expect(counters.listContexts).toBe(1);
+    expect(counters.listTerritories).toBe(1);
     expect(counters.getDatasetByCode).toBe(1);
     expect(counters.listDimensions).toBe(1);
     expect(counters.listDimensionValues).toBe(1);

@@ -533,6 +533,99 @@ describe('[Golden Master] INS Tempo', () => {
     expect(county.insLatestDatasetValues.length).toBeGreaterThan(0);
   });
 
+  it('[GM] insTerritories - counties', async () => {
+    const query = /* GraphQL */ `
+      query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int) {
+        insTerritories(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            siruta_code
+            level
+            name_ro
+            parent_code
+            parent_name_ro
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { levels: ['NUTS3'] },
+      limit: 5,
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-territories-counties.snap.json'
+    );
+  });
+
+  it('[GM] insTerritories - diacritic-insensitive-search', async () => {
+    const query = /* GraphQL */ `
+      query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int) {
+        insTerritories(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            level
+            name_ro
+            parent_code
+            parent_name_ro
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    // "timisoara" (no diacritics) must match the stored "Timișoara".
+    const variables = {
+      filter: { search: 'timisoara' },
+      limit: 5,
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-territories-search.snap.json'
+    );
+  });
+
+  it('[GM] insTerritories - by-siruta-codes', async () => {
+    const query = /* GraphQL */ `
+      query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int) {
+        insTerritories(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            siruta_code
+            level
+            name_ro
+            parent_code
+            parent_name_ro
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { sirutaCodes: ['54975'] },
+      limit: 5,
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-territories-siruta.snap.json'
+    );
+  });
+
   it('[GM] insUatDashboard - Cluj-Napoca', async () => {
     const query = /* GraphQL */ `
       query InsUatDashboard($sirutaCode: String!, $period: PeriodDate) {
