@@ -35,6 +35,15 @@ export const InsSchema = /* GraphQL */ `
   }
 
   """
+  Whether a dataset's observations have been loaded, independent of the
+  upstream sync pipeline state exposed by InsSyncStatus.
+  """
+  enum InsDataStatus {
+    AVAILABLE
+    CATALOG_ONLY
+  }
+
+  """
   INS latest value match strategy.
   """
   enum InsLatestMatchStrategy {
@@ -71,6 +80,7 @@ export const InsSchema = /* GraphQL */ `
     has_county_data: Boolean!
     has_siruta: Boolean!
     sync_status: InsSyncStatus
+    data_status: InsDataStatus!
     last_sync_at: DateTime
     context_code: String
     context_name_ro: String
@@ -263,6 +273,12 @@ export const InsSchema = /* GraphQL */ `
     rootContextCode: String
     periodicity: [InsPeriodicity!]
     syncStatus: [InsSyncStatus!]
+    """
+    Omit to list only datasets whose observations are loaded. Provide any value
+    (including an empty list) to list the full INS Tempo catalog, optionally
+    narrowed to the given statuses.
+    """
+    dataStatus: [InsDataStatus!]
     hasUatData: Boolean
     hasCountyData: Boolean
   }

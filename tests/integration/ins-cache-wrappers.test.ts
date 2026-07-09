@@ -53,6 +53,7 @@ const createDataset = (overrides: Partial<InsDataset> = {}): InsDataset => ({
   has_county_data: true,
   has_siruta: true,
   sync_status: 'SYNCED',
+  data_status: 'AVAILABLE',
   last_sync_at: new Date('2025-01-01T00:00:00.000Z'),
   context_code: '1',
   context_name_ro: 'Context',

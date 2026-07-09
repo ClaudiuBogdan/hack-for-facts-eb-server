@@ -45,6 +45,15 @@ export type InsTerritoryLevel = 'NATIONAL' | 'NUTS1' | 'NUTS2' | 'NUTS3' | 'LAU'
 export type InsSyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'STALE';
 export type InsDimensionType = 'TEMPORAL' | 'TERRITORIAL' | 'CLASSIFICATION' | 'UNIT_OF_MEASURE';
 
+/**
+ * Whether a dataset's observations (facts) have been loaded.
+ *
+ * Distinct from {@link InsSyncStatus}, which describes the state of the
+ * upstream sync pipeline. A dataset can be `CATALOG_ONLY` — known from the INS
+ * Tempo catalog, with metadata but without any observations loaded.
+ */
+export type InsDataStatus = 'AVAILABLE' | 'CATALOG_ONLY';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dataset Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +72,7 @@ export interface InsDataset {
   has_county_data: boolean;
   has_siruta: boolean;
   sync_status: InsSyncStatus | null;
+  data_status: InsDataStatus;
   last_sync_at: Date | null;
   context_code: string | null;
   context_name_ro: string | null;
@@ -78,6 +88,11 @@ export interface InsDatasetFilter {
   root_context_code?: string;
   periodicity?: InsPeriodicity[];
   sync_status?: InsSyncStatus[];
+  /**
+   * When omitted, only fact-loaded datasets are listed (the `v_matrices` view).
+   * When present, the full 1,898-dataset catalog is listed and filtered.
+   */
+  data_status?: InsDataStatus[];
   has_uat_data?: boolean;
   has_county_data?: boolean;
 }
