@@ -13,7 +13,13 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FieldFilter, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type FieldFilter,
+  type FilterInput,
+  type FilterValue,
+} from '@/modules/shared/index.js';
 
 import {
   ACCOUNT_CATEGORY_LABELS,
@@ -24,7 +30,6 @@ import {
   type CommitmentReportType,
   type ExecutionReportType,
 } from '../../core/constants.js';
-
 
 /** Pull a single field's op-map out of a FilterInput (typed, undefined-safe). */
 export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {
@@ -86,7 +91,9 @@ export const boolEq = (f: FieldFilter | undefined): boolean | undefined => {
 };
 
 /** Read a `between` { from, to } off a field op-map (numbers). */
-export const intBetween = (f: FieldFilter | undefined): { from?: number; to?: number } | undefined => {
+export const intBetween = (
+  f: FieldFilter | undefined
+): { from?: number; to?: number } | undefined => {
   if (f === undefined) return undefined;
   const v = f['between'];
   if (typeof v !== 'object' || Array.isArray(v)) return undefined;
@@ -109,6 +116,73 @@ export const intIn = (f: FieldFilter | undefined): readonly number[] | undefined
   return out.length > 0 ? out : undefined;
 };
 
+// ── funding-source id translation (A1: PUBLIC filter id → STORED column value) ─
+
+/**
+ * A no-match sentinel: no stored `funding_source_id` is negative, so `IN (-1)`
+ * (or `= -1`) selects zero rows — the empty-set semantics for an unknown PUBLIC
+ * funding-source id (not an error).
+ */
+export const FUNDING_SOURCE_NO_MATCH = -1;
+
+/**
+ * Rewrite the `fundingSourceIds` field of a FilterInput from PUBLIC (conventional)
+ * ids to the STORED `funding_source_id` column values the fact tables hold (A1).
+ * The client speaks the phoenix convention; the SQL must compare against the stored
+ * surrogate. Unknown public ids map to `FUNDING_SOURCE_NO_MATCH` so they filter to
+ * nothing. All other fields (and other ops) pass through untouched; call this AFTER
+ * the cursor `fhash` (which must stay keyed on the public input).
+ */
+export const translateFundingSourceIds = (
+  input: FilterInput,
+  toStoredId: (publicId: number) => number | undefined
+): FilterInput => {
+  const f = fieldOf(input, 'fundingSourceIds');
+  if (f === undefined) return input;
+  const mapOne = (v: string | number): number => {
+    const n = Number(v);
+    return Number.isInteger(n)
+      ? (toStoredId(n) ?? FUNDING_SOURCE_NO_MATCH)
+      : FUNDING_SOURCE_NO_MATCH;
+  };
+  const out: Record<string, FilterValue> = {};
+  for (const [op, val] of Object.entries(f)) {
+    if (op === 'in' && Array.isArray(val)) out[op] = val.map(mapOne);
+    else if (op === 'eq' && (typeof val === 'string' || typeof val === 'number'))
+      out[op] = mapOne(val);
+    else out[op] = val;
+  }
+  return { ...input, fundingSourceIds: out };
+};
+
+/**
+ * Uppercase the `fundingSourceCodes` values (ANAF letter codes are A..J). The
+ * shared fhash canonicalization LOWERCASES string values, but the SQL `in` compiles
+ * exact case-sensitive literals — so `['B']` and `['b']` would share a cursor fhash
+ * yet select different rows. Folding the codes to uppercase before SQL makes case
+ * variants yield the SAME result set (matching the case-folded fhash), so the
+ * collision is benign. Apply at the composer boundary (after the fhash), alongside
+ * `translateFundingSourceIds`.
+ */
+export const normalizeFundingSourceCodes = (input: FilterInput): FilterInput => {
+  const f = fieldOf(input, 'fundingSourceCodes');
+  if (f === undefined) return input;
+  const up = (v: string | number): string => String(v).toUpperCase();
+  const out: Record<string, FilterValue> = {};
+  for (const [op, val] of Object.entries(f)) {
+    if (op === 'in' && Array.isArray(val)) out[op] = val.map(up);
+    else if (op === 'eq' && (typeof val === 'string' || typeof val === 'number')) out[op] = up(val);
+    else out[op] = val;
+  }
+  return { ...input, fundingSourceCodes: out };
+};
+
+/** Prepare a fact FilterInput for SQL: uppercase codes + translate public ids. */
+export const prepareFundingFactFilter = (
+  input: FilterInput,
+  toStoredId: (publicId: number) => number | undefined
+): FilterInput => translateFundingSourceIds(normalizeFundingSourceCodes(input), toStoredId);
+
 // ── the §0.3 grain gate (the pruning triple resolution) ───────────────────────
 
 export interface ExecutionGate {
@@ -129,7 +203,11 @@ export interface ExecutionGate {
  */
 export const resolveExecutionGate = (
   input: FilterInput,
-  defaults: { reportType: ExecutionReportType; accountCategory: AccountCategory; frequency: BudgetFrequency }
+  defaults: {
+    reportType: ExecutionReportType;
+    accountCategory: AccountCategory;
+    frequency: BudgetFrequency;
+  }
 ): Result<ExecutionGate, ApiError> => {
   const yearF = fieldOf(input, 'reportingYear');
   const yEq = intEq(yearF);

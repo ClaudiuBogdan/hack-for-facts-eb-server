@@ -9,7 +9,7 @@ RANGE(year)→LIST(report_type)→LIST(account_category)); `commitment_line_item
 ## The two load-bearing invariants
 
 1. **Partition pruning (§0.3).** Every FACT query supplies `(reporting_year,
-   report_type, account_category)` literals FIRST so the planner prunes to ONE
+report_type, account_category)` literals FIRST so the planner prunes to ONE
    leaf. The surface exposes CLEAN enums; `constants.ts` maps enum→partition
    literal at the repo boundary (verified live). `resolveExecutionGate` /
    `resolveCommitmentGate` enforce the gate and reject year-less queries
@@ -63,6 +63,36 @@ intercepted fields; the FULL spec is still used for GraphQL/TypeBox + the `fhash
   (no bucket-grain population); non-TOTAL requires a single `reportingYear`.
 - Commitment ASC cursor null-section made symmetric (reachable + no dup).
 - `Entity.budget` batched through a per-tick DataLoader (no N+1 on entity lists).
+
+## Funding-source id convention (A1 — ANAF_EXTRANET_REVIEW §A1)
+
+Prod mints `budget.funding_sources.source_id` as an arbitrary IDENTITY surrogate
+(assigned in DISTINCT-scan arrival order), which BROKE the phoenix convention where
+the numeric id equals the ANAF letter-code ordinal (A=1 … J=10). The stable
+convention survives only in `source_code`. A bookmarked `fundingSourceIds=2` (phoenix:
+Credite externe / B) would silently select the wrong source once the API points at
+`transparenta_prod`. The fix is a serving-boundary translation — no fact rewrite:
+
+- **`sourceId` is the LEGACY convention key** — reproduced deterministically by the
+  scrapper view `budget.v_funding_sources_compat`
+  (`row_number() over (order by source_code)` → the phoenix A..J ordinal + a
+  0=Unknown row). `listFundingSources` reads that view; fact rows expose
+  `fundingSourceId` as the CONVENTIONAL id (`funding-source-map.ts` translates the
+  stored `funding_source_id` column → public id, O(1)/row via a cached dim map).
+- **`sourceCode` (A..J) is the DURABLE public key.** Clients should filter with the
+  additive `fundingSourceCodes: [String!]` input (matched on the inline
+  `funding_source` letter column — no id translation) and treat the numeric id as a
+  legacy compatibility field. `fundingSourceIds` stays supported: PUBLIC ids are
+  translated to the stored column value before SQL (unknown public id → empty set).
+- **Deploy-order dependency (cutover prerequisite):** the module depends on
+  `budget.v_funding_sources_compat` existing in whatever DB `BUDGET_DATABASE_URL`
+  targets. Deploy the scrapper migration `20260709T170000` BEFORE repointing the API
+  at `transparenta_prod`. Convention pin: the `order by source_code` projection
+  reproduces phoenix only while new ANAF codes stay alphabetically sequential
+  (A..J → K → …); re-validate if a non-sequential code appears. It also assumes
+  ONE dim row per `source_code` (the table is unique on
+  `(source_code, source_description)`, not on code alone) — a description drift that
+  creates a 2nd row for a code would shift the projected ids; re-validate then.
 
 ## Deferred (flagged, scrapper-owned)
 
