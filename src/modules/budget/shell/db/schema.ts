@@ -229,6 +229,20 @@ export interface BudgetFundingSourcesTable {
   source_description: string | null;
 }
 
+/**
+ * A1 compat projection (scrapper migration 20260709T170000). `source_id` is the
+ * CONVENTIONAL (phoenix letter-code ordinal) id; `internal_source_id` is the stored
+ * identity id facts carry. The serving repo translates stored↔public through this
+ * view so bookmarked numeric `fundingSourceIds` keep their phoenix meaning after
+ * cutover; `source_code` is the durable public key.
+ */
+export interface BudgetFundingSourcesCompatView {
+  source_id: number; // conventional (phoenix) id
+  source_code: string | null;
+  source_description: string | null;
+  internal_source_id: number; // stored identity id
+}
+
 // ── budget-official (un-partitioned; capability-gated on row presence) ────────
 
 export interface BudgetApprovedBudgetFactsTable {
@@ -291,6 +305,7 @@ declare module '@/modules/shared/shell/db/types.js' {
     'budget.economic_classifications': BudgetEconomicClassificationsTable;
     'budget.budget_sectors': BudgetSectorsTable;
     'budget.funding_sources': BudgetFundingSourcesTable;
+    'budget.v_funding_sources_compat': BudgetFundingSourcesCompatView;
     'budget.approved_budget_facts': BudgetApprovedBudgetFactsTable;
     'budget.execution_vs_budget': BudgetExecutionVsBudgetView;
     'budget.bgc_official_facts': BudgetBgcOfficialFactsTable;

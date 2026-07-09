@@ -27,25 +27,33 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { type ApiError, type CursorPage, type FilterInput, type ProdDatabase, type SourcePresence,
+import {
+  type ApiError,
+  type CursorPage,
+  type FilterInput,
+  type ProdDatabase,
+  type SourcePresence,
   buildNextCursor,
   databaseError,
   decodeCursor,
   fhashFor,
   invalidInput,
   normalizeCui,
-  toConditionBuilders } from '@/modules/shared/index.js';
+  toConditionBuilders,
+} from '@/modules/shared/index.js';
 
 import { factorCaseExpr, isPerCapita, yearMultiplier } from './analytics.js';
 import {
   fieldOf,
   intIn,
   omitFields,
+  prepareFundingFactFilter,
   resolveCommitmentGate,
   resolveExecutionGate,
   type CommitmentGate,
   type ExecutionGate,
 } from './filter-helpers.js';
+import { makeFundingSourceMap, type FundingSourceMap } from './funding-source-map.js';
 import {
   commitReportType,
   execReportType,
@@ -82,7 +90,6 @@ import {
   budgetReportFilterSpec,
 } from '../../core/filters.js';
 
-
 import type { BudgetRepo } from '../../core/ports.js';
 import type {
   AggregatedBudgetRow,
@@ -115,7 +122,6 @@ import type {
   TimeseriesQuery,
 } from '../../core/types.js';
 
-
 type Db = Kysely<ProdDatabase>;
 
 const FACT_LIMIT_MAX = 100;
@@ -124,7 +130,8 @@ const RANK_LIMIT_MAX = 100;
 const DIM_LIMIT_MAX = 200;
 const OFFICIAL_PAGE_MAX = 100;
 
-const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(Math.floor(n), lo), hi);
+const clamp = (n: number, lo: number, hi: number): number =>
+  Math.min(Math.max(Math.floor(n), lo), hi);
 
 const composeAnd = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
@@ -158,7 +165,9 @@ const commitMvName = (freq: BudgetFrequency): CommitMvName =>
       : 'budget.mv_commitment_summary_annual as mv') as CommitMvName;
 
 /** The MV money column an execution ranking/series metric selects (§0.4). */
-const metricColumn = (m: 'INCOME' | 'EXPENSE' | 'BALANCE'): 'total_income' | 'total_expense' | 'budget_balance' =>
+const metricColumn = (
+  m: 'INCOME' | 'EXPENSE' | 'BALANCE'
+): 'total_income' | 'total_expense' | 'budget_balance' =>
   m === 'INCOME' ? 'total_income' : m === 'EXPENSE' ? 'total_expense' : 'budget_balance';
 
 /**
@@ -174,9 +183,22 @@ const MONTHLY_COMMITMENT_METRICS = new Set([
   'receptiiTotale',
 ]);
 /** A camelCase metric is unavailable at MONTH grain iff the monthly MV lacks it. */
-const monthlyCommitmentGap = (camelMetric: string): boolean => !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
+const monthlyCommitmentGap = (camelMetric: string): boolean =>
+  !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
 
 export const makeBudgetRepo = (db: Db): BudgetRepo => {
+  // ───────────────────────────────────────────────────────────────────────────
+  // funding-source id translation (A1) — stored identity id ⇄ public convention id
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const fundingMap = makeFundingSourceMap(db);
+
+  /** Re-expose fact-row `fundingSourceId` as the PUBLIC (conventional) id. */
+  const withPublicFunding = <T extends { readonly fundingSourceId: number }>(
+    items: readonly T[],
+    fm: FundingSourceMap
+  ): T[] => items.map((it) => ({ ...it, fundingSourceId: fm.toPublicId(it.fundingSourceId) }));
+
   // ───────────────────────────────────────────────────────────────────────────
   // freshness
   // ───────────────────────────────────────────────────────────────────────────
@@ -220,7 +242,12 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const conds: RawBuilder<unknown>[] = [];
     if (gate.years.eq !== undefined) conds.push(sql`${yr} = ${gate.years.eq}`);
     if (gate.years.in !== undefined && gate.years.in.length > 0) {
-      conds.push(sql`${yr} in (${sql.join(gate.years.in.map((y) => sql`${y}`), sql`, `)})`);
+      conds.push(
+        sql`${yr} in (${sql.join(
+          gate.years.in.map((y) => sql`${y}`),
+          sql`, `
+        )})`
+      );
     }
     if (gate.years.from !== undefined) conds.push(sql`${yr} >= ${gate.years.from}`);
     if (gate.years.to !== undefined) conds.push(sql`${yr} <= ${gate.years.to}`);
@@ -235,7 +262,12 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const conds: RawBuilder<unknown>[] = [];
     if (gate.years.eq !== undefined) conds.push(sql`${yr} = ${gate.years.eq}`);
     if (gate.years.in !== undefined && gate.years.in.length > 0) {
-      conds.push(sql`${yr} in (${sql.join(gate.years.in.map((y) => sql`${y}`), sql`, `)})`);
+      conds.push(
+        sql`${yr} in (${sql.join(
+          gate.years.in.map((y) => sql`${y}`),
+          sql`, `
+        )})`
+      );
     }
     if (gate.years.from !== undefined) conds.push(sql`${yr} >= ${gate.years.from}`);
     if (gate.years.to !== undefined) conds.push(sql`${yr} <= ${gate.years.to}`);
@@ -245,29 +277,45 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   };
 
   /** Period tuple (months/quarters) predicate within the year, by frequency. */
-  const periodTuple = (input: FilterInput, freq: BudgetFrequency, alias: string): RawBuilder<unknown> | undefined => {
+  const periodTuple = (
+    input: FilterInput,
+    freq: BudgetFrequency,
+    alias: string
+  ): RawBuilder<unknown> | undefined => {
     if (freq === 'MONTH') {
       const months = intIn(fieldOf(input, 'months'));
       if (months !== undefined && months.length > 0) {
-        return sql`${sql.ref(`${alias}.reporting_month`)} in (${sql.join(months.map((m) => sql`${m}`), sql`, `)})`;
+        return sql`${sql.ref(`${alias}.reporting_month`)} in (${sql.join(
+          months.map((m) => sql`${m}`),
+          sql`, `
+        )})`;
       }
     } else if (freq === 'QUARTER') {
       const quarters = intIn(fieldOf(input, 'quarters'));
       if (quarters !== undefined && quarters.length > 0) {
-        return sql`${sql.ref(`${alias}.quarter`)} in (${sql.join(quarters.map((q) => sql`${q}`), sql`, `)})`;
+        return sql`${sql.ref(`${alias}.quarter`)} in (${sql.join(
+          quarters.map((q) => sql`${q}`),
+          sql`, `
+        )})`;
       }
     }
     return undefined;
   };
 
   /** Row-level amount range on the frequency amount column (money → exact ::numeric). */
-  const amountRange = (input: FilterInput, freq: BudgetFrequency, alias: string): RawBuilder<unknown>[] => {
+  const amountRange = (
+    input: FilterInput,
+    freq: BudgetFrequency,
+    alias: string
+  ): RawBuilder<unknown>[] => {
     const col = sql.ref(`${alias}.${EXECUTION_AMOUNT_COLUMN[freq]}`);
     const conds: RawBuilder<unknown>[] = [];
     const min = fieldOf(input, 'minAmount')?.['gte'];
     const max = fieldOf(input, 'maxAmount')?.['lte'];
-    if (typeof min === 'string' && /^-?\d+(\.\d+)?$/u.test(min)) conds.push(sql`${col}::numeric >= ${min}::numeric`);
-    if (typeof max === 'string' && /^-?\d+(\.\d+)?$/u.test(max)) conds.push(sql`${col}::numeric <= ${max}::numeric`);
+    if (typeof min === 'string' && /^-?\d+(\.\d+)?$/u.test(min))
+      conds.push(sql`${col}::numeric >= ${min}::numeric`);
+    if (typeof max === 'string' && /^-?\d+(\.\d+)?$/u.test(max))
+      conds.push(sql`${col}::numeric <= ${max}::numeric`);
     return conds;
   };
 
@@ -293,12 +341,22 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     if (coreFields.some((f) => fieldOf(input, f) !== undefined)) return true;
     const ex = input.exclude;
     if (ex !== undefined && typeof ex === 'object') {
-      return ['countyCodes', 'regions'].some((f) => (ex as Record<string, unknown>)[f] !== undefined);
+      return ['countyCodes', 'regions'].some(
+        (f) => (ex as Record<string, unknown>)[f] !== undefined
+      );
     }
     return false;
   };
 
-  const EXEC_CORE_FIELDS = ['entityTypes', 'isUat', 'countyCodes', 'regions', 'minPopulation', 'maxPopulation', 'q'];
+  const EXEC_CORE_FIELDS = [
+    'entityTypes',
+    'isUat',
+    'countyCodes',
+    'regions',
+    'minPopulation',
+    'maxPopulation',
+    'q',
+  ];
 
   const execSelect = [
     'eli.execution_line_item_id',
@@ -352,7 +410,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       cursorKeys = decoded.value.keys;
     }
 
-    const physical = omitFields(q.filter, [...BUDGET_FACT_VIRTUAL_FIELDS]);
+    const fm = await fundingMap.load();
+    const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
+    const physical = omitFields(translated, [...BUDGET_FACT_VIRTUAL_FIELDS]);
     const built = toConditionBuilders(budgetFactKernelSpec, physical);
     if (built.isErr()) return err(built.error);
 
@@ -385,7 +445,11 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'eli.entity_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       }
       let query = base.select([...execSelect, ...execAmountSelect]).where(composeAnd(conds));
       if (q.sort === 'LINE_ORDER') {
@@ -393,13 +457,15 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       } else {
         // `nulls last` is defensive (the is_* flag guarantees a non-null amount)
         // and matches the keyset cursor's implicit ordering assumption.
-        query = query.orderBy(sql`eli.${sql.ref(amountCol)} ${dirSql(dir)} nulls last`).orderBy('eli.execution_line_item_id', dir);
+        query = query
+          .orderBy(sql`eli.${sql.ref(amountCol)} ${dirSql(dir)} nulls last`)
+          .orderBy('eli.execution_line_item_id', dir);
       }
       const rows = (await query.limit(limit + 1).execute()) as ExecutionRow[];
 
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = pageRows.map(mapExecutionLineItem);
+      const items = withPublicFunding(pageRows.map(mapExecutionLineItem), fm);
       let next: string | null = null;
       if (hasMore) {
         const last = pageRows[pageRows.length - 1];
@@ -444,7 +510,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         .where('eli.execution_line_item_id', '=', q.id)
         .limit(1)
         .executeTakeFirst()) as ExecutionRow | undefined;
-      return ok(row !== undefined ? mapExecutionLineItem(row) : null);
+      if (row === undefined) return ok(null);
+      const fm = await fundingMap.load();
+      return ok(withPublicFunding([mapExecutionLineItem(row)], fm)[0] ?? null);
     } catch (error) {
       return err(databaseError('getExecutionLineItem failed', error));
     }
@@ -476,7 +544,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       cursorKeys = decoded.value.keys;
     }
 
-    const physical = omitFields(q.filter, [...BUDGET_COMMITMENT_VIRTUAL_FIELDS]);
+    const fm = await fundingMap.load();
+    const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
+    const physical = omitFields(translated, [...BUDGET_COMMITMENT_VIRTUAL_FIELDS]);
     const built = toConditionBuilders(budgetCommitmentFactKernelSpec, physical);
     if (built.isErr()) return err(built.error);
 
@@ -485,7 +555,12 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     if (tuple !== undefined) conds.push(tuple);
 
     // The sort metric column for the chosen frequency (e.g. ytd_plati_trezor).
-    const prefix = gate.frequency === 'MONTH' ? 'monthly_' : gate.frequency === 'QUARTER' ? 'quarterly_' : 'ytd_';
+    const prefix =
+      gate.frequency === 'MONTH'
+        ? 'monthly_'
+        : gate.frequency === 'QUARTER'
+          ? 'quarterly_'
+          : 'ytd_';
     const sortCol = `${prefix}${q.metric}`;
     if (cursorKeys !== undefined) {
       if (q.sort === 'LINE_ORDER') {
@@ -498,12 +573,16 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         // NULL amounts sort AFTER all real values (NULLS LAST). The cursor encodes
         // a null amount as ''. Handle the null section symmetrically for asc/desc
         // so null-amount rows are reachable AND not duplicated (R1 review).
-        const idCmp = dir === 'desc' ? sql`cli.commitment_line_item_id < ${id}::bigint` : sql`cli.commitment_line_item_id > ${id}::bigint`;
+        const idCmp =
+          dir === 'desc'
+            ? sql`cli.commitment_line_item_id < ${id}::bigint`
+            : sql`cli.commitment_line_item_id > ${id}::bigint`;
         if (amt === '') {
           // Already inside the trailing null section: only further null rows by id.
           conds.push(sql`(${ac} is null and ${idCmp})`);
         } else {
-          const valCmp = dir === 'desc' ? sql`${ac} < ${amt}::numeric` : sql`${ac} > ${amt}::numeric`;
+          const valCmp =
+            dir === 'desc' ? sql`${ac} < ${amt}::numeric` : sql`${ac} > ${amt}::numeric`;
           conds.push(sql`(${valCmp} or ${ac} is null or (${ac} = ${amt}::numeric and ${idCmp}))`);
         }
       }
@@ -515,26 +594,34 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'cli.entity_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       }
       let query = base.select(commitmentSelectList()).where(composeAnd(conds));
       if (q.sort === 'LINE_ORDER') {
         query = query.orderBy('cli.commitment_line_item_id', 'asc');
       } else {
-        query = query.orderBy(sql`cli.${sql.ref(sortCol)} ${dirSql(dir)} nulls last`).orderBy('cli.commitment_line_item_id', dir);
+        query = query
+          .orderBy(sql`cli.${sql.ref(sortCol)} ${dirSql(dir)} nulls last`)
+          .orderBy('cli.commitment_line_item_id', dir);
       }
       const rows = (await query.limit(limit + 1).execute()) as CommitmentRow[];
 
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = pageRows.map(mapCommitmentLineItem);
+      const items = withPublicFunding(pageRows.map(mapCommitmentLineItem), fm);
       let next: string | null = null;
       if (hasMore) {
         const last = pageRows[pageRows.length - 1];
         if (last !== undefined) {
           const amt = (last as unknown as Record<string, string | null>)[sortCol] ?? '';
           const keys =
-            q.sort === 'LINE_ORDER' ? [last.commitment_line_item_id] : [amt, last.commitment_line_item_id];
+            q.sort === 'LINE_ORDER'
+              ? [last.commitment_line_item_id]
+              : [amt, last.commitment_line_item_id];
           next = buildNextCursor({ sort: q.sort, dir, fhash, lastKeys: keys });
         }
       }
@@ -565,9 +652,11 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
    * Resolve the default year ONLY when no year bound is supplied — avoids the
    * `asOf()` round-trip (and its MV scans) on the common explicit-year path.
    */
-  const defaultYearFor = async (
-    q: { year?: number; yearFrom?: number; yearTo?: number }
-  ): Promise<Result<number, ApiError>> => {
+  const defaultYearFor = async (q: {
+    year?: number;
+    yearFrom?: number;
+    yearTo?: number;
+  }): Promise<Result<number, ApiError>> => {
     if (q.year !== undefined || q.yearFrom !== undefined || q.yearTo !== undefined) return ok(0);
     const asOfR = await asOf();
     return asOfR.isErr() ? err(asOfR.error) : ok(asOfR.value.latestCompleteYear);
@@ -582,16 +671,26 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const defYearR = await defaultYearFor(q);
     if (defYearR.isErr()) return err(defYearR.error);
     const defaultYear = defYearR.value;
-    const reportLabel = q.reportType !== undefined ? EXECUTION_REPORT_TYPE_LABELS[q.reportType] : undefined;
+    const reportLabel =
+      q.reportType !== undefined ? EXECUTION_REPORT_TYPE_LABELS[q.reportType] : undefined;
     try {
-      const conds: RawBuilder<unknown>[] = [sql`mv.entity_cui = ${cui}`, ...mvYearConds(q, defaultYear)];
+      const conds: RawBuilder<unknown>[] = [
+        sql`mv.entity_cui = ${cui}`,
+        ...mvYearConds(q, defaultYear),
+      ];
       if (reportLabel !== undefined) conds.push(sql`mv.report_type = ${reportLabel}`);
       const periodCols =
         q.frequency === 'MONTH'
           ? [sql<number | null>`mv.month`.as('month'), sql<number | null>`null::int`.as('quarter')]
           : q.frequency === 'QUARTER'
-            ? [sql<number | null>`null::int`.as('month'), sql<number | null>`mv.quarter`.as('quarter')]
-            : [sql<number | null>`null::int`.as('month'), sql<number | null>`null::int`.as('quarter')];
+            ? [
+                sql<number | null>`null::int`.as('month'),
+                sql<number | null>`mv.quarter`.as('quarter'),
+              ]
+            : [
+                sql<number | null>`null::int`.as('month'),
+                sql<number | null>`null::int`.as('quarter'),
+              ];
       const rows = await db
         .selectFrom(execMvName(q.frequency))
         .select([
@@ -650,10 +749,14 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const defYearR = await defaultYearFor(q);
     if (defYearR.isErr()) return err(defYearR.error);
     const defaultYear = defYearR.value;
-    const reportLabel = q.reportType !== undefined ? COMMITMENT_REPORT_TYPE_LABELS[q.reportType] : undefined;
+    const reportLabel =
+      q.reportType !== undefined ? COMMITMENT_REPORT_TYPE_LABELS[q.reportType] : undefined;
     const monthly = q.frequency === 'MONTH';
     try {
-      const conds: RawBuilder<unknown>[] = [sql`mv.entity_cui = ${cui}`, ...mvYearConds(q, defaultYear)];
+      const conds: RawBuilder<unknown>[] = [
+        sql`mv.entity_cui = ${cui}`,
+        ...mvYearConds(q, defaultYear),
+      ];
       if (reportLabel !== undefined) conds.push(sql`mv.report_type = ${reportLabel}`);
       // The monthly MV carries only 5 metrics; the annual/quarterly carry all 13.
       const metricSelects = COMMIT_METRIC_COLS.map((c) => {
@@ -662,15 +765,27 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         }
         return sql<string | null>`mv.${sql.ref(c)}::text`.as(c);
       });
-      const periodCols =
-        monthly
-          ? [sql<number | null>`mv.month`.as('month'), sql<number | null>`null::int`.as('quarter')]
-          : q.frequency === 'QUARTER'
-            ? [sql<number | null>`null::int`.as('month'), sql<number | null>`mv.quarter`.as('quarter')]
-            : [sql<number | null>`null::int`.as('month'), sql<number | null>`null::int`.as('quarter')];
+      const periodCols = monthly
+        ? [sql<number | null>`mv.month`.as('month'), sql<number | null>`null::int`.as('quarter')]
+        : q.frequency === 'QUARTER'
+          ? [
+              sql<number | null>`null::int`.as('month'),
+              sql<number | null>`mv.quarter`.as('quarter'),
+            ]
+          : [
+              sql<number | null>`null::int`.as('month'),
+              sql<number | null>`null::int`.as('quarter'),
+            ];
       const rows = await db
         .selectFrom(commitMvName(q.frequency))
-        .select(['mv.entity_cui', 'mv.main_creditor_cui', 'mv.report_type', 'mv.year', ...periodCols, ...metricSelects])
+        .select([
+          'mv.entity_cui',
+          'mv.main_creditor_cui',
+          'mv.report_type',
+          'mv.year',
+          ...periodCols,
+          ...metricSelects,
+        ])
         .where(composeAnd(conds))
         .orderBy('mv.year', 'asc')
         .orderBy('mv.report_type', 'asc')
@@ -695,7 +810,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const col = metricColumn(q.metric);
     const perCapita = isPerCapita(q.normalization);
     try {
-      const conds: RawBuilder<unknown>[] = [sql`mv.entity_cui = ${cui}`, sql`mv.report_type = ${reportLabel}`];
+      const conds: RawBuilder<unknown>[] = [
+        sql`mv.entity_cui = ${cui}`,
+        sql`mv.report_type = ${reportLabel}`,
+      ];
       if (q.yearFrom !== undefined) conds.push(sql`mv.year >= ${q.yearFrom}`);
       if (q.yearTo !== undefined) conds.push(sql`mv.year <= ${q.yearTo}`);
 
@@ -728,7 +846,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         .select([
           'mv.year',
           periodSelect.as('period'),
-          sql<string>`(coalesce(mv.${sql.ref(col)},0) * ${multCase} / coalesce(${popExpr}, 1))::text`.as('amount'),
+          sql<string>`(coalesce(mv.${sql.ref(col)},0) * ${multCase} / coalesce(${popExpr}, 1))::text`.as(
+            'amount'
+          ),
         ])
         .where(composeAnd(conds))
         .orderBy('mv.year', 'asc')
@@ -751,7 +871,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     if (cui === null) return err(invalidInput('invalid CUI format', 'entityCui'));
     const reportLabel = COMMITMENT_REPORT_TYPE_LABELS[q.reportType];
     try {
-      const conds: RawBuilder<unknown>[] = [sql`mv.entity_cui = ${cui}`, sql`mv.report_type = ${reportLabel}`];
+      const conds: RawBuilder<unknown>[] = [
+        sql`mv.entity_cui = ${cui}`,
+        sql`mv.report_type = ${reportLabel}`,
+      ];
       if (q.yearFrom !== undefined) conds.push(sql`mv.year >= ${q.yearFrom}`);
       if (q.yearTo !== undefined) conds.push(sql`mv.year <= ${q.yearTo}`);
       const periodSelect =
@@ -762,12 +885,20 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
             : sql<number | null>`null::int`;
       const rows = await db
         .selectFrom(commitMvName(q.frequency))
-        .select(['mv.year', periodSelect.as('period'), sql<string>`coalesce(mv.${sql.ref(q.metric)},0)::text`.as('amount')])
+        .select([
+          'mv.year',
+          periodSelect.as('period'),
+          sql<string>`coalesce(mv.${sql.ref(q.metric)},0)::text`.as('amount'),
+        ])
         .where(composeAnd(conds))
         .orderBy('mv.year', 'asc')
         .orderBy(periodSelect, 'asc')
         .execute();
-      return ok(rows.map((r) => seriesPoint(r.year, (r as { period: number | null }).period, q.frequency, r.amount)));
+      return ok(
+        rows.map((r) =>
+          seriesPoint(r.year, (r as { period: number | null }).period, q.frequency, r.amount)
+        )
+      );
     } catch (error) {
       return err(databaseError('commitmentTimeseries failed', error));
     }
@@ -777,7 +908,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   // rankings (MV path + factor; bounded top-N)
   // ───────────────────────────────────────────────────────────────────────────
 
-  const rankEntities = async (q: EntityRankingQuery): Promise<Result<readonly RankedEntity[], ApiError>> => {
+  const rankEntities = async (
+    q: EntityRankingQuery
+  ): Promise<Result<readonly RankedEntity[], ApiError>> => {
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
     const limit = clamp(q.limit, 1, RANK_LIMIT_MAX);
@@ -791,12 +924,25 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       q.maxPopulation !== undefined ||
       perCapita;
     try {
-      const conds: RawBuilder<unknown>[] = [sql`mv.year = ${q.year}`, sql`mv.report_type = ${reportLabel}`];
+      const conds: RawBuilder<unknown>[] = [
+        sql`mv.year = ${q.year}`,
+        sql`mv.report_type = ${reportLabel}`,
+      ];
       if (q.countyCodes !== undefined && q.countyCodes.length > 0) {
-        conds.push(sql`t.county_code in (${sql.join(q.countyCodes.map((c) => sql`${c}`), sql`, `)})`);
+        conds.push(
+          sql`t.county_code in (${sql.join(
+            q.countyCodes.map((c) => sql`${c}`),
+            sql`, `
+          )})`
+        );
       }
       if (q.regions !== undefined && q.regions.length > 0) {
-        conds.push(sql`t.region in (${sql.join(q.regions.map((r) => sql`${r}`), sql`, `)})`);
+        conds.push(
+          sql`t.region in (${sql.join(
+            q.regions.map((r) => sql`${r}`),
+            sql`, `
+          )})`
+        );
       }
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
       if (q.minPopulation !== undefined) conds.push(sql`t.population >= ${q.minPopulation}`);
@@ -810,7 +956,11 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsGeo) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       } else {
         base = base.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
       }
@@ -820,9 +970,15 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
           sql<string | null>`e.name`.as('entity_name'),
           'mv.year',
           sql<string>`(${metricExpr})::text`.as('amount'),
-          needsGeo ? sql<string | null>`(${perCapitaExpr})::text`.as('per_capita') : sql<string | null>`null::text`.as('per_capita'),
-          needsGeo ? sql<number | null>`t.population`.as('population') : sql<number | null>`null::int`.as('population'),
-          needsGeo ? sql<string | null>`t.county_code`.as('county_code') : sql<string | null>`null::text`.as('county_code'),
+          needsGeo
+            ? sql<string | null>`(${perCapitaExpr})::text`.as('per_capita')
+            : sql<string | null>`null::text`.as('per_capita'),
+          needsGeo
+            ? sql<number | null>`t.population`.as('population')
+            : sql<number | null>`null::int`.as('population'),
+          needsGeo
+            ? sql<string | null>`t.county_code`.as('county_code')
+            : sql<string | null>`null::text`.as('county_code'),
         ])
         .where(composeAnd(conds))
         .orderBy(sql`${orderExpr} ${dirSql(q.ascending === true ? 'asc' : 'desc')} nulls last`)
@@ -901,14 +1057,27 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     // scalar multiplier (a classification aggregate must scope to ONE year so the
     // factor is well-defined). The multiplier is applied in SQL (numeric-exact).
     if (isPerCapita(q.normalization)) {
-      return err(invalidInput('per-capita normalization is not defined for a classification aggregate', 'normalization'));
+      return err(
+        invalidInput(
+          'per-capita normalization is not defined for a classification aggregate',
+          'normalization'
+        )
+      );
     }
     if (q.normalization !== 'TOTAL' && gate.years.eq === undefined) {
-      return err(invalidInput('non-TOTAL normalization requires a single reportingYear (eq)', 'reportingYear'));
+      return err(
+        invalidInput(
+          'non-TOTAL normalization requires a single reportingYear (eq)',
+          'reportingYear'
+        )
+      );
     }
-    const aggMult = gate.years.eq !== undefined ? yearMultiplier(q.normalization, gate.years.eq) : 1;
+    const aggMult =
+      gate.years.eq !== undefined ? yearMultiplier(q.normalization, gate.years.eq) : 1;
 
-    const physical = omitFields(q.filter, [...BUDGET_FACT_VIRTUAL_FIELDS]);
+    const fm = await fundingMap.load();
+    const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
+    const physical = omitFields(translated, [...BUDGET_FACT_VIRTUAL_FIELDS]);
     const built = toConditionBuilders(budgetFactKernelSpec, physical);
     if (built.isErr()) return err(built.error);
 
@@ -934,7 +1103,11 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'eli.entity_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       }
       let query = base
         .select([
@@ -971,7 +1144,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   // county heatmap (MV → county rollup)
   // ───────────────────────────────────────────────────────────────────────────
 
-  const countyHeatmap = async (q: HeatmapQuery): Promise<Result<readonly CountyHeatmapPoint[], ApiError>> => {
+  const countyHeatmap = async (
+    q: HeatmapQuery
+  ): Promise<Result<readonly CountyHeatmapPoint[], ApiError>> => {
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
     const multiplier = yearMultiplier(q.normalization, q.year);
@@ -980,15 +1155,23 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       const rows = await db
         .selectFrom(execMvName('YEAR'))
         .innerJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-        .innerJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code')
+        .innerJoin(
+          'core.territories as t',
+          't.territorial_siruta_code',
+          'e.territorial_siruta_code'
+        )
         .select([
           sql<string | null>`t.county_code`.as('county_code'),
           sql<string | null>`max(t.county_name)`.as('county_name'),
-          sql<string>`(sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric)::text`.as('amount'),
+          sql<string>`(sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric)::text`.as(
+            'amount'
+          ),
           sql<number | null>`sum(distinct t.population)`.as('population'),
           sql<string>`count(distinct mv.entity_cui)`.as('entity_count'),
         ])
-        .where(sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel} and t.county_code is not null`)
+        .where(
+          sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel} and t.county_code is not null`
+        )
         .groupBy('t.county_code')
         .orderBy(sql`sum(coalesce(mv.${sql.ref(col)},0)) desc nulls last`)
         .execute();
@@ -1028,7 +1211,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const hasType = fieldOf(q.filter, 'reportType') !== undefined;
     if (!hasEntity && !hasYear && !hasType) {
       return err(
-        invalidInput('reports require at least one of entityCui / reportingYear / reportType', 'filter')
+        invalidInput(
+          'reports require at least one of entityCui / reportingYear / reportType',
+          'filter'
+        )
       );
     }
     const built = toConditionBuilders(budgetReportFilterSpec, q.filter);
@@ -1111,7 +1297,12 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     codes?: readonly string[];
     limit: number;
   }): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>> =>
-    listClassificationDim('budget.functional_classifications', 'functional_code', 'functional_name', q);
+    listClassificationDim(
+      'budget.functional_classifications',
+      'functional_code',
+      'functional_name',
+      q
+    );
 
   const listEconomicClassifications = (q: {
     search?: string;
@@ -1137,11 +1328,18 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       const tableRef = sql.ref(table);
       const conds: RawBuilder<unknown>[] = [];
       if (q.codes !== undefined && q.codes.length > 0) {
-        conds.push(sql`${code} in (${sql.join(q.codes.map((c) => sql`${c}`), sql`, `)})`);
+        conds.push(
+          sql`${code} in (${sql.join(
+            q.codes.map((c) => sql`${c}`),
+            sql`, `
+          )})`
+        );
       }
       if (q.search !== undefined && q.search.trim() !== '') {
         const pattern = `%${q.search.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`;
-        conds.push(sql`(${code} ilike ${pattern} escape '\\' or ${name} ilike ${pattern} escape '\\')`);
+        conds.push(
+          sql`(${code} ilike ${pattern} escape '\\' or ${name} ilike ${pattern} escape '\\')`
+        );
       }
       const where = conds.length > 0 ? sql`where ${sql.join(conds, sql` and `)}` : sql``;
       const stmt = sql<{ code: string; name: string | null }>`
@@ -1155,9 +1353,16 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       const rows = result.rows;
       const caveats =
         rows.length === 0
-          ? ['budget classification catalog is not loaded; functional/economic names are available on fact rows']
+          ? [
+              'budget classification catalog is not loaded; functional/economic names are available on fact rows',
+            ]
           : [];
-      return ok({ items: rows.map(mapClassification), total: rows.length, estimated: false, caveats });
+      return ok({
+        items: rows.map(mapClassification),
+        total: rows.length,
+        estimated: false,
+        caveats,
+      });
     } catch (error) {
       return err(databaseError('listClassificationDim failed', error));
     }
@@ -1168,8 +1373,11 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     ids?: readonly number[];
   }): Promise<Result<readonly BudgetSector[], ApiError>> => {
     try {
-      let query = db.selectFrom('budget.budget_sectors as s').select(['s.sector_id', 's.sector_description']);
-      if (q.ids !== undefined && q.ids.length > 0) query = query.where('s.sector_id', 'in', [...q.ids]);
+      let query = db
+        .selectFrom('budget.budget_sectors as s')
+        .select(['s.sector_id', 's.sector_description']);
+      if (q.ids !== undefined && q.ids.length > 0)
+        query = query.where('s.sector_id', 'in', [...q.ids]);
       if (q.search !== undefined && q.search.trim() !== '') {
         const pattern = `%${q.search.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`;
         query = query.where(sql<SqlBool>`s.sector_description ilike ${pattern} escape '\\'`);
@@ -1185,11 +1393,17 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     search?: string;
     ids?: readonly number[];
   }): Promise<Result<readonly BudgetFundingSource[], ApiError>> => {
+    // Read the A1 compat view so `sourceId` is the CONVENTIONAL (phoenix) id, not
+    // the arbitrary stored identity id. `q.ids` are public ids (they match the
+    // view's `source_id`). The synthetic 0=Unknown row is excluded from the picker
+    // list (source_code null) — it exists only to resolve unresolved-fact filters.
     try {
       let query = db
-        .selectFrom('budget.funding_sources as fs')
-        .select(['fs.source_id', 'fs.source_code', 'fs.source_description']);
-      if (q.ids !== undefined && q.ids.length > 0) query = query.where('fs.source_id', 'in', [...q.ids]);
+        .selectFrom('budget.v_funding_sources_compat as fs')
+        .select(['fs.source_id', 'fs.source_code', 'fs.source_description'])
+        .where('fs.source_code', 'is not', null);
+      if (q.ids !== undefined && q.ids.length > 0)
+        query = query.where('fs.source_id', 'in', [...q.ids]);
       if (q.search !== undefined && q.search.trim() !== '') {
         const pattern = `%${q.search.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`;
         query = query.where(
@@ -1262,7 +1476,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
           items: [],
           total: 0,
           estimated: false,
-          caveats: ['budget-official execution bulletins not yet loaded; vs-execution comparison unavailable'],
+          caveats: [
+            'budget-official execution bulletins not yet loaded; vs-execution comparison unavailable',
+          ],
         });
       }
       const page = clamp(q.page, 1, 100000);
@@ -1313,7 +1529,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   // contributor support (§4.1)
   // ───────────────────────────────────────────────────────────────────────────
 
-  const profileSlice = async (rawCui: string): Promise<Result<BudgetProfileSlice | null, ApiError>> => {
+  const profileSlice = async (
+    rawCui: string
+  ): Promise<Result<BudgetProfileSlice | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     const asOfR = await asOf();
@@ -1339,7 +1557,8 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
           sql<string>`mv.budget_balance::text`.as('budget_balance'),
         ])
         .where('mv.entity_cui', '=', cui);
-      if (defaultReportType !== null) mvQuery = mvQuery.where('mv.report_type', '=', defaultReportType);
+      if (defaultReportType !== null)
+        mvQuery = mvQuery.where('mv.report_type', '=', defaultReportType);
       const mvRow = await mvQuery
         .where('mv.year', '<=', latestCompleteYear)
         .orderBy('mv.year', 'desc')
@@ -1437,7 +1656,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       'cli.is_yearly',
       'cli.anomaly',
     ] as const;
-    const metricCols = COMMIT_FACT_METRIC_COLUMNS.map((c) => sql<string | null>`cli.${sql.ref(c)}::text`.as(c));
+    const metricCols = COMMIT_FACT_METRIC_COLUMNS.map((c) =>
+      sql<string | null>`cli.${sql.ref(c)}::text`.as(c)
+    );
     return [...base, ...metricCols];
   }
 
@@ -1474,17 +1695,50 @@ const toCamel = (s: string): string => s.replace(/_([a-z])/gu, (_m, c: string) =
 
 /** All ytd/monthly/quarterly/latest commitment fact columns (in CommitmentRow order). */
 const COMMIT_FACT_METRIC_COLUMNS = [
-  'ytd_credite_angajament', 'monthly_credite_angajament', 'quarterly_credite_angajament', 'credite_angajament',
-  'ytd_limita_credit_angajament', 'monthly_limita_credit_angajament', 'quarterly_limita_credit_angajament', 'limita_credit_angajament',
-  'ytd_credite_bugetare', 'monthly_credite_bugetare', 'quarterly_credite_bugetare', 'credite_bugetare',
-  'ytd_credite_angajament_initiale', 'monthly_credite_angajament_initiale', 'quarterly_credite_angajament_initiale', 'credite_angajament_initiale',
-  'ytd_credite_bugetare_initiale', 'monthly_credite_bugetare_initiale', 'quarterly_credite_bugetare_initiale', 'credite_bugetare_initiale',
-  'ytd_credite_angajament_definitive', 'monthly_credite_angajament_definitive', 'quarterly_credite_angajament_definitive', 'credite_angajament_definitive',
-  'ytd_credite_bugetare_definitive', 'monthly_credite_bugetare_definitive', 'quarterly_credite_bugetare_definitive', 'credite_bugetare_definitive',
-  'ytd_receptii_totale', 'monthly_receptii_totale', 'quarterly_receptii_totale', 'receptii_totale',
-  'ytd_plati_trezor', 'monthly_plati_trezor', 'quarterly_plati_trezor', 'plati_trezor',
-  'ytd_plati_non_trezor', 'monthly_plati_non_trezor', 'quarterly_plati_non_trezor', 'plati_non_trezor',
-  'ytd_receptii_neplatite', 'monthly_receptii_neplatite', 'quarterly_receptii_neplatite', 'receptii_neplatite',
+  'ytd_credite_angajament',
+  'monthly_credite_angajament',
+  'quarterly_credite_angajament',
+  'credite_angajament',
+  'ytd_limita_credit_angajament',
+  'monthly_limita_credit_angajament',
+  'quarterly_limita_credit_angajament',
+  'limita_credit_angajament',
+  'ytd_credite_bugetare',
+  'monthly_credite_bugetare',
+  'quarterly_credite_bugetare',
+  'credite_bugetare',
+  'ytd_credite_angajament_initiale',
+  'monthly_credite_angajament_initiale',
+  'quarterly_credite_angajament_initiale',
+  'credite_angajament_initiale',
+  'ytd_credite_bugetare_initiale',
+  'monthly_credite_bugetare_initiale',
+  'quarterly_credite_bugetare_initiale',
+  'credite_bugetare_initiale',
+  'ytd_credite_angajament_definitive',
+  'monthly_credite_angajament_definitive',
+  'quarterly_credite_angajament_definitive',
+  'credite_angajament_definitive',
+  'ytd_credite_bugetare_definitive',
+  'monthly_credite_bugetare_definitive',
+  'quarterly_credite_bugetare_definitive',
+  'credite_bugetare_definitive',
+  'ytd_receptii_totale',
+  'monthly_receptii_totale',
+  'quarterly_receptii_totale',
+  'receptii_totale',
+  'ytd_plati_trezor',
+  'monthly_plati_trezor',
+  'quarterly_plati_trezor',
+  'plati_trezor',
+  'ytd_plati_non_trezor',
+  'monthly_plati_non_trezor',
+  'quarterly_plati_non_trezor',
+  'plati_non_trezor',
+  'ytd_receptii_neplatite',
+  'monthly_receptii_neplatite',
+  'quarterly_receptii_neplatite',
+  'receptii_neplatite',
 ] as const;
 
 /** Map a commitment MV summary row (camelCase metric fields) to the view model. */
@@ -1530,7 +1784,11 @@ const seriesPoint = (
         ? `${y}-Q${String(period ?? 0)}`
         : y;
   return {
-    period: { year, month: freq === 'MONTH' ? period : null, quarter: freq === 'QUARTER' ? period : null },
+    period: {
+      year,
+      month: freq === 'MONTH' ? period : null,
+      quarter: freq === 'QUARTER' ? period : null,
+    },
     periodLabel: label,
     amount,
   };
