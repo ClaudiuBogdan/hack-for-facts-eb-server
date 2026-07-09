@@ -24,9 +24,11 @@ import { normalizeCui,
   type MeiliClient,
   type OffsetParams } from '@/modules/shared/index.js';
 
+import { COMPANY_STATUS_NOMENCLATURE } from './filters.js';
 import { COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
   type CompanyCountyProfile,
+  type CompanyHubStats,
   type CompanyFinancials,
   type CompanyFinancialTrajectory,
   type CompanyFinancialYear,
@@ -418,6 +420,74 @@ export const makeCompanyCountyProfile = async (
     groups: res.value.groups,
     denominator: res.value.denominator,
     coverage: res.value.coverage,
+  });
+};
+
+// ── hub stats (the cached /companies landing aggregate) ───────────────────────
+
+/** ONRC lifecycle status meaning "in operation". The hub's `activeCompanies`. */
+const STATUS_ACTIVE = '1048';
+/** The repo's placeholder key for a NULL group value. Not a real county. */
+const GROUP_KEY_NONE = '(none)';
+const TOP_COUNTIES_CAP = 10;
+
+/** Core half of `CompanyHubStats` — everything but the shell-stamped `computedAt`. */
+export type CompanyHubStatsData = Omit<CompanyHubStats, 'computedAt'>;
+
+/**
+ * Compose the /companies hub aggregate from three `countBy` legs, SEQUENTIALLY.
+ *
+ * Sequential is deliberate (audit M7): each leg is a multi-second full-population
+ * scan, and firing them concurrently saturates the read pool for every other
+ * request. Total ≈30s — which is why only the cached provider ever calls this.
+ *
+ * Fail-fast: the first `err` wins; a partial hub is never returned (and never
+ * cached).
+ */
+export const makeCompanyHubStats = async (
+  deps: Pick<CompanyUsecaseDeps, 'repo'>
+): Promise<Result<CompanyHubStatsData, ApiError>> => {
+  const filterActive: FilterInput = { status: { eq: STATUS_ACTIVE } };
+  // Leg 1 — unfiltered STATUS. Legal without a driving predicate: the repo's
+  // aggregate gate applies to `groupBy=county` only. Its denominator IS the spine.
+  const statusRes = await deps.repo.countBy('status', {});
+  if (statusRes.isErr()) return err(statusRes.error);
+
+  // Leg 2 — COUNTY over the active population (`status` is a driving field).
+  const countyRes = await deps.repo.countBy('county', filterActive);
+  if (countyRes.isErr()) return err(countyRes.error);
+
+  // Leg 3 — CAEN_DIVISION over the active population. The 23.6s leg.
+  const caenRes = await deps.repo.countBy('caenDivision', filterActive);
+  if (caenRes.isErr()) return err(caenRes.error);
+
+  const statusMix = statusRes.value.groups.map((g) => ({
+    key: g.key,
+    // The registry label is authoritative; the nomenclature is the fallback for
+    // codes whose `onrc_lifecycle_status_label` is NULL in the source rows.
+    label: g.label ?? COMPANY_STATUS_NOMENCLATURE[g.key] ?? null,
+    count: g.count,
+  }));
+  const active = statusMix.find((g) => g.key === STATUS_ACTIVE);
+
+  const topCounties = countyRes.value.groups
+    .filter((g) => g.key !== GROUP_KEY_NONE)
+    .slice(0, TOP_COUNTIES_CAP);
+
+  // 239,950 `caen_profile` rows carry an EMPTY caen_code, so the repo's
+  // `left(caen_code, 2)` yields a '' key. An empty string is not a division —
+  // drop it, exactly as `(none)` is dropped from topCounties.
+  const caenDivisions = caenRes.value.groups.filter((g) => g.key.trim() !== '');
+
+  return ok({
+    totalCompanies: statusRes.value.denominator,
+    activeCompanies: active?.count ?? 0,
+    statusMix,
+    topCounties,
+    caenDivisions,
+    // The county leg's coverage: it describes the ACTIVE population that
+    // `topCounties` ranks. (The caenDivision leg reports null coverage by design.)
+    coverage: countyRes.value.coverage,
   });
 };
 

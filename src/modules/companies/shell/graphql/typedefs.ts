@@ -216,6 +216,24 @@ const objectsAndQuery = /* GraphQL */ `
     coverage: CompanyCoverage!
   }
 
+  "Landing aggregate for the /companies hub. SERVED FROM CACHE (6h TTL, stale-while-revalidate): the three underlying scans cost ~30s together, so this is never computed on a request path. computedAt is the instant the legs actually ran, which may be hours old."
+  type CompanyHubStats {
+    "Every company on the CUI spine."
+    totalCompanies: Int!
+    "Companies in ONRC lifecycle status 1048 (funcțiune)."
+    activeCompanies: Int!
+    "Full status breakdown, count-desc."
+    statusMix: [CompanyGroupCount!]!
+    "Top 10 counties among ACTIVE companies, count-desc. Excludes the (none) bucket — companies with no registry county; see coverage."
+    topCounties: [CompanyGroupCount!]!
+    "CAEN division breakdown among ACTIVE companies, count-desc. Every key is exactly 2 digits; the empty-code bucket is excluded."
+    caenDivisions: [CompanyGroupCount!]!
+    "Territory coverage of the ACTIVE population."
+    coverage: CompanyCoverage!
+    "ISO-8601 instant the legs were computed."
+    computedAt: String!
+  }
+
   "A lean company list row (the connection node). NOT the full Company profile — list pages never fan out the 8 per-CUI tables. Fetch the full Company via company(cui)."
   type CompanyListItem {
     cui: CUI!
@@ -263,6 +281,8 @@ const objectsAndQuery = /* GraphQL */ `
       filter: CompaniesFilter
       groupBy: CompanyGroupBy = COUNTY
     ): CompanyCountyProfile
+    "Cached landing aggregate for the /companies hub (totals, status mix, top counties, CAEN divisions). Nullable for per-field error isolation (audit H2)."
+    companyHubStats: CompanyHubStats
   }
 
   extend type Entity {

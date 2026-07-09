@@ -84,6 +84,15 @@ const LIST_TOTAL_CAP = 10_000;
 const NAME_FALLBACK_SCAN = 200;
 
 /**
+ * Per-statement budget for the `groupBy=caenDivision` aggregate ONLY. Measured at
+ * 23.6s on prod for the broadest realistic driver (`status.eq='1048'`, 1.72M
+ * companies) — over the 15s pool default, so the leg always aborted. 45s leaves
+ * headroom for a cold buffer cache. Callers must treat this grouping as an
+ * offline/cached answer, never an interactive one (see `companyHubStats`).
+ */
+const CAEN_DIVISION_TIMEOUT_MS = 45_000;
+
+/**
  * Romanian diacritic fold for SQL `translate()` — MUST mirror the kernel TS
  * `foldDiacritics` map (§15.7) so a TS-folded needle matches a SQL-folded column.
  * Both strings are exactly 14 chars (cedilla Ş/Ţ + comma-below Ș/Ț, upper+lower):
@@ -709,27 +718,35 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         // pass made the planner build the full o⋈r⋈f product before applying the
         // filter (~27s, past the statement timeout — the real cause of audit C1, NOT
         // the hypothesized alias bug). Materializing the filtered cui set (the IN
-        // caenCode filter resolves via the caen_code index, audit M8) keeps eq ~10s /
-        // broad-prefix ~13s. Count must be DISTINCT (a cui has many activities).
+        // caenCode filter resolves via the caen_code index, audit M8) keeps it the
+        // cheapest available plan. Count must be DISTINCT (a cui has many activities).
         // Territory coverage is NOT computed at the division grain (would re-introduce
         // distincts over the fan-out); it stays a county/status answer.
-        const rows = await sql<{ key: string; cnt: string }>`
-          with filtered as materialized (
-            select o.cui as cui
-            from core.organizations o
-            left join companies_v2.registrations r on r.cui = o.cui
-            left join companies_v2.fiscal_status f on f.cui = o.cui
-            where ${where}
-          )
-          select left(cad.caen_code, 2) as key, count(distinct fil.cui)::text as cnt
-          from filtered fil
-          inner join companies_v2.caen_profile cad on cad.cui = fil.cui
-          group by left(cad.caen_code, 2)
-          order by count(distinct fil.cui) desc
-          limit 500
-        `
-          .execute(db)
-          .then((r) => r.rows);
+        //
+        // Even on that plan this leg exceeds the 15s pool `statement_timeout`: measured
+        // 23.6s for `status.eq='1048'` (1.72M companies) on prod, 2026-07-09 — so it
+        // ALWAYS aborted with 57014 and this grouping was effectively dead. It runs in
+        // its own transaction with a `SET LOCAL` budget (precedent: legal
+        // retrieval-repo). The pool default is never raised — only this one statement.
+        const rows = await db.transaction().execute(async (trx) => {
+          await sql`set local statement_timeout = ${sql.lit(CAEN_DIVISION_TIMEOUT_MS)}`.execute(trx);
+          const r = await sql<{ key: string; cnt: string }>`
+            with filtered as materialized (
+              select o.cui as cui
+              from core.organizations o
+              left join companies_v2.registrations r on r.cui = o.cui
+              left join companies_v2.fiscal_status f on f.cui = o.cui
+              where ${where}
+            )
+            select left(cad.caen_code, 2) as key, count(distinct fil.cui)::text as cnt
+            from filtered fil
+            inner join companies_v2.caen_profile cad on cad.cui = fil.cui
+            group by left(cad.caen_code, 2)
+            order by count(distinct fil.cui) desc
+            limit 500
+          `.execute(trx);
+          return r.rows;
+        });
         groups = rows.map((r) => ({ key: r.key, label: null, count: Number(r.cnt) }));
         coverage = {
           territoryMatched: null,

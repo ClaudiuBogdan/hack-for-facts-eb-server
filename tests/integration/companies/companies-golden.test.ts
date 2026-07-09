@@ -424,4 +424,96 @@ d('Companies golden (live prod)', () => {
     expect(pm?.byYear.some((b) => b.year !== null)).toBe(true);
     expect(pm?.byFlowType.length).toBeGreaterThan(0);
   }, 25_000); // 3 concurrent flow aggregates on a 219k-flow payee, cold cache.
+
+  // ── companyHubStats (cached tri-surface aggregate) ──────────────────────────
+  //
+  // The first query pays the FULL cold compute: three sequential scans, ~30s
+  // (status ≈4.5s + county ≈1.9s + caenDivision ≈23.6s, measured 2026-07-09).
+  // Every later assertion in this block reads the same cached snapshot, so it is
+  // instant — which is itself the property under test.
+  // Every CompanyGroupCount field is selected so the GraphQL payload is structurally
+  // IDENTICAL to the MCP `item` (which carries the whole object) — the tri-surface
+  // equality below would otherwise trip on a merely unselected `label`.
+  const HUB_QUERY = `query{ companyHubStats {
+       totalCompanies activeCompanies computedAt
+       statusMix { key label count }
+       topCounties { key label count }
+       caenDivisions { key label count }
+       coverage { territoryMatched territoryUnmatched note }
+     } }`;
+
+  interface GroupCount {
+    key: string;
+    label: string | null;
+    count: number;
+  }
+  interface HubStats {
+    totalCompanies: number;
+    activeCompanies: number;
+    computedAt: string;
+    statusMix: GroupCount[];
+    topCounties: GroupCount[];
+    caenDivisions: GroupCount[];
+    coverage: { territoryMatched: number | null; territoryUnmatched: number | null; note: string };
+  }
+
+  const hub = async (): Promise<HubStats> => {
+    const res = await gql(HUB_QUERY);
+    expect(res.errors).toBeUndefined();
+    return (res.data as { companyHubStats: HubStats }).companyHubStats;
+  };
+
+  it('companyHubStats: totalCompanies == the raw spine count; Σ statusMix == total', async () => {
+    const s = await hub();
+    const raw = await pool.query<{ cnt: string }>(
+      `select count(*) cnt from core.organizations where kind='company'`
+    );
+    expect(s.totalCompanies).toBe(Number(raw.rows[0]?.cnt));
+    // Every company lands in exactly one status group → the mix sums to the total.
+    expect(s.statusMix.reduce((acc, g) => acc + g.count, 0)).toBe(s.totalCompanies);
+
+    // activeCompanies is exactly the 1048 group, and is a strict subset.
+    const active = s.statusMix.find((g) => g.key === '1048');
+    expect(s.activeCompanies).toBe(active?.count);
+    expect(s.activeCompanies).toBeGreaterThan(0);
+    expect(s.activeCompanies).toBeLessThan(s.totalCompanies);
+
+    // topCounties: ≤10, count-desc, and never the synthetic (none) bucket.
+    expect(s.topCounties.length).toBeLessThanOrEqual(10);
+    expect(s.topCounties.map((c) => c.key)).not.toContain('(none)');
+    const counts = s.topCounties.map((c) => c.count);
+    expect([...counts].sort((a, b) => b - a)).toEqual(counts);
+
+    // The CAEN division leg ran (it is the one that used to always time out).
+    expect(s.caenDivisions.length).toBeGreaterThan(0);
+    expect(s.caenDivisions.every((d) => d.key.length === 2)).toBe(true);
+
+    expect(Number.isNaN(Date.parse(s.computedAt))).toBe(false);
+  }, 120_000); // cold: the full ~30s compute, plus headroom for a cold buffer cache.
+
+  it('companyHubStats is cached: the second call is instant and identical', async () => {
+    const first = await hub();
+    const t0 = performance.now();
+    const second = await hub();
+    const ms = performance.now() - t0;
+    // Warm read off the in-process cache — nowhere near the ~30s compute.
+    expect(ms).toBeLessThan(1000);
+    // Same snapshot, not a recompute (computedAt is stamped once per TTL window).
+    expect(second).toEqual(first);
+  }, 120_000);
+
+  it('companyHubStats: the GraphQL payload equals the MCP structuredContent', async () => {
+    const g = await hub();
+    const mcp = (await mcpCall('company_hub_stats', {})) as {
+      ok: boolean;
+      item: HubStats;
+      meta: { totalCompanies: number; activeCompanies: number; computedAt: string };
+    };
+    expect(mcp.ok).toBe(true);
+    // ONE provider instance backs both surfaces → byte-identical values, incl. computedAt.
+    expect(mcp.item).toEqual(g);
+    expect(mcp.meta.totalCompanies).toBe(g.totalCompanies);
+    expect(mcp.meta.activeCompanies).toBe(g.activeCompanies);
+    expect(mcp.meta.computedAt).toBe(g.computedAt);
+  }, 120_000);
 });
