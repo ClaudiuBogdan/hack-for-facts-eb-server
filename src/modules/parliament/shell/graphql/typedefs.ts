@@ -46,12 +46,14 @@ import {
   memberSpeechesFilterSpec,
   memberVotesFilterSpec,
   membersFilterSpec,
+  parliamentSpeechesFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
 
 const votesFilter = toGraphQLInput(votesFilterSpec);
 const memberVotesFilter = toGraphQLInput(memberVotesFilterSpec);
 const memberSpeechesFilter = toGraphQLInput(memberSpeechesFilterSpec);
+const speechesFilter = toGraphQLInput(parliamentSpeechesFilterSpec);
 const membersFilter = toGraphQLInput(membersFilterSpec);
 const billsFilter = toGraphQLInput(billsFilterSpec);
 const controlFilter = toGraphQLInput(controlItemsFilterSpec);
@@ -302,6 +304,32 @@ const objectsAndQuery = /* GraphQL */ `
     availableYears: [Int!]!
   }
 
+  "The APPLIED depth of a global-speeches q search: TITLE_SUMMARY = title + summary only; FULL_TEXT = additionally the verbatim transcript (speech_texts.full_text). The connection/activity REPORTS what actually ran (the transcript table may be absent or the window too wide); null when no q was given."
+  enum ParliamentSpeechSearchDepth {
+    TITLE_SUMMARY
+    FULL_TEXT
+  }
+
+  type ParliamentSpeechEdge {
+    node: ParliamentSpeech!
+    cursor: String!
+  }
+  "Global speeches (stenograme; keyset spokenAt desc, speechKey desc). total is the count over the filtered/searched slice, CAPPED at 10,000 — totalEstimated:true means the real total exceeds the cap. searchDepth reports the APPLIED q depth (null when no q)."
+  type ParliamentSpeechConnection {
+    edges: [ParliamentSpeechEdge!]!
+    pageInfo: PageInfo!
+    total: Int!
+    totalEstimated: Boolean!
+    searchDepth: ParliamentSpeechSearchDepth
+  }
+  "Global per-day speech activity for one year (day shape shared with the member heatmap: proprie + comun = total). availableYears is every year with any (filtered) turn, NOT bounded by the requested year. searchDepth reports the APPLIED q depth (null when no q)."
+  type ParliamentSpeechActivity {
+    year: Int!
+    days: [ParliamentMemberSpeechActivityDay!]!
+    availableYears: [Int!]!
+    searchDepth: ParliamentSpeechSearchDepth
+  }
+
   type ParliamentBillEvent {
     position: Int!
     "Event date; null for ~56% of cdep procedural/committee rows whose source row carries no date (absent at source, NOT a parse gap — M6). Position ordering is always intact, so use position for chronology when eventDate is null."
@@ -404,11 +432,17 @@ const objectsAndQuery = /* GraphQL */ `
     title: String
     summary: String
     chamber: String
+    "Raw source speaker name (as printed in the stenogram). Present even when the speaker could not be matched to a mandate (PM, guests, unmatched names)."
+    speakerName: String
+    "Speaker mandate key; null for speakers without a parliamentary mandate match (PM, guests, unmatched speakers) — those turns are real data and ARE served."
+    mandateKey: ID
+    "The resolved member (lazy — one lookup, only when selected). null when mandateKey is null."
+    member: ParliamentMember
     "Link back to the source stenogram. See sourceUrlKind for how precisely it locates this turn."
     sourceUrl: String
     "'exact' → deep-links this turn (safe to present as an authoritative link). 'lossy_root' → resolves only to the sitting/section root (Senate stenograms carry no per-turn anchor); do NOT present as an exact deep-link to this speech."
     sourceUrlKind: String
-    "Verbatim transcript text (parliament.speech_texts). Resolved lazily — only fetched when selected — and null when the transcript is not yet loaded for this turn."
+    "Verbatim transcript text (parliament.speech_texts). Resolved lazily — only fetched when selected — and null when the transcript is not yet loaded for this turn. Transcript coverage is PARTIAL (a parallel backfill): a null fullText means 'not loaded', not 'no speech'."
     fullText: String
   }
   type ParliamentInitiative {
@@ -693,6 +727,22 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int
       after: String
     ): ParliamentControlItemConnection
+    "Global speeches — stenograme (cursor; keyset spokenAt desc). BOUNDEDNESS: requires a mandateKey bound (1 to 20 values) OR a fully-bounded spokenAt window (from AND to, at most 366 days) — there is no date index on speeches, so an unbounded list returns an INVALID_INPUT error in errors[] (this field null), never a silent default. q searches title + summary and — when EXACTLY ONE mandateKey is bound OR the window is at most 92 days, AND transcripts are loaded — the verbatim transcript; connection.searchDepth reports the depth that ACTUALLY ran. total is capped at 10,000 (totalEstimated). Quarantined/non-public rows are never served; NULL-mandate turns (PM, guests, unmatched speakers) ARE included. Transcript (fullText) coverage is partial."
+    parliamentSpeeches(
+      filter: ParliamentSpeechesFilter
+      "Free-text substring (case-insensitive, diacritic-sensitive) over title + summary + (depth permitting) the verbatim transcript. Part of the cursor identity: a cursor minted under one q cannot replay under another."
+      q: String
+      first: Int
+      after: String
+    ): ParliamentSpeechConnection
+    "Global per-day speech activity for one calendar year (drives the stenograme heatmap). Same filter + q semantics as parliamentSpeeches, EXCEPT: a spokenAt inside filter is rejected (the year argument bounds the range), and q runs at FULL_TEXT depth only under EXACTLY ONE mandateKey (the year window is wider than the 92-day full-text cap). availableYears is not bounded by the year argument."
+    parliamentSpeechActivity(
+      year: Int!
+      filter: ParliamentSpeechesFilter
+      q: String
+    ): ParliamentSpeechActivity
+    "One speech by key (deep link). Returns null for an unknown key AND for a quarantined/non-public row (never leaks via deep link). fullText resolves lazily; null fullText means the transcript is not loaded yet (partial coverage), not that the speech is empty."
+    parliamentSpeech(speechKey: ID!): ParliamentSpeech
     "Marquee: act → bills → final votes → ballots. roles default to final_adoption,final_rejection; pass specific roles (e.g. [amendment, procedural]) or roles:[all] to widen to every linked vote. bill.voteLinks is UNFILTERED, so by default the two views differ — lineage.caveats reports how many non-default linked votes were omitted so they reconcile."
     parliamentActLineage(
       actId: ID!
@@ -738,4 +788,4 @@ const objectsAndQuery = /* GraphQL */ `
   }
 `;
 
-export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
+export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${speechesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;

@@ -326,6 +326,17 @@ export interface ParliamentSpeech {
   readonly fullText?: string | null;
 }
 
+/**
+ * The APPLIED depth of a global-speeches `q` search (the connection REPORTS what
+ * actually ran, so a client can tell a title-only hit set from a transcript-deep
+ * one): TITLE_SUMMARY = ILIKE over title + summary only; FULL_TEXT = additionally
+ * the EXISTS over `parliament.speech_texts.full_text`. null when no `q` was given.
+ * The applied depth is folded into the cursor fhash — a probe flip mid-pagination
+ * invalidates the cursor with the clean "restart pagination" error.
+ */
+export const SPEECH_SEARCH_DEPTHS = ['TITLE_SUMMARY', 'FULL_TEXT'] as const;
+export type ParliamentSpeechSearchDepth = (typeof SPEECH_SEARCH_DEPTHS)[number];
+
 /** One calendar day of a member's speeches (the activity-heatmap cell). */
 export interface ParliamentMemberSpeechActivityDay {
   readonly date: string; // YYYY-MM-DD
@@ -341,6 +352,19 @@ export interface ParliamentMemberSpeechActivity {
   readonly year: number;
   readonly days: readonly ParliamentMemberSpeechActivityDay[];
   readonly availableYears: readonly number[];
+}
+
+/**
+ * Global (unparented) per-day speech activity for one year. Reuses the member
+ * activity day shape (date/proprie/comun/total). `availableYears` is every year
+ * with any (filtered) turn — NOT bounded by the requested year. `searchDepth`
+ * reports the APPLIED `q` depth (null when no q), like the speeches connection.
+ */
+export interface ParliamentSpeechActivity {
+  readonly year: number;
+  readonly days: readonly ParliamentMemberSpeechActivityDay[];
+  readonly availableYears: readonly number[];
+  readonly searchDepth: ParliamentSpeechSearchDepth | null;
 }
 
 /** Declaration metadata ONLY — never content; `fileHash` excluded (§2.6). */

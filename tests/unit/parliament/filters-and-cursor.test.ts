@@ -14,6 +14,8 @@ import {
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
+  parliamentSpeechesFhash,
+  parliamentSpeechesFilterSpec,
   votesFilterSpec,
 } from '@/modules/parliament/index.js';
 import {
@@ -223,6 +225,102 @@ describe('memberSpeeches filter spec — derivation + conditions', () => {
     const r = toConditionBuilders(memberSpeechesFilterSpec, { chamber: { in: [] } });
     expect(r.isOk()).toBe(true);
     if (r.isOk()) expect(r.value).toHaveLength(1);
+  });
+});
+
+describe('parliamentSpeeches filter spec — derivation + conditions (global stenograme)', () => {
+  it('derives a GraphQL input block with spokenAt/chamber/mandateKey and NO q field', () => {
+    const sdl = toGraphQLInput(parliamentSpeechesFilterSpec);
+    expect(sdl).toContain('input ParliamentSpeechesFilter');
+    expect(sdl).toContain('spokenAt:');
+    expect(sdl).toContain('chamber:');
+    expect(sdl).toContain('mandateKey:');
+    expect(sdl).toContain('ParliamentSpeechesSpokenAtRange');
+    // q is a repo-intercepted GraphQL argument, NOT a spec field (a spec-level q
+    // would generate an input field the physical extraction silently ignores).
+    expect(parliamentSpeechesFilterSpec.fields.map((f) => f.name)).toEqual([
+      'spokenAt',
+      'chamber',
+      'mandateKey',
+    ]);
+  });
+
+  it('has NO virtual fields (every field compiles to SQL)', () => {
+    expect(parliamentSpeechesFilterSpec.fields.some((f) => f.virtual === true)).toBe(false);
+  });
+
+  it('compiles the physical fields (an unknown q key is ignored by the composer)', () => {
+    const rq = toConditionBuilders(parliamentSpeechesFilterSpec, { q: { contains: 'lege' } });
+    expect(rq.isOk()).toBe(true);
+    if (rq.isOk()) expect(rq.value).toHaveLength(0);
+    const rp = toConditionBuilders(parliamentSpeechesFilterSpec, {
+      mandateKey: { eq: '2:2020:12' },
+      chamber: { in: ['comun', 'senat'] },
+      spokenAt: { between: { from: '2025-01-01', to: '2025-12-31' } },
+    });
+    expect(rp.isOk()).toBe(true);
+    if (rp.isOk()) expect(rp.value).toHaveLength(3);
+  });
+
+  it('rejects an out-of-enum chamber value (InvalidInput)', () => {
+    const r = toConditionBuilders(parliamentSpeechesFilterSpec, { chamber: { eq: 'plen' } });
+    expect(r.isErr()).toBe(true);
+  });
+
+  it('an explicit empty {mandateKey:{in:[]}} still emits exactly 1 (match-none) condition (#60h)', () => {
+    const r = toConditionBuilders(parliamentSpeechesFilterSpec, { mandateKey: { in: [] } });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).toHaveLength(1);
+  });
+});
+
+describe('parliamentSpeechesFhash — filter + q + APPLIED-depth binding', () => {
+  it('varies by filter, q, and depth', () => {
+    const filter = { spokenAt: { between: { from: '2025-01-01', to: '2025-03-31' } } };
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
+      parliamentSpeechesFhash({ chamber: { eq: 'senat' } }, 'lege', 'TITLE_SUMMARY')
+    );
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
+      parliamentSpeechesFhash(filter, 'buget', 'TITLE_SUMMARY')
+    );
+    // A probe flip mid-pagination (TITLE_SUMMARY ↔ FULL_TEXT) forks the fhash, so
+    // in-flight cursors are invalidated with the clean "restart pagination" error.
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
+      parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT')
+    );
+    // no-q uses the 'none' depth token and differs from any q-bearing hash.
+    expect(parliamentSpeechesFhash(filter, undefined, 'none')).not.toEqual(
+      parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')
+    );
+  });
+
+  it('is stable under filter key reordering (canonicalization)', () => {
+    const a = parliamentSpeechesFhash(
+      { chamber: { eq: 'senat' }, spokenAt: { gte: '2025-01-01', lte: '2025-03-31' } },
+      'lege',
+      'FULL_TEXT'
+    );
+    const b = parliamentSpeechesFhash(
+      { spokenAt: { lte: '2025-03-31', gte: '2025-01-01' }, chamber: { eq: 'senat' } },
+      'lege',
+      'FULL_TEXT'
+    );
+    expect(a).toEqual(b);
+  });
+
+  it('rejects a cursor encoded under depth A, decoded under depth B (probe flip)', () => {
+    const filter = { spokenAt: { between: { from: '2025-01-01', to: '2025-03-31' } } };
+    const fhashA = parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT');
+    const fhashB = parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY');
+    const cursor = buildNextCursor({
+      sort: 'spokenAt',
+      dir: 'desc',
+      fhash: fhashA,
+      lastKeys: ['2025-02-01', 'senat:123'],
+    });
+    const dec = decodeCursor(cursor, { sort: 'spokenAt', dir: 'desc', fhash: fhashB });
+    expect(dec.isErr()).toBe(true);
+    if (dec.isErr()) expect(dec.error.type).toBe('InvalidInput');
   });
 });
 

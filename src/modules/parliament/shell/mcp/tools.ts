@@ -11,17 +11,19 @@ import {
   PARLIAMENT_MCP_KINDS,
   rankParliamentVoteCohesionInput,
   resolveParliamentFiltersInput,
+  searchParliamentSpeechesInput,
 } from './io.js';
 import {
   getLineageForAct,
   getMemberActivityBundle,
+  listParliamentSpeeches,
   rankVoteCohesion,
   resolveFilters,
   type ParliamentUsecaseDeps,
 } from '../../core/usecases.js';
 
 import type { MemberActivityKind, ParliamentResolveDim } from '../../core/types.js';
-import type { KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
+import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
 export interface ParliamentMcpDeps extends ParliamentUsecaseDeps {
   readonly clientBaseUrl: string;
@@ -186,5 +188,60 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
     },
   };
 
-  return [resolveTool, lineageTool, activityTool, cohesionTool];
+  const speechesTool: KernelMcpTool = {
+    name: 'search_parliament_speeches',
+    description:
+      'Global parliamentary speeches (stenograme): filter by speaker mandateKey, chamber and/or a spoken-at date window, with optional free-text q over title + summary (+ the verbatim transcript when mandate-bound or the window is at most 92 days). BOUNDEDNESS: pass a mandateKey OR both from and to (at most 366 days apart) — an unbounded call is refused. Resolve a person → mandateKey first via resolve_parliament_filters / get_parliament_member_activity.',
+    inputShape: searchParliamentSpeechesInput,
+    async handler(args): Promise<McpToolOutput> {
+      const q = strArg(args, 'q');
+      const mandateKey = strArg(args, 'mandateKey');
+      const chamber = strArg(args, 'chamber');
+      const from = strArg(args, 'from');
+      const to = strArg(args, 'to');
+      const after = strArg(args, 'after');
+      const limit = Math.min(Math.max(intArg(args, 'limit', 20), 1), 100);
+      // Build the SAME FilterInput shape the GraphQL root takes; guard errors
+      // (unbounded, bad dates, q too long, bad cursor) surface in-band as {ok:false, error}.
+      const filter: FilterInput = {
+        ...(mandateKey !== undefined && { mandateKey: { eq: mandateKey } }),
+        ...(chamber !== undefined && { chamber: { eq: chamber } }),
+        ...((from !== undefined || to !== undefined) && {
+          spokenAt: { ...(from !== undefined && { gte: from }), ...(to !== undefined && { lte: to }) },
+        }),
+      };
+      const res = await listParliamentSpeeches(deps, {
+        filter,
+        page: { first: limit, ...(after !== undefined && { after }) },
+        q,
+      });
+      if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.speeches, res.error.message);
+      const page = res.value;
+      const count = page.totalEstimated ? '≥10000' : n(page.total);
+      const depthWords =
+        page.searchDepth === null
+          ? ''
+          : page.searchDepth === 'FULL_TEXT'
+            ? '; q searched title + summary + verbatim transcript'
+            : '; q searched title + summary only (transcript depth needs a single mandateKey or a window of at most 92 days)';
+      return {
+        ok: true,
+        kind: PARLIAMENT_MCP_KINDS.speeches,
+        query: { q, mandateKey, chamber, from, to, limit },
+        link: `${clientBaseUrl}/parlament/stenograme`,
+        items: page.items,
+        meta: {
+          total: page.total,
+          totalEstimated: page.totalEstimated,
+          searchDepth: page.searchDepth,
+          hasNextPage: page.next !== null,
+          // Replay via the `after` input (same query args) to fetch older matches.
+          nextCursor: page.next,
+        },
+        summary: `${count} speech(es); showing ${n(page.items.length)}${depthWords}.`,
+      };
+    },
+  };
+
+  return [resolveTool, lineageTool, activityTool, cohesionTool, speechesTool];
 };

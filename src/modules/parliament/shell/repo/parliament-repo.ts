@@ -87,6 +87,8 @@ import {
   type ParliamentPerson,
   type ParliamentPersonCandidate,
   type ParliamentSpeech,
+  type ParliamentSpeechActivity,
+  type ParliamentSpeechSearchDepth,
   type ParliamentVote,
   type ParliamentVoteGroupBreakdown,
 } from '../../core/types.js';
@@ -100,6 +102,8 @@ import {
   memberVotesFhash,
   memberVotesFilterSpec,
   membersFilterSpec,
+  parliamentSpeechesFhash,
+  parliamentSpeechesFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
 
@@ -1688,6 +1692,215 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  // ── global speeches (stenograme; NO date index — the usecase bound guard is the
+  //    ONLY thing keeping an unparented scan window-bounded) ──────────────────────
+
+  /**
+   * Shared WHERE for every GLOBAL speech surface: the physical spec conditions
+   * (spokenAt/chamber/mandateKey) + the two privacy predicates. Quarantined rows
+   * and non-public privacy classes are NEVER served globally (§2.6);
+   * `coalesce(privacy_class,'public')` keeps legacy NULL rows (public by loader
+   * convention) visible. NULL-mandate turns are INCLUDED — they are real data.
+   */
+  const buildGlobalSpeechConditions = (
+    filter: FilterInput
+  ): Result<RawBuilder<unknown>[], ApiError> => {
+    const physical: Record<string, unknown> = {};
+    for (const key of ['spokenAt', 'chamber', 'mandateKey'] as const) {
+      // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN
+      // arrive as null at runtime — skip it (treat null as absent).
+      const v: unknown = filter[key];
+      if (v !== undefined && v !== null) physical[key] = v;
+    }
+    const built = toConditionBuilders(parliamentSpeechesFilterSpec, physical as FilterInput);
+    if (built.isErr()) return err(built.error);
+    return ok([
+      ...built.value,
+      sql`s.quarantined = false`, // §2.6 — quarantined excluded on every global surface
+      sql`coalesce(s.privacy_class, 'public') = 'public'`,
+    ]);
+  };
+
+  const listSpeeches = async (
+    page: CursorPageRequest,
+    filter: FilterInput,
+    q: string | undefined,
+    wantFullText: boolean
+  ): Promise<
+    Result<
+      CursorPage<ParliamentSpeech> & {
+        total: number;
+        totalEstimated: boolean;
+        searchDepth: ParliamentSpeechSearchDepth | null;
+      },
+      ApiError
+    >
+  > => {
+    const limit = Math.min(Math.max(page.first, 1), 100);
+    // APPLIED depth = the usecase's decision ∩ the live speech_texts probe; the
+    // fhash folds it in so a probe flip mid-pagination invalidates cursors cleanly.
+    const searchDepth: ParliamentSpeechSearchDepth | null =
+      q !== undefined && q !== ''
+        ? wantFullText && (await speechTextsExists())
+          ? 'FULL_TEXT'
+          : 'TITLE_SUMMARY'
+        : null;
+    const fhash = parliamentSpeechesFhash(filter, q, searchDepth ?? 'none');
+    const condsRes = buildGlobalSpeechConditions(filter);
+    if (condsRes.isErr()) return err(condsRes.error);
+    // baseConds = the FILTERED global slice (drives the capped total); the keyset
+    // predicate is added ON TOP for the page but MUST NOT touch the count.
+    const baseConds = condsRes.value;
+    if (q !== undefined && q !== '') {
+      baseConds.push(speechSearchPredicate(q, searchDepth === 'FULL_TEXT'));
+    }
+
+    // Keyset on (spoken_at, speech_key), both DESC — identical in shape to
+    // listMemberSpeechesCursor: coalesce NULL date → '' in BOTH the ORDER BY and
+    // the tuple predicate so a NULL-date turn sorts LAST and pagination never
+    // skips/duplicates at the null boundary.
+    const dateKey = sql`coalesce(s.spoken_at::text, '')`;
+    const pageConds = [...baseConds];
+    if (page.after !== undefined) {
+      const dec = decodeCursor(page.after, { sort: 'spokenAt', dir: 'desc', fhash });
+      if (dec.isErr()) return err(dec.error);
+      const keys = requireCursorKeys(dec.value.keys, 2);
+      if (keys.isErr()) return err(keys.error);
+      const [kDate, kKey] = keys.value;
+      pageConds.push(sql`(${dateKey}, s.speech_key) < (${kDate ?? ''}, ${kKey ?? ''})`);
+    }
+    try {
+      // Capped count (the listBills pattern): count(*) over a LIMIT cap+1 subselect,
+      // in the same Promise.all as the page query.
+      const [rows, countRow] = await Promise.all([
+        db
+          .selectFrom('parliament.speeches as s')
+          .select(SPEECH_SELECT)
+          .where(composeWhere(pageConds))
+          .orderBy(sql`${dateKey} desc, s.speech_key desc`)
+          .limit(limit + 1)
+          .execute(),
+        db
+          .selectFrom(
+            db
+              .selectFrom('parliament.speeches as s')
+              .select(sql<number>`1`.as('one'))
+              .where(composeWhere(baseConds))
+              .limit(LIST_TOTAL_CAP + 1)
+              .as('capped')
+          )
+          .select(sql<string>`count(*)`.as('cnt'))
+          .executeTakeFirst(),
+      ]);
+      const hasMore = rows.length > limit;
+      const sliced = hasMore ? rows.slice(0, limit) : rows;
+      const items = sliced.map(mapSpeech);
+      const last = sliced[sliced.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({
+              sort: 'spokenAt',
+              dir: 'desc',
+              fhash,
+              lastKeys: [last.spoken_at ?? '', last.speech_key],
+            })
+          : null;
+      const rawCount = Number(countRow?.cnt ?? 0);
+      const totalEstimated = rawCount > LIST_TOTAL_CAP;
+      return ok({
+        items,
+        next,
+        total: totalEstimated ? LIST_TOTAL_CAP : rawCount,
+        totalEstimated,
+        searchDepth,
+      });
+    } catch (e) {
+      return err(databaseError('listSpeeches failed', e));
+    }
+  };
+
+  const speechActivity = async (
+    year: number,
+    filter: FilterInput,
+    q: string | undefined,
+    wantFullText: boolean
+  ): Promise<Result<ParliamentSpeechActivity, ApiError>> => {
+    // Mirrors memberSpeechActivity minus the mandate parent: per-day counts within
+    // the year window + availableYears (distinct years over the filtered base, NOT
+    // year-bounded — a sequential pass, no date index; the usecase's year argument
+    // bounds only the per-day query).
+    const searchDepth: ParliamentSpeechSearchDepth | null =
+      q !== undefined && q !== ''
+        ? wantFullText && (await speechTextsExists())
+          ? 'FULL_TEXT'
+          : 'TITLE_SUMMARY'
+        : null;
+    const condsRes = buildGlobalSpeechConditions(filter);
+    if (condsRes.isErr()) return err(condsRes.error);
+    const baseConds = condsRes.value;
+    if (q !== undefined && q !== '') {
+      baseConds.push(speechSearchPredicate(q, searchDepth === 'FULL_TEXT'));
+    }
+    const yearStart = `${String(year)}-01-01`;
+    const yearEnd = `${String(year)}-12-31`;
+    const daysWhere = composeWhere([
+      ...baseConds,
+      sql`s.spoken_at >= ${yearStart}`,
+      sql`s.spoken_at <= ${yearEnd}`,
+    ]);
+    const yearsWhere = composeWhere([...baseConds, sql`s.spoken_at is not null`]);
+    try {
+      const [dayRows, yearRows] = await Promise.all([
+        db
+          .selectFrom('parliament.speeches as s')
+          .select([
+            sql<string>`s.spoken_at::text`.as('date'),
+            sql<string>`count(*)`.as('total'),
+            sql<string>`count(*) filter (where s.chamber = 'comun')`.as('comun'),
+          ])
+          .where(daysWhere)
+          .groupBy('s.spoken_at')
+          .orderBy('s.spoken_at', 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.speeches as s')
+          .select(sql<number>`extract(year from s.spoken_at)::int`.as('year'))
+          .distinct()
+          .where(yearsWhere)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+      ]);
+      const days = dayRows.map((r) => {
+        const total = Number(r.total);
+        const comun = Number(r.comun);
+        return { date: r.date, total, proprie: total - comun, comun };
+      });
+      return ok({ year, days, availableYears: yearRows.map((r) => r.year), searchDepth });
+    } catch (e) {
+      return err(databaseError('speechActivity failed', e));
+    }
+  };
+
+  const findSpeech = async (
+    speechKey: string
+  ): Promise<Result<ParliamentSpeech | null, ApiError>> => {
+    // speeches_pkey point read, with the SAME global privacy predicates as the list
+    // — a quarantined/non-public row resolves null, never leaks via deep link.
+    try {
+      const row = await db
+        .selectFrom('parliament.speeches as s')
+        .select(SPEECH_SELECT)
+        .where('s.speech_key', '=', speechKey)
+        .where(sql<SqlBool>`s.quarantined = false`)
+        .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
+        .limit(1)
+        .executeTakeFirst();
+      return ok(row === undefined ? null : mapSpeech(row));
+    } catch (e) {
+      return err(databaseError('findSpeech failed', e));
+    }
+  };
+
   const listMemberInitiatives = (mandateKey: string, page: OffsetParams) =>
     offsetActivity<ParliamentInitiative>(
       'listMemberInitiatives',
@@ -2456,6 +2669,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     listMemberSpeechesCursor,
     memberSpeechActivity,
     getSpeechFullText,
+    listSpeeches,
+    speechActivity,
+    findSpeech,
     listMemberInitiatives,
     listMemberDeclarations,
     listControlItems,

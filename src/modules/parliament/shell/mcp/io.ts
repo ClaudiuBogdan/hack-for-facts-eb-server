@@ -5,11 +5,12 @@
  * kernel `{ ok, kind, query?, link?, item|items?, summary? }` object. Naming
  * `<verb>_parliament_<noun>` (§6.3). NEVER emits excluded columns (§2.6).
  *
- * Four tools (discovery + query families, §6.3):
+ * Five tools (discovery + query families, §6.3):
  *   resolve_parliament_filters   (discovery) → kind 'resolution'
  *   get_parliament_law_lineage   (marquee)   → kind 'lineage'
  *   get_parliament_member_activity           → kind 'member_activity'
  *   rank_parliament_vote_cohesion            → kind 'cohesion'
+ *   search_parliament_speeches               → kind 'speeches'
  */
 
 import { z } from 'zod';
@@ -19,6 +20,7 @@ export const PARLIAMENT_MCP_KINDS = {
   lineage: 'lineage',
   memberActivity: 'member_activity',
   cohesion: 'cohesion',
+  speeches: 'speeches',
 } as const;
 
 export const resolveParliamentFiltersInput = {
@@ -57,6 +59,46 @@ export const getParliamentMemberActivityInput = {
     .optional()
     .describe('Which activity kinds to return (default all four).'),
   limit: z.number().int().min(1).max(100).optional().describe('Max items per kind (default 20).'),
+};
+
+/**
+ * Same boundedness contract as the GraphQL `parliamentSpeeches` root (tri-surface
+ * equivalence): the tool calls the SAME `listParliamentSpeeches` usecase, so an
+ * unbounded call returns an in-band `{ok:false, error}` — never a silent default.
+ */
+export const searchParliamentSpeechesInput = {
+  q: z
+    .string()
+    .optional()
+    .describe(
+      'Free-text substring (case-insensitive, diacritic-sensitive) over speech title + summary; with a mandateKey (or a window of at most 92 days) it also searches the verbatim transcript. Does NOT bound the scan by itself.'
+    ),
+  mandateKey: z
+    .string()
+    .optional()
+    .describe(
+      'Speaker mandate key (e.g. 2:2020:12). BOUNDS the query — required unless BOTH from and to are given.'
+    ),
+  chamber: z
+    .enum(['camera_deputatilor', 'senat', 'comun'])
+    .optional()
+    .describe(
+      'Assembly of the sitting (comun = a joint sitting). Does NOT bound the scan by itself.'
+    ),
+  from: z
+    .string()
+    .optional()
+    .describe(
+      'Window start date (YYYY-MM-DD). Without a mandateKey the tool REQUIRES both from and to, at most 366 days apart (at most 92 days for transcript-deep q search).'
+    ),
+  to: z.string().optional().describe('Window end date (YYYY-MM-DD), inclusive. See from.'),
+  limit: z.number().int().min(1).max(100).optional().describe('Max speeches (default 20).'),
+  after: z
+    .string()
+    .optional()
+    .describe(
+      'Opaque pagination cursor from a previous call (meta.nextCursor). MUST be replayed with the SAME q/mandateKey/chamber/from/to — a changed query invalidates the cursor.'
+    ),
 };
 
 export const rankParliamentVoteCohesionInput = {
