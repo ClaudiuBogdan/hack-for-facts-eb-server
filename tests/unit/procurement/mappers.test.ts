@@ -15,7 +15,8 @@ import {
 } from '@/modules/procurement/shell/repo/mappers.js';
 
 const baseContract = {
-  contract_id: '1', contract_key: 'k', procedure_id: null, notice_no: null, contract_no: null,
+  contract_id: '1', contract_key: 'k', source_system: 'seap_contracts', source_url: null,
+  procedure_id: null, notice_no: null, contract_no: null,
   contract_date: '2024-05-01', title: 't', authority_cui: '4305857', authority_name: 'A',
   supplier_cui: '123', supplier_name: 'S', cpv_code: '45230000', value_ron: '1000.00',
   estimated_value_ron: null, currency: null, status: 'awarded', county_name: 'CJ',
@@ -49,9 +50,26 @@ describe('currency → {isRon, valueSuspect} boundary (F1/F7)', () => {
     expect(c.isRon).toBe(true);
     expect(c.valueSuspect).toBe(false);
   });
-  it('never exposes the raw currency token', () => {
-    const c = mapContract({ ...baseContract, currency: 'EUR', value_ron: null }) as unknown as Record<string, unknown>;
-    expect('currency' in c).toBe(false);
+  it('exposes RON for a RON row', () => {
+    expect(mapContract({ ...baseContract, currency: null, value_ron: '1000.00' }).currency).toBe('RON');
+    expect(mapContract({ ...baseContract, currency: 'ron', value_ron: '1000.00' }).currency).toBe('RON');
+  });
+  it('exposes a real ISO-like token, uppercased', () => {
+    expect(mapContract({ ...baseContract, currency: 'eur', value_ron: null }).currency).toBe('EUR');
+  });
+  it('NEVER leaks the garbage tail: a non-ISO token degrades to null', () => {
+    // ~2.6k live rows hold CPV codes / bare amounts in the repurposed column.
+    expect(mapContract({ ...baseContract, currency: '44113620-7', value_ron: null }).currency).toBeNull();
+    expect(mapContract({ ...baseContract, currency: '15000', value_ron: null }).currency).toBeNull();
+    expect(mapContract({ ...baseContract, currency: 'EURO', value_ron: null }).currency).toBeNull();
+  });
+});
+
+describe('sourceSystem / sourceUrl passthrough', () => {
+  it('carries the source columns onto the view model', () => {
+    const c = mapContract({ ...baseContract, source_system: 'elicitatie_ca_award', source_url: 'https://x/y' });
+    expect(c.sourceSystem).toBe('elicitatie_ca_award');
+    expect(c.sourceUrl).toBe('https://x/y');
   });
 });
 
@@ -73,7 +91,7 @@ describe('status coercion (unknown live token → closed-enum fallback)', () => 
   });
   it('DA source_system coercion', () => {
     const da = mapDirectAcquisition({
-      da_id: '1', da_key: 'k', source_system: 'elicitatie_da', unique_code: null, title: null,
+      da_id: '1', da_key: 'k', source_system: 'elicitatie_da', source_url: null, unique_code: null, title: null,
       authority_cui: null, authority_name: null, supplier_cui: null, supplier_name: null,
       cpv_code: null, currency: null, value_ron: null, estimated_value_ron: null,
       status: 'finalized', county_name: null, publication_date: null, finalization_date: '2024-01-01',
@@ -86,7 +104,7 @@ describe('status coercion (unknown live token → closed-enum fallback)', () => 
 
 describe('modification deltaPct (PC-8)', () => {
   const base = {
-    modification_id: '1', contract_id: '9', link_method: 'notice_no', link_confidence: 0.9,
+    modification_id: '1', contract_id: '9', source_url: null, link_method: 'notice_no', link_confidence: 0.9,
     authority_cui: null, supplier_cui: null, contract_no: null, notice_no: null,
     modification_date: '2024-01-01', value_before_ron: '100.00', value_after_ron: '150.00',
     value_delta_ron: '50.00', modification_type: null, year: 2024,
@@ -108,7 +126,8 @@ describe('modification deltaPct (PC-8)', () => {
 
 describe('procedure currency flag uses awarded ?? estimated value', () => {
   const base = {
-    procedure_id: '1', notice_no: null, notice_kind: null, procedure_type: null, contract_kind: null,
+    procedure_id: '1', source_system: 'seap_notice', source_url: null,
+    notice_no: null, notice_kind: null, procedure_type: null, contract_kind: null,
     title: null, authority_cui: null, authority_name: null, cpv_code: '30000000',
     estimated_value_ron: '500.00', awarded_value_ron: null, currency: null, status: 'awarded',
     county_name: null, publication_date: '2024-01-01', state_date: null,

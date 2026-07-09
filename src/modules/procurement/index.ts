@@ -13,6 +13,13 @@
 import './shell/db/schema.js';
 
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
+import {
+  scopeCategoryBreakdown,
+  scopeSpendOverTime,
+  scopeStats,
+  scopeTopAuthorities,
+  scopeTopSuppliers,
+} from './core/usecases.js';
 import { makeProcurementContributor } from './shell/contributor.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
@@ -36,6 +43,8 @@ export interface ProcurementModuleDeps {
   readonly clientBaseUrl?: string;
   /** Cap on a bare-date DA list window (days). Default 366. Env: PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS. */
   readonly daListMaxWindowDays?: number;
+  /** Warm the empty-scope aggregate cache at init (default true). Tests pass false. */
+  readonly warmCache?: boolean;
 }
 
 export interface ProcurementModule {
@@ -47,11 +56,35 @@ export interface ProcurementModule {
   readonly contributor: SourceContributor;
 }
 
+/**
+ * Pre-load the platform-wide (empty-scope) aggregates into the in-process cache so
+ * the first landing-page request does not pay the ~3.6s cold cost of five concurrent
+ * matview scans. Fire-and-forget: a warm failure (DB not reachable at boot, matview
+ * mid-refresh) must never crash the process — the queries simply run live instead.
+ */
+const warmEmptyScope = (aggregate: ProcurementAggregateRepo, repo: ProcurementRepo): void => {
+  void (async (): Promise<void> => {
+    try {
+      await Promise.all([
+        scopeStats(aggregate, repo, {}, null),
+        scopeTopAuthorities(aggregate, {}, null, 10),
+        scopeTopSuppliers(aggregate, {}, null, 10),
+        scopeCategoryBreakdown(aggregate, {}, null),
+        scopeSpendOverTime(aggregate, {}, null),
+      ]);
+    } catch {
+      // Intentionally swallowed — see above.
+    }
+  })();
+};
+
 export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementModule => {
   const repo = makeProcurementRepo(deps.db, deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT);
   const aggregate = makeProcurementAggregateRepo(deps.db);
   const contributor = makeProcurementContributor(aggregate);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
+
+  if (deps.warmCache !== false) warmEmptyScope(aggregate, repo);
 
   return {
     repo,

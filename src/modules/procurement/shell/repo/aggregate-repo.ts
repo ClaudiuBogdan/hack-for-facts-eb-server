@@ -26,27 +26,35 @@ import {
 } from '@/modules/shared/index.js';
 
 import { mapEdge } from './mappers.js';
+import { makeScopeAggRepo } from './scope-agg-repo.js';
 import { PROCUREMENT_GRAIN_NOTE, ROLLUP_MIN_MONTH } from '../../core/constants.js';
+import { isCacheableScope, scopeCacheKey } from '../../core/scope.js';
+import { makeScopeCache, type ScopeCache } from '../scope-cache.js';
 
 import type {
   OffsetPageRequest,
   OffsetResult,
   ProcurementAggregateRepo,
+  ScopeFlowStats,
 } from '../../core/ports.js';
 import type {
   AuthorityCpvRow,
+  CategoryRow,
   CpvAggFilter,
   EdgeAggFilter,
   GrainQuality,
+  MonthlyPoint,
   ProcurementEdge,
   ProcurementGrain,
   ProcurementProfileSlice,
   ProcurementRoleSummary,
   RegionCpvAggFilter,
   SameDayCandidate,
+  ScopeFilter,
   SplitFilter,
   SupplierConcentration,
   SupplierCpvRow,
+  TopPartyRow,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -78,7 +86,12 @@ const monthGrainPredicate = (
   return conds;
 };
 
-export const makeProcurementAggregateRepo = (db: Db): ProcurementAggregateRepo => {
+export const makeProcurementAggregateRepo = (
+  db: Db,
+  cache: ScopeCache = makeScopeCache()
+): ProcurementAggregateRepo => {
+  const scopeRepo = makeScopeAggRepo(db);
+
   // ───────────────────────────────────────────────────────────────────────────
   // grain gate (the 2-row MV)
   // ───────────────────────────────────────────────────────────────────────────
@@ -644,6 +657,91 @@ export const makeProcurementAggregateRepo = (db: Db): ProcurementAggregateRepo =
     }
   };
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // scope aggregates — cached for non-entity scopes (see shell/scope-cache.ts)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The matview refresh watermark. It is part of every cache key, so a refresh
+   * invalidates the cache implicitly — there is no bust to forget to call. The 2-row
+   * gate MV is cheap enough to read per request, keeping the gate genuinely live.
+   */
+  const gateRefreshedAt = async (): Promise<string | null> => {
+    try {
+      const row = await db
+        .selectFrom('procurement.aggregate_quality_by_grain as g')
+        .select(sql<string | null>`max(g.refreshed_at)::text`.as('refreshed_at'))
+        .executeTakeFirst();
+      return row?.refreshed_at ?? null;
+    } catch {
+      // A key with a null watermark still isolates by scope; it just cannot detect
+      // a refresh. That is better than failing the aggregate.
+      return null;
+    }
+  };
+
+  /**
+   * Cache ONLY non-entity scopes. `load` returns a `Result`; an `err` must never be
+   * memoized, so it is unwrapped into a rejection inside the cache and re-wrapped
+   * on the way out.
+   */
+  const cached = async <T>(
+    query: string,
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    topN: number,
+    load: () => Promise<Result<T, ApiError>>
+  ): Promise<Result<T, ApiError>> => {
+    if (!isCacheableScope(scope)) return load();
+    const key = scopeCacheKey(query, scope, grains, topN, await gateRefreshedAt());
+    try {
+      const value = await cache.through(key, async () => {
+        const result = await load();
+        if (result.isErr()) throw result.error;
+        return result.value;
+      });
+      return ok(value);
+    } catch (error) {
+      return err(error as ApiError);
+    }
+  };
+
+  const scopeStats = (
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<ScopeFlowStats, ApiError>> =>
+    cached('stats', scope, grains, 0, () => scopeRepo.scopeStats(scope, grains, spendGrains));
+
+  const scopeTopParties = (
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[],
+    side: 'authority' | 'supplier',
+    topN: number
+  ): Promise<Result<readonly TopPartyRow[], ApiError>> =>
+    cached(`top:${side}`, scope, grains, topN, () =>
+      scopeRepo.scopeTopParties(scope, grains, spendGrains, side, topN)
+    );
+
+  const scopeCategoryBreakdown = (
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<readonly CategoryRow[], ApiError>> =>
+    cached('categories', scope, grains, 0, () =>
+      scopeRepo.scopeCategoryBreakdown(scope, grains, spendGrains)
+    );
+
+  const scopeSpendOverTime = (
+    scope: ScopeFilter,
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[]
+  ): Promise<Result<readonly MonthlyPoint[], ApiError>> =>
+    cached('timeline', scope, grains, 0, () =>
+      scopeRepo.scopeSpendOverTime(scope, grains, spendGrains)
+    );
+
   return {
     grainQuality,
     topSuppliersForAuthority,
@@ -653,6 +751,10 @@ export const makeProcurementAggregateRepo = (db: Db): ProcurementAggregateRepo =
     authorityCpvSpend,
     topSuppliersByRegionCpv,
     sameDaySplittingCandidates,
+    scopeStats,
+    scopeTopParties,
+    scopeCategoryBreakdown,
+    scopeSpendOverTime,
     presenceFor,
     profileSlice,
   };

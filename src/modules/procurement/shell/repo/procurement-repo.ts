@@ -31,6 +31,7 @@ import {
   type ProdDatabase, type CollectionFilterSpec 
 } from '@/modules/shared/index.js';
 
+import { makeProcurementDetailRepo } from './detail-repo.js';
 import {
   assertDaSelective,
   canonicalPredicate,
@@ -43,6 +44,7 @@ import {
   mapModification,
   mapProcedure,
 } from './mappers.js';
+import { makeOffsetSearchRepo } from './offset-search-repo.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from '../../core/constants.js';
 import {
   assertNoYearDateConflict,
@@ -64,11 +66,13 @@ import type {
   ContractDetail,
   CpvDivision,
   CpvMatch,
+  DirectAcquisitionDetail,
   ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementModification,
   ProcurementProcedure,
+  ScopeFilter,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -135,6 +139,11 @@ const needsCoreJoin = (input: FilterInput): boolean =>
   input['countyCode'] !== undefined || input['region'] !== undefined;
 
 export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT): ProcurementRepo => {
+  // The offset-search + detail surfaces are their own modules; this repo composes
+  // them so callers still see one `ProcurementRepo` port.
+  const offset = makeOffsetSearchRepo(db, daMaxWindowDays);
+  const detail = makeProcurementDetailRepo(db);
+
   // ───────────────────────────────────────────────────────────────────────────
   // shared list machinery
   // ───────────────────────────────────────────────────────────────────────────
@@ -200,7 +209,8 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const procedureSelect = [
-    'p.procedure_id', 'p.notice_no', 'p.notice_kind', 'p.procedure_type', 'p.contract_kind',
+    'p.procedure_id', 'p.source_system', 'p.source_url',
+    'p.notice_no', 'p.notice_kind', 'p.procedure_type', 'p.contract_kind',
     'p.title', 'p.authority_cui', 'p.authority_name', 'p.cpv_code', 'p.currency',
     sql<string | null>`p.estimated_value_ron::text`.as('estimated_value_ron'),
     sql<string | null>`p.awarded_value_ron::text`.as('awarded_value_ron'),
@@ -264,21 +274,37 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     }
   };
 
+  /**
+   * The bundle loads in a fixed, small number of statements: the procedure, then
+   * its contracts + its TED notice CONCURRENTLY. `perLotWinners` is structurally
+   * null (procedure_lots has neither a winner nor an awarded value) and
+   * `duplicates` structurally empty (procedures carry no dup_group_id).
+   */
   const getProcedureDetail = async (id: string): Promise<Result<ProcedureDetail | null, ApiError>> => {
     const procR = await getProcedure(id);
     if (procR.isErr()) return err(procR.error);
     if (procR.value === null) return ok(null);
     try {
-      const rows = await db
-        .selectFrom('procurement.contracts as c')
-        .select(contractSelect)
-        .where('c.procedure_id', '=', id)
-        .where('c.is_canonical', '=', true)
-        .orderBy('c.contract_date', 'desc')
-        .orderBy('c.contract_id', 'desc')
-        .limit(50)
-        .execute();
-      return ok({ procedure: procR.value, contracts: rows.map(mapContract) });
+      const [rows, tedR] = await Promise.all([
+        db
+          .selectFrom('procurement.contracts as c')
+          .select(contractSelect)
+          .where('c.procedure_id', '=', id)
+          .where('c.is_canonical', '=', true)
+          .orderBy(sql`c.contract_date desc nulls last`)
+          .orderBy('c.contract_id', 'desc')
+          .limit(50)
+          .execute(),
+        detail.tedForProcedure(id),
+      ]);
+      if (tedR.isErr()) return err(tedR.error);
+      return ok({
+        procedure: procR.value,
+        contracts: rows.map(mapContract),
+        perLotWinners: null,
+        duplicates: [],
+        ted: tedR.value,
+      });
     } catch (error) {
       return err(databaseError('getProcedureDetail failed', error));
     }
@@ -289,7 +315,8 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const contractSelect = [
-    'c.contract_id', 'c.contract_key', 'c.procedure_id', 'c.notice_no', 'c.contract_no',
+    'c.contract_id', 'c.contract_key', 'c.source_system', 'c.source_url',
+    'c.procedure_id', 'c.notice_no', 'c.contract_no',
     sql<string | null>`c.contract_date::text`.as('contract_date'),
     'c.title', 'c.authority_cui', 'c.authority_name', 'c.supplier_cui',
     'c.supplier_name', 'c.cpv_code', 'c.currency',
@@ -352,7 +379,7 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   };
 
   const modificationSelect = [
-    'm.modification_id', 'm.contract_id', 'm.link_method', 'm.link_confidence',
+    'm.modification_id', 'm.contract_id', 'm.source_url', 'm.link_method', 'm.link_confidence',
     'm.authority_cui', 'm.supplier_cui', 'm.contract_no', 'm.notice_no',
     sql<string | null>`m.modification_date::text`.as('modification_date'),
     sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
@@ -361,6 +388,7 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     'm.modification_type', 'm.year',
   ] as const;
 
+  /** The trail is chronological (`modification_date asc`) — it reads as a history. */
   const getContractModifications = async (
     id: string
   ): Promise<Result<readonly ProcurementModification[], ApiError>> => {
@@ -370,8 +398,8 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .selectFrom('procurement.contract_modifications as m')
         .select(modificationSelect)
         .where('m.contract_id', '=', id)
-        .orderBy('m.modification_date', 'desc')
-        .orderBy('m.modification_id', 'desc')
+        .orderBy(sql`m.modification_date asc nulls last`)
+        .orderBy('m.modification_id', 'asc')
         .limit(MODIFICATIONS_CAP)
         .execute();
       return ok(rows.map(mapModification));
@@ -380,18 +408,58 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     }
   };
 
+  /**
+   * Four statements, three of them concurrent: the contract, then its modifications
+   * trail + its duplicate siblings + its procedure. TED is inherited from the
+   * procedure (contracts carry no direct TED link), so it costs one more hop only
+   * when the contract is linked to a procedure.
+   */
   const getContractDetail = async (id: string): Promise<Result<ContractDetail | null, ApiError>> => {
     const contractR = await getContract(id);
     if (contractR.isErr()) return err(contractR.error);
     if (contractR.value === null) return ok(null);
     const contract = contractR.value;
-    const [modsR, procR] = await Promise.all([
+    const [modsR, procR, dupsR, tedR] = await Promise.all([
       getContractModifications(id),
       contract.procedureId !== null ? getProcedure(contract.procedureId) : Promise.resolve(ok(null)),
+      detail.duplicatesForContract({
+        id: contract.contractId,
+        dupGroupId: contract.dupGroupId,
+        authorityCui: contract.authorityCui,
+        supplierCui: contract.supplierCui,
+      }),
+      contract.procedureId !== null
+        ? detail.tedForProcedure(contract.procedureId)
+        : Promise.resolve(ok(null)),
     ]);
     if (modsR.isErr()) return err(modsR.error);
     if (procR.isErr()) return err(procR.error);
-    return ok({ contract, procedure: procR.value, modifications: modsR.value });
+    if (dupsR.isErr()) return err(dupsR.error);
+    if (tedR.isErr()) return err(tedR.error);
+    return ok({
+      contract,
+      procedure: procR.value,
+      modifications: modsR.value,
+      duplicates: dupsR.value,
+      ted: tedR.value,
+    });
+  };
+
+  const getDirectAcquisitionDetail = async (
+    id: string
+  ): Promise<Result<DirectAcquisitionDetail | null, ApiError>> => {
+    const daR = await getDirectAcquisition(id);
+    if (daR.isErr()) return err(daR.error);
+    if (daR.value === null) return ok(null);
+    const da = daR.value;
+    const dupsR = await detail.duplicatesForDirectAcquisition({
+      id: da.daId,
+      dupGroupId: da.dupGroupId,
+      authorityCui: da.authorityCui,
+      supplierCui: da.supplierCui,
+    });
+    if (dupsR.isErr()) return err(dupsR.error);
+    return ok({ directAcquisition: da, duplicates: dupsR.value });
   };
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -399,7 +467,7 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const daSelect = [
-    'd.da_id', 'd.da_key', 'd.source_system', 'd.unique_code', 'd.title',
+    'd.da_id', 'd.da_key', 'd.source_system', 'd.source_url', 'd.unique_code', 'd.title',
     'd.authority_cui', 'd.authority_name', 'd.supplier_cui', 'd.supplier_name', 'd.cpv_code', 'd.currency',
     sql<string | null>`d.value_ron::text`.as('value_ron'),
     sql<string | null>`d.estimated_value_ron::text`.as('estimated_value_ron'),
@@ -523,6 +591,54 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   };
 
   // ───────────────────────────────────────────────────────────────────────────
+  // procedures count for an aggregate scope (procedures are NOT in the rollups)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Procedures have no `supplier_cui` column, so a supplier-scoped count is the
+   * number of DISTINCT procedures under which that supplier won a canonical
+   * contract (driven by `contracts_supplier_cui_idx`). Any other scope counts
+   * `procurement.procedures` directly on its indexed columns. `grain` does not
+   * apply: a procedure is a tender notice, not a flow on either grain.
+   */
+  const countProceduresInScope = async (scope: ScopeFilter): Promise<Result<string, ApiError>> => {
+    const conds: RawBuilder<unknown>[] = [];
+    if (scope.authorityCui !== undefined) conds.push(sql`p.authority_cui = ${scope.authorityCui}`);
+    if (scope.cpvDivision !== undefined) {
+      const lo = `${scope.cpvDivision}000000`;
+      const hi =
+        scope.cpvDivision === '99'
+          ? '99999999'
+          : `${String(Number(scope.cpvDivision) + 1).padStart(2, '0')}000000`;
+      conds.push(
+        scope.cpvDivision === '99'
+          ? sql`(p.cpv_code >= ${lo} and p.cpv_code <= ${hi})`
+          : sql`(p.cpv_code >= ${lo} and p.cpv_code < ${hi})`
+      );
+    }
+    if (scope.monthFrom !== undefined) conds.push(sql`p.publication_date >= ${`${scope.monthFrom}-01`}::date`);
+    if (scope.monthTo !== undefined) {
+      conds.push(sql`p.publication_date < (${`${scope.monthTo}-01`}::date + interval '1 month')`);
+    }
+    if (scope.supplierCui !== undefined) {
+      conds.push(sql`p.procedure_id in (
+        select c.procedure_id from procurement.contracts c
+         where c.supplier_cui = ${scope.supplierCui} and c.is_canonical = true and c.procedure_id is not null
+      )`);
+    }
+    try {
+      const row = await db
+        .selectFrom('procurement.procedures as p')
+        .select(sql<string>`count(*)::text`.as('n'))
+        .where(composeAnd(conds))
+        .executeTakeFirst();
+      return ok(row?.n ?? '0');
+    } catch (error) {
+      return err(databaseError('countProceduresInScope failed', error));
+    }
+  };
+
+  // ───────────────────────────────────────────────────────────────────────────
   // CPV discovery (cpv_divisions clean; cpv_codes best-effort label)
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -625,9 +741,20 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     getContractModifications,
     listDirectAcquisitions,
     getDirectAcquisition,
+    getDirectAcquisitionDetail,
     listModifications,
     listModificationsAboveDelta,
     listCpvDivisions,
     resolveCpv,
+    countProceduresInScope,
+    // offset search (the client contract)
+    searchProceduresOffset: offset.searchProceduresOffset,
+    searchContractsOffset: offset.searchContractsOffset,
+    searchDirectAcquisitionsOffset: offset.searchDirectAcquisitionsOffset,
+    searchModificationsOffset: offset.searchModificationsOffset,
+    // detail-bundle support
+    modificationsForContracts: detail.modificationsForContracts,
+    contractsByIds: detail.contractsByIds,
+    supplierRecords: detail.supplierRecords,
   };
 };
