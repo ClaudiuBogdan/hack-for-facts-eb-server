@@ -32,6 +32,7 @@ export { makeInsResolvers, type MakeInsResolversDeps } from './shell/graphql/res
 // Types
 // =============================================================================
 export type {
+  InsDataStatus,
   InsDataset,
   InsDatasetFilter,
   InsDatasetConnection,

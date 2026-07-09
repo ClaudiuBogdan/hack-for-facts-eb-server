@@ -12,6 +12,7 @@ import {
   type InsContextConnection,
   type InsDataset,
   type InsDatasetConnection,
+  type InsDatasetFilter,
   type InsDimensionValueConnection,
   type InsLatestDatasetValue,
   type InsObservation,
@@ -64,6 +65,7 @@ const makeDataset = (overrides: Partial<InsDataset> = {}): InsDataset => ({
   has_county_data: false,
   has_siruta: true,
   sync_status: 'SYNCED',
+  data_status: 'AVAILABLE',
   last_sync_at: null,
   context_code: null,
   context_name_ro: null,
@@ -134,6 +136,43 @@ describe('INS usecases', () => {
       const capturedValue = captured as { limit: number; offset: number };
       expect(capturedValue.limit).toBe(MAX_DATASET_LIMIT);
       expect(capturedValue.offset).toBe(0);
+    });
+
+    it('passes data_status through to the repository untouched', async () => {
+      let captured: InsDatasetFilter | null = null;
+
+      const repo = makeRepo({
+        listDatasets: async (filter) => {
+          captured = filter;
+          return ok(emptyDatasetConnection);
+        },
+      });
+
+      const result = await listInsDatasets(
+        { insRepo: repo },
+        { filter: { data_status: ['CATALOG_ONLY'] }, limit: 20, offset: 0 }
+      );
+
+      expect(result.isOk()).toBe(true);
+      const capturedValue = captured as InsDatasetFilter | null;
+      expect(capturedValue?.data_status).toEqual(['CATALOG_ONLY']);
+    });
+
+    it('leaves data_status undefined when the caller omits it', async () => {
+      let captured: InsDatasetFilter | null = null;
+
+      const repo = makeRepo({
+        listDatasets: async (filter) => {
+          captured = filter;
+          return ok(emptyDatasetConnection);
+        },
+      });
+
+      await listInsDatasets({ insRepo: repo }, { filter: { search: 'pop' }, limit: 20, offset: 0 });
+
+      const capturedValue = captured as InsDatasetFilter | null;
+      expect(capturedValue).not.toBeNull();
+      expect(capturedValue).not.toHaveProperty('data_status');
     });
   });
 

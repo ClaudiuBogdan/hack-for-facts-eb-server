@@ -21,7 +21,9 @@ import { listInsObservations } from '../../core/usecases/list-ins-observations.j
 import type { InsRepository } from '../../core/ports.js';
 import type {
   InsContextFilter,
+  InsDataStatus,
   InsDataset,
+  InsDatasetFilter,
   InsDimension,
   InsDimensionValueFilter,
   InsEntitySelectorInput,
@@ -47,6 +49,7 @@ interface GqlInsDatasetFilterInput {
   rootContextCode?: string;
   periodicity?: ('ANNUAL' | 'QUARTERLY' | 'MONTHLY')[];
   syncStatus?: ('PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'STALE')[];
+  dataStatus?: InsDataStatus[];
   hasUatData?: boolean;
   hasCountyData?: boolean;
 }
@@ -83,17 +86,8 @@ interface GqlInsDimensionValueFilterInput {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const mapDatasetFilter = (input?: GqlInsDatasetFilterInput) => {
-  const filter: {
-    search?: string;
-    codes?: string[];
-    context_code?: string;
-    root_context_code?: string;
-    periodicity?: ('ANNUAL' | 'QUARTERLY' | 'MONTHLY')[];
-    sync_status?: ('PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'STALE')[];
-    has_uat_data?: boolean;
-    has_county_data?: boolean;
-  } = {};
+const mapDatasetFilter = (input?: GqlInsDatasetFilterInput): InsDatasetFilter => {
+  const filter: InsDatasetFilter = {};
 
   if (input === undefined) {
     return filter;
@@ -105,6 +99,7 @@ const mapDatasetFilter = (input?: GqlInsDatasetFilterInput) => {
   if (input.rootContextCode !== undefined) filter.root_context_code = input.rootContextCode;
   if (input.periodicity !== undefined) filter.periodicity = input.periodicity;
   if (input.syncStatus !== undefined) filter.sync_status = input.syncStatus;
+  if (input.dataStatus !== undefined) filter.data_status = input.dataStatus;
   if (input.hasUatData !== undefined) filter.has_uat_data = input.hasUatData;
   if (input.hasCountyData !== undefined) filter.has_county_data = input.hasCountyData;
 

@@ -196,6 +196,84 @@ describe('[Golden Master] INS Tempo', () => {
     );
   });
 
+  it('[GM] insDatasets - data-status-catalog-only', async () => {
+    const query = /* GraphQL */ `
+      query InsDatasets($filter: InsDatasetFilterInput, $limit: Int) {
+        insDatasets(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            name_ro
+            data_status
+            sync_status
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { dataStatus: ['CATALOG_ONLY'] },
+      limit: 5,
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-datasets-data-status-catalog-only.snap.json'
+    );
+  });
+
+  it('[GM] insDatasets - data-status-both-counts-full-catalog', async () => {
+    const query = /* GraphQL */ `
+      query InsDatasets($filter: InsDatasetFilterInput, $limit: Int) {
+        insDatasets(filter: $filter, limit: $limit) {
+          nodes {
+            code
+            data_status
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      filter: { dataStatus: ['AVAILABLE', 'CATALOG_ONLY'] },
+      limit: 3,
+    };
+
+    const data = await client.query(query, variables);
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-datasets-data-status-all.snap.json'
+    );
+  });
+
+  it('[GM] insDatasets - no-data-status-filter-keeps-fact-loaded-only', async () => {
+    const query = /* GraphQL */ `
+      query InsDatasets($limit: Int) {
+        insDatasets(limit: $limit) {
+          nodes {
+            code
+            data_status
+          }
+          pageInfo {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const data = await client.query(query, { limit: 3 });
+
+    await expect(data).toMatchNormalizedSnapshot(
+      '../snapshots/ins/ins-datasets-default-relation.snap.json'
+    );
+  });
+
   it('[GM] insDatasets - county-and-root-filter', async () => {
     const query = /* GraphQL */ `
       query InsDatasets($filter: InsDatasetFilterInput, $limit: Int) {

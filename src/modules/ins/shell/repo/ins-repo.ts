@@ -26,6 +26,7 @@ import {
   type InsContextFilter,
   type InsClassificationType,
   type InsClassificationValue,
+  type InsDataStatus,
   type InsDataset,
   type InsDatasetConnection,
   type InsDatasetFilter,
@@ -77,8 +78,10 @@ interface DatasetRow {
   has_uat_data: boolean | null;
   has_county_data: boolean | null;
   has_siruta: boolean | null;
-  dimension_count: number;
+  dimension_count: number | null;
   sync_status: InsDataset['sync_status'];
+  /** Only selected on relations that expose the full catalog; `v_matrices` rows are always AVAILABLE. */
+  data_status?: InsDataStatus | null;
   last_sync_at: Date | string | null;
   context_code: string | null;
   context_name_ro: string | null;
@@ -497,7 +500,15 @@ class KyselyInsRepo implements InsRepository {
     try {
       await setStatementTimeout(this.db, QUERY_TIMEOUT_MS);
 
-      let countQuery: DynamicQuery = this.db.selectFrom('v_matrices');
+      // Without a data_status filter we read `v_matrices` (fact-loaded datasets
+      // only) exactly as before. With one, we read the full catalog so that
+      // CATALOG_ONLY datasets become reachable — and count over that same
+      // relation, so pageInfo.totalCount matches what the filter selects.
+      const useCatalog = filter.data_status !== undefined;
+
+      let countQuery: DynamicQuery = useCatalog
+        ? this.selectFromDatasetCatalog()
+        : this.db.selectFrom('v_matrices');
       countQuery = this.applyDatasetFilters(countQuery, filter);
 
       const countRow = await countQuery
@@ -506,7 +517,9 @@ class KyselyInsRepo implements InsRepository {
 
       const totalCount = countRow !== undefined ? (toNumber(countRow.total_count) ?? 0) : 0;
 
-      let dataQuery: DynamicQuery = this.db.selectFrom('v_matrices').selectAll();
+      let dataQuery: DynamicQuery = useCatalog
+        ? this.selectFromDatasetCatalog().selectAll()
+        : this.db.selectFrom('v_matrices').selectAll();
       dataQuery = this.applyDatasetFilters(dataQuery, filter)
         .orderBy('ins_code', 'asc')
         .limit(limit)
@@ -580,6 +593,7 @@ class KyselyInsRepo implements InsRepository {
       const row = await this.db
         .selectFrom('matrices as m')
         .leftJoin('contexts as c', 'm.context_id', 'c.id')
+        .leftJoin('v_matrices as vm', 'vm.id', 'm.id')
         .select([
           'm.id',
           'm.ins_code',
@@ -594,13 +608,18 @@ class KyselyInsRepo implements InsRepository {
           sql<number>`(m.metadata->'yearRange'->>0)::int`.as('start_year'),
           sql<number>`(m.metadata->'yearRange'->>1)::int`.as('end_year'),
           sql`m.metadata->'periodicity'`.as('periodicity'),
-          sql<number>`jsonb_array_length(m.dimensions)`.as('dimension_count'),
+          sql<number>`jsonb_array_length(coalesce(m.dimensions, '[]'::jsonb))`.as(
+            'dimension_count'
+          ),
           sql<boolean>`(m.metadata->'flags'->>'hasUatData')::boolean`.as('has_uat_data'),
           sql<boolean>`(m.metadata->'flags'->>'hasCountyData')::boolean`.as('has_county_data'),
           sql<boolean>`(m.metadata->'flags'->>'hasSiruta')::boolean`.as('has_siruta'),
           sql<string>`c.names->>'ro'`.as('context_name_ro'),
           sql<string>`c.names->>'en'`.as('context_name_en'),
           sql<string>`c.path::text`.as('context_path'),
+          sql<InsDataStatus>`case when vm.id is null then 'CATALOG_ONLY' else 'AVAILABLE' end`.as(
+            'data_status'
+          ),
         ])
         .where('m.ins_code', '=', code)
         .executeTakeFirst();
@@ -1328,11 +1347,14 @@ class KyselyInsRepo implements InsRepository {
       definition_en: row.definition_en,
       periodicity,
       year_range: yearRange,
-      dimension_count: row.dimension_count,
+      dimension_count: row.dimension_count ?? 0,
       has_uat_data: row.has_uat_data === true,
       has_county_data: row.has_county_data === true,
       has_siruta: row.has_siruta === true,
       sync_status: row.sync_status ?? null,
+      // `v_matrices` only exposes fact-loaded datasets, so rows sourced from it
+      // carry no data_status column and are AVAILABLE by construction.
+      data_status: row.data_status ?? 'AVAILABLE',
       last_sync_at: toDate(row.last_sync_at),
       context_code: row.context_code,
       context_name_ro: row.context_name_ro,
@@ -1535,6 +1557,51 @@ class KyselyInsRepo implements InsRepository {
     return observation;
   }
 
+  /**
+   * The full 1,898-dataset catalog (`matrices`), flattened to the same column
+   * shape `v_matrices` exposes so that {@link applyDatasetFilters} works
+   * unchanged against either relation.
+   *
+   * `data_status` is derived from membership in `v_matrices`, whose definition
+   * is `where fact_load_status in ('partial','full')` — i.e. exactly the
+   * datasets whose observations have been loaded.
+   */
+  private selectFromDatasetCatalog(): DynamicQuery {
+    return this.db.selectFrom((eb: DynamicQuery) =>
+      eb
+        .selectFrom('matrices as m')
+        .leftJoin('contexts as c', 'm.context_id', 'c.id')
+        .leftJoin('v_matrices as vm', 'vm.id', 'm.id')
+        .select([
+          'm.id',
+          'm.ins_code',
+          'm.sync_status',
+          'm.last_sync_at',
+          'c.ins_code as context_code',
+          sql<string>`m.metadata->'names'->>'ro'`.as('name_ro'),
+          sql<string>`m.metadata->'names'->>'en'`.as('name_en'),
+          sql<string>`m.metadata->'definitions'->>'ro'`.as('definition_ro'),
+          sql<string>`m.metadata->'definitions'->>'en'`.as('definition_en'),
+          sql<number>`(m.metadata->'yearRange'->>0)::int`.as('start_year'),
+          sql<number>`(m.metadata->'yearRange'->>1)::int`.as('end_year'),
+          sql`m.metadata->'periodicity'`.as('periodicity'),
+          sql<number>`jsonb_array_length(coalesce(m.dimensions, '[]'::jsonb))`.as(
+            'dimension_count'
+          ),
+          sql<boolean>`(m.metadata->'flags'->>'hasUatData')::boolean`.as('has_uat_data'),
+          sql<boolean>`(m.metadata->'flags'->>'hasCountyData')::boolean`.as('has_county_data'),
+          sql<boolean>`(m.metadata->'flags'->>'hasSiruta')::boolean`.as('has_siruta'),
+          sql<string>`c.names->>'ro'`.as('context_name_ro'),
+          sql<string>`c.names->>'en'`.as('context_name_en'),
+          sql<string>`c.path::text`.as('context_path'),
+          sql<InsDataStatus>`case when vm.id is null then 'CATALOG_ONLY' else 'AVAILABLE' end`.as(
+            'data_status'
+          ),
+        ])
+        .as('d')
+    );
+  }
+
   private applyDatasetFilters(query: DynamicQuery, filter: InsDatasetFilter): DynamicQuery {
     if (filter.search !== undefined && filter.search.trim() !== '') {
       const pattern = `%${escapeILikePattern(filter.search.trim())}%`;
@@ -1565,6 +1632,12 @@ class KyselyInsRepo implements InsRepository {
 
     if (filter.sync_status !== undefined && filter.sync_status.length > 0) {
       query = query.where('sync_status', 'in', filter.sync_status);
+    }
+
+    // Only valid against the catalog relation, which is the only relation
+    // listDatasets selects when this filter is present.
+    if (filter.data_status !== undefined && filter.data_status.length > 0) {
+      query = query.where('data_status', 'in', filter.data_status);
     }
 
     if (filter.has_uat_data !== undefined) {

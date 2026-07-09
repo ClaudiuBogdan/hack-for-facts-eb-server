@@ -33,6 +33,7 @@ function createFakeRepo(overrides: Partial<InsRepository> = {}): InsRepository {
         has_county_data: true,
         has_siruta: true,
         sync_status: null,
+        data_status: 'AVAILABLE',
         last_sync_at: null,
         context_code: null,
         context_name_ro: null,

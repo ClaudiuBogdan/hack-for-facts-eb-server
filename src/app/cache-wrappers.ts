@@ -105,12 +105,14 @@ const normalizeDatasetFilterForCache = (filter: InsDatasetFilter): InsDatasetFil
   const normalizedCodes = toSortedUniqueArray(filter.codes);
   const normalizedPeriodicity = toSortedUniqueArray(filter.periodicity);
   const normalizedSyncStatus = toSortedUniqueArray(filter.sync_status);
+  const normalizedDataStatus = toSortedUniqueArray(filter.data_status);
 
   return {
     ...filter,
     ...(normalizedCodes !== undefined ? { codes: normalizedCodes } : {}),
     ...(normalizedPeriodicity !== undefined ? { periodicity: normalizedPeriodicity } : {}),
     ...(normalizedSyncStatus !== undefined ? { sync_status: normalizedSyncStatus } : {}),
+    ...(normalizedDataStatus !== undefined ? { data_status: normalizedDataStatus } : {}),
   };
 };
 
