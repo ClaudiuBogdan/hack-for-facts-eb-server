@@ -4,6 +4,7 @@ import type { DeliveryStatus } from '@/common/types/index.js';
 
 // Helper for timestamps which can be strings or Dates depending on driver config
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+export type GeneratedTimestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 
 // Short Links Table
 export interface ShortLinks {
@@ -352,6 +353,250 @@ export interface InsDatasetRequests {
   created_at: Generated<Timestamp>;
 }
 
+export type NotificationEventStatus =
+  | 'pending'
+  | 'resolving'
+  | 'resolved'
+  | 'conflicted'
+  | 'failed';
+
+export interface NotificationEvents {
+  id: string;
+  source: string;
+  event_type: string;
+  event_schema_version: number;
+  occurrence_key: string;
+  occurred_at: Timestamp;
+  facts: JSONColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string,
+    Record<string, unknown> | string
+  >;
+  payload_hash: string;
+  correlation_id: string | null;
+  causation_id: string | null;
+  stream_key: string | null;
+  stream_sequence: number | null;
+  status: Generated<NotificationEventStatus>;
+  resolution_cursor: string | null;
+  claim_token: string | null;
+  claim_expires_at: Timestamp | null;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
+  resolved_at: Timestamp | null;
+  retention_expires_at: Timestamp;
+}
+
+export interface NotificationSourceWatermarks {
+  source_id: string;
+  watermark: string | null;
+  updated_at: GeneratedTimestamp;
+}
+
+export type NotificationSubscriptionState = 'active' | 'paused' | 'removed';
+
+export interface NotificationSubscriptions {
+  id: string;
+  user_id: string;
+  kind_id: string;
+  subject_type: string;
+  subject_id: string;
+  config: JSONColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string,
+    Record<string, unknown> | string
+  >;
+  normalized_key: string;
+  state: Generated<NotificationSubscriptionState>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
+  removed_at: Timestamp | null;
+}
+
+export interface NotificationGlobalPreferences {
+  user_id: string;
+  optional_enabled: Generated<boolean>;
+  updated_at: GeneratedTimestamp;
+}
+
+export type NotificationChannel = 'inbox' | 'email';
+export type NotificationCadence = 'immediate' | 'daily' | 'weekly' | 'off';
+
+export interface NotificationChannelPreferences {
+  user_id: string;
+  channel: NotificationChannel;
+  enabled: Generated<boolean>;
+  cadence: Generated<NotificationCadence>;
+  updated_at: GeneratedTimestamp;
+}
+
+export interface LogicalNotifications {
+  id: string;
+  event_id: string;
+  kind_id: string;
+  kind_version: number;
+  user_id: string;
+  eligibility_reason: string;
+  locale: Generated<'ro'>;
+  recipient_facts: JSONColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null,
+    Record<string, unknown> | string | null
+  >;
+  inbox_template_id: string;
+  inbox_template_version: string;
+  inbox_title: string;
+  inbox_body: string;
+  inbox_action_url: string | null;
+  inbox_visible: Generated<boolean>;
+  read_at: Timestamp | null;
+  archived_at: Timestamp | null;
+  stream_key: string | null;
+  stream_sequence: number | null;
+  created_at: GeneratedTimestamp;
+  retention_expires_at: Timestamp;
+}
+
+export interface NotificationChannelDestinations {
+  id: Generated<string>;
+  user_id: string;
+  channel: 'email';
+  fingerprint: string;
+  generation: number;
+  is_current: Generated<boolean>;
+  suppressed_at: Timestamp | null;
+  suppression_reason: string | null;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
+}
+
+export type NotificationDeliveryStatus =
+  | 'pending_render'
+  | 'scheduled'
+  | 'ready'
+  | 'sending'
+  | 'retry_wait'
+  | 'accepted'
+  | 'delivered'
+  | 'bounced'
+  | 'complained'
+  | 'suppressed'
+  | 'cancelled'
+  | 'expired'
+  | 'permanent_failed'
+  | 'dead_letter'
+  | 'unknown';
+
+export interface NotificationDeliveries {
+  id: string;
+  delivery_key: string;
+  logical_notification_id: string | null;
+  digest_batch_id: string | null;
+  kind_id: string;
+  user_id: string;
+  channel: 'email';
+  destination_fingerprint: string | null;
+  destination_generation: number | null;
+  template_id: string | null;
+  template_version: string | null;
+  rendered_subject: string | null;
+  rendered_html: string | null;
+  rendered_text: string | null;
+  content_hash: string | null;
+  status: Generated<NotificationDeliveryStatus>;
+  not_before: Timestamp | null;
+  expires_at: Timestamp | null;
+  stream_key: string | null;
+  stream_sequence: number | null;
+  attempt_count: Generated<number>;
+  next_attempt_at: Timestamp | null;
+  claim_token: string | null;
+  claim_expires_at: Timestamp | null;
+  provider_idempotency_key: string | null;
+  provider_ref: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  sender_mode: Generated<'active' | 'shadow'>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
+  accepted_at: Timestamp | null;
+  terminal_at: Timestamp | null;
+  retention_expires_at: Timestamp;
+}
+
+export type NotificationAttemptResult =
+  | 'accepted'
+  | 'transient_failure'
+  | 'permanent_failure'
+  | 'ambiguous';
+
+export interface NotificationDeliveryAttempts {
+  id: string;
+  delivery_id: string;
+  attempt_number: number;
+  started_at: Timestamp;
+  completed_at: Timestamp | null;
+  provider_idempotency_key: string;
+  request_correlation_id: string | null;
+  destination_fingerprint: string | null;
+  result: NotificationAttemptResult | null;
+  error_code: string | null;
+  error_message: string | null;
+  provider_ref: string | null;
+  latency_ms: number | null;
+  retry_after_ms: number | null;
+  created_at: GeneratedTimestamp;
+}
+
+export type NotificationDigestBatchStatus = 'open' | 'materializing' | 'rendered' | 'cancelled';
+
+export interface NotificationDigestBatches {
+  id: string;
+  user_id: string;
+  channel: 'email';
+  cadence: 'daily' | 'weekly';
+  window_start_utc: Timestamp;
+  window_end_utc: Timestamp;
+  dispatch_at_utc: Timestamp;
+  status: Generated<NotificationDigestBatchStatus>;
+  rendered_item_ids: JSONColumnType<
+    string[] | null,
+    string[] | string | null,
+    string[] | string | null
+  >;
+  overflow_count: number | null;
+  delivery_id: string | null;
+  claim_token: string | null;
+  claim_expires_at: Timestamp | null;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
+}
+
+export interface NotificationDigestMembers {
+  batch_id: string;
+  logical_notification_id: string;
+  created_at: GeneratedTimestamp;
+}
+
+export interface NotificationAuditLog {
+  id: Generated<string>;
+  occurred_at: Timestamp;
+  action: string;
+  actor: string;
+  user_id: string | null;
+  event_id: string | null;
+  logical_notification_id: string | null;
+  delivery_id: string | null;
+  batch_id: string | null;
+  subscription_id: string | null;
+  reason: string | null;
+  details: JSONColumnType<
+    Record<string, unknown>,
+    Record<string, unknown> | string,
+    Record<string, unknown> | string
+  >;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
@@ -374,4 +619,16 @@ export interface UserDatabase {
   agentconversations: AgentConversations;
   agentmessages: AgentMessages;
   ins_dataset_requests: InsDatasetRequests;
+  notification_events: NotificationEvents;
+  notification_source_watermarks: NotificationSourceWatermarks;
+  notification_subscriptions: NotificationSubscriptions;
+  notification_global_preferences: NotificationGlobalPreferences;
+  notification_channel_preferences: NotificationChannelPreferences;
+  logical_notifications: LogicalNotifications;
+  notification_channel_destinations: NotificationChannelDestinations;
+  notification_deliveries: NotificationDeliveries;
+  notification_delivery_attempts: NotificationDeliveryAttempts;
+  notification_digest_batches: NotificationDigestBatches;
+  notification_digest_members: NotificationDigestMembers;
+  notification_audit_log: NotificationAuditLog;
 }
