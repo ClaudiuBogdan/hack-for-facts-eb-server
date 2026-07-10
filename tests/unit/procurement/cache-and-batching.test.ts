@@ -44,7 +44,7 @@ const makeFakeDb = (recorder: Recorder): Kysely<ProdDatabase> => {
       recorder.sql.push(compiled.sql);
       return Promise.resolve({ rows: recorder.rowsFor(compiled.sql) as R[] });
     },
-     
+
     async *streamQuery<R>(): AsyncIterableIterator<QueryResult<R>> {
       yield { rows: [] };
     },
@@ -72,24 +72,26 @@ const BOTH_GRAINS: readonly ProcurementGrain[] = ['direct_acquisition', 'procure
 const DA_ONLY: readonly ProcurementGrain[] = ['direct_acquisition'];
 
 /** Rows for the three statements `scopeStats` issues, plus the gate watermark. */
-const statsRows = (watermark: string | null) => (sql: string): Record<string, unknown>[] => {
-  if (sql.includes('refreshed_at')) {
-    return watermark === null ? [] : [{ refreshed_at: watermark }];
-  }
-  if (sql.includes('count(distinct')) return [{ n: '5' }];
-  if (sql.includes('group by source_grain')) {
-    return [
-      {
-        source_grain: 'direct_acquisition',
-        flow_count: '10',
-        amount_ron_sum: '100.00',
-        first_flow_date: '2020-01-01',
-        last_flow_date: '2024-01-01',
-      },
-    ];
-  }
-  return [];
-};
+const statsRows =
+  (watermark: string | null) =>
+  (sql: string): Record<string, unknown>[] => {
+    if (sql.includes('refreshed_at')) {
+      return watermark === null ? [] : [{ refreshed_at: watermark }];
+    }
+    if (sql.includes('count(distinct')) return [{ n: '5' }];
+    if (sql.includes('group by source_grain')) {
+      return [
+        {
+          source_grain: 'direct_acquisition',
+          flow_count: '10',
+          amount_ron_sum: '100.00',
+          first_flow_date: '2020-01-01',
+          last_flow_date: '2024-01-01',
+        },
+      ];
+    }
+    return [];
+  };
 
 const countStatsQueries = (sql: readonly string[]): number =>
   sql.filter((s) => s.includes('group by source_grain')).length;
@@ -157,7 +159,9 @@ describe('modificationsForContracts caps PER CONTRACT, not across the batch', ()
 
   it('orders the trail chronologically inside each parent', async () => {
     const sql = await compileBatch(['1592679']);
-    expect(sql).toMatch(/order by\s+m\.modification_date\s+asc\s+nulls\s+last,\s+m\.modification_id\s+asc/iu);
+    expect(sql).toMatch(
+      /order by\s+m\.modification_date\s+asc\s+nulls\s+last,\s+m\.modification_id\s+asc/iu
+    );
   });
 
   it('never emits a single global row budget scaled by the batch size', async () => {

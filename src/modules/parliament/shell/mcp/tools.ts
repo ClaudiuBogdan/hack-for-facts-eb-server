@@ -39,7 +39,11 @@ const intArg = (args: Record<string, unknown>, key: string, dflt: number): numbe
   return Number.isFinite(n) ? Math.floor(n) : dflt;
 };
 const boolArg = (args: Record<string, unknown>, key: string): boolean => args[key] === true;
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly KernelMcpTool[] => {
@@ -54,7 +58,13 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
       const dim = strArg(args, 'dim') as ParliamentResolveDim | undefined;
       if (dim === undefined) return errorOut(PARLIAMENT_MCP_KINDS.resolve, 'dim is required');
       const q = strArg(args, 'q') ?? '';
-      const res = await resolveFilters(deps, dim, q, strArg(args, 'legislature'), intArg(args, 'limit', 10));
+      const res = await resolveFilters(
+        deps,
+        dim,
+        q,
+        strArg(args, 'legislature'),
+        intArg(args, 'limit', 10)
+      );
       if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.resolve, res.error.message);
       const top = res.value[0];
       return {
@@ -77,8 +87,14 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
     inputShape: getParliamentLawLineageInput,
     async handler(args): Promise<McpToolOutput> {
       const actId = strArg(args, 'actId');
-      if (actId === undefined) return errorOut(PARLIAMENT_MCP_KINDS.lineage, 'actId is required (resolve a citation via the legal tools first)');
-      const roles = Array.isArray(args['roles']) ? (args['roles'] as unknown[]).filter((x): x is string => typeof x === 'string') : undefined;
+      if (actId === undefined)
+        return errorOut(
+          PARLIAMENT_MCP_KINDS.lineage,
+          'actId is required (resolve a citation via the legal tools first)'
+        );
+      const roles = Array.isArray(args['roles'])
+        ? (args['roles'] as unknown[]).filter((x): x is string => typeof x === 'string')
+        : undefined;
       const res = await getLineageForAct(deps, {
         actId,
         ...(roles !== undefined && { roles }),
@@ -87,7 +103,12 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
       if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.lineage, res.error.message);
       const lineage = res.value;
       if (lineage === null) {
-        return { ok: true, kind: PARLIAMENT_MCP_KINDS.lineage, query: { actId }, summary: `No parliamentary lineage for act ${actId}.` };
+        return {
+          ok: true,
+          kind: PARLIAMENT_MCP_KINDS.lineage,
+          query: { actId },
+          summary: `No parliamentary lineage for act ${actId}.`,
+        };
       }
       const finalVote = lineage.votes.find((v) => v.role === 'final_adoption') ?? lineage.votes[0];
       const summaryParts: string[] = [];
@@ -98,7 +119,9 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
         const t = finalVote.tally;
         summaryParts.push(
           `${finalVote.role} vote ${finalVote.voteDate ?? '?'} (${finalVote.chamber}): ${n(t.pentru ?? 0)} for / ${n(t.abtinere ?? 0)} abținere / ${n(t.nuAVotat ?? 0)} absent` +
-            (finalVote.ballotsResolved !== null ? `; ${n(finalVote.ballotsResolved)} ballots person-resolved` : '')
+            (finalVote.ballotsResolved !== null
+              ? `; ${n(finalVote.ballotsResolved)} ballots person-resolved`
+              : '')
         );
       }
       return {
@@ -107,7 +130,9 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
         query: { actId },
         link: `${clientBaseUrl}/parlament/lineage/acts/${actId}`,
         item: lineage,
-        summary: (summaryParts.length > 0 ? summaryParts.join('; ') : `Lineage for act ${actId}.`) + (lineage.caveats.length > 0 ? ` (${lineage.caveats.join(' ')})` : ''),
+        summary:
+          (summaryParts.length > 0 ? summaryParts.join('; ') : `Lineage for act ${actId}.`) +
+          (lineage.caveats.length > 0 ? ` (${lineage.caveats.join(' ')})` : ''),
       };
     },
   };
@@ -121,10 +146,16 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
       const mandateKey = strArg(args, 'mandateKey');
       const personId = strArg(args, 'personId');
       if (mandateKey === undefined && personId === undefined) {
-        return errorOut(PARLIAMENT_MCP_KINDS.memberActivity, 'one of mandateKey or personId is required');
+        return errorOut(
+          PARLIAMENT_MCP_KINDS.memberActivity,
+          'one of mandateKey or personId is required'
+        );
       }
       const kinds = Array.isArray(args['kinds'])
-        ? (args['kinds'] as unknown[]).filter((x): x is MemberActivityKind => typeof x === 'string' && ['votes', 'control', 'speeches', 'initiatives'].includes(x))
+        ? (args['kinds'] as unknown[]).filter(
+            (x): x is MemberActivityKind =>
+              typeof x === 'string' && ['votes', 'control', 'speeches', 'initiatives'].includes(x)
+          )
         : undefined;
       const res = await getMemberActivityBundle(deps, {
         ...(mandateKey !== undefined && { mandateKey }),
@@ -135,9 +166,15 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
       if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.memberActivity, res.error.message);
       const bundle = res.value;
       if (bundle === null) {
-        return { ok: true, kind: PARLIAMENT_MCP_KINDS.memberActivity, query: { mandateKey, personId }, summary: 'No such member/person.' };
+        return {
+          ok: true,
+          kind: PARLIAMENT_MCP_KINDS.memberActivity,
+          query: { mandateKey, personId },
+          summary: 'No such member/person.',
+        };
       }
-      const name = bundle.member?.fullName ?? bundle.person?.canonicalName ?? mandateKey ?? personId ?? '';
+      const name =
+        bundle.member?.fullName ?? bundle.person?.canonicalName ?? mandateKey ?? personId ?? '';
       const linkKey = mandateKey ?? bundle.member?.mandateKey ?? '';
       return {
         ok: true,
@@ -170,7 +207,9 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
       });
       if (res.isErr()) return errorOut(PARLIAMENT_MCP_KINDS.cohesion, res.error.message);
       // cohesionIndex is null for groups with no decided votes (M13) — rank those last.
-      const top = [...res.value].sort((a, b) => (b.cohesionIndex ?? -1) - (a.cohesionIndex ?? -1))[0];
+      const top = [...res.value].sort(
+        (a, b) => (b.cohesionIndex ?? -1) - (a.cohesionIndex ?? -1)
+      )[0];
       const topIndex = top?.cohesionIndex;
       return {
         ok: true,
@@ -207,7 +246,10 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
         ...(mandateKey !== undefined && { mandateKey: { eq: mandateKey } }),
         ...(chamber !== undefined && { chamber: { eq: chamber } }),
         ...((from !== undefined || to !== undefined) && {
-          spokenAt: { ...(from !== undefined && { gte: from }), ...(to !== undefined && { lte: to }) },
+          spokenAt: {
+            ...(from !== undefined && { gte: from }),
+            ...(to !== undefined && { lte: to }),
+          },
         }),
       };
       const res = await listParliamentSpeeches(deps, {

@@ -203,19 +203,84 @@ export const mapCommitmentLineItem = (r: CommitmentRow): CommitmentLineItem => (
   economicName: r.economic_name,
   fundingSource: r.funding_source,
   fundingSourceId: r.funding_source_id,
-  crediteAngajament: metric(r.ytd_credite_angajament, r.monthly_credite_angajament, r.quarterly_credite_angajament, r.credite_angajament),
-  limitaCreditAngajament: metric(r.ytd_limita_credit_angajament, r.monthly_limita_credit_angajament, r.quarterly_limita_credit_angajament, r.limita_credit_angajament),
-  crediteBugetare: metric(r.ytd_credite_bugetare, r.monthly_credite_bugetare, r.quarterly_credite_bugetare, r.credite_bugetare),
-  crediteAngajamentInitiale: metric(r.ytd_credite_angajament_initiale, r.monthly_credite_angajament_initiale, r.quarterly_credite_angajament_initiale, r.credite_angajament_initiale),
-  crediteBugetareInitiale: metric(r.ytd_credite_bugetare_initiale, r.monthly_credite_bugetare_initiale, r.quarterly_credite_bugetare_initiale, r.credite_bugetare_initiale),
-  crediteAngajamentDefinitive: metric(r.ytd_credite_angajament_definitive, r.monthly_credite_angajament_definitive, r.quarterly_credite_angajament_definitive, r.credite_angajament_definitive),
-  crediteBugetareDefinitive: metric(r.ytd_credite_bugetare_definitive, r.monthly_credite_bugetare_definitive, r.quarterly_credite_bugetare_definitive, r.credite_bugetare_definitive),
-  crediteAngajamentDisponibile: metric(r.ytd_credite_angajament_disponibile, r.monthly_credite_angajament_disponibile, r.quarterly_credite_angajament_disponibile, r.credite_angajament_disponibile),
-  crediteBugetareDisponibile: metric(r.ytd_credite_bugetare_disponibile, r.monthly_credite_bugetare_disponibile, r.quarterly_credite_bugetare_disponibile, r.credite_bugetare_disponibile),
-  receptiiTotale: metric(r.ytd_receptii_totale, r.monthly_receptii_totale, r.quarterly_receptii_totale, r.receptii_totale),
-  platiTrezor: metric(r.ytd_plati_trezor, r.monthly_plati_trezor, r.quarterly_plati_trezor, r.plati_trezor),
-  platiNonTrezor: metric(r.ytd_plati_non_trezor, r.monthly_plati_non_trezor, r.quarterly_plati_non_trezor, r.plati_non_trezor),
-  receptiiNeplatite: metric(r.ytd_receptii_neplatite, r.monthly_receptii_neplatite, r.quarterly_receptii_neplatite, r.receptii_neplatite),
+  crediteAngajament: metric(
+    r.ytd_credite_angajament,
+    r.monthly_credite_angajament,
+    r.quarterly_credite_angajament,
+    r.credite_angajament
+  ),
+  limitaCreditAngajament: metric(
+    r.ytd_limita_credit_angajament,
+    r.monthly_limita_credit_angajament,
+    r.quarterly_limita_credit_angajament,
+    r.limita_credit_angajament
+  ),
+  crediteBugetare: metric(
+    r.ytd_credite_bugetare,
+    r.monthly_credite_bugetare,
+    r.quarterly_credite_bugetare,
+    r.credite_bugetare
+  ),
+  crediteAngajamentInitiale: metric(
+    r.ytd_credite_angajament_initiale,
+    r.monthly_credite_angajament_initiale,
+    r.quarterly_credite_angajament_initiale,
+    r.credite_angajament_initiale
+  ),
+  crediteBugetareInitiale: metric(
+    r.ytd_credite_bugetare_initiale,
+    r.monthly_credite_bugetare_initiale,
+    r.quarterly_credite_bugetare_initiale,
+    r.credite_bugetare_initiale
+  ),
+  crediteAngajamentDefinitive: metric(
+    r.ytd_credite_angajament_definitive,
+    r.monthly_credite_angajament_definitive,
+    r.quarterly_credite_angajament_definitive,
+    r.credite_angajament_definitive
+  ),
+  crediteBugetareDefinitive: metric(
+    r.ytd_credite_bugetare_definitive,
+    r.monthly_credite_bugetare_definitive,
+    r.quarterly_credite_bugetare_definitive,
+    r.credite_bugetare_definitive
+  ),
+  crediteAngajamentDisponibile: metric(
+    r.ytd_credite_angajament_disponibile,
+    r.monthly_credite_angajament_disponibile,
+    r.quarterly_credite_angajament_disponibile,
+    r.credite_angajament_disponibile
+  ),
+  crediteBugetareDisponibile: metric(
+    r.ytd_credite_bugetare_disponibile,
+    r.monthly_credite_bugetare_disponibile,
+    r.quarterly_credite_bugetare_disponibile,
+    r.credite_bugetare_disponibile
+  ),
+  receptiiTotale: metric(
+    r.ytd_receptii_totale,
+    r.monthly_receptii_totale,
+    r.quarterly_receptii_totale,
+    r.receptii_totale
+  ),
+  platiTrezor: metric(
+    r.ytd_plati_trezor,
+    r.monthly_plati_trezor,
+    r.quarterly_plati_trezor,
+    r.plati_trezor
+  ),
+  platiNonTrezor: metric(
+    r.ytd_plati_non_trezor,
+    r.monthly_plati_non_trezor,
+    r.quarterly_plati_non_trezor,
+    r.plati_non_trezor
+  ),
+  receptiiNeplatite: metric(
+    r.ytd_receptii_neplatite,
+    r.monthly_receptii_neplatite,
+    r.quarterly_receptii_neplatite,
+    r.receptii_neplatite
+  ),
   isMonthly: r.is_monthly,
   isQuarterly: r.is_quarterly,
   isYearly: r.is_yearly,
@@ -252,12 +317,18 @@ export const mapReport = (r: ReportRow): BudgetReport => ({
   downloadLinks: r.download_links ?? [],
 });
 
-export const mapClassification = (r: { code: string; name: string | null }): BudgetClassification => ({
+export const mapClassification = (r: {
+  code: string;
+  name: string | null;
+}): BudgetClassification => ({
   code: r.code,
   name: r.name,
 });
 
-export const mapSector = (r: { sector_id: number; sector_description: string | null }): BudgetSector => ({
+export const mapSector = (r: {
+  sector_id: number;
+  sector_description: string | null;
+}): BudgetSector => ({
   sectorId: r.sector_id,
   sectorDescription: r.sector_description,
 });

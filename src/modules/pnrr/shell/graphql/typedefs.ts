@@ -17,7 +17,6 @@ import {
   pnrrPaymentsFilterSpec,
 } from '../../core/filters.js';
 
-
 const filterInputs = [
   pnrrEntitiesFilterSpec,
   pnrrPaymentsFilterSpec,
@@ -30,11 +29,34 @@ const filterInputs = [
   .join('\n\n');
 
 const objectsAndQuery = /* GraphQL */ `
-  enum PnrrContractorRole { winning_bidder foreign_winning_bidder subcontractor association_leader third_party_support }
-  enum PnrrMeasureType { investment reform }
-  enum PnrrPaymentGroupBy { component measure county year }
-  enum PnrrContractorRankBy { value awards }
-  enum PnrrResolveDim { entity component measure county contractor }
+  enum PnrrContractorRole {
+    winning_bidder
+    foreign_winning_bidder
+    subcontractor
+    association_leader
+    third_party_support
+  }
+  enum PnrrMeasureType {
+    investment
+    reform
+  }
+  enum PnrrPaymentGroupBy {
+    component
+    measure
+    county
+    year
+  }
+  enum PnrrContractorRankBy {
+    value
+    awards
+  }
+  enum PnrrResolveDim {
+    entity
+    component
+    measure
+    county
+    contractor
+  }
 
   type PnrrEntityRoles {
     beneficiary: Boolean!
@@ -59,7 +81,11 @@ const objectsAndQuery = /* GraphQL */ `
     profile: PnrrEntityProfile
   }
 
-  type PnrrComponentTotal { componentCode: String count: Int! totalLei: Money }
+  type PnrrComponentTotal {
+    componentCode: String
+    count: Int!
+    totalLei: Money
+  }
   type PnrrPaymentSummary {
     count: Int!
     totalLei: Money
@@ -180,7 +206,12 @@ const objectsAndQuery = /* GraphQL */ `
     countySiruta: SIRUTA
   }
 
-  type PnrrLot { lotKey: ID! announcementKey: ID lotNumber: String description: String }
+  type PnrrLot {
+    lotKey: ID!
+    announcementKey: ID
+    lotNumber: String
+    description: String
+  }
 
   "An awarded PNRR contract. beneficiaryCui = the PNRR beneficiary running the procurement (== announcement applicant)."
   type PnrrAcquisition {
@@ -232,7 +263,11 @@ const objectsAndQuery = /* GraphQL */ `
     roles: [PnrrContractorRole!]!
   }
 
-  type PnrrComponent { componentCode: ID! componentName: String pillar: String }
+  type PnrrComponent {
+    componentCode: ID!
+    componentName: String
+    pillar: String
+  }
   type PnrrMeasure {
     fenixReference: ID!
     componentCode: String
@@ -241,21 +276,62 @@ const objectsAndQuery = /* GraphQL */ `
     measureName: String
   }
 
-  type PnrrPaymentAggRow { key: String! label: String count: Int! totalLei: Money totalEur: Money }
+  type PnrrPaymentAggRow {
+    key: String!
+    label: String
+    count: Int!
+    totalLei: Money
+    totalEur: Money
+  }
 
   "A name→value discovery hit (module-local resolve surface)."
-  type PnrrResolveHit { dim: PnrrResolveDim! value: String! label: String! score: Float }
+  type PnrrResolveHit {
+    dim: PnrrResolveDim!
+    value: String!
+    label: String!
+    score: Float
+  }
 
-  type PnrrEntityConnection { edges: [PnrrEntityEdge!]! pageInfo: PageInfo! }
-  type PnrrEntityEdge { node: PnrrEntity! cursor: String! }
-  type PnrrPaymentConnection { edges: [PnrrPaymentEdge!]! pageInfo: PageInfo! }
-  type PnrrPaymentEdge { node: PnrrPayment! cursor: String! }
-  type PnrrCommitmentConnection { edges: [PnrrCommitmentEdge!]! pageInfo: PageInfo! }
-  type PnrrCommitmentEdge { node: PnrrCommitment! cursor: String! }
-  type PnrrAcquisitionConnection { edges: [PnrrAcquisitionEdge!]! pageInfo: PageInfo! }
-  type PnrrAcquisitionEdge { node: PnrrAcquisition! cursor: String! }
-  type PnrrContractorConnection { edges: [PnrrContractorEdge!]! pageInfo: PageInfo! }
-  type PnrrContractorEdge { node: PnrrContractor! cursor: String! }
+  type PnrrEntityConnection {
+    edges: [PnrrEntityEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrEntityEdge {
+    node: PnrrEntity!
+    cursor: String!
+  }
+  type PnrrPaymentConnection {
+    edges: [PnrrPaymentEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrPaymentEdge {
+    node: PnrrPayment!
+    cursor: String!
+  }
+  type PnrrCommitmentConnection {
+    edges: [PnrrCommitmentEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrCommitmentEdge {
+    node: PnrrCommitment!
+    cursor: String!
+  }
+  type PnrrAcquisitionConnection {
+    edges: [PnrrAcquisitionEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrAcquisitionEdge {
+    node: PnrrAcquisition!
+    cursor: String!
+  }
+  type PnrrContractorConnection {
+    edges: [PnrrContractorEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrContractorEdge {
+    node: PnrrContractor!
+    cursor: String!
+  }
 
   extend type Query {
     "PNRR entity directory (CUI spine). Default sort cui asc."
@@ -264,15 +340,34 @@ const objectsAndQuery = /* GraphQL */ `
     pnrrEntityProfile(cui: CUI!): PnrrEntityProfile
     "Source-native PNRR cash disbursements. Needs an indexed driving predicate."
     pnrrPayments(filter: PnrrPaymentsFilter, first: Int = 20, after: String): PnrrPaymentConnection!
-    pnrrPaymentAggregate(filter: PnrrPaymentsFilter, groupBy: PnrrPaymentGroupBy!): [PnrrPaymentAggRow!]!
-    pnrrCommitments(filter: PnrrCommitmentsFilter, first: Int = 20, after: String): PnrrCommitmentConnection!
+    pnrrPaymentAggregate(
+      filter: PnrrPaymentsFilter
+      groupBy: PnrrPaymentGroupBy!
+    ): [PnrrPaymentAggRow!]!
+    pnrrCommitments(
+      filter: PnrrCommitmentsFilter
+      first: Int = 20
+      after: String
+    ): PnrrCommitmentConnection!
     "MIPE progress series for one commitment (bounded; resilient to unlinked snapshots)."
     pnrrCommitmentProgress(commitmentKey: ID!): [PnrrCommitmentSnapshot!]!
-    pnrrAcquisitions(filter: PnrrAcquisitionsFilter, first: Int = 20, after: String): PnrrAcquisitionConnection!
+    pnrrAcquisitions(
+      filter: PnrrAcquisitionsFilter
+      first: Int = 20
+      after: String
+    ): PnrrAcquisitionConnection!
     pnrrAcquisition(key: ID!): PnrrAcquisitionDetail
-    pnrrContractors(filter: PnrrContractorsFilter, first: Int = 20, after: String): PnrrContractorConnection!
+    pnrrContractors(
+      filter: PnrrContractorsFilter
+      first: Int = 20
+      after: String
+    ): PnrrContractorConnection!
     "Top PNRR contractors from source facts (self-awards excluded)."
-    pnrrContractorRank(filter: PnrrContractorsFilter, by: PnrrContractorRankBy = value, limit: Int = 20): [PnrrContractorRankRow!]!
+    pnrrContractorRank(
+      filter: PnrrContractorsFilter
+      by: PnrrContractorRankBy = value
+      limit: Int = 20
+    ): [PnrrContractorRankRow!]!
     pnrrComponents: [PnrrComponent!]!
     pnrrMeasures(filter: PnrrMeasuresFilter): [PnrrMeasure!]!
     pnrrProgramIndicators: [PnrrProgramIndicator!]!

@@ -32,7 +32,8 @@ import type { ReferenceClassificationCode } from '../../core/types.js';
 type Db = Kysely<ProdDatabase>;
 
 const clampFirst = (first: number): number => Math.min(Math.max(Math.floor(first), 1), 100);
-const clampLimit = (limit: number, max = 50): number => Math.min(Math.max(Math.floor(limit), 1), max);
+const clampLimit = (limit: number, max = 50): number =>
+  Math.min(Math.max(Math.floor(limit), 1), max);
 const escapeLike = (s: string): string => s.replace(/[%_\\]/gu, '\\$&');
 
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
@@ -64,7 +65,9 @@ export const makeClassificationRepo = (db: Db): ClassificationRepo => {
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ReferenceClassificationCode>, ApiError>> => {
     const sortField =
-      page.sort !== undefined && page.sort in SORT_COLUMN ? page.sort : referenceClassificationFilterSpec.sort.default;
+      page.sort !== undefined && page.sort in SORT_COLUMN
+        ? page.sort
+        : referenceClassificationFilterSpec.sort.default;
     const sortCol = SORT_COLUMN[sortField] ?? 'c.code';
     const limit = clampFirst(page.first);
     const fhash = fhashFor(referenceClassificationFilterSpec, f);
@@ -118,7 +121,12 @@ export const makeClassificationRepo = (db: Db): ClassificationRepo => {
         const last = pageRows[pageRows.length - 1];
         if (last !== undefined) {
           const sv = sortField === 'label' ? (last.label ?? '') : last.code;
-          next = buildNextCursor({ sort: sortField, dir: 'asc', fhash, lastKeys: [sv, last.system, last.code] });
+          next = buildNextCursor({
+            sort: sortField,
+            dir: 'asc',
+            fhash,
+            lastKeys: [sv, last.system, last.code],
+          });
         }
       }
       return ok({ items, next });
@@ -143,16 +151,20 @@ export const makeClassificationRepo = (db: Db): ClassificationRepo => {
       let query = db
         .selectFrom('core.classification_codes as c')
         .select(['c.system', 'c.code', 'c.label'])
-        .where(sql<boolean>`(c.code ilike ${pattern} escape '\\' or c.label ilike ${pattern} escape '\\')`);
+        .where(
+          sql<boolean>`(c.code ilike ${pattern} escape '\\' or c.label ilike ${pattern} escape '\\')`
+        );
       if (system !== null) query = query.where('c.system', '=', system);
       const rows = await query.orderBy('c.code', 'asc').limit(capped).execute();
       return ok(
-        rows.map((r): ResolveHit => ({
-          kind: 'classification',
-          value: r.code,
-          label: r.label ?? r.code,
-          hint: r.system,
-        }))
+        rows.map(
+          (r): ResolveHit => ({
+            kind: 'classification',
+            value: r.code,
+            label: r.label ?? r.code,
+            hint: r.system,
+          })
+        )
       );
     } catch (error) {
       return err(databaseError('resolve failed', error));

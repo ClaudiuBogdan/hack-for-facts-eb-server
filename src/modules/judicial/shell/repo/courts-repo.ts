@@ -17,7 +17,11 @@ import { composeWhere } from './filter-helpers.js';
 import { judicialCourtsSpec } from '../filters/judicial.spec.js';
 
 import type { CourtListOptions, JudicialCourtRepo } from '../../core/ports.js';
-import type { JudicialCourt, JudicialCourtLevel, JudicialMappingConfidence } from '../../core/types.js';
+import type {
+  JudicialCourt,
+  JudicialCourtLevel,
+  JudicialMappingConfidence,
+} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -57,7 +61,9 @@ const mapCourt = (r: CourtRow): JudicialCourt => ({
 export const makeJudicialCourtRepo = (db: Db): JudicialCourtRepo => {
   const baseSelect = () => db.selectFrom('justice.courts as co').select(COURT_COLUMNS);
 
-  const list = async (opts: CourtListOptions): Promise<Result<readonly JudicialCourt[], ApiError>> => {
+  const list = async (
+    opts: CourtListOptions
+  ): Promise<Result<readonly JudicialCourt[], ApiError>> => {
     const built = toConditionBuilders(judicialCourtsSpec, opts.filter);
     if (built.isErr()) return err(built.error);
     const where = composeWhere(built.value);
@@ -71,14 +77,19 @@ export const makeJudicialCourtRepo = (db: Db): JudicialCourtRepo => {
 
   const getByCode = async (code: string): Promise<Result<JudicialCourt | null, ApiError>> => {
     try {
-      const row = await baseSelect().where('co.institution_code', '=', code).limit(1).executeTakeFirst();
+      const row = await baseSelect()
+        .where('co.institution_code', '=', code)
+        .limit(1)
+        .executeTakeFirst();
       return ok(row === undefined ? null : mapCourt(row));
     } catch (error) {
       return err(databaseError('courts.getByCode failed', error));
     }
   };
 
-  const listChildren = async (code: string): Promise<Result<readonly JudicialCourt[], ApiError>> => {
+  const listChildren = async (
+    code: string
+  ): Promise<Result<readonly JudicialCourt[], ApiError>> => {
     try {
       const rows = await baseSelect()
         .where('co.parent_institution_code', '=', code)
@@ -90,7 +101,10 @@ export const makeJudicialCourtRepo = (db: Db): JudicialCourtRepo => {
     }
   };
 
-  const resolveCourt = async (q: string, limit: number): Promise<Result<readonly JudicialCourt[], ApiError>> => {
+  const resolveCourt = async (
+    q: string,
+    limit: number
+  ): Promise<Result<readonly JudicialCourt[], ApiError>> => {
     const needle = q.trim();
     if (needle === '') return ok([]);
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
@@ -134,7 +148,9 @@ export const makeJudicialCourtRepo = (db: Db): JudicialCourtRepo => {
         .execute();
       return ok(
         rows
-          .filter((r): r is { category: string; category_name: string | null } => r.category !== null)
+          .filter(
+            (r): r is { category: string; category_name: string | null } => r.category !== null
+          )
           .map((r) => ({ value: r.category, label: r.category_name }))
       );
     } catch (error) {

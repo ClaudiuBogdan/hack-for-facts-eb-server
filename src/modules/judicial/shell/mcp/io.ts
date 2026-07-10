@@ -32,22 +32,39 @@ export const resolveJudicialFiltersInput = {
     .describe(
       'Dimension to resolve: court (name→institution_code), courtLevel (label→enum), companyName (name→name_key_id; company/public dictionary ONLY — a person name returns zero rows), category (label→code).'
     ),
-  q: z.string().describe('The free-text query (court name, level label, company name, or category label).'),
+  q: z
+    .string()
+    .describe('The free-text query (court name, level label, company name, or category label).'),
   limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
 };
 
 export const getJudicialCaseInput = {
   caseId: z.string().optional().describe('Numeric case_id.'),
-  institutionCode: z.string().optional().describe('Court institution code (with caseNumber, natural-key lookup).'),
-  caseNumber: z.string().optional().describe('Case number (with institutionCode, natural-key lookup).'),
+  institutionCode: z
+    .string()
+    .optional()
+    .describe('Court institution code (with caseNumber, natural-key lookup).'),
+  caseNumber: z
+    .string()
+    .optional()
+    .describe('Case number (with institutionCode, natural-key lookup).'),
 };
 
 export const getCourtCaseloadInput = {
-  groupBy: z
-    .enum(['court', 'category', 'year', 'courtLevel'])
-    .describe('Aggregate dimension.'),
+  groupBy: z.enum(['court', 'category', 'year', 'courtLevel']).describe('Aggregate dimension.'),
   institutionCode: z.array(z.string()).optional().describe('Bound to court institution code(s).'),
-  courtLevel: z.array(z.enum(['judecatorie', 'tribunal', 'tribunal_militar', 'curte_de_apel', 'curte_militara_apel'])).optional().describe('Bound to court level(s).'),
+  courtLevel: z
+    .array(
+      z.enum([
+        'judecatorie',
+        'tribunal',
+        'tribunal_militar',
+        'curte_de_apel',
+        'curte_militara_apel',
+      ])
+    )
+    .optional()
+    .describe('Bound to court level(s).'),
   category: z.array(z.string()).optional().describe('Bound to category code(s).'),
   yearFrom: z.number().int().optional().describe('Opened-year lower bound.'),
   yearTo: z.number().int().optional().describe('Opened-year upper bound.'),
@@ -55,8 +72,21 @@ export const getCourtCaseloadInput = {
 };
 
 export const getCompanyLitigationInput = {
-  cui: z.string().describe('Company CUI (resolved via the identity hub). Published-only; empty in v1.'),
-  courtLevel: z.array(z.enum(['judecatorie', 'tribunal', 'tribunal_militar', 'curte_de_apel', 'curte_militara_apel'])).optional().describe('Optional court-level narrowing (§7.3).'),
+  cui: z
+    .string()
+    .describe('Company CUI (resolved via the identity hub). Published-only; empty in v1.'),
+  courtLevel: z
+    .array(
+      z.enum([
+        'judecatorie',
+        'tribunal',
+        'tribunal_militar',
+        'curte_de_apel',
+        'curte_militara_apel',
+      ])
+    )
+    .optional()
+    .describe('Optional court-level narrowing (§7.3).'),
   yearFrom: z.number().int().optional().describe('Optional opened-year lower bound.'),
   yearTo: z.number().int().optional().describe('Optional opened-year upper bound.'),
   category: z.array(z.string()).optional().describe('Optional category narrowing.'),

@@ -76,12 +76,12 @@ spec:
                   key: BULLMQ_REDIS_PASSWORD
           resources:
             limits:
-              cpu: "3"
-              memory: "4Gi"
+              cpu: '3'
+              memory: '4Gi'
             requests:
               # REVIEW: Increased CPU from 100m to 500m and memory from 128Mi to 512Mi.
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: '100m'
+              memory: '128Mi'
           readinessProbe:
             httpGet:
               path: /health/ready

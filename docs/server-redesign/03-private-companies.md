@@ -3,7 +3,7 @@
 > **Status:** plan. Conforms to [`00-foundation-shared-kernel.md`](00-foundation-shared-kernel.md)
 > (the binding contract). Where this module deviates, it says so with rationale.
 >
-> **Source:** ANAF (fiscal status, financial statements / *bilanț*) + ONRC
+> **Source:** ANAF (fiscal status, financial statements / _bilanț_) + ONRC
 > (company registry: identity, status, representatives, authorized CAEN, EU
 > branches). Raw DB `transparenta_eu_private_companies` on the prod raw cluster;
 > served from `transparenta_prod` schema `companies.*` + the kernel
@@ -11,7 +11,7 @@
 >
 > **Role in the platform:** this is the **CUI identity spine**. ~3.99M
 > `kind='company'` rows in `core.organizations` originate here. Every other
-> source that carries a supplier/counterparty CUI links *to* this hub
+> source that carries a supplier/counterparty CUI links _to_ this hub
 > (link-not-merge, §2 below). Getting the identity contract right here is the
 > highest-leverage decision in the redesign.
 
@@ -27,17 +27,17 @@
 **Live row counts** (verified on griffin `transparenta-prod-postgres-1`,
 2026-06-16; cross-checked against `PRIVATE_COMPANIES_NOTES.md` load log):
 
-| Table | Rows | Notes |
-|---|---|---|
-| `core.organizations` (`kind='company'`) | 3,985,167 | the CUI spine; 1:1 with `companies.registrations` |
-| `core.organization_identifiers` | 8,062,163 loaded | `ro-cui` + `cod-inmatriculare` schemes; **co-owned** — this table is shared with public entities (R7). Number is companies-load total (source 8,072,163; Δ = 10k smoke rows), not a clean companies-only count |
-| `companies.registrations` | 3,985,167 | one row per CUI; headline status by lifecycle priority |
-| `companies.fiscal_status` | 3,867,146 | ANAF TVA-endpoint snapshot (3.5wk stale at load) |
-| `companies.financials` | 2,970,240 | (cui, year); grows with the 25.8M-request bilanț drain (→ ~14M at full drain) |
-| `companies.representatives` | 3,499,816 | (cui, name, role); 2.06M distinct normalized names |
-| `companies.caen_activities` | 18,270,650 | (cui, caen_rev, caen_code, source); volume long pole |
-| `companies.status_flags` | 4,377,299 | (cui, status_code); concurrent SET, never a timeline |
-| `companies.eu_branches` | 221 | (cui, branch_key); EU/EEA branches |
+| Table                                   | Rows             | Notes                                                                                                                                                                                                          |
+| --------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core.organizations` (`kind='company'`) | 3,985,167        | the CUI spine; 1:1 with `companies.registrations`                                                                                                                                                              |
+| `core.organization_identifiers`         | 8,062,163 loaded | `ro-cui` + `cod-inmatriculare` schemes; **co-owned** — this table is shared with public entities (R7). Number is companies-load total (source 8,072,163; Δ = 10k smoke rows), not a clean companies-only count |
+| `companies.registrations`               | 3,985,167        | one row per CUI; headline status by lifecycle priority                                                                                                                                                         |
+| `companies.fiscal_status`               | 3,867,146        | ANAF TVA-endpoint snapshot (3.5wk stale at load)                                                                                                                                                               |
+| `companies.financials`                  | 2,970,240        | (cui, year); grows with the 25.8M-request bilanț drain (→ ~14M at full drain)                                                                                                                                  |
+| `companies.representatives`             | 3,499,816        | (cui, name, role); 2.06M distinct normalized names                                                                                                                                                             |
+| `companies.caen_activities`             | 18,270,650       | (cui, caen_rev, caen_code, source); volume long pole                                                                                                                                                           |
+| `companies.status_flags`                | 4,377,299        | (cui, status_code); concurrent SET, never a timeline                                                                                                                                                           |
+| `companies.eu_branches`                 | 221              | (cui, branch_key); EU/EEA branches                                                                                                                                                                             |
 
 **Deferred / not in prod (declared, not built here):**
 
@@ -55,8 +55,8 @@
   / count-only** until earned).
 - **Real ANAF `stare_inregistrare`** (lifecycle/radiation state) — **not
   extracted into serving** (`COMPANIES_DATA_RESEARCH.md` Verification Correction
-  1, MATERIAL). The current `companies.fiscal_status.is_active` is *not* an
-  operating indicator; it is the complement of ANAF's *declared-fiscally-inactive*
+  1, MATERIAL). The current `companies.fiscal_status.is_active` is _not_ an
+  operating indicator; it is the complement of ANAF's _declared-fiscally-inactive_
   list flag. **`is_active` MUST NOT be exposed under that name** (see §2 + §13-R1).
 - **Identity history / aliases** for the 95,152 re-registered CUIs (research
   finding 1) — raw has it; serving keeps the one current row. Surfaced as a
@@ -107,39 +107,39 @@ Module domain types live in `src/modules/companies/core/types.ts`. All money is
 
 ### 2.2 Table-by-table mapping
 
-| Prod table.column | Domain view-model field | Notes / transform |
-|---|---|---|
-| `core.organizations.org_id` | `Organization.orgId: string` | bigint→string; identity only, not the link key |
-| `core.organizations.cui` | `cui: string` | the link key; `kind='company'` filter is the domain boundary |
-| `core.organizations.name` / `normalized_name` | `name` / `normalizedName` | `normalized_name` is loader-normalized (C-locale lower + NFD strip); **name search does NOT use it in Postgres** (§7) |
-| `core.organizations.registration_number` | `registrationNumber` | duplicate of `registrations.cod_inmatriculare`; prefer the registrations value |
-| `companies.registrations.cui` (PK) | `CompanyRegistration.cui` | |
-| `…cod_inmatriculare` | `codInmatriculare` | one-to-many lookup (§2.1) |
-| `…legal_form` | `legalForm` | e.g. SRL/SA/PFA |
-| `…registration_date` | `registrationDate: string \| null` | **256,142 NULL** (ONRC stopped publishing dates after 2024-09-03); expose `registrationDatePresent: bool` so coverage is honest |
-| `…status_code` / `status_label` | `headlineStatus: { code, label } \| null` | headline derived by lifecycle priority in the loader (1084 radiată > 1070 faliment > … > 1048 funcțiune > other 1xxx > 2xxx). Labels mojibake-repaired |
-| `…raw_address` / `raw_county` / `raw_locality` | `address: { display, county, locality }` | **`raw_county` is the 99.996%-coverage county** — all county filtering uses it (NOT `county_name`, which is SIRUTA-matched and effectively urban-only) |
-| `…uat_siruta_code` / `uat_name` / `county_name` | `territory: { sirutaCode, uatName, countyName, matchConfidence } \| null` | NULL territory for ~36.3% (rural; urban-only matcher). `match_confidence ∈ {safe, unmatched}` |
-| `…match_confidence` | `territory.matchConfidence` | drives the "geo present" caveat |
-| `…snapshot_at` | `sources[onrc].snapshotDate` | the ONRC snapshot watermark |
-| `companies.fiscal_status.is_active` | **dropped (not exposed)** | **NOT operating-active** and exactly `NOT is_inactive` on all 3.87M rows (research Correction 1). Exposing it (even renamed) duplicates `declaredFiscallyInactive` — so it is omitted from every surface (§13-R1) |
-| `…is_inactive` | `declaredFiscallyInactive: bool` | ANAF *declared-fiscally-inactive list* flag — the single fiscal-inactivity boolean exposed. NOT an operating/lifecycle state |
-| `…is_vat_payer` | `vatPayer: bool` | |
-| `…main_caen_code` | `fiscal.mainCaenCode` | ANAF's main CAEN; **1,012,993 companies have no ONRC CAEN at all** — coverage gap, not mismatch |
-| `…registered_name` | `fiscal.registeredName` | fallback name when org name absent |
-| `…snapshot_at` | `sources[anaf].snapshotDate` | ANAF (TVA endpoint) watermark; ~3.5wk stale |
-| `companies.financials.*` (20 typed cols) | `FinancialYear.summary` | typed columns: `turnover, net_profit, net_loss, employees, total_revenue, total_expenses, gross_profit, gross_loss, receivables, current_assets, fixed_assets, cash_and_bank, prepaid_expenses, deferred_income, subscribed_capital, inventories, debts, provisions, total_equity, patrimony_regie` |
-| `companies.financials.employees` | `employees: string` (bigint) | **bigint** — source garbage outliers (max 5,009,387,154) overflow int4. Gate flags absurd; API never coerces to JS number |
-| `companies.financials.lines` (jsonb) | `lines: Record<string, string> \| null` | full statement (221 variable indicator names); render-only |
-| `companies.representatives.*` | `Representative { name, role }` | high-degree placeholder noise (`FARA REPREZENTANT` on 35,646 cos) — flagged, not filtered, in the network view |
-| `companies.caen_activities.*` | `CaenActivity { caenCode, caenRev, source, label }` | label from `core.classification_codes` where `system = 'caen_' || caen_rev` |
-| `companies.status_flags.*` | `StatusFlag { code, label }` | concurrent SET; labels mojibake-repaired |
-| `companies.eu_branches.*` | `EuBranch { branchName, country, euid, fiscalCode }` | 221 rows |
+| Prod table.column                               | Domain view-model field                                                   | Notes / transform                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --------- |
+| `core.organizations.org_id`                     | `Organization.orgId: string`                                              | bigint→string; identity only, not the link key                                                                                                                                                                                                                                                      |
+| `core.organizations.cui`                        | `cui: string`                                                             | the link key; `kind='company'` filter is the domain boundary                                                                                                                                                                                                                                        |
+| `core.organizations.name` / `normalized_name`   | `name` / `normalizedName`                                                 | `normalized_name` is loader-normalized (C-locale lower + NFD strip); **name search does NOT use it in Postgres** (§7)                                                                                                                                                                               |
+| `core.organizations.registration_number`        | `registrationNumber`                                                      | duplicate of `registrations.cod_inmatriculare`; prefer the registrations value                                                                                                                                                                                                                      |
+| `companies.registrations.cui` (PK)              | `CompanyRegistration.cui`                                                 |                                                                                                                                                                                                                                                                                                     |
+| `…cod_inmatriculare`                            | `codInmatriculare`                                                        | one-to-many lookup (§2.1)                                                                                                                                                                                                                                                                           |
+| `…legal_form`                                   | `legalForm`                                                               | e.g. SRL/SA/PFA                                                                                                                                                                                                                                                                                     |
+| `…registration_date`                            | `registrationDate: string \| null`                                        | **256,142 NULL** (ONRC stopped publishing dates after 2024-09-03); expose `registrationDatePresent: bool` so coverage is honest                                                                                                                                                                     |
+| `…status_code` / `status_label`                 | `headlineStatus: { code, label } \| null`                                 | headline derived by lifecycle priority in the loader (1084 radiată > 1070 faliment > … > 1048 funcțiune > other 1xxx > 2xxx). Labels mojibake-repaired                                                                                                                                              |
+| `…raw_address` / `raw_county` / `raw_locality`  | `address: { display, county, locality }`                                  | **`raw_county` is the 99.996%-coverage county** — all county filtering uses it (NOT `county_name`, which is SIRUTA-matched and effectively urban-only)                                                                                                                                              |
+| `…uat_siruta_code` / `uat_name` / `county_name` | `territory: { sirutaCode, uatName, countyName, matchConfidence } \| null` | NULL territory for ~36.3% (rural; urban-only matcher). `match_confidence ∈ {safe, unmatched}`                                                                                                                                                                                                       |
+| `…match_confidence`                             | `territory.matchConfidence`                                               | drives the "geo present" caveat                                                                                                                                                                                                                                                                     |
+| `…snapshot_at`                                  | `sources[onrc].snapshotDate`                                              | the ONRC snapshot watermark                                                                                                                                                                                                                                                                         |
+| `companies.fiscal_status.is_active`             | **dropped (not exposed)**                                                 | **NOT operating-active** and exactly `NOT is_inactive` on all 3.87M rows (research Correction 1). Exposing it (even renamed) duplicates `declaredFiscallyInactive` — so it is omitted from every surface (§13-R1)                                                                                   |
+| `…is_inactive`                                  | `declaredFiscallyInactive: bool`                                          | ANAF _declared-fiscally-inactive list_ flag — the single fiscal-inactivity boolean exposed. NOT an operating/lifecycle state                                                                                                                                                                        |
+| `…is_vat_payer`                                 | `vatPayer: bool`                                                          |                                                                                                                                                                                                                                                                                                     |
+| `…main_caen_code`                               | `fiscal.mainCaenCode`                                                     | ANAF's main CAEN; **1,012,993 companies have no ONRC CAEN at all** — coverage gap, not mismatch                                                                                                                                                                                                     |
+| `…registered_name`                              | `fiscal.registeredName`                                                   | fallback name when org name absent                                                                                                                                                                                                                                                                  |
+| `…snapshot_at`                                  | `sources[anaf].snapshotDate`                                              | ANAF (TVA endpoint) watermark; ~3.5wk stale                                                                                                                                                                                                                                                         |
+| `companies.financials.*` (20 typed cols)        | `FinancialYear.summary`                                                   | typed columns: `turnover, net_profit, net_loss, employees, total_revenue, total_expenses, gross_profit, gross_loss, receivables, current_assets, fixed_assets, cash_and_bank, prepaid_expenses, deferred_income, subscribed_capital, inventories, debts, provisions, total_equity, patrimony_regie` |
+| `companies.financials.employees`                | `employees: string` (bigint)                                              | **bigint** — source garbage outliers (max 5,009,387,154) overflow int4. Gate flags absurd; API never coerces to JS number                                                                                                                                                                           |
+| `companies.financials.lines` (jsonb)            | `lines: Record<string, string> \| null`                                   | full statement (221 variable indicator names); render-only                                                                                                                                                                                                                                          |
+| `companies.representatives.*`                   | `Representative { name, role }`                                           | high-degree placeholder noise (`FARA REPREZENTANT` on 35,646 cos) — flagged, not filtered, in the network view                                                                                                                                                                                      |
+| `companies.caen_activities.*`                   | `CaenActivity { caenCode, caenRev, source, label }`                       | label from `core.classification_codes` where `system = 'caen\_'                                                                                                                                                                                                                                     |     | caen_rev` |
+| `companies.status_flags.*`                      | `StatusFlag { code, label }`                                              | concurrent SET; labels mojibake-repaired                                                                                                                                                                                                                                                            |
+| `companies.eu_branches.*`                       | `EuBranch { branchName, country, euid, fiscalCode }`                      | 221 rows                                                                                                                                                                                                                                                                                            |
 
 ### 2.3 PII / excluded columns
 
 - **No party-name privacy class here** (companies are public legal entities; ONRC
-  publishes representatives). `representatives.name` *is* exposed — it is public
+  publishes representatives). `representatives.name` _is_ exposed — it is public
   registry data. (Contrast with `justice`, §8.2 of the contract.)
 - **Excluded from default projection (semantic-safety, not PII):**
   - `companies.fiscal_status.is_active` — **dropped entirely** (§13-R1): it is the
@@ -176,7 +176,9 @@ export interface CompaniesRepository {
 
   // ── list / filter (the filterable collection §7) ──
   listCompanies(
-    filters: CompanyListFilters, sort: CompanySort, page: OffsetPage,
+    filters: CompanyListFilters,
+    sort: CompanySort,
+    page: OffsetPage
   ): Promise<Result<{ rows: readonly CompanyListRow[]; total: number }, ApiError>>;
   //   FROM core.organizations o WHERE o.kind='company'
   //   LEFT JOIN companies.registrations r ON r.cui=o.cui   (registrations_pkey)
@@ -223,15 +225,15 @@ export interface CompaniesRepository {
 
 **Index / perf notes (verified against the live `pg_indexes`):**
 
-| Query class | Driving index | Note |
-|---|---|---|
-| profile per-CUI | `organizations_cui_uq`, all `companies.*` PKs | 8 parallel seeks; <5ms each |
-| status filter | `registrations_status_idx` | btree on `status_code` |
-| caen filter / label | `caen_activities_code_idx` (code), `caen_activities_pkey` (cui prefix) | EXISTS subquery |
-| county filter / group | **none** (seq-scan over registrations) | list filter bounded by 10k count cap, but a `GROUP BY raw_county` aggregate is NOT — gate the unfiltered county aggregate (require a selective predicate). Earned-index candidate is **`registrations(raw_county[, status_code])`** — note this **supersedes** the research's `registrations(county_name, status_code)` suggestion (the plan filters on `raw_county`, not the urban-only `county_name`) |
-| registration-number lookup | `organization_identifiers_pkey (scheme,value)` | index seek; one-to-many |
-| **name search** | **none in Postgres** | **MUST use Meilisearch** — the single biggest divergence from the old unified module (§13-R2) |
-| **global financial rank** (`year, turnover desc`) | **none** | no `financials(year,turnover desc)` index, no rollup → **not offered as a value-ranked list**; count-only or capability-gated (§7) |
+| Query class                                       | Driving index                                                          | Note                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| profile per-CUI                                   | `organizations_cui_uq`, all `companies.*` PKs                          | 8 parallel seeks; <5ms each                                                                                                                                                                                                                                                                                                                                                                             |
+| status filter                                     | `registrations_status_idx`                                             | btree on `status_code`                                                                                                                                                                                                                                                                                                                                                                                  |
+| caen filter / label                               | `caen_activities_code_idx` (code), `caen_activities_pkey` (cui prefix) | EXISTS subquery                                                                                                                                                                                                                                                                                                                                                                                         |
+| county filter / group                             | **none** (seq-scan over registrations)                                 | list filter bounded by 10k count cap, but a `GROUP BY raw_county` aggregate is NOT — gate the unfiltered county aggregate (require a selective predicate). Earned-index candidate is **`registrations(raw_county[, status_code])`** — note this **supersedes** the research's `registrations(county_name, status_code)` suggestion (the plan filters on `raw_county`, not the urban-only `county_name`) |
+| registration-number lookup                        | `organization_identifiers_pkey (scheme,value)`                         | index seek; one-to-many                                                                                                                                                                                                                                                                                                                                                                                 |
+| **name search**                                   | **none in Postgres**                                                   | **MUST use Meilisearch** — the single biggest divergence from the old unified module (§13-R2)                                                                                                                                                                                                                                                                                                           |
+| **global financial rank** (`year, turnover desc`) | **none**                                                               | no `financials(year,turnover desc)` index, no rollup → **not offered as a value-ranked list**; count-only or capability-gated (§7)                                                                                                                                                                                                                                                                      |
 
 ---
 
@@ -240,14 +242,14 @@ export interface CompaniesRepository {
 `src/modules/companies/core/usecases/` — framework-free, over the ports, returning
 `Result`.
 
-| Usecase | Signature | Notes |
-|---|---|---|
-| `makeCompanyProfile` | `(deps, { rawCui }) → Result<CompanyProfile, ApiError>` | normalize CUI → `getProfile` → assemble. **Presence is decided first by the cheap `core.organizations` (cui PK) seek**, short-circuiting the 8-table fan-out so a 404 for an unknown CUI does not pay 8 seeks (it 404s only if absent everywhere, but the common case resolves on the first seek). Public-money slice injected from kernel `FlowsRepo.summaryByCui(cui, 'payee')` |
-| `makeCompanyList` | `(deps, ListInput) → Result<CompanyListResponse, ApiError>` | offset paginate; total bounded at 10,000; default sort `name asc, cui asc` |
-| `makeCompanyFinancials` | `(deps, { rawCui }) → Result<FinancialsResponse, ApiError>` | full year series + computed `latest` + `trajectory` (latest vs year-1, research feature 2) |
-| `makeCompanyResolve` | `(deps, { dim, q }) → Result<ResolveResponse, ApiError>` | name→CUI (Meili), regnum→CUIs, caen-label→code, county-name→county. Echoes resolved entity + asks for disambiguation when >1 (catalog Entity Resolution Gate) |
-| `makeCompanyCountyProfile` | `(deps, CountyInput) → Result<CountyProfile, ApiError>` | count-by-county/status/caen aggregates; coverage-aware (research feature 4) |
-| `makeCompanyContributor` | factory → `SourceContributor` | `presenceFor` + `profileSlice` for the kernel registry |
+| Usecase                    | Signature                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `makeCompanyProfile`       | `(deps, { rawCui }) → Result<CompanyProfile, ApiError>`     | normalize CUI → `getProfile` → assemble. **Presence is decided first by the cheap `core.organizations` (cui PK) seek**, short-circuiting the 8-table fan-out so a 404 for an unknown CUI does not pay 8 seeks (it 404s only if absent everywhere, but the common case resolves on the first seek). Public-money slice injected from kernel `FlowsRepo.summaryByCui(cui, 'payee')` |
+| `makeCompanyList`          | `(deps, ListInput) → Result<CompanyListResponse, ApiError>` | offset paginate; total bounded at 10,000; default sort `name asc, cui asc`                                                                                                                                                                                                                                                                                                        |
+| `makeCompanyFinancials`    | `(deps, { rawCui }) → Result<FinancialsResponse, ApiError>` | full year series + computed `latest` + `trajectory` (latest vs year-1, research feature 2)                                                                                                                                                                                                                                                                                        |
+| `makeCompanyResolve`       | `(deps, { dim, q }) → Result<ResolveResponse, ApiError>`    | name→CUI (Meili), regnum→CUIs, caen-label→code, county-name→county. Echoes resolved entity + asks for disambiguation when >1 (catalog Entity Resolution Gate)                                                                                                                                                                                                                     |
+| `makeCompanyCountyProfile` | `(deps, CountyInput) → Result<CountyProfile, ApiError>`     | count-by-county/status/caen aggregates; coverage-aware (research feature 4)                                                                                                                                                                                                                                                                                                       |
+| `makeCompanyContributor`   | factory → `SourceContributor`                               | `presenceFor` + `profileSlice` for the kernel registry                                                                                                                                                                                                                                                                                                                            |
 
 **Cross-source contributor (§4.4 / §14.7).** The module registers a
 `SourceContributor` with `source: 'companies'`:
@@ -261,7 +263,7 @@ profileSlice(cui): CompanyEntitySlice  // the same object Entity.company resolve
 //   { headlineStatus, vatPayer, legalForm, registrationDate, latestFinancial, territory }
 ```
 
-- **`flow_type` registered: NONE.** Companies do not *originate* a flow type.
+- **`flow_type` registered: NONE.** Companies do not _originate_ a flow type.
   In `flows.money_flows`, a company appears only as a **payee** (`payee_cui`) of
   `direct_acquisition` / `procurement_contract` / `pnrr_payment` / `pnrr_commitment`
   / `pnrr_subcontract` flows owned by procurement/pnrr. The companies contributor
@@ -272,11 +274,11 @@ profileSlice(cui): CompanyEntitySlice  // the same object Entity.company resolve
 
 **Grain Gate (§14.6) declaration.** Per flow question:
 
-| Question | Authoritative source | Grain |
-|---|---|---|
-| "public money this company received, total + by year + top payers" | kernel `FlowsRepo` (`flows.money_flows`, `payee_cui`) | unified flow summary — the only flow answer companies gives |
-| "is this company a public supplier at all" | kernel `FlowsRepo.presenceAsPayee(cui)` | unified |
-| top-N suppliers / concentration / same-day splits | **procurement module** (its own facts/rollups) | NOT a companies answer — companies never mixes its registry grain with flow grain |
+| Question                                                           | Authoritative source                                  | Grain                                                                             |
+| ------------------------------------------------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| "public money this company received, total + by year + top payers" | kernel `FlowsRepo` (`flows.money_flows`, `payee_cui`) | unified flow summary — the only flow answer companies gives                       |
+| "is this company a public supplier at all"                         | kernel `FlowsRepo.presenceAsPayee(cui)`               | unified                                                                           |
+| top-N suppliers / concentration / same-day splits                  | **procurement module** (its own facts/rollups)        | NOT a companies answer — companies never mixes its registry grain with flow grain |
 
 ---
 
@@ -286,16 +288,17 @@ Prefix `/api/v1/companies/`. TypeBox schemas on every query/param. Envelope per
 §5.2 (`{ ok, data, meta?, requestId }`). Routes carry `config: { public: true }`
 (§14.11 — explicit flag, not prefix bypass).
 
-| Method · Path | Query / Params (TypeBox) | Response | Pagination | Cache | Timeout |
-|---|---|---|---|---|---|
-| `GET /companies` | `CompanyListQuery` (§7 filter spec → TypeBox) | `CompanyListRow[]` | **offset** (`page`,`pageSize`≤100), `meta.page={page,pageSize,total}` with `total` **bounded ≤10,000** + `estimated:true` when capped (§14.4) | TTL 300s | 5s |
-| `GET /companies/:cui` | `cui` (string, normalized) | `CompanyProfile` (full assembly + public-money) | — | TTL 300s | 5s |
-| `GET /companies/:cui/financials` | `cui`; `yearFrom?`,`yearTo?` | `{ years[], latest, trajectory }` | — | TTL 300s | 5s |
-| `GET /companies/:cui/public-money` | `cui`; `yearFrom?`,`yearTo?` | kernel flow summary (payee) `{ totalRon, byYear[], topPayers[] }` | offset (topPayers capped 50) | TTL 300s | 15s |
-| `GET /companies/aggregate` | `CompanyListQuery` + `groupBy ∈ {county,status,caenDivision}` | `{ groups[], denominator, coverage }` | — | TTL 600s | 15s — **`groupBy=county` requires ≥1 selective filter** until `registrations(raw_county)` is earned (§3) |
-| `GET /companies/filters/resolve` | `dim ∈ {name,regnum,caen,county}`, `q`, `limit?` | `{ dim, q, matches[], ambiguous:bool }` | — | TTL 120s | 5s (name dim hits Meili) |
+| Method · Path                      | Query / Params (TypeBox)                                      | Response                                                          | Pagination                                                                                                                                    | Cache    | Timeout                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `GET /companies`                   | `CompanyListQuery` (§7 filter spec → TypeBox)                 | `CompanyListRow[]`                                                | **offset** (`page`,`pageSize`≤100), `meta.page={page,pageSize,total}` with `total` **bounded ≤10,000** + `estimated:true` when capped (§14.4) | TTL 300s | 5s                                                                                                       |
+| `GET /companies/:cui`              | `cui` (string, normalized)                                    | `CompanyProfile` (full assembly + public-money)                   | —                                                                                                                                             | TTL 300s | 5s                                                                                                       |
+| `GET /companies/:cui/financials`   | `cui`; `yearFrom?`,`yearTo?`                                  | `{ years[], latest, trajectory }`                                 | —                                                                                                                                             | TTL 300s | 5s                                                                                                       |
+| `GET /companies/:cui/public-money` | `cui`; `yearFrom?`,`yearTo?`                                  | kernel flow summary (payee) `{ totalRon, byYear[], topPayers[] }` | offset (topPayers capped 50)                                                                                                                  | TTL 300s | 15s                                                                                                      |
+| `GET /companies/aggregate`         | `CompanyListQuery` + `groupBy ∈ {county,status,caenDivision}` | `{ groups[], denominator, coverage }`                             | —                                                                                                                                             | TTL 600s | 15s — **`groupBy=county` requires ≥1 selective filter** until `registrations(raw_county)` is earned (§3) |
+| `GET /companies/filters/resolve`   | `dim ∈ {name,regnum,caen,county}`, `q`, `limit?`              | `{ dim, q, matches[], ambiguous:bool }`                           | —                                                                                                                                             | TTL 120s | 5s (name dim hits Meili)                                                                                 |
 
 Notes:
+
 - `GET /companies` with a `q=` (name) param **resolves through Meili first**
   inside `makeCompanyList` (it calls `resolveByName`, takes the CUI set, then
   hydrates rows from Postgres by CUI). It never does an in-DB name LIKE. If Meili
@@ -328,13 +331,21 @@ and the `Entity` join type. Everything below is **module-owned `Company*`** SDL.
 ```graphql
 # --- kernel (referenced, not redefined): CUI Money Date BigInt SIRUTA JSON PageInfo Entity ---
 
-type CompanyStatus { code: String!  label: String! }
+type CompanyStatus {
+  code: String!
+  label: String!
+}
 
 type CompanyTerritory {
-  sirutaCode: SIRUTA   uatName: String   countyName: String
+  sirutaCode: SIRUTA
+  uatName: String
+  countyName: String
   matchConfidence: CompanyMatchConfidence!
 }
-enum CompanyMatchConfidence { SAFE UNMATCHED }
+enum CompanyMatchConfidence {
+  SAFE
+  UNMATCHED
+}
 
 type CompanyFiscal {
   vatPayer: Boolean
@@ -347,16 +358,34 @@ type CompanyFiscal {
 
 type CompanyFinancialYear {
   year: Int!
-  turnover: Money  netProfit: Money  netLoss: Money
+  turnover: Money
+  netProfit: Money
+  netLoss: Money
   employees: BigInt
-  summary: JSON!                            # the 20 typed metrics
-  lines: JSON                               # full statement; render-only
+  summary: JSON! # the 20 typed metrics
+  lines: JSON # full statement; render-only
 }
 
-type CompanyCaenActivity { code: String!  rev: String!  label: String  source: String! }
-type CompanyRepresentative { name: String!  role: String! }
-type CompanyStatusFlag { code: String!  label: String }
-type CompanyEuBranch { branchName: String  country: String  euid: String  fiscalCode: String }
+type CompanyCaenActivity {
+  code: String!
+  rev: String!
+  label: String
+  source: String!
+}
+type CompanyRepresentative {
+  name: String!
+  role: String!
+}
+type CompanyStatusFlag {
+  code: String!
+  label: String
+}
+type CompanyEuBranch {
+  branchName: String
+  country: String
+  euid: String
+  fiscalCode: String
+}
 
 type Company {
   cui: CUI!
@@ -375,41 +404,99 @@ type Company {
   representatives: [CompanyRepresentative!]!
   financials: [CompanyFinancialYear!]!
   euBranches: [CompanyEuBranch!]!
-  publicMoney: CompanyPublicMoney        # kernel FlowsRepo (payee)
-  asOf: CompanyAsOf!                      # { onrc, anaf } watermark
+  publicMoney: CompanyPublicMoney # kernel FlowsRepo (payee)
+  asOf: CompanyAsOf! # { onrc, anaf } watermark
 }
 # CompanyAddress.county = raw_county (99.996% cov, honest); CompanyTerritory.countyName
 # = county_name (SIRUTA-matched, urban-only) — deliberately two different "county" values.
-type CompanyAddress { display: String!  county: String  locality: String }
-type CompanyPublicMoney { totalRon: Money!  flowCount: Int!  byYear: [CompanyPublicMoneyYear!]!  topPayers: [CompanyPublicMoneyPayer!]! }
-type CompanyPublicMoneyYear { year: Int  flowType: String!  totalRon: Money!  count: Int! }
-type CompanyPublicMoneyPayer { cui: CUI  name: String  totalRon: Money!  count: Int! }
-type CompanyAsOf { onrc: Date  anaf: Date }
-
-enum CompanySort { NAME REGISTRATION_DATE CUI }   # asc default; value-sorts (turnover/employees) NOT offered (§7.1/R3)
-enum CompanyResolveDim { NAME REGNUM CAEN COUNTY }
-type CompanyResolveHit { value: String!  label: String  cui: CUI  confidence: Float }
-input CompanyFilterExclude {            # symmetric to inclusion, exclude:true fields only (§7.1)
-  cui: [CUI!]  county: [String!]  status: [String!]  caenCode: [String!]
-  legalForm: [String!]  vatPayer: Boolean  declaredFiscallyInactive: Boolean  mainCaenCode: [String!]
+type CompanyAddress {
+  display: String!
+  county: String
+  locality: String
 }
-type CompanyCountyGroup { key: String!  count: Int! }
-type CompanyCountyProfile { groups: [CompanyCountyGroup!]!  denominator: Int!  coverage: JSON! }
+type CompanyPublicMoney {
+  totalRon: Money!
+  flowCount: Int!
+  byYear: [CompanyPublicMoneyYear!]!
+  topPayers: [CompanyPublicMoneyPayer!]!
+}
+type CompanyPublicMoneyYear {
+  year: Int
+  flowType: String!
+  totalRon: Money!
+  count: Int!
+}
+type CompanyPublicMoneyPayer {
+  cui: CUI
+  name: String
+  totalRon: Money!
+  count: Int!
+}
+type CompanyAsOf {
+  onrc: Date
+  anaf: Date
+}
 
-type CompanyEdge { node: Company!  cursor: String! }
-type CompanyConnection { edges: [CompanyEdge!]!  pageInfo: PageInfo!  totalCount: Int  totalEstimated: Boolean! }
-
-input CompanyFilter {            # generated from the §7 spec (toGraphQLInput)
+enum CompanySort {
+  NAME
+  REGISTRATION_DATE
+  CUI
+} # asc default; value-sorts (turnover/employees) NOT offered (§7.1/R3)
+enum CompanyResolveDim {
+  NAME
+  REGNUM
+  CAEN
+  COUNTY
+}
+type CompanyResolveHit {
+  value: String!
+  label: String
+  cui: CUI
+  confidence: Float
+}
+input CompanyFilterExclude { # symmetric to inclusion, exclude:true fields only (§7.1)
   cui: [CUI!]
-  county: [String!]              # → raw_county
-  status: [String!]              # → registrations.status_code
-  caenCode: [String!]            # → caen_activities.caen_code
+  county: [String!]
+  status: [String!]
+  caenCode: [String!]
   legalForm: [String!]
   vatPayer: Boolean
   declaredFiscallyInactive: Boolean
-  registrationDateFrom: Date     registrationDateTo: Date
-  registrationDatePresent: Boolean   # isNull op (§14.2 mandatory)
-  hasFinancials: Boolean             # isNull-style presence
+  mainCaenCode: [String!]
+}
+type CompanyCountyGroup {
+  key: String!
+  count: Int!
+}
+type CompanyCountyProfile {
+  groups: [CompanyCountyGroup!]!
+  denominator: Int!
+  coverage: JSON!
+}
+
+type CompanyEdge {
+  node: Company!
+  cursor: String!
+}
+type CompanyConnection {
+  edges: [CompanyEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+  totalEstimated: Boolean!
+}
+
+input CompanyFilter { # generated from the §7 spec (toGraphQLInput)
+  cui: [CUI!]
+  county: [String!] # → raw_county
+  status: [String!] # → registrations.status_code
+  caenCode: [String!] # → caen_activities.caen_code
+  legalForm: [String!]
+  vatPayer: Boolean
+  declaredFiscallyInactive: Boolean
+  registrationDateFrom: Date
+  registrationDateTo: Date
+  registrationDatePresent: Boolean # isNull op (§14.2 mandatory)
+  hasFinancials: Boolean # isNull-style presence
   exclude: CompanyFilterExclude
 }
 
@@ -420,13 +507,13 @@ extend type Query {
   companyCountyProfile(filter: CompanyFilter): CompanyCountyProfile!
 }
 
-extend type Entity {            # the kernel join type (§4.4/§14.7)
-  company: Company              # resolved via contributor.profileSlice(cui) + DataLoader keyed by CUI
+extend type Entity { # the kernel join type (§4.4/§14.7)
+  company: Company # resolved via contributor.profileSlice(cui) + DataLoader keyed by CUI
 }
 ```
 
 - **DataLoader:** `Entity.company` is resolved by a per-request DataLoader keyed
-  by **CUI** (not org_id, §14.1). It calls the *same* `contributor.profileSlice`
+  by **CUI** (not org*id, §14.1). It calls the \_same* `contributor.profileSlice`
   the REST entity-360 calls (§14.7) → tri-surface equivalence. Batched
   `WHERE cui = ANY($1)` over `core.organizations` + `companies.registrations`.
 - **Connections** use the kernel cursor encoder (`fhash` of
@@ -449,19 +536,19 @@ output feeds the cache key, the cursor `fhash`, and the tri-surface equivalence 
 
 ### 7.1 `companies` collection filter spec
 
-| Field | type | ops | driving column (alias.col) | index | array | exclude | notes |
-|---|---|---|---|---|---|---|---|
-| `cui` | string | `in`,`eq` | `o.cui` | `organizations_cui_uq` | ✓ | ✓ | normalized 1–13 digits |
-| `county` | string | `in`,`eq` | `r.raw_county` | none (bounded) | ✓ | ✓ | **`raw_county`, 99.996% cov — NOT `county_name`** |
-| `status` | string | `in`,`eq` | `r.status_code` | `registrations_status_idx` | ✓ | ✓ | headline code (enum-ish; validated against status nomenclature) |
-| `caenCode` | string | `in`,`eq`,`prefix` | `ca.caen_code` (EXISTS) | `caen_activities_code_idx` | ✓ | ✓ | `prefix` compiles to **sargable** `caen_code LIKE $1 \|\| '%'` (range scan on the btree), NOT `left(code,2)=` (non-sargable). CAEN division = 2-char prefix |
-| `legalForm` | string | `in`,`eq` | `r.legal_form` | none | ✓ | ✓ | SRL/SA/PFA |
-| `vatPayer` | bool | `eq` | `f.is_vat_payer` | none (joins fiscal) | ✗ | ✓ | |
-| `declaredFiscallyInactive` | bool | `eq` | `f.is_inactive` | none | ✗ | ✓ | NOT operating-inactive (§13-R1) |
-| `registrationDate` | date | `gte`,`lte`,`between` | `r.registration_date` | none | ✗ | ✗ | `xFrom`/`xTo` |
-| `registrationDatePresent` | bool | `isNull` | `r.registration_date` | none | ✗ | ✗ | **mandatory `isNull` (§14.2)** — 256,142 NULL dates |
-| `hasFinancials` | bool | `isNull` | EXISTS `companies.financials` | `financials_pkey` | ✗ | ✗ | coverage question |
-| `mainCaenCode` | string | `in`,`eq` | `f.main_caen_code` | none | ✓ | ✓ | ANAF main CAEN |
+| Field                      | type   | ops                   | driving column (alias.col)    | index                      | array | exclude | notes                                                                                                                                                       |
+| -------------------------- | ------ | --------------------- | ----------------------------- | -------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cui`                      | string | `in`,`eq`             | `o.cui`                       | `organizations_cui_uq`     | ✓     | ✓       | normalized 1–13 digits                                                                                                                                      |
+| `county`                   | string | `in`,`eq`             | `r.raw_county`                | none (bounded)             | ✓     | ✓       | **`raw_county`, 99.996% cov — NOT `county_name`**                                                                                                           |
+| `status`                   | string | `in`,`eq`             | `r.status_code`               | `registrations_status_idx` | ✓     | ✓       | headline code (enum-ish; validated against status nomenclature)                                                                                             |
+| `caenCode`                 | string | `in`,`eq`,`prefix`    | `ca.caen_code` (EXISTS)       | `caen_activities_code_idx` | ✓     | ✓       | `prefix` compiles to **sargable** `caen_code LIKE $1 \|\| '%'` (range scan on the btree), NOT `left(code,2)=` (non-sargable). CAEN division = 2-char prefix |
+| `legalForm`                | string | `in`,`eq`             | `r.legal_form`                | none                       | ✓     | ✓       | SRL/SA/PFA                                                                                                                                                  |
+| `vatPayer`                 | bool   | `eq`                  | `f.is_vat_payer`              | none (joins fiscal)        | ✗     | ✓       |                                                                                                                                                             |
+| `declaredFiscallyInactive` | bool   | `eq`                  | `f.is_inactive`               | none                       | ✗     | ✓       | NOT operating-inactive (§13-R1)                                                                                                                             |
+| `registrationDate`         | date   | `gte`,`lte`,`between` | `r.registration_date`         | none                       | ✗     | ✗       | `xFrom`/`xTo`                                                                                                                                               |
+| `registrationDatePresent`  | bool   | `isNull`              | `r.registration_date`         | none                       | ✗     | ✗       | **mandatory `isNull` (§14.2)** — 256,142 NULL dates                                                                                                         |
+| `hasFinancials`            | bool   | `isNull`              | EXISTS `companies.financials` | `financials_pkey`          | ✗     | ✗       | coverage question                                                                                                                                           |
+| `mainCaenCode`             | string | `in`,`eq`             | `f.main_caen_code`            | none                       | ✓     | ✓       | ANAF main CAEN                                                                                                                                              |
 
 **Sort:** `{ default: 'name', allowed: ['name','registrationDate','cui'] }`.
 **Excluded by design from sort:** `turnover`/`employees` global value sorts —
@@ -501,15 +588,15 @@ join, §2.1), `caen` (label → code, 3,111 codes), `county` (text → canonical
 
 ### 7.5 Golden question → filter examples (from the catalog)
 
-| Catalog ID | Question | Resolved filter |
-|---|---|---|
-| JD-1 / XS-4 (companies slice) | "Is company *Y* a registered company; what is its status?" | `companyResolve(name,"Y")` → `cui`; `company(cui)` → `headlineStatus`, `statusFlags` |
-| (registry) | "Companies in Cluj county that are radiată" | `{ county:['Cluj'], status:['1084'] }` |
-| (registry) | "VAT-paying SRLs registered after 2020-01-01 in Timiș" | `{ county:['Timis'], legalForm:['SRL'], vatPayer:true, registrationDateFrom:'2020-01-01' }` |
-| (coverage) | "How many companies have no registration date?" | `aggregate?groupBy=status` + `registrationDatePresent=false` → `denominator` + count |
-| PC-3 mirror | "What public money did company *Y* receive, by year?" | `company(cui).publicMoney` (kernel flows, payee) |
-| (sector) | "Companies authorized for CAEN division 47 (retail) in Ilfov" | `{ county:['Ilfov'], caenCode:['47'] with prefix op }` |
-| (resolution) | "Find the company with registration number J40/9216/2018" | `companyResolve(regnum,"J40/9216/2018")` → **list** (one-to-many possible) |
+| Catalog ID                    | Question                                                      | Resolved filter                                                                             |
+| ----------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| JD-1 / XS-4 (companies slice) | "Is company _Y_ a registered company; what is its status?"    | `companyResolve(name,"Y")` → `cui`; `company(cui)` → `headlineStatus`, `statusFlags`        |
+| (registry)                    | "Companies in Cluj county that are radiată"                   | `{ county:['Cluj'], status:['1084'] }`                                                      |
+| (registry)                    | "VAT-paying SRLs registered after 2020-01-01 in Timiș"        | `{ county:['Timis'], legalForm:['SRL'], vatPayer:true, registrationDateFrom:'2020-01-01' }` |
+| (coverage)                    | "How many companies have no registration date?"               | `aggregate?groupBy=status` + `registrationDatePresent=false` → `denominator` + count        |
+| PC-3 mirror                   | "What public money did company _Y_ receive, by year?"         | `company(cui).publicMoney` (kernel flows, payee)                                            |
+| (sector)                      | "Companies authorized for CAEN division 47 (retail) in Ilfov" | `{ county:['Ilfov'], caenCode:['47'] with prefix op }`                                      |
+| (resolution)                  | "Find the company with registration number J40/9216/2018"     | `companyResolve(regnum,"J40/9216/2018")` → **list** (one-to-many possible)                  |
 
 ---
 
@@ -541,13 +628,13 @@ output: { ok, kind:'resolution', query, matches: [{ value, label, cui?, confiden
   Enforces the catalog **Entity Resolution Gate**: ranks/filters by CUI/code, not
   names; echoes resolved entities.
 - **`get_company_financials`** — `input { cui, yearFrom?, yearTo? }` → year series
-  + latest + trajectory. Calls `makeCompanyFinancials`.
+  - latest + trajectory. Calls `makeCompanyFinancials`.
 - **`company_county_profile`** — `input: CompanyFilter + groupBy` → count-ranked
   aggregate with `denominator` + `coverage` (catalog Coverage Gate). **Refuses /
   labels** value-weighted ("biggest by turnover") rankings as not-yet-publishable —
   the reason is **R3** (no `financials(year,turnover desc)` index and no
   `latest_financials` rollup → a global value rank is a full scan/sort), **not** the
-  catalog Amount Integrity Gate (which governs the *flows/public-money* surface, not
+  catalog Amount Integrity Gate (which governs the _flows/public-money_ surface, not
   company turnover). Count-weighted rankings allowed.
 
 All tool outputs carry `asOf` (onrc/anaf watermarks) and a `coverage` block where
@@ -564,7 +651,7 @@ a count/aggregate is returned (catalog Core Rule).
   Phase-3 dependency the same way the missing vector column is. The desired
   projection is one `search.documents` row per company: `doc_id = "company:" || cui`,
   `title = name`, `body = name + legal_form + county + status_label + main caen
-  label`, `cuis = [cui]`, `county_name = raw_county`,
+label`, `cuis = [cui]`, `county_name = raw_county`,
   `attrs = { status_code, legal_form, vat_payer, has_financials }`. **The server
   only reads/queries these — it never writes** (contract §4.5).
 - **Meilisearch:** index `companies` (or the shared entity index filtered by
@@ -572,7 +659,7 @@ a count/aggregate is returned (catalog Core Rule).
   for `resolveByName` and list `q=`. Searchable: `title`/name; filterable:
   `county_name`, `status_code`, `legal_form`, `vat_payer`.
 - **OpenSearch:** the `documents` index, `doc_type='company'` — relevance/full-text
-  + `county`/`status` terms aggregations for faceted browse.
+  - `county`/`status` terms aggregations for faceted browse.
 - **Semantic / pgvector:** **capability-gated** (§14.5). `vector` ext is installed
   but `search.documents` has no vector column in the snapshot → semantic fields
   return `null` + `caveats:["semantic search unavailable"]`, never error. Company
@@ -654,7 +741,7 @@ a count/aggregate is returned (catalog Core Rule).
 
 - **R1 — `is_active` is dropped, not exposed (DECIDED, MATERIAL).**
   `companies.fiscal_status.is_active` is the exact complement of `is_inactive`
-  (`is_active == NOT is_inactive` on all 3.87M rows) and is the *fiscally-inactive-list*
+  (`is_active == NOT is_inactive` on all 3.87M rows) and is the _fiscally-inactive-list_
   flag, **not** an operating indicator (`COMPANIES_DATA_RESEARCH.md` Verification
   Correction 1). **Decision (this plan): drop `is_active` from every surface** and
   expose only `declaredFiscallyInactive` (= `is_inactive`) — exposing both, even

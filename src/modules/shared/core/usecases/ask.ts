@@ -70,7 +70,12 @@ export const makeAsk = async (
     { role: 'user', content: `Context:\n${context}\n\nQuestion: ${input.question}` },
   ];
 
-  const chat = await syntheticClient.chat(messages, chatModel, undefined, input.timeoutMs ?? 30_000);
+  const chat = await syntheticClient.chat(
+    messages,
+    chatModel,
+    undefined,
+    input.timeoutMs ?? 30_000
+  );
   if (chat.isErr()) {
     return err(serviceUnavailable(`ask unavailable: ${chat.error.message}`));
   }

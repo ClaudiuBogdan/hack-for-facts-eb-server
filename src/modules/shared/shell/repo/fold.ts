@@ -7,16 +7,24 @@
  * combining marks so accented Latin variants collapse too.
  */
 const MAP: Record<string, string> = {
-  ă: 'a', â: 'a', î: 'i', ș: 's', ş: 's', ț: 't', ţ: 't',
-  Ă: 'a', Â: 'a', Î: 'i', Ș: 's', Ş: 's', Ț: 't', Ţ: 't',
+  ă: 'a',
+  â: 'a',
+  î: 'i',
+  ș: 's',
+  ş: 's',
+  ț: 't',
+  ţ: 't',
+  Ă: 'a',
+  Â: 'a',
+  Î: 'i',
+  Ș: 's',
+  Ş: 's',
+  Ț: 't',
+  Ţ: 't',
 };
 
 export const foldDiacritics = (input: string): string => {
   let s = '';
   for (const ch of input) s += MAP[ch] ?? ch;
-  return s
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/gu, '')
-    .toLowerCase()
-    .trim();
+  return s.normalize('NFKD').replace(/[̀-ͯ]/gu, '').toLowerCase().trim();
 };

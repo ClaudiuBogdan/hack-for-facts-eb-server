@@ -57,19 +57,31 @@ export interface CountedCursorPage<T> extends CursorPage<T> {
 
 export interface PublicEntityRepo {
   /** detail — PK lookup; territory is resolved through the kernel repo in the usecase. */
-  findByCui(cui: string, includeTrace: boolean): Promise<Result<ReferencePublicEntity | null, ApiError>>;
+  findByCui(
+    cui: string,
+    includeTrace: boolean
+  ): Promise<Result<ReferencePublicEntity | null, ApiError>>;
 
   /** list+filter — cursor on the active compound sort (name asc default), with the filtered total. */
-  list(f: FilterInput, page: CursorPageRequest): Promise<Result<CountedCursorPage<ReferencePublicEntityCard>, ApiError>>;
+  list(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CountedCursorPage<ReferencePublicEntityCard>, ApiError>>;
 
   /** name autocomplete — GIN pg_trgm with similarity ordering, bounded. */
-  searchByName(q: string, limit: number): Promise<Result<readonly ReferencePublicEntityCard[], ApiError>>;
+  searchByName(
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ReferencePublicEntityCard[], ApiError>>;
 
   /** children of a creditor (parent1_cui/parent2_cui) — the org tree (bounded). */
   findChildren(parentCui: string): Promise<Result<readonly ReferencePublicEntityCard[], ApiError>>;
 
   /** registry stats — counts by entity_type / category / is_uat / county. */
-  aggregate(by: ReferenceAggregateDim, f: FilterInput): Promise<Result<readonly ReferenceCountBucket[], ApiError>>;
+  aggregate(
+    by: ReferenceAggregateDim,
+    f: FilterInput
+  ): Promise<Result<readonly ReferenceCountBucket[], ApiError>>;
 
   /** resolve institution name → {kind:'public_entity', value:cui, label:name, hint:county}. */
   resolve(q: string, limit: number): Promise<Result<readonly ReferenceResolveHit[], ApiError>>;
@@ -81,7 +93,9 @@ export interface PublicEntityRepo {
    * resolver still goes through `contributor.profileSlice` (§14.7) — this only
    * batches the underlying read.
    */
-  cardsForCuis(cuis: readonly string[]): Promise<Result<ReadonlyMap<string, ReferencePublicEntityCard>, ApiError>>;
+  cardsForCuis(
+    cuis: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ReferencePublicEntityCard>, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,16 +104,28 @@ export interface PublicEntityRepo {
 
 export interface ClassificationRepo {
   /** detail — PK (system, code). */
-  findOne(system: string, code: string): Promise<Result<ReferenceClassificationCode | null, ApiError>>;
+  findOne(
+    system: string,
+    code: string
+  ): Promise<Result<ReferenceClassificationCode | null, ApiError>>;
 
   /** list+filter — cursor on (code, system) unique tuple. */
-  list(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<ReferenceClassificationCode>, ApiError>>;
+  list(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<ReferenceClassificationCode>, ApiError>>;
 
   /** resolve label|code fragment → {kind:'classification', value:code, label, hint:system}. */
-  resolve(system: string | null, q: string, limit: number): Promise<Result<readonly ReferenceResolveHit[], ApiError>>;
+  resolve(
+    system: string | null,
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ReferenceResolveHit[], ApiError>>;
 
   /** the CAEN systems with their code counts (R11). */
-  listSystems(): Promise<Result<readonly { readonly system: string; readonly count: number }[], ApiError>>;
+  listSystems(): Promise<
+    Result<readonly { readonly system: string; readonly count: number }[], ApiError>
+  >;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,7 +145,10 @@ export interface ClassificationRepo {
 export interface TerritoryQueryRepo {
   /** Surrogate-id lookup (the legacy uat_id contract) — the kernel repo has no byId. */
   byId(id: number): Promise<Result<Territory | null, ApiError>>;
-  list(f: FilterInput, page: CursorPageRequest): Promise<Result<CountedCursorPage<Territory>, ApiError>>;
+  list(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CountedCursorPage<Territory>, ApiError>>;
   listCountyRollups(): Promise<Result<readonly ReferenceCounty[], ApiError>>;
   listRegionRollups(): Promise<Result<readonly ReferenceRegion[], ApiError>>;
 }

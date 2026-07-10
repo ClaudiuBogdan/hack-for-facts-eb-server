@@ -127,7 +127,9 @@ export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
     page: CursorPageRequest
   ): Promise<Result<CountedCursorPage<Territory>, ApiError>> => {
     const sortField =
-      page.sort !== undefined && page.sort in SORT_COLUMN ? page.sort : referenceTerritoryFilterSpec.sort.default;
+      page.sort !== undefined && page.sort in SORT_COLUMN
+        ? page.sort
+        : referenceTerritoryFilterSpec.sort.default;
     const def = SORT_COLUMN[sortField] ?? DEFAULT_TERR_SORT;
     const sortCol = def.col;
     const dir = def.dir;

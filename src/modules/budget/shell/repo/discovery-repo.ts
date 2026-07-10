@@ -17,11 +17,15 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, invalidInput, type ApiError, type ProdDatabase  } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  invalidInput,
+  type ApiError,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 
 import type { BudgetDiscoveryRepo } from '../../core/ports.js';
 import type { BudgetResolveDim, ResolveMatch } from '../../core/types.js';
-
 
 type Db = Kysely<ProdDatabase>;
 
@@ -57,7 +61,9 @@ export const makeBudgetDiscoveryRepo = (db: Db): BudgetDiscoveryRepo => {
     const rows = await db
       .selectFrom('core.territories as t')
       .select(['t.territorial_siruta_code', 't.name', 't.county_name', 't.county_code'])
-      .where(sql<boolean>`t.name ilike ${pattern} escape '\\' or t.county_name ilike ${pattern} escape '\\'`)
+      .where(
+        sql<boolean>`t.name ilike ${pattern} escape '\\' or t.county_name ilike ${pattern} escape '\\'`
+      )
       .where('t.territorial_siruta_code', 'is not', null)
       .orderBy(sql`length(t.name)`)
       .limit(limit + 1)
@@ -65,7 +71,10 @@ export const makeBudgetDiscoveryRepo = (db: Db): BudgetDiscoveryRepo => {
     const ambiguous = rows.length > limit;
     return rows
       .slice(0, limit)
-      .filter((r): r is typeof r & { territorial_siruta_code: string } => r.territorial_siruta_code !== null)
+      .filter(
+        (r): r is typeof r & { territorial_siruta_code: string } =>
+          r.territorial_siruta_code !== null
+      )
       .map((r) => ({
         dim: 'territory' as const,
         value: r.territorial_siruta_code,
@@ -81,7 +90,10 @@ export const makeBudgetDiscoveryRepo = (db: Db): BudgetDiscoveryRepo => {
     q: string,
     limit: number
   ): Promise<readonly ResolveMatch[]> => {
-    const table = dim === 'functional' ? 'budget.functional_classifications' : 'budget.economic_classifications';
+    const table =
+      dim === 'functional'
+        ? 'budget.functional_classifications'
+        : 'budget.economic_classifications';
     const codeCol = dim === 'functional' ? 'functional_code' : 'economic_code';
     const nameCol = dim === 'functional' ? 'functional_name' : 'economic_name';
     const code = sql.ref(`d.${codeCol}`);

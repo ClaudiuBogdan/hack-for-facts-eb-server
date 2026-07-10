@@ -71,7 +71,10 @@ export const moIssuesSpec: CollectionFilterSpec = {
       description: 'ILIKE on the issue label (small table; Postgres fallback).',
     },
   ],
-  sort: { default: 'issue_date_desc', allowed: ['issue_date_desc', 'issue_date_asc', 'issue_year_desc'] },
+  sort: {
+    default: 'issue_date_desc',
+    allowed: ['issue_date_desc', 'issue_date_asc', 'issue_year_desc'],
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,7 +93,8 @@ export const moPublicationsSpec: CollectionFilterSpec = {
       exclude: true,
       // act_type is an OPEN vocabulary (loader-rederived ~14 values) — no closed
       // enumValues so a new type surfaces without a code change; validated as text.
-      description: 'Rederived act type (lege/oug/hotarare/ordin/decret/…). isNull selects unresolved.',
+      description:
+        'Rederived act type (lege/oug/hotarare/ordin/decret/…). isNull selects unresolved.',
     },
     {
       name: 'issuerSlug',
@@ -132,7 +136,8 @@ export const moPublicationsSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['eq', 'isNull'],
       column: { alias: 'p', column: 'act_id' },
-      description: 'Resolved legal.acts id (bigint as string; a bounding predicate; partial index).',
+      description:
+        'Resolved legal.acts id (bigint as string; a bounding predicate; partial index).',
     },
     {
       name: 'moIssueId',
@@ -146,7 +151,8 @@ export const moPublicationsSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['contains'],
       column: { alias: 'p', column: 'title' },
-      description: 'ILIKE on the act title (Postgres fallback; mo_act search index not yet populated).',
+      description:
+        'ILIKE on the act title (Postgres fallback; mo_act search index not yet populated).',
     },
   ],
   sort: { default: 'act_year_desc', allowed: ['act_year_desc', 'act_year_asc'] },
@@ -191,7 +197,8 @@ export const moEdgesSpec: CollectionFilterSpec = {
       type: 'string', // bigint as string (Codex #3)
       ops: ['eq'],
       column: { alias: 'e', column: 'target_act_id' },
-      description: 'In-edges targeting one act (bigint as string; partial index; a bounding predicate).',
+      description:
+        'In-edges targeting one act (bigint as string; partial index; a bounding predicate).',
     },
   ],
   sort: { default: 'edge_id', allowed: ['edge_id'] },

@@ -14,13 +14,13 @@
 
 ## 1. Decisions this document fixes (from user, 2026-06-16)
 
-| # | Decision | Choice |
-|---|----------|--------|
-| F1 | Topology | **Module-per-source + a `shared/` kernel**. No monolithic `unified` module. |
-| F2 | API surface | **Full REST + GraphQL + MCP** for every source module. |
-| F3 | Scope | One module/plan per data source (12), portal-legislativ + monitorul-oficial co-own the `legal` module but are planned separately and coordinated here (§9). |
-| F4 | Source of truth | The live `transparenta_prod` schema (snapshot in `_prod-schema/*.tsv`) + scrapper prod-migrations + `prod-db/*_NOTES.md`. |
-| F5 | Read/write posture | The server is **read-only** over the serving DB. No writes, no migrations from the server. Loaders/migrations stay in the scrapper. |
+| #   | Decision           | Choice                                                                                                                                                      |
+| --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | Topology           | **Module-per-source + a `shared/` kernel**. No monolithic `unified` module.                                                                                 |
+| F2  | API surface        | **Full REST + GraphQL + MCP** for every source module.                                                                                                      |
+| F3  | Scope              | One module/plan per data source (12), portal-legislativ + monitorul-oficial co-own the `legal` module but are planned separately and coordinated here (§9). |
+| F4  | Source of truth    | The live `transparenta_prod` schema (snapshot in `_prod-schema/*.tsv`) + scrapper prod-migrations + `prod-db/*_NOTES.md`.                                   |
+| F5  | Read/write posture | The server is **read-only** over the serving DB. No writes, no migrations from the server. Loaders/migrations stay in the scrapper.                         |
 
 ---
 
@@ -116,10 +116,10 @@ Canonical org identity, keyed by normalized CUI. The kernel owns:
 ```ts
 // shared/core/types.ts (grounded in live core.organizations)
 export interface Organization {
-  readonly orgId: string;            // core.organizations.org_id is BIGINT → string end-to-end (see §14.1); the cross-source link/DataLoader key is CUI, not org_id
+  readonly orgId: string; // core.organizations.org_id is BIGINT → string end-to-end (see §14.1); the cross-source link/DataLoader key is CUI, not org_id
   readonly cui: string | null;
   readonly registrationNumber: string | null;
-  readonly kind: string;             // 'public_entity' | 'company' | 'ngo' | ...
+  readonly kind: string; // 'public_entity' | 'company' | 'ngo' | ...
   readonly name: string;
   readonly normalizedName: string | null;
   readonly countyName: string | null;
@@ -128,10 +128,18 @@ export interface Organization {
   readonly firstSeenSource: string;
   readonly attrs: Record<string, unknown>;
 }
-export interface OrgIdentifier { readonly scheme: string; readonly value: string; readonly source: string; }
+export interface OrgIdentifier {
+  readonly scheme: string;
+  readonly value: string;
+  readonly source: string;
+}
 
 export const normalizeCui = (raw: string): string | null => {
-  const r = raw.toUpperCase().trim().replace(/^RO/u, '').replace(/[^0-9]/gu, '');
+  const r = raw
+    .toUpperCase()
+    .trim()
+    .replace(/^RO/u, '')
+    .replace(/[^0-9]/gu, '');
   return r.length > 0 ? r : null;
 };
 ```
@@ -175,7 +183,7 @@ registry**:
 
 ```ts
 export interface SourceContributor {
-  readonly source: string;                       // 'budget' | 'companies' | ...
+  readonly source: string; // 'budget' | 'companies' | ...
   presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;
   profileSlice?(cui: string): Promise<Result<EntityProfileSlice | null, ApiError>>;
 }
@@ -190,13 +198,13 @@ export interface SourcePresence {
   readonly count?: number;
   readonly badges?: readonly string[];
   readonly asOf?: Record<string, string | null>;
-  readonly attrs?: Record<string, unknown>;      // per-source open payload
+  readonly attrs?: Record<string, unknown>; // per-source open payload
 }
 export interface EntityProfileSlice {
   readonly source: string;
   readonly kind: string;
   readonly summary?: string;
-  readonly data?: Record<string, unknown>;        // per-source open payload
+  readonly data?: Record<string, unknown>; // per-source open payload
 }
 ```
 
@@ -237,7 +245,7 @@ prod, see §15.1)**: `legal_act`, `portal_section`, `mo_act` (+ deferred
 ### 4.6 Shared clients & middleware
 
 - `clients/`: `meili-client`, `opensearch-client`, `synthetic-client` (embeddings
-  + chat for `ask`). Same interfaces as the old unified module; config via env.
+  - chat for `ask`). Same interfaces as the old unified module; config via env.
 - `middleware/`: in-process `cache` (TTL+LRU, `invalidateByPrefix`), token-bucket
   `rate-limiter` (per-IP, for AI/expensive endpoints), `auth-bypass` (data API is
   public-read; see §8), centralized `error-handler` (maps `ApiError` → HTTP).
@@ -250,16 +258,20 @@ prod, see §15.1)**: `legal_act`, `portal_section`, `mo_act` (+ deferred
 
 ```ts
 export type ApiError =
-  | { type: 'NotFound';            message: string; resource?: string }
-  | { type: 'InvalidInput';        message: string; field?: string }
-  | { type: 'Database';            message: string; cause?: unknown }
-  | { type: 'Upstream';            message: string; service?: string }   // meili/os/synthetic
-  | { type: 'ServiceUnavailable';  message: string }
-  | { type: 'Timeout';             message: string };
+  | { type: 'NotFound'; message: string; resource?: string }
+  | { type: 'InvalidInput'; message: string; field?: string }
+  | { type: 'Database'; message: string; cause?: unknown }
+  | { type: 'Upstream'; message: string; service?: string } // meili/os/synthetic
+  | { type: 'ServiceUnavailable'; message: string }
+  | { type: 'Timeout'; message: string };
 
 export const HTTP_STATUS: Record<ApiError['type'], number> = {
-  NotFound: 404, InvalidInput: 400, Database: 500,
-  Upstream: 502, ServiceUnavailable: 503, Timeout: 504,
+  NotFound: 404,
+  InvalidInput: 400,
+  Database: 500,
+  Upstream: 502,
+  ServiceUnavailable: 503,
+  Timeout: 504,
 };
 ```
 
@@ -330,7 +342,7 @@ filters (e.g. budget defaults to latest year). No implicit unbounded scans.
   `DateTime`, `BigInt`, `JSON`, `Money` (RON minor-unit-safe numeric as string).
 - **The `Entity` join type** (kernel): an organization addressed by CUI; each
   source contributes fields to `Entity` via type extension (`extend type Entity {
-  budget: BudgetEntitySummary, contracts: ProcurementSummary, ... }`) resolved
+budget: BudgetEntitySummary, contracts: ProcurementSummary, ... }`) resolved
   lazily through that source's repo + a **DataLoader** keyed by CUI/org_id. This is
   the GraphQL expression of the contributor registry (§4.4).
 - Naming: types are **PascalCase, domain-prefixed where ambiguous** (`BudgetReport`,
@@ -390,16 +402,16 @@ spec (per collection)  ──derives──►  TypeBox schema (REST)  ─┐
 
 Reusable builders every source composes from:
 
-| Family | Fields (examples) | Notes |
-|--------|-------------------|-------|
-| **Entity** | `cui[]`, `org_id[]`, `kind`, `name~` (trigram) | resolves via identity hub |
-| **Territory** | `county_code[]`, `siruta[]`, `region[]`, `is_uat`, `min/maxPopulation` | resolves via territory hub |
-| **Period** | `year`, `yearFrom/To`, `dateFrom/To`, `month`, `quarter` | maps to partition keys where present |
-| **Amount** | `minAmount`, `maxAmount`, `currency` | numeric(18,2) bounds; overflow-guarded |
-| **Classification** | `system`, `code[]`, `codePrefix[]` (functional/economic/CPV/CAEN) | via `core.classification_codes` |
-| **Text** | `q` (trigram/Meili/OS depending on endpoint) | declares which engine backs it |
-| **Status/Enum** | source-specific enums (e.g. contract status, bill stage) | closed enum, validated |
-| **Exclusion** | negation of any of the above (`exclude: {...}`) | symmetric to inclusion |
+| Family             | Fields (examples)                                                      | Notes                                  |
+| ------------------ | ---------------------------------------------------------------------- | -------------------------------------- |
+| **Entity**         | `cui[]`, `org_id[]`, `kind`, `name~` (trigram)                         | resolves via identity hub              |
+| **Territory**      | `county_code[]`, `siruta[]`, `region[]`, `is_uat`, `min/maxPopulation` | resolves via territory hub             |
+| **Period**         | `year`, `yearFrom/To`, `dateFrom/To`, `month`, `quarter`               | maps to partition keys where present   |
+| **Amount**         | `minAmount`, `maxAmount`, `currency`                                   | numeric(18,2) bounds; overflow-guarded |
+| **Classification** | `system`, `code[]`, `codePrefix[]` (functional/economic/CPV/CAEN)      | via `core.classification_codes`        |
+| **Text**           | `q` (trigram/Meili/OS depending on endpoint)                           | declares which engine backs it         |
+| **Status/Enum**    | source-specific enums (e.g. contract status, bill stage)               | closed enum, validated                 |
+| **Exclusion**      | negation of any of the above (`exclude: {...}`)                        | symmetric to inclusion                 |
 
 Source-specific filters extend these (e.g. `procurement.cpv_code[]`,
 `legal.act_type[]`, `parliament.chamber`). Source plans must **map each filter
@@ -486,7 +498,7 @@ are pre-divided here (binding for plans 05 and 06):
 ## 10. Wiring & config
 
 - Each module exports `makeXModule(deps): XModule` returning `{ restPlugin,
-  graphql: { typeDefs, resolvers }, mcpTools, contributor, repos }`.
+graphql: { typeDefs, resolvers }, mcpTools, contributor, repos }`.
 - `build-app.ts` builds the kernel (db pool, clients, kernel repos, middleware),
   then constructs each module, then: registers REST plugins, merges GraphQL
   slices into the root schema, registers MCP tools, and registers contributors
@@ -567,7 +579,7 @@ filter fields, real GraphQL SDL, real MCP tool signatures.
 - Old unified module (reference pattern to improve on, on `feat/unified-explorer`):
   `src/modules/unified/` (companies/parliament/pnrr have repos+routes worth studying).
 - Legacy modules (GraphQL + filter DSL prior art): `src/modules/{budget-sector,
-  execution-line-items,entity,uat,...}`, `src/infra/database/query-filters/`.
+execution-line-items,entity,uat,...}`, `src/infra/database/query-filters/`.
 
 ---
 
@@ -578,14 +590,14 @@ earlier section, **these win**.
 
 ### 14.1 Kernel scalar representation (resolves the bigint trap)
 
-| Scalar | Live column type | TS type | GraphQL scalar | Note |
-|--------|------------------|---------|----------------|------|
-| `org_id` | `bigint` | `string` | `BigInt` | configure pg int8 parser → string; **never** JS `number` (precision loss > 2^53) |
-| `cui` | `text` | `string` | `CUI` | **the cross-source link & DataLoader key** |
-| `siruta` | `text` (territories, public_entities) / `integer` (organizations) | `string` | `SIRUTA` | canonicalize to text; cast `core.organizations.siruta_code::text` on join |
-| money | `numeric(18,2)` | `string` | `Money` | string to preserve precision; never float |
-| date | `date` | `string` (`YYYY-MM-DD`) | `Date` | |
-| timestamp | `timestamptz` | `string` (ISO) | `DateTime` | |
+| Scalar    | Live column type                                                  | TS type                 | GraphQL scalar | Note                                                                             |
+| --------- | ----------------------------------------------------------------- | ----------------------- | -------------- | -------------------------------------------------------------------------------- |
+| `org_id`  | `bigint`                                                          | `string`                | `BigInt`       | configure pg int8 parser → string; **never** JS `number` (precision loss > 2^53) |
+| `cui`     | `text`                                                            | `string`                | `CUI`          | **the cross-source link & DataLoader key**                                       |
+| `siruta`  | `text` (territories, public_entities) / `integer` (organizations) | `string`                | `SIRUTA`       | canonicalize to text; cast `core.organizations.siruta_code::text` on join        |
+| money     | `numeric(18,2)`                                                   | `string`                | `Money`        | string to preserve precision; never float                                        |
+| date      | `date`                                                            | `string` (`YYYY-MM-DD`) | `Date`         |                                                                                  |
+| timestamp | `timestamptz`                                                     | `string` (ISO)          | `DateTime`     |                                                                                  |
 
 DataLoader keys for `Entity` fan-out are **CUI strings**, not `org_id`.
 
@@ -649,8 +661,14 @@ lands, pending a person-leak audit; all other domains are OFF — no vector colu
 `search.documents`):
 
 ```ts
-interface SearchCapabilities { meili: boolean; opensearch: boolean; }
-interface DomainSearchCapabilities { semantic: boolean; reason?: string; }  // per domain
+interface SearchCapabilities {
+  meili: boolean;
+  opensearch: boolean;
+}
+interface DomainSearchCapabilities {
+  semantic: boolean;
+  reason?: string;
+} // per domain
 // kernel: capabilities.forDomain('legal').semantic === true
 ```
 
@@ -681,7 +699,7 @@ GraphQL is a projection of it. Required for tri-surface equivalence.
 - Every module type/enum is **always** domain-prefixed PascalCase (`Budget*`,
   `Procurement*`, `Legal*`, `Mo*`, `Pnrr*`, `Judicial*`, `Company*`, `Parliament*`).
   No bare generic names (`Document`, `Summary`, `Status`).
-- **EXEMPTION (kernel base types):** the prefix rule applies to *module-owned*
+- **EXEMPTION (kernel base types):** the prefix rule applies to _module-owned_
   types only. Kernel-owned `shared/core` types are reused un-prefixed by every
   module and must not be re-declared: the scalars (`CUI`, `SIRUTA`, `Money`,
   `Date`, `DateTime`, `BigInt`, `JSON`), the `Entity` join type, `PageInfo`, and
@@ -735,52 +753,65 @@ authoritative cross-plan **reconciliation log + dependency matrix + scrapper
 prerequisites + open user decisions** live in `README.md`.
 
 ### 15.1 doc_type names — corrected to prod (see §4.5/§9)
+
 The example set in §4.5 was stale; the corrected canonical `doc_type` list is now
 inline in §4.5. Key fixes: MO = `mo_act` (not `mo_publication`); portal section
 docs = `portal_section`; **no `pnrr_payment` doc_type** (per-payment docs excluded);
 PNRR uses entity/announcement/acquisition/contractor/measure doc_types.
 
 ### 15.2 SourcePresence / EntityProfileSlice — canonical open shapes
+
 Now specified inline in §4.4. The old fixed boolean record is retired. Every
 contributor returns the common fields + a per-source `attrs`/`data` payload; the
 GraphQL `Entity.<source>` resolver MUST call the same `contributor.profileSlice`
 (§14.7) so REST and GraphQL stay equivalent.
 
 ### 15.3 Kernel `IdentityRepo.territoryForCui(cui)` — NEW kernel method
+
 `TerritoryRepo` (§4.2) is SIRUTA-keyed only, but primarii (11) and wikipedia (12)
 carry CUI without SIRUTA. The kernel adds:
+
 ```ts
 // IdentityRepo (or TerritoryRepo): join core.public_entities.cui →
 //   territorial_siruta_code → core.territories
 territoryForCui(cui: string): Promise<Result<Territory | null, ApiError>>;
 ```
+
 Until it ships, the CUI-only modules' `region`/`siruta`/`isUat`/population filters
 are capability-gated (return `InvalidInput` with a clear message), not silently
 wrong.
 
 ### 15.4 `LegalActByIdLoader` — kernel-owned cross-module port
+
 Parliament (04) and judicial (08) resolve `act_id → LegalAct` without importing the
 `legal` module (§2 forbids cross-module imports). The **kernel owns the port**; the
 `legal` module (05) provides the implementation (its `findActsByIds`) and registers
 it. It **must tolerate a dangling `target_act_id`** (legal rebuild reassigns ids;
 `mo_act_publications.act_id` is `ON DELETE SET NULL`): return `null` +
 `resolutionStatus`, never error.
+
 ```ts
-interface LegalActByIdLoader { load(actId: string): Promise<LegalAct | null>; loadMany(ids: string[]): Promise<(LegalAct | null)[]>; }
+interface LegalActByIdLoader {
+  load(actId: string): Promise<LegalAct | null>;
+  loadMany(ids: string[]): Promise<(LegalAct | null)[]>;
+}
 ```
 
 ### 15.5 Money nullability
+
 `Money` fields are **nullable where the underlying column is nullable** (PNRR
 amounts, procurement values, etc.). GraphQL uses `Money` (not `Money!`) on those
 fields; a `Money!` resolver would hard-error on the first NULL row.
 
 ### 15.6 Array-membership filters
+
 The kernel `toConditionBuilders` (§14.2) compiles **array-typed fields** as
 membership, not substring: a `text[]`/jsonb-array column with `contains`/`in`
 emits `@> to_jsonb(array[$1])` / array-overlap, NOT a trigram `ILIKE`. Scalar
 `contains` stays trigram/ILIKE. (Surfaced by reference `tags` and legal `domains`.)
 
 ### 15.7 Unaccent-free, C-locale-safe name folding (kernel standard)
+
 `unaccent` is **NOT installed** in `transparenta_prod`, and `lower()` under the C
 locale does not fold `Ş/Ţ/Ă/Î/Â`. The kernel identity search / discovery resolvers
 fold diacritics **in TS** (or read a loader-normalized column) — never call

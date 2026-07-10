@@ -17,7 +17,10 @@ import type { FlowSummary, Organization, SourcePresence } from '@/modules/shared
 describe('mergeGraphqlSlices conflict gate', () => {
   it('accepts legit extends', () => {
     const result = mergeGraphqlSlices(baseTypeDefs, [
-      { source: 'pnrr', typeDefs: 'extend type Entity { pnrr: PnrrSummary }\ntype PnrrSummary { total: Money }' },
+      {
+        source: 'pnrr',
+        typeDefs: 'extend type Entity { pnrr: PnrrSummary }\ntype PnrrSummary { total: Money }',
+      },
       { source: 'budget', typeDefs: 'extend type Query { budgetReport(cui: CUI!): String }' },
     ]);
     expect(result.typeDefs).toContain('PnrrSummary');
@@ -50,9 +53,9 @@ describe('mergeGraphqlSlices conflict gate', () => {
   });
 
   it('rejects invalid SDL with a clear error', () => {
-    expect(() =>
-      mergeGraphqlSlices(baseTypeDefs, [{ source: 'bad', typeDefs: 'type {' }])
-    ).toThrow(/not valid SDL/u);
+    expect(() => mergeGraphqlSlices(baseTypeDefs, [{ source: 'bad', typeDefs: 'type {' }])).toThrow(
+      /not valid SDL/u
+    );
   });
 
   it('rejects a module re-adding a kernel-owned Query field (B5)', () => {
@@ -108,7 +111,8 @@ const makeDeps = (presences: (SourcePresence | null)[]): Entity360Deps => {
     identityRepo: {
       findByCui: () => Promise.resolve(ok(org)),
       findByOrgId: () => Promise.resolve(ok(org)),
-      getIdentifiers: () => Promise.resolve(ok([{ scheme: 'cui', value: '16054368', source: 'anaf' }])),
+      getIdentifiers: () =>
+        Promise.resolve(ok([{ scheme: 'cui', value: '16054368', source: 'anaf' }])),
       searchByName: () => Promise.resolve(ok([])),
       resolve: () => Promise.resolve(ok({ org, confidence: 1 })),
       territoryForCui: () => Promise.resolve(ok(null)),
@@ -117,7 +121,8 @@ const makeDeps = (presences: (SourcePresence | null)[]): Entity360Deps => {
       getFlowSummary: (_cui, direction) => Promise.resolve(ok(emptySummary(direction))),
       getTopCounterparties: () => Promise.resolve(ok([])),
       listFlows: () => Promise.resolve(ok({ items: [], next: null })),
-      getCounterpartyNetwork: () => Promise.resolve(ok({ rootCui: '', depth: 1, nodes: [], edges: [] })),
+      getCounterpartyNetwork: () =>
+        Promise.resolve(ok({ rootCui: '', depth: 1, nodes: [], edges: [] })),
       aggregateFlows: () => Promise.resolve(ok([])),
     },
     searchRepo: {

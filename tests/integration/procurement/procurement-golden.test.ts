@@ -218,7 +218,9 @@ d('Procurement golden (live prod)', () => {
     expect(n['totalEstimated']).toBe(false);
     expect(typeof n['total']).toBe('number');
 
-    const wide = await gql(`{ procurementContracts(pageSize: 5){ total totalEstimated items { id } } }`);
+    const wide = await gql(
+      `{ procurementContracts(pageSize: 5){ total totalEstimated items { id } } }`
+    );
     const w = rec(wide.data?.['procurementContracts']);
     expect(w['total']).toBeNull(); // 3.27M rows → the cap was hit
     expect(w['totalEstimated']).toBe(true);

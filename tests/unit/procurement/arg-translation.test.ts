@@ -44,9 +44,15 @@ describe('translateSearchFilter', () => {
   });
 
   it('reads the date facet the grain declares, and ignores the others', () => {
-    const f = translateSearchFilter({ publicationDate: { gte: '2024-01-01' } }, 'publicationDate')._unsafeUnwrap();
+    const f = translateSearchFilter(
+      { publicationDate: { gte: '2024-01-01' } },
+      'publicationDate'
+    )._unsafeUnwrap();
     expect(f.dateRange).toEqual({ gte: '2024-01-01' });
-    const g = translateSearchFilter({ publicationDate: { gte: '2024-01-01' } }, 'contractDate')._unsafeUnwrap();
+    const g = translateSearchFilter(
+      { publicationDate: { gte: '2024-01-01' } },
+      'contractDate'
+    )._unsafeUnwrap();
     expect(g.dateRange).toBeUndefined();
   });
 
@@ -67,7 +73,10 @@ describe('translateSearchFilter', () => {
 
   it('rejects an inverted date range', () => {
     expect(
-      translateSearchFilter({ contractDate: { gte: '2025-01-01', lte: '2024-01-01' } }, 'contractDate').isErr()
+      translateSearchFilter(
+        { contractDate: { gte: '2025-01-01', lte: '2024-01-01' } },
+        'contractDate'
+      ).isErr()
     ).toBe(true);
   });
 
@@ -80,23 +89,34 @@ describe('translateSearchFilter', () => {
   it('rejects a malformed cpvDivision / cpvCode', () => {
     expect(translateSearchFilter({ cpvDivision: { eq: '3' } }, 'contractDate').isErr()).toBe(true);
     expect(translateSearchFilter({ cpvDivision: { eq: 'ab' } }, 'contractDate').isErr()).toBe(true);
-    expect(translateSearchFilter({ cpvCode: { eq: '336000001' } }, 'contractDate').isErr()).toBe(true);
-    expect(translateSearchFilter({ cpvCode: { eq: '33600000' } }, 'contractDate').isOk()).toBe(true);
+    expect(translateSearchFilter({ cpvCode: { eq: '336000001' } }, 'contractDate').isErr()).toBe(
+      true
+    );
+    expect(translateSearchFilter({ cpvCode: { eq: '33600000' } }, 'contractDate').isOk()).toBe(
+      true
+    );
   });
 
   it('rejects an invalid CUI rather than passing it through', () => {
-    expect(translateSearchFilter({ authorityCui: { eq: 'not-a-cui' } }, 'contractDate').isErr()).toBe(true);
+    expect(
+      translateSearchFilter({ authorityCui: { eq: 'not-a-cui' } }, 'contractDate').isErr()
+    ).toBe(true);
   });
 
   it('carries the modifications-only facets', () => {
-    const f = translateSearchFilter({ linked: false, minDeltaPct: 0.25 }, 'modificationDate')._unsafeUnwrap();
+    const f = translateSearchFilter(
+      { linked: false, minDeltaPct: 0.25 },
+      'modificationDate'
+    )._unsafeUnwrap();
     expect(f.linked).toBe(false);
     expect(f.minDeltaPct).toBe(0.25);
   });
 
   it('rejects a non-boolean linked and a non-finite minDeltaPct', () => {
     expect(translateSearchFilter({ linked: 'yes' }, 'modificationDate').isErr()).toBe(true);
-    expect(translateSearchFilter({ minDeltaPct: Number.NaN }, 'modificationDate').isErr()).toBe(true);
+    expect(translateSearchFilter({ minDeltaPct: Number.NaN }, 'modificationDate').isErr()).toBe(
+      true
+    );
   });
 });
 

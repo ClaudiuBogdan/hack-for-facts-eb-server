@@ -60,7 +60,11 @@ const filterArg = (args: Record<string, unknown>): FilterInput => {
   const v = args['filter'];
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as FilterInput) : {};
 };
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 /** Build the act ref from `actId` or `citation` args. */
@@ -108,7 +112,8 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const res = await getAct(acts, ref);
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.actCard, res.error.message);
       const card = res.value;
-      if (card === null) return { ok: true, kind: LEGAL_MCP_KINDS.actCard, query: ref, summary: 'No matching act.' };
+      if (card === null)
+        return { ok: true, kind: LEGAL_MCP_KINDS.actCard, query: ref, summary: 'No matching act.' };
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.actCard,
@@ -163,7 +168,8 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const actRes = await acts.resolveActRef(ref);
       if (actRes.isErr()) return errorOut(LEGAL_MCP_KINDS.links, actRes.error.message);
       const act = actRes.value;
-      if (act === null) return { ok: true, kind: LEGAL_MCP_KINDS.links, query: ref, summary: 'No matching act.' };
+      if (act === null)
+        return { ok: true, kind: LEGAL_MCP_KINDS.links, query: ref, summary: 'No matching act.' };
       const direction = str(args, 'direction') ?? 'in';
       const relRaw = Array.isArray(args['relation']) ? (args['relation'] as string[]) : undefined;
       const relations = relRaw?.map((r) => r as LegalRelation);
@@ -204,7 +210,13 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const actRes = await acts.resolveActRef(ref);
       if (actRes.isErr()) return errorOut(LEGAL_MCP_KINDS.timeline, actRes.error.message);
       const act = actRes.value;
-      if (act === null) return { ok: true, kind: LEGAL_MCP_KINDS.timeline, query: ref, summary: 'No matching act.' };
+      if (act === null)
+        return {
+          ok: true,
+          kind: LEGAL_MCP_KINDS.timeline,
+          query: ref,
+          summary: 'No matching act.',
+        };
       const res = await getActTimeline(acts, graph, act.actId);
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.timeline, res.error.message);
       const events = res.value;
@@ -245,5 +257,12 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     },
   };
 
-  return [resolveFilters, getLegalAct, searchLegalActs, getLegalActLinks, getLegalActTimeline, getLegalNode];
+  return [
+    resolveFilters,
+    getLegalAct,
+    searchLegalActs,
+    getLegalActLinks,
+    getLegalActTimeline,
+    getLegalNode,
+  ];
 };

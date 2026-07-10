@@ -30,31 +30,59 @@ export const LEGAL_MCP_KINDS = {
 export const resolveLegalFiltersInput = {
   dim: z
     .enum(['act', 'issuer', 'domain', 'category', 'act_type', 'status'])
-    .describe('Dimension to resolve: act (citation→actId), issuer/domain/category/act_type/status (name/label→value).'),
+    .describe(
+      'Dimension to resolve: act (citation→actId), issuer/domain/category/act_type/status (name/label→value).'
+    ),
   q: z.string().describe('The free-text query (citation, issuer name, or label).'),
   limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
 };
 
 export const getLegalActInput = {
   actId: z.string().optional().describe('Numeric act_id.'),
-  citation: z.string().optional().describe("Free-text citation ('legea 227/2015' | 'codul fiscal')."),
+  citation: z
+    .string()
+    .optional()
+    .describe("Free-text citation ('legea 227/2015' | 'codul fiscal')."),
 };
 
 export const searchLegalActsInput = {
   q: z.string().describe('The natural-language or provision query.'),
-  filter: z.record(z.string(), z.unknown()).optional().describe('A LegalActs filter object (status/domain/category/actType/year).'),
-  channel: z.enum(['auto', 'sections', 'docs']).optional().describe('Retrieval channel (default auto — identifier router first).'),
-  includeHistorical: z.boolean().optional().describe('Include abrogated/repealed acts (default false).'),
-  includeSuspicious: z.boolean().optional().describe('Include suspicious/stub extractions (default false; RAG-excluded).'),
+  filter: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('A LegalActs filter object (status/domain/category/actType/year).'),
+  channel: z
+    .enum(['auto', 'sections', 'docs'])
+    .optional()
+    .describe('Retrieval channel (default auto — identifier router first).'),
+  includeHistorical: z
+    .boolean()
+    .optional()
+    .describe('Include abrogated/repealed acts (default false).'),
+  includeSuspicious: z
+    .boolean()
+    .optional()
+    .describe('Include suspicious/stub extractions (default false; RAG-excluded).'),
   limit: z.number().int().min(1).max(50).optional().describe('Max results (default 20).'),
 };
 
 export const getLegalActLinksInput = {
   actId: z.string().optional().describe('Numeric act_id.'),
   citation: z.string().optional().describe('Free-text citation.'),
-  direction: z.enum(['in', 'out']).describe("in = who cites/amends this act; out = what this act cites."),
-  relation: z.array(z.string()).optional().describe('Filter by relation(s): modifica/abroga/completeaza/...'),
-  limit: z.number().int().min(1).max(200).optional().describe('Max edges (bounded; hub guard). Default 50.'),
+  direction: z
+    .enum(['in', 'out'])
+    .describe('in = who cites/amends this act; out = what this act cites.'),
+  relation: z
+    .array(z.string())
+    .optional()
+    .describe('Filter by relation(s): modifica/abroga/completeaza/...'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Max edges (bounded; hub guard). Default 50.'),
 };
 
 export const getLegalActTimelineInput = {

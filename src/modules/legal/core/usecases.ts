@@ -49,7 +49,10 @@ import type {
   SyntheticClient,
 } from '@/modules/shared/index.js';
 
-const SORT_DB: Record<LegalSortKey, 'in_degree' | 'act_year' | 'entry_into_force' | 'display_citation'> = {
+const SORT_DB: Record<
+  LegalSortKey,
+  'in_degree' | 'act_year' | 'entry_into_force' | 'display_citation'
+> = {
   in_degree: 'in_degree',
   act_year: 'act_year',
   entry_into_force: 'entry_into_force',
@@ -285,7 +288,11 @@ export interface ResolveLegalFiltersDeps {
 /** A tiny repo for the closed-vocab + issuer distinct-value lookups (impl in shell). */
 export interface LegalVocabRepo {
   resolveIssuers(q: string, limit: number): Promise<Result<readonly ResolveHit[], ApiError>>;
-  resolveEnum(dim: 'domain' | 'category' | 'act_type' | 'status', q: string, limit: number): Promise<Result<readonly ResolveHit[], ApiError>>;
+  resolveEnum(
+    dim: 'domain' | 'category' | 'act_type' | 'status',
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ResolveHit[], ApiError>>;
 }
 
 export const resolveLegalFilters = async (

@@ -177,7 +177,8 @@ export const legalActsSpec: CollectionFilterSpec = {
       type: 'bool',
       ops: ['isNull'],
       column: { alias: 's', column: 'fiscal_impact' },
-      description: 'isNull:true ⇒ fiscal_impact IS NULL; isNull:false ⇒ IS NOT NULL (kernel op semantics).',
+      description:
+        'isNull:true ⇒ fiscal_impact IS NULL; isNull:false ⇒ IS NOT NULL (kernel op semantics).',
     },
     {
       name: 'q',

@@ -7,23 +7,8 @@
   // ============================================================================
   "formatter": {
     "prettier": {
-      "command": [
-        "pnpm",
-        "exec",
-        "prettier",
-        "--write",
-        "$FILE"
-      ],
-      "extensions": [
-        ".ts",
-        ".tsx",
-        ".js",
-        ".jsx",
-        ".json",
-        ".md",
-        ".yaml",
-        ".yml"
-      ],
+      "command": ["pnpm", "exec", "prettier", "--write", "$FILE"],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".yaml", ".yml"],
     },
   },
   // ============================================================================
@@ -39,7 +24,7 @@
     "list": true,
     "webfetch": true,
     "todowrite": true,
-    "todoread": true
+    "todoread": true,
   },
   // ============================================================================
   // GLOBAL PERMISSIONS

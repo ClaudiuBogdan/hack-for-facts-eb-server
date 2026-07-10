@@ -173,7 +173,8 @@ AlertSeriesEmail.PreviewProps = {
   copyrightYear: 2026,
   templateType: 'alert_series',
   title: 'Alertă: Cheltuieli neobișnuite detectate',
-  description: 'Au fost detectate cheltuieli care depășesc pragurile normale pentru această entitate.',
+  description:
+    'Au fost detectate cheltuieli care depășesc pragurile normale pentru această entitate.',
   triggeredConditions: [
     {
       operator: 'gt',

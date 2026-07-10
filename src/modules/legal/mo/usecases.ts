@@ -12,15 +12,25 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type CursorPage, type FilterInput  } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type CursorPage,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
-import { MO_COVERAGE_GAPS, type MoActLifecycle, type MoCoverage, type MoPublicationEvents,
+import {
+  MO_COVERAGE_GAPS,
+  type MoActLifecycle,
+  type MoCoverage,
+  type MoPublicationEvents,
   type MoActPublication,
   type MoIssue,
   type MoIssuerYearCount,
   type MoLifecycleEdge,
   type MoResolutionRates,
-  type MoStatusEvent } from './types.js';
+  type MoStatusEvent,
+} from './types.js';
 
 import type { MonitorulRepo, MoPublicationAggInput } from './ports.js';
 

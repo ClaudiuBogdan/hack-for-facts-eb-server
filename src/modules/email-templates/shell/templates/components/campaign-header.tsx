@@ -53,12 +53,7 @@ export const CampaignHeader: React.FC = () => (
             <Text style={styles.hashtag}>#ProvocareCivic&#259;2026</Text>
           </td>
           <td style={styles.logoCell}>
-            <Img
-              src={FUNKY_LOGO_URL}
-              height="24"
-              alt="Funky Citizens"
-              style={styles.logo}
-            />
+            <Img src={FUNKY_LOGO_URL} height="24" alt="Funky Citizens" style={styles.logo} />
           </td>
           <td style={{ width: '99%' }} />
         </tr>

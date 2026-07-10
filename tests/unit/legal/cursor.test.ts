@@ -4,7 +4,14 @@
  * (NULLS LAST) section reachable, and `act_id` is compared `::bigint` (not text).
  */
 
-import { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, sql } from 'kysely';
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  sql,
+} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { keysetCursor } from '@/modules/legal/shell/repo/filter-helpers.js';

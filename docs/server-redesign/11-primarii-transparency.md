@@ -26,19 +26,19 @@ holds logical raw references, not bytes — bytes live in MinIO, per NOTES).
 **Live row counts** (griffin `transparenta-prod-postgres-1`, 2026-06-16,
 `pg_stat_user_tables`):
 
-| Table | Rows | Grain | Status |
-|-------|-----:|-------|--------|
-| `current_entity_status` | **3,187** | 1 per UAT CUI (current view) | ✅ populated — **primary read surface** |
-| `entity_snapshots` | **3,109** | 1 per (cui, source_result_version) research run | ✅ populated |
-| `entity_category_statuses` | **9,327** | (snapshot, category) — 3 categories × snapshots | ✅ populated |
-| `documents` | **7,233** | 1 per evidence document | ✅ populated |
-| `salary_amount_claims` | **14,903** | extracted salary line | ✅ populated |
-| `salary_documents` | **2,301** | salary doc + year/period dims | ✅ populated |
-| `staffing_claims` | **3,109** | 1 per snapshot (headcount) | ✅ populated |
-| `organigrama_claims` | **3,109** | 1 per snapshot (org-chart status) | ✅ populated |
-| `load_issues` | **1,880** | loader QA event | ✅ populated (ops surface) |
-| `entity_registry_links` | **0** | CUI → registry link | ⚠ **DDL-only, deferred** |
-| `fact_evidence_refs` | **0** | generic fact→evidence ref | ⚠ **DDL-only, deferred** |
+| Table                      |       Rows | Grain                                           | Status                                  |
+| -------------------------- | ---------: | ----------------------------------------------- | --------------------------------------- |
+| `current_entity_status`    |  **3,187** | 1 per UAT CUI (current view)                    | ✅ populated — **primary read surface** |
+| `entity_snapshots`         |  **3,109** | 1 per (cui, source_result_version) research run | ✅ populated                            |
+| `entity_category_statuses` |  **9,327** | (snapshot, category) — 3 categories × snapshots | ✅ populated                            |
+| `documents`                |  **7,233** | 1 per evidence document                         | ✅ populated                            |
+| `salary_amount_claims`     | **14,903** | extracted salary line                           | ✅ populated                            |
+| `salary_documents`         |  **2,301** | salary doc + year/period dims                   | ✅ populated                            |
+| `staffing_claims`          |  **3,109** | 1 per snapshot (headcount)                      | ✅ populated                            |
+| `organigrama_claims`       |  **3,109** | 1 per snapshot (org-chart status)               | ✅ populated                            |
+| `load_issues`              |  **1,880** | loader QA event                                 | ✅ populated (ops surface)              |
+| `entity_registry_links`    |      **0** | CUI → registry link                             | ⚠ **DDL-only, deferred**                |
+| `fact_evidence_refs`       |      **0** | generic fact→evidence ref                       | ⚠ **DDL-only, deferred**                |
 
 **Measured distributions** (drive the filter enums in §7):
 
@@ -59,7 +59,7 @@ holds logical raw references, not bytes — bytes live in MinIO, per NOTES).
 
 **Deferred (DDL-only, plan accordingly):**
 
-- `entity_registry_links` (0 rows) — the *designed* CUI→`public_entities`/`companies`
+- `entity_registry_links` (0 rows) — the _designed_ CUI→`public_entities`/`companies`
   link table. **The module MUST NOT depend on it for identity/territory linkage.**
   Linkage is computed live by joining `cui` to the kernel identity/territory hub
   (§2, §4). The repo exposes a `getRegistryLinks(cui)` method that returns `[]`
@@ -73,15 +73,15 @@ holds logical raw references, not bytes — bytes live in MinIO, per NOTES).
 - `salary_documents` (2,301 rows) — the salary-doc year/period dimension table
   (`year`, `period`, `is_latest`, FK to `documents`). It backs a plausible "latest
   salary disclosure year per UAT" question but adds a third claim surface for
-  marginal value; **v1 exposes salary evidence via `documents` (`category=salarii`)
-  + `salary_amount_claims` only.** Add a `/entities/:cui/salary-documents` surface
-  in v2 if the year/`is_latest` dimension is needed (the `salary_documents_cui_year_idx`
-  is ready for it).
+  marginal value; \*\*v1 exposes salary evidence via `documents` (`category=salarii`)
+  - `salary_amount_claims` only.\*\* Add a `/entities/:cui/salary-documents` surface
+    in v2 if the year/`is_latest` dimension is needed (the `salary_documents_cui_year_idx`
+    is ready for it).
 
 **What this source does NOT have** (honesty for the contributor/entity-360 wiring):
 
 - No money: no `flows.money_flows` rows, no `amount`/spend semantics other than the
-  *self-reported* `salary_amount_claims.amount_ron` (a claim extracted from a
+  _self-reported_ `salary_amount_claims.amount_ron` (a claim extracted from a
   disclosure PDF, **not** a verified payment). It is **not** a flow fact and MUST
   NOT be summed into entity-360 totals (§4 grain note).
 - No SIRUTA column — territory is via CUI→hub or the denormalized `county` text.
@@ -100,30 +100,33 @@ the plan does NOT promise date-range filtering on them).
 
 ```ts
 // Identity + territory denormalized onto the current view; canonical metadata via hub.
-export interface PrimariiEntityStatus {        // ← current_entity_status (primary)
+export interface PrimariiEntityStatus {
+  // ← current_entity_status (primary)
   readonly cui: string;
-  readonly snapshotId: string | null;          // bigint → string
+  readonly snapshotId: string | null; // bigint → string
   readonly entityName: string;
-  readonly entityType: string | null;          // admin_commune_hall | admin_town_hall | ...
-  readonly county: string | null;              // denormalized text (no SIRUTA here)
+  readonly entityType: string | null; // admin_commune_hall | admin_town_hall | ...
+  readonly county: string | null; // denormalized text (no SIRUTA here)
   readonly websiteUrl: string | null;
-  readonly resultStatus: string;               // partial | complete | blocked | missing_result | not_found | error
-  readonly dataQualityStatus: 'high'|'medium'|'low'|'missing'|'review_needed';
-  readonly confidence: number | null;          // 0..1 real
-  readonly evidenceCoverage: number | null;    // 0..1 real
-  readonly missingRequiredCategories: readonly string[];   // text[]
+  readonly resultStatus: string; // partial | complete | blocked | missing_result | not_found | error
+  readonly dataQualityStatus: 'high' | 'medium' | 'low' | 'missing' | 'review_needed';
+  readonly confidence: number | null; // 0..1 real
+  readonly evidenceCoverage: number | null; // 0..1 real
+  readonly missingRequiredCategories: readonly string[]; // text[]
   readonly issueCount: number;
-  readonly updatedAt: string;                   // ISO
+  readonly updatedAt: string; // ISO
 }
 
-export interface PrimariiCategoryStatus {       // ← entity_category_statuses
-  readonly category: 'organigrama'|'numar_angajati'|'salarii';
-  readonly status: 'found'|'not_found'|'unknown'|'blocked';
+export interface PrimariiCategoryStatus {
+  // ← entity_category_statuses
+  readonly category: 'organigrama' | 'numar_angajati' | 'salarii';
+  readonly status: 'found' | 'not_found' | 'unknown' | 'blocked';
   readonly evidenceCount: number;
   readonly missingEvidenceCount: number;
 }
 
-export interface PrimariiSnapshot {             // ← entity_snapshots (history)
+export interface PrimariiSnapshot {
+  // ← entity_snapshots (history)
   readonly snapshotId: string;
   readonly cui: string;
   readonly entityName: string;
@@ -135,7 +138,7 @@ export interface PrimariiSnapshot {             // ← entity_snapshots (history
   readonly schemaVersion: string | null;
   readonly resultStatus: string;
   readonly confidence: number | null;
-  readonly researchedAt: string | null;        // ISO timestamptz
+  readonly researchedAt: string | null; // ISO timestamptz
   readonly organigramaStatus: string | null;
   readonly numarAngajatiStatus: string | null;
   readonly salariiStatus: string | null;
@@ -144,37 +147,40 @@ export interface PrimariiSnapshot {             // ← entity_snapshots (history
   readonly loadedAt: string;
 }
 
-export interface PrimariiDocument {             // ← documents (evidence inventory)
+export interface PrimariiDocument {
+  // ← documents (evidence inventory)
   readonly documentPk: string;
   readonly cui: string;
-  readonly category: string | null;            // salarii | organigrama | numar_angajati | other
+  readonly category: string | null; // salarii | organigrama | numar_angajati | other
   readonly documentType: string | null;
   readonly title: string | null;
-  readonly sourceUrl: string | null;           // public source link
-  readonly contentSha256: string | null;       // identity of the stored MinIO object
-  readonly contentBytes: string | null;        // bigint → string
-  readonly publishedDate: string | null;       // TEXT (unparsed)
-  readonly effectiveDate: string | null;       // TEXT (unparsed)
+  readonly sourceUrl: string | null; // public source link
+  readonly contentSha256: string | null; // identity of the stored MinIO object
+  readonly contentBytes: string | null; // bigint → string
+  readonly publishedDate: string | null; // TEXT (unparsed)
+  readonly effectiveDate: string | null; // TEXT (unparsed)
   // local_path / raw_evidence_* are RAW pointers → excluded from default projection (§8)
 }
 
-export interface PrimariiSalaryClaim {          // ← salary_amount_claims
+export interface PrimariiSalaryClaim {
+  // ← salary_amount_claims
   readonly salaryAmountClaimId: string;
   readonly cui: string;
   readonly documentPk: string | null;
-  readonly amountRon: string;                   // numeric(18,2) → string. SELF-REPORTED, not a flow.
+  readonly amountRon: string; // numeric(18,2) → string. SELF-REPORTED, not a flow.
   readonly roleTitle: string | null;
-  readonly periodStart: string | null;         // real DATE here → YYYY-MM-DD
+  readonly periodStart: string | null; // real DATE here → YYYY-MM-DD
   readonly periodEnd: string | null;
   readonly confidence: number | null;
 }
 
-export interface PrimariiStaffingClaim {        // ← staffing_claims
+export interface PrimariiStaffingClaim {
+  // ← staffing_claims
   readonly cui: string;
   readonly totalPositions: number | null;
   readonly occupiedPositions: number | null;
   readonly vacantPositions: number | null;
-  readonly asOfDate: string | null;            // TEXT
+  readonly asOfDate: string | null; // TEXT
   readonly confidence: number | null;
 }
 ```
@@ -199,13 +205,13 @@ primarii_transparency.cui
 
 - **Fast county filter:** the denormalized `current_entity_status.county` text
   (indexed) backs the cheap `county=` filter for the common "all UATs in Cluj"
-  case — no join needed. **Caveat:** it is a *name* string with no guaranteed
+  case — no join needed. **Caveat:** it is a _name_ string with no guaranteed
   canonical spelling/diacritics; the plan declares it a best-effort filter and
   routes canonical/SIRUTA-based geography through the hub.
 - **Canonical SIRUTA / region / population filters** (`siruta[]`, `region[]`,
   `is_uat`, `min/maxPopulation`) compile to a join `… JOIN core.public_entities pe
-  ON pe.cui = t.cui JOIN core.territories ter ON ter.territorial_siruta_code =
-  pe.territorial_siruta_code` then filter on the **hub** columns. This join is
+ON pe.cui = t.cui JOIN core.territories ter ON ter.territorial_siruta_code =
+pe.territorial_siruta_code` then filter on the **hub** columns. This join is
   **fully index-backed** (verified live, 2026-06-16): `core.public_entities` has a
   **unique PK on `cui`** (`public_entities_pkey`) and an index on
   `territorial_siruta_code` (`public_entities_territorial_siruta_code_idx`);
@@ -216,7 +222,7 @@ primarii_transparency.cui
     `TerritoryRepo` (§4.2) is **SIRUTA-keyed only** (`byTerritorialSiruta`,
     `byCounty`, `searchUat`, `listCounties`, `listRegions`) — it exposes **no
     `cui → territory` resolver**, and `core.public_entities` belongs to the
-    *identity* hub (§4.1), not the territory hub. **The kernel must add a
+    _identity_ hub (§4.1), not the territory hub. **The kernel must add a
     `cui → {territorial_siruta_code, county_code, siruta_code, region, population}`
     resolver** (proposed: `IdentityRepo.territoryForCui(cui)` + a matching
     territory-filter builder the module composes). This module **does not** invent a
@@ -254,7 +260,9 @@ hubs stay authoritative. Until that resolver ships, the territory-dependent repo
 paths are capability-gated (§7.1/§13.0).
 
 ```ts
-export interface PrimariiFilters { /* the compiled FilterInput from §7 specs */ }
+export interface PrimariiFilters {
+  /* the compiled FilterInput from §7 specs */
+}
 
 export interface PrimariiRepository {
   // ── current registry (primary surface) ──────────────────────────────────
@@ -263,7 +271,8 @@ export interface PrimariiRepository {
   // cui→territory resolver (gated, §13.0); county= uses the local county_idx.
   listEntities(
     f: PrimariiEntityFilters,
-    page: OffsetPage, sort: PrimariiEntitySort
+    page: OffsetPage,
+    sort: PrimariiEntitySort
   ): Promise<Result<{ rows: PrimariiEntityStatus[]; total: number }, ApiError>>;
 
   getEntity(cui: string): Promise<Result<PrimariiEntityStatus | null, ApiError>>;
@@ -276,47 +285,55 @@ export interface PrimariiRepository {
   // entity_category_statuses PK is (snapshot_id, category); cui_idx is (cui, category, status).
   // getCategoryStatuses scopes to the CURRENT snapshot_id (from current_entity_status) to
   // avoid returning stale-snapshot category rows.
-  getCategoryStatuses(cui: string): Promise<Result<PrimariiCategoryStatus[], ApiError>>;   // entity_category_statuses_cui_idx (cui, category, status)
-  getStaffing(cui: string): Promise<Result<PrimariiStaffingClaim | null, ApiError>>;        // staffing_claims_cui_idx
-  getOrganigrama(cui: string): Promise<Result<PrimariiOrganigramaClaim | null, ApiError>>;  // organigrama_claims_cui_idx
+  getCategoryStatuses(cui: string): Promise<Result<PrimariiCategoryStatus[], ApiError>>; // entity_category_statuses_cui_idx (cui, category, status)
+  getStaffing(cui: string): Promise<Result<PrimariiStaffingClaim | null, ApiError>>; // staffing_claims_cui_idx
+  getOrganigrama(cui: string): Promise<Result<PrimariiOrganigramaClaim | null, ApiError>>; // organigrama_claims_cui_idx
   listSalaryClaims(
-    cui: string, page: OffsetPage
-  ): Promise<Result<{ rows: PrimariiSalaryClaim[]; total: number }, ApiError>>;             // salary_amount_claims_cui_amount_idx
+    cui: string,
+    page: OffsetPage
+  ): Promise<Result<{ rows: PrimariiSalaryClaim[]; total: number }, ApiError>>; // salary_amount_claims_cui_amount_idx
 
   // ── document inventory ───────────────────────────────────────────────────
   // documents_cui_category_idx (cui, category). Cross-entity list MUST be filtered
   // (cui or category) — no unbounded scan.
   listDocuments(
-    f: PrimariiDocumentFilters, page: OffsetPage, sort: PrimariiDocumentSort
+    f: PrimariiDocumentFilters,
+    page: OffsetPage,
+    sort: PrimariiDocumentSort
   ): Promise<Result<{ rows: PrimariiDocument[]; total: number }, ApiError>>;
 
   // ── history ────────────────────────────────────────────────────────────
   // entity_snapshots_cui_loaded_idx (cui, loaded_at desc)
-  listSnapshots(cui: string, page: OffsetPage): Promise<Result<{ rows: PrimariiSnapshot[]; total: number }, ApiError>>;
+  listSnapshots(
+    cui: string,
+    page: OffsetPage
+  ): Promise<Result<{ rows: PrimariiSnapshot[]; total: number }, ApiError>>;
 
   // ── aggregates (analytics) ───────────────────────────────────────────────
   // GROUP BY county | data_quality_status | result_status | entity_type.
   // 'region' grouping requires the kernel cui→territory resolver (§13 gap) — gated.
   aggregateStatus(
-    groupBy: 'county'|'region'|'data_quality_status'|'result_status'|'entity_type',
+    groupBy: 'county' | 'region' | 'data_quality_status' | 'result_status' | 'entity_type',
     f: PrimariiEntityFilters
-  ): Promise<Result<PrimariiStatusBucket[], ApiError>>;   // PrimariiStatusBucket = { key, total, withEvidence?: number }
+  ): Promise<Result<PrimariiStatusBucket[], ApiError>>; // PrimariiStatusBucket = { key, total, withEvidence?: number }
 
   aggregateCategoryCoverage(
     f: PrimariiEntityFilters
-  ): Promise<Result<PrimariiCategoryCoverage[], ApiError>>;  // per category: found/not_found/unknown/blocked counts + coverage
+  ): Promise<Result<PrimariiCategoryCoverage[], ApiError>>; // per category: found/not_found/unknown/blocked counts + coverage
 
   // ── ops / QA ─────────────────────────────────────────────────────────────
   listLoadIssues(
-    f: { cui?: string; severity?: 'info'|'warning'|'error'; issueCode?: string },
+    f: { cui?: string; severity?: 'info' | 'warning' | 'error'; issueCode?: string },
     page: OffsetPage
-  ): Promise<Result<{ rows: PrimariiLoadIssue[]; total: number }, ApiError>>;  // load_issues_cui_severity_idx / load_issues_code_idx
+  ): Promise<Result<{ rows: PrimariiLoadIssue[]; total: number }, ApiError>>; // load_issues_cui_severity_idx / load_issues_code_idx
 
   // ── deferred (return [] until loader populates; no API break when it does) ─
-  getRegistryLinks(cui: string): Promise<Result<PrimariiRegistryLink[], ApiError>>;  // entity_registry_links (0 rows today)
+  getRegistryLinks(cui: string): Promise<Result<PrimariiRegistryLink[], ApiError>>; // entity_registry_links (0 rows today)
 
   // ── contributor support (§4) ──────────────────────────────────────────────
-  presenceFor(cui: string): Promise<Result<{ present: boolean; status?: string; dataQuality?: string } | null, ApiError>>;
+  presenceFor(
+    cui: string
+  ): Promise<Result<{ present: boolean; status?: string; dataQuality?: string } | null, ApiError>>;
 }
 ```
 
@@ -340,17 +357,17 @@ export interface PrimariiRepository {
 
 `core/usecases/` (framework-free, over ports, `Result`):
 
-| Usecase | Signature | Notes |
-|---------|-----------|-------|
-| `listTransparencyEntities` | `(filters, page, sort) → { rows, total }` | the registry browse/list |
+| Usecase                        | Signature                                   | Notes                                                                                                 |
+| ------------------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `listTransparencyEntities`     | `(filters, page, sort) → { rows, total }`   | the registry browse/list                                                                              |
 | `getEntityTransparencyProfile` | `(cui) → PrimariiEntityProfile \| NotFound` | current status + categories + staffing + organigrama + doc counts; the detail page + entity-360 slice |
-| `listEntityDocuments` | `(filters, page, sort) → { rows, total }` | document inventory |
-| `listEntitySnapshots` | `(cui, page) → { rows, total }` | research history |
-| `listSalaryClaims` | `(cui, page) → { rows, total }` | per-UAT salary disclosures (count-grade, **not** spend) |
-| `getTransparencyStats` | `(groupBy, filters) → buckets` | county/region/status/type rollups for client dashboards + MCP |
-| `getCategoryCoverage` | `(filters) → per-category coverage` | "which UATs publish organigrame?" — answers catalog-style coverage Qs |
-| `listLoadIssues` | `(filters, page) → { rows, total }` | ops/QA surface |
-| `resolveFilters` | `(dim, q) → candidates` | name→value (county, entity name→CUI, status enums) — wraps kernel discovery (§7.4) |
+| `listEntityDocuments`          | `(filters, page, sort) → { rows, total }`   | document inventory                                                                                    |
+| `listEntitySnapshots`          | `(cui, page) → { rows, total }`             | research history                                                                                      |
+| `listSalaryClaims`             | `(cui, page) → { rows, total }`             | per-UAT salary disclosures (count-grade, **not** spend)                                               |
+| `getTransparencyStats`         | `(groupBy, filters) → buckets`              | county/region/status/type rollups for client dashboards + MCP                                         |
+| `getCategoryCoverage`          | `(filters) → per-category coverage`         | "which UATs publish organigrame?" — answers catalog-style coverage Qs                                 |
+| `listLoadIssues`               | `(filters, page) → { rows, total }`         | ops/QA surface                                                                                        |
+| `resolveFilters`               | `(dim, q) → candidates`                     | name→value (county, entity name→CUI, status enums) — wraps kernel discovery (§7.4)                    |
 
 **Cross-source contributor (§4.4/§14.7).** Registered as a `SourceContributor`
 with `source: 'primarii_transparency'`. Both methods return the **kernel**
@@ -370,13 +387,13 @@ profileSlice(cui): Result<EntityProfileSlice | null>
 
 > **Cross-module note:** if the kernel `EntityProfileSlice` does not yet carry a
 > generic `data`/`attrs` slot, that is a kernel addition to flag in the consistency
-> pass (§13). The point of §14.7 is the *registry uniformity*; this module must not
+> pass (§13). The point of §14.7 is the _registry uniformity_; this module must not
 > widen the kernel type unilaterally.
 
 `profileSlice` is the **same** `getEntityTransparencyProfile`-derived slice the REST
 entity-360 and the GraphQL `Entity.primariiTransparency` field call (§14.7 — single
 source of truth). It contributes to **XS-1 / XS-3 / XS-5** (the institution-360 and
-region questions in the catalog) as the *governance/transparency* dimension.
+region questions in the catalog) as the _governance/transparency_ dimension.
 
 - **`flow_type`:** **NONE.** This module registers no `flows.money_flows` rows and
   contributes nothing to the unified flow summary. The salary `amount_ron` is a
@@ -396,18 +413,18 @@ query/param; `Static<typeof Schema>` is the handler input. Every read carries th
 domain freshness watermark (§10) in `meta`. Each route contributes an OpenAPI
 fragment merged at `/api/v1/openapi.json`.
 
-| Method | Path | Query / params | Response | Pagination | Cache TTL | `statement_timeout` |
-|--------|------|----------------|----------|-----------|-----------|---------------------|
-| GET | `/entities` | `PrimariiEntityFilter` (§7) + `page,pageSize,sort` | `PrimariiEntityStatus[]` | offset + exact `total` | 10 min | 5s |
-| GET | `/entities/:cui` | path `cui` (`^[0-9]+$`) | `PrimariiEntityProfile` (status + categories + staffing + organigrama + doc counts) | — | 10 min | 5s |
-| GET | `/entities/:cui/documents` | `category?`, `documentType?`, `page,pageSize,sort` | `PrimariiDocument[]` | offset + total | 10 min | 5s |
-| GET | `/entities/:cui/salary-claims` | `page,pageSize` | `PrimariiSalaryClaim[]` | offset + total | 10 min | 5s |
-| GET | `/entities/:cui/snapshots` | `page,pageSize` | `PrimariiSnapshot[]` | offset + total | 10 min | 5s |
-| GET | `/documents` | `PrimariiDocumentFilter` (**requires** `cui` or `category`) + page/sort | `PrimariiDocument[]` | offset + total | 10 min | 5s |
-| GET | `/aggregate` | `groupBy=county\|region\|data_quality_status\|result_status\|entity_type` + `PrimariiEntityFilter` (`region` gated, §13) | `PrimariiStatusBucket[]` + `coverage` | none (bounded) | 15 min | 15s |
-| GET | `/category-coverage` | `PrimariiEntityFilter` | `PrimariiCategoryCoverage[]` (+coverage caveats) | none | 15 min | 15s |
-| GET | `/load-issues` | `cui?`, `severity?`, `issueCode?` + page | `PrimariiLoadIssue[]` | offset + total | 5 min | 5s |
-| GET | `/filters/resolve` | `dim=county\|entity\|status`, `q` | `{ value, label, score }[]` | none | 10 min | 5s |
+| Method | Path                           | Query / params                                                                                                           | Response                                                                            | Pagination             | Cache TTL | `statement_timeout` |
+| ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | ---------------------- | --------- | ------------------- |
+| GET    | `/entities`                    | `PrimariiEntityFilter` (§7) + `page,pageSize,sort`                                                                       | `PrimariiEntityStatus[]`                                                            | offset + exact `total` | 10 min    | 5s                  |
+| GET    | `/entities/:cui`               | path `cui` (`^[0-9]+$`)                                                                                                  | `PrimariiEntityProfile` (status + categories + staffing + organigrama + doc counts) | —                      | 10 min    | 5s                  |
+| GET    | `/entities/:cui/documents`     | `category?`, `documentType?`, `page,pageSize,sort`                                                                       | `PrimariiDocument[]`                                                                | offset + total         | 10 min    | 5s                  |
+| GET    | `/entities/:cui/salary-claims` | `page,pageSize`                                                                                                          | `PrimariiSalaryClaim[]`                                                             | offset + total         | 10 min    | 5s                  |
+| GET    | `/entities/:cui/snapshots`     | `page,pageSize`                                                                                                          | `PrimariiSnapshot[]`                                                                | offset + total         | 10 min    | 5s                  |
+| GET    | `/documents`                   | `PrimariiDocumentFilter` (**requires** `cui` or `category`) + page/sort                                                  | `PrimariiDocument[]`                                                                | offset + total         | 10 min    | 5s                  |
+| GET    | `/aggregate`                   | `groupBy=county\|region\|data_quality_status\|result_status\|entity_type` + `PrimariiEntityFilter` (`region` gated, §13) | `PrimariiStatusBucket[]` + `coverage`                                               | none (bounded)         | 15 min    | 15s                 |
+| GET    | `/category-coverage`           | `PrimariiEntityFilter`                                                                                                   | `PrimariiCategoryCoverage[]` (+coverage caveats)                                    | none                   | 15 min    | 15s                 |
+| GET    | `/load-issues`                 | `cui?`, `severity?`, `issueCode?` + page                                                                                 | `PrimariiLoadIssue[]`                                                               | offset + total         | 5 min     | 5s                  |
+| GET    | `/filters/resolve`             | `dim=county\|entity\|status`, `q`                                                                                        | `{ value, label, score }[]`                                                         | none                   | 10 min    | 5s                  |
 
 - Envelope per §5.2 (`{ ok, data, meta }`) + `requestId` (§14.11). 404
   (`NotFound`) for unknown `:cui`.
@@ -430,17 +447,52 @@ Module contributes `typeDefs` + resolvers extending root `Query`, plus the
 `Entity` extension.
 
 ```graphql
-enum PrimariiDataQuality { HIGH MEDIUM LOW MISSING REVIEW_NEEDED }
-enum PrimariiResultStatus { PARTIAL COMPLETE BLOCKED MISSING_RESULT NOT_FOUND ERROR }
-enum PrimariiCategory { ORGANIGRAMA NUMAR_ANGAJATI SALARII }
-enum PrimariiCategoryState { FOUND NOT_FOUND UNKNOWN BLOCKED }
-enum PrimariiEntityType { ADMIN_COMMUNE_HALL ADMIN_TOWN_HALL ADMIN_MUNICIPALITY ADMIN_SECTOR_HALL PRIMARIE }
-enum PrimariiEntitySortKey { DATA_QUALITY CONFIDENCE EVIDENCE_COVERAGE ISSUE_COUNT ENTITY_NAME UPDATED_AT }
+enum PrimariiDataQuality {
+  HIGH
+  MEDIUM
+  LOW
+  MISSING
+  REVIEW_NEEDED
+}
+enum PrimariiResultStatus {
+  PARTIAL
+  COMPLETE
+  BLOCKED
+  MISSING_RESULT
+  NOT_FOUND
+  ERROR
+}
+enum PrimariiCategory {
+  ORGANIGRAMA
+  NUMAR_ANGAJATI
+  SALARII
+}
+enum PrimariiCategoryState {
+  FOUND
+  NOT_FOUND
+  UNKNOWN
+  BLOCKED
+}
+enum PrimariiEntityType {
+  ADMIN_COMMUNE_HALL
+  ADMIN_TOWN_HALL
+  ADMIN_MUNICIPALITY
+  ADMIN_SECTOR_HALL
+  PRIMARIE
+}
+enum PrimariiEntitySortKey {
+  DATA_QUALITY
+  CONFIDENCE
+  EVIDENCE_COVERAGE
+  ISSUE_COUNT
+  ENTITY_NAME
+  UPDATED_AT
+}
 
 type PrimariiEntityStatus {
   cui: CUI!
   entityName: String!
-  entityType: PrimariiEntityType        # closed 5-value set (matches §12 enum test)
+  entityType: PrimariiEntityType # closed 5-value set (matches §12 enum test)
   county: String
   websiteUrl: String
   resultStatus: PrimariiResultStatus!
@@ -456,33 +508,106 @@ type PrimariiEntityStatus {
   territory: Territory
 }
 
-type PrimariiCategoryStatus { category: PrimariiCategory!  status: PrimariiCategoryState!  evidenceCount: Int!  missingEvidenceCount: Int! }
-type PrimariiStaffingClaim { totalPositions: Int  occupiedPositions: Int  vacantPositions: Int  asOfDate: String  confidence: Float }
-type PrimariiOrganigramaClaim { status: PrimariiCategoryState!  effectiveDate: String  summary: String  confidence: Float }
-type PrimariiSalaryClaim { salaryAmountClaimId: BigInt!  amountRon: Money!  roleTitle: String  periodStart: Date  periodEnd: Date  confidence: Float }
-type PrimariiDocument { documentPk: BigInt!  cui: CUI!  category: String  documentType: String  title: String  sourceUrl: String  contentSha256: String  contentBytes: BigInt  publishedDate: String  effectiveDate: String }
-type PrimariiLoadIssue { severity: String!  issueCode: String!  cui: CUI  message: String!  createdAt: DateTime! }
+type PrimariiCategoryStatus {
+  category: PrimariiCategory!
+  status: PrimariiCategoryState!
+  evidenceCount: Int!
+  missingEvidenceCount: Int!
+}
+type PrimariiStaffingClaim {
+  totalPositions: Int
+  occupiedPositions: Int
+  vacantPositions: Int
+  asOfDate: String
+  confidence: Float
+}
+type PrimariiOrganigramaClaim {
+  status: PrimariiCategoryState!
+  effectiveDate: String
+  summary: String
+  confidence: Float
+}
+type PrimariiSalaryClaim {
+  salaryAmountClaimId: BigInt!
+  amountRon: Money!
+  roleTitle: String
+  periodStart: Date
+  periodEnd: Date
+  confidence: Float
+}
+type PrimariiDocument {
+  documentPk: BigInt!
+  cui: CUI!
+  category: String
+  documentType: String
+  title: String
+  sourceUrl: String
+  contentSha256: String
+  contentBytes: BigInt
+  publishedDate: String
+  effectiveDate: String
+}
+type PrimariiLoadIssue {
+  severity: String!
+  issueCode: String!
+  cui: CUI
+  message: String!
+  createdAt: DateTime!
+}
 
 type PrimariiEntityProfile {
   status: PrimariiEntityStatus!
   categories: [PrimariiCategoryStatus!]!
-  staffing: PrimariiStaffingClaim       # nullable: 3,109 staffing rows < 3,187 entities
+  staffing: PrimariiStaffingClaim # nullable: 3,109 staffing rows < 3,187 entities
   organigrama: PrimariiOrganigramaClaim # nullable: 3,109 organigrama rows < 3,187 entities → returns null (whole object), never a partial
   documentCounts: [PrimariiCategoryCount!]!
 }
-type PrimariiCategoryCount { category: String!  count: Int! }
-type PrimariiStatusBucket { key: String!  total: Int!  withEvidence: Int }
-type PrimariiCategoryCoverage { category: PrimariiCategory!  found: Int!  notFound: Int!  unknown: Int!  blocked: Int!  coverage: Float! }
+type PrimariiCategoryCount {
+  category: String!
+  count: Int!
+}
+type PrimariiStatusBucket {
+  key: String!
+  total: Int!
+  withEvidence: Int
+}
+type PrimariiCategoryCoverage {
+  category: PrimariiCategory!
+  found: Int!
+  notFound: Int!
+  unknown: Int!
+  blocked: Int!
+  coverage: Float!
+}
 
 # Relay connections (same cursor encoder as REST, §14.3)
-type PrimariiEntityConnection { edges: [PrimariiEntityEdge!]!  pageInfo: PageInfo!  totalCount: Int! }
-type PrimariiEntityEdge { node: PrimariiEntityStatus!  cursor: String! }
+type PrimariiEntityConnection {
+  edges: [PrimariiEntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+type PrimariiEntityEdge {
+  node: PrimariiEntityStatus!
+  cursor: String!
+}
 
 extend type Query {
-  primariiEntities(filter: PrimariiEntityFilter, first: Int, after: String, sort: PrimariiEntitySortKey): PrimariiEntityConnection!
+  primariiEntities(
+    filter: PrimariiEntityFilter
+    first: Int
+    after: String
+    sort: PrimariiEntitySortKey
+  ): PrimariiEntityConnection!
   primariiEntity(cui: CUI!): PrimariiEntityProfile
-  primariiDocuments(filter: PrimariiDocumentFilter!, first: Int, after: String): PrimariiDocumentConnection!
-  primariiStats(groupBy: PrimariiStatGroupBy!, filter: PrimariiEntityFilter): [PrimariiStatusBucket!]!
+  primariiDocuments(
+    filter: PrimariiDocumentFilter!
+    first: Int
+    after: String
+  ): PrimariiDocumentConnection!
+  primariiStats(
+    groupBy: PrimariiStatGroupBy!
+    filter: PrimariiEntityFilter
+  ): [PrimariiStatusBucket!]!
   primariiCategoryCoverage(filter: PrimariiEntityFilter): [PrimariiCategoryCoverage!]!
 }
 
@@ -512,24 +637,24 @@ output feeds the cache key + cursor `fhash` + tri-surface equivalence test.
 
 ### 7.1 `primarii_entities` spec (the registry — the high-value surface)
 
-| Field | Type | Ops | Driving column / index | REST param | GraphQL input | MCP |
-|-------|------|-----|------------------------|-----------|---------------|-----|
-| `cui` | string[] | `in` | `current_entity_status.cui` (pk) | `cui` (CSV) | `cui: [CUI!]` | discovery: entity name→CUI |
-| `dataQualityStatus` | enum[] | `in` | `data_quality_status` (`quality_idx`) | `dataQualityStatus` | `[PrimariiDataQuality!]` | enum |
-| `resultStatus` | enum[] | `in` | `result_status` (`quality_idx` 2nd col) | `resultStatus` | `[PrimariiResultStatus!]` | enum |
-| `entityType` | enum[] | `in` | `entity_type` (no index — 5-value scan, cheap) | `entityType` | `[PrimariiEntityType!]` | enum (5 values) |
-| `county` | string[] | `in` | `current_entity_status.county` (`county_idx`) — **denormalized text, best-effort** | `county` (CSV) | `[String!]` | discovery: county name→name |
-| `region` | string[] | `in` | **hub** (gated, §13): `core.territories.region` via CUI resolver | `region` | `[String!]` | discovery |
-| `siruta` | string[] | `in` | **hub** (gated, §13): `core.territories.siruta_code`/`territorial_siruta_code` via CUI resolver | `siruta` (CSV) | `[SIRUTA!]` | discovery: locality→SIRUTA |
-| `isUat` | bool | `eq` | **hub** (gated, §13): `core.public_entities.is_uat` | `isUat` | `Boolean` | — |
-| `minPopulation`/`maxPopulation` | int | `gte`/`lte` | **hub** (gated, §13): `core.territories.population` | `minPopulation`/`maxPopulation` | `population: {from,to}` | — |
-| `minConfidence` | number | `gte` | `confidence` (no index — scan, cheap) | `minConfidence` | `Float` | — |
-| `minEvidenceCoverage` | number | `gte` | `evidence_coverage` (no index — scan, cheap) | `minEvidenceCoverage` | `Float` | — |
-| `hasIssues` | bool | `eq` | `issue_count > 0` (no index — scan, cheap) | `hasIssues` | `Boolean` | — |
-| `missingCategory` | enum[] | `in` (array overlap) | `missing_required_categories` (text[] `&&`, **no index — scan**) | `missingCategory` | `[PrimariiCategory!]` | enum |
-| `publishesCategory` (join) | enum + state | `eq` | `entity_category_statuses (category,status)` semijoin on **current** `(cui, snapshot_id)` (`cui_idx (cui,category,status)`) | `publishesCategory=salarii` (+ `categoryState=found`) | nested input | enum — answers "UATs that publish salarii" |
-| `q` | string | `contains` | **text engine: Meili** (entity-name autocomplete) → CUIs; PG `entity_name ILIKE` fallback when Meili down (§14.5) | `q` | `String` | discovery |
-| `exclude` | nested | — | symmetric on `dataQualityStatus`,`resultStatus`,`county`,`region`,`entityType` (fields marked `exclude:true`) | `exclude.x` | `exclude: PrimariiEntityFilter` | — |
+| Field                           | Type         | Ops                  | Driving column / index                                                                                                      | REST param                                            | GraphQL input                   | MCP                                        |
+| ------------------------------- | ------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------ |
+| `cui`                           | string[]     | `in`                 | `current_entity_status.cui` (pk)                                                                                            | `cui` (CSV)                                           | `cui: [CUI!]`                   | discovery: entity name→CUI                 |
+| `dataQualityStatus`             | enum[]       | `in`                 | `data_quality_status` (`quality_idx`)                                                                                       | `dataQualityStatus`                                   | `[PrimariiDataQuality!]`        | enum                                       |
+| `resultStatus`                  | enum[]       | `in`                 | `result_status` (`quality_idx` 2nd col)                                                                                     | `resultStatus`                                        | `[PrimariiResultStatus!]`       | enum                                       |
+| `entityType`                    | enum[]       | `in`                 | `entity_type` (no index — 5-value scan, cheap)                                                                              | `entityType`                                          | `[PrimariiEntityType!]`         | enum (5 values)                            |
+| `county`                        | string[]     | `in`                 | `current_entity_status.county` (`county_idx`) — **denormalized text, best-effort**                                          | `county` (CSV)                                        | `[String!]`                     | discovery: county name→name                |
+| `region`                        | string[]     | `in`                 | **hub** (gated, §13): `core.territories.region` via CUI resolver                                                            | `region`                                              | `[String!]`                     | discovery                                  |
+| `siruta`                        | string[]     | `in`                 | **hub** (gated, §13): `core.territories.siruta_code`/`territorial_siruta_code` via CUI resolver                             | `siruta` (CSV)                                        | `[SIRUTA!]`                     | discovery: locality→SIRUTA                 |
+| `isUat`                         | bool         | `eq`                 | **hub** (gated, §13): `core.public_entities.is_uat`                                                                         | `isUat`                                               | `Boolean`                       | —                                          |
+| `minPopulation`/`maxPopulation` | int          | `gte`/`lte`          | **hub** (gated, §13): `core.territories.population`                                                                         | `minPopulation`/`maxPopulation`                       | `population: {from,to}`         | —                                          |
+| `minConfidence`                 | number       | `gte`                | `confidence` (no index — scan, cheap)                                                                                       | `minConfidence`                                       | `Float`                         | —                                          |
+| `minEvidenceCoverage`           | number       | `gte`                | `evidence_coverage` (no index — scan, cheap)                                                                                | `minEvidenceCoverage`                                 | `Float`                         | —                                          |
+| `hasIssues`                     | bool         | `eq`                 | `issue_count > 0` (no index — scan, cheap)                                                                                  | `hasIssues`                                           | `Boolean`                       | —                                          |
+| `missingCategory`               | enum[]       | `in` (array overlap) | `missing_required_categories` (text[] `&&`, **no index — scan**)                                                            | `missingCategory`                                     | `[PrimariiCategory!]`           | enum                                       |
+| `publishesCategory` (join)      | enum + state | `eq`                 | `entity_category_statuses (category,status)` semijoin on **current** `(cui, snapshot_id)` (`cui_idx (cui,category,status)`) | `publishesCategory=salarii` (+ `categoryState=found`) | nested input                    | enum — answers "UATs that publish salarii" |
+| `q`                             | string       | `contains`           | **text engine: Meili** (entity-name autocomplete) → CUIs; PG `entity_name ILIKE` fallback when Meili down (§14.5)           | `q`                                                   | `String`                        | discovery                                  |
+| `exclude`                       | nested       | —                    | symmetric on `dataQualityStatus`,`resultStatus`,`county`,`region`,`entityType` (fields marked `exclude:true`)               | `exclude.x`                                           | `exclude: PrimariiEntityFilter` | —                                          |
 
 - **Sort:** default `dataQualityStatus` asc then `issueCount` desc (worst-first for
   review workflows is opt-in; default surfaces best-known first). Allowed:
@@ -539,12 +664,12 @@ output feeds the cache key + cursor `fhash` + tri-surface equivalence test.
 - **The two category mechanisms answer different questions — `missingCategory` is
   authoritative for "missing".** `missingCategory` filters
   `current_entity_status.missing_required_categories` (the loader's verdict on
-  *required-but-absent* categories) — this is the source of truth for coverage
+  _required-but-absent_ categories) — this is the source of truth for coverage
   gaps. `publishesCategory` semijoins `entity_category_statuses` for the
-  raw per-category *evidence state* (`found`/`not_found`/`unknown`/`blocked`),
+  raw per-category _evidence state_ (`found`/`not_found`/`unknown`/`blocked`),
   scoped to the **current snapshot** (`AND ecs.snapshot_id = ces.snapshot_id`) so it
   never matches stale snapshots. A category can be `not_found` yet absent from
-  `missing_required_categories` (it was not *required*); when both are supplied the
+  `missing_required_categories` (it was not _required_); when both are supplied the
   filters AND together, never silently reconcile.
 - **All filters are on the 3,187-row `current_entity_status`** (county/quality
   indexed; the rest are cheap scans on a small table — stated honestly, not all
@@ -556,13 +681,13 @@ output feeds the cache key + cursor `fhash` + tri-surface equivalence test.
 
 ### 7.2 `primarii_documents` spec
 
-| Field | Type | Ops | Driving column / index | Notes |
-|-------|------|-----|------------------------|-------|
-| `cui` | string[] | `in` | `documents.cui` (`cui_category_idx` leading col → index seek) | one of cui/category **required** |
-| `category` | enum[] | `in` | `documents.category` (2nd col of `cui_category_idx`) | **category-alone is NOT an index seek** (leading col is `cui`) → small scan of 7,233 rows, acceptable |
-| `documentType` | string[] | `in` | `documents.document_type` (no index — scan) | |
-| `hasContent` | bool | `eq`/`isNull` | `content_sha256 IS NOT NULL` (no index — scan) | "evidence actually stored" |
-| `q` | string | `contains` | **PG `title ILIKE` un-indexed scan** — no `pg_trgm` index exists on `documents.title`, NOT a Meili index | text engine = plain Postgres `ILIKE` over 7,233 rows (cheap); declared, not trigram |
+| Field          | Type     | Ops           | Driving column / index                                                                                   | Notes                                                                                                 |
+| -------------- | -------- | ------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `cui`          | string[] | `in`          | `documents.cui` (`cui_category_idx` leading col → index seek)                                            | one of cui/category **required**                                                                      |
+| `category`     | enum[]   | `in`          | `documents.category` (2nd col of `cui_category_idx`)                                                     | **category-alone is NOT an index seek** (leading col is `cui`) → small scan of 7,233 rows, acceptable |
+| `documentType` | string[] | `in`          | `documents.document_type` (no index — scan)                                                              |                                                                                                       |
+| `hasContent`   | bool     | `eq`/`isNull` | `content_sha256 IS NOT NULL` (no index — scan)                                                           | "evidence actually stored"                                                                            |
+| `q`            | string   | `contains`    | **PG `title ILIKE` un-indexed scan** — no `pg_trgm` index exists on `documents.title`, NOT a Meili index | text engine = plain Postgres `ILIKE` over 7,233 rows (cheap); declared, not trigram                   |
 
 Sort: default `cui` then `category`. No date sort (`published_date`/`effective_date`
 are unparsed `text` — declared non-sortable, non-rangeable).
@@ -573,13 +698,13 @@ These map the catalog's territory/coverage intent to this source (it has no
 procurement/legal IDs; its catalog contribution is the **governance/coverage**
 dimension of XS-1/3/5):
 
-| Question | Filter |
-|----------|--------|
-| "Which UATs in Cluj county fully publish their transparency data?" | `county=[Cluj] & dataQualityStatus=[high] & resultStatus=[complete]` |
-| "Commune halls missing salary disclosures" | `entityType=[admin_commune_hall] & missingCategory=[salarii]` |
-| "Transparency coverage by county" | `GET /aggregate?groupBy=county` (+ `coverage`) |
-| "UATs flagged for review with evidence problems" | `dataQualityStatus=[review_needed] & hasIssues=true` |
-| "Does primaria X (CUI 4426318) publish its organigrama?" | discovery name→CUI → `getEntityProfile` → category `organigrama` status |
+| Question                                                              | Filter                                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| "Which UATs in Cluj county fully publish their transparency data?"    | `county=[Cluj] & dataQualityStatus=[high] & resultStatus=[complete]`                                   |
+| "Commune halls missing salary disclosures"                            | `entityType=[admin_commune_hall] & missingCategory=[salarii]`                                          |
+| "Transparency coverage by county"                                     | `GET /aggregate?groupBy=county` (+ `coverage`)                                                         |
+| "UATs flagged for review with evidence problems"                      | `dataQualityStatus=[review_needed] & hasIssues=true`                                                   |
+| "Does primaria X (CUI 4426318) publish its organigrama?"              | discovery name→CUI → `getEntityProfile` → category `organigrama` status                                |
 | "Transparency coverage in region Nord-Vest for towns over 20k people" | `region=[Nord-Vest] & entityType=[admin_town_hall] & minPopulation=20000` (hub join + coverage caveat) |
 
 ### 7.4 Discovery / resolve dimensions
@@ -600,25 +725,29 @@ catalog Core Rule fields). Rate-limited; bounded result sizes; raw/excerpt colum
 never returned.
 
 **(1) Discovery — `resolve_primarii_filters`** (the shared §7.4 tool, parameterized):
+
 - input: `{ dim: 'entity'|'county'|'status'|'siruta', q: string, limit?: number }`
 - output: `{ ok, kind:'filter_values', items: [{ value, label, score }], link }`
 - usecase: `resolveFilters`. `link` → client filter deep link.
 
 **(2) Query — `get_primarii_entity_transparency`** (snapshot):
+
 - input: `{ cui: string }`
 - output: `{ ok, kind:'entity_transparency', item: PrimariiEntityProfile, link, summary }`
 - usecase: `getEntityTransparencyProfile`.
-- summary template: *"{entityName} ({county}) — transparency {dataQualityStatus},
+- summary template: _"{entityName} ({county}) — transparency {dataQualityStatus},
   result {resultStatus}; publishes {found categories}/3 required categories
-  (organigrama/headcount/salaries), {documentCount} evidence documents."*
+  (organigrama/headcount/salaries), {documentCount} evidence documents."_
 
 **(3) Query — `list_primarii_entities`** (filtered list / coverage ranking):
+
 - input: the `primarii_entities` filter fragment + `limit`, `sort`
 - output: `{ ok, kind:'entity_list', items:[...], denominator, coverage, link, summary }`
 - usecase: `listTransparencyEntities`. Returns `denominator` (rows before filter)
   and per-dimension `coverage` per the catalog Core Rule.
 
 **(4) Query — `aggregate_primarii_transparency`** (coverage/dashboards):
+
 - input: `{ groupBy, filter? }`
 - output: `{ ok, kind:'aggregate', items: buckets, denominator, coverage, caveats, link }`
 - usecase: `getTransparencyStats` / `getCategoryCoverage`. Geographic groupings
@@ -686,10 +815,10 @@ never returned.
 
 ```ts
 export interface PrimariiModuleDeps {
-  db: Kysely<ProdDatabase>;            // typed over primarii_transparency.* + core.* (read-only)
-  identityRepo: IdentityRepo;          // kernel — CUI resolution
-  territoryRepo: TerritoryRepo;        // kernel — county/SIRUTA/region/population; needs cui→territory resolver (§13.0)
-  searchClients: { meili?: MeiliClient; opensearch?: OpenSearchClient };  // capability-gated (§14.5)
+  db: Kysely<ProdDatabase>; // typed over primarii_transparency.* + core.* (read-only)
+  identityRepo: IdentityRepo; // kernel — CUI resolution
+  territoryRepo: TerritoryRepo; // kernel — county/SIRUTA/region/population; needs cui→territory resolver (§13.0)
+  searchClients: { meili?: MeiliClient; opensearch?: OpenSearchClient }; // capability-gated (§14.5)
   cache: CacheMiddleware;
   searchCaps: SearchCapabilities;
 }
@@ -697,7 +826,7 @@ export function makePrimariiTransparencyModule(deps: PrimariiModuleDeps): {
   restPlugin: FastifyPluginAsync;
   graphql: { typeDefs: string; resolvers: IResolvers };
   mcpTools: McpTool[];
-  contributor: SourceContributor;      // source:'primarii_transparency'
+  contributor: SourceContributor; // source:'primarii_transparency'
   repos: { primarii: PrimariiRepository };
 };
 ```
@@ -742,7 +871,7 @@ export function makePrimariiTransparencyModule(deps: PrimariiModuleDeps): {
 
 0. **BINDING cross-module need — kernel `cui → territory` resolver.** The
    contract's `TerritoryRepo` (§4.2) is SIRUTA-keyed only and has no
-   `cui → territory` method; `core.public_entities` lives in the *identity* hub.
+   `cui → territory` method; `core.public_entities` lives in the _identity_ hub.
    Every geographic filter beyond the denormalized `county` text
    (`region`/`siruta`/`isUat`/population) and the `Entity.territory` /
    `PrimariiEntityStatus.territory` fields depend on a resolver the contract does
@@ -772,7 +901,7 @@ export function makePrimariiTransparencyModule(deps: PrimariiModuleDeps): {
    server module assigned** in this 12-plan set. Decision: should the Wikipedia
    link registry be promoted to a prod schema + folded into this module's entity
    profile (`websiteUrl`/`wikipediaUrl` enrichment), or stay raw-only? Flagged for
-   the consistency pass. *(Cross-module: potential `primarii_wikipedia` prod slice.)*
+   the consistency pass. _(Cross-module: potential `primarii_wikipedia` prod slice.)_
 4. **`salary_amount_claims` mislabeling risk.** `amount_ron` is a self-reported
    disclosure claim, not a payment. The contributor explicitly excludes it from any
    spend total (Grain Gate). Risk: a client/agent treats it as spend — mitigated by
@@ -784,4 +913,7 @@ export function makePrimariiTransparencyModule(deps: PrimariiModuleDeps): {
    unparsed `text` in the schema; the plan deliberately does **not** offer date
    ranges on them (only `salary_amount_claims.period_start/end` are real `date`).
    Acceptable for v1; revisit if the loader normalizes these to `date`.
+
+```
+
 ```

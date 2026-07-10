@@ -66,14 +66,20 @@ export const BUDGET_FREQUENCIES = ['MONTH', 'QUARTER', 'YEAR'] as const;
 export type BudgetFrequency = (typeof BUDGET_FREQUENCIES)[number];
 
 /** The execution amount column for a frequency (matches getAmountColumnName legacy). */
-export const EXECUTION_AMOUNT_COLUMN: Record<BudgetFrequency, 'monthly_amount' | 'quarterly_amount' | 'ytd_amount'> = {
+export const EXECUTION_AMOUNT_COLUMN: Record<
+  BudgetFrequency,
+  'monthly_amount' | 'quarterly_amount' | 'ytd_amount'
+> = {
   MONTH: 'monthly_amount',
   QUARTER: 'quarterly_amount',
   YEAR: 'ytd_amount',
 };
 
 /** The is_* flag column the frequency selects (the partial period-scope index). */
-export const FREQUENCY_FLAG_COLUMN: Record<BudgetFrequency, 'is_monthly' | 'is_quarterly' | 'is_yearly'> = {
+export const FREQUENCY_FLAG_COLUMN: Record<
+  BudgetFrequency,
+  'is_monthly' | 'is_quarterly' | 'is_yearly'
+> = {
   MONTH: 'is_monthly',
   QUARTER: 'is_quarterly',
   YEAR: 'is_yearly',

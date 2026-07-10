@@ -23,8 +23,7 @@ const passthroughString = (name: string, description: string): GraphQLScalarType
     description,
     serialize: (value) => asString(value),
     parseValue: (value) => asString(value),
-    parseLiteral: (ast) =>
-      ast.kind === Kind.STRING || ast.kind === Kind.INT ? ast.value : null,
+    parseLiteral: (ast) => (ast.kind === Kind.STRING || ast.kind === Kind.INT ? ast.value : null),
   });
 
 export const CUIScalar = passthroughString('CUI', 'Normalized Romanian fiscal code (digits only).');
@@ -55,8 +54,14 @@ const strictString = (name: string, description: string): GraphQLScalarType =>
     parseLiteral: (ast) => (ast.kind === Kind.STRING || ast.kind === Kind.INT ? ast.value : null),
   });
 
-export const BigIntScalar = strictString('BigInt', 'A 64-bit integer as a decimal string (precision-safe).');
-export const MoneyScalar = strictString('Money', 'A numeric(18,2) money amount as a string (nullable, precision-safe).');
+export const BigIntScalar = strictString(
+  'BigInt',
+  'A 64-bit integer as a decimal string (precision-safe).'
+);
+export const MoneyScalar = strictString(
+  'Money',
+  'A numeric(18,2) money amount as a string (nullable, precision-safe).'
+);
 
 export const JSONScalar = new GraphQLScalarType({
   name: 'JSON',

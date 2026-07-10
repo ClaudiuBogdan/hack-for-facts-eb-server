@@ -22,14 +22,32 @@ import type { BudgetNormalization } from '../../core/constants.js';
 
 /** Average RON→EUR rate per year (divide RON by this for EUR). */
 const FX_RON_PER_EUR: Readonly<Record<number, number>> = {
-  2016: 4.49, 2017: 4.57, 2018: 4.65, 2019: 4.75, 2020: 4.84,
-  2021: 4.92, 2022: 4.93, 2023: 4.95, 2024: 4.97, 2025: 5.05, 2026: 5.10,
+  2016: 4.49,
+  2017: 4.57,
+  2018: 4.65,
+  2019: 4.75,
+  2020: 4.84,
+  2021: 4.92,
+  2022: 4.93,
+  2023: 4.95,
+  2024: 4.97,
+  2025: 5.05,
+  2026: 5.1,
 };
 
 /** Nominal GDP (RON) per year, for percent-of-GDP (amount * 100 / gdp). */
 const GDP_RON: Readonly<Record<number, number>> = {
-  2016: 765135e6, 2017: 856725e6, 2018: 951728e6, 2019: 1059770e6, 2020: 1058000e6,
-  2021: 1189378e6, 2022: 1409813e6, 2023: 1605563e6, 2024: 1760000e6, 2025: 1880000e6, 2026: 2000000e6,
+  2016: 765135e6,
+  2017: 856725e6,
+  2018: 951728e6,
+  2019: 1059770e6,
+  2020: 1058000e6,
+  2021: 1189378e6,
+  2022: 1409813e6,
+  2023: 1605563e6,
+  2024: 1760000e6,
+  2025: 1880000e6,
+  2026: 2000000e6,
 };
 
 const lastKnown = (table: Readonly<Record<number, number>>, year: number): number => {

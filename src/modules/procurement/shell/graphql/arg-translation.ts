@@ -69,7 +69,10 @@ const DECIMAL_RE = /^-?\d+(\.\d+)?$/u;
 const DIVISION_RE = /^\d{2}$/u;
 const CPV_CODE_RE = /^\d{2,8}$/u;
 
-const readEq = (input: StringEqInput | undefined, field: string): Result<string | undefined, ApiError> => {
+const readEq = (
+  input: StringEqInput | undefined,
+  field: string
+): Result<string | undefined, ApiError> => {
   if (input === undefined) return ok(undefined);
   const { eq } = input;
   if (eq === undefined || eq === null) return ok(undefined);
@@ -79,7 +82,10 @@ const readEq = (input: StringEqInput | undefined, field: string): Result<string 
   return ok(eq.trim());
 };
 
-const readIn = (input: StringInInput | undefined, field: string): Result<readonly string[] | undefined, ApiError> => {
+const readIn = (
+  input: StringInInput | undefined,
+  field: string
+): Result<readonly string[] | undefined, ApiError> => {
   if (input === undefined) return ok(undefined);
   const list = input.in;
   if (list === undefined || list === null) return ok(undefined);
@@ -142,7 +148,10 @@ const readDecimalRange = (
   return ok(out.gte === undefined && out.lte === undefined ? undefined : out);
 };
 
-const readCui = (input: StringEqInput | undefined, field: string): Result<string | undefined, ApiError> => {
+const readCui = (
+  input: StringEqInput | undefined,
+  field: string
+): Result<string | undefined, ApiError> => {
   const raw = readEq(input, field);
   if (raw.isErr()) return err(raw.error);
   if (raw.value === undefined) return ok(undefined);
@@ -225,7 +234,8 @@ export const translateSearchFilter = (
   if (value.value !== undefined) out.valueRon = value.value;
 
   if (raw.linked !== undefined && raw.linked !== null) {
-    if (typeof raw.linked !== 'boolean') return err(invalidInput('linked must be a boolean', 'linked'));
+    if (typeof raw.linked !== 'boolean')
+      return err(invalidInput('linked must be a boolean', 'linked'));
     out.linked = raw.linked;
   }
   if (raw.minDeltaPct !== undefined && raw.minDeltaPct !== null) {
@@ -247,7 +257,9 @@ const readScopeString = (value: unknown, field: string): Result<string | undefin
   return ok(value.trim());
 };
 
-export const translateScope = (raw: RawScopeFilter | undefined | null): Result<ScopeFilter, ApiError> => {
+export const translateScope = (
+  raw: RawScopeFilter | undefined | null
+): Result<ScopeFilter, ApiError> => {
   if (raw === undefined || raw === null) return ok({});
   const out: { -readonly [K in keyof ScopeFilter]: ScopeFilter[K] } = {};
 

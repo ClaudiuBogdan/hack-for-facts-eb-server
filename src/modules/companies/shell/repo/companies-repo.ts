@@ -729,7 +729,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         // its own transaction with a `SET LOCAL` budget (precedent: legal
         // retrieval-repo). The pool default is never raised — only this one statement.
         const rows = await db.transaction().execute(async (trx) => {
-          await sql`set local statement_timeout = ${sql.lit(CAEN_DIVISION_TIMEOUT_MS)}`.execute(trx);
+          await sql`set local statement_timeout = ${sql.lit(CAEN_DIVISION_TIMEOUT_MS)}`.execute(
+            trx
+          );
           const r = await sql<{ key: string; cnt: string }>`
             with filtered as materialized (
               select o.cui as cui

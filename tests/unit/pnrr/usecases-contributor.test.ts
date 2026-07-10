@@ -8,10 +8,7 @@
 import { ok, err, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  PNRR_GRAIN_NOTE,
-  type PnrrEntityProfile,
-} from '@/modules/pnrr/core/types.js';
+import { PNRR_GRAIN_NOTE, type PnrrEntityProfile } from '@/modules/pnrr/core/types.js';
 import { getPnrrEntityProfile, listPnrrPayments } from '@/modules/pnrr/core/usecases.js';
 import { makePnrrContributor, toProfileSlice } from '@/modules/pnrr/shell/contributor.js';
 import { databaseError, type ApiError } from '@/modules/shared/index.js';
@@ -28,15 +25,28 @@ const PROFILE: PnrrEntityProfile = {
     lastDate: '2026-05-11',
     byComponent: [{ componentCode: 'C4', count: 1229, totalLei: '6210010594.17' }],
   },
-  commitments: { count: 32, totalValue: '100.00', euValue: '80.00', avgFinancialProgress: 50, avgPhysicalProgress: 40 },
-  procurement: { acquisitionsAsBeneficiary: 0, acquisitionsValue: null, wonAsContractor: 0, wonValue: null },
+  commitments: {
+    count: 32,
+    totalValue: '100.00',
+    euValue: '80.00',
+    avgFinancialProgress: 50,
+    avgPhysicalProgress: 40,
+  },
+  procurement: {
+    acquisitionsAsBeneficiary: 0,
+    acquisitionsValue: null,
+    wonAsContractor: 0,
+    wonValue: null,
+  },
   grainNote: PNRR_GRAIN_NOTE,
   dataAsOf: '2026-05-19T00:00:00.000Z',
 };
 
 const repoStub = (overrides: Partial<PnrrRepository> = {}): PnrrRepository =>
   ({
-    getEntityProfile: vi.fn(async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE)),
+    getEntityProfile: vi.fn(
+      async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE)
+    ),
     listPayments: vi.fn(async () => ok({ items: [], next: null })),
     ...overrides,
   }) as unknown as PnrrRepository;
@@ -53,7 +63,10 @@ describe('pnrr usecases delegate to the repo', () => {
     const listPayments = vi.fn(async () => ok({ items: [], next: null }));
     const repo = repoStub({ listPayments });
     await listPnrrPayments(repo, { beneficiaryCui: { eq: '16054368' } }, { first: 10 });
-    expect(listPayments).toHaveBeenCalledWith({ beneficiaryCui: { eq: '16054368' } }, { first: 10 });
+    expect(listPayments).toHaveBeenCalledWith(
+      { beneficiaryCui: { eq: '16054368' } },
+      { first: 10 }
+    );
   });
 });
 
@@ -88,12 +101,15 @@ describe('contributor', () => {
   });
 
   it('profileSlice goes through getEntityProfile (single source of truth)', async () => {
-    const getEntityProfile = vi.fn(async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE));
+    const getEntityProfile = vi.fn(
+      async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE)
+    );
     const repo = repoStub({ getEntityProfile });
     const contributor = makePnrrContributor(repo);
     const res = await contributor.profileSlice!('16054368');
     expect(getEntityProfile).toHaveBeenCalledOnce();
-    if (res.isOk()) expect((res.value?.data as unknown as PnrrEntityProfile).payments.count).toBe(1229);
+    if (res.isOk())
+      expect((res.value?.data as unknown as PnrrEntityProfile).payments.count).toBe(1229);
   });
 
   it('presence is null when the entity is absent', async () => {

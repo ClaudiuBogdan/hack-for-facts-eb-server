@@ -19,7 +19,10 @@ import {
   territoryForEntity,
   type PrimariiDeps,
 } from '@/modules/primarii-transparency/core/usecases.js';
-import { makePrimariiContributor, toProfileSlice } from '@/modules/primarii-transparency/shell/contributor.js';
+import {
+  makePrimariiContributor,
+  toProfileSlice,
+} from '@/modules/primarii-transparency/shell/contributor.js';
 
 import type { PrimariiRepository } from '@/modules/primarii-transparency/core/ports.js';
 import type {
@@ -51,7 +54,13 @@ const PROFILE: PrimariiEntityProfile = {
     { category: 'numar_angajati', status: 'found', evidenceCount: 2, missingEvidenceCount: 0 },
     { category: 'salarii', status: 'found', evidenceCount: 1, missingEvidenceCount: 0 },
   ],
-  staffing: { totalPositions: 487, occupiedPositions: null, vacantPositions: null, asOfDate: null, confidence: 0.9 },
+  staffing: {
+    totalPositions: 487,
+    occupiedPositions: null,
+    vacantPositions: null,
+    asOfDate: null,
+    confidence: 0.9,
+  },
   organigrama: { status: 'found', effectiveDate: '2026-04-15', summary: null, confidence: 0.93 },
   documentCounts: [
     { category: 'numar_angajati', count: 1 },
@@ -103,7 +112,15 @@ const makeDeps = (over: Partial<PrimariiRepository> = {}): PrimariiDeps => ({
     getIdentifiers: () => okR([]),
     searchByName: (q: string) =>
       okR<readonly OrgNameMatch[]>([
-        { orgId: '99', cui: '2612790', name: `org:${q}`, normalizedName: null, countyName: 'NEAMT', kind: 'public_entity', score: 0.8 },
+        {
+          orgId: '99',
+          cui: '2612790',
+          name: `org:${q}`,
+          normalizedName: null,
+          countyName: 'NEAMT',
+          kind: 'public_entity',
+          score: 0.8,
+        },
       ]),
     resolve: () => okR(null),
     territoryForCui: () => okR<Territory | null>(NEAMT_TERRITORY),

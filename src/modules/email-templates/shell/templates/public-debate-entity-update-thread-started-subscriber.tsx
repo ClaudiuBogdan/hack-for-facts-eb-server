@@ -30,8 +30,7 @@ const COPY_BY_LANG: Record<SupportedLanguage, Copy> = {
     preview:
       'Urmărești această localitate: o cerere pentru organizarea dezbaterii publice a fost deja trimisă către Primărie.',
     heading: 'Există deja o cerere în curs pentru această localitate',
-    lead:
-      'Pentru această localitate, o cerere de organizare a dezbaterii publice a fost deja trimisă către Primărie și este în așteptarea unui răspuns.',
+    lead: 'Pentru această localitate, o cerere de organizare a dezbaterii publice a fost deja trimisă către Primărie și este în așteptarea unui răspuns.',
     whyReceived:
       'Primești această informare pentru că urmărești actualizările despre această localitate în provocarea civică. Mesajul nu confirmă o cerere trimisă de tine.',
     ctaLead:
@@ -48,8 +47,7 @@ const COPY_BY_LANG: Record<SupportedLanguage, Copy> = {
     preview:
       'You follow this locality: a request to organize the public debate has already been sent to the city hall.',
     heading: 'There is already a request in progress for this locality',
-    lead:
-      'For this locality, a request to organize the public debate has already been sent to the city hall and is awaiting a reply.',
+    lead: 'For this locality, a request to organize the public debate has already been sent to the city hall and is awaiting a reply.',
     whyReceived:
       'You are receiving this update because you follow this locality in the civic challenge. This message does not confirm a request sent by you.',
     ctaLead:
@@ -152,9 +150,7 @@ export const getPublicDebateEntityUpdateThreadStartedSubscriberSubject = ({
       : 'There is already a request sent to the city hall';
 
   return `${prefix}: ${locality} - ${
-    lang === 'ro'
-      ? '„Cu ochii pe bugetele locale 2026”'
-      : '"Cu ochii pe bugetele locale 2026"'
+    lang === 'ro' ? '„Cu ochii pe bugetele locale 2026”' : '"Cu ochii pe bugetele locale 2026"'
   }`;
 };
 

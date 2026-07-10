@@ -21,13 +21,14 @@ import {
   type MoLifecycleEdgeRow,
   type MoStatusEventRow,
 } from '@/modules/legal/mo/mappers.js';
+import { MO_EDGE_RESOLUTIONS, MO_MATCHED_VIA, MO_STATUS_KINDS } from '@/modules/legal/mo/types.js';
 import {
-  MO_EDGE_RESOLUTIONS,
-  MO_MATCHED_VIA,
-  MO_STATUS_KINDS,
-} from '@/modules/legal/mo/types.js';
-import { canonicalizeFilters, fhashFor, toConditionBuilders, toGraphQLInput, type FilterInput  } from '@/modules/shared/index.js';
-
+  canonicalizeFilters,
+  fhashFor,
+  toConditionBuilders,
+  toGraphQLInput,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
 // ── mappers ────────────────────────────────────────────────────────────────────
 
@@ -213,13 +214,17 @@ describe('MO cursor fhash (cross-surface determinism)', () => {
 
 describe('MO contributor org-name → issuer-slug match guard', () => {
   it('accepts a clear name match (diacritics-folded token containment)', () => {
-    expect(isPlausibleMatch('Ministerul Finanțelor Publice', 'ministerul-finantelor-publice')).toBe(true);
+    expect(isPlausibleMatch('Ministerul Finanțelor Publice', 'ministerul-finantelor-publice')).toBe(
+      true
+    );
     expect(isPlausibleMatch('Banca Națională a României', 'banca-nationala-a-romaniei')).toBe(true);
   });
 
   it('rejects a spurious top-by-count hit whose name does not match', () => {
     // a random company name must NOT match the busiest issuer slug.
     expect(isPlausibleMatch('SC Profi Rom Food SRL', 'guvernul-romaniei')).toBe(false);
-    expect(isPlausibleMatch('Primăria Cluj-Napoca', 'curtea-constitutionala-a-romaniei')).toBe(false);
+    expect(isPlausibleMatch('Primăria Cluj-Napoca', 'curtea-constitutionala-a-romaniei')).toBe(
+      false
+    );
   });
 });

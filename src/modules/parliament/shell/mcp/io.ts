@@ -26,9 +26,16 @@ export const PARLIAMENT_MCP_KINDS = {
 export const resolveParliamentFiltersInput = {
   dim: z
     .enum(['group', 'person', 'constituency', 'recipient', 'control_type', 'outcome', 'chamber'])
-    .describe('Dimension to resolve: group/person/constituency/recipient (name→value), control_type/outcome/chamber (label→enum).'),
-  q: z.string().describe('The free-text query (group name, person name, county, ministry, or label).'),
-  legislature: z.string().optional().describe('Scope group/person resolution to a legislature (e.g. 2024).'),
+    .describe(
+      'Dimension to resolve: group/person/constituency/recipient (name→value), control_type/outcome/chamber (label→enum).'
+    ),
+  q: z
+    .string()
+    .describe('The free-text query (group name, person name, county, ministry, or label).'),
+  legislature: z
+    .string()
+    .optional()
+    .describe('Scope group/person resolution to a legislature (e.g. 2024).'),
   limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
 };
 
@@ -43,17 +50,25 @@ export const resolveParliamentFiltersInput = {
 export const getParliamentLawLineageInput = {
   actId: z
     .string()
-    .describe('Numeric legal act_id. Resolve a citation (e.g. "legea 423/2023") to an act_id FIRST via the legal resolve_legal_filters tool (dim=act).'),
+    .describe(
+      'Numeric legal act_id. Resolve a citation (e.g. "legea 423/2023") to an act_id FIRST via the legal resolve_legal_filters tool (dim=act).'
+    ),
   roles: z
     .array(z.string())
     .optional()
-    .describe("Vote roles to include (default final_adoption, final_rejection)."),
-  includeBallots: z.boolean().optional().describe('Include per-vote ballot resolution counts (default false).'),
+    .describe('Vote roles to include (default final_adoption, final_rejection).'),
+  includeBallots: z
+    .boolean()
+    .optional()
+    .describe('Include per-vote ballot resolution counts (default false).'),
 };
 
 export const getParliamentMemberActivityInput = {
   mandateKey: z.string().optional().describe('A single mandate key (e.g. 2:2020:12).'),
-  personId: z.string().optional().describe('A person_id — fans the activity across ALL the person mandates.'),
+  personId: z
+    .string()
+    .optional()
+    .describe('A person_id — fans the activity across ALL the person mandates.'),
   kinds: z
     .array(z.enum(['votes', 'control', 'speeches', 'initiatives']))
     .optional()

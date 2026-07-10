@@ -31,24 +31,24 @@ convergence, search indices live. The server is **read-only** over this state.
 
 **Tables & measured row counts** (from `PNRR_NOTES.md` Phase E, exact-count gate):
 
-| Group | Table | Rows | Role in module |
-|---|---|---|---|
-| Dimensions | `pnrr.components` | 16 (C1–C16) | program structure; filter resolve |
-| | `pnrr.measures` | 103 (`fenix_reference`) | investment/reform taxonomy; filter resolve |
-| | `pnrr.measure_aliases` | 138 | payment free-text → fenix (internal; not a surface) |
-| Identity | `pnrr.entities` | 18,876 | reconciled CUI spine — the headline collection |
-| | `pnrr.entity_registry_links` | 17,442 (92.4% of entities) | hub membership (public_entities / companies) |
-| Ledger | `pnrr.payments` | 73,333 | source-native cash facts (the grain) |
-| | `pnrr.commitments` | 24,967 | obligation facts (progress) |
-| | `pnrr.commitment_snapshots` | 741,515 | MIPE progress time-series |
-| | `pnrr.program_indicators` | 30 | program KPI timeline |
-| | `pnrr.national_projects` | 98 | ORDS Fenix register (not flow-wired) |
-| Procurement | `pnrr.announcements` | 21,481 | applications/announcements |
-| | `pnrr.announcement_contacts_private` | 21,481 | **RESTRICTED PII — never surfaced** |
-| | `pnrr.lots` | 23,742 | announcement lots |
-| | `pnrr.documents` | 46,046 | doc metadata (files not migrated) |
-| | `pnrr.acquisitions` | 15,446 | awarded contracts |
-| | `pnrr.contractors` | 15,773 | winner/subcontractor graph (role-graded) |
+| Group       | Table                                | Rows                       | Role in module                                      |
+| ----------- | ------------------------------------ | -------------------------- | --------------------------------------------------- |
+| Dimensions  | `pnrr.components`                    | 16 (C1–C16)                | program structure; filter resolve                   |
+|             | `pnrr.measures`                      | 103 (`fenix_reference`)    | investment/reform taxonomy; filter resolve          |
+|             | `pnrr.measure_aliases`               | 138                        | payment free-text → fenix (internal; not a surface) |
+| Identity    | `pnrr.entities`                      | 18,876                     | reconciled CUI spine — the headline collection      |
+|             | `pnrr.entity_registry_links`         | 17,442 (92.4% of entities) | hub membership (public_entities / companies)        |
+| Ledger      | `pnrr.payments`                      | 73,333                     | source-native cash facts (the grain)                |
+|             | `pnrr.commitments`                   | 24,967                     | obligation facts (progress)                         |
+|             | `pnrr.commitment_snapshots`          | 741,515                    | MIPE progress time-series                           |
+|             | `pnrr.program_indicators`            | 30                         | program KPI timeline                                |
+|             | `pnrr.national_projects`             | 98                         | ORDS Fenix register (not flow-wired)                |
+| Procurement | `pnrr.announcements`                 | 21,481                     | applications/announcements                          |
+|             | `pnrr.announcement_contacts_private` | 21,481                     | **RESTRICTED PII — never surfaced**                 |
+|             | `pnrr.lots`                          | 23,742                     | announcement lots                                   |
+|             | `pnrr.documents`                     | 46,046                     | doc metadata (files not migrated)                   |
+|             | `pnrr.acquisitions`                  | 15,446                     | awarded contracts                                   |
+|             | `pnrr.contractors`                   | 15,773                     | winner/subcontractor graph (role-graded)            |
 
 **Derived (shared, owned by kernel — module reads, does not write):**
 `flows.money_flows` source_id=`pnrr` = **112,207** rows across `flow_type ∈
@@ -86,18 +86,21 @@ key is CUI). Row → view-model mapping (camelCase view model ← snake_case col
 ```ts
 // pnrr.entities (+ entity_registry_links aggregated)
 export interface PnrrEntity {
-  readonly cui: string;                 // entities.cui (PK, normalized via core.normalize_cui)
-  readonly name: string | null;         // entities.resolved_name (ANAF>source cache)
-  readonly nameSource: string | null;   // entities.name_source
-  readonly caenCode: string | null;     // entities.caen_code (ANAF cache)
-  readonly isActive: boolean | null;    // entities.is_active (ANAF)
-  readonly isVatPayer: boolean | null;  // entities.is_vat_payer (ANAF)
-  readonly roles: {                      // entities.is_* role flags
-    readonly beneficiary: boolean; readonly applicant: boolean;
-    readonly winner: boolean;     readonly subcontractor: boolean;
+  readonly cui: string; // entities.cui (PK, normalized via core.normalize_cui)
+  readonly name: string | null; // entities.resolved_name (ANAF>source cache)
+  readonly nameSource: string | null; // entities.name_source
+  readonly caenCode: string | null; // entities.caen_code (ANAF cache)
+  readonly isActive: boolean | null; // entities.is_active (ANAF)
+  readonly isVatPayer: boolean | null; // entities.is_vat_payer (ANAF)
+  readonly roles: {
+    // entities.is_* role flags
+    readonly beneficiary: boolean;
+    readonly applicant: boolean;
+    readonly winner: boolean;
+    readonly subcontractor: boolean;
   };
   readonly hubs: readonly ('public_entities' | 'companies')[]; // entity_registry_links.registry
-  readonly firstSeenSource: string | null;  // entities.first_seen_source
+  readonly firstSeenSource: string | null; // entities.first_seen_source
 }
 ```
 
@@ -110,75 +113,125 @@ may link to both `public_entities` and `companies` (no flattening).
 ### 2.2 Ledger facts (the grain — §14.6)
 
 ```ts
-export interface PnrrPayment {              // pnrr.payments — source-native cash fact
-  readonly paymentKey: string;              // payment_key (PK)
+export interface PnrrPayment {
+  // pnrr.payments — source-native cash fact
+  readonly paymentKey: string; // payment_key (PK)
   readonly beneficiaryCui: string | null;
   readonly beneficiaryName: string | null;
   readonly componentCode: string | null;
-  readonly measureFenix: string | null;     // resolved (nullable if alias unmatched)
+  readonly measureFenix: string | null; // resolved (nullable if alias unmatched)
   readonly measureRaw: string | null;
-  readonly amountLei: string | null;         // numeric → string; nullable column (100% present in static snapshot, NOT enforced)
-  readonly amountEur: string | null;         // numeric → string; nullable column (do NOT type Money! — future APPENDed rows may be NULL)
-  readonly paymentDate: string | null;       // date
-  readonly countyName: string | null; readonly countySiruta: string | null;
-  readonly localityName: string | null;      // localitySiruta deferred → omit
-  readonly caenDivision: string | null; readonly financingSource: string | null;
+  readonly amountLei: string | null; // numeric → string; nullable column (100% present in static snapshot, NOT enforced)
+  readonly amountEur: string | null; // numeric → string; nullable column (do NOT type Money! — future APPENDed rows may be NULL)
+  readonly paymentDate: string | null; // date
+  readonly countyName: string | null;
+  readonly countySiruta: string | null;
+  readonly localityName: string | null; // localitySiruta deferred → omit
+  readonly caenDivision: string | null;
+  readonly financingSource: string | null;
   readonly source: { system: string; retrievedAt: string | null };
 }
-export interface PnrrCommitment {           // pnrr.commitments — obligation fact
-  readonly commitmentKey: string; readonly beneficiaryCui: string | null; readonly beneficiaryName: string | null;
-  readonly idAngajament: string | null; readonly contractNumber: string | null;
-  readonly componentCode: string | null; readonly measureCode: string | null; // clean I#/R#
-  readonly totalValue: string | null; readonly euValue: string | null; readonly nationalPublicValue: string | null; // total_value column is nullable
+export interface PnrrCommitment {
+  // pnrr.commitments — obligation fact
+  readonly commitmentKey: string;
+  readonly beneficiaryCui: string | null;
+  readonly beneficiaryName: string | null;
+  readonly idAngajament: string | null;
+  readonly contractNumber: string | null;
+  readonly componentCode: string | null;
+  readonly measureCode: string | null; // clean I#/R#
+  readonly totalValue: string | null;
+  readonly euValue: string | null;
+  readonly nationalPublicValue: string | null; // total_value column is nullable
 
-  readonly vatValue: string | null; readonly ineligibleValue: string | null;
-  readonly financialProgress: number | null; readonly physicalProgress: number | null;
-  readonly commitmentDate: string | null; readonly endDate: string | null;
-  readonly status: string; readonly countyName: string | null; readonly countySiruta: string | null;
+  readonly vatValue: string | null;
+  readonly ineligibleValue: string | null;
+  readonly financialProgress: number | null;
+  readonly physicalProgress: number | null;
+  readonly commitmentDate: string | null;
+  readonly endDate: string | null;
+  readonly status: string;
+  readonly countyName: string | null;
+  readonly countySiruta: string | null;
 }
-export interface PnrrCommitmentSnapshot {   // pnrr.commitment_snapshots — MIPE progress series
-  readonly snapshotId: string; readonly sourceRecordId: string; readonly snapshotDate: string;
-  readonly beneficiaryCui: string | null; readonly contractNumber: string | null;
-  readonly commitmentKey: string | null; readonly linkConfidence: number | null;  // nullable soft link
-  readonly financialProgress: number | null; readonly physicalProgress: number | null; readonly stage: string | null;
-  readonly receivedEur: string | null; readonly paidEur: string | null; readonly allocatedEur: string | null;
+export interface PnrrCommitmentSnapshot {
+  // pnrr.commitment_snapshots — MIPE progress series
+  readonly snapshotId: string;
+  readonly sourceRecordId: string;
+  readonly snapshotDate: string;
+  readonly beneficiaryCui: string | null;
+  readonly contractNumber: string | null;
+  readonly commitmentKey: string | null;
+  readonly linkConfidence: number | null; // nullable soft link
+  readonly financialProgress: number | null;
+  readonly physicalProgress: number | null;
+  readonly stage: string | null;
+  readonly receivedEur: string | null;
+  readonly paidEur: string | null;
+  readonly allocatedEur: string | null;
 }
 ```
 
 ### 2.3 Procurement graph
 
 ```ts
-export interface PnrrAnnouncement {          // pnrr.announcements (PII scrubbed)
-  readonly announcementKey: string; readonly platformProjectId: string | null;
-  readonly applicantCui: string | null; readonly applicantName: string | null;
-  readonly projectName: string | null; readonly callName: string | null;
-  readonly componentCode: string | null; readonly budgetValue: string | null;
-  readonly status: string; readonly countySiruta: string | null;
+export interface PnrrAnnouncement {
+  // pnrr.announcements (PII scrubbed)
+  readonly announcementKey: string;
+  readonly platformProjectId: string | null;
+  readonly applicantCui: string | null;
+  readonly applicantName: string | null;
+  readonly projectName: string | null;
+  readonly callName: string | null;
+  readonly componentCode: string | null;
+  readonly budgetValue: string | null;
+  readonly status: string;
+  readonly countySiruta: string | null;
   // is_personal_recipient is INTERNAL (PII gate signal) — NOT projected
 }
-export interface PnrrAcquisition {           // pnrr.acquisitions (awarded contract)
-  readonly acquisitionKey: string; readonly announcementKey: string | null;
-  readonly beneficiaryCui: string | null; readonly beneficiaryName: string | null; // applicant
-  readonly procedureType: string | null; readonly signedAt: string | null;
-  readonly fullContractValue: string | null; readonly currency: string | null;    // column has default 'RON' but is nullable → not Money!/String!
+export interface PnrrAcquisition {
+  // pnrr.acquisitions (awarded contract)
+  readonly acquisitionKey: string;
+  readonly announcementKey: string | null;
+  readonly beneficiaryCui: string | null;
+  readonly beneficiaryName: string | null; // applicant
+  readonly procedureType: string | null;
+  readonly signedAt: string | null;
+  readonly fullContractValue: string | null;
+  readonly currency: string | null; // column has default 'RON' but is nullable → not Money!/String!
 
-  readonly awardCriterion: string | null; readonly frameworkAgreement: boolean | null;
-  readonly hasAssociationLeader: boolean | null; readonly hasThirdPartySupport: boolean | null; readonly hasSubcontractor: boolean | null;
+  readonly awardCriterion: string | null;
+  readonly frameworkAgreement: boolean | null;
+  readonly hasAssociationLeader: boolean | null;
+  readonly hasThirdPartySupport: boolean | null;
+  readonly hasSubcontractor: boolean | null;
 }
-export interface PnrrContractor {            // pnrr.contractors (winner/sub graph)
-  readonly contractorKey: string; readonly acquisitionKey: string | null;
-  readonly role: PnrrContractorRole;          // winning_bidder | foreign_winning_bidder | subcontractor | association_leader | third_party_support
-  readonly contractorCui: string | null;      // null for foreign
-  readonly contractorName: string | null; readonly contractorCountry: string | null;
-  readonly contractValue: string | null; readonly currency: string | null;
-  readonly confidence: string | null; readonly validationStatus: string | null;
+export interface PnrrContractor {
+  // pnrr.contractors (winner/sub graph)
+  readonly contractorKey: string;
+  readonly acquisitionKey: string | null;
+  readonly role: PnrrContractorRole; // winning_bidder | foreign_winning_bidder | subcontractor | association_leader | third_party_support
+  readonly contractorCui: string | null; // null for foreign
+  readonly contractorName: string | null;
+  readonly contractorCountry: string | null;
+  readonly contractValue: string | null;
+  readonly currency: string | null;
+  readonly confidence: string | null;
+  readonly validationStatus: string | null;
 }
-export interface PnrrMeasure {               // pnrr.measures
-  readonly fenixReference: string; readonly componentCode: string | null;
-  readonly measureType: 'investment' | 'reform' | null; readonly measureNumber: number | null;
+export interface PnrrMeasure {
+  // pnrr.measures
+  readonly fenixReference: string;
+  readonly componentCode: string | null;
+  readonly measureType: 'investment' | 'reform' | null;
+  readonly measureNumber: number | null;
   readonly measureName: string | null;
 }
-export interface PnrrComponent { readonly componentCode: string; readonly componentName: string | null; readonly pillar: string | null; }
+export interface PnrrComponent {
+  readonly componentCode: string;
+  readonly componentName: string | null;
+  readonly pillar: string | null;
+}
 ```
 
 ### 2.4 Identity (CUI) + territory (SIRUTA) linkage
@@ -232,25 +285,50 @@ export interface PnrrRepository {
   // ── Identity spine (headline) ──
   listEntities(f: PnrrEntityFilter, page: CursorPage): Promise<Result<Conn<PnrrEntity>, ApiError>>;
   getEntity(cui: string): Promise<Result<PnrrEntity | null, ApiError>>;
-  getEntityProfile(cui: string): Promise<Result<PnrrEntityProfile | null, ApiError>>;   // ledger+commit+procurement rollup (replaces old getEntityProfile, widened)
+  getEntityProfile(cui: string): Promise<Result<PnrrEntityProfile | null, ApiError>>; // ledger+commit+procurement rollup (replaces old getEntityProfile, widened)
 
   // ── Ledger ──
-  listPayments(f: PnrrPaymentFilter, page: CursorPage): Promise<Result<Conn<PnrrPayment>, ApiError>>;
-  aggregatePayments(f: PnrrPaymentFilter, by: PnrrPaymentGroupBy): Promise<Result<readonly PnrrPaymentAggRow[], ApiError>>; // 15s class
-  listCommitments(f: PnrrCommitmentFilter, page: CursorPage): Promise<Result<Conn<PnrrCommitment>, ApiError>>;
-  getCommitmentProgress(commitmentKey: string): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>>; // time-series for one commitment
-  listProgramIndicators(): Promise<Result<readonly PnrrProgramIndicator[], ApiError>>;  // 30 rows, small
+  listPayments(
+    f: PnrrPaymentFilter,
+    page: CursorPage
+  ): Promise<Result<Conn<PnrrPayment>, ApiError>>;
+  aggregatePayments(
+    f: PnrrPaymentFilter,
+    by: PnrrPaymentGroupBy
+  ): Promise<Result<readonly PnrrPaymentAggRow[], ApiError>>; // 15s class
+  listCommitments(
+    f: PnrrCommitmentFilter,
+    page: CursorPage
+  ): Promise<Result<Conn<PnrrCommitment>, ApiError>>;
+  getCommitmentProgress(
+    commitmentKey: string
+  ): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>>; // time-series for one commitment
+  listProgramIndicators(): Promise<Result<readonly PnrrProgramIndicator[], ApiError>>; // 30 rows, small
 
   // ── Procurement graph ──
-  listAcquisitions(f: PnrrAcquisitionFilter, page: CursorPage): Promise<Result<Conn<PnrrAcquisition>, ApiError>>;
-  getAcquisition(key: string): Promise<Result<PnrrAcquisitionDetail | null, ApiError>>;  // + announcement + lots + contractors
-  listContractors(f: PnrrContractorFilter, page: CursorPage): Promise<Result<Conn<PnrrContractor>, ApiError>>;
-  rankContractors(f: PnrrContractorFilter, by: 'value'|'awards', limit: number): Promise<Result<readonly PnrrContractorRankRow[], ApiError>>; // 15s class
+  listAcquisitions(
+    f: PnrrAcquisitionFilter,
+    page: CursorPage
+  ): Promise<Result<Conn<PnrrAcquisition>, ApiError>>;
+  getAcquisition(key: string): Promise<Result<PnrrAcquisitionDetail | null, ApiError>>; // + announcement + lots + contractors
+  listContractors(
+    f: PnrrContractorFilter,
+    page: CursorPage
+  ): Promise<Result<Conn<PnrrContractor>, ApiError>>;
+  rankContractors(
+    f: PnrrContractorFilter,
+    by: 'value' | 'awards',
+    limit: number
+  ): Promise<Result<readonly PnrrContractorRankRow[], ApiError>>; // 15s class
 
   // ── Taxonomy / dimensions (also feeds filter resolve) ──
-  listComponents(): Promise<Result<readonly PnrrComponent[], ApiError>>;        // 16 rows
+  listComponents(): Promise<Result<readonly PnrrComponent[], ApiError>>; // 16 rows
   listMeasures(f: PnrrMeasureFilter): Promise<Result<readonly PnrrMeasure[], ApiError>>; // 103 rows
-  resolveDimension(dim: PnrrResolveDim, q: string, limit: number): Promise<Result<readonly ResolveHit[], ApiError>>; // name→value
+  resolveDimension(
+    dim: PnrrResolveDim,
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ResolveHit[], ApiError>>; // name→value
 }
 ```
 
@@ -265,19 +343,19 @@ referenced in §6 (`PnrrPaymentAggRow`, `PnrrContractorRankRow`, `PnrrPaymentSum
 
 **Index/partition notes** (verified live, `pg_indexes schemaname='pnrr'`):
 
-| Method | Driving index | Notes |
-|---|---|---|
-| `listEntities` (q) | `entities_pkey` + trigram on `resolved_name` (kernel) | name match via kernel `IdentityRepo.searchByName` or `ILIKE` fallback; CUI exact via PK |
-| `listPayments` by CUI | `payments_beneficiary_cui_idx` | the hot path |
-| `listPayments` by date | `payments_payment_date_idx` | cursor sort `(payment_date, payment_key)` |
-| `listPayments` by component | `payments_component_idx` | |
-| `aggregatePayments` | indexed **filter** drives; the GROUP BY itself is a bounded scan | the per-group key (`component`/`measure`/`county`/`year`) is NOT an index — the *filter* (cui/date/component) bounds the scan; an unfiltered group-by is rejected unless windowed by a ≤1yr `dateFrom/To` (15s class) |
-| `listCommitments` by CUI / contract | `commitments_beneficiary_cui_idx` / `commitments_contract_number_idx` | |
-| `getCommitmentProgress` | `commitment_snapshots_commitment_idx` (soft link) **or** `commitment_snapshots_cui_contract_idx` | 741k table — MUST be bounded by `commitment_key` OR `(beneficiary_cui, contract_number)`; never an unbounded scan. **`commitment_key` is a NULLABLE soft link** (not 100% coverage) → see §13 #2: the endpoint accepts a commitment_key but the repo resolves it to the commitment's `(beneficiary_cui, contract_number)` and queries on that index so unlinked snapshots are still reachable |
-| `listAcquisitions` by CUI/date/announcement | `acquisitions_beneficiary_cui_idx` / `_signed_at_idx` / `_announcement_idx` | |
-| `getAcquisition` detail | `acquisitions_pkey` + `lots_announcement_idx` + `contractors_acquisition_idx` | bounded fan-out per acquisition |
-| `listContractors` / `rankContractors` | `contractors_cui_idx` / `contractors_role_idx` / `contractors_acquisition_idx` | rank is a bounded group-by, 15s class |
-| `getEntityProfile` | `payments_beneficiary_cui_idx` + `commitments_beneficiary_cui_idx` + `acquisitions_beneficiary_cui_idx` + `contractors_cui_idx` | 4 indexed scans by CUI (the old surface's shape, widened) |
+| Method                                      | Driving index                                                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listEntities` (q)                          | `entities_pkey` + trigram on `resolved_name` (kernel)                                                                           | name match via kernel `IdentityRepo.searchByName` or `ILIKE` fallback; CUI exact via PK                                                                                                                                                                                                                                                                                                       |
+| `listPayments` by CUI                       | `payments_beneficiary_cui_idx`                                                                                                  | the hot path                                                                                                                                                                                                                                                                                                                                                                                  |
+| `listPayments` by date                      | `payments_payment_date_idx`                                                                                                     | cursor sort `(payment_date, payment_key)`                                                                                                                                                                                                                                                                                                                                                     |
+| `listPayments` by component                 | `payments_component_idx`                                                                                                        |                                                                                                                                                                                                                                                                                                                                                                                               |
+| `aggregatePayments`                         | indexed **filter** drives; the GROUP BY itself is a bounded scan                                                                | the per-group key (`component`/`measure`/`county`/`year`) is NOT an index — the _filter_ (cui/date/component) bounds the scan; an unfiltered group-by is rejected unless windowed by a ≤1yr `dateFrom/To` (15s class)                                                                                                                                                                         |
+| `listCommitments` by CUI / contract         | `commitments_beneficiary_cui_idx` / `commitments_contract_number_idx`                                                           |                                                                                                                                                                                                                                                                                                                                                                                               |
+| `getCommitmentProgress`                     | `commitment_snapshots_commitment_idx` (soft link) **or** `commitment_snapshots_cui_contract_idx`                                | 741k table — MUST be bounded by `commitment_key` OR `(beneficiary_cui, contract_number)`; never an unbounded scan. **`commitment_key` is a NULLABLE soft link** (not 100% coverage) → see §13 #2: the endpoint accepts a commitment_key but the repo resolves it to the commitment's `(beneficiary_cui, contract_number)` and queries on that index so unlinked snapshots are still reachable |
+| `listAcquisitions` by CUI/date/announcement | `acquisitions_beneficiary_cui_idx` / `_signed_at_idx` / `_announcement_idx`                                                     |                                                                                                                                                                                                                                                                                                                                                                                               |
+| `getAcquisition` detail                     | `acquisitions_pkey` + `lots_announcement_idx` + `contractors_acquisition_idx`                                                   | bounded fan-out per acquisition                                                                                                                                                                                                                                                                                                                                                               |
+| `listContractors` / `rankContractors`       | `contractors_cui_idx` / `contractors_role_idx` / `contractors_acquisition_idx`                                                  | rank is a bounded group-by, 15s class                                                                                                                                                                                                                                                                                                                                                         |
+| `getEntityProfile`                          | `payments_beneficiary_cui_idx` + `commitments_beneficiary_cui_idx` + `acquisitions_beneficiary_cui_idx` + `contractors_cui_idx` | 4 indexed scans by CUI (the old surface's shape, widened)                                                                                                                                                                                                                                                                                                                                     |
 
 `commitment_snapshots` is the only large (741k) table; **every** method touching
 it is bounded by an indexed predicate (commitment_key or cui+contract). There are
@@ -291,16 +369,16 @@ no partition children in the `pnrr` schema (unlike budget/procurement).
 kernel `FlowsRepo` where a unified flow view is needed). Thin; REST/GraphQL/MCP
 call the same usecase.
 
-| Usecase | Signature | Notes |
-|---|---|---|
-| `listPnrrEntities` | `(repo, filter, page) → Result<Conn<PnrrEntity>>` | headline directory |
-| `getPnrrEntityProfile` | `(repo, cui) → Result<PnrrEntityProfile \| null>` | ledger + commitments + procurement rollup (PII-free) |
-| `listPnrrPayments` / `aggregatePnrrPayments` | filter+page / filter+groupBy | source-native ledger |
-| `listPnrrCommitments` / `getPnrrCommitmentProgress` | | progress time-series gated on a key |
-| `listPnrrAcquisitions` / `getPnrrAcquisition` | | award detail + contractors |
-| `listPnrrContractors` / `rankPnrrContractors` | | winner/sub graph; rank from **source facts** (§14.6) |
-| `listPnrrComponents` / `listPnrrMeasures` | | dimensions |
-| `resolvePnrrFilters` | `(repo, dim, q, limit) → Result<ResolveHit[]>` | name→value (kernel discovery, §7.4) |
+| Usecase                                             | Signature                                         | Notes                                                |
+| --------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| `listPnrrEntities`                                  | `(repo, filter, page) → Result<Conn<PnrrEntity>>` | headline directory                                   |
+| `getPnrrEntityProfile`                              | `(repo, cui) → Result<PnrrEntityProfile \| null>` | ledger + commitments + procurement rollup (PII-free) |
+| `listPnrrPayments` / `aggregatePnrrPayments`        | filter+page / filter+groupBy                      | source-native ledger                                 |
+| `listPnrrCommitments` / `getPnrrCommitmentProgress` |                                                   | progress time-series gated on a key                  |
+| `listPnrrAcquisitions` / `getPnrrAcquisition`       |                                                   | award detail + contractors                           |
+| `listPnrrContractors` / `rankPnrrContractors`       |                                                   | winner/sub graph; rank from **source facts** (§14.6) |
+| `listPnrrComponents` / `listPnrrMeasures`           |                                                   | dimensions                                           |
+| `resolvePnrrFilters`                                | `(repo, dim, q, limit) → Result<ResolveHit[]>`    | name→value (kernel discovery, §7.4)                  |
 
 ### 4.1 Cross-source contributor (§4.4 / §14.7)
 
@@ -347,23 +425,23 @@ kernel `toTypeBox(spec)`. Every route `config: { public: true }` (§14.11). Enve
 `{ ok, data, meta?, requestId }`. OpenAPI fragment exported and merged at
 `/api/v1/openapi.json`.
 
-| Method | Path | Query/Params | Response | Pagination | Cache TTL | stmt timeout |
-|---|---|---|---|---|---|---|
-| GET | `/pnrr/entities` | `PnrrEntityFilter` (§7.1) | `PnrrEntity[]` | cursor `(cui asc)` default; `total_payments desc` opt-in | 300s | 5s/15s |
-| GET | `/pnrr/entities/:cui` | `cui` | `PnrrEntity` | — | 600s | 5s |
-| GET | `/pnrr/entities/:cui/profile` | `cui` | `PnrrEntityProfile` | — | 300s | 15s |
-| GET | `/pnrr/payments` | `PnrrPaymentFilter` (§7.2) | `PnrrPayment[]` | cursor `(payment_date desc, payment_key)` | 120s | 5s |
-| GET | `/pnrr/payments/aggregate` | `PnrrPaymentFilter` + `groupBy` | `PnrrPaymentAggRow[]` | — | 300s | 15s |
-| GET | `/pnrr/commitments` | `PnrrCommitmentFilter` | `PnrrCommitment[]` | cursor `(commitment_date desc, commitment_key)` | 120s | 5s |
-| GET | `/pnrr/commitments/:key/progress` | `key` | `PnrrCommitmentSnapshot[]` (date asc) | — | 300s | 5s |
-| GET | `/pnrr/acquisitions` | `PnrrAcquisitionFilter` | `PnrrAcquisition[]` | cursor `(signed_at desc, acquisition_key)` | 120s | 5s |
-| GET | `/pnrr/acquisitions/:key` | `key` | `PnrrAcquisitionDetail` (+ announcement, lots, contractors) | — | 300s | 5s |
-| GET | `/pnrr/contractors` | `PnrrContractorFilter` | `PnrrContractor[]` | cursor `(contract_value desc nulls last, contractor_key)` | 120s | 5s |
-| GET | `/pnrr/contractors/rank` | `PnrrContractorFilter` + `by` | `PnrrContractorRankRow[]` | offset (≤100) | 300s | 15s |
-| GET | `/pnrr/components` | — | `PnrrComponent[]` (16) | — | 3600s | 5s |
-| GET | `/pnrr/measures` | `PnrrMeasureFilter` | `PnrrMeasure[]` (≤103) | — | 3600s | 5s |
-| GET | `/pnrr/program-indicators` | — | `PnrrProgramIndicator[]` (30) | — | 600s | 5s |
-| GET | `/pnrr/filters/resolve` | `dim`, `q`, `limit` | `ResolveHit[]` | — | 300s | 5s |
+| Method | Path                              | Query/Params                    | Response                                                    | Pagination                                                | Cache TTL | stmt timeout |
+| ------ | --------------------------------- | ------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------- | --------- | ------------ |
+| GET    | `/pnrr/entities`                  | `PnrrEntityFilter` (§7.1)       | `PnrrEntity[]`                                              | cursor `(cui asc)` default; `total_payments desc` opt-in  | 300s      | 5s/15s       |
+| GET    | `/pnrr/entities/:cui`             | `cui`                           | `PnrrEntity`                                                | —                                                         | 600s      | 5s           |
+| GET    | `/pnrr/entities/:cui/profile`     | `cui`                           | `PnrrEntityProfile`                                         | —                                                         | 300s      | 15s          |
+| GET    | `/pnrr/payments`                  | `PnrrPaymentFilter` (§7.2)      | `PnrrPayment[]`                                             | cursor `(payment_date desc, payment_key)`                 | 120s      | 5s           |
+| GET    | `/pnrr/payments/aggregate`        | `PnrrPaymentFilter` + `groupBy` | `PnrrPaymentAggRow[]`                                       | —                                                         | 300s      | 15s          |
+| GET    | `/pnrr/commitments`               | `PnrrCommitmentFilter`          | `PnrrCommitment[]`                                          | cursor `(commitment_date desc, commitment_key)`           | 120s      | 5s           |
+| GET    | `/pnrr/commitments/:key/progress` | `key`                           | `PnrrCommitmentSnapshot[]` (date asc)                       | —                                                         | 300s      | 5s           |
+| GET    | `/pnrr/acquisitions`              | `PnrrAcquisitionFilter`         | `PnrrAcquisition[]`                                         | cursor `(signed_at desc, acquisition_key)`                | 120s      | 5s           |
+| GET    | `/pnrr/acquisitions/:key`         | `key`                           | `PnrrAcquisitionDetail` (+ announcement, lots, contractors) | —                                                         | 300s      | 5s           |
+| GET    | `/pnrr/contractors`               | `PnrrContractorFilter`          | `PnrrContractor[]`                                          | cursor `(contract_value desc nulls last, contractor_key)` | 120s      | 5s           |
+| GET    | `/pnrr/contractors/rank`          | `PnrrContractorFilter` + `by`   | `PnrrContractorRankRow[]`                                   | offset (≤100)                                             | 300s      | 15s          |
+| GET    | `/pnrr/components`                | —                               | `PnrrComponent[]` (16)                                      | —                                                         | 3600s     | 5s           |
+| GET    | `/pnrr/measures`                  | `PnrrMeasureFilter`             | `PnrrMeasure[]` (≤103)                                      | —                                                         | 3600s     | 5s           |
+| GET    | `/pnrr/program-indicators`        | —                               | `PnrrProgramIndicator[]` (30)                               | —                                                         | 600s      | 5s           |
+| GET    | `/pnrr/filters/resolve`           | `dim`, `q`, `limit`             | `ResolveHit[]`                                              | —                                                         | 300s      | 5s           |
 
 **Notes:** cursor lists are §14.3-enveloped (`fhash` over `canonicalizeFilters`);
 `entities` cursor on `total_payments` requires a stable secondary key (`cui`) and
@@ -387,11 +465,28 @@ is needed; the consistency pass must not "normalize" them to SCREAMING_SNAKE (it
 would break the value contract).
 
 ```graphql
-enum PnrrContractorRole { winning_bidder foreign_winning_bidder subcontractor association_leader third_party_support }
-enum PnrrMeasureType { investment reform }
-enum PnrrPaymentGroupBy { component measure county year }
-enum PnrrFlowType { pnrr_payment pnrr_commitment pnrr_subcontract }   # mirrors kernel FLOW_TYPES
-
+enum PnrrContractorRole {
+  winning_bidder
+  foreign_winning_bidder
+  subcontractor
+  association_leader
+  third_party_support
+}
+enum PnrrMeasureType {
+  investment
+  reform
+}
+enum PnrrPaymentGroupBy {
+  component
+  measure
+  county
+  year
+}
+enum PnrrFlowType {
+  pnrr_payment
+  pnrr_commitment
+  pnrr_subcontract
+} # mirrors kernel FLOW_TYPES
 type PnrrEntity {
   cui: CUI!
   name: String
@@ -400,50 +495,166 @@ type PnrrEntity {
   isActive: Boolean
   isVatPayer: Boolean
   roles: PnrrEntityRoles!
-  hubs: [String!]!                 # public_entities | companies (link, not merge)
+  hubs: [String!]! # public_entities | companies (link, not merge)
   firstSeenSource: String
-  profile: PnrrEntityProfile       # lazy; resolves via the SAME getPnrrEntityProfile usecase the contributor.profileSlice and REST /profile call (§14.7) — no second path
+  profile: PnrrEntityProfile # lazy; resolves via the SAME getPnrrEntityProfile usecase the contributor.profileSlice and REST /profile call (§14.7) — no second path
 }
-type PnrrEntityRoles { beneficiary: Boolean! applicant: Boolean! winner: Boolean! subcontractor: Boolean! }
+type PnrrEntityRoles {
+  beneficiary: Boolean!
+  applicant: Boolean!
+  winner: Boolean!
+  subcontractor: Boolean!
+}
 
 type PnrrEntityProfile {
   entity: PnrrEntity!
-  payments: PnrrPaymentSummary!     # count, totalLei: Money!, totalEur: Money!, firstDate, lastDate, byComponent
+  payments: PnrrPaymentSummary! # count, totalLei: Money!, totalEur: Money!, firstDate, lastDate, byComponent
   commitments: PnrrCommitmentSummary!
-  procurement: PnrrProcurementSummary!  # acquisitionsAsBeneficiary, acquisitionsValue: Money, wonAsContractor
-  grainNote: String!                # "cash=SUM(payments); commitments are obligations, not summed"
+  procurement: PnrrProcurementSummary! # acquisitionsAsBeneficiary, acquisitionsValue: Money, wonAsContractor
+  grainNote: String! # "cash=SUM(payments); commitments are obligations, not summed"
 }
 
-type PnrrPayment { paymentKey: ID! beneficiaryCui: CUI beneficiaryName: String componentCode: String measureFenix: String amountLei: Money amountEur: Money paymentDate: Date countyName: String countySiruta: SIRUTA localityName: String caenDivision: String financingSource: String }
-type PnrrCommitment { commitmentKey: ID! beneficiaryCui: CUI beneficiaryName: String contractNumber: String componentCode: String measureCode: String totalValue: Money euValue: Money nationalPublicValue: Money vatValue: Money ineligibleValue: Money financialProgress: Float physicalProgress: Float commitmentDate: Date endDate: Date status: String! countySiruta: SIRUTA progress: [PnrrCommitmentSnapshot!]! }  # progress resolved lazily, bounded by key (see §3/§13 #2)
-type PnrrCommitmentSnapshot { snapshotId: ID! sourceRecordId: ID! snapshotDate: Date! financialProgress: Float physicalProgress: Float stage: String receivedEur: Money paidEur: Money allocatedEur: Money linkConfidence: Float }  # node id is the composite (snapshotId, sourceRecordId); snapshotId alone is NOT unique
-type PnrrAcquisition { acquisitionKey: ID! announcementKey: ID beneficiaryCui: CUI beneficiaryName: String procedureType: String signedAt: Date fullContractValue: Money currency: String frameworkAgreement: Boolean hasSubcontractor: Boolean contractors: [PnrrContractor!]! }
-type PnrrContractor { contractorKey: ID! acquisitionKey: ID role: PnrrContractorRole! contractorCui: CUI contractorName: String contractorCountry: String contractValue: Money currency: String confidence: String validationStatus: String }
-type PnrrComponent { componentCode: ID! componentName: String pillar: String }
-type PnrrMeasure { fenixReference: ID! componentCode: String measureType: PnrrMeasureType measureNumber: Int measureName: String }
-type PnrrProgramIndicator { snapshotId: ID! snapshotDate: Date! nrProjects: Int allocatedEur: Money receivedEur: Money paidEur: Money }
+type PnrrPayment {
+  paymentKey: ID!
+  beneficiaryCui: CUI
+  beneficiaryName: String
+  componentCode: String
+  measureFenix: String
+  amountLei: Money
+  amountEur: Money
+  paymentDate: Date
+  countyName: String
+  countySiruta: SIRUTA
+  localityName: String
+  caenDivision: String
+  financingSource: String
+}
+type PnrrCommitment {
+  commitmentKey: ID!
+  beneficiaryCui: CUI
+  beneficiaryName: String
+  contractNumber: String
+  componentCode: String
+  measureCode: String
+  totalValue: Money
+  euValue: Money
+  nationalPublicValue: Money
+  vatValue: Money
+  ineligibleValue: Money
+  financialProgress: Float
+  physicalProgress: Float
+  commitmentDate: Date
+  endDate: Date
+  status: String!
+  countySiruta: SIRUTA
+  progress: [PnrrCommitmentSnapshot!]!
+} # progress resolved lazily, bounded by key (see §3/§13 #2)
+type PnrrCommitmentSnapshot {
+  snapshotId: ID!
+  sourceRecordId: ID!
+  snapshotDate: Date!
+  financialProgress: Float
+  physicalProgress: Float
+  stage: String
+  receivedEur: Money
+  paidEur: Money
+  allocatedEur: Money
+  linkConfidence: Float
+} # node id is the composite (snapshotId, sourceRecordId); snapshotId alone is NOT unique
+type PnrrAcquisition {
+  acquisitionKey: ID!
+  announcementKey: ID
+  beneficiaryCui: CUI
+  beneficiaryName: String
+  procedureType: String
+  signedAt: Date
+  fullContractValue: Money
+  currency: String
+  frameworkAgreement: Boolean
+  hasSubcontractor: Boolean
+  contractors: [PnrrContractor!]!
+}
+type PnrrContractor {
+  contractorKey: ID!
+  acquisitionKey: ID
+  role: PnrrContractorRole!
+  contractorCui: CUI
+  contractorName: String
+  contractorCountry: String
+  contractValue: Money
+  currency: String
+  confidence: String
+  validationStatus: String
+}
+type PnrrComponent {
+  componentCode: ID!
+  componentName: String
+  pillar: String
+}
+type PnrrMeasure {
+  fenixReference: ID!
+  componentCode: String
+  measureType: PnrrMeasureType
+  measureNumber: Int
+  measureName: String
+}
+type PnrrProgramIndicator {
+  snapshotId: ID!
+  snapshotDate: Date!
+  nrProjects: Int
+  allocatedEur: Money
+  receivedEur: Money
+  paidEur: Money
+}
 
-type PnrrEntityConnection { edges: [PnrrEntityEdge!]! pageInfo: PageInfo! }
-type PnrrEntityEdge { node: PnrrEntity! cursor: String! }
+type PnrrEntityConnection {
+  edges: [PnrrEntityEdge!]!
+  pageInfo: PageInfo!
+}
+type PnrrEntityEdge {
+  node: PnrrEntity!
+  cursor: String!
+}
 # + PnrrPaymentConnection / PnrrAcquisitionConnection / PnrrContractorConnection / PnrrCommitmentConnection (same shape)
 
 extend type Query {
   pnrrEntities(filter: PnrrEntityFilter, first: Int = 20, after: String): PnrrEntityConnection!
   pnrrEntity(cui: CUI!): PnrrEntity
   pnrrPayments(filter: PnrrPaymentFilter, first: Int = 20, after: String): PnrrPaymentConnection!
-  pnrrPaymentAggregate(filter: PnrrPaymentFilter, groupBy: PnrrPaymentGroupBy!): [PnrrPaymentAggRow!]!
-  pnrrCommitments(filter: PnrrCommitmentFilter, first: Int = 20, after: String): PnrrCommitmentConnection!
-  pnrrAcquisitions(filter: PnrrAcquisitionFilter, first: Int = 20, after: String): PnrrAcquisitionConnection!
+  pnrrPaymentAggregate(
+    filter: PnrrPaymentFilter
+    groupBy: PnrrPaymentGroupBy!
+  ): [PnrrPaymentAggRow!]!
+  pnrrCommitments(
+    filter: PnrrCommitmentFilter
+    first: Int = 20
+    after: String
+  ): PnrrCommitmentConnection!
+  pnrrAcquisitions(
+    filter: PnrrAcquisitionFilter
+    first: Int = 20
+    after: String
+  ): PnrrAcquisitionConnection!
   pnrrAcquisition(key: ID!): PnrrAcquisition
-  pnrrContractors(filter: PnrrContractorFilter, first: Int = 20, after: String): PnrrContractorConnection!
-  pnrrContractorRank(filter: PnrrContractorFilter, by: String = "value", limit: Int = 20): [PnrrContractorRankRow!]!
+  pnrrContractors(
+    filter: PnrrContractorFilter
+    first: Int = 20
+    after: String
+  ): PnrrContractorConnection!
+  pnrrContractorRank(
+    filter: PnrrContractorFilter
+    by: String = "value"
+    limit: Int = 20
+  ): [PnrrContractorRankRow!]!
   pnrrComponents: [PnrrComponent!]!
   pnrrMeasures(filter: PnrrMeasureFilter): [PnrrMeasure!]!
   pnrrProgramIndicators: [PnrrProgramIndicator!]!
 }
 
 # Entity join (§6.2/§14.7): each source extends Entity; resolved via contributor + CUI DataLoader
-extend type Entity { pnrr: PnrrEntityProfile }
+extend type Entity {
+  pnrr: PnrrEntityProfile
+}
 ```
 
 **DataLoaders:** `Entity.pnrr` batches `cui[]` → `contributor.profileSlice` (one
@@ -463,15 +674,15 @@ per collection. `isNull` is available for coverage questions.
 
 ### 7.1 `pnrr_entities` spec
 
-| Field | type | ops | driving column / index | REST ↔ GraphQL ↔ MCP |
-|---|---|---|---|---|
-| `cui` | string | eq, in | `entities.cui` (PK) | `cui` / `cui:[CUI!]` / `cui` |
-| `q` | string | contains | `entities.resolved_name` (trigram via kernel) | `q` / `q` / resolved first |
-| `role` | enum | eq | `entities.is_{beneficiary,applicant,winner,subcontractor}` | `role=beneficiary…` |
-| `hub` | enum | eq, in | `entity_registry_links.registry` (EXISTS) | `hub=companies` |
-| `caenCode` | string | eq, prefix | `entities.caen_code` | `caenPrefix` |
-| `isActive` / `isVatPayer` | bool | eq, isNull | `entities.is_active` / `is_vat_payer` | |
-| `hasNoHub` | bool | eq | `NOT EXISTS entity_registry_links` | unmatched residual (coverage) |
+| Field                     | type   | ops        | driving column / index                                     | REST ↔ GraphQL ↔ MCP          |
+| ------------------------- | ------ | ---------- | ---------------------------------------------------------- | ----------------------------- |
+| `cui`                     | string | eq, in     | `entities.cui` (PK)                                        | `cui` / `cui:[CUI!]` / `cui`  |
+| `q`                       | string | contains   | `entities.resolved_name` (trigram via kernel)              | `q` / `q` / resolved first    |
+| `role`                    | enum   | eq         | `entities.is_{beneficiary,applicant,winner,subcontractor}` | `role=beneficiary…`           |
+| `hub`                     | enum   | eq, in     | `entity_registry_links.registry` (EXISTS)                  | `hub=companies`               |
+| `caenCode`                | string | eq, prefix | `entities.caen_code`                                       | `caenPrefix`                  |
+| `isActive` / `isVatPayer` | bool   | eq, isNull | `entities.is_active` / `is_vat_payer`                      |                               |
+| `hasNoHub`                | bool   | eq         | `NOT EXISTS entity_registry_links`                         | unmatched residual (coverage) |
 
 Sort: **default `cui asc`** (PK — index-backed, stable cursor). `name` (trigram-
 backed). `total_payments desc` is **opt-in** and uses a per-request CTE
@@ -484,17 +695,17 @@ common page load never triggers the full payment aggregate.)
 
 ### 7.2 `pnrr_payments` spec
 
-| Field | type | ops | driving column / index |
-|---|---|---|---|
-| `beneficiaryCui` | string | eq, in | `payments_beneficiary_cui_idx` |
-| `componentCode` | enum(C1–C16) | eq, in | `payments_component_idx` |
-| `measureFenix` | string | eq, in, isNull | `payments_measure_fenix_idx` (isNull = unresolved measures, coverage) |
-| `countySiruta` | string | eq, in | `payments.county_siruta` — **NO index** (residual filter only) |
-| `dateFrom`/`dateTo` | date | between | `payments_payment_date_idx` (also cursor key) |
-| `year` | int | eq | `payment_date` range (no `year` column/index) → compiles to `dateFrom/To` on `payments_payment_date_idx` |
-| `minAmountLei`/`maxAmountLei` | number | gte/lte | `payments.amount_lei` — **NO index** (residual; overflow-guarded numeric) |
-| `caenDivision` | string | eq, prefix | `payments.caen_division` — **NO index** (residual) |
-| `financingSource` | string | eq | `payments.financing_source` — **NO index** (residual) |
+| Field                         | type         | ops            | driving column / index                                                                                   |
+| ----------------------------- | ------------ | -------------- | -------------------------------------------------------------------------------------------------------- |
+| `beneficiaryCui`              | string       | eq, in         | `payments_beneficiary_cui_idx`                                                                           |
+| `componentCode`               | enum(C1–C16) | eq, in         | `payments_component_idx`                                                                                 |
+| `measureFenix`                | string       | eq, in, isNull | `payments_measure_fenix_idx` (isNull = unresolved measures, coverage)                                    |
+| `countySiruta`                | string       | eq, in         | `payments.county_siruta` — **NO index** (residual filter only)                                           |
+| `dateFrom`/`dateTo`           | date         | between        | `payments_payment_date_idx` (also cursor key)                                                            |
+| `year`                        | int          | eq             | `payment_date` range (no `year` column/index) → compiles to `dateFrom/To` on `payments_payment_date_idx` |
+| `minAmountLei`/`maxAmountLei` | number       | gte/lte        | `payments.amount_lei` — **NO index** (residual; overflow-guarded numeric)                                |
+| `caenDivision`                | string       | eq, prefix     | `payments.caen_division` — **NO index** (residual)                                                       |
+| `financingSource`             | string       | eq             | `payments.financing_source` — **NO index** (residual)                                                    |
 
 Sort: default `payment_date desc`; allowed `payment_date`, `amount_lei`.
 `q` not backed (use search endpoint). Amount filters guard numeric(18,2) overflow.
@@ -544,16 +755,16 @@ required; the rest are residual filters):
 `AI_AGENT_FILTER_QUESTION_CATALOG.md` has no PNRR section yet; these are the
 module's golden cases (to be added to the catalog) and integration fixtures:
 
-| Q | Question | Filters / endpoint |
-|---|---|---|
-| PN-1 | Total PNRR cash disbursed to entity X | `/pnrr/entities/:cui/profile` → `payments.totalLei` (SUM(pnrr_payment); caveat: not commitments) |
-| PN-2 | PNRR payments by component for county Y in year Z | `/pnrr/payments/aggregate?countySiruta=&year=&groupBy=component` |
-| PN-3 | Who won PNRR contracts under measure M (investment) | `/pnrr/acquisitions?componentCode=` + `/pnrr/contractors?role=winning_bidder` (rank by value) |
-| PN-4 | Top contractors across PNRR by award value | `/pnrr/contractors/rank?by=value` (source facts, self-award excluded — caveat) |
-| PN-5 | Commitment progress over time for contract C | `/pnrr/commitments/:key/progress` (MIPE series, bounded by key) |
-| PN-6 | PNRR beneficiaries that are NOT in any identity hub | `/pnrr/entities?hasNoHub=true` (coverage; 1,434 residual = 18,876 − 17,442) |
-| PN-7 | Payments with unresolved measure (data-quality probe) | `/pnrr/payments?measureFenix.isNull=true` — returns the *rows* with no fenix link; distinct from the gate's by-VALUE metric (98.75% of payment value resolved → 1.25% residual value; 31 unmatched aliases) |
-| PN-8 | Program KPI timeline | `/pnrr/program-indicators` |
+| Q    | Question                                              | Filters / endpoint                                                                                                                                                                                          |
+| ---- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PN-1 | Total PNRR cash disbursed to entity X                 | `/pnrr/entities/:cui/profile` → `payments.totalLei` (SUM(pnrr_payment); caveat: not commitments)                                                                                                            |
+| PN-2 | PNRR payments by component for county Y in year Z     | `/pnrr/payments/aggregate?countySiruta=&year=&groupBy=component`                                                                                                                                            |
+| PN-3 | Who won PNRR contracts under measure M (investment)   | `/pnrr/acquisitions?componentCode=` + `/pnrr/contractors?role=winning_bidder` (rank by value)                                                                                                               |
+| PN-4 | Top contractors across PNRR by award value            | `/pnrr/contractors/rank?by=value` (source facts, self-award excluded — caveat)                                                                                                                              |
+| PN-5 | Commitment progress over time for contract C          | `/pnrr/commitments/:key/progress` (MIPE series, bounded by key)                                                                                                                                             |
+| PN-6 | PNRR beneficiaries that are NOT in any identity hub   | `/pnrr/entities?hasNoHub=true` (coverage; 1,434 residual = 18,876 − 17,442)                                                                                                                                 |
+| PN-7 | Payments with unresolved measure (data-quality probe) | `/pnrr/payments?measureFenix.isNull=true` — returns the _rows_ with no fenix link; distinct from the gate's by-VALUE metric (98.75% of payment value resolved → 1.25% residual value; 31 unmatched aliases) |
+| PN-8 | Program KPI timeline                                  | `/pnrr/program-indicators`                                                                                                                                                                                  |
 
 ---
 
@@ -563,12 +774,12 @@ module's golden cases (to be added to the catalog) and integration fixtures:
 `{ ok, kind, query, link, item|items, summary?, caveats? }` (§6.3). PII never
 returned. Rate-limited; bounded sizes.
 
-| Tool | Input | Usecase | Output `kind` | `link` | summary template |
-|---|---|---|---|---|---|
-| `resolve_pnrr_filters` (discovery, §7.4) | `{ dim, q, limit? }` | `resolvePnrrFilters` | `resolve` | — | "Found N matches for «q» as {dim}" |
-| `get_pnrr_entity` (supersedes old) | `{ cui }` | `getPnrrEntityProfile` | `entity` | `{client}/pnrr/{cui}` | "{name} ({cui}): {payCount} payments = {totalLei} lei / {totalEur} eur; {commitCount} commitments; won {wonCount} contracts. PNRR cash = SUM(payments); commitments are obligations." |
-| `rank_pnrr_contractors` | `{ filter, by, limit }` | `rankPnrrContractors` | `ranking` | `{client}/pnrr/contractori?...` | "Top {limit} PNRR contractors by {by} (self-awards excluded)" |
-| `aggregate_pnrr_payments` | `{ filter, groupBy }` | `aggregatePnrrPayments` | `aggregate` | `{client}/pnrr/plati?...` | "PNRR payments grouped by {groupBy}: {topRow}…" |
+| Tool                                     | Input                   | Usecase                 | Output `kind` | `link`                          | summary template                                                                                                                                                                      |
+| ---------------------------------------- | ----------------------- | ----------------------- | ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve_pnrr_filters` (discovery, §7.4) | `{ dim, q, limit? }`    | `resolvePnrrFilters`    | `resolve`     | —                               | "Found N matches for «q» as {dim}"                                                                                                                                                    |
+| `get_pnrr_entity` (supersedes old)       | `{ cui }`               | `getPnrrEntityProfile`  | `entity`      | `{client}/pnrr/{cui}`           | "{name} ({cui}): {payCount} payments = {totalLei} lei / {totalEur} eur; {commitCount} commitments; won {wonCount} contracts. PNRR cash = SUM(payments); commitments are obligations." |
+| `rank_pnrr_contractors`                  | `{ filter, by, limit }` | `rankPnrrContractors`   | `ranking`     | `{client}/pnrr/contractori?...` | "Top {limit} PNRR contractors by {by} (self-awards excluded)"                                                                                                                         |
+| `aggregate_pnrr_payments`                | `{ filter, groupBy }`   | `aggregatePnrrPayments` | `aggregate`   | `{client}/pnrr/plati?...`       | "PNRR payments grouped by {groupBy}: {topRow}…"                                                                                                                                       |
 
 `get_pnrr_entity` improves the old single-CUI tool by carrying the **grain caveat**
 in `summary` (cash vs commitment) and `caveats` (hub-match/measure residuals from
@@ -616,12 +827,13 @@ monthly FULL REFRESH, MIPE per-snapshot APPEND. Loader is idempotent + convergen
 (zero-drift proven); derived flows/search re-derive on change.
 
 **Serving implications:**
+
 - Cache is **TTL-only** today (no per-domain loader-completion stamp wired for
   PNRR yet — state explicitly per §14.11). TTLs in §5 reflect the static corpus
   (dimensions 1h; entities/aggregates 300–600s; lists 120s). When the loader
   publishes a `pnrr` watermark into `etl`/`system_control`, the kernel cache buster
-  + an "as-of" field on reads should be wired (follow-up; interim = TTL-only,
-  documented).
+  - an "as-of" field on reads should be wired (follow-up; interim = TTL-only,
+    documented).
 - **As-of semantics:** the module surfaces a `dataAsOf` field on profile/aggregate
   responses sourced from `max(retrieved_at)` over the relevant facts (cheap, indexed
   on the small profile path; for aggregates use the lane's batch stamp). MIPE
@@ -663,9 +875,9 @@ makePnrrModule(deps: {
 
 - **Unit** (`tests/unit/pnrr/`): usecases with a mocked `PnrrRepository`; filter
   spec → SQL compilation snapshot tests for each collection (verify driving column
-  + parameterization, esp. the `commitment_snapshots` bounded-scan guard); cursor
-  encode/decode incl. `fhash` mismatch → `InvalidInput`; money `::text` → string
-  mappers (no float); `canonicalizeFilters` stability.
+  - parameterization, esp. the `commitment_snapshots` bounded-scan guard); cursor
+    encode/decode incl. `fhash` mismatch → `InvalidInput`; money `::text` → string
+    mappers (no float); `canonicalizeFilters` stability.
 - **Integration** (`tests/integration/pnrr/`): REST+GraphQL+MCP against a seeded
   fixture schema (or read-only prod connection); **tri-surface equivalence** — same
   `canonicalizeFilters` input yields identical rows across REST/GraphQL/MCP for
@@ -690,12 +902,12 @@ makePnrrModule(deps: {
    read the cache (hot path). **Decision:** confirm whether `Entity.pnrr` and the
    directory should prefer the kernel canonical name when present (one extra
    batched join) or trust the cache. Low-risk either way; proposing cache-default
-   + optional overlay.
+   - optional overlay.
 2. **`commitment_snapshots` (741k) exposure + nullable soft link.** Surfaced ONLY
    via `/commitments/:key/progress` and `PnrrCommitment.progress` (lazy). The MIPE
    `commitment_key` soft link is NULLABLE (not 100% coverage), so the repo resolves
    the requested `commitmentKey` to the commitment's `(beneficiary_cui,
-   contract_number)` and queries `commitment_snapshots_cui_contract_idx` — this way
+contract_number)` and queries `commitment_snapshots_cui_contract_idx` — this way
    progress for snapshots that were never soft-linked is still reachable (PN-5 does
    not silently return empty). **No** unbounded list endpoint. Confirm: (a) this is
    the intended contract, and (b) the cui+contract resolution is acceptable vs a
@@ -728,6 +940,7 @@ foundation contract (§14.1 scalars, §14.2 filter pipeline, §14.6 grain gate, 
 contributor parity, §14.8 namespacing, §8.2/§14.9 PII exclusion, §4.5/§14.5
 semantic gate) and the live `pnrr` schema/indexes. Findings incorporated above.
 Net changes from review:
+
 - **Scalars (§14.1):** all money view-model/SDL fields made nullable
   (`amountLei`/`amountEur`/`totalValue`/`fullContractValue`/`currency` are nullable
   columns — `Money!`/`String!` over them would hard-error a resolver on the first
@@ -738,7 +951,7 @@ Net changes from review:
   `countySiruta`/`caenDivision`/`financingSource`/amount are **residual filters**
   needing an indexed driving predicate; requests with no indexed predicate are
   rejected. Corrected aggregate notes (the per-group key is NOT an index — the
-  *filter* bounds the scan); changed `/pnrr/entities` default sort to `cui` (PK)
+  _filter_ bounds the scan); changed `/pnrr/entities` default sort to `cui` (PK)
   so the headline page never triggers the full payment aggregate.
 - **`commitment_snapshots` soft link:** the endpoint resolves `commitmentKey` →
   `(beneficiary_cui, contract_number)` so progress for unlinked snapshots stays

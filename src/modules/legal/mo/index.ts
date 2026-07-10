@@ -73,7 +73,12 @@ export const makeMonitorulSurface = (deps: MonitorulSurfaceDeps): MonitorulSurfa
 
   const contributor = makeMonitorulContributor({ repo, identity: deps.identity });
 
-  const resolvers = makeMonitorulResolvers({ repo, base: deps.base, coverage, registry: deps.registry });
+  const resolvers = makeMonitorulResolvers({
+    repo,
+    base: deps.base,
+    coverage,
+    registry: deps.registry,
+  });
   const mcpTools = makeMonitorulMcpTools({ repo, coverage, clientBaseUrl: deps.clientBaseUrl });
 
   return { typeDefs: monitorulTypeDefs, resolvers, mcpTools, contributor };

@@ -49,7 +49,9 @@ import type { Result } from 'neverthrow';
 
 export interface BudgetRepo {
   // ── line-item facts (fact path; §0.3 pruning triple MANDATORY) ──
-  listExecutionLineItems(q: BudgetFactQuery): Promise<Result<CursorPage<ExecutionLineItem>, ApiError>>;
+  listExecutionLineItems(
+    q: BudgetFactQuery
+  ): Promise<Result<CursorPage<ExecutionLineItem>, ApiError>>;
   getExecutionLineItem(q: {
     year: number;
     reportType: ExecutionReportType;
@@ -61,13 +63,18 @@ export interface BudgetRepo {
   ): Promise<Result<CursorPage<CommitmentLineItem>, ApiError>>;
 
   // ── entity/period summaries (MV path; index-only, §0.4) ──
-  getEntitySummary(cui: string, q: SummaryQuery): Promise<Result<readonly BudgetEntitySummary[], ApiError>>;
+  getEntitySummary(
+    cui: string,
+    q: SummaryQuery
+  ): Promise<Result<readonly BudgetEntitySummary[], ApiError>>;
   getCommitmentSummary(
     cui: string,
     q: CommitmentSummaryQuery
   ): Promise<Result<readonly CommitmentEntitySummary[], ApiError>>;
   executionTimeseries(q: TimeseriesQuery): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
-  commitmentTimeseries(q: CommitmentTimeseriesQuery): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
+  commitmentTimeseries(
+    q: CommitmentTimeseriesQuery
+  ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
 
   // ── rankings (MV path + normalization factors, §3.4; bounded top-N) ──
   rankEntities(q: EntityRankingQuery): Promise<Result<readonly RankedEntity[], ApiError>>;
@@ -103,8 +110,14 @@ export interface BudgetRepo {
     codes?: readonly string[];
     limit: number;
   }): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>>;
-  listBudgetSectors(q: { search?: string; ids?: readonly number[] }): Promise<Result<readonly BudgetSector[], ApiError>>;
-  listFundingSources(q: { search?: string; ids?: readonly number[] }): Promise<Result<readonly BudgetFundingSource[], ApiError>>;
+  listBudgetSectors(q: {
+    search?: string;
+    ids?: readonly number[];
+  }): Promise<Result<readonly BudgetSector[], ApiError>>;
+  listFundingSources(q: {
+    search?: string;
+    ids?: readonly number[];
+  }): Promise<Result<readonly BudgetFundingSource[], ApiError>>;
 
   // ── budget-official (un-partitioned; capability-gated on row presence) ──
   listApprovedBudgetFacts(q: {
@@ -134,5 +147,9 @@ export interface BudgetRepo {
  * open-ended name queries.
  */
 export interface BudgetDiscoveryRepo {
-  resolve(dim: BudgetResolveDim, q: string, limit: number): Promise<Result<readonly ResolveMatch[], ApiError>>;
+  resolve(
+    dim: BudgetResolveDim,
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ResolveMatch[], ApiError>>;
 }

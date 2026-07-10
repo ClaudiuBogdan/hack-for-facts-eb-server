@@ -11,21 +11,18 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, type ApiError } from '../errors.js';
-import { normalizeCui,
+import {
+  normalizeCui,
   type Cui,
   type EntityProfileSlice,
   type FlowSummary,
   type OrgIdentifier,
   type Organization,
   type SourcePresence,
-  type Territory } from '../types.js';
+  type Territory,
+} from '../types.js';
 
-import type {
-  ContributorRegistry,
-  FlowsRepo,
-  IdentityRepo,
-  SearchRepo,
-} from '../ports.js';
+import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../ports.js';
 
 export interface Entity360Deps {
   readonly identityRepo: IdentityRepo;
@@ -110,9 +107,7 @@ export const makeEntity360 = async (
     flowsRepo.getFlowSummary(cui, 'in'),
     flowsRepo.getFlowSummary(cui, 'out'),
     searchRepo.countByCui(cui),
-    Promise.all(
-      registry.list().map((c) => c.presenceFor(cui))
-    ),
+    Promise.all(registry.list().map((c) => c.presenceFor(cui))),
   ]);
 
   if (orgRes.isErr()) return err(orgRes.error);

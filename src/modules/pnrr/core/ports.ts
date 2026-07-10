@@ -39,25 +39,42 @@ export interface CursorPageRequest {
 
 export interface PnrrRepository {
   // ── identity spine (headline) ──
-  listEntities(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<PnrrEntity>, ApiError>>;
+  listEntities(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<PnrrEntity>, ApiError>>;
   getEntity(cui: string): Promise<Result<PnrrEntity | null, ApiError>>;
   getEntityProfile(cui: string): Promise<Result<PnrrEntityProfile | null, ApiError>>;
 
   // ── ledger ──
-  listPayments(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<PnrrPayment>, ApiError>>;
+  listPayments(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<PnrrPayment>, ApiError>>;
   aggregatePayments(
     f: FilterInput,
     by: PnrrPaymentGroupBy
   ): Promise<Result<readonly PnrrPaymentAggRow[], ApiError>>;
-  listCommitments(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<PnrrCommitment>, ApiError>>;
+  listCommitments(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<PnrrCommitment>, ApiError>>;
   /** Bounded to the commitment's (beneficiary_cui, contract_number) so unlinked snapshots stay reachable. */
-  getCommitmentProgress(commitmentKey: string): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>>;
+  getCommitmentProgress(
+    commitmentKey: string
+  ): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>>;
   listProgramIndicators(): Promise<Result<readonly PnrrProgramIndicator[], ApiError>>;
 
   // ── procurement graph ──
-  listAcquisitions(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<PnrrAcquisition>, ApiError>>;
+  listAcquisitions(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<PnrrAcquisition>, ApiError>>;
   getAcquisition(key: string): Promise<Result<PnrrAcquisitionDetail | null, ApiError>>;
-  listContractors(f: FilterInput, page: CursorPageRequest): Promise<Result<CursorPage<PnrrContractor>, ApiError>>;
+  listContractors(
+    f: FilterInput,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<PnrrContractor>, ApiError>>;
   rankContractors(
     f: FilterInput,
     by: PnrrContractorRankBy,

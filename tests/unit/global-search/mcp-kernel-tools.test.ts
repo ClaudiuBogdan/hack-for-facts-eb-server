@@ -83,7 +83,9 @@ const build = (opts: {
     ok(flow(dir, dir === 'in' ? 3 : 1))
   );
   const countByCui = vi.fn(async () => ok(7));
-  const registry = { list: () => [{ source: 'budget', presenceFor: async () => ok(presence('budget')) }] };
+  const registry = {
+    list: () => [{ source: 'budget', presenceFor: async () => ok(presence('budget')) }],
+  };
 
   const identityRepo = { resolve, territoryForCui, findByCui, getIdentifiers } as never;
   const entity360Deps = {

@@ -13,13 +13,15 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { foldDiacritics,
+import {
+  foldDiacritics,
   type ApiError,
   type Cui,
   type EntityProfileSlice,
   type IdentityRepo,
   type SourceContributor,
-  type SourcePresence } from '@/modules/shared/index.js';
+  type SourcePresence,
+} from '@/modules/shared/index.js';
 
 import type { MonitorulRepo } from './ports.js';
 import type { MoIssuerSummary } from './types.js';

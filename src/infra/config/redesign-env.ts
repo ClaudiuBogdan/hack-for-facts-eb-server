@@ -108,7 +108,9 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       opensearchUrl: e.PROD_OPENSEARCH_URL,
       ...(e.PROD_DB_POOL_MAX !== undefined && { poolMax: parseIntOr(e.PROD_DB_POOL_MAX, 15) }),
       ...(e.PROD_DB_SSL !== undefined && { dbSsl: e.PROD_DB_SSL === 'true' }),
-      ...(e.PROD_SYNTHETIC_BASE_URL !== undefined && { syntheticBaseUrl: e.PROD_SYNTHETIC_BASE_URL }),
+      ...(e.PROD_SYNTHETIC_BASE_URL !== undefined && {
+        syntheticBaseUrl: e.PROD_SYNTHETIC_BASE_URL,
+      }),
       ...(e.PROD_SYNTHETIC_API_KEY !== undefined && { syntheticApiKey: e.PROD_SYNTHETIC_API_KEY }),
       ...(e.PROD_EMBEDDING_MODEL !== undefined && { embeddingModel: e.PROD_EMBEDDING_MODEL }),
       ...(e.PROD_AI_MODEL !== undefined && { chatModel: e.PROD_AI_MODEL }),

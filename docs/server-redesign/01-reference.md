@@ -7,7 +7,7 @@
 > **One-line scope:** the registry/reference surface over the kernel's `core.*`
 > data — public-entity registry browsing/search, territory/UAT lookup,
 > classification-code lookup, organization-identity reference. The reference data
-> *is largely the shared kernel's data*; this module is the **read surface** over
+> _is largely the shared kernel's data_; this module is the **read surface** over
 > it, not a second owner. §0 below fixes the kernel-vs-module boundary that
 > governs everything else.
 
@@ -16,24 +16,24 @@
 ## 0. Kernel-vs-module boundary (the special case — read first)
 
 The five `core.*` tables this module touches are **kernel-owned data**. The
-foundation contract (§4.1/§4.2) makes the kernel own the *identity hub*,
-*territory hub*, and *classification* as cross-source primitives. The reference
+foundation contract (§4.1/§4.2) makes the kernel own the _identity hub_,
+_territory hub_, and _classification_ as cross-source primitives. The reference
 module does **not** re-own them. It owns the **registry/reference HTTP+GraphQL+MCP
-surface** that lets clients and agents *browse, search, and resolve* that data,
+surface** that lets clients and agents _browse, search, and resolve_ that data,
 plus the reference-only attributes that no other source cares about
 (`default_report_type`, `issues`, `field_trace`, UAT-mapping provenance).
 
-| Concern | Owner | Rationale |
-|---|---|---|
-| `Organization` type, `normalizeCui`, `IdentityRepo` (`findByCui`, `findByOrgId`, `getIdentifiers`, `searchByName`, `resolve`) | **KERNEL** (`shared/core` + `shared/shell/repo/identity-repo`) | §4.1. Every source links by CUI through this; the reference module must not fork it. |
-| `Territory` type, `TerritoryRepo` (`byTerritorialSiruta`, `byCounty`, `searchUat`, `listCounties`, `listRegions`) | **KERNEL** (`shared/shell/repo/territory-repo`) | §4.2. All geographic filters across all sources resolve here. |
-| `Entity` GraphQL join type, shared scalars (`CUI`, `SIRUTA`, `BigInt`, `Money`, `Date`) | **KERNEL** (§6.2, §14.1) | Reference *extends* `Entity`, never redefines it. |
-| Shared filter families (`Entity`, `Territory`, `Classification`) + the filter pipeline (`toTypeBox`/`toGraphQLInput`/`toConditionBuilders`/`canonicalizeFilters`) | **KERNEL** (§7, §14.2) | Reference declares specs that consume these; it invents no DSL. |
-| `/api/v1/<domain>/filters/resolve` plumbing + the shared discovery-tool factory | **KERNEL** (§7.4) | Reference parameterizes it for its dimensions. |
-| **The public-entity registry surface** (`core.public_entities`): list/filter/detail/search; `default_report_type`, `issues`, `field_trace`, UAT-mapping provenance, parent creditors | **REFERENCE MODULE** | Budget-world registry, kept as-is per §4.1; no other module exposes it. |
-| **The territory/UAT browse surface** (`core.territories`): list/filter/detail, counties index, regions index, UAT autocomplete — as *public REST/GraphQL/MCP endpoints* | **REFERENCE MODULE** | The kernel `TerritoryRepo` is an internal port; the reference module is the only module that turns it into a public reference API. |
-| **The classification-code lookup surface** (`core.classification_codes` = CAEN rev1/2/3): list/filter/detail, code→label resolve | **REFERENCE MODULE** | The kernel `Classification` *filter family* drives other sources' filters; exposing the CAEN dictionary as a browseable/resolvable reference endpoint is reference-module work. |
-| **The identity-reference surface** (read-through to kernel `IdentityRepo`): org-by-CUI reference card, identifier list, name→CUI resolve | **REFERENCE MODULE** (thin pass-through to kernel repo) | The kernel repo is internal; the reference module exposes the *public reference endpoints* (`GET /api/v1/reference/organizations/...`). It adds no identity logic. |
+| Concern                                                                                                                                                                              | Owner                                                          | Rationale                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Organization` type, `normalizeCui`, `IdentityRepo` (`findByCui`, `findByOrgId`, `getIdentifiers`, `searchByName`, `resolve`)                                                        | **KERNEL** (`shared/core` + `shared/shell/repo/identity-repo`) | §4.1. Every source links by CUI through this; the reference module must not fork it.                                                                                            |
+| `Territory` type, `TerritoryRepo` (`byTerritorialSiruta`, `byCounty`, `searchUat`, `listCounties`, `listRegions`)                                                                    | **KERNEL** (`shared/shell/repo/territory-repo`)                | §4.2. All geographic filters across all sources resolve here.                                                                                                                   |
+| `Entity` GraphQL join type, shared scalars (`CUI`, `SIRUTA`, `BigInt`, `Money`, `Date`)                                                                                              | **KERNEL** (§6.2, §14.1)                                       | Reference _extends_ `Entity`, never redefines it.                                                                                                                               |
+| Shared filter families (`Entity`, `Territory`, `Classification`) + the filter pipeline (`toTypeBox`/`toGraphQLInput`/`toConditionBuilders`/`canonicalizeFilters`)                    | **KERNEL** (§7, §14.2)                                         | Reference declares specs that consume these; it invents no DSL.                                                                                                                 |
+| `/api/v1/<domain>/filters/resolve` plumbing + the shared discovery-tool factory                                                                                                      | **KERNEL** (§7.4)                                              | Reference parameterizes it for its dimensions.                                                                                                                                  |
+| **The public-entity registry surface** (`core.public_entities`): list/filter/detail/search; `default_report_type`, `issues`, `field_trace`, UAT-mapping provenance, parent creditors | **REFERENCE MODULE**                                           | Budget-world registry, kept as-is per §4.1; no other module exposes it.                                                                                                         |
+| **The territory/UAT browse surface** (`core.territories`): list/filter/detail, counties index, regions index, UAT autocomplete — as _public REST/GraphQL/MCP endpoints_              | **REFERENCE MODULE**                                           | The kernel `TerritoryRepo` is an internal port; the reference module is the only module that turns it into a public reference API.                                              |
+| **The classification-code lookup surface** (`core.classification_codes` = CAEN rev1/2/3): list/filter/detail, code→label resolve                                                     | **REFERENCE MODULE**                                           | The kernel `Classification` _filter family_ drives other sources' filters; exposing the CAEN dictionary as a browseable/resolvable reference endpoint is reference-module work. |
+| **The identity-reference surface** (read-through to kernel `IdentityRepo`): org-by-CUI reference card, identifier list, name→CUI resolve                                             | **REFERENCE MODULE** (thin pass-through to kernel repo)        | The kernel repo is internal; the reference module exposes the _public reference endpoints_ (`GET /api/v1/reference/organizations/...`). It adds no identity logic.              |
 
 **Non-duplication rule (binding for this module):** the reference module's repo
 holds **only** queries that no kernel repo already provides. Concretely it owns a
@@ -56,13 +56,13 @@ kernel). MCP tools are `<verb>_reference_<noun>`.
 
 **What's in prod now** (live counts, `transparenta_prod`, 2026-06-16):
 
-| Table | Rows | Notes |
-|---|---:|---|
-| `core.organizations` | 3,985,167 | **All `kind='company'`, `first_seen_source='onrc'`** today. The public-entity orgs are *not yet* in this hub — they live in `core.public_entities`. All rows carry CUI. PK `org_id` bigint; unique `cui`. |
-| `core.organization_identifiers` | 8,072,163 | 2 schemes: `ro-cui` (3,985,167) + `onrc-cod-inmatriculare` (4,086,996), all `source='onrc'`. PK `(scheme,value)`; **no index on `org_id`** (see §3 risk). |
-| `core.public_entities` | 15,002 | Budget-world registry, CUI PK. All have `territorial_siruta_code`. `is_uat=true`: 3,213. `issues` currently empty for all rows; `field_trace` populated. 11,695 have `parent1_cui`. |
-| `core.territories` | 3,228 | All linked (`siruta_link_method` set), all have `population` and `uat_code`. 42 counties, 8 dev regions. PK surrogate `id` (the legacy `uat_id` contract); unique `territorial_siruta_code`. |
-| `core.classification_codes` | 3,111 | **CAEN only**: `caen_rev2` (1,675), `caen_rev1` (785), `caen_rev3` (651). PK `(system, code)`. `parent_code` effectively unused (3 rows). **No functional/economic/CPV here** — those live in `budget.functional_classifications` / `budget.economic_classifications` (owned by the budget module). |
+| Table                           |      Rows | Notes                                                                                                                                                                                                                                                                                               |
+| ------------------------------- | --------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core.organizations`            | 3,985,167 | **All `kind='company'`, `first_seen_source='onrc'`** today. The public-entity orgs are _not yet_ in this hub — they live in `core.public_entities`. All rows carry CUI. PK `org_id` bigint; unique `cui`.                                                                                           |
+| `core.organization_identifiers` | 8,072,163 | 2 schemes: `ro-cui` (3,985,167) + `onrc-cod-inmatriculare` (4,086,996), all `source='onrc'`. PK `(scheme,value)`; **no index on `org_id`** (see §3 risk).                                                                                                                                           |
+| `core.public_entities`          |    15,002 | Budget-world registry, CUI PK. All have `territorial_siruta_code`. `is_uat=true`: 3,213. `issues` currently empty for all rows; `field_trace` populated. 11,695 have `parent1_cui`.                                                                                                                 |
+| `core.territories`              |     3,228 | All linked (`siruta_link_method` set), all have `population` and `uat_code`. 42 counties, 8 dev regions. PK surrogate `id` (the legacy `uat_id` contract); unique `territorial_siruta_code`.                                                                                                        |
+| `core.classification_codes`     |     3,111 | **CAEN only**: `caen_rev2` (1,675), `caen_rev1` (785), `caen_rev3` (651). PK `(system, code)`. `parent_code` effectively unused (3 rows). **No functional/economic/CPV here** — those live in `budget.functional_classifications` / `budget.economic_classifications` (owned by the budget module). |
 
 **Distributions that drive filter enums (live):**
 
@@ -90,8 +90,8 @@ kernel). MCP tools are `<verb>_reference_<noun>`.
   The module must not hard-depend on it.
 - **INS statistical datasets** — the legacy `ins` module served INS census/
   indicator datasets from a dedicated `ins.*` schema that **does not exist in the
-  `transparenta_prod` snapshot** (no `ins.tsv`). INS data is *not in the serving
-  DB yet*. **Decision (§13 Q2):** the "ins" in this module's title is honored as
+  `transparenta_prod` snapshot** (no `ins.tsv`). INS data is _not in the serving
+  DB yet_. **Decision (§13 Q2):** the "ins" in this module's title is honored as
   the **territory/UAT + population reference surface** (`core.territories` carries
   `population`, the only INS-derived measure in prod). Full INS dataset/observation
   browsing is **out of scope** for v1 and tracked as a future `ins` slice; this
@@ -118,25 +118,26 @@ are **text**, so we `::text`-cast on read for a uniform `SIRUTA` scalar).
 ```ts
 // reference/core/types.ts
 export interface ReferencePublicEntity {
-  readonly cui: string;                       // core.public_entities.cui (PK)
+  readonly cui: string; // core.public_entities.cui (PK)
   readonly name: string;
   readonly address: string | null;
-  readonly entityType: string | null;        // entity_type (14-value open enum)
-  readonly category: string | null;          // category (~50-value open enum)
-  readonly tags: readonly string[];           // jsonb array
+  readonly entityType: string | null; // entity_type (14-value open enum)
+  readonly category: string | null; // category (~50-value open enum)
+  readonly tags: readonly string[]; // jsonb array
   readonly isUat: boolean;
-  readonly territorialSirutaCode: string | null;   // link to territory hub (no FK)
-  readonly uatMapping: {                      // provenance — reference-only attrs
-    readonly method: string | null;           // uat_mapping_method
-    readonly confidence: string | null;       // uat_mapping_confidence
+  readonly territorialSirutaCode: string | null; // link to territory hub (no FK)
+  readonly uatMapping: {
+    // provenance — reference-only attrs
+    readonly method: string | null; // uat_mapping_method
+    readonly confidence: string | null; // uat_mapping_confidence
     readonly unresolvedReason: string | null; // uat_unresolved_reason
   };
   readonly parents: { readonly cui1: string | null; readonly cui2: string | null }; // parent1_cui/parent2_cui
   readonly mainCreditors: readonly unknown[]; // main_creditors jsonb (passthrough)
-  readonly defaultReportType: string;         // default_report_type
-  readonly issues: readonly unknown[];        // issues jsonb (data-quality pattern, §4.1)
+  readonly defaultReportType: string; // default_report_type
+  readonly issues: readonly unknown[]; // issues jsonb (data-quality pattern, §4.1)
   readonly fieldTrace?: Record<string, unknown>; // field_trace — debug-only, behind ?include=trace
-  readonly updatedAt: string;                 // updated_at ISO
+  readonly updatedAt: string; // updated_at ISO
 }
 ```
 
@@ -144,7 +145,7 @@ export interface ReferencePublicEntity {
   `TerritoryRepo.byTerritorialSiruta` for canonical `countyName`/`region`/
   `population` (the registry row only carries the link key + provenance). The
   detail view-model embeds a `ReferenceTerritoryRef { sirutaCode, name, countyName,
-  region, population } | null`.
+region, population } | null`.
 - **Identity correlation:** `cui` is the kernel `Entity` join key. The detail
   resolver attaches `Entity` so a public entity links to its companies-domain /
   budget / procurement slices via the contributor registry (§4 / §6).
@@ -177,10 +178,10 @@ the GraphQL SDL §6.1 carries the same field set.)
 
 ```ts
 export interface ReferenceClassificationCode {
-  readonly system: string;     // 'caen_rev1' | 'caen_rev2' | 'caen_rev3'
+  readonly system: string; // 'caen_rev1' | 'caen_rev2' | 'caen_rev3'
   readonly code: string;
   readonly label: string;
-  readonly parentCode: string | null;   // present, but ~unused in CAEN
+  readonly parentCode: string | null; // present, but ~unused in CAEN
 }
 ```
 
@@ -217,7 +218,10 @@ export interface PublicEntityRepo {
   list(input: PublicEntityListInput): Promise<Result<Paged<ReferencePublicEntity>, ApiError>>;
 
   // name autocomplete — public_entities_name_trgm_idx (GIN pg_trgm)
-  searchByName(q: string, limit: number): Promise<Result<readonly ReferencePublicEntity[], ApiError>>;
+  searchByName(
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ReferencePublicEntity[], ApiError>>;
 
   // resolve name|cui → {cui, name, score} for the discovery tool (§7.4)
   resolve(q: string, limit: number): Promise<Result<readonly PublicEntityMatch[], ApiError>>;
@@ -226,12 +230,15 @@ export interface PublicEntityRepo {
   findChildren(parentCui: string): Promise<Result<readonly ReferencePublicEntity[], ApiError>>;
 
   // aggregate — counts by entity_type / category / county (GROUP BY, indexed)
-  aggregate(by: 'entity_type' | 'category' | 'is_uat' | 'county', input: PublicEntityFilter):
-    Promise<Result<readonly { key: string; count: number }[], ApiError>>;
+  aggregate(
+    by: 'entity_type' | 'category' | 'is_uat' | 'county',
+    input: PublicEntityFilter
+  ): Promise<Result<readonly { key: string; count: number }[], ApiError>>;
 }
 ```
 
 Index/perf notes:
+
 - `findByCui` → `public_entities_pkey` (PK). O(1).
 - `list` filters: `entity_type` → `public_entities_entity_type_idx` (partial);
   `category` → `public_entities_category_idx`; `territorial_siruta_code` →
@@ -257,14 +264,22 @@ Index/perf notes:
 ```ts
 export interface ClassificationRepo {
   // detail — PK (system, code)
-  findOne(system: string, code: string): Promise<Result<ReferenceClassificationCode | null, ApiError>>;
+  findOne(
+    system: string,
+    code: string
+  ): Promise<Result<ReferenceClassificationCode | null, ApiError>>;
 
   // list+filter — system (enum), code prefix, label contains
-  list(input: ClassificationListInput): Promise<Result<Paged<ReferenceClassificationCode>, ApiError>>;
+  list(
+    input: ClassificationListInput
+  ): Promise<Result<Paged<ReferenceClassificationCode>, ApiError>>;
 
   // resolve label|code → codes for discovery (§7.4)
-  resolve(system: string | null, q: string, limit: number):
-    Promise<Result<readonly ReferenceClassificationCode[], ApiError>>;
+  resolve(
+    system: string | null,
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ReferenceClassificationCode[], ApiError>>;
 
   listSystems(): Promise<Result<readonly { system: string; count: number }[], ApiError>>;
 }
@@ -293,23 +308,23 @@ columns); `label` contains is a seq-scan over ≤1,675 rows (trivial). All 5s cl
 
 Framework-free, over ports, returning `Result<T, ApiError>` (§2 hexagonal rule).
 
-| Usecase | Signature (input → output) | Repo(s) | Notes |
-|---|---|---|---|
-| `getPublicEntity` | `{cui, includeTrace?}` → `ReferencePublicEntity` (+ embedded `TerritoryRef`) | PublicEntityRepo + kernel TerritoryRepo | NotFound if missing |
-| `listPublicEntities` | `PublicEntityListInput` → `Paged<ReferencePublicEntity>` | PublicEntityRepo (+ territories for county filter) | offset pagination |
-| `searchPublicEntities` | `{q, limit}` → `ReferencePublicEntity[]` | PublicEntityRepo | trigram |
-| `aggregatePublicEntities` | `{by, filter}` → `{key,count}[]` | PublicEntityRepo | registry stats |
-| `getPublicEntityTree` | `{cui}` → `{entity, children[]}` | PublicEntityRepo | parent-creditor tree |
-| `getTerritory` | `{idOrSiruta}` → `Territory` | kernel TerritoryRepo | accepts surrogate id OR territorial_siruta |
-| `listTerritories` | `TerritoryListInput` → `Paged<Territory>` | kernel TerritoryRepo | offset |
-| `searchUat` | `{q, limit}` → `Territory[]` | kernel TerritoryRepo | trigram |
-| `listCounties` | `{}` → `ReferenceCounty[]` | kernel TerritoryRepo (GROUP BY) | 42 rows, cached long |
-| `listRegions` | `{}` → `ReferenceRegion[]` | kernel TerritoryRepo (GROUP BY) | 8 rows, cached long |
-| `getClassificationCode` | `{system, code}` → `ReferenceClassificationCode` | ClassificationRepo | |
-| `listClassificationCodes` | `ClassificationListInput` → `Paged<…>` | ClassificationRepo | offset |
-| `getOrganizationRef` | `{cui}` → `Organization` | kernel IdentityRepo | thin pass-through |
-| `listOrganizationIdentifiers` | `{cui, limit, cursor?}` → `Cursor<OrgIdentifier>` | kernel IdentityRepo | cursor (8M table, §3 risk) |
-| `resolveReference` | `{dim, q, limit}` → `ResolveHit[]` | dim-routed (entity/territory/classification/org) | backs `/filters/resolve` + discovery MCP |
+| Usecase                       | Signature (input → output)                                                   | Repo(s)                                            | Notes                                      |
+| ----------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------ |
+| `getPublicEntity`             | `{cui, includeTrace?}` → `ReferencePublicEntity` (+ embedded `TerritoryRef`) | PublicEntityRepo + kernel TerritoryRepo            | NotFound if missing                        |
+| `listPublicEntities`          | `PublicEntityListInput` → `Paged<ReferencePublicEntity>`                     | PublicEntityRepo (+ territories for county filter) | offset pagination                          |
+| `searchPublicEntities`        | `{q, limit}` → `ReferencePublicEntity[]`                                     | PublicEntityRepo                                   | trigram                                    |
+| `aggregatePublicEntities`     | `{by, filter}` → `{key,count}[]`                                             | PublicEntityRepo                                   | registry stats                             |
+| `getPublicEntityTree`         | `{cui}` → `{entity, children[]}`                                             | PublicEntityRepo                                   | parent-creditor tree                       |
+| `getTerritory`                | `{idOrSiruta}` → `Territory`                                                 | kernel TerritoryRepo                               | accepts surrogate id OR territorial_siruta |
+| `listTerritories`             | `TerritoryListInput` → `Paged<Territory>`                                    | kernel TerritoryRepo                               | offset                                     |
+| `searchUat`                   | `{q, limit}` → `Territory[]`                                                 | kernel TerritoryRepo                               | trigram                                    |
+| `listCounties`                | `{}` → `ReferenceCounty[]`                                                   | kernel TerritoryRepo (GROUP BY)                    | 42 rows, cached long                       |
+| `listRegions`                 | `{}` → `ReferenceRegion[]`                                                   | kernel TerritoryRepo (GROUP BY)                    | 8 rows, cached long                        |
+| `getClassificationCode`       | `{system, code}` → `ReferenceClassificationCode`                             | ClassificationRepo                                 |                                            |
+| `listClassificationCodes`     | `ClassificationListInput` → `Paged<…>`                                       | ClassificationRepo                                 | offset                                     |
+| `getOrganizationRef`          | `{cui}` → `Organization`                                                     | kernel IdentityRepo                                | thin pass-through                          |
+| `listOrganizationIdentifiers` | `{cui, limit, cursor?}` → `Cursor<OrgIdentifier>`                            | kernel IdentityRepo                                | cursor (8M table, §3 risk)                 |
+| `resolveReference`            | `{dim, q, limit}` → `ResolveHit[]`                                           | dim-routed (entity/territory/classification/org)   | backs `/filters/resolve` + discovery MCP   |
 
 **Cross-source contributor (§4.4 / §14.7).** The reference module registers a
 `SourceContributor` with `source: 'reference'`:
@@ -339,30 +354,31 @@ Prefix `/api/v1/reference/`. Every route: TypeBox on query/params; envelope
 `{ ok, data, meta?, requestId }` (§5.2 / §14.11); `config: { public: true }`
 (§14.11 — per-route flag, not prefix bypass). All read-only.
 
-| # | Method · Path | Query/params (TypeBox) | Response | Pagination | Cache TTL | stmt-timeout |
-|---|---|---|---|---|---|---|
-| R1 | `GET /reference/public-entities` | `PublicEntityFilter` (§7.1) + `page,pageSize,sort` | `ReferencePublicEntity[]` | offset (`meta.page`) | 5 min | 5s |
-| R2 | `GET /reference/public-entities/:cui` | path `cui:CUI`; `?include=trace` | `ReferencePublicEntity` (+ `territory`) | — | 5 min | 5s |
-| R3 | `GET /reference/public-entities/:cui/children` | path `cui` | `ReferencePublicEntity[]` | offset | 5 min | 5s |
-| R4 | `GET /reference/public-entities/aggregate` | `by:enum(entity_type,category,is_uat,county)` + `PublicEntityFilter` | `{key,count}[]` | — | 30 min | 15s |
-| R5 | `GET /reference/territories` | `TerritoryFilter` (§7.1) + `page,pageSize,sort` | `Territory[]` | offset | 30 min | 5s |
-| R6 | `GET /reference/territories/:id` | path `id` (surrogate **or** `siruta:` prefix → territorial_siruta) | `Territory` | — | 30 min | 5s |
-| R7 | `GET /reference/counties` | — | `ReferenceCounty[]` (42) | — | 6 h | 5s |
-| R8 | `GET /reference/regions` | — | `ReferenceRegion[]` (8) | — | 6 h | 5s |
-| R9 | `GET /reference/classification-codes` | `ClassificationFilter` (§7.1) + `page,pageSize` | `ReferenceClassificationCode[]` | offset | 6 h | 5s |
-| R10 | `GET /reference/classification-codes/:system/:code` | path `system,code` | `ReferenceClassificationCode` | — | 6 h | 5s |
-| R11 | `GET /reference/classification-systems` | — | `{system,count}[]` | — | 6 h | 5s |
-| R12 | `GET /reference/organizations/:cui` | path `cui:CUI` | `Organization` (kernel) | — | 5 min | 5s |
-| R13 | `GET /reference/organizations/:cui/identifiers` | path `cui`; `limit,cursor` | `OrgIdentifier[]` | cursor (`meta.cursor`) | 5 min | 5s |
-| R14 | `GET /reference/filters/resolve` | `dim:enum(public_entity,territory,classification,organization), q, limit` | `ResolveHit[]` | — | 5 min | 5s |
+| #   | Method · Path                                       | Query/params (TypeBox)                                                    | Response                                | Pagination             | Cache TTL | stmt-timeout |
+| --- | --------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------- | ---------------------- | --------- | ------------ |
+| R1  | `GET /reference/public-entities`                    | `PublicEntityFilter` (§7.1) + `page,pageSize,sort`                        | `ReferencePublicEntity[]`               | offset (`meta.page`)   | 5 min     | 5s           |
+| R2  | `GET /reference/public-entities/:cui`               | path `cui:CUI`; `?include=trace`                                          | `ReferencePublicEntity` (+ `territory`) | —                      | 5 min     | 5s           |
+| R3  | `GET /reference/public-entities/:cui/children`      | path `cui`                                                                | `ReferencePublicEntity[]`               | offset                 | 5 min     | 5s           |
+| R4  | `GET /reference/public-entities/aggregate`          | `by:enum(entity_type,category,is_uat,county)` + `PublicEntityFilter`      | `{key,count}[]`                         | —                      | 30 min    | 15s          |
+| R5  | `GET /reference/territories`                        | `TerritoryFilter` (§7.1) + `page,pageSize,sort`                           | `Territory[]`                           | offset                 | 30 min    | 5s           |
+| R6  | `GET /reference/territories/:id`                    | path `id` (surrogate **or** `siruta:` prefix → territorial_siruta)        | `Territory`                             | —                      | 30 min    | 5s           |
+| R7  | `GET /reference/counties`                           | —                                                                         | `ReferenceCounty[]` (42)                | —                      | 6 h       | 5s           |
+| R8  | `GET /reference/regions`                            | —                                                                         | `ReferenceRegion[]` (8)                 | —                      | 6 h       | 5s           |
+| R9  | `GET /reference/classification-codes`               | `ClassificationFilter` (§7.1) + `page,pageSize`                           | `ReferenceClassificationCode[]`         | offset                 | 6 h       | 5s           |
+| R10 | `GET /reference/classification-codes/:system/:code` | path `system,code`                                                        | `ReferenceClassificationCode`           | —                      | 6 h       | 5s           |
+| R11 | `GET /reference/classification-systems`             | —                                                                         | `{system,count}[]`                      | —                      | 6 h       | 5s           |
+| R12 | `GET /reference/organizations/:cui`                 | path `cui:CUI`                                                            | `Organization` (kernel)                 | —                      | 5 min     | 5s           |
+| R13 | `GET /reference/organizations/:cui/identifiers`     | path `cui`; `limit,cursor`                                                | `OrgIdentifier[]`                       | cursor (`meta.cursor`) | 5 min     | 5s           |
+| R14 | `GET /reference/filters/resolve`                    | `dim:enum(public_entity,territory,classification,organization), q, limit` | `ResolveHit[]`                          | —                      | 5 min     | 5s           |
 
 OpenAPI: the module exports one fragment merged by the kernel into
 `/api/v1/openapi.json` (§6.1). `R6` documents the dual-id grammar (`123` =
 surrogate id; `siruta:1234567` = territorial_siruta_code) explicitly.
 
 Notes / guards:
+
 - **R12/R13 caveat:** `core.organizations` is companies-only today (§1) — a
-  public-entity CUI will 404 on R12 *unless* it also exists as an ONRC org. R12's
+  public-entity CUI will 404 on R12 _unless_ it also exists as an ONRC org. R12's
   description states this; the registry detail (R2) is the authoritative
   public-entity surface. (If/when public entities are added to `core.organizations`,
   R12 covers both with no API change.)
@@ -396,38 +412,85 @@ type ReferencePublicEntity {
   category: String
   tags: [String!]!
   isUat: Boolean!
-  territory: Territory                 # kernel type, resolved via TerritoryRepo + DataLoader
+  territory: Territory # kernel type, resolved via TerritoryRepo + DataLoader
   uatMapping: ReferenceUatMapping!
   parents: ReferenceParentCreditors!
   defaultReportType: String!
   issues: [JSON!]!
-  fieldTrace: JSON                     # nullable; only populated when explicitly selected
+  fieldTrace: JSON # nullable; only populated when explicitly selected
   updatedAt: DateTime!
-  entity: Entity                       # kernel join → cross-source correlation by CUI
+  entity: Entity # kernel join → cross-source correlation by CUI
 }
-type ReferenceUatMapping { method: String, confidence: String, unresolvedReason: String }
-type ReferenceParentCreditors { cui1: CUI, cui2: CUI }
+type ReferenceUatMapping {
+  method: String
+  confidence: String
+  unresolvedReason: String
+}
+type ReferenceParentCreditors {
+  cui1: CUI
+  cui2: CUI
+}
 
-type ReferenceClassificationCode { system: String!, code: String!, label: String!, parentCode: String }
-type ReferenceCounty { countyCode: String!, countyName: String!, region: String!, uatCount: Int!, population: Int }
-type ReferenceRegion { region: String!, countyCount: Int!, uatCount: Int! }
-type ReferenceResolveHit { dim: String!, value: String!, label: String!, score: Float }
+type ReferenceClassificationCode {
+  system: String!
+  code: String!
+  label: String!
+  parentCode: String
+}
+type ReferenceCounty {
+  countyCode: String!
+  countyName: String!
+  region: String!
+  uatCount: Int!
+  population: Int
+}
+type ReferenceRegion {
+  region: String!
+  countyCount: Int!
+  uatCount: Int!
+}
+type ReferenceResolveHit {
+  dim: String!
+  value: String!
+  label: String!
+  score: Float
+}
 
 # Relay connections (§5.3) reuse the kernel cursor encoder
-type ReferencePublicEntityConnection { edges: [ReferencePublicEntityEdge!]!, pageInfo: PageInfo! }
-type ReferencePublicEntityEdge { node: ReferencePublicEntity!, cursor: String! }
+type ReferencePublicEntityConnection {
+  edges: [ReferencePublicEntityEdge!]!
+  pageInfo: PageInfo!
+}
+type ReferencePublicEntityEdge {
+  node: ReferencePublicEntity!
+  cursor: String!
+}
 
 extend type Query {
   referencePublicEntity(cui: CUI!): ReferencePublicEntity
-  referencePublicEntities(filter: ReferencePublicEntityFilter, page: PageInput, sort: ReferencePublicEntitySort): ReferencePublicEntityConnection!
-  referencePublicEntityAggregate(by: ReferenceAggregateDim!, filter: ReferencePublicEntityFilter): [ReferenceCountBucket!]!
+  referencePublicEntities(
+    filter: ReferencePublicEntityFilter
+    page: PageInput
+    sort: ReferencePublicEntitySort
+  ): ReferencePublicEntityConnection!
+  referencePublicEntityAggregate(
+    by: ReferenceAggregateDim!
+    filter: ReferencePublicEntityFilter
+  ): [ReferenceCountBucket!]!
   referenceTerritory(id: ID, siruta: SIRUTA): Territory
-  referenceTerritories(filter: ReferenceTerritoryFilter, page: PageInput, sort: ReferenceTerritorySort): TerritoryConnection!
+  referenceTerritories(
+    filter: ReferenceTerritoryFilter
+    page: PageInput
+    sort: ReferenceTerritorySort
+  ): TerritoryConnection!
   referenceCounties: [ReferenceCounty!]!
   referenceRegions: [ReferenceRegion!]!
-  referenceClassificationCodes(filter: ReferenceClassificationFilter, page: PageInput): ReferenceClassificationCodeConnection!
+  referenceClassificationCodes(
+    filter: ReferenceClassificationFilter
+    page: PageInput
+  ): ReferenceClassificationCodeConnection!
   referenceClassificationCode(system: String!, code: String!): ReferenceClassificationCode
-  referenceOrganization(cui: CUI!): Organization        # kernel type
+  referenceOrganization(cui: CUI!): Organization # kernel type
   referenceResolve(dim: ReferenceResolveDim!, q: String!, limit: Int = 10): [ReferenceResolveHit!]!
 }
 ```
@@ -436,7 +499,7 @@ extend type Query {
 
 ```graphql
 extend type Entity {
-  reference: ReferencePublicEntity   # the registry card, if this CUI is a public entity
+  reference: ReferencePublicEntity # the registry card, if this CUI is a public entity
 }
 ```
 
@@ -461,20 +524,20 @@ Three collection specs.
 
 **`public_entities` spec** (driving table `core.public_entities`, alias `pe`):
 
-| Field | type | ops | driving column / index | REST param | GraphQL input | exclude? |
-|---|---|---|---|---|---|---|
-| `cui` | string | eq,in | `pe.cui` (PK) | `cui` / `cui[]` | `cui: [CUI!]` | yes |
-| `name` | string | contains,prefix | `pe.name` (GIN trgm) | `name` | `name: String` | no |
-| `entityType` | enum(14) | eq,in,isNull | `pe.entity_type` (partial idx) | `entityType[]` | `entityType: [String!]` | yes |
-| `category` | string | eq,in,prefix,isNull | `pe.category` (idx) | `category[]` | `category: [String!]` | yes |
-| `isUat` | bool | eq | `pe.is_uat` (seq, 15k) | `isUat` | `isUat: Boolean` | no |
-| `tags` | string(array) | contains | `pe.tags @> to_jsonb(array[$])` — **no GIN idx**, seq 15k | `tag[]` | `tags: [String!]` | no |
-| `sirutaCode` | string | eq,in,isNull | `pe.territorial_siruta_code` (idx) | `siruta[]` | `siruta: [SIRUTA!]` | yes |
-| `countyCode` | string | eq,in | join `territories` on `territorial_siruta_code` (uq×idx) → filter `t.county_code` (idx) | `countyCode[]` | `countyCode: [String!]` | yes |
-| `region` | enum(8) | eq,in | join `territories` (as above) → filter `t.region` (**no idx**, seq in 3,228-row dim) | `region[]` | `region: [String!]` | yes |
-| `parentCui` | string | eq | `pe.parent1_cui OR pe.parent2_cui` (**no idx**, seq 15k) | `parentCui` | `parentCui: CUI` | no |
-| `hasIssues` | bool | eq | `jsonb_array_length(pe.issues) > 0` | `hasIssues` | `hasIssues: Boolean` | no |
-| `defaultReportType` | string | eq,in | `pe.default_report_type` | `defaultReportType[]` | — | no |
+| Field               | type          | ops                 | driving column / index                                                                  | REST param            | GraphQL input           | exclude? |
+| ------------------- | ------------- | ------------------- | --------------------------------------------------------------------------------------- | --------------------- | ----------------------- | -------- |
+| `cui`               | string        | eq,in               | `pe.cui` (PK)                                                                           | `cui` / `cui[]`       | `cui: [CUI!]`           | yes      |
+| `name`              | string        | contains,prefix     | `pe.name` (GIN trgm)                                                                    | `name`                | `name: String`          | no       |
+| `entityType`        | enum(14)      | eq,in,isNull        | `pe.entity_type` (partial idx)                                                          | `entityType[]`        | `entityType: [String!]` | yes      |
+| `category`          | string        | eq,in,prefix,isNull | `pe.category` (idx)                                                                     | `category[]`          | `category: [String!]`   | yes      |
+| `isUat`             | bool          | eq                  | `pe.is_uat` (seq, 15k)                                                                  | `isUat`               | `isUat: Boolean`        | no       |
+| `tags`              | string(array) | contains            | `pe.tags @> to_jsonb(array[$])` — **no GIN idx**, seq 15k                               | `tag[]`               | `tags: [String!]`       | no       |
+| `sirutaCode`        | string        | eq,in,isNull        | `pe.territorial_siruta_code` (idx)                                                      | `siruta[]`            | `siruta: [SIRUTA!]`     | yes      |
+| `countyCode`        | string        | eq,in               | join `territories` on `territorial_siruta_code` (uq×idx) → filter `t.county_code` (idx) | `countyCode[]`        | `countyCode: [String!]` | yes      |
+| `region`            | enum(8)       | eq,in               | join `territories` (as above) → filter `t.region` (**no idx**, seq in 3,228-row dim)    | `region[]`            | `region: [String!]`     | yes      |
+| `parentCui`         | string        | eq                  | `pe.parent1_cui OR pe.parent2_cui` (**no idx**, seq 15k)                                | `parentCui`           | `parentCui: CUI`        | no       |
+| `hasIssues`         | bool          | eq                  | `jsonb_array_length(pe.issues) > 0`                                                     | `hasIssues`           | `hasIssues: Boolean`    | no       |
+| `defaultReportType` | string        | eq,in               | `pe.default_report_type`                                                                | `defaultReportType[]` | —                       | no       |
 
 `sort`: default `name asc`; allowed `name`, `cui`, `entity_type`, `updated_at`.
 
@@ -482,28 +545,28 @@ Three collection specs.
 kernel **Territory filter family** (§7.2) verbatim; module adds nothing beyond
 what the family declares:
 
-| Field | type | ops | column / index | exclude? |
-|---|---|---|---|---|
-| `id` | int | eq,in | `t.id` (PK) | no |
-| `sirutaCode` | string | eq,in | `t.siruta_code` (idx) | yes |
-| `territorialSiruta` | string | eq,in | `t.territorial_siruta_code` (uq) | no |
-| `countyCode` | string | eq,in | `t.county_code` (idx) | yes |
-| `region` | enum(8) | eq,in | `t.region` (**no idx**, seq in 3,228 rows) | yes |
-| `name` | string | contains,prefix | `t.name` (GIN trgm) | no |
-| `isUat` | bool | eq | derived `t.uat_code IS NOT NULL` | no |
-| `minPopulation` / `maxPopulation` | int | gte / lte (`between`) | `t.population` | no |
+| Field                             | type    | ops                   | column / index                             | exclude? |
+| --------------------------------- | ------- | --------------------- | ------------------------------------------ | -------- |
+| `id`                              | int     | eq,in                 | `t.id` (PK)                                | no       |
+| `sirutaCode`                      | string  | eq,in                 | `t.siruta_code` (idx)                      | yes      |
+| `territorialSiruta`               | string  | eq,in                 | `t.territorial_siruta_code` (uq)           | no       |
+| `countyCode`                      | string  | eq,in                 | `t.county_code` (idx)                      | yes      |
+| `region`                          | enum(8) | eq,in                 | `t.region` (**no idx**, seq in 3,228 rows) | yes      |
+| `name`                            | string  | contains,prefix       | `t.name` (GIN trgm)                        | no       |
+| `isUat`                           | bool    | eq                    | derived `t.uat_code IS NOT NULL`           | no       |
+| `minPopulation` / `maxPopulation` | int     | gte / lte (`between`) | `t.population`                             | no       |
 
 `sort`: default `name asc`; allowed `name`, `population`, `county_code`.
 
 **`classification_codes` spec** (driving table `core.classification_codes`, alias `c`):
 
-| Field | type | ops | column / index | exclude? |
-|---|---|---|---|---|
-| `system` | enum(3) | eq,in | `c.system` (PK leading col) | no |
-| `code` | string | eq,in,prefix | `c.code` (PK) | yes |
-| `codePrefix` | string | prefix | `c.code LIKE q||'%'` | no |
-| `label` | string | contains | `c.label` | no |
-| `parentCode` | string | eq,isNull | `c.parent_code` | yes |
+| Field        | type    | ops          | column / index              | exclude? |
+| ------------ | ------- | ------------ | --------------------------- | -------- | ---- | --- |
+| `system`     | enum(3) | eq,in        | `c.system` (PK leading col) | no       |
+| `code`       | string  | eq,in,prefix | `c.code` (PK)               | yes      |
+| `codePrefix` | string  | prefix       | `c.code LIKE q              |          | '%'` | no  |
+| `label`      | string  | contains     | `c.label`                   | no       |
+| `parentCode` | string  | eq,isNull    | `c.parent_code`             | yes      |
 
 `sort`: default `code asc`; allowed `code`, `label`.
 
@@ -523,7 +586,7 @@ what the family declares:
   emitting `contains`. No GIN index today → seq within 15k rows (acceptable).
 - **Negation asymmetry note (siruta fields):** `sirutaCode`/`territorialSiruta`
   carry different `exclude?` flags deliberately — `sirutaCode` (the join/territory
-  link) is negatable for "all UATs *except* these"; `territorialSiruta` is the
+  link) is negatable for "all UATs _except_ these"; `territorialSiruta` is the
   exact PK-grade lookup where negation has no use case, so it is not negatable.
 - `canonicalizeFilters(input)` (kernel) produces the cache key + cursor `fhash` +
   the tri-surface equivalence test fixture (§14.2/§14.3) for all three specs.
@@ -533,12 +596,12 @@ what the family declares:
 The reference module exposes **four** resolve dimensions (`dim` param of R14 /
 the discovery MCP tool):
 
-| dim | input | resolves to | backing |
-|---|---|---|---|
-| `public_entity` | Romanian institution name | `{ cui, name, county, score }` | `public_entities_name_trgm_idx` |
-| `territory` | locality/UAT name | `{ territorialSiruta, name, countyName, region }` | `territories_name_trgm_idx` |
-| `classification` | CAEN label or code fragment | `{ system, code, label }` | `classification_codes` |
-| `organization` | company name | `{ orgId, cui, name }` | kernel `IdentityRepo.searchByName` |
+| dim              | input                       | resolves to                                       | backing                            |
+| ---------------- | --------------------------- | ------------------------------------------------- | ---------------------------------- |
+| `public_entity`  | Romanian institution name   | `{ cui, name, county, score }`                    | `public_entities_name_trgm_idx`    |
+| `territory`      | locality/UAT name           | `{ territorialSiruta, name, countyName, region }` | `territories_name_trgm_idx`        |
+| `classification` | CAEN label or code fragment | `{ system, code, label }`                         | `classification_codes`             |
+| `organization`   | company name                | `{ orgId, cui, name }`                            | kernel `IdentityRepo.searchByName` |
 
 This is the **canonical name→value resolver** the foundation calls shared kernel
 infra (§7.4); reference is the source plan that declares the `public_entity`,
@@ -548,14 +611,14 @@ resolvers for buyer-institution (PC-1), territory (XS-5), and CAEN dimensions.
 
 ### 7.4 Golden question→filter examples (from `AI_AGENT_FILTER_QUESTION_CATALOG.md`)
 
-| Catalog ref | Question | Resolved filter |
-|---|---|---|
-| Canonical "Buyer institution" | "spending of *Primăria Cluj-Napoca*" | `resolve(public_entity,'Primaria Cluj-Napoca')` → `cui` → R2 → hand `cui` to budget/procurement |
-| Canonical "Buyer territory" | "UATs in *Cluj* county" | `R5 territories?countyCode=CJ` (after `resolve(territory,...)` or `listCounties`) |
-| XS-5 | "Region *Nord-Vest* public entities" | `R1 public-entities?region=Nord-Vest` |
-| Coverage gate | "which public entities have unresolved UAT mapping?" | `R1 public-entities?...&exclude.sirutaCode=isNull` + `uatMapping.unresolvedReason` |
-| PC-2 (CPV resolve) | "CAEN code for *fabricarea painii*" | `resolve(classification,'fabricarea painii')` → `{system:caen_rev2, code, label}` |
-| Presence | "is CUI 4267117 a public entity?" | contributor `presenceFor('4267117')` / R2 |
+| Catalog ref                   | Question                                             | Resolved filter                                                                                 |
+| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Canonical "Buyer institution" | "spending of _Primăria Cluj-Napoca_"                 | `resolve(public_entity,'Primaria Cluj-Napoca')` → `cui` → R2 → hand `cui` to budget/procurement |
+| Canonical "Buyer territory"   | "UATs in _Cluj_ county"                              | `R5 territories?countyCode=CJ` (after `resolve(territory,...)` or `listCounties`)               |
+| XS-5                          | "Region _Nord-Vest_ public entities"                 | `R1 public-entities?region=Nord-Vest`                                                           |
+| Coverage gate                 | "which public entities have unresolved UAT mapping?" | `R1 public-entities?...&exclude.sirutaCode=isNull` + `uatMapping.unresolvedReason`              |
+| PC-2 (CPV resolve)            | "CAEN code for _fabricarea painii_"                  | `resolve(classification,'fabricarea painii')` → `{system:caen_rev2, code, label}`               |
+| Presence                      | "is CUI 4267117 a public entity?"                    | contributor `presenceFor('4267117')` / R2                                                       |
 
 ---
 
@@ -567,14 +630,14 @@ TypeBox input+output; handler calls a core usecase; output is
 `<verb>_reference_<noun>`. Rate-limited, bounded result sizes, no PII (`field_trace`
 never emitted in MCP, §2.1).
 
-| Tool | Input (TypeBox) | Output `kind` | Usecase | `link` deep-link | `summary` template |
-|---|---|---|---|---|---|
-| `resolve_reference_filter` (discovery) | `{ dim:enum(public_entity,territory,classification,organization), q:string, limit?:int }` | `resolution` | `resolveReference` | `/entities/{cui}` or `/territories/{siruta}` | "Resolved '{q}' → {n} match(es); top: {label} ({value})." |
-| `get_reference_public_entity` | `{ cui:CUI }` | `public_entity` | `getPublicEntity` | `/entities/{cui}` | "{name} — {entityType}, {countyName}; default report {defaultReportType}." |
-| `search_reference_public_entities` | `ReferencePublicEntityFilter + {limit?}` | `public_entity_list` | `listPublicEntities` | `/reference/public-entities?{filters}` | "{total} public entities match {filterSummary}." |
-| `get_reference_territory` | `{ id?:int, siruta?:SIRUTA }` | `territory` | `getTerritory` | `/territories/{siruta}` | "{name}, {countyName} ({region}); population {population}." |
-| `list_reference_uats` | `ReferenceTerritoryFilter + {limit?}` | `territory_list` | `listTerritories` | `/reference/territories?{filters}` | "{total} UATs match {filterSummary}." |
-| `resolve_reference_classification` | `{ system?:enum, q:string, limit?:int }` | `classification_list` | `resolveReference(dim='classification')` | `/reference/classification-codes?...` | "CAEN matches for '{q}': {topCodes}." |
+| Tool                                   | Input (TypeBox)                                                                           | Output `kind`         | Usecase                                  | `link` deep-link                             | `summary` template                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
+| `resolve_reference_filter` (discovery) | `{ dim:enum(public_entity,territory,classification,organization), q:string, limit?:int }` | `resolution`          | `resolveReference`                       | `/entities/{cui}` or `/territories/{siruta}` | "Resolved '{q}' → {n} match(es); top: {label} ({value})."                  |
+| `get_reference_public_entity`          | `{ cui:CUI }`                                                                             | `public_entity`       | `getPublicEntity`                        | `/entities/{cui}`                            | "{name} — {entityType}, {countyName}; default report {defaultReportType}." |
+| `search_reference_public_entities`     | `ReferencePublicEntityFilter + {limit?}`                                                  | `public_entity_list`  | `listPublicEntities`                     | `/reference/public-entities?{filters}`       | "{total} public entities match {filterSummary}."                           |
+| `get_reference_territory`              | `{ id?:int, siruta?:SIRUTA }`                                                             | `territory`           | `getTerritory`                           | `/territories/{siruta}`                      | "{name}, {countyName} ({region}); population {population}."                |
+| `list_reference_uats`                  | `ReferenceTerritoryFilter + {limit?}`                                                     | `territory_list`      | `listTerritories`                        | `/reference/territories?{filters}`           | "{total} UATs match {filterSummary}."                                      |
+| `resolve_reference_classification`     | `{ system?:enum, q:string, limit?:int }`                                                  | `classification_list` | `resolveReference(dim='classification')` | `/reference/classification-codes?...`        | "CAEN matches for '{q}': {topCodes}."                                      |
 
 The discovery tool is the §7.4 shared infra parameterized for this module's four
 dimensions. Every query-tool output echoes the **normalized filters applied** and
@@ -591,7 +654,7 @@ public-entity aggregate reports the denominator (15,002) and the share matched.
   `public_entities_name_trgm_idx` trigram (R1/R14, fast, always-available). This
   avoids a search-service hard-dependency for the primary registry lookup.
 - **Meili/OpenSearch usage:** the reference module is a **consumer** of the
-  kernel hybrid-search contract for *cross-source* search (it contributes the
+  kernel hybrid-search contract for _cross-source_ search (it contributes the
   name→CUI/SIRUTA resolution that the kernel global search uses to scope by
   institution/territory), but it owns **no** Meili/OS index of its own in v1.
 - **Semantic gating (§14.5):** N/A — reference has no semantic fields. If a future
@@ -599,7 +662,7 @@ public-entity aggregate reports the denominator (15,002) and the share matched.
   section is where it declares Meili index name, OS index, and the
   capability-gated semantic field; until then, capability checks are moot.
 - **Recommendation (carried to scrapper):** if entity-name autocomplete needs to
-  span *all* registries (companies + public entities) in one Meili call, add a
+  span _all_ registries (companies + public entities) in one Meili call, add a
   `public_entity` projection to the `search` lane — but that is a scrapper change,
   noted here, not built in the server.
 
@@ -629,12 +692,13 @@ public-entity aggregate reports the denominator (15,002) and the share matched.
 ```ts
 // reference/index.ts
 export function makeReferenceModule(deps: {
-  db: ProdKysely;                    // kernel-typed instance (core.* tables)
-  identityRepo: IdentityRepo;        // KERNEL — injected, not constructed here
-  territoryRepo: TerritoryRepo;      // KERNEL — injected
-  cache: Cache; logger: Logger;
+  db: ProdKysely; // kernel-typed instance (core.* tables)
+  identityRepo: IdentityRepo; // KERNEL — injected, not constructed here
+  territoryRepo: TerritoryRepo; // KERNEL — injected
+  cache: Cache;
+  logger: Logger;
 }): ReferenceModule {
-  const publicEntityRepo = makePublicEntityRepo(deps.db);     // module-owned
+  const publicEntityRepo = makePublicEntityRepo(deps.db); // module-owned
   const classificationRepo = makeClassificationRepo(deps.db); // module-owned
   // usecases bind these + the injected kernel repos
   return { restPlugin, graphql: { typeDefs, resolvers }, mcpTools, contributor, repos };
@@ -711,7 +775,7 @@ export function makeReferenceModule(deps: {
 6. **Cross-module coordination:** (a) the budget module must reuse this module's
    `public_entity` + `territory` resolve dimensions for its buyer-institution /
    territory filters (don't fork); (b) procurement/budget classification lookups
-   use *their* `budget.*` classification tables, **not** `core.classification_codes`
+   use _their_ `budget.*` classification tables, **not** `core.classification_codes`
    (CAEN-only) — this plan does not serve functional/economic/CPV. The
    consistency pass must confirm no other module re-implements the public-entity or
    territory registry surface.
@@ -719,12 +783,12 @@ export function makeReferenceModule(deps: {
    reuses the kernel's **un-prefixed** GraphQL object types `Organization` and
    `Territory` (re-prefixing them would fork the kernel — §0/§6.1 rationale). But
    foundation §14.8 ("every module type/enum is always domain-prefixed; no bare
-   generic names") declares an exemption only for *scalars* and the `Entity` join
+   generic names") declares an exemption only for _scalars_ and the `Entity` join
    type, not for kernel object types. **Ask:** the consistency pass / foundation
    owner should add an explicit clause to `00` §14.8 declaring kernel-owned object
    types (`Organization`, `Territory`, `MoneyFlow`, `Document`) exempt from the
    prefix rule. Until ratified, this module's reuse of `Organization`/`Territory`
-   is a *declared deviation* (foundation §3 permits stated deviations), not a
+   is a _declared deviation_ (foundation §3 permits stated deviations), not a
    silent violation. Also wants the kernel `Territory` to (optionally) carry
    `linkMethod`/`linkConfidence` (§2.2).
 8. **Data-status counts are live-verified, not NOTES-sourced.** The §1 row counts

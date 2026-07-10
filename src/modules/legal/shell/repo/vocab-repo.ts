@@ -9,7 +9,12 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { type ApiError, type ProdDatabase, type ResolveHit, databaseError } from '@/modules/shared/index.js';
+import {
+  type ApiError,
+  type ProdDatabase,
+  type ResolveHit,
+  databaseError,
+} from '@/modules/shared/index.js';
 
 import type { LegalVocabRepo } from '../../core/usecases.js';
 
@@ -18,7 +23,10 @@ const cap = (n: number): number => Math.min(Math.max(Math.floor(n), 1), 50);
 const esc = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
 
 export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
-  const resolveIssuers = async (q: string, limit: number): Promise<Result<readonly ResolveHit[], ApiError>> => {
+  const resolveIssuers = async (
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ResolveHit[], ApiError>> => {
     const trimmed = q.trim();
     const capped = cap(limit);
     const pattern = `%${esc(trimmed)}%`;
@@ -93,7 +101,12 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
         return ok(
           rows
             .filter((r): r is { value: string; cnt: string } => r.value !== null)
-            .map((r) => ({ kind: 'category', value: r.value, label: r.value, hint: `${r.cnt} documente` }))
+            .map((r) => ({
+              kind: 'category',
+              value: r.value,
+              label: r.value,
+              hint: `${r.cnt} documente`,
+            }))
         );
       }
       // domain: unnest the text[] and count.
@@ -108,7 +121,12 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
       return ok(
         rows
           .filter((r): r is { value: string; cnt: string } => r.value !== null)
-          .map((r) => ({ kind: 'domain', value: r.value, label: r.value, hint: `${r.cnt} documente` }))
+          .map((r) => ({
+            kind: 'domain',
+            value: r.value,
+            label: r.value,
+            hint: `${r.cnt} documente`,
+          }))
       );
     } catch (error) {
       return err(databaseError('resolveEnum failed', error));

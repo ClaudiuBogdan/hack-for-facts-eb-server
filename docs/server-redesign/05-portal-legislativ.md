@@ -19,19 +19,19 @@ The legal corpus is **fully loaded and queryable** in `transparenta_prod.legal`
 derivation, sections, and embeddings all landed). Live counts (introspected
 2026-06-16, griffin `transparenta-prod-postgres-1`):
 
-| Table | Rows | Notes |
-|---|---:|---|
-| `legal.acts` | 223,611 | logical acts; `act_natural_key` unique; `status` scalar + `status_evidence` jsonb |
-| `legal.act_documents` | 225,401 | document expressions; **223,611 canonical**; `mo_part` populated on only **3** (see §13 gotcha) |
-| `legal.act_citation_keys` | 196,520 | child identity table (one act → many keys for joint-ministry orders) |
-| `legal.act_aliases` | 90 | `codul fiscal`, `codul muncii`, … |
-| `legal.act_references` | 1,103,595 | resolved edges; **627,759 (56.9%) carry `target_act_id`** (~80.5% of domestic-numbered) |
-| `legal.act_status_events` | 81,214 | event substrate; `event_source` ∈ {portal, monitorul-oficial} |
-| `legal.external_acts` | 20,779 | EU/pre-1989/treaties graph closure |
-| `legal.document_nodes` | 1,220,387 | intra-act tree (articol/alineat/…); 12.7% of standard-article docs have node gaps (parser-v1 blind spot) |
-| `legal.document_summaries` | 224,950 | AI metadata projection (domains, keywords, fiscal flags) |
-| `legal.document_embeddings` | 224,950 | doc-level `general-v1`, `vector(768)`, partial HNSW |
-| `legal.section_embeddings` | 2,938,113 | section-level `article-v1`, `vector(768)`, partial HNSW — **full corpus** (user decision #3) |
+| Table                       |      Rows | Notes                                                                                                    |
+| --------------------------- | --------: | -------------------------------------------------------------------------------------------------------- |
+| `legal.acts`                |   223,611 | logical acts; `act_natural_key` unique; `status` scalar + `status_evidence` jsonb                        |
+| `legal.act_documents`       |   225,401 | document expressions; **223,611 canonical**; `mo_part` populated on only **3** (see §13 gotcha)          |
+| `legal.act_citation_keys`   |   196,520 | child identity table (one act → many keys for joint-ministry orders)                                     |
+| `legal.act_aliases`         |        90 | `codul fiscal`, `codul muncii`, …                                                                        |
+| `legal.act_references`      | 1,103,595 | resolved edges; **627,759 (56.9%) carry `target_act_id`** (~80.5% of domestic-numbered)                  |
+| `legal.act_status_events`   |    81,214 | event substrate; `event_source` ∈ {portal, monitorul-oficial}                                            |
+| `legal.external_acts`       |    20,779 | EU/pre-1989/treaties graph closure                                                                       |
+| `legal.document_nodes`      | 1,220,387 | intra-act tree (articol/alineat/…); 12.7% of standard-article docs have node gaps (parser-v1 blind spot) |
+| `legal.document_summaries`  |   224,950 | AI metadata projection (domains, keywords, fiscal flags)                                                 |
+| `legal.document_embeddings` |   224,950 | doc-level `general-v1`, `vector(768)`, partial HNSW                                                      |
+| `legal.section_embeddings`  | 2,938,113 | section-level `article-v1`, `vector(768)`, partial HNSW — **full corpus** (user decision #3)             |
 
 Status distribution (NOTES evidence): in-vigoare 193,981 · abrogat 22,125 ·
 modificat 6,542 · abrogat-partial 762 · iesit-din-vigoare 124 · suspendat 55 ·
@@ -42,7 +42,7 @@ Search projection already populated: `search.documents` carries **`legal_act`
 §9). MO owns `mo_act` / `mo_section` / `mo_section_metadata`.
 
 **Deferred (out of this module's serving scope):** consolidation fetch (P2 — the
-corpus serves *originals* under the §5.2-C default policy, with mandatory status
+corpus serves _originals_ under the §5.2-C default policy, with mandatory status
 badge + "modificat de N acte" warning); resolver v2 (multi-number ordins,
 fragment locators); raw-HTML link mining. The server reads what P0/P1 produced;
 it never writes or re-resolves.
@@ -55,7 +55,7 @@ module therefore exposes semantic retrieval **but still through the kernel's
 HNSW unavailable at boot, or pgvector deliberately disabled in an env), semantic
 fields degrade to `null` + `caveats:["semantic search unavailable"]` and the
 lexical/trigram path serves. **Rationale:** the foundation gate is the cross-source
-contract; portal opts *in* to semantic where present rather than hard-depending.
+contract; portal opts _in_ to semantic where present rather than hard-depending.
 
 ---
 
@@ -75,37 +75,45 @@ and all `*_embeddings.document_id` keys are `String`, never `BigInt`. Only
 // legal/core/types.ts  — domain-prefixed, structurally PII-free (no PII columns in legal)
 
 export type LegalActStatus =
-  | 'in-vigoare' | 'modificat' | 'abrogat' | 'abrogat-partial'
-  | 'suspendat' | 'iesit-din-vigoare' | 'necunoscut';
+  | 'in-vigoare'
+  | 'modificat'
+  | 'abrogat'
+  | 'abrogat-partial'
+  | 'suspendat'
+  | 'iesit-din-vigoare'
+  | 'necunoscut';
 
-export interface LegalAct {                       // legal.acts
-  readonly actId: string;                         // bigint → string
+export interface LegalAct {
+  // legal.acts
+  readonly actId: string; // bigint → string
   readonly actNaturalKey: string;
-  readonly actType: string;                       // lege|oug|og|hotarare|ordin|decizie|decret|...
+  readonly actType: string; // lege|oug|og|hotarare|ordin|decizie|decret|...
   readonly actNumber: string | null;
   readonly actYear: number | null;
   readonly issuerSlug: string | null;
   readonly canonicalDocumentId: string | null;
-  readonly displayCitation: string;               // "Legea nr. 227/2015"
+  readonly displayCitation: string; // "Legea nr. 227/2015"
   readonly status: LegalActStatus;
-  readonly statusEvidence: Record<string, unknown>;   // jsonb: which signals fired
-  readonly entryIntoForce: string | null;         // date
-  readonly inDegree: number;                       // incoming citation count
+  readonly statusEvidence: Record<string, unknown>; // jsonb: which signals fired
+  readonly entryIntoForce: string | null; // date
+  readonly inDegree: number; // incoming citation count
 }
 
-export interface LegalActCard extends LegalAct {  // act detail: act + canonical doc + summary
+export interface LegalActCard extends LegalAct {
+  // act detail: act + canonical doc + summary
   readonly canonical: LegalDocument | null;
   readonly summary: LegalActSummary | null;
   readonly aliases: readonly string[];
   readonly citationKeys: readonly LegalCitationKey[];
-  readonly versionCount: number;                   // act_documents rows for this act
-  readonly amendedAfterPublication: number;        // count of incoming modifica/completeaza edges → the §5.2-C warning
+  readonly versionCount: number; // act_documents rows for this act
+  readonly amendedAfterPublication: number; // count of incoming modifica/completeaza edges → the §5.2-C warning
 }
 
-export interface LegalDocument {                  // legal.act_documents
+export interface LegalDocument {
+  // legal.act_documents
   readonly documentId: string;
   readonly actId: string;
-  readonly versionKind: 'original'|'republicare'|'corp'|'stub-header'|'consolidare';
+  readonly versionKind: 'original' | 'republicare' | 'corp' | 'stub-header' | 'consolidare';
   readonly versionDate: string | null;
   readonly isCanonical: boolean;
   readonly den: string | null;
@@ -123,108 +131,125 @@ export interface LegalDocument {                  // legal.act_documents
   readonly moDate: string | null;
 }
 
-export interface LegalActSummary {                // legal.document_summaries (AI projection)
+export interface LegalActSummary {
+  // legal.document_summaries (AI projection)
   readonly documentId: string;
   readonly description: string | null;
   readonly summary: string | null;
   readonly plainLanguageSummary: string | null;
-  readonly documentCategory: string | null;       // lege|ordin|hotarare-de-guvern|...
-  readonly domains: readonly string[];             // controlled 16-value vocab
+  readonly documentCategory: string | null; // lege|ordin|hotarare-de-guvern|...
+  readonly domains: readonly string[]; // controlled 16-value vocab
   readonly affectedAudiences: readonly string[];
   readonly keywords: readonly string[];
-  readonly keyDates: unknown | null;               // jsonb
+  readonly keyDates: unknown | null; // jsonb
   readonly penaltiesMentioned: boolean | null;
   readonly fiscalImpact: string | null;
-  readonly confidence: number | null;              // soft filter only
-  readonly sourceExtractionStatus: string | null;  // 'accepted' | 'suspicious' (RAG-exclude suspicious)
+  readonly confidence: number | null; // soft filter only
+  readonly sourceExtractionStatus: string | null; // 'accepted' | 'suspicious' (RAG-exclude suspicious)
 }
 
-export interface LegalCitationKey {               // legal.act_citation_keys
-  readonly actType: string; readonly actNumber: string;
-  readonly actYear: number;  readonly issuerSlug: string;
+export interface LegalCitationKey {
+  // legal.act_citation_keys
+  readonly actType: string;
+  readonly actNumber: string;
+  readonly actYear: number;
+  readonly issuerSlug: string;
 }
 
-export interface LegalReferenceEdge {             // legal.act_references
+export interface LegalReferenceEdge {
+  // legal.act_references
   readonly sourceDocumentId: string;
   readonly refIndex: number;
-  readonly relation: 'modifica'|'abroga'|'completeaza'|'suspenda'|'aproba'|'rectifica'|'face-referire'|'respinge';
+  readonly relation:
+    | 'modifica'
+    | 'abroga'
+    | 'completeaza'
+    | 'suspenda'
+    | 'aproba'
+    | 'rectifica'
+    | 'face-referire'
+    | 'respinge';
   readonly targetRaw: string;
   readonly targetClass: string;
-  readonly targetActId: string | null;            // resolved domestic act
-  readonly targetExternalActId: string | null;    // resolved external act
-  readonly targetFragment: string | null;         // 'art. 2, anexa 2' when sub-act
-  readonly resolution: 'unique'|'cluster'|'alias'|'ambiguous'|'unresolved'|'external';
+  readonly targetActId: string | null; // resolved domestic act
+  readonly targetExternalActId: string | null; // resolved external act
+  readonly targetFragment: string | null; // 'art. 2, anexa 2' when sub-act
+  readonly resolution: 'unique' | 'cluster' | 'alias' | 'ambiguous' | 'unresolved' | 'external';
   readonly confidence: number | null;
   readonly resolverVersion: string;
 }
 
-export interface LegalStatusEvent {               // legal.act_status_events
+export interface LegalStatusEvent {
+  // legal.act_status_events
   readonly eventId: string;
   readonly actId: string;
-  readonly eventKind: string;                      // abrogare-totala|modificare|promulgare|...
+  readonly eventKind: string; // abrogare-totala|modificare|promulgare|...
   readonly effectiveDate: string | null;
   readonly sourceActId: string | null;
   readonly evidence: Record<string, unknown>;
-  readonly eventSource: 'portal'|'monitorul-oficial';   // 06 contributes MO events here
+  readonly eventSource: 'portal' | 'monitorul-oficial'; // 06 contributes MO events here
 }
 
-export interface LegalNode {                      // legal.document_nodes
+export interface LegalNode {
+  // legal.document_nodes
   readonly nodeId: string;
   readonly documentId: string;
   readonly parentNodeId: string | null;
-  readonly nodeKind: string;                       // articol|alineat|capitol|...
-  readonly label: string | null;                   // 'Articolul 291'
-  readonly numberKey: string | null;               // '291', '291^1', 'IV'
-  readonly path: string;                           // materialized path
+  readonly nodeKind: string; // articol|alineat|capitol|...
+  readonly label: string | null; // 'Articolul 291'
+  readonly numberKey: string | null; // '291', '291^1', 'IV'
+  readonly path: string; // materialized path
   readonly orderIndex: number;
-  readonly charStart: number | null;               // offsets into clean_text (exact quote)
+  readonly charStart: number | null; // offsets into clean_text (exact quote)
   readonly charEnd: number | null;
 }
 
-export interface LegalExternalAct {               // legal.external_acts
+export interface LegalExternalAct {
+  // legal.external_acts
   readonly externalActId: string;
-  readonly identityKey: string;                    // 'eu_directiva:2004/37/CE'
+  readonly identityKey: string; // 'eu_directiva:2004/37/CE'
   readonly displayCitation: string;
-  readonly kind: 'eu_directiva'|'eu_regulament'|'treaty'|'pre1989'|'other';
+  readonly kind: 'eu_directiva' | 'eu_regulament' | 'treaty' | 'pre1989' | 'other';
 }
 
-export interface LegalSectionHit {                // section retrieval result (parent-doc enriched)
+export interface LegalSectionHit {
+  // section retrieval result (parent-doc enriched)
   readonly actId: string;
   readonly displayCitation: string;
   readonly status: LegalActStatus;
   readonly documentId: string;
-  readonly sectionKey: string;                     // 'art:291' | 'win:17'
+  readonly sectionKey: string; // 'art:291' | 'win:17'
   readonly articleNumber: string | null;
-  readonly nodeLabel: string | null;               // 'Articolul 291'
+  readonly nodeLabel: string | null; // 'Articolul 291'
   readonly nodePath: string | null;
-  readonly charStart: number | null;               // forward-compat locator (NOT served text — §3.4)
+  readonly charStart: number | null; // forward-compat locator (NOT served text — §3.4)
   readonly charEnd: number | null;
-  readonly snippet: string | null;                 // grounded snippet from document_summaries (in prod); node text is P2
-  readonly portalDeepLink: string | null;          // deep link to the portal node, since text isn't in prod
-  readonly score: number;                          // fused/cosine
+  readonly snippet: string | null; // grounded snippet from document_summaries (in prod); node text is P2
+  readonly portalDeepLink: string | null; // deep link to the portal node, since text isn't in prod
+  readonly score: number; // fused/cosine
 }
 ```
 
 ### 2.2 Identity / territory linkage
 
-- **CUI:** legal has **no CUI column** — acts are issued *by institutions*, not
-  *to* CUIs. The link to the kernel identity hub is the **future `issuer_slug →
-  institution`** axis (brief §"issuers→institutions" — deferred). The **acts/
+- **CUI:** legal has **no CUI column** — acts are issued _by institutions_, not
+  _to_ CUIs. The link to the kernel identity hub is the **future `issuer_slug →
+institution`** axis (brief §"issuers→institutions" — deferred). The **acts/
   area contributes no `Entity` field and registers no contributor in v1** (§4) —
   there is no per-CUI legal-acts slice yet. (The `legal` module as a whole DOES
   register one contributor: the `mo/` area's **issuer-keyed** MO contributor —
   06/A5 — which is independent of the acts surface.) When the `issuer_slug →
-  core.organizations` link lands, the acts area adds `extend type Entity {
-  actsIssued: LegalActConnection! }` via a `profileSlice` that resolves an org's
+core.organizations` link lands, the acts area adds `extend type Entity {
+actsIssued: LegalActConnection! }` via a `profileSlice` that resolves an org's
   name → `issuer_slug` → acts issued. **No acts-side `Entity` field in v1.** This
-  is the one place the acts surface does *not* yet participate in entity-360.
+  is the one place the acts surface does _not_ yet participate in entity-360.
 - **Territory (SIRUTA):** none. Legal acts are national; no geographic filter.
   The `GeographicFilter` family is **not** exposed by this module.
 
 ### 2.3 PII / excluded columns
 
 Legal has **no PII** (acts are public law). No columns excluded for privacy.
-Two *quality* exclusions from default projections:
+Two _quality_ exclusions from default projections:
 
 - `document_summaries.sourceExtractionStatus = 'suspicious'` rows (3,649; stub/
   partial texts incl. the Legea 227/2015 header stub) are **excluded from RAG
@@ -248,20 +273,24 @@ resolution (the join target for MO's `act_id` FKs) and the shared status-event
 read path.
 
 ```ts
-export interface LegalActRef {                    // canonical way to address an act across surfaces
+export interface LegalActRef {
+  // canonical way to address an act across surfaces
   readonly actId?: string;
-  readonly citation?: string;                      // "legea 227/2015" | "codul fiscal" — resolved via keys/aliases
+  readonly citation?: string; // "legea 227/2015" | "codul fiscal" — resolved via keys/aliases
 }
 
 export interface LegalRepoBase {
   // identity resolution — the contract MO (06) and the discovery tool both call
-  resolveActRef(ref: LegalActRef): Promise<Result<LegalAct | null, ApiError>>;       // acts.act_natural_key / citation_keys / aliases
+  resolveActRef(ref: LegalActRef): Promise<Result<LegalAct | null, ApiError>>; // acts.act_natural_key / citation_keys / aliases
   findActById(actId: string): Promise<Result<LegalAct | null, ApiError>>;
-  findActsByIds(actIds: readonly string[]): Promise<Result<readonly LegalAct[], ApiError>>;  // DataLoader batch
+  findActsByIds(actIds: readonly string[]): Promise<Result<readonly LegalAct[], ApiError>>; // DataLoader batch
   findActByCitationKey(k: LegalCitationKey): Promise<Result<readonly LegalAct[], ApiError>>; // → acts via act_citation_keys
   searchActsByName(q: string, limit: number): Promise<Result<readonly LegalAct[], ApiError>>; // pg_trgm on display_citation (fallback)
   // status events — shared read; portal & MO both write rows, server reads both via event_source
-  getStatusEvents(actId: string, eventSource?: 'portal'|'monitorul-oficial'): Promise<Result<readonly LegalStatusEvent[], ApiError>>;
+  getStatusEvents(
+    actId: string,
+    eventSource?: 'portal' | 'monitorul-oficial'
+  ): Promise<Result<readonly LegalStatusEvent[], ApiError>>;
 }
 ```
 
@@ -269,22 +298,25 @@ export interface LegalRepoBase {
 
 ```ts
 export interface LegalActListOptions {
-  readonly filters: LegalActFilterInput;           // §7 compiled spec
-  readonly sort: 'in_degree'|'act_year'|'entry_into_force'|'display_citation';
-  readonly dir: 'asc'|'desc';
-  readonly limit: number;                          // ≤ 100
-  readonly cursor?: string | undefined;            // §14.3 envelope
+  readonly filters: LegalActFilterInput; // §7 compiled spec
+  readonly sort: 'in_degree' | 'act_year' | 'entry_into_force' | 'display_citation';
+  readonly dir: 'asc' | 'desc';
+  readonly limit: number; // ≤ 100
+  readonly cursor?: string | undefined; // §14.3 envelope
 }
 
 export interface LegalActsRepo extends LegalRepoBase {
-  listActs(o: LegalActListOptions): Promise<Result<{ rows: readonly LegalAct[]; nextCursor: string | null }, ApiError>>;
-  getActCard(ref: LegalActRef): Promise<Result<LegalActCard | null, ApiError>>;     // act + canonical doc + summary + aliases + keys + amendedAfter
+  listActs(
+    o: LegalActListOptions
+  ): Promise<Result<{ rows: readonly LegalAct[]; nextCursor: string | null }, ApiError>>;
+  getActCard(ref: LegalActRef): Promise<Result<LegalActCard | null, ApiError>>; // act + canonical doc + summary + aliases + keys + amendedAfter
   getCanonicalDocument(actId: string): Promise<Result<LegalDocument | null, ApiError>>;
   listDocuments(actId: string): Promise<Result<readonly LegalDocument[], ApiError>>; // version cluster
   getSummary(documentId: string): Promise<Result<LegalActSummary | null, ApiError>>;
-  countAmendmentsAfter(actId: string): Promise<Result<number, ApiError>>;           // incoming modifica/completeaza for the badge
+  countAmendmentsAfter(actId: string): Promise<Result<number, ApiError>>; // incoming modifica/completeaza for the badge
 }
 ```
+
 Indexes hit: `acts_pkey`, `acts_act_natural_key_key`, `act_citation_keys_pkey`
 (prefix for citation-key lookup), `act_documents_one_canonical` (canonical
 join), `act_documents_act_id` (version cluster). List sort by `in_degree`
@@ -304,14 +336,21 @@ predicate is `(sortcol, act_id) <|> (?, ?)` per direction. Without the
 ```ts
 export interface LegalGraphRepo {
   // outgoing: what this act cites (its source document's references)
-  outgoingRefs(actId: string, relations?: readonly string[], limit?: number)
-    : Promise<Result<readonly LegalReferenceEdge[], ApiError>>;          // via canonical document_id
+  outgoingRefs(
+    actId: string,
+    relations?: readonly string[],
+    limit?: number
+  ): Promise<Result<readonly LegalReferenceEdge[], ApiError>>; // via canonical document_id
   // incoming: what cites/amends/abrogates this act
-  incomingRefs(actId: string, relations?: readonly string[], limit?: number)
-    : Promise<Result<readonly { edge: LegalReferenceEdge; sourceAct: LegalAct | null }[], ApiError>>;  // act_references_target index
+  incomingRefs(
+    actId: string,
+    relations?: readonly string[],
+    limit?: number
+  ): Promise<Result<readonly { edge: LegalReferenceEdge; sourceAct: LegalAct | null }[], ApiError>>; // act_references_target index
   externalAct(externalActId: string): Promise<Result<LegalExternalAct | null, ApiError>>;
 }
 ```
+
 Indexes hit: `act_references_target (target_act_id, relation)` (incoming —
 the high-value "what amends L" path); `act_references_pkey` prefix on
 `source_document_id` (outgoing). **Hub guard (research §4):** Legea 47/1992 has
@@ -322,12 +361,16 @@ never an unbounded hub fan-out.
 
 ```ts
 export interface LegalTreeRepo {
-  nodeChildren(documentId: string, parentNodeId: string | null, depth: number)
-    : Promise<Result<readonly LegalNode[], ApiError>>;                   // document_nodes_lookup / path prefix
+  nodeChildren(
+    documentId: string,
+    parentNodeId: string | null,
+    depth: number
+  ): Promise<Result<readonly LegalNode[], ApiError>>; // document_nodes_lookup / path prefix
   nodeByPath(documentId: string, path: string): Promise<Result<LegalNode | null, ApiError>>;
   nodeByArticle(documentId: string, numberKey: string): Promise<Result<LegalNode | null, ApiError>>;
 }
 ```
+
 **Node text gap (BINDING — §13 risk #3):** `document_nodes` carries char offsets
 into raw `clean_text`, but the text itself lives in the raw cluster
 (`portal_text`), which the server must not read (foundation §3). So **v1 nodes
@@ -343,21 +386,28 @@ single-DB and avoids hollow "offsets pointing at unreadable text" citations.
 ```ts
 export interface LegalRetrievalQuery {
   readonly q: string;
-  readonly filters: LegalActFilterInput;           // status/domain/category/type/year — pre-filter
-  readonly channel: 'auto'|'sections'|'docs';      // §4 multi-vector routing
-  readonly includeHistorical: boolean;             // §5.2-C: abrogated excluded unless true
-  readonly limit: number;                          // ≤ 50
+  readonly filters: LegalActFilterInput; // status/domain/category/type/year — pre-filter
+  readonly channel: 'auto' | 'sections' | 'docs'; // §4 multi-vector routing
+  readonly includeHistorical: boolean; // §5.2-C: abrogated excluded unless true
+  readonly limit: number; // ≤ 50
 }
 
 export interface LegalRetrievalRepo {
   // section channel (provision-level RAG): section_embeddings → parent doc/act/node
-  searchSections(qVec: readonly number[] | null, q: LegalRetrievalQuery)
-    : Promise<Result<readonly LegalSectionHit[], ApiError>>;            // HNSW when qVec; ILIKE/trigram fallback when null (semantic gate off)
+  searchSections(
+    qVec: readonly number[] | null,
+    q: LegalRetrievalQuery
+  ): Promise<Result<readonly LegalSectionHit[], ApiError>>; // HNSW when qVec; ILIKE/trigram fallback when null (semantic gate off)
   // doc channel (topical "about X"): document_embeddings
-  searchDocs(qVec: readonly number[] | null, q: LegalRetrievalQuery)
-    : Promise<Result<readonly { act: LegalAct; summary: LegalActSummary | null; score: number }[], ApiError>>;
+  searchDocs(
+    qVec: readonly number[] | null,
+    q: LegalRetrievalQuery
+  ): Promise<
+    Result<readonly { act: LegalAct; summary: LegalActSummary | null; score: number }[], ApiError>
+  >;
 }
 ```
+
 **HNSW-parameter rule (research §5.1, BINDING):** the query vector MUST be passed
 as a bound `$n::vector` parameter — a vector arriving via CTE/join silently
 falls back to an 8s exact scan. The repo embeds `q` via the kernel
@@ -371,30 +421,32 @@ the literal. `statement_timeout` 5s; HNSW `ef_search` is a DB GUC (already 150).
 `legal/core/usecases/` — framework-free, over ports, `Result`-returning. REST,
 GraphQL, MCP all call these (tri-surface equivalence, §14.7).
 
-| Usecase | Signature | Ports | Catalog |
-|---|---|---|---|
-| `listActs` | `(FilterInput, sort, page/cursor) → {rows, next}` | LegalActsRepo | LG-5 |
-| `getAct` | `(LegalActRef) → LegalActCard` | LegalActsRepo (+Graph for badge) | LG-3 |
-| `getActVersions` | `(actId) → LegalDocument[]` | LegalActsRepo | — |
-| `getActLinks` | `(actId, direction, relations?, since?) → edges (+sourceAct)` | LegalGraphRepo | LG-1, LG-2 |
-| `getActTimeline` | `(actId) → merged status events + keyDates + amendment edges` | Base + Graph | LG-2 |
-| `getActTree` | `(actId|documentId, path?, depth) → LegalNode[]` | LegalTreeRepo | — |
-| `searchLegal` | `(LegalRetrievalQuery) → {acts, sections, caveats}` | LegalRetrievalRepo (+kernel SearchClient/synthetic) | LG-4, LG-5 |
-| `resolveLegalFilters` | `(dim, q) → resolved values` (discovery) | Base + kernel | LG-* |
+| Usecase               | Signature                                                     | Ports                                               | Catalog       |
+| --------------------- | ------------------------------------------------------------- | --------------------------------------------------- | ------------- | --- |
+| `listActs`            | `(FilterInput, sort, page/cursor) → {rows, next}`             | LegalActsRepo                                       | LG-5          |
+| `getAct`              | `(LegalActRef) → LegalActCard`                                | LegalActsRepo (+Graph for badge)                    | LG-3          |
+| `getActVersions`      | `(actId) → LegalDocument[]`                                   | LegalActsRepo                                       | —             |
+| `getActLinks`         | `(actId, direction, relations?, since?) → edges (+sourceAct)` | LegalGraphRepo                                      | LG-1, LG-2    |
+| `getActTimeline`      | `(actId) → merged status events + keyDates + amendment edges` | Base + Graph                                        | LG-2          |
+| `getActTree`          | `(actId                                                       | documentId, path?, depth) → LegalNode[]`            | LegalTreeRepo | —   |
+| `searchLegal`         | `(LegalRetrievalQuery) → {acts, sections, caveats}`           | LegalRetrievalRepo (+kernel SearchClient/synthetic) | LG-4, LG-5    |
+| `resolveLegalFilters` | `(dim, q) → resolved values` (discovery)                      | Base + kernel                                       | LG-\*         |
 
 **Cross-source contributor (§4.4 / §14.7):** **the acts/ surface registers NO
 contributor in v1.** A contributor whose `presenceFor` always returns `null`
 (legal acts have no per-CUI axis, §2.2) is dead weight in the kernel's entity-360
 iteration and advertises a slice that never materializes. Cleaner per §4.4 to
-simply *not* register an acts contributor until the `issuer_slug →
+simply _not_ register an acts contributor until the `issuer_slug →
 core.organizations` link lands; the acts surface then has no `Entity` field
 (§6.2) — fully consistent (no field, no resolver, no divergence). When the
 issuer→institution axis lands, the acts area registers:
+
 ```ts
 // FUTURE (not v1): presenceFor resolves cui → institution name → issuer_slug → acts issued
 const legalActsContributor: SourceContributor = { source: 'legal', presenceFor, profileSlice };
 ```
-**Note for the consistency pass:** the `legal` *module* nonetheless registers
+
+**Note for the consistency pass:** the `legal` _module_ nonetheless registers
 one contributor today — the `mo/` area's **issuer-keyed MO contributor** with
 `source: 'monitorul-oficial'` (06/A5, real `presenceFor`/`profileSlice`),
 composed in by `makeLegalModule` (§11). The acts area contributing none (future
@@ -402,6 +454,7 @@ composed in by `makeLegalModule` (§11). The acts area contributing none (future
 'monitorul-oficial'`) use **distinct source keys**, so they never collide in the
 registry — entity-360 gets an MO slice now and a legal-acts slice later, keyed
 independently.
+
 - **`doc_type`s registered** (§9): `legal_act` (act/doc topical) + `portal_section`
   (provision-level). **NOT** `mo_*` (06 owns those).
 - **`flow_type`:** legal registers **none** (acts are not money flows).
@@ -415,23 +468,24 @@ Prefix `/api/v1/legal/`. TypeBox on every query/param; `config:{public:true}`
 key `legal:<op>:<canonicalizeFilters>`; TTL-only until a loader version stamp
 exists (§14.11) — stated explicitly: **interim TTL-only**.
 
-| # | Method · Path | Query/params (TypeBox) | Response | Pagination | Cache TTL | stmt_timeout |
-|---|---|---|---|---|---|---|
-| R1 | `GET /legal/acts` | `LegalActFilter` (§7) + `sort`,`dir`,`cursor` | `LegalAct[]` | **cursor only** (large set; §14.4) | 300s | 5s |
-| R2 | `GET /legal/acts/:idOrCitation` | path: act_id or url-encoded citation | `LegalActCard` | — | 600s | 5s |
-| R3 | `GET /legal/acts/:id/documents` | — | `LegalDocument[]` (version cluster) | offset (small) | 600s | 5s |
-| R4 | `GET /legal/acts/:id/links` | `direction=in\|out`, `relation[]`, `since?`, `page` | `{edge, sourceAct?}[]` | offset (bounded ≤200) | 300s | 5s |
-| R5 | `GET /legal/acts/:id/timeline` | — | merged events+keyDates+edges | — | 600s | 5s |
-| R6 | `GET /legal/acts/:id/tree` | `documentId?`, `path?`, `depth=1..3` | `LegalNode[]` | — | 600s | 5s |
-| R7 | `GET /legal/search` | `q` (req), `LegalActFilter`, `channel`, `includeHistorical`, `limit≤50` | `{acts, sections, caveats}` | offset (top-K) | 120s | 30s (search class) |
-| R8 | `GET /legal/filters/resolve` | `dim`, `q`, `limit` | `{values:[{value,label,count?}]}` | — | 300s | 5s |
-| R9 | `GET /legal/external-acts/:id` | — | `LegalExternalAct` | — | 600s | 5s |
+| #   | Method · Path                   | Query/params (TypeBox)                                                  | Response                            | Pagination                         | Cache TTL | stmt_timeout       |
+| --- | ------------------------------- | ----------------------------------------------------------------------- | ----------------------------------- | ---------------------------------- | --------- | ------------------ |
+| R1  | `GET /legal/acts`               | `LegalActFilter` (§7) + `sort`,`dir`,`cursor`                           | `LegalAct[]`                        | **cursor only** (large set; §14.4) | 300s      | 5s                 |
+| R2  | `GET /legal/acts/:idOrCitation` | path: act_id or url-encoded citation                                    | `LegalActCard`                      | —                                  | 600s      | 5s                 |
+| R3  | `GET /legal/acts/:id/documents` | —                                                                       | `LegalDocument[]` (version cluster) | offset (small)                     | 600s      | 5s                 |
+| R4  | `GET /legal/acts/:id/links`     | `direction=in\|out`, `relation[]`, `since?`, `page`                     | `{edge, sourceAct?}[]`              | offset (bounded ≤200)              | 300s      | 5s                 |
+| R5  | `GET /legal/acts/:id/timeline`  | —                                                                       | merged events+keyDates+edges        | —                                  | 600s      | 5s                 |
+| R6  | `GET /legal/acts/:id/tree`      | `documentId?`, `path?`, `depth=1..3`                                    | `LegalNode[]`                       | —                                  | 600s      | 5s                 |
+| R7  | `GET /legal/search`             | `q` (req), `LegalActFilter`, `channel`, `includeHistorical`, `limit≤50` | `{acts, sections, caveats}`         | offset (top-K)                     | 120s      | 30s (search class) |
+| R8  | `GET /legal/filters/resolve`    | `dim`, `q`, `limit`                                                     | `{values:[{value,label,count?}]}`   | —                                  | 300s      | 5s                 |
+| R9  | `GET /legal/external-acts/:id`  | —                                                                       | `LegalExternalAct`                  | —                                  | 600s      | 5s                 |
 
 Notes:
+
 - **R1 is cursor-only** (223k acts; foundation §14.4 — large set). No `page`/
   `OFFSET` path is offered (deep-offset over 223k is exactly what §14.4 prevents).
   If a `totalCount` is shown in the GraphQL connection it is `{total,
-  estimated:true}` (planner estimate via `pg_class.reltuples` scoped by the
+estimated:true}` (planner estimate via `pg_class.reltuples` scoped by the
   filter where cheap), never a blocking `COUNT(*)`.
 - **R2** accepts either a numeric `act_id` or a URL-encoded citation
   ("legea-227-2015" / "codul-fiscal") resolved via `resolveActRef` (citation
@@ -460,15 +514,36 @@ extends `legal` Query/Entity independently and must not redefine `LegalAct`.
 ### 6.1 SDL (portal-owned types)
 
 ```graphql
-scalar BigInt   # kernel
-scalar Date     # kernel
-scalar JSON     # kernel
+scalar BigInt # kernel
+scalar Date # kernel
+scalar JSON # kernel
+enum LegalActStatus {
+  IN_VIGOARE
+  MODIFICAT
+  ABROGAT
+  ABROGAT_PARTIAL
+  SUSPENDAT
+  IESIT_DIN_VIGOARE
+  NECUNOSCUT
+}
+enum LegalRelation {
+  MODIFICA
+  ABROGA
+  COMPLETEAZA
+  SUSPENDA
+  APROBA
+  RECTIFICA
+  FACE_REFERIRE
+  RESPINGE
+}
+enum LegalSortKey {
+  IN_DEGREE
+  ACT_YEAR
+  ENTRY_INTO_FORCE
+  DISPLAY_CITATION
+}
 
-enum LegalActStatus { IN_VIGOARE MODIFICAT ABROGAT ABROGAT_PARTIAL SUSPENDAT IESIT_DIN_VIGOARE NECUNOSCUT }
-enum LegalRelation  { MODIFICA ABROGA COMPLETEAZA SUSPENDA APROBA RECTIFICA FACE_REFERIRE RESPINGE }
-enum LegalSortKey   { IN_DEGREE ACT_YEAR ENTRY_INTO_FORCE DISPLAY_CITATION }
-
-type LegalAct {                       # the shared base type (§9)
+type LegalAct { # the shared base type (§9)
   actId: BigInt!
   actType: String!
   actNumber: String
@@ -485,14 +560,22 @@ type LegalAct {                       # the shared base type (§9)
   aliases: [String!]!
   citationKeys: [LegalCitationKey!]!
   versionCount: Int!
-  amendedAfterPublication: Int!        # the §5.2-C honesty count
+  amendedAfterPublication: Int! # the §5.2-C honesty count
   documents: [LegalDocument!]!
-  links(direction: LegalLinkDirection!, relation: [LegalRelation!], since: Date, first: Int = 50): LegalReferenceConnection!
+  links(
+    direction: LegalLinkDirection!
+    relation: [LegalRelation!]
+    since: Date
+    first: Int = 50
+  ): LegalReferenceConnection!
   timeline: [LegalStatusEvent!]!
   tree(documentId: BigInt, path: String, depth: Int = 1): [LegalNode!]!
 }
 
-enum LegalLinkDirection { IN OUT }
+enum LegalLinkDirection {
+  IN
+  OUT
+}
 
 type LegalDocument {
   documentId: String!
@@ -526,29 +609,38 @@ type LegalActSummary {
   confidence: Float
 }
 
-type LegalCitationKey { actType: String!  actNumber: String!  actYear: Int!  issuerSlug: String! }
+type LegalCitationKey {
+  actType: String!
+  actNumber: String!
+  actYear: Int!
+  issuerSlug: String!
+}
 
 type LegalReferenceEdge {
-  sourceDocumentId: String!           # edge PK part 1 (act_references PK); stable connection key
-  refIndex: Int!                      # edge PK part 2
+  sourceDocumentId: String! # edge PK part 1 (act_references PK); stable connection key
+  refIndex: Int! # edge PK part 2
   relation: LegalRelation!
   targetRaw: String!
   targetClass: String!
-  targetAct: LegalAct                 # resolved domestic (DataLoader by act_id)
+  targetAct: LegalAct # resolved domestic (DataLoader by act_id)
   targetExternalAct: LegalExternalAct
   targetFragment: String
   resolution: String!
   confidence: Float
-  sourceAct: LegalAct                 # for incoming edges
+  sourceAct: LegalAct # for incoming edges
 }
-type LegalReferenceConnection { edges: [LegalReferenceEdge!]!  pageInfo: PageInfo!  totalCount: Int }
+type LegalReferenceConnection {
+  edges: [LegalReferenceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
 
 type LegalStatusEvent {
   eventKind: String!
   effectiveDate: Date
   sourceAct: LegalAct
   evidence: JSON!
-  eventSource: String!                # 'portal' | 'monitorul-oficial' (06 contributes rows; this type reads both)
+  eventSource: String! # 'portal' | 'monitorul-oficial' (06 contributes rows; this type reads both)
 }
 
 type LegalNode {
@@ -563,7 +655,12 @@ type LegalNode {
   charEnd: Int
 }
 
-type LegalExternalAct { externalActId: BigInt!  identityKey: String!  displayCitation: String!  kind: String! }
+type LegalExternalAct {
+  externalActId: BigInt!
+  identityKey: String!
+  displayCitation: String!
+  kind: String!
+}
 
 type LegalSectionHit {
   act: LegalAct!
@@ -572,9 +669,9 @@ type LegalSectionHit {
   articleNumber: String
   nodeLabel: String
   nodePath: String
-  charStart: Int                      # forward-compat locator (not served text — §3.4)
+  charStart: Int # forward-compat locator (not served text — §3.4)
   charEnd: Int
-  snippet: String                     # grounded snippet from document_summaries (node text is P2)
+  snippet: String # grounded snippet from document_summaries (node text is P2)
   portalDeepLink: String
   score: Float!
 }
@@ -582,13 +679,20 @@ type LegalSectionHit {
 type LegalSearchResult {
   acts: [LegalAct!]!
   sections: [LegalSectionHit!]!
-  caveats: [String!]!                 # §5.2-C honesty + semantic-gate caveats
+  caveats: [String!]! # §5.2-C honesty + semantic-gate caveats
 }
 
-type LegalActConnection { edges: [LegalActEdge!]!  pageInfo: PageInfo!  totalCount: Int }
-type LegalActEdge { node: LegalAct!  cursor: String! }
+type LegalActConnection {
+  edges: [LegalActEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+type LegalActEdge {
+  node: LegalAct!
+  cursor: String!
+}
 
-input LegalActFilter {                # §7 — generated from the filter spec
+input LegalActFilter { # §7 — generated from the filter spec
   actType: [String!]
   issuerSlug: [String!]
   domain: [String!]
@@ -598,16 +702,33 @@ input LegalActFilter {                # §7 — generated from the filter spec
   yearFrom: Int
   yearTo: Int
   penaltiesMentioned: Boolean
-  fiscalImpactPresent: Boolean        # isNull op on fiscal_impact
-  q: String                           # trigram on citation (list); Meili-backed in search
+  fiscalImpactPresent: Boolean # isNull op on fiscal_impact
+  q: String # trigram on citation (list); Meili-backed in search
   exclude: LegalActExcludeFilter
 }
-input LegalActExcludeFilter { actType: [String!]  issuerSlug: [String!]  domain: [String!]  status: [LegalActStatus!] }
+input LegalActExcludeFilter {
+  actType: [String!]
+  issuerSlug: [String!]
+  domain: [String!]
+  status: [LegalActStatus!]
+}
 
 extend type Query {
   legalAct(actId: BigInt, citation: String): LegalAct
-  legalActs(filter: LegalActFilter, sort: LegalSortKey = IN_DEGREE, dir: SortDir = DESC, first: Int = 20, after: String): LegalActConnection!
-  legalSearch(q: String!, filter: LegalActFilter, channel: String = "auto", includeHistorical: Boolean = false, limit: Int = 20): LegalSearchResult!
+  legalActs(
+    filter: LegalActFilter
+    sort: LegalSortKey = IN_DEGREE
+    dir: SortDir = DESC
+    first: Int = 20
+    after: String
+  ): LegalActConnection!
+  legalSearch(
+    q: String!
+    filter: LegalActFilter
+    channel: String = "auto"
+    includeHistorical: Boolean = false
+    limit: Int = 20
+  ): LegalSearchResult!
   legalExternalAct(externalActId: BigInt!): LegalExternalAct
 }
 ```
@@ -644,7 +765,7 @@ type LegalAct { gazettePublications: [MoActPublication!]!  gazetteStatusEvents:
 3-field gazette set per 06 §6 and foundation §9 — `gazettePublications` resolved
 through `mo_act_publications.act_id`; `gazetteStatusEvents` through
 `act_status_events` where `event_source = 'monitorul-oficial'`; `gazetteInEdges`
-through `mo_lifecycle_edges` by `target_act_id` — §13). Because both areas are stitched *inside*
+through `mo_lifecycle_edges` by `target_act_id` — §13). Because both areas are stitched _inside_
 `makeLegalModule` before the module's typedefs are contributed, these extensions
 are local SDL composition, not a cross-module schema merge — the kernel conflict
 test (duplicate type/field) does not flag added fields, only duplicate
@@ -675,36 +796,93 @@ derivers compile — §14.2):
 export const legalActsSpec: CollectionFilterSpec = {
   collection: 'legal_acts',
   fields: [
-    { name: 'actType',            type: 'enum', ops: ['in'],     column: { alias: 'a', column: 'act_type' },      array: true, exclude: true,  enumValues: ACT_TYPE_VALUES },
-    { name: 'issuerSlug',         type: 'string', ops: ['in'],   column: { alias: 'a', column: 'issuer_slug' },   array: true, exclude: true },
-    { name: 'status',             type: 'enum', ops: ['in'],     column: { alias: 'a', column: 'status' },        array: true, exclude: true,  enumValues: STATUS_VALUES },
-    { name: 'year',               type: 'int',  ops: ['eq'],     column: { alias: 'a', column: 'act_year' } },
-    { name: 'yearFrom',           type: 'int',  ops: ['gte'],    column: { alias: 'a', column: 'act_year' } },
-    { name: 'yearTo',             type: 'int',  ops: ['lte'],    column: { alias: 'a', column: 'act_year' } },
-    { name: 'domain',             type: 'enum', ops: ['in'],     column: { alias: 's', column: 'domains' },          array: true, exclude: true, enumValues: DOMAIN_VALUES },     // GIN array containment
-    { name: 'category',           type: 'enum', ops: ['in'],     column: { alias: 's', column: 'document_category' }, array: true, exclude: true, enumValues: CATEGORY_VALUES },
-    { name: 'penaltiesMentioned', type: 'bool', ops: ['eq'],     column: { alias: 's', column: 'penalties_mentioned' } },
-    { name: 'fiscalImpactPresent',type: 'bool', ops: ['isNull'], column: { alias: 's', column: 'fiscal_impact' } },  // true ⇒ IS NOT NULL, false ⇒ IS NULL
-    { name: 'q',                  type: 'string', ops: ['contains', 'prefix'], column: { alias: 'a', column: 'display_citation' } }, // engine-backed (§7.2)
+    {
+      name: 'actType',
+      type: 'enum',
+      ops: ['in'],
+      column: { alias: 'a', column: 'act_type' },
+      array: true,
+      exclude: true,
+      enumValues: ACT_TYPE_VALUES,
+    },
+    {
+      name: 'issuerSlug',
+      type: 'string',
+      ops: ['in'],
+      column: { alias: 'a', column: 'issuer_slug' },
+      array: true,
+      exclude: true,
+    },
+    {
+      name: 'status',
+      type: 'enum',
+      ops: ['in'],
+      column: { alias: 'a', column: 'status' },
+      array: true,
+      exclude: true,
+      enumValues: STATUS_VALUES,
+    },
+    { name: 'year', type: 'int', ops: ['eq'], column: { alias: 'a', column: 'act_year' } },
+    { name: 'yearFrom', type: 'int', ops: ['gte'], column: { alias: 'a', column: 'act_year' } },
+    { name: 'yearTo', type: 'int', ops: ['lte'], column: { alias: 'a', column: 'act_year' } },
+    {
+      name: 'domain',
+      type: 'enum',
+      ops: ['in'],
+      column: { alias: 's', column: 'domains' },
+      array: true,
+      exclude: true,
+      enumValues: DOMAIN_VALUES,
+    }, // GIN array containment
+    {
+      name: 'category',
+      type: 'enum',
+      ops: ['in'],
+      column: { alias: 's', column: 'document_category' },
+      array: true,
+      exclude: true,
+      enumValues: CATEGORY_VALUES,
+    },
+    {
+      name: 'penaltiesMentioned',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 's', column: 'penalties_mentioned' },
+    },
+    {
+      name: 'fiscalImpactPresent',
+      type: 'bool',
+      ops: ['isNull'],
+      column: { alias: 's', column: 'fiscal_impact' },
+    }, // true ⇒ IS NOT NULL, false ⇒ IS NULL
+    {
+      name: 'q',
+      type: 'string',
+      ops: ['contains', 'prefix'],
+      column: { alias: 'a', column: 'display_citation' },
+    }, // engine-backed (§7.2)
   ],
-  sort: { default: 'in_degree', allowed: ['in_degree', 'act_year', 'entry_into_force', 'display_citation'] },
+  sort: {
+    default: 'in_degree',
+    allowed: ['in_degree', 'act_year', 'entry_into_force', 'display_citation'],
+  },
 };
 ```
 
 - **`ACT_TYPE_VALUES`** is resolved at boot from **`distinct legal.acts.act_type`**
   (lege, oug, og, hotarare, ordin, decizie, decret, decret-lege, …) — **NOT** from
-  `document_summaries.document_category`. The two are *different vocabularies*
+  `document_summaries.document_category`. The two are _different vocabularies_
   (`act_type` is the legal instrument; `document_category` is the AI-assigned
   category like `hotarare-de-guvern`/`norma-metodologica`). `CATEGORY_VALUES`
   resolves from the 13-value `document_category`; `DOMAIN_VALUES` from the 16-value
   controlled `domains`. They are independent filter fields and must never be
   cross-validated.
 - **Year range as two fields** — modelled as `yearFrom` (`gte`) + `yearTo`
-  (`lte`) over the same column. (The kernel `FilterOp` union *does* include
+  (`lte`) over the same column. (The kernel `FilterOp` union _does_ include
   `between` per foundation §14.2; the two-field form is a deliberate ergonomics
   choice here, not a limitation.)
 - **`isNull` is mandatory (§14.2)** — `fiscalImpactPresent` carries `ops:['isNull']`
-  where the bool *value* selects `IS NOT NULL` (true) vs `IS NULL` (false); this is
+  where the bool _value_ selects `IS NOT NULL` (true) vs `IS NULL` (false); this is
   a value, not a negation, so it does not use the `exclude:` mechanism.
 - **Negation only on `exclude:true` fields** (actType/issuerSlug/status/domain/
   category) — no universal symmetric negation.
@@ -726,11 +904,11 @@ collections.
 
 ### 7.2 Which engine backs `q`
 
-| Surface | `q` engine | Why |
-|---|---|---|
-| R1 `/legal/acts` list | **pg_trgm** on `display_citation` (fallback) / **Meili** when up | identity/prefix autocomplete (act citations); kernel `SearchClient.multiSearch` on the `legal_acts` Meili index |
-| R7 `/legal/search` | **hybrid**: Meili (act identity) + OpenSearch (BM25, romanian analyzer) + pgvector (semantic), fused RRF | provision questions + topical (§4 multi-channel) |
-| R8 `/legal/filters/resolve` | trigram + distinct-value lookup | name→value resolution |
+| Surface                     | `q` engine                                                                                               | Why                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| R1 `/legal/acts` list       | **pg_trgm** on `display_citation` (fallback) / **Meili** when up                                         | identity/prefix autocomplete (act citations); kernel `SearchClient.multiSearch` on the `legal_acts` Meili index |
+| R7 `/legal/search`          | **hybrid**: Meili (act identity) + OpenSearch (BM25, romanian analyzer) + pgvector (semantic), fused RRF | provision questions + topical (§4 multi-channel)                                                                |
+| R8 `/legal/filters/resolve` | trigram + distinct-value lookup                                                                          | name→value resolution                                                                                           |
 
 Postgres `ILIKE`/trigram is the **always-available fallback** when Meili/OS/
 semantic are down (foundation §4.5) — R1/R7 degrade, never error.
@@ -738,6 +916,7 @@ semantic are down (foundation §4.5) — R1/R7 degrade, never error.
 ### 7.3 Discovery / resolve dimensions (R8 + MCP discovery tool)
 
 `dim ∈ { act, issuer, domain, category, act_type, status }`:
+
 - `act` → resolve "legea 227/2015"/"codul fiscal" → `{actId, displayCitation}`
   (reuse the loader's identifier regex via citation keys + aliases).
 - `issuer` → distinct `issuer_slug` + display name (trigram on Romanian name,
@@ -746,14 +925,14 @@ semantic are down (foundation §4.5) — R1/R7 degrade, never error.
 
 ### 7.4 Golden question→filter cases (from `AI_AGENT_FILTER_QUESTION_CATALOG.md`)
 
-| Catalog | Question | Compiled filter / call |
-|---|---|---|
-| LG-5 | "Acts in domain D, type T, status S, year Y" | R1 `domain=[D]&actType=[T]&status=[S]&year=Y` |
-| LG-3 | "Status of act X + evidence" | R2 `:idOrCitation` → `status`+`statusEvidence`+`timeline` |
-| LG-2 | "What amended/repealed act X?" | R4 `:id/links?direction=in&relation=modifica,abroga,completeaza` |
-| LG-1 | "What does X cite / who cites X?" | R4 `direction=out` and `direction=in` |
-| LG-4 | "Which article answers Q?" | R7 `/legal/search?q=Q&channel=sections&status=in-vigoare` → `LegalSectionHit[]` w/ node label + char offsets |
-| — | "Laws about fiscal matters in force, with penalties" | R1 `domain=[fiscal-si-bugetar]&status=[in-vigoare,modificat]&penaltiesMentioned=true` |
+| Catalog | Question                                             | Compiled filter / call                                                                                       |
+| ------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| LG-5    | "Acts in domain D, type T, status S, year Y"         | R1 `domain=[D]&actType=[T]&status=[S]&year=Y`                                                                |
+| LG-3    | "Status of act X + evidence"                         | R2 `:idOrCitation` → `status`+`statusEvidence`+`timeline`                                                    |
+| LG-2    | "What amended/repealed act X?"                       | R4 `:id/links?direction=in&relation=modifica,abroga,completeaza`                                             |
+| LG-1    | "What does X cite / who cites X?"                    | R4 `direction=out` and `direction=in`                                                                        |
+| LG-4    | "Which article answers Q?"                           | R7 `/legal/search?q=Q&channel=sections&status=in-vigoare` → `LegalSectionHit[]` w/ node label + char offsets |
+| —       | "Laws about fiscal matters in force, with penalties" | R1 `domain=[fiscal-si-bugetar]&status=[in-vigoare,modificat]&penaltiesMentioned=true`                        |
 
 ---
 
@@ -764,26 +943,28 @@ structured `{ ok, kind, query, link, item|items, summary? }` (§6.3). Rate-limit
 bounded result sizes. Two families minimum (§6.3): one discovery + query tools.
 
 ### 8.1 Discovery — `resolve_legal_filters`
+
 ```
 in:  { dim: 'act'|'issuer'|'domain'|'category'|'act_type'|'status', q: string, limit?: int }
 out: { ok, kind:'filter_resolution', query, items:[{value,label,count?}], summary }
 ```
+
 Calls `resolveLegalFilters`. `link` → client `/legal?<dim>=<value>`.
 
 ### 8.2 Query tools
 
-| Tool | Input | Usecase | Output `kind` | `link` | `summary` template |
-|---|---|---|---|---|---|
-| `get_legal_act` | `{ actId?, citation? }` | `getAct` | `legal_act_card` | `/legal/acts/<actId>` | "{citation} — status: {status}; modificat de {amendedAfterPublication} acte." |
-| `search_legal_acts` | `{ q, filter?, channel?, includeHistorical?, limit? }` | `searchLegal` | `legal_search` | `/legal/search?q=…` | "{n} acte / {m} secțiuni pentru „{q}". {caveats}" |
-| `get_legal_act_links` | `{ actId\|citation, direction, relation?, since?, limit? }` | `getActLinks` | `legal_links` | `/legal/acts/<id>/links?…` | "{n} {relation} edges for {citation}." |
-| `get_legal_act_timeline` | `{ actId\|citation }` | `getActTimeline` | `legal_timeline` | `/legal/acts/<id>/timeline` | "{citation}: {n} events from {first} to {last}." |
-| `get_legal_node` | `{ documentId, path }` | `getActTree`+node | `legal_node` | `/legal/acts/<id>/tree?path=…` | returns label + kind + char range + portal deep link (node TEXT is not in prod — P2; see §13) |
+| Tool                     | Input                                                       | Usecase           | Output `kind`    | `link`                         | `summary` template                                                                            |
+| ------------------------ | ----------------------------------------------------------- | ----------------- | ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `get_legal_act`          | `{ actId?, citation? }`                                     | `getAct`          | `legal_act_card` | `/legal/acts/<actId>`          | "{citation} — status: {status}; modificat de {amendedAfterPublication} acte."                 |
+| `search_legal_acts`      | `{ q, filter?, channel?, includeHistorical?, limit? }`      | `searchLegal`     | `legal_search`   | `/legal/search?q=…`            | "{n} acte / {m} secțiuni pentru „{q}". {caveats}"                                             |
+| `get_legal_act_links`    | `{ actId\|citation, direction, relation?, since?, limit? }` | `getActLinks`     | `legal_links`    | `/legal/acts/<id>/links?…`     | "{n} {relation} edges for {citation}."                                                        |
+| `get_legal_act_timeline` | `{ actId\|citation }`                                       | `getActTimeline`  | `legal_timeline` | `/legal/acts/<id>/timeline`    | "{citation}: {n} events from {first} to {last}."                                              |
+| `get_legal_node`         | `{ documentId, path }`                                      | `getActTree`+node | `legal_node`     | `/legal/acts/<id>/tree?path=…` | returns label + kind + char range + portal deep link (node TEXT is not in prod — P2; see §13) |
 
 Tool naming follows `<verb>_legal_<noun>` (§6.3). `search_legal_acts` returns
 **citations with the grounded snippet + node locator** (act + node label + char
 range + `summary`-derived snippet + portal deep link) so agent answers are
-verifiable and cite the right provision — *without* claiming to serve full node
+verifiable and cite the right provision — _without_ claiming to serve full node
 text the server cannot read (§3.4). It **never** computes totals/rankings beyond
 the graph edge counts it can ground (catalog Core Rule: search resolves
 candidates; graph answers come from `act_references`).
@@ -793,6 +974,7 @@ candidates; graph answers come from `act_references`).
 ## 9. Search integration
 
 **Owned `doc_type`s** (§4.5, verified live):
+
 - `legal_act` (223,611) — one row per act: `title`=display_citation+den,
   `body`=summary/semantic_text, `cuis`=`{}` (no CUI), `doc_date`=entry_into_force,
   `attrs`={status, domains, category, in_degree, aliases}. → **Meili** index
@@ -861,10 +1043,11 @@ node breadcrumb.
 // legal/index.ts
 export interface LegalModuleDeps {
   db: Kysely<ProdDatabase>;
-  search: SearchClient;          // kernel meili+os
-  synthetic: SyntheticClient;    // kernel embeddings (search_query: prefix)
+  search: SearchClient; // kernel meili+os
+  synthetic: SyntheticClient; // kernel embeddings (search_query: prefix)
   capabilities: SearchCapabilities;
-  cache: Cache; logger: Logger;
+  cache: Cache;
+  logger: Logger;
 }
 export function makeLegalModule(deps: LegalModuleDeps): LegalModule {
   // acts area repos: LegalActsRepo (extends LegalRepoBase), LegalGraphRepo, LegalTreeRepo, LegalRetrievalRepo
@@ -874,10 +1057,11 @@ export function makeLegalModule(deps: LegalModuleDeps): LegalModule {
   //           repos }
 }
 ```
+
 **`legal` is ONE module with two authoring areas, not two modules** (resolves the
 foundation §2/§10 "a source module never imports another source module" tension).
 Because portal and MO co-own `src/modules/legal/` (foundation §9), there is no
-*inter-module* import: both live inside the single `legal` module and share its
+_inter-module_ import: both live inside the single `legal` module and share its
 `core/` via ordinary intra-module imports. The internal layout:
 
 ```
@@ -952,10 +1136,10 @@ is exactly one `legal` module to register.
      was explicit; the `mo_part=1` default fix needs a non-dry `acts`-stage
      reload that was never run). **The server must NOT rely on these columns for
      correlation** — expose them as best-effort `LegalDocument.moPart/moNumber/
-     moDate` (often null) and route real act↔gazette joins through
+moDate` (often null) and route real act↔gazette joins through
      `mo_act_publications.act_id`. **Risk:** if a consumer assumes the typed
      columns are the contract, correlation silently returns ~nothing. Flagged for
-     the orchestrator + 06. *Recommend:* a scrapper reload to backfill the typed
+     the orchestrator + 06. _Recommend:_ a scrapper reload to backfill the typed
      columns (out of server scope) OR 06's `mo_act_publications` is the sole join
      path (server-side, no reload needed) — **recommend the latter for v1.**
 2. **No CUI / no `Entity.legal` in v1** (§2.2). Entity-360 does not include legal
@@ -966,12 +1150,12 @@ is exactly one `legal` module to register.
    `summary`/`semantic_text` snippet + a portal deep link (§3.4/§3.5); char
    offsets are a forward-compat locator, never served as text. **Decision for a
    later phase:** project node text into prod (a `legal.node_texts` table) for
-   true article-passage serving. *Recommend:* a P2 scrapper projection (keeps the
+   true article-passage serving. _Recommend:_ a P2 scrapper projection (keeps the
    server single-DB). The orchestrator should confirm the v1 snippet-grounding is
    acceptable as the interim RAG answer shape.
 4. **`acts(status, in_degree desc, act_id)` index — recommended pre-launch
    scrapper migration** (not "earned if slow"). R1's default sort is `in_degree
-   desc`, so the workload is guaranteed on day one; the API cannot create the
+desc`, so the workload is guaranteed on day one; the API cannot create the
    index (read-only). The orchestrator should request this migration in the
    scrapper before launch.
 5. **`document_summaries.domains` GIN** lives on the summary table keyed by

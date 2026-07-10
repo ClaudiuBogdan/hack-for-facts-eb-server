@@ -62,7 +62,12 @@ const preFilterConditions = (filter: FilterInput): Result<RawBuilder<SqlBool>, A
 };
 
 const historicalGate = (includeHistorical: boolean): RawBuilder<unknown> =>
-  includeHistorical ? sql`true` : sql`a.status in (${sql.join(LIVE_STATUSES.map((s) => sql`${s}`), sql`, `)})`;
+  includeHistorical
+    ? sql`true`
+    : sql`a.status in (${sql.join(
+        LIVE_STATUSES.map((s) => sql`${s}`),
+        sql`, `
+      )})`;
 
 const ESC = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
 

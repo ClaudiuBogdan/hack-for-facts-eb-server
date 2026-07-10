@@ -35,7 +35,7 @@ The 12 core techniques: cross-fetch entity-360°, bidirectional cardinality, mul
 - **~50 integrity tests PASSED**, establishing a solid baseline.
 - Three coherent bug clusters dominate:
   1. **The `CAEN_DIVISION` aggregate cluster (C1–C4)** — the entire `groupBy:CAEN_DIVISION` path is broken (crashes on `eq`, silently bypasses `prefix`, crashes unfiltered), and the CAEN resolve dim is mis-wired to fuzzy text search. This is the most user-visible breakage.
-  2. **The non-null error-propagation cluster (H2)** — every NON_NULL root field (`companies`, `companyCountyProfile`, `companyResolve`) nullifies the **entire** GraphQL `data` on any error (10/10 conditions). MCP is immune (11/11 HTTP 200), proving the resolver _can_ return a Result — GraphQL just doesn't expose it.
+  2. **The non-null error-propagation cluster (H2)** — every NON*NULL root field (`companies`, `companyCountyProfile`, `companyResolve`) nullifies the **entire** GraphQL `data` on any error (10/10 conditions). MCP is immune (11/11 HTTP 200), proving the resolver \_can* return a Result — GraphQL just doesn't expose it.
   3. **The public-money contract cluster (H4, M5)** — `byYear[].year` is 100% null (breakdown is actually by `flowType`), `topPayers` come from a foreign registry (54% aren't companies), and the field name/type is a documented-vs-impl lie.
 - The spine identity contract is **bulletproof** (0 duplicate CUIs across 2,833 rows; 0 dup `(cui,year)`; entity-360 byte-identical 15/15), so the problems are concentrated in **derivations, cross-source joins, and the CAEN/aggregation surface**.
 

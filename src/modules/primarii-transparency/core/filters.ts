@@ -201,7 +201,14 @@ export const primariiEntityFilterSpec: CollectionFilterSpec = {
   // `(sortValue, cui)`. Default `data_quality` surfaces best-known first.
   sort: {
     default: 'data_quality',
-    allowed: ['data_quality', 'confidence', 'evidence_coverage', 'issue_count', 'entity_name', 'updated_at'],
+    allowed: [
+      'data_quality',
+      'confidence',
+      'evidence_coverage',
+      'issue_count',
+      'entity_name',
+      'updated_at',
+    ],
   },
 };
 
@@ -215,7 +222,8 @@ export const primariiDocumentFilterSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['eq', 'in'],
       column: { alias: 'd', column: 'cui' },
-      description: 'UAT CUI (cui_category_idx leading col → index seek). One of cui/category REQUIRED.',
+      description:
+        'UAT CUI (cui_category_idx leading col → index seek). One of cui/category REQUIRED.',
     },
     {
       name: 'category',
@@ -239,7 +247,8 @@ export const primariiDocumentFilterSpec: CollectionFilterSpec = {
       ops: ['eq', 'isNull'],
       virtual: true,
       column: { alias: 'd', column: 'has_content_virtual' },
-      description: 'VIRTUAL — content_sha256 IS [NOT] NULL ("evidence actually stored"). No index — scan.',
+      description:
+        'VIRTUAL — content_sha256 IS [NOT] NULL ("evidence actually stored"). No index — scan.',
     },
   ],
   // `cui`/`category` are non-unique, so the repo orders by `(sortValue, document_pk)`
@@ -264,7 +273,12 @@ export const PRIMARII_ENTITY_VIRTUAL_FIELDS = [
 ] as const;
 
 /** Territory-dependent virtual fields — capability-gated on the kernel cui→territory resolver. */
-export const PRIMARII_TERRITORY_VIRTUAL_FIELDS = ['region', 'siruta', 'isUat', 'population'] as const;
+export const PRIMARII_TERRITORY_VIRTUAL_FIELDS = [
+  'region',
+  'siruta',
+  'isUat',
+  'population',
+] as const;
 
 /** Field names the document repo intercepts as VIRTUAL. */
 export const PRIMARII_DOCUMENT_VIRTUAL_FIELDS = ['hasContent'] as const;

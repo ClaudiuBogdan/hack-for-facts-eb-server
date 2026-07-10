@@ -11,7 +11,11 @@ import {
   filterHash,
   toConditionBuilders,
 } from '@/modules/shared/core/filters/derive.js';
-import { graphqlFilterTypeName, toGraphQLInput, toTypeBox } from '@/modules/shared/core/filters/surfaces.js';
+import {
+  graphqlFilterTypeName,
+  toGraphQLInput,
+  toTypeBox,
+} from '@/modules/shared/core/filters/surfaces.js';
 
 import { compileWhere } from './helpers.js';
 
@@ -80,14 +84,24 @@ describe('toConditionBuilders → SQL', () => {
     const res = toConditionBuilders(spec, { year: { between: { from: 2020, to: 2023 } } });
     expect(res.isOk()).toBe(true);
     const compiled = compileWhere(res._unsafeUnwrap());
-    expect(compiled.sql).toMatchInlineSnapshot(`"where "c"."flow_year" >= $1 AND "c"."flow_year" <= $2"`);
+    expect(compiled.sql).toMatchInlineSnapshot(
+      `"where "c"."flow_year" >= $1 AND "c"."flow_year" <= $2"`
+    );
     expect(compiled.parameters).toEqual([2020, 2023]);
   });
 
   it('applies the declared default when a field is absent', () => {
     const defaultedSpec: CollectionFilterSpec = {
       collection: 'defaulted',
-      fields: [{ name: 'year', type: 'int', ops: ['eq'], column: { alias: 'c', column: 'flow_year' }, default: 2024 }],
+      fields: [
+        {
+          name: 'year',
+          type: 'int',
+          ops: ['eq'],
+          column: { alias: 'c', column: 'flow_year' },
+          default: 2024,
+        },
+      ],
       sort: { default: 'year', allowed: ['year'] },
     };
     const res = toConditionBuilders(defaultedSpec, {});
@@ -144,7 +158,9 @@ describe('toConditionBuilders → SQL', () => {
   it('compiles isNull true/false', () => {
     const t = compileWhere(toConditionBuilders(spec, { amount: { isNull: true } })._unsafeUnwrap());
     expect(t.sql).toContain('is null');
-    const f = compileWhere(toConditionBuilders(spec, { amount: { isNull: false } })._unsafeUnwrap());
+    const f = compileWhere(
+      toConditionBuilders(spec, { amount: { isNull: false } })._unsafeUnwrap()
+    );
     expect(f.sql).toContain('is not null');
   });
 
@@ -220,13 +236,23 @@ describe('canonicalizeFilters + filterHash', () => {
     const a = canonicalizeFilters(spec, { tags: { in: ['b', 'a'] }, status: { eq: 'open' } });
     const b = canonicalizeFilters(spec, { status: { eq: 'open' }, tags: { in: ['a', 'b'] } });
     expect(a).toEqual(b);
-    expect(fhashFor(spec, { tags: { in: ['b', 'a'] } })).toEqual(fhashFor(spec, { tags: { in: ['a', 'b'] } }));
+    expect(fhashFor(spec, { tags: { in: ['b', 'a'] } })).toEqual(
+      fhashFor(spec, { tags: { in: ['a', 'b'] } })
+    );
   });
 
   it('treats omitted == explicit default identically', () => {
     const defaultedSpec: CollectionFilterSpec = {
       collection: 'defaulted',
-      fields: [{ name: 'year', type: 'int', ops: ['eq'], column: { alias: 'c', column: 'flow_year' }, default: 2024 }],
+      fields: [
+        {
+          name: 'year',
+          type: 'int',
+          ops: ['eq'],
+          column: { alias: 'c', column: 'flow_year' },
+          default: 2024,
+        },
+      ],
       sort: { default: 'year', allowed: ['year'] },
     };
     const omitted = canonicalizeFilters(defaultedSpec, {});

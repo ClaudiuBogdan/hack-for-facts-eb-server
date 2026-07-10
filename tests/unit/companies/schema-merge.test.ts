@@ -15,7 +15,9 @@ describe('companies schema slice', () => {
   });
 
   it('declares the company Query fields', () => {
-    const merged = mergeGraphqlSlices(baseTypeDefs, [{ source: 'companies', typeDefs: companiesTypeDefs }]);
+    const merged = mergeGraphqlSlices(baseTypeDefs, [
+      { source: 'companies', typeDefs: companiesTypeDefs },
+    ]);
     expect(merged.typeDefs).toContain('company(cui: CUI!)');
     expect(merged.typeDefs).toContain('companyCountyProfile');
     expect(merged.typeDefs).toContain('CompaniesFilter');

@@ -25,7 +25,9 @@ describe('hasField — only counts predicate-producing fields', () => {
 
   it('FALSE for an empty between: {}', () => {
     expect(hasField({ paymentDate: { between: {} } }, 'paymentDate')).toBe(false);
-    expect(hasField({ paymentDate: { between: { from: '2024-01-01' } } }, 'paymentDate')).toBe(true);
+    expect(hasField({ paymentDate: { between: { from: '2024-01-01' } } }, 'paymentDate')).toBe(
+      true
+    );
   });
 
   it('true for isNull (a real predicate)', () => {
@@ -35,12 +37,20 @@ describe('hasField — only counts predicate-producing fields', () => {
 
 describe('requireDrivingPredicate — index-bound rule', () => {
   it('rejects when only an empty in is present', () => {
-    const r = requireDrivingPredicate({ beneficiaryCui: { in: [] } }, ['beneficiaryCui'], 'beneficiaryCui');
+    const r = requireDrivingPredicate(
+      { beneficiaryCui: { in: [] } },
+      ['beneficiaryCui'],
+      'beneficiaryCui'
+    );
     expect(r.isErr()).toBe(true);
   });
 
   it('accepts a real driving predicate', () => {
-    const r = requireDrivingPredicate({ beneficiaryCui: { eq: '1' } }, ['beneficiaryCui'], 'beneficiaryCui');
+    const r = requireDrivingPredicate(
+      { beneficiaryCui: { eq: '1' } },
+      ['beneficiaryCui'],
+      'beneficiaryCui'
+    );
     expect(r.isOk()).toBe(true);
   });
 });
@@ -64,7 +74,14 @@ describe('validateVirtualFilters', () => {
   });
 
   it('accepts valid virtual filters', () => {
-    expect(validateVirtualFilters({ role: { eq: 'beneficiary' }, hub: { in: ['companies'] }, year: { eq: 2024 }, hasNoHub: { eq: true } }).isOk()).toBe(true);
+    expect(
+      validateVirtualFilters({
+        role: { eq: 'beneficiary' },
+        hub: { in: ['companies'] },
+        year: { eq: 2024 },
+        hasNoHub: { eq: true },
+      }).isOk()
+    ).toBe(true);
   });
 
   it('is a no-op when no virtual fields are present', () => {

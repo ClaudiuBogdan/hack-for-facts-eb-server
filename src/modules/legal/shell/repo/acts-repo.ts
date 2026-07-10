@@ -100,58 +100,64 @@ const sortValueOf = (act: LegalAct, sort: string): string => {
 
 export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
   const selectActs = () =>
-    db.selectFrom('legal.acts as a').select([
-      'a.act_id',
-      'a.act_natural_key',
-      'a.act_type',
-      'a.act_number',
-      'a.act_year',
-      'a.issuer_slug',
-      'a.canonical_document_id',
-      'a.display_citation',
-      'a.status',
-      'a.status_evidence',
-      sql<string | null>`a.entry_into_force::text`.as('entry_into_force'),
-      'a.in_degree',
-    ]);
+    db
+      .selectFrom('legal.acts as a')
+      .select([
+        'a.act_id',
+        'a.act_natural_key',
+        'a.act_type',
+        'a.act_number',
+        'a.act_year',
+        'a.issuer_slug',
+        'a.canonical_document_id',
+        'a.display_citation',
+        'a.status',
+        'a.status_evidence',
+        sql<string | null>`a.entry_into_force::text`.as('entry_into_force'),
+        'a.in_degree',
+      ]);
 
   const selectDocuments = () =>
-    db.selectFrom('legal.act_documents as d').select([
-      'd.document_id',
-      'd.act_id',
-      'd.version_kind',
-      sql<string | null>`d.version_date::text`.as('version_date'),
-      'd.is_canonical',
-      'd.den',
-      'd.title',
-      'd.issuer_raw',
-      'd.publication_raw',
-      sql<string | null>`d.entry_into_force::text`.as('entry_into_force'),
-      sql<string | null>`d.first_publication_date::text`.as('first_publication_date'),
-      'd.status_markers',
-      'd.extraction_status',
-      'd.compatibility_tier',
-      'd.mo_part',
-      'd.mo_number',
-      sql<string | null>`d.mo_date::text`.as('mo_date'),
-    ]);
+    db
+      .selectFrom('legal.act_documents as d')
+      .select([
+        'd.document_id',
+        'd.act_id',
+        'd.version_kind',
+        sql<string | null>`d.version_date::text`.as('version_date'),
+        'd.is_canonical',
+        'd.den',
+        'd.title',
+        'd.issuer_raw',
+        'd.publication_raw',
+        sql<string | null>`d.entry_into_force::text`.as('entry_into_force'),
+        sql<string | null>`d.first_publication_date::text`.as('first_publication_date'),
+        'd.status_markers',
+        'd.extraction_status',
+        'd.compatibility_tier',
+        'd.mo_part',
+        'd.mo_number',
+        sql<string | null>`d.mo_date::text`.as('mo_date'),
+      ]);
 
   const selectSummaries = () =>
-    db.selectFrom('legal.document_summaries as s').select([
-      's.document_id',
-      's.description',
-      's.summary',
-      's.plain_language_summary',
-      's.document_category',
-      's.domains',
-      's.affected_audiences',
-      's.keywords',
-      's.key_dates',
-      's.penalties_mentioned',
-      's.fiscal_impact',
-      's.confidence',
-      's.source_extraction_status',
-    ]);
+    db
+      .selectFrom('legal.document_summaries as s')
+      .select([
+        's.document_id',
+        's.description',
+        's.summary',
+        's.plain_language_summary',
+        's.document_category',
+        's.domains',
+        's.affected_audiences',
+        's.keywords',
+        's.key_dates',
+        's.penalties_mentioned',
+        's.fiscal_impact',
+        's.confidence',
+        's.source_extraction_status',
+      ]);
 
   // ── identity (LegalRepoBase) ────────────────────────────────────────────────
 
@@ -291,7 +297,10 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         ])
         .where('e.act_id', '=', actId);
       if (eventSource !== undefined) q = q.where('e.event_source', '=', eventSource);
-      const rows = await q.orderBy(sql`e.effective_date asc nulls last`).limit(500).execute();
+      const rows = await q
+        .orderBy(sql`e.effective_date asc nulls last`)
+        .limit(500)
+        .execute();
       return ok(rows.map((r) => mapStatusEvent(r as unknown as StatusEventRow)));
     } catch (error) {
       return err(databaseError('getStatusEvents failed', error));
@@ -300,7 +309,9 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
 
   // ── list / detail (LegalActsRepo) ───────────────────────────────────────────
 
-  const listActs = async (o: LegalActListOptions): Promise<Result<CursorPage<LegalAct>, ApiError>> => {
+  const listActs = async (
+    o: LegalActListOptions
+  ): Promise<Result<CursorPage<LegalAct>, ApiError>> => {
     const limit = clampLimit(o.page.first, MAX_LIST);
     const fhash = fhashFor(legalActsSpec, o.filter);
     const sortInfo = SORT_EXPR[o.sort];
@@ -396,7 +407,10 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     documentId: string
   ): Promise<Result<LegalActSummary | null, ApiError>> => {
     try {
-      const row = await selectSummaries().where('s.document_id', '=', documentId).limit(1).executeTakeFirst();
+      const row = await selectSummaries()
+        .where('s.document_id', '=', documentId)
+        .limit(1)
+        .executeTakeFirst();
       return ok(row === undefined ? null : mapSummary(row as unknown as SummaryRow));
     } catch (error) {
       return err(databaseError('getSummary failed', error));
@@ -459,7 +473,11 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
 
     const [canonRes, aliasRows, keyRows, versionCountRow, amendedRes] = await Promise.all([
       getCanonicalDocument(act.actId),
-      db.selectFrom('legal.act_aliases as al').select('al.alias').where('al.act_id', '=', act.actId).execute(),
+      db
+        .selectFrom('legal.act_aliases as al')
+        .select('al.alias')
+        .where('al.act_id', '=', act.actId)
+        .execute(),
       db
         .selectFrom('legal.act_citation_keys as ck')
         .select(['ck.act_type', 'ck.act_number', 'ck.act_year', 'ck.issuer_slug'])

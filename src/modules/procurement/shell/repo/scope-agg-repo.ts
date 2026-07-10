@@ -67,8 +67,10 @@ const scopeConditions = (
   source: ScopeSource
 ): RawBuilder<unknown>[] => {
   const conds: RawBuilder<unknown>[] = [sql`source_grain in (${grainList(grains)})`];
-  if (scope.monthFrom !== undefined) conds.push(sql`month_start >= ${monthStart(scope.monthFrom)}::date`);
-  if (scope.monthTo !== undefined) conds.push(sql`month_start <= ${monthStart(scope.monthTo)}::date`);
+  if (scope.monthFrom !== undefined)
+    conds.push(sql`month_start >= ${monthStart(scope.monthFrom)}::date`);
+  if (scope.monthTo !== undefined)
+    conds.push(sql`month_start <= ${monthStart(scope.monthTo)}::date`);
   if (scope.authorityCui !== undefined) conds.push(sql`authority_cui = ${scope.authorityCui}`);
   if (scope.supplierCui !== undefined) conds.push(sql`supplier_cui = ${scope.supplierCui}`);
   if (scope.cpvDivision !== undefined) {
@@ -88,7 +90,9 @@ const spendSum = (
   spendGrains: readonly ProcurementGrain[]
 ): RawBuilder<string | null> => {
   if (spendGrains.length === 0) return sql<string | null>`null::text`;
-  return sql<string | null>`sum(${sql.ref(column)}) filter (where source_grain in (${grainList(spendGrains)}))::text`;
+  return sql<
+    string | null
+  >`sum(${sql.ref(column)}) filter (where source_grain in (${grainList(spendGrains)}))::text`;
 };
 
 /**
@@ -153,8 +157,14 @@ export const makeScopeAggRepo = (db: Db): ProcurementScopeAggRepo => {
            where ${where}
            group by source_grain
         `.execute(db),
-        sql<{ n: string }>`select count(distinct authority_cui)::text as n from ${table} where ${where}`.execute(db),
-        sql<{ n: string }>`select count(distinct supplier_cui)::text as n from ${table} where ${where}`.execute(db),
+        sql<{
+          n: string;
+        }>`select count(distinct authority_cui)::text as n from ${table} where ${where}`.execute(
+          db
+        ),
+        sql<{
+          n: string;
+        }>`select count(distinct supplier_cui)::text as n from ${table} where ${where}`.execute(db),
       ]);
 
       const byGrain = new Map(perGrain.rows.map((r) => [r.source_grain as ProcurementGrain, r]));

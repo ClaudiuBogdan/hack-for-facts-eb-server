@@ -22,8 +22,16 @@ import {
   budgetRankingKernelSpec,
   budgetReportFilterSpec,
 } from '@/modules/budget/core/filters.js';
-import { canonicalizeFilters, fhashFor, toConditionBuilders } from '@/modules/shared/core/filters/derive.js';
-import { graphqlFilterTypeName, toGraphQLInput, toTypeBox } from '@/modules/shared/core/filters/surfaces.js';
+import {
+  canonicalizeFilters,
+  fhashFor,
+  toConditionBuilders,
+} from '@/modules/shared/core/filters/derive.js';
+import {
+  graphqlFilterTypeName,
+  toGraphQLInput,
+  toTypeBox,
+} from '@/modules/shared/core/filters/surfaces.js';
 
 import { compileWhere } from '../shared/helpers.js';
 
@@ -106,7 +114,9 @@ describe('budget KERNEL specs strip the repo-intercepted fields (the prune-safet
 
 describe('budget filter specs — residual SQL compilation', () => {
   it('functionalCodes IN compiles against the identity-index column', () => {
-    const built = toConditionBuilders(budgetFactKernelSpec, { functionalCodes: { in: ['84.03.03', '65.50.00'] } });
+    const built = toConditionBuilders(budgetFactKernelSpec, {
+      functionalCodes: { in: ['84.03.03', '65.50.00'] },
+    });
     const { sql, parameters } = compileWhere(built._unsafeUnwrap());
     expect(sql).toContain('"eli"."functional_code"');
     expect(sql).toMatch(/in \(\$1, \$2\)/u);
@@ -114,7 +124,9 @@ describe('budget filter specs — residual SQL compilation', () => {
   });
 
   it('functionalPrefix compiles to a LIKE prefix (text_pattern_ops btree)', () => {
-    const built = toConditionBuilders(budgetFactKernelSpec, { functionalPrefix: { prefix: '84.' } });
+    const built = toConditionBuilders(budgetFactKernelSpec, {
+      functionalPrefix: { prefix: '84.' },
+    });
     const { sql, parameters } = compileWhere(built._unsafeUnwrap());
     expect(sql).toContain('"eli"."functional_code" ilike');
     expect(parameters).toEqual(['84.%']);

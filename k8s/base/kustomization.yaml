@@ -2,49 +2,49 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: hack-for-facts
 resources:
-- postgres-deployment.yaml
-- postgres-ins.yaml
-- postgres-userdata.yaml
-- deployment.yaml
-- pdb.yaml
-- service.yaml
-- virtual-service.yaml
-- configmap.yaml
-- redis.yaml
-- bullmq-redis.yaml
-- network-policy.yaml
+  - postgres-deployment.yaml
+  - postgres-ins.yaml
+  - postgres-userdata.yaml
+  - deployment.yaml
+  - pdb.yaml
+  - service.yaml
+  - virtual-service.yaml
+  - configmap.yaml
+  - redis.yaml
+  - bullmq-redis.yaml
+  - network-policy.yaml
 labels:
-- includeSelectors: true
-  includeTemplates: true
-  pairs:
-    app.kubernetes.io/name: hack-for-facts-eb-server
-    app.kubernetes.io/part-of: hack-for-facts
+  - includeSelectors: true
+    includeTemplates: true
+    pairs:
+      app.kubernetes.io/name: hack-for-facts-eb-server
+      app.kubernetes.io/part-of: hack-for-facts
 
 patches:
-- patch: |-
-    - op: replace
-      path: /spec/bootstrap/initdb/database
-      value: hack-for-facts
-    - op: replace
-      path: /spec/bootstrap/initdb/owner
-      value: hack-for-facts_user
-  target:
-    kind: Cluster
-    name: postgres-db
-- patch: |-
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
+  - patch: |-
+      - op: replace
+        path: /spec/bootstrap/initdb/database
+        value: hack-for-facts
+      - op: replace
+        path: /spec/bootstrap/initdb/owner
+        value: hack-for-facts_user
+    target:
+      kind: Cluster
+      name: postgres-db
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hack-for-facts-eb-server
+      spec:
+        template:
+          metadata:
+            annotations:
+              image-sha: f359c87d1efecdc02af6ab82a9ccfba43e4e55fb
+    target:
+      kind: Deployment
       name: hack-for-facts-eb-server
-    spec:
-      template:
-        metadata:
-          annotations:
-            image-sha: a1ebf49b5365738b273c829416f82502d4c5b9d9
-  target:
-    kind: Deployment
-    name: hack-for-facts-eb-server
 images:
-- name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-  newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-  newTag: a1ebf49b5365738b273c829416f82502d4c5b9d9
+  - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    newTag: f359c87d1efecdc02af6ab82a9ccfba43e4e55fb

@@ -8,10 +8,7 @@
 
 import { z } from 'zod';
 
-import {
-  REFERENCE_RESOLVE_DIMS,
-  type ReferenceResolveDim,
-} from '../../core/types.js';
+import { REFERENCE_RESOLVE_DIMS, type ReferenceResolveDim } from '../../core/types.js';
 import {
   getPublicEntity,
   getTerritory,
@@ -43,7 +40,10 @@ const intArg = (args: Record<string, unknown>, key: string, dflt: number): numbe
   return Number.isFinite(n) ? Math.floor(n) : dflt;
 };
 
-const pageArg = (args: Record<string, unknown>, dfltFirst: number): { first: number; after?: string; sort?: string } => {
+const pageArg = (
+  args: Record<string, unknown>,
+  dfltFirst: number
+): { first: number; after?: string; sort?: string } => {
   const after = strArg(args, 'after');
   const sort = strArg(args, 'sort');
   return {
@@ -53,7 +53,11 @@ const pageArg = (args: Record<string, unknown>, dfltFirst: number): { first: num
   };
 };
 
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMcpTool[] => {
@@ -66,13 +70,16 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     description:
       'Resolve a free-text query to a filter value before querying other tools: public_entity (institution name → CUI), territory (locality/UAT name → SIRUTA), classification (CAEN label/code → code), organization (company name/CUI → CUI).',
     inputShape: {
-      dim: z.enum(['public_entity', 'territory', 'classification', 'organization']).describe('Which dimension to resolve.'),
+      dim: z
+        .enum(['public_entity', 'territory', 'classification', 'organization'])
+        .describe('Which dimension to resolve.'),
       q: z.string().describe('The free-text query (name, label, or code).'),
       limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const dim = strArg(args, 'dim') as ReferenceResolveDim;
-      if (!REFERENCE_RESOLVE_DIMS.includes(dim)) return errorOut('resolution', `unknown dim '${dim}'`);
+      if (!REFERENCE_RESOLVE_DIMS.includes(dim))
+        return errorOut('resolution', `unknown dim '${dim}'`);
       const q = strArg(args, 'q');
       const res = await resolveReference(deps, dim, q, intArg(args, 'limit', 10));
       if (res.isErr()) return errorOut('resolution', res.error.message);
@@ -102,7 +109,13 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
       const res = await getPublicEntity(deps, cui, false);
       if (res.isErr()) return errorOut('public_entity', res.error.message);
       const e = res.value;
-      if (e === null) return { ok: true, kind: 'public_entity', query: { cui }, summary: `No public entity for CUI ${cui}.` };
+      if (e === null)
+        return {
+          ok: true,
+          kind: 'public_entity',
+          query: { cui },
+          summary: `No public entity for CUI ${cui}.`,
+        };
       const county = e.territory?.countyName ?? null;
       return {
         ok: true,
@@ -124,10 +137,18 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     description:
       'List/filter the public-entity registry (15,002 entities). Filter by name, entityType, category, isUat, county/region, tags, parentCui, hasIssues. Returns a page + the matched total. Paginate with `after`.',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A ReferencePublicEntity filter object (e.g. { region: { eq: "Nord-Vest" }, isUat: { eq: true } }).'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          'A ReferencePublicEntity filter object (e.g. { region: { eq: "Nord-Vest" }, isUat: { eq: true } }).'
+        ),
       limit: z.number().int().min(1).max(100).optional().describe('Page size (default 20).'),
       after: z.string().optional().describe('Cursor from a previous page.'),
-      sort: z.enum(['name', 'cui', 'entity_type', 'updated_at']).optional().describe('Sort field (default name).'),
+      sort: z
+        .enum(['name', 'cui', 'entity_type', 'updated_at'])
+        .optional()
+        .describe('Sort field (default name).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const filter = filterArg(args);
@@ -150,7 +171,10 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     description:
       'Territory/UAT detail by surrogate id OR territorial SIRUTA: name, county, development region, population.',
     inputShape: {
-      id: z.union([z.number(), z.string()]).optional().describe('Surrogate territory id (or a "siruta:CODE" string).'),
+      id: z
+        .union([z.number(), z.string()])
+        .optional()
+        .describe('Surrogate territory id (or a "siruta:CODE" string).'),
       siruta: z.string().optional().describe('The territorial SIRUTA code.'),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -160,7 +184,13 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
       const res = await getTerritory(deps, { id, siruta: siruta === '' ? null : siruta });
       if (res.isErr()) return errorOut('territory', res.error.message);
       const t = res.value;
-      if (t === null) return { ok: true, kind: 'territory', query: { id, siruta }, summary: 'No territory matched.' };
+      if (t === null)
+        return {
+          ok: true,
+          kind: 'territory',
+          query: { id, siruta },
+          summary: 'No territory matched.',
+        };
       return {
         ok: true,
         kind: 'territory',
@@ -180,10 +210,16 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     description:
       'List UATs (administrative-territorial units) with filters (county/region/name/population range). Forces isUat=true; use get_reference_territory for a single non-UAT locality. Paginate with `after`.',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A ReferenceTerritory filter object (e.g. { region: { eq: "Centru" } }).'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A ReferenceTerritory filter object (e.g. { region: { eq: "Centru" } }).'),
       limit: z.number().int().min(1).max(100).optional().describe('Page size (default 20).'),
       after: z.string().optional().describe('Cursor from a previous page.'),
-      sort: z.enum(['name', 'population', 'county_code']).optional().describe('Sort field (default name).'),
+      sort: z
+        .enum(['name', 'population', 'county_code'])
+        .optional()
+        .describe('Sort field (default name).'),
     },
     async handler(args): Promise<McpToolOutput> {
       // Force isUat=true so the tool name matches the result (review S2).
@@ -207,14 +243,21 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     description:
       'Resolve a CAEN label or code fragment to classification codes (optionally scoped to a system: caen_rev1|caen_rev2|caen_rev3).',
     inputShape: {
-      system: z.enum(['caen_rev1', 'caen_rev2', 'caen_rev3']).optional().describe('Restrict to one CAEN system.'),
+      system: z
+        .enum(['caen_rev1', 'caen_rev2', 'caen_rev3'])
+        .optional()
+        .describe('Restrict to one CAEN system.'),
       q: z.string().describe('A CAEN label or code fragment.'),
       limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const system = strArg(args, 'system');
       const q = strArg(args, 'q');
-      const res = await deps.classification.resolve(system === '' ? null : system, q, intArg(args, 'limit', 10));
+      const res = await deps.classification.resolve(
+        system === '' ? null : system,
+        q,
+        intArg(args, 'limit', 10)
+      );
       if (res.isErr()) return errorOut('classification_list', res.error.message);
       const top = res.value[0];
       return {
@@ -230,5 +273,12 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
     },
   };
 
-  return [resolveFilter, getPublicEntityTool, searchPublicEntities, getTerritoryTool, listUats, resolveClassification];
+  return [
+    resolveFilter,
+    getPublicEntityTool,
+    searchPublicEntities,
+    getTerritoryTool,
+    listUats,
+    resolveClassification,
+  ];
 };

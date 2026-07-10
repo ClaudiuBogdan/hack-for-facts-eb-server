@@ -19,7 +19,11 @@
 
 import './shell/db/schema.js';
 
-import { effectiveSemantic, type LegalSearchDeps, type ResolveLegalFiltersDeps } from './core/usecases.js';
+import {
+  effectiveSemantic,
+  type LegalSearchDeps,
+  type ResolveLegalFiltersDeps,
+} from './core/usecases.js';
 import { makeMonitorulSurface } from './mo/index.js';
 import { probeLegalHnsw } from './shell/capability.js';
 import { makeLegalResolvers } from './shell/graphql/resolvers.js';
@@ -32,7 +36,12 @@ import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
 import { makeLegalTreeRepo } from './shell/repo/tree-repo.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
 
-import type { LegalActsRepo, LegalGraphRepo, LegalRetrievalRepo, LegalTreeRepo } from './core/ports.js';
+import type {
+  LegalActsRepo,
+  LegalGraphRepo,
+  LegalRetrievalRepo,
+  LegalTreeRepo,
+} from './core/ports.js';
 import type { LegalRepoBase } from './core/repo-base.js';
 import type {
   CapabilityResolver,
@@ -120,7 +129,10 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const semanticReady = effectiveSemantic({ capabilities: deps.capabilities, hnswReady });
 
   // 3. the cross-module act loader (parliament/judicial consume it).
-  const legalActLoader = makeLegalActLoader({ acts, ...(deps.logger !== undefined && { logger: deps.logger }) });
+  const legalActLoader = makeLegalActLoader({
+    acts,
+    ...(deps.logger !== undefined && { logger: deps.logger }),
+  });
 
   // 4. usecase dep bundles (shared by GraphQL + MCP — tri-surface equivalence).
   const searchDeps: LegalSearchDeps = {
@@ -136,7 +148,14 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
 
   // 5. GraphQL slice + MCP tools (acts area).
   const actsResolvers = makeLegalResolvers({ acts, graph, tree, searchDeps, resolveDeps });
-  const actsMcpTools = makeLegalMcpTools({ acts, graph, tree, searchDeps, resolveDeps, clientBaseUrl });
+  const actsMcpTools = makeLegalMcpTools({
+    acts,
+    graph,
+    tree,
+    searchDeps,
+    resolveDeps,
+    clientBaseUrl,
+  });
 
   // 6. mo/ area (06) — STITCHED INTO the single legal slice (foundation §9). MO adds
   //    Mo* types + `extend type LegalAct`/`Entity`/`Query` to the typeDefs, its
@@ -191,9 +210,15 @@ const deepMergeResolvers = (
       value !== null &&
       !Array.isArray(value);
     if (bothObjects) {
-      out[key] = deepMergeResolvers(existing as Record<string, unknown>, value as Record<string, unknown>, here);
+      out[key] = deepMergeResolvers(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>,
+        here
+      );
     } else if (existing !== undefined) {
-      throw new Error(`legal resolver merge conflict: '${here}' is defined by both the acts and mo areas`);
+      throw new Error(
+        `legal resolver merge conflict: '${here}' is defined by both the acts and mo areas`
+      );
     } else {
       out[key] = value;
     }
@@ -201,7 +226,12 @@ const deepMergeResolvers = (
   return out;
 };
 
-export type { LegalActsRepo, LegalGraphRepo, LegalRetrievalRepo, LegalTreeRepo } from './core/ports.js';
+export type {
+  LegalActsRepo,
+  LegalGraphRepo,
+  LegalRetrievalRepo,
+  LegalTreeRepo,
+} from './core/ports.js';
 export type { LegalRepoBase, LegalActRef } from './core/repo-base.js';
 export * from './core/types.js';
 export { legalActsSpec, LEGAL_FILTER_SPECS } from './shell/filters/legal-acts.spec.js';

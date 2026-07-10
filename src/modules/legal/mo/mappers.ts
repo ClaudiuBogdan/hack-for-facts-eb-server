@@ -43,10 +43,12 @@ const RELATION_SET = new Set<string>(MO_RELATIONS);
 const STATUS_KIND_SET = new Set<string>(MO_STATUS_KINDS);
 
 const toPartCode = (s: string): MoPartCode => (PART_SET.has(s) ? (s as MoPartCode) : 'PI');
-const toResolution = (s: string): MoResolution => (RES_SET.has(s) ? (s as MoResolution) : 'unmatched');
+const toResolution = (s: string): MoResolution =>
+  RES_SET.has(s) ? (s as MoResolution) : 'unmatched';
 const toEdgeResolution = (s: string): MoEdgeResolution =>
   EDGE_RES_SET.has(s) ? (s as MoEdgeResolution) : 'unresolved';
-const toRelation = (s: string): MoRelation => (RELATION_SET.has(s) ? (s as MoRelation) : 'rectifica');
+const toRelation = (s: string): MoRelation =>
+  RELATION_SET.has(s) ? (s as MoRelation) : 'rectifica';
 const toMatchedVia = (s: string | null): MoMatchedVia | null =>
   s === 'act-year' || s === 'issue-year' ? s : null;
 

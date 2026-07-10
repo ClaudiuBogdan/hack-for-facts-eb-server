@@ -13,10 +13,7 @@
  * emitted (#60b). All other fields map directly to a `justice.cases` column.
  */
 
-import {
-  JUDICIAL_COURT_LEVELS,
-  type JudicialCourtLevel,
-} from '../../core/types.js';
+import { JUDICIAL_COURT_LEVELS, type JudicialCourtLevel } from '../../core/types.js';
 
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 
@@ -51,7 +48,8 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       array: true,
       enumValues: COURT_LEVEL_VALUES,
       virtual: true,
-      description: 'Court level (judecatorie/tribunal/curte_de_apel/...). Resolved via a bounded courts join.',
+      description:
+        'Court level (judecatorie/tribunal/curte_de_apel/...). Resolved via a bounded courts join.',
     },
     {
       name: 'category',
@@ -98,7 +96,8 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       type: 'bool',
       ops: ['isNull'],
       column: { alias: 'c', column: 'object' },
-      description: 'isNull:true ⇒ object IS NULL; isNull:false ⇒ IS NOT NULL (kernel op semantics).',
+      description:
+        'isNull:true ⇒ object IS NULL; isNull:false ⇒ IS NOT NULL (kernel op semantics).',
     },
   ],
   sort: {

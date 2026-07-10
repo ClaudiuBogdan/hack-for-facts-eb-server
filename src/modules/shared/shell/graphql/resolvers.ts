@@ -17,10 +17,7 @@ import {
   type EntityCore,
   type Entity360Deps,
 } from '../../core/usecases/entity-360.js';
-import {
-  makeGlobalSearch,
-  type GlobalSearchDeps,
-} from '../../core/usecases/global-search.js';
+import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
 
 import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
 import type { FlowSummary, SourcePresence, Territory } from '../../core/types.js';
@@ -96,11 +93,7 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
       return result.value;
     },
 
-    searchEntities: async (
-      _root: unknown,
-      args: SearchArgs,
-      context: KernelGraphqlContext
-    ) => {
+    searchEntities: async (_root: unknown, args: SearchArgs, context: KernelGraphqlContext) => {
       // Rate-limit the palette per caller IP (it has no other guard). On exhaustion,
       // surface a structured GraphQLError the client can detect (extensions.code).
       const ip = callerIp(context);

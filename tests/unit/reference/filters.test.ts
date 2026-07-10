@@ -22,9 +22,13 @@ import {
 
 describe('generated GraphQL input names match the plan', () => {
   it('collection → <Pascal>Filter', () => {
-    expect(graphqlFilterTypeName(referencePublicEntityFilterSpec)).toBe('ReferencePublicEntityFilter');
+    expect(graphqlFilterTypeName(referencePublicEntityFilterSpec)).toBe(
+      'ReferencePublicEntityFilter'
+    );
     expect(graphqlFilterTypeName(referenceTerritoryFilterSpec)).toBe('ReferenceTerritoryFilter');
-    expect(graphqlFilterTypeName(referenceClassificationFilterSpec)).toBe('ReferenceClassificationFilter');
+    expect(graphqlFilterTypeName(referenceClassificationFilterSpec)).toBe(
+      'ReferenceClassificationFilter'
+    );
   });
 
   it('SDL is generated and parseable-ish (contains the input blocks)', () => {
@@ -38,7 +42,9 @@ describe('generated GraphQL input names match the plan', () => {
 
 describe('entityType is a free string (no enum gate) — review B3', () => {
   it('accepts a value outside the known 14 (would 400 if it were an enum)', () => {
-    const r = toConditionBuilders(referencePublicEntityFilterSpec, { entityType: { eq: 'a_brand_new_loader_type' } });
+    const r = toConditionBuilders(referencePublicEntityFilterSpec, {
+      entityType: { eq: 'a_brand_new_loader_type' },
+    });
     expect(r.isOk()).toBe(true);
   });
 });
@@ -47,7 +53,9 @@ describe('exclude asymmetry on siruta fields', () => {
   it('public-entity sirutaCode is negatable; classification system is not', () => {
     const sirutaField = referencePublicEntityFilterSpec.fields.find((f) => f.name === 'sirutaCode');
     expect(sirutaField?.exclude).toBe(true);
-    const territorialSiruta = referenceTerritoryFilterSpec.fields.find((f) => f.name === 'territorialSiruta');
+    const territorialSiruta = referenceTerritoryFilterSpec.fields.find(
+      (f) => f.name === 'territorialSiruta'
+    );
     expect(territorialSiruta?.exclude).not.toBe(true);
   });
 
@@ -61,7 +69,9 @@ describe('exclude asymmetry on siruta fields', () => {
 
 describe('tags jsonb-array contains compiles to membership (@>)', () => {
   it('emits a @> to_jsonb(array[...]) predicate, not an ILIKE', () => {
-    const r = toConditionBuilders(referencePublicEntityFilterSpec, { tags: { contains: ['scoala'] } });
+    const r = toConditionBuilders(referencePublicEntityFilterSpec, {
+      tags: { contains: ['scoala'] },
+    });
     expect(r.isOk()).toBe(true);
     // The composer produces a parameterized RawBuilder; we just assert it built one condition.
     if (r.isOk()) expect(r.value.length).toBe(1);

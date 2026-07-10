@@ -11,15 +11,20 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, normalizeCui, type ApiError,
+import {
+  invalidInput,
+  normalizeCui,
+  type ApiError,
   type CursorPage,
   type FilterInput,
   type IdentityRepo,
   type Organization,
   type TerritoryRepo,
-  type Territory } from '@/modules/shared/index.js';
+  type Territory,
+} from '@/modules/shared/index.js';
 
-import { REFERENCE_RESOLVE_DIMS,
+import {
+  REFERENCE_RESOLVE_DIMS,
   type ReferenceAggregateDim,
   type ReferenceClassificationCode,
   type ReferenceCountBucket,
@@ -28,7 +33,8 @@ import { REFERENCE_RESOLVE_DIMS,
   type ReferencePublicEntityCard,
   type ReferenceRegion,
   type ReferenceResolveDim,
-  type ReferenceResolveHit } from './types.js';
+  type ReferenceResolveHit,
+} from './types.js';
 
 import type {
   ClassificationRepo,
@@ -75,13 +81,15 @@ export const listPublicEntities = (
 export const getPublicEntityChildren = (
   deps: ReferenceDeps,
   cui: string
-): Promise<Result<readonly ReferencePublicEntityCard[], ApiError>> => deps.publicEntities.findChildren(cui);
+): Promise<Result<readonly ReferencePublicEntityCard[], ApiError>> =>
+  deps.publicEntities.findChildren(cui);
 
 export const aggregatePublicEntities = (
   deps: ReferenceDeps,
   by: ReferenceAggregateDim,
   filter: FilterInput
-): Promise<Result<readonly ReferenceCountBucket[], ApiError>> => deps.publicEntities.aggregate(by, filter);
+): Promise<Result<readonly ReferenceCountBucket[], ApiError>> =>
+  deps.publicEntities.aggregate(by, filter);
 
 // ── territories ────────────────────────────────────────────────────────────────
 
@@ -90,7 +98,8 @@ export const getTerritory = async (
   deps: ReferenceDeps,
   args: { id?: string | number | null; siruta?: string | null }
 ): Promise<Result<Territory | null, ApiError>> => {
-  const sirutaArg = args.siruta !== null && args.siruta !== undefined && args.siruta !== '' ? args.siruta : null;
+  const sirutaArg =
+    args.siruta !== null && args.siruta !== undefined && args.siruta !== '' ? args.siruta : null;
   const idArg = args.id !== null && args.id !== undefined && args.id !== '' ? args.id : null;
   // The SDL says "exactly one of" — reject the ambiguous both-present case rather
   // than silently letting siruta win (review SHOULD-FIX).
@@ -107,7 +116,8 @@ export const getTerritory = async (
       return deps.territoryRepo.byTerritorialSiruta(asStr.slice('siruta:'.length));
     }
     const n = Number(asStr);
-    if (!Number.isInteger(n)) return err(invalidInput('territory id must be an integer or siruta: code', 'id'));
+    if (!Number.isInteger(n))
+      return err(invalidInput('territory id must be an integer or siruta: code', 'id'));
     return deps.territories.byId(n);
   }
   return err(invalidInput('provide id or siruta', 'id'));

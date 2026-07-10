@@ -25,7 +25,15 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { clampLimit, composeWhere, fieldOf, hasRangeBound, inStrings, keysetCursor, yearBounds } from './filter-helpers.js';
+import {
+  clampLimit,
+  composeWhere,
+  fieldOf,
+  hasRangeBound,
+  inStrings,
+  keysetCursor,
+  yearBounds,
+} from './filter-helpers.js';
 import { judicialCasesSpec } from '../filters/judicial.spec.js';
 
 import type { CaseAggregateOptions, CaseListOptions, JudicialCaseRepo } from '../../core/ports.js';
@@ -78,7 +86,9 @@ const mapCase = (r: CaseRow): JudicialCase => ({
   object: r.object,
   sourceOpenedAt: r.source_opened_at,
   latestSourceModifiedAt:
-    r.latest_source_modified_at === null ? null : new Date(r.latest_source_modified_at).toISOString(),
+    r.latest_source_modified_at === null
+      ? null
+      : new Date(r.latest_source_modified_at).toISOString(),
 });
 
 /** The sort column expression + cursor cast for each named case sort. */
@@ -147,7 +157,10 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
   const getById = async (caseId: string): Promise<Result<JudicialCase | null, ApiError>> => {
     if (!/^\d+$/u.test(caseId)) return ok(null);
     try {
-      const r = await sql<CaseRow>`select ${CASE_SELECT} from justice.cases c where c.case_id = ${caseId}::bigint limit 1`.execute(db);
+      const r =
+        await sql<CaseRow>`select ${CASE_SELECT} from justice.cases c where c.case_id = ${caseId}::bigint limit 1`.execute(
+          db
+        );
       const row = r.rows[0];
       return ok(row === undefined ? null : mapCase(row));
     } catch (error) {
@@ -172,7 +185,9 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
     }
   };
 
-  const listCursor = async (opts: CaseListOptions): Promise<Result<CursorPage<JudicialCase>, ApiError>> => {
+  const listCursor = async (
+    opts: CaseListOptions
+  ): Promise<Result<CursorPage<JudicialCase>, ApiError>> => {
     if (!hasBound(opts.filter)) {
       return err(invalidInput('judicial case list requires a court or period bound', 'filter'));
     }
@@ -229,9 +244,13 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
     }
   };
 
-  const aggregate = async (opts: CaseAggregateOptions): Promise<Result<JudicialCaseAggregate, ApiError>> => {
+  const aggregate = async (
+    opts: CaseAggregateOptions
+  ): Promise<Result<JudicialCaseAggregate, ApiError>> => {
     if (!hasBound(opts.filter)) {
-      return err(invalidInput('judicial caseload aggregate requires a court or period bound', 'filter'));
+      return err(
+        invalidInput('judicial caseload aggregate requires a court or period bound', 'filter')
+      );
     }
     const condsRes = buildCaseConditions(opts.filter);
     if (condsRes.isErr()) return err(condsRes.error);

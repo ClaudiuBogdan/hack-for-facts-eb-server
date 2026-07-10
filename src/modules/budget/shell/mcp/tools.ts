@@ -16,9 +16,13 @@ import {
   EXECUTION_REPORT_TYPES,
   type AccountCategory,
   type BudgetFrequency,
-  type ExecutionReportType
+  type ExecutionReportType,
 } from '../../core/constants.js';
-import { BUDGET_RESOLVE_DIMS, type BudgetRankingMetric, type BudgetResolveDim  } from '../../core/types.js';
+import {
+  BUDGET_RESOLVE_DIMS,
+  type BudgetRankingMetric,
+  type BudgetResolveDim,
+} from '../../core/types.js';
 import {
   aggregateByClassification,
   budgetTimeseries,
@@ -48,7 +52,11 @@ const intArg = (args: Record<string, unknown>, key: string, dflt: number): numbe
   return Number.isFinite(n) ? Math.floor(n) : dflt;
 };
 
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 
 const n = (x: number): string => String(x);
 
@@ -59,7 +67,12 @@ const strOr = (args: Record<string, unknown>, key: string, dflt: string): string
 };
 
 /** Build a fact FilterInput from the pruning-triple + optional entity scope. */
-const factFilter = (year: number, reportType: ExecutionReportType, accountCategory: AccountCategory, entityCui?: string): FilterInput => ({
+const factFilter = (
+  year: number,
+  reportType: ExecutionReportType,
+  accountCategory: AccountCategory,
+  entityCui?: string
+): FilterInput => ({
   reportingYear: { eq: year },
   reportType: { eq: reportType },
   accountCategory: { eq: accountCategory },
@@ -76,7 +89,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
     description:
       'Resolve a free-text budget query to a filter value: entity name → CUI, locality/county → SIRUTA, functional/economic label or code → classification code. MANDATORY first step before any name-based budget question (Entity Resolution Gate).',
     inputShape: {
-      dim: z.enum(['entity', 'territory', 'functional', 'economic']).describe('Which dimension to resolve.'),
+      dim: z
+        .enum(['entity', 'territory', 'functional', 'economic'])
+        .describe('Which dimension to resolve.'),
       q: z.string().describe('The free-text query (name or code prefix).'),
       limit: z.number().int().min(1).max(25).optional().describe('Max hits (default 10).'),
     },
@@ -88,7 +103,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       if (res.isErr()) return errorOut('resolution', res.error.message);
       const caveats =
         (dim === 'functional' || dim === 'economic') && res.value.length === 0
-          ? ['classification catalog is not loaded; resolve by code prefix or read names from aggregate results']
+          ? [
+              'classification catalog is not loaded; resolve by code prefix or read names from aggregate results',
+            ]
           : [];
       return {
         ok: true,
@@ -107,14 +124,21 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
     inputShape: {
       cui: z.string().describe('The entity CUI/CIF (digits only).'),
       year: z.number().int().optional().describe('Reporting year (default: latest complete year).'),
-      reportType: z.enum(EXECUTION_REPORT_TYPES).optional().describe('Execution report type (default EXECUTION_DETAILED).'),
+      reportType: z
+        .enum(EXECUTION_REPORT_TYPES)
+        .optional()
+        .describe('Execution report type (default EXECUTION_DETAILED).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
       const yearArg = args['year'];
       const year = typeof yearArg === 'number' ? Math.floor(yearArg) : undefined;
       const reportType = strOr(args, 'reportType', 'EXECUTION_DETAILED') as ExecutionReportType;
-      const summaryQ = { frequency: 'YEAR' as BudgetFrequency, reportType, ...(year !== undefined && { year }) };
+      const summaryQ = {
+        frequency: 'YEAR' as BudgetFrequency,
+        reportType,
+        ...(year !== undefined && { year }),
+      };
       const [execRes, commitRes] = await Promise.all([
         getEntityBudget(repo, cui, summaryQ),
         getEntityCommitments(repo, cui, { frequency: 'YEAR', ...(year !== undefined && { year }) }),
@@ -124,14 +148,21 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       const exec = execRes.value[0];
       const commit = commitRes.value[0];
       if (exec === undefined && commit === undefined) {
-        return { ok: true, kind: 'entity_snapshot', query: { cui, year }, summary: `No budget data for CUI ${cui}.` };
+        return {
+          ok: true,
+          kind: 'entity_snapshot',
+          query: { cui, year },
+          summary: `No budget data for CUI ${cui}.`,
+        };
       }
       const y = exec?.period.year ?? commit?.period.year ?? year ?? null;
       const summary =
         (exec !== undefined
           ? `${cui} (${exec.reportType}, ${n(exec.period.year)}): expense ${exec.totalExpense} RON, income ${exec.totalIncome} RON, balance ${exec.budgetBalance} RON.`
           : `${cui}: no execution summary.`) +
-        (commit !== undefined ? ` Commitments: plati_trezor ${commit.platiTrezor ?? '0'} RON.` : '') +
+        (commit !== undefined
+          ? ` Commitments: plati_trezor ${commit.platiTrezor ?? '0'} RON.`
+          : '') +
         ` ${BUDGET_GRAIN_NOTE}`;
       return {
         ok: true,
@@ -151,8 +182,13 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
     inputShape: {
       year: z.number().int().describe('Reporting year.'),
       reportType: z.enum(EXECUTION_REPORT_TYPES).optional().describe('Default EXECUTION_DETAILED.'),
-      metric: z.enum(['INCOME', 'EXPENSE', 'BALANCE']).optional().describe('Ranking metric (default EXPENSE).'),
-      normalization: z.enum(['TOTAL', 'TOTAL_EURO', 'PER_CAPITA', 'PER_CAPITA_EURO', 'PERCENT_GDP']).optional(),
+      metric: z
+        .enum(['INCOME', 'EXPENSE', 'BALANCE'])
+        .optional()
+        .describe('Ranking metric (default EXPENSE).'),
+      normalization: z
+        .enum(['TOTAL', 'TOTAL_EURO', 'PER_CAPITA', 'PER_CAPITA_EURO', 'PERCENT_GDP'])
+        .optional(),
       countyCodes: z.array(z.string()).optional().describe('Restrict to these county codes.'),
       isUat: z.boolean().optional().describe('Restrict to UAT entities only.'),
       limit: z.number().int().min(1).max(100).optional().describe('Top-N (default 20).'),
@@ -163,9 +199,15 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       const metric = strOr(args, 'metric', 'EXPENSE') as BudgetRankingMetric;
       const reportType = strOr(args, 'reportType', 'EXECUTION_DETAILED') as ExecutionReportType;
       const normalization = strOr(args, 'normalization', 'TOTAL') as
-        | 'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
-      const countyCodes = Array.isArray(args['countyCodes']) ? (args['countyCodes'] as unknown[]).map(String) : undefined;
-      const isUat = typeof args['isUat'] === 'boolean' ? (args['isUat']) : undefined;
+        | 'TOTAL'
+        | 'TOTAL_EURO'
+        | 'PER_CAPITA'
+        | 'PER_CAPITA_EURO'
+        | 'PERCENT_GDP';
+      const countyCodes = Array.isArray(args['countyCodes'])
+        ? (args['countyCodes'] as unknown[]).map(String)
+        : undefined;
+      const isUat = typeof args['isUat'] === 'boolean' ? args['isUat'] : undefined;
       const res = await rankEntities(repo, {
         year,
         reportType,
@@ -185,7 +227,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
         items: res.value,
         summary:
           `Top ${n(res.value.length)} entities by ${metric} (${normalization}), ${n(year)}, ${reportType}` +
-          (top !== undefined ? `; #1 ${top.entityName ?? top.entityCui} = ${top.amount} RON.` : '.'),
+          (top !== undefined
+            ? `; #1 ${top.entityName ?? top.entityCui} = ${top.amount} RON.`
+            : '.'),
       };
     },
   };
@@ -197,9 +241,15 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
     inputShape: {
       year: z.number().int().describe('Reporting year.'),
       reportType: z.enum(EXECUTION_REPORT_TYPES).optional().describe('Default EXECUTION_DETAILED.'),
-      accountCategory: z.enum(ACCOUNT_CATEGORIES).optional().describe('INCOME or EXPENSE (default EXPENSE).'),
+      accountCategory: z
+        .enum(ACCOUNT_CATEGORIES)
+        .optional()
+        .describe('INCOME or EXPENSE (default EXPENSE).'),
       entityCui: z.string().optional().describe('Restrict to one entity CUI.'),
-      minAmount: z.string().optional().describe('Only buckets whose summed amount ≥ this (decimal string).'),
+      minAmount: z
+        .string()
+        .optional()
+        .describe('Only buckets whose summed amount ≥ this (decimal string).'),
       limit: z.number().int().min(1).max(100).optional(),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -221,19 +271,33 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       return {
         ok: true,
         kind: 'aggregate',
-        query: { year, reportType, accountCategory, entityCui: entityCui !== '' ? entityCui : null },
+        query: {
+          year,
+          reportType,
+          accountCategory,
+          entityCui: entityCui !== '' ? entityCui : null,
+        },
         link: `${clientBaseUrl}/buget/clasificatie`,
         items: res.value,
         summary:
           `${n(res.value.length)} classification bucket(s) for ${n(year)} ${accountCategory}` +
           (entityCui !== '' ? ` (entity ${entityCui})` : '') +
-          (top !== undefined ? `; top ${top.functionalName ?? top.functionalCode} = ${top.amount} RON.` : '.'),
+          (top !== undefined
+            ? `; top ${top.functionalName ?? top.functionalCode} = ${top.amount} RON.`
+            : '.'),
         // catalog Core Rule fields:
         ...{
           value: String(total),
-          evidence: { entityCui: entityCui !== '' ? entityCui : null, year, reportType, accountCategory },
+          evidence: {
+            entityCui: entityCui !== '' ? entityCui : null,
+            year,
+            reportType,
+            accountCategory,
+          },
           coverage: { buckets: res.value.length },
-          caveats: ['fact path: one pruned partition leaf; amounts are nominal RON unless normalized'],
+          caveats: [
+            'fact path: one pruned partition leaf; amounts are nominal RON unless normalized',
+          ],
         },
       };
     },
@@ -248,7 +312,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       reportType: z.enum(EXECUTION_REPORT_TYPES).optional(),
       metric: z.enum(['INCOME', 'EXPENSE', 'BALANCE']).optional().describe('Default EXPENSE.'),
       frequency: z.enum(['MONTH', 'QUARTER', 'YEAR']).optional().describe('Default YEAR.'),
-      normalization: z.enum(['TOTAL', 'TOTAL_EURO', 'PER_CAPITA', 'PER_CAPITA_EURO', 'PERCENT_GDP']).optional(),
+      normalization: z
+        .enum(['TOTAL', 'TOTAL_EURO', 'PER_CAPITA', 'PER_CAPITA_EURO', 'PERCENT_GDP'])
+        .optional(),
     },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
@@ -256,8 +322,18 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       const metric = strOr(args, 'metric', 'EXPENSE') as BudgetRankingMetric;
       const frequency = strOr(args, 'frequency', 'YEAR') as BudgetFrequency;
       const normalization = strOr(args, 'normalization', 'TOTAL') as
-        | 'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
-      const res = await budgetTimeseries(repo, { entityCui: cui, reportType, metric, frequency, normalization });
+        | 'TOTAL'
+        | 'TOTAL_EURO'
+        | 'PER_CAPITA'
+        | 'PER_CAPITA_EURO'
+        | 'PERCENT_GDP';
+      const res = await budgetTimeseries(repo, {
+        entityCui: cui,
+        reportType,
+        metric,
+        frequency,
+        normalization,
+      });
       if (res.isErr()) return errorOut('timeseries', res.error.message);
       const first = res.value[0];
       const last = res.value[res.value.length - 1];
@@ -269,7 +345,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
         items: res.value,
         summary:
           `${n(res.value.length)} point(s) of ${metric} (${normalization}) for ${cui}` +
-          (first !== undefined && last !== undefined ? `; ${first.periodLabel}=${first.amount} … ${last.periodLabel}=${last.amount}.` : '.'),
+          (first !== undefined && last !== undefined
+            ? `; ${first.periodLabel}=${first.amount} … ${last.periodLabel}=${last.amount}.`
+            : '.'),
       };
     },
   };

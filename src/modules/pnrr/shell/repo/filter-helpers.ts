@@ -12,7 +12,12 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FieldFilter, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type FieldFilter,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
 /** Pull a single field's op-map out of a FilterInput (typed, undefined-safe). */
 export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {

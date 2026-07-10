@@ -5,8 +5,8 @@ metadata:
   namespace: hack-for-facts
 spec:
   hosts:
-    - "hack-for-facts.devostack.com"
-    - "api.transparenta.eu"
+    - 'hack-for-facts.devostack.com'
+    - 'api.transparenta.eu'
   gateways:
     - istio-system/istio-https-gateway
   http:

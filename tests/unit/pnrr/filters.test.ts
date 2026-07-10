@@ -15,8 +15,16 @@ import {
   pnrrMeasuresFilterSpec,
   pnrrPaymentsFilterSpec,
 } from '@/modules/pnrr/core/filters.js';
-import { canonicalizeFilters, fhashFor, toConditionBuilders } from '@/modules/shared/core/filters/derive.js';
-import { graphqlFilterTypeName, toGraphQLInput, toTypeBox } from '@/modules/shared/core/filters/surfaces.js';
+import {
+  canonicalizeFilters,
+  fhashFor,
+  toConditionBuilders,
+} from '@/modules/shared/core/filters/derive.js';
+import {
+  graphqlFilterTypeName,
+  toGraphQLInput,
+  toTypeBox,
+} from '@/modules/shared/core/filters/surfaces.js';
 
 import { compileWhere } from '../shared/helpers.js';
 
@@ -42,7 +50,13 @@ describe('pnrr filter specs — surfaces derive', () => {
   it('payments spec exposes the indexed driving fields', () => {
     const names = pnrrPaymentsFilterSpec.fields.map((f) => f.name);
     expect(names).toEqual(
-      expect.arrayContaining(['beneficiaryCui', 'componentCode', 'measureFenix', 'paymentDate', 'year'])
+      expect.arrayContaining([
+        'beneficiaryCui',
+        'componentCode',
+        'measureFenix',
+        'paymentDate',
+        'year',
+      ])
     );
   });
 });
@@ -66,7 +80,9 @@ describe('pnrr filter specs — SQL compilation', () => {
   });
 
   it('contractors role eq compiles against the indexed role column', () => {
-    const built = toConditionBuilders(pnrrContractorsFilterSpec, { role: { eq: 'winning_bidder' } });
+    const built = toConditionBuilders(pnrrContractorsFilterSpec, {
+      role: { eq: 'winning_bidder' },
+    });
     const { sql, parameters } = compileWhere(built._unsafeUnwrap());
     expect(sql).toContain('"ct"."role" = $1');
     expect(parameters).toEqual(['winning_bidder']);

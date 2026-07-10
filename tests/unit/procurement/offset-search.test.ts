@@ -164,7 +164,10 @@ describe('direct-acquisition offset selectivity matrix', () => {
   });
 
   it('REJECTS: a date window wider than the cap', () => {
-    const r = assertDaOffsetSelective({ dateRange: { gte: '2015-01-01', lte: '2026-01-01' } }, DA_WINDOW_DAYS);
+    const r = assertDaOffsetSelective(
+      { dateRange: { gte: '2015-01-01', lte: '2026-01-01' } },
+      DA_WINDOW_DAYS
+    );
     expect(r.isErr()).toBe(true);
     if (r.isErr()) expect(r.error.message).toContain('366 days');
   });
