@@ -158,7 +158,9 @@ d('Procurement golden (live prod)', () => {
       topN: 1,
     });
     expect(mcp.ok).toBe(true);
-    expect(mcp.items?.[0]?.['supplierCui']).toBe(gTop['supplierCui']);
+    // The MCP tool serves the flat edge view model; the client contract nests the
+    // party. Same grain, same rollup, same numbers — only the wire shape differs.
+    expect(mcp.items?.[0]?.['supplierCui']).toBe(rec(gTop['supplier'])['cui']);
     expect(mcp.items?.[0]?.['flowCount']).toBe(gTop['flowCount']);
   }, 30_000);
 
