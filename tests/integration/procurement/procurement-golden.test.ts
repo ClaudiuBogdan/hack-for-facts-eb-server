@@ -14,12 +14,15 @@
  * is absent (CI without the tunnel).
  */
 
+import { Kysely, PostgresDialect } from 'kysely';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildRedesignApp } from '@/app/build-redesign-app.js';
 import { loadRedesignConfig } from '@/infra/config/redesign-env.js';
+import { makeProcurementDetailRepo } from '@/modules/procurement/shell/repo/detail-repo.js';
 
+import type { ProdDatabase } from '@/modules/shared/index.js';
 import type { FastifyInstance } from 'fastify';
 
 const HAS_DB = (process.env['PROD_DATABASE_URL'] ?? '').length > 0;
@@ -421,6 +424,64 @@ d('Procurement golden (live prod)', () => {
       // The grain tag in the cursor is what keeps a cross-table id collision apart.
       expect(keys1.filter((k) => keys2.includes(k))).toHaveLength(0);
     }
+  }, 30_000);
+
+  it('modification batching caps PER CONTRACT — a fat parent never starves the batch', async () => {
+    // Live shape (2026-07-10): 1592679 has 390 modifications, 191354 has 287,
+    // 204043 has 272, 1593075 has 1. The retired global `limit CAP * ids.length`
+    // (= 800) was consumed by the first three in contract_id order, leaving the
+    // fourth — the one with a single modification — with ZERO rows.
+    // Wraps the shared pool; never `destroy()`d here — that would end the pool the
+    // rest of the suite is still using. `afterAll` owns the pool's lifetime.
+    const db = new Kysely<ProdDatabase>({ dialect: new PostgresDialect({ pool }) });
+    const repo = makeProcurementDetailRepo(db);
+    const ids = ['191354', '204043', '1592679', '1593075'];
+    const byContract = (await repo.modificationsForContracts(ids))._unsafeUnwrap();
+
+    // Every parent in the batch is represented; none is starved.
+    for (const id of ids) expect(byContract.get(id)?.length ?? 0).toBeGreaterThan(0);
+
+    // Each fat parent is capped independently at 200, not collectively.
+    expect(byContract.get('1592679')).toHaveLength(200);
+    expect(byContract.get('191354')).toHaveLength(200);
+    expect(byContract.get('204043')).toHaveLength(200);
+    expect(byContract.get('1593075')).toHaveLength(1);
+
+    // The trail is chronological within a parent.
+    const trail = byContract.get('1592679') ?? [];
+    const dates = trail.map((m) => m.modificationDate).filter((d): d is string => d !== null);
+    expect([...dates].sort()).toEqual(dates);
+  }, 30_000);
+
+  it('detail lookups are canonical-only: a suppressed duplicate resolves to null', async () => {
+    const dup = await pool.query<{ id: string }>(
+      `select contract_id::text as id from procurement.contracts
+        where dup_group_id is not null and is_canonical = false limit 1`
+    );
+    const suppressed = dup.rows[0]?.id;
+    if (suppressed === undefined) return; // no suppressed contract live → nothing to assert
+
+    const res = await gql(`query($id:ID!){ procurementContract(id:$id){ contract { id } } }`, {
+      id: suppressed,
+    });
+    expect(res.errors).toBeUndefined();
+    // A dedup-suppressed row must never render as an authoritative record.
+    expect(res.data?.['procurementContract']).toBeNull();
+  }, 30_000);
+
+  it('a supplier-records cursor is rejected against a different supplier', async () => {
+    const first = await gql(
+      `query($cui:ID!){ procurementSupplierRecords(supplierCui:$cui, first:2){ pageInfo { endCursor } } }`,
+      { cui: SUPPLIER }
+    );
+    const cursor = rec(rec(first.data?.['procurementSupplierRecords'])['pageInfo'])['endCursor'];
+    if (typeof cursor !== 'string') return;
+
+    const replay = await gql(
+      `query($cui:ID!,$after:String!){ procurementSupplierRecords(supplierCui:$cui, first:2, after:$after){ edges { cursor } } }`,
+      { cui: '11805367', after: cursor }
+    );
+    expect(replay.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
   }, 30_000);
 
   it('a malformed supplier-records cursor is rejected, not paged from a guess', async () => {
