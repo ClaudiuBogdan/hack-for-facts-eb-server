@@ -641,3 +641,9 @@ ON ins_dataset_requests(dataset_code);
 
 CREATE INDEX IF NOT EXISTS idx_ins_dataset_requests_created_at
 ON ins_dataset_requests(created_at DESC);
+
+-- Supports the Clerk user.deleted anonymization lookup. Partial: anonymous rows
+-- store no clerk_user_id and are never matched.
+CREATE INDEX IF NOT EXISTS idx_ins_dataset_requests_clerk_user_id
+ON ins_dataset_requests(clerk_user_id)
+WHERE clerk_user_id IS NOT NULL;
