@@ -166,7 +166,9 @@ describe('KeyBuilder', () => {
       expect(CacheNamespace.ANALYTICS_AGGREGATED).toBe('analytics:aggregated');
       expect(CacheNamespace.ANALYTICS_COUNTY).toBe('analytics:county');
       expect(CacheNamespace.ANALYTICS_ENTITY).toBe('analytics:entity');
-      expect(CacheNamespace.INS_QUERIES).toBe('ins:queries');
+      // Versioned: bumped to v2 when the non-nullable InsDataset.data_status was
+      // added, so Redis entries written before the deploy are not served.
+      expect(CacheNamespace.INS_QUERIES).toBe('ins:queries:v2');
       expect(CacheNamespace.DATASETS).toBe('datasets');
     });
   });
