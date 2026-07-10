@@ -27,9 +27,11 @@ class RecordingCampaignSubscriptionStatsInvalidator {
 }
 
 describe('Notifications repository', () => {
-  it('invalidates public campaign stats cache when creating a public debate entity subscription', async () => {
+  it('invalidates public campaign stats cache when creating a public debate entity subscription', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -60,9 +62,11 @@ describe('Notifications repository', () => {
     expect(invalidator.invalidateAllCalls).toBe(0);
   });
 
-  it('does not invalidate public campaign stats cache for unrelated subscriptions', async () => {
+  it('does not invalidate public campaign stats cache for unrelated subscriptions', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -93,9 +97,11 @@ describe('Notifications repository', () => {
     expect(invalidator.invalidateAllCalls).toBe(0);
   });
 
-  it('invalidates all public campaign stats cache entries for global unsubscribe changes', async () => {
+  it('invalidates all public campaign stats cache entries for global unsubscribe changes', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -114,9 +120,11 @@ describe('Notifications repository', () => {
     expect(invalidator.invalidateAllCalls).toBe(1);
   });
 
-  it('deactivates global unsubscribe and all user preferences in one transaction', async () => {
+  it('deactivates global unsubscribe and all user preferences in one transaction', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -223,9 +231,11 @@ describe('Notifications repository', () => {
     }
   });
 
-  it('disables campaign child preferences only when disabling the campaign master', async () => {
+  it('disables campaign child preferences only when disabling the campaign master', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -398,9 +408,11 @@ describe('Notifications repository', () => {
     }
   });
 
-  it('manual newsletter opt-in clears system unsubscribe without enabling campaign global', async () => {
+  it('manual newsletter opt-in clears system unsubscribe without enabling campaign global', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -466,9 +478,11 @@ describe('Notifications repository', () => {
     }
   });
 
-  it('manual campaign child opt-in clears system unsubscribe and enables campaign global only', async () => {
+  it('manual campaign child opt-in clears system unsubscribe and enables campaign global only', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();

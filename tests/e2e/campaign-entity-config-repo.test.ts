@@ -154,9 +154,11 @@ function makeRepo(connectionString: string): LearningProgressRepository {
 }
 
 describe('campaign entity config persistence', () => {
-  it('stores config rows in the synthetic campaign bucket and lists them back in canonical shape', async () => {
+  it('stores config rows in the synthetic campaign bucket and lists them back in canonical shape', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -255,9 +257,9 @@ describe('campaign entity config persistence', () => {
     }
   });
 
-  it('returns conflicts for duplicate create and stale update attempts', async () => {
+  it('returns conflicts for duplicate create and stale update attempts', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -355,9 +357,11 @@ describe('campaign entity config persistence', () => {
     }
   });
 
-  it('pages campaign entity config rows in the repository using stable keyset filters', async () => {
+  it('pages campaign entity config rows in the repository using stable keyset filters', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -508,9 +512,9 @@ describe('campaign entity config persistence', () => {
     }
   });
 
-  it('treats corrupted persisted rows as integrity failures', async () => {
+  it('treats corrupted persisted rows as integrity failures', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

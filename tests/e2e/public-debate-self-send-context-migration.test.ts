@@ -60,9 +60,11 @@ async function withPgClient<T>(
 }
 
 describe('Public debate self-send context rollout guard migration', () => {
-  it('succeeds when all send_yourself records already include ngoSenderEmail and preparedSubject', async () => {
+  it('succeeds when all send_yourself records already include ngoSenderEmail and preparedSubject', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -142,9 +144,11 @@ describe('Public debate self-send context rollout guard migration', () => {
     }
   });
 
-  it('fails with a clear error when legacy send_yourself records are missing ngoSenderEmail or preparedSubject', async () => {
+  it('fails with a clear error when legacy send_yourself records are missing ngoSenderEmail or preparedSubject', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

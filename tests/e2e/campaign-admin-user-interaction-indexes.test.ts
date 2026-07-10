@@ -53,9 +53,11 @@ async function withPgClient<T>(
 }
 
 describe('Campaign admin user-interaction indexes', () => {
-  it('adds Funky campaign review indexes that support entity and submission-path filtering', async () => {
+  it('adds Funky campaign review indexes that support entity and submission-path filtering', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

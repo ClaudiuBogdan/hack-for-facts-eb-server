@@ -95,9 +95,11 @@ describe('campaign notification outbox audit repo', () => {
     await Promise.all(startedContainers.map(async (container) => container.stop()));
   });
 
-  it('lists campaign-scoped outbox rows with filtering, sorting, cursor pagination, redaction, and safe error mapping', async () => {
+  it('lists campaign-scoped outbox rows with filtering, sorting, cursor pagination, redaction, and safe error mapping', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -445,9 +447,9 @@ describe('campaign notification outbox audit repo', () => {
     }
   });
 
-  it('fails closed when reviewed-interaction metadata is malformed', async () => {
+  it('fails closed when reviewed-interaction metadata is malformed', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -521,9 +523,11 @@ describe('campaign notification outbox audit repo', () => {
     }
   });
 
-  it('projects public debate admin-response audit rows with responseEventId and recipientRole', async () => {
+  it('projects public debate admin-response audit rows with responseEventId and recipientRole', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();

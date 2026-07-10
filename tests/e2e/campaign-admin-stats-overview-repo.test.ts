@@ -117,9 +117,9 @@ function makeEntityRepo(nameByCui: Record<string, string>): EntityRepository {
 }
 
 describe('Campaign admin stats repo', () => {
-  it('aggregates safe notification engagement counts by outbox delivery', async () => {
+  it('aggregates safe notification engagement counts by outbox delivery', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -413,9 +413,9 @@ describe('Campaign admin stats repo', () => {
     }
   });
 
-  it('returns ranked interaction aggregates by type', async () => {
+  it('returns ranked interaction aggregates by type', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -581,9 +581,9 @@ describe('Campaign admin stats repo', () => {
     }
   });
 
-  it('returns top entities ranked by the requested metric', async () => {
+  it('returns top entities ranked by the requested metric', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

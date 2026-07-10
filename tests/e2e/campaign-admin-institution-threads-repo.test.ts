@@ -67,9 +67,11 @@ function createKyselyClient<T>(connectionString: string): Kysely<T> {
 }
 
 describe('institution correspondence repo campaign-admin threads', () => {
-  it('applies v1 campaign-admin list filters, excludes failed threads, and keeps totalCount stable across cursors', async () => {
+  it('applies v1 campaign-admin list filters, excludes failed threads, and keeps totalCount stable across cursors', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -325,9 +327,11 @@ describe('institution correspondence repo campaign-admin threads', () => {
     }
   });
 
-  it('persists non-terminal adminWorkflow atomically on the real DB path and rejects stale writes', async () => {
+  it('persists non-terminal adminWorkflow atomically on the real DB path and rejects stale writes', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -459,9 +463,11 @@ describe('institution correspondence repo campaign-admin threads', () => {
     }
   });
 
-  it('maps terminal admin responses to resolved compatibility state and removes them from recovery', async () => {
+  it('maps terminal admin responses to resolved compatibility state and removes them from recovery', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -670,9 +676,11 @@ describe('institution correspondence repo campaign-admin threads', () => {
     }
   });
 
-  it('keeps legacy rows with null campaign_key readable and writable through campaign-admin scope', async () => {
+  it('keeps legacy rows with null campaign_key readable and writable through campaign-admin scope', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -808,9 +816,11 @@ describe('institution correspondence repo campaign-admin threads', () => {
     }
   });
 
-  it('keeps sending threads out of campaign-admin scope on the real repo path', async () => {
+  it('keeps sending threads out of campaign-admin scope on the real repo path', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

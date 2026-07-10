@@ -76,9 +76,11 @@ async function withPgClient<T>(
 }
 
 describe('UserInteractions migration', () => {
-  it('drops legacy storage, creates fresh user interactions storage, and leaves row updated_at trigger-free', async () => {
+  it('drops legacy storage, creates fresh user interactions storage, and leaves row updated_at trigger-free', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -284,9 +286,9 @@ describe('UserInteractions migration', () => {
     }
   });
 
-  it('supports escaped raw prefix matching for literal wildcard characters', async () => {
+  it('supports escaped raw prefix matching for literal wildcard characters', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

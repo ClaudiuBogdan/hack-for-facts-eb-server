@@ -61,9 +61,11 @@ function createKyselyClient<T>(connectionString: string): Kysely<T> {
 }
 
 describe('Learning progress repo campaign-admin stats', () => {
-  it('aggregates campaign-wide stats and grouped risk candidates from Postgres', async () => {
+  it('aggregates campaign-wide stats and grouped risk candidates from Postgres', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -323,9 +325,11 @@ describe('Learning progress repo campaign-admin stats', () => {
     }
   });
 
-  it('counts terminal admin-response threads in resolved buckets instead of open ones', async () => {
+  it('counts terminal admin-response threads in resolved buckets instead of open ones', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

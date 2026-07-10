@@ -62,9 +62,11 @@ function createKyselyClient<T>(connectionString: string): Kysely<T> {
 }
 
 describe('Learning progress repo campaign-admin users', () => {
-  it('aggregates users with reviewable-only pending counts and cursor pagination', async () => {
+  it('aggregates users with reviewable-only pending counts and cursor pagination', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -505,9 +507,11 @@ describe('Learning progress repo campaign-admin users', () => {
     }
   });
 
-  it('aggregates entity-associated users from interactions and accepted terms', async () => {
+  it('aggregates entity-associated users from interactions and accepted terms', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -962,9 +966,9 @@ describe('Learning progress repo campaign-admin users', () => {
     }
   });
 
-  it('includes users with global-only admin-visible interactions', async () => {
+  it('includes users with global-only admin-visible interactions', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const quizInteractionId = CIVIC_CAMPAIGN_QUIZ_INTERACTION_IDS[0];

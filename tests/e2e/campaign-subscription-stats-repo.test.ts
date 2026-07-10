@@ -135,9 +135,9 @@ describe('campaign subscription stats repo', () => {
     await Promise.all(startedContainers.map(async (container) => container.stop()));
   });
 
-  it('returns campaign totals and per-UAT counts from the two databases', async () => {
+  it('returns campaign totals and per-UAT counts from the two databases', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -183,9 +183,11 @@ describe('campaign subscription stats repo', () => {
     }
   });
 
-  it('adds the public-debate aggregation indexes for existing databases via migration', async () => {
+  it('adds the public-debate aggregation indexes for existing databases via migration', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();

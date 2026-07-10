@@ -11,9 +11,9 @@ import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
 describe('Institution correspondence schema', () => {
-  it('stores thread aggregates and resend metadata rows', async () => {
+  it('stores thread aggregates and resend metadata rows', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -88,9 +88,11 @@ describe('Institution correspondence schema', () => {
     expect(insertedEvent.metadata).toBeDefined();
   });
 
-  it('allows multiple threads for the same entity and campaign while keeping thread_key unique', async () => {
+  it('allows multiple threads for the same entity and campaign while keeping thread_key unique', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -184,9 +186,11 @@ describe('Institution correspondence schema', () => {
     ).rejects.toThrow();
   });
 
-  it('queries provider rows by thread_key and preserves metadata for later routing review', async () => {
+  it('queries provider rows by thread_key and preserves metadata for later routing review', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -257,9 +261,11 @@ describe('Institution correspondence schema', () => {
     expect(linkedEvents[1]?.thread_key).toBeNull();
   });
 
-  it('uses email_created_at as the canonical send timestamp when recovering delivered evidence', async () => {
+  it('uses email_created_at as the canonical send timestamp when recovering delivered evidence', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -307,9 +313,11 @@ describe('Institution correspondence schema', () => {
     }
   });
 
-  it('round-trips typed object JSONB writes for thread records and resend metadata', async () => {
+  it('round-trips typed object JSONB writes for thread records and resend metadata', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -394,9 +402,11 @@ describe('Institution correspondence schema', () => {
     }
   });
 
-  it('finds an existing platform-send thread by entity while ignoring self-send, failed threads, and other entities', async () => {
+  it('finds an existing platform-send thread by entity while ignoring self-send, failed threads, and other entities', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -532,9 +542,11 @@ describe('Institution correspondence schema', () => {
     }
   });
 
-  it('appends an outbound correspondence entry with an ISO occurredAt timestamp', async () => {
+  it('appends an outbound correspondence entry with an ISO occurredAt timestamp', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();

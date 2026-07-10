@@ -7,9 +7,9 @@ import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
 describe('Resend webhook email events repository', () => {
-  it('persists email webhook rows and preserves thread_key from tags', async () => {
+  it('persists email webhook rows and preserves thread_key from tags', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -48,9 +48,9 @@ describe('Resend webhook email events repository', () => {
     }
   });
 
-  it('enforces svix_id uniqueness for canonical idempotency', async () => {
+  it('enforces svix_id uniqueness for canonical idempotency', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -95,9 +95,9 @@ describe('Resend webhook email events repository', () => {
     }
   });
 
-  it('loads the stored row by svix_id for duplicate replay handling', async () => {
+  it('loads the stored row by svix_id for duplicate replay handling', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -132,9 +132,9 @@ describe('Resend webhook email events repository', () => {
     }
   });
 
-  it('updates stored rows with thread_key, message_id, and metadata', async () => {
+  it('updates stored rows with thread_key, message_id, and metadata', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
