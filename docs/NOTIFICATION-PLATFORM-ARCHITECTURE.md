@@ -1,6 +1,6 @@
 # Notification Platform Architecture
 
-**Status:** Draft for review  
+**Status:** Reviewed — final for interface and system design  
 **Implementation status:** Not started  
 **Primary language in v1:** Romanian  
 **Initial delivery channels:** In-app inbox and email  
@@ -23,6 +23,8 @@ The proposed platform separates five concepts that are currently mixed together:
 3. A **logical notification** records the user-facing message created for one recipient.
 4. A **delivery** records how that logical notification should be delivered through a channel.
 5. A **delivery attempt** records each interaction with an external provider.
+
+In plain terms: today, "a notification" is one email row that plays all five roles at once. That works until two channels (inbox and email) need different content and different outcomes for the same occurrence, or until support asks "which vote caused this email, who else got it, and what exactly did they see?" Separating the five records means each question — _what happened_, _who asked to know_, _what did we tell this person_, _how did we send it_, _what did the provider say_ — has exactly one place where the answer lives, and a failure at one step never erases the record of the steps before it.
 
 The platform remains part of the existing application and uses PostgreSQL and BullMQ. It does not introduce a new microservice, Kafka, or a configurable business-rule engine.
 
@@ -132,6 +134,7 @@ The platform must:
 - Prevent duplicate logical records through deterministic keys.
 - Provide at-least-once processing with bounded external-delivery retries.
 - Record every delivery attempt and support visible, audited dead-letter recovery.
+- Bound per-user email volume: a digest email renders at most a fixed number of items with an overflow link to the inbox (§6.8).
 - Provide an event-to-recipient-to-delivery audit trail.
 - Protect user data and correctly handle account deletion.
 - Remain understandable and operable at the expected scale.
@@ -174,6 +177,8 @@ flowchart LR
 ```
 
 The database is the source of truth. BullMQ is an execution accelerator, not the only record that work exists. If an event, notification, or delivery is persisted but its queue publication fails, a recovery process can enqueue it later.
+
+For both v1 proof cases, the "domain transaction" box above is reached through idempotent reconciliation ingestion rather than a shared transaction, because the domain data lives in databases separate from the notification tables. Section 8.1 specifies this reconciliation-first capture path and its cadence.
 
 ## 6. Core concepts
 
@@ -382,7 +387,7 @@ Destination state is separate from preference state:
 - It does not silently rewrite the user's email preference.
 - A newly verified address has a different fingerprint and can restore email eligibility.
 
-The default administrative view shows only a fingerprint and suppression reason. Revealing destination details is privileged and audited.
+**The platform never persists destination details.** It stores only an HMAC fingerprint of the normalized address, a generation counter, and suppression state. The actual address is resolved from the identity provider at send time and exists only in memory during the send; if the re-resolved fingerprint no longer matches the one the delivery was planned against, the delivery is cancelled as `destination_changed` rather than silently sent to a different address. Administrative views show only fingerprints and suppression reasons; revealing an actual destination is a privileged, audited, live identity-provider lookup — never a database read.
 
 ### 6.8 Digest batch
 
@@ -402,6 +407,9 @@ V1 defaults:
 - Weekly email digest Monday at 08:00 Europe/Bucharest.
 - Computed UTC windows are persisted so daylight-saving transitions are reproducible.
 - Existing monthly, quarterly, and yearly newsletters remain scheduled notification kinds rather than user-selectable digest cadences.
+- A digest email renders at most **20 items**, newest first, followed by an "and N more in your inbox" link. All members remain in the batch record and the inbox; the cap bounds only the rendered email size.
+
+Digest batches are **immutable snapshots** once rendered. Ordinary user actions — reading or archiving an inbox item — never modify an already-snapshotted batch. The only way to change a pending batch is to cancel it entirely, and the only sanctioned trigger for that is a legal or redaction event against included content. There is no per-item removal from a snapshotted batch; this reuses the existing delivery-cancellation mechanism instead of adding a batch-editing workflow.
 
 #### Advantage
 
@@ -433,7 +441,7 @@ Every supported notification kind is declared in a code-owned registry. Adding a
 A kind definition declares:
 
 - Stable kind ID and version.
-- Accepted event type and TypeBox event schema.
+- Exactly one accepted event type and its TypeBox event schema. The relationship is strictly one-to-one: a kind accepts one event type, and an event type feeds one kind. One occurrence never fans out into multiple kinds; a product need for two different messages from one occurrence means defining two event types.
 - Subscription configuration schema, if applicable.
 - Allowed subject types.
 - Domain authorization adapter.
@@ -460,15 +468,32 @@ Template and notification-policy changes require a deployment. This is intention
 
 ### 8.1 Event capture
 
-Where the domain change and notification tables share PostgreSQL, the domain transaction writes the event record atomically. A rollback removes both the domain change and the notification event.
+**Reconciliation-first is the primary capture path in v1.** This is a deliberate inversion of the usual "transactional outbox first" presentation, because of a topology fact: neither proof case can share a transaction with the notification tables. Parliamentary vote data lives in a separate, read-only production database with no write path at all, and budget data uses a Postgres connection separate from the user/notification database. No cross-database transaction mechanism exists in the codebase, and this document does not introduce one.
 
-Where atomic capture is impossible:
+The primary path works as follows:
 
-- External webhooks are ingested idempotently.
-- Imported data and scheduled conditions use stable occurrence keys and reconciliation watermarks.
-- Recovery scans enqueue persisted events that have no active queue job.
+- Each event source declares a stable occurrence-key scheme and a persisted **watermark** (for example, the highest ingested vote ID and revision per initiative, or the last closed reporting period per entity and newsletter kind).
+- An **ingestion scan** polls each upstream source every **60 seconds**, reads records past the watermark, and records notification events idempotently. The unique `(source, event type, occurrence key)` identity makes overlapping or restarted scans safe; the watermark advances only after the events it covers are durably recorded.
+- Scheduled evaluators (the budget newsletter) do not need the poll: the evaluator itself materializes facts and records the event when it runs.
+- External webhooks are ingested idempotently on arrival, with the same occurrence-key discipline.
+- A **recovery scan** runs every **2 minutes** and enqueues persisted events, notifications, or deliveries that have no active queue job.
+
+These two cadences are the real determinants of event-to-inbox latency for reconciled sources, and the latency targets in §19 are set from them, not from an assumed instant enqueue.
+
+Where the domain change and the notification tables do share the user database, the domain transaction writes the event record atomically and a rollback removes both. This stronger path remains available and preferred for future kinds whose domain data lives there, but no v1 proof case uses it.
 
 Queue jobs contain only event or delivery IDs.
+
+#### In plain terms
+
+The problem this machinery solves: the things we notify about (a parliamentary vote, a closed budget period) are recorded in one database, and our notification records live in another. There is no way to say "save the vote and the notification together, or neither" across two databases. So instead of being _told_ when something happens, the platform periodically _looks_.
+
+- The **ingestion scan** is that look: every minute, it asks each source "what is new since the last thing I saw?"
+- The **watermark** is the bookmark that remembers where the last look ended, so nothing is skipped and nothing is read twice from scratch.
+- The **occurrence key** is the guarantee that even if the same vote is noticed twice (a restarted scan, an overlapping look), only one notification event is ever created — the second notice finds the first record and stops.
+- The **recovery scan** is the safety net for the opposite failure: the event was saved, but the follow-up work message got lost. It finds saved work with no worker assigned and re-dispatches it.
+
+The cost of this design is honesty about latency: a notification appears within about a minute of the scan noticing the change, not within milliseconds of the change itself. The benefit is that nothing is ever silently lost — every step either completed and was recorded, or will be found and retried by one of the two scans.
 
 ### 8.2 Recipient resolution
 
@@ -548,7 +573,7 @@ The inbox is reliable and simple to operate without new realtime infrastructure.
 
 #### Tradeoff
 
-An open client may see a short delay before a notification or unread badge appears. The p95 target is visibility within one minute.
+An open client may see a short delay before a notification or unread badge appears. The p95 target is visibility within five minutes of the occurrence becoming ingestable (§19), reflecting the reconciliation-first capture path in §8.1 plus polling.
 
 ## 11. Scheduling, expiry, and ordering
 
@@ -575,6 +600,8 @@ A kind that requires ordering supplies:
 - An ordering declaration in its kind definition.
 
 For such a kind, the platform preserves inbox order and dispatch order for the same recipient, channel, and stream. Unrelated streams continue concurrently. A permanently failed earlier delivery releases later work after the failure is recorded.
+
+The enforcement mechanism is a **single dispatch lane per stream key**: at most one delivery per `(recipient, channel, stream key)` is in flight at a time, and the next is released only when the previous reaches a terminal or released state. Because open-source BullMQ has no native per-key FIFO groups (§19), the lane is enforced at the database layer — the delivery claim query skips a delivery whose stream predecessor is not yet terminal — rather than by queue topology. The queue merely dispatches candidates; the database claim decides eligibility, consistent with the claim pattern used everywhere else in this design.
 
 The platform cannot guarantee the order in which an external email client displays messages after provider acceptance.
 
@@ -735,7 +762,11 @@ The input contains the registered event type, version, occurrence key, occurrenc
 
 ### 17.2 User APIs
 
-Versioned APIs will cover:
+User-facing notification APIs are **REST-only** and consumed through TanStack Query polling. This deviates from the codebase's usual dual REST + GraphQL pattern per module: the notification surface is CRUD and polling with no cross-entity composition need, so a second GraphQL surface would double the contract area without adding capability. The tradeoff is recorded in §24.
+
+Paths are **unversioned** (`/api/notifications/*`, admin at `/api/admin/notifications/*`) and the API evolves **additively**: new fields are optional, new behavior gets new endpoints, and nothing deployed breaks because the single first-party frontend ships in lockstep with the server. Path version segments (`/v1`, `/v2`) are deliberately avoided — they fragment per resource and never converge. If third-party consumers ever require breaking changes, the escape hatch is Stripe-style date-header version pinning, which layers on cleanly precisely because the paths never encoded a version. Legacy `/api/v1/notifications/*` routes remain untouched as the compatibility facade until retired.
+
+The APIs will cover:
 
 - Subscription list, create, pause/resume, and remove.
 - Global optional-notification preference.
@@ -815,10 +846,14 @@ V1 is designed for:
 - Short event bursts that are smoothed through 500-user fan-out pages and provider backpressure.
 - PostgreSQL as the durable store and BullMQ as the worker queue.
 
-Operational targets under healthy dependencies and configured provider quota:
+These figures are validated against current production subscriber and event volumes, not placeholders.
 
-- p95 inbox visibility within one minute.
-- p95 email provider acceptance within five minutes.
+Operational targets under healthy dependencies and configured provider quota, measured from the moment an occurrence becomes ingestable (visible to the ingestion scan or emitted by a scheduled evaluator):
+
+- p95 inbox visibility within five minutes.
+- p95 end-to-end email provider acceptance within fifteen minutes.
+
+These targets budget for the 60-second ingestion scan and 2-minute recovery scan defined in §8.1, fan-out paging, and provider quota, rather than assuming instant enqueue.
 
 Likely first bottlenecks are provider quota, large rendered email storage, unbounded audience queries, retention deletes, and administrative audit scans.
 
@@ -828,6 +863,7 @@ V1 does not partition tables. Partitioning or archival should be reconsidered wh
 - Hot tables approach roughly 50 million rows or 100 GB.
 - Retention deletes cause material vacuum or index pressure.
 - A single audience regularly exceeds the current chunking and SLO envelope.
+- Redis memory or queue depth grows enough that delayed-job and retry state in a single Redis deployment becomes a durability concern.
 
 At that point, likely improvements are time partitioning, cheaper audit archival, more fan-out workers, or a streaming fan-out mechanism. They do not require changing the event/notification/delivery distinction.
 
@@ -837,8 +873,8 @@ BullMQ (Redis-backed) is deliberately used only as a work-dispatch accelerator. 
 
 Known limitations of BullMQ in this design:
 
-- No native per-key ordered/grouped processing in the open-source library (per-stream FIFO groups are a paid BullMQ Pro feature). The chosen ordering mechanism — a single queue lane per stream key (§11.3) — requires either a dynamically created queue per active stream or an application-level semaphore limiting one in-flight job per stream key. Both are more moving parts than the database-claim pattern used elsewhere in this design.
-- Job state (delayed-job schedules, retry counters, payloads) lives in a single Redis deployment's memory. At the stated fewer-than-10,000-notifications-per-day boundary this is a non-issue, but Redis memory and queue depth are not currently listed among the scale triggers below and should be added if sustained volume approaches the 100,000-per-day boundary.
+- No native per-key ordered/grouped processing in the open-source library (per-stream FIFO groups are a paid BullMQ Pro feature). The chosen ordering mechanism — a single dispatch lane per stream key (§11.3) — is therefore enforced by the database claim query (a delivery is claimable only when its stream predecessor is terminal), not by queue topology. This keeps ordering consistent with the database-claim pattern used elsewhere in this design, at the cost of some no-op queue dispatches for not-yet-eligible deliveries.
+- Job state (delayed-job schedules, retry counters, payloads) lives in a single Redis deployment's memory. At the stated fewer-than-10,000-notifications-per-day boundary this is a non-issue; Redis memory and queue depth are listed among the scale triggers above.
 - BullMQ is Node.js/Redis-specific; a future service written in another language could not produce or consume notification queue work without a bespoke bridge.
 - BullMQ has no broker-level flow control spanning multiple queues. Throttling low-priority digest fan-out behind higher-priority immediate sends requires manual per-queue configuration rather than broker-native backpressure.
 
@@ -847,7 +883,7 @@ A broker such as RabbitMQ is a plausible future replacement, not a v1 requiremen
 - Genuine gains: native per-routing-key ordered queues (removing the stream-key workaround above), a native dead-letter-exchange model that maps closely onto this document's existing dead-letter concept, quorum queues for stronger broker-level durability than a typical Redis deployment, and straightforward support for non-Node.js consumers.
 - Genuine costs: RabbitMQ is new infrastructure to run and operate (a clustered Erlang/OTP runtime, its own monitoring and upgrade path) in addition to Postgres and Redis. BullMQ's TypeScript-first ergonomics — typed jobs, built-in exponential backoff with jitter, delayed jobs, and an admin UI — would need to be rebuilt or replaced by a library layered on top of RabbitMQ.
 - Because the database, not the broker, is the source of truth, this replacement would be additive and contained: it would not require redesigning the event/notification/delivery/attempt model, the idempotency keys, or the recovery-scan safety net described in §12. That containment is the main argument for not pre-building a broker abstraction now.
-- Suggested triggers to revisit, mirroring the partitioning triggers below: sustained concurrent ordered-stream cardinality that makes the single-lane-per-key workaround operationally painful, a hard requirement for broker-level backpressure against provider quota, or a second non-Node.js service needing direct queue access.
+- Suggested triggers to revisit, mirroring the partitioning triggers above: sustained concurrent ordered-stream cardinality that makes the claim-gated lane per key operationally painful, a hard requirement for broker-level backpressure against provider quota, or a second non-Node.js service needing direct queue access.
 
 ## 20. Observability and operations
 
@@ -892,7 +928,7 @@ Migration is additive and per notification kind.
 - Add audit and user-deletion coverage.
 - Add event fan-out, delivery, retry, recovery, retention, and digest workers.
 - Adapt the existing email registry, provider client, webhook handling, rate limiting, and unsubscribe protections.
-- Add per-kind shadow and active-sender feature flags.
+- Add per-kind shadow and active-sender switches as code-level constants. Which sender is active for a kind is a reviewed constant in the kind registry, changed by deployment — not a runtime flag. This makes the single-active-sender guarantee enforceable by code review and removes an entire class of runtime misconfiguration, at the cost of a deploy cycle per cutover or rollback.
 
 No current producer changes behavior in this phase.
 
@@ -931,8 +967,8 @@ For each remaining notification kind:
 3. Run shadow generation without delivery.
 4. Compare recipients, content hashes, and delivery plans.
 5. Drain already-created legacy outbox work.
-6. Enable the new sender with a single-active-sender guard.
-7. Keep an immediate rollback flag.
+6. Enable the new sender by flipping the kind's active-sender constant in a reviewed deploy.
+7. Roll back, if needed, by deploying the previous constant; the shadow infrastructure stays in place so re-cutover does not restart validation.
 
 Alerts, campaign events, public-debate events, welcome messages, and administrative producers migrate independently.
 
@@ -950,7 +986,7 @@ Only one kind is at risk at a time, recipient/content parity can be measured, an
 
 #### Migration tradeoff
 
-The application temporarily contains two models and compatibility code. Feature flags, single-sender enforcement, and explicit ownership are required to prevent duplicate sends during coexistence.
+The application temporarily contains two models and compatibility code. Reviewed sender constants, single-sender enforcement, and explicit ownership are required to prevent duplicate sends during coexistence.
 
 ## 22. First use cases
 
@@ -958,8 +994,8 @@ The application temporarily contains two models and compatibility code. Feature 
 
 Example lifecycle:
 
-1. A new vote is committed with stable ID `vote-789` for initiative `initiative-123`.
-2. The same transaction records `parliament.vote.created` with occurrence key `vote-789:created:v1` and the necessary public facts.
+1. A new vote appears in the parliamentary production database with stable ID `vote-789` for initiative `initiative-123`. That database is read-only to this application, so no shared transaction is possible.
+2. Within the next ingestion scan (§8.1), the vote is read past the persisted watermark and `parliament.vote.created` is recorded idempotently with occurrence key `vote-789:created:v1` and the necessary public facts snapshotted from the source.
 3. A resolver finds active `parliament.initiative-vote` subscriptions for `initiative-123` in pages.
 4. Preferences are evaluated for each user.
 5. One logical notification is created for each eligible user.
@@ -991,7 +1027,8 @@ Together these cases prove both real-time domain events and scheduled periodic g
 
 ### Durability and recovery
 
-- Domain rollback also rolls back the notification event.
+- The ingestion scan, restarted at any point, neither skips nor duplicates upstream occurrences (watermark correctness).
+- Domain rollback also rolls back the notification event, where the atomic capture path applies.
 - A committed event survives Redis or worker outage.
 - Fan-out resumes after a worker failure without missing or duplicating users.
 - A persisted delivery with no queue job is recovered.
@@ -1016,6 +1053,8 @@ Together these cases prove both real-time domain events and scheduled periodic g
 
 - A logical notification belongs to at most one active digest window per channel/cadence.
 - Daily and weekly windows remain correct through Europe/Bucharest daylight-saving changes.
+- A digest email with more than 20 members renders exactly 20 items plus a correct overflow link and count.
+- A snapshotted digest batch is unaffected by subsequent reads and archives; a legal/redaction cancellation cancels the whole batch and nothing less.
 - A disabled channel cancels pending batches without deleting inbox items.
 - Expired external work is not sent.
 
@@ -1039,7 +1078,7 @@ Together these cases prove both real-time domain events and scheduled periodic g
 ### Scale
 
 - A 10,000-recipient event completes fan-out without loading all recipients into memory.
-- Under healthy dependencies, p95 inbox visibility stays below one minute and provider acceptance below five minutes.
+- Under healthy dependencies, p95 inbox visibility stays below five minutes and end-to-end provider acceptance below fifteen minutes, measured from when the occurrence becomes ingestable.
 
 ### Migration
 
@@ -1053,56 +1092,67 @@ Together these cases prove both real-time domain events and scheduled periodic g
 
 This section consolidates risks that remain even after the decisions recorded in this document, so reviewers evaluate them deliberately rather than discovering them during implementation. These are accepted v1 risks, not defects — each has a stated trigger for when it should be revisited.
 
-| Limitation                                                                                                                                                                                                                                                                                                               | Why it matters                                                                                                                                                                                                                                                                                                                                                                             | Watch for / revisit when                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Neither v1 proof case can use same-transaction atomic event capture. Parliamentary vote data lives in a separate, read-only production database with no write path at all; budget data and notification tables use separate Postgres connections already treated as independent transactions everywhere in the codebase. | The durability argument in §3.4 ("closes the gap where a domain action succeeds but transient queue work is lost") does not hold via transaction atomicity for either proof case. Both depend entirely on the idempotent-ingestion/reconciliation path in §8.1, which needs the same rigor as the atomic path: an explicit scan cadence and watermark design against a read-only upstream. | Confirm the reconciliation path is fully specified before Phase 3/4 begin.                                                                                       |
-| No per-user notification volume cap. A user following many subjects can still receive a large number of individual inbox items, and a single digest email can grow unbounded.                                                                                                                                            | Digest cadence reduces email frequency but not per-message size or inbox volume; a heavy subscriber could see a degraded experience or an oversized digest email.                                                                                                                                                                                                                          | Add explicit per-kind or global caps before opening subscriptions to high-cardinality subjects.                                                                  |
-| The chosen ordering mechanism (a single BullMQ lane per stream key) has no native support in open-source BullMQ; see §19.                                                                                                                                                                                                | The gap between "declare an ordering policy" (§11.3) and "the queue enforces it" is filled by an application-level workaround (a dynamic per-stream queue or a custom semaphore) with its own failure modes.                                                                                                                                                                               | Revisit if concurrently active ordered streams become numerous enough that the workaround becomes operationally heavy.                                           |
-| Recovery/reconciliation scan cadence is not specified anywhere, yet it is the real determinant of inbox/email latency for non-atomically-captured events.                                                                                                                                                                | The p95 targets in §19 assume fast enqueue; an unspecified or slow scan interval silently changes the real-world latency for parliament- and budget-newsletter-sourced notifications.                                                                                                                                                                                                      | Define and monitor the scan interval explicitly once the reconciliation path (row above) is written into §8.                                                     |
-| Digest batches are immutable snapshots; a specific included item cannot be edited or removed without cancelling the entire batch.                                                                                                                                                                                        | This is coarse-grained by design: a legal or redaction event cancels an entire pending digest for a user rather than surgically removing one item. Ordinary user actions (archiving, reading) never affect an already-snapshotted digest.                                                                                                                                                  | Acceptable at current volume; revisit only if redaction/legal requests against digest content become frequent.                                                   |
-| Post-window ambiguous provider outcomes always require a manual, audited administrator decision (§13.2).                                                                                                                                                                                                                 | This does not scale automatically. At higher send volume, unknown outcomes could accumulate faster than an operator can review them, even though current volume makes this manageable.                                                                                                                                                                                                     | Track the unknown-outcome rate as a first-class metric (already listed in §20) and revisit if it grows disproportionately to overall volume.                     |
-| Single-active-sender enforcement is a code-level constant flipped by deployment, not a runtime flag.                                                                                                                                                                                                                     | Switching a kind between legacy and new sender, or rolling one back, requires a deploy/rollback cycle rather than an instant flip.                                                                                                                                                                                                                                                         | Acceptable given current deploy cadence; revisit if migration cutovers need faster reaction time than a deploy allows.                                           |
-| User-facing notification APIs are REST-only, while most other modules in this codebase expose both REST and GraphQL.                                                                                                                                                                                                     | Client code needs a second data-fetching pattern (REST via TanStack Query) alongside GraphQL used elsewhere for other data, rather than one consistent pattern.                                                                                                                                                                                                                            | Accepted tradeoff for a largely CRUD/polling surface; revisit only if the frontend needs to compose inbox data with other GraphQL-sourced data in the same view. |
-| No high-availability/failover story is described for Postgres or Redis themselves.                                                                                                                                                                                                                                       | The platform's reliability guarantees assume the database and queue infrastructure are healthy; an extended outage of either is outside this document's scope.                                                                                                                                                                                                                             | Out of scope for this document; should be covered by existing infrastructure/ops runbooks, not restated here.                                                    |
+| Limitation                                                                                                                                                                                                                                                                                                               | Why it matters                                                                                                                                                                                                                                                                                                         | Watch for / revisit when                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Neither v1 proof case can use same-transaction atomic event capture. Parliamentary vote data lives in a separate, read-only production database with no write path at all; budget data and notification tables use separate Postgres connections already treated as independent transactions everywhere in the codebase. | Durability for both proof cases rests entirely on the reconciliation-first path now specified in §8.1 (stable occurrence keys, persisted watermarks, 60-second ingestion scan, 2-minute recovery scan) rather than on transaction atomicity. The watermark logic is therefore correctness-critical code, not plumbing. | Watermark correctness is a first-class acceptance criterion (§23). Revisit if a source appears whose occurrence identity cannot be made stable.                  |
+| Per-user volume is bounded only at the digest-email level (20 items plus overflow link, §6.8). Inbox item volume and immediate-send volume per user remain uncapped.                                                                                                                                                     | A user following many subjects still accumulates many inbox items, and a kind configured for immediate email can still send one email per occurrence.                                                                                                                                                                  | Add per-kind immediate-send caps before opening subscriptions to high-cardinality subjects.                                                                      |
+| Ordered streams have no native support in open-source BullMQ; the lane per stream key is enforced by the database claim query (§11.3), not by queue topology.                                                                                                                                                            | Not-yet-eligible deliveries produce no-op queue dispatches, and a stuck stream head delays the whole stream until its terminal state is recorded.                                                                                                                                                                      | Revisit if concurrently active ordered streams become numerous enough that no-op dispatch volume or head-of-line delays become operationally visible.            |
+| The stated latency targets (§19) are floor-bounded by the 60-second ingestion scan and 2-minute recovery scan cadences.                                                                                                                                                                                                  | Faster-than-five-minute notification of a parliamentary vote is structurally impossible without tightening the scan cadence, which would raise load on the read-only upstream database.                                                                                                                                | Monitor scan duration against its interval; revisit cadence only with a product requirement for faster visibility.                                               |
+| Digest batches are immutable snapshots; a specific included item cannot be edited or removed without cancelling the entire batch.                                                                                                                                                                                        | This is coarse-grained by design: a legal or redaction event cancels an entire pending digest for a user rather than surgically removing one item. Ordinary user actions (archiving, reading) never affect an already-snapshotted digest.                                                                              | Acceptable at current volume; revisit only if redaction/legal requests against digest content become frequent.                                                   |
+| Post-window ambiguous provider outcomes always require a manual, audited administrator decision (§13.2).                                                                                                                                                                                                                 | This does not scale automatically. At higher send volume, unknown outcomes could accumulate faster than an operator can review them, even though current volume makes this manageable.                                                                                                                                 | Track the unknown-outcome rate as a first-class metric (already listed in §20) and revisit if it grows disproportionately to overall volume.                     |
+| Single-active-sender enforcement is a code-level constant flipped by deployment, not a runtime flag.                                                                                                                                                                                                                     | Switching a kind between legacy and new sender, or rolling one back, requires a deploy/rollback cycle rather than an instant flip.                                                                                                                                                                                     | Acceptable given current deploy cadence; revisit if migration cutovers need faster reaction time than a deploy allows.                                           |
+| User-facing notification APIs are REST-only, while most other modules in this codebase expose both REST and GraphQL.                                                                                                                                                                                                     | Client code needs a second data-fetching pattern (REST via TanStack Query) alongside GraphQL used elsewhere for other data, rather than one consistent pattern.                                                                                                                                                        | Accepted tradeoff for a largely CRUD/polling surface; revisit only if the frontend needs to compose inbox data with other GraphQL-sourced data in the same view. |
+| No high-availability/failover story is described for Postgres or Redis themselves.                                                                                                                                                                                                                                       | The platform's reliability guarantees assume the database and queue infrastructure are healthy; an extended outage of either is outside this document's scope.                                                                                                                                                         | Out of scope for this document; should be covered by existing infrastructure/ops runbooks, not restated here.                                                    |
 
-None of these block starting Phase 1, but the first and fourth rows should be resolved with concrete mechanisms before Phase 3/4 begin, since they affect the two proof-of-design use cases directly.
+None of these block starting Phase 1. The reconciliation mechanism and scan cadences that the first and fourth rows depend on are now specified in §8.1; what remains is verifying them against the acceptance criteria in §23 before Phase 3/4 cut over.
 
 ## 25. Decision record
 
-| Decision                                              | Reason                                                              | Advantage                                    | Tradeoff                                           |
-| ----------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
-| Keep generation separate from delivery                | The boundary is already useful and supports independent reliability | Domain code does not implement transport     | Requires explicit persisted handoff                |
-| Use domain events plus scheduled evaluators           | Both real-time and periodic use cases exist                         | One lifecycle supports both                  | Producers must create stable occurrences           |
-| Store generic subscriptions with domain policy        | Avoid duplicated CRUD while retaining authorization                 | Reusable and typed                           | No universal subject foreign key                   |
-| Authenticated users are the only v1 recipient         | Current identity, preferences, deletion, and inbox are user-based   | Clear ownership and privacy                  | No anonymous or organization inbox                 |
-| One logical notification, separate channel deliveries | Channels have different content and outcomes                        | Clean inbox/email/push evolution             | More normalized records                            |
-| Launch with inbox and email                           | Both are required now                                               | Useful product value without push complexity | No realtime OS/browser notification                |
-| Prepare contracts for browser push next               | It is the next selected extension                                   | Tests endpoint/delivery abstraction          | No push user value in v1                           |
-| Server-controlled, versioned templates                | Current registry is strong and secure                               | Typed, reviewable, reproducible              | Content changes require deployment                 |
-| Romanian-only rendering in v1                         | Current launch requirement                                          | Limits translation complexity                | Other locales wait                                 |
-| Global plus per-channel preferences                   | Sufficient current control                                          | Predictable precedence                       | No per-subscription override                       |
-| Kind-owned preference class                           | Prevent arbitrary consent bypass                                    | Auditable required messages                  | Policy changes require code review                 |
-| Recheck before external delivery                      | Honor late opt-out and deletion                                     | Safer consent behavior                       | Delivery set may differ from creation snapshot     |
-| Daily and weekly email digests                        | Covers expected grouping needs                                      | Reduces email volume                         | Adds batch/window state                            |
-| Digest is a batch over logical items                  | Preserve event-level inbox history                                  | No lost event relationship                   | Inbox may show items before email                  |
-| Persist a general `not_before`                        | Supports controlled delays and embargoes                            | Simple durable scheduling primitive          | No user quiet hours                                |
-| Per-kind expiry                                       | Notification usefulness varies                                      | Avoid stale sends                            | Every kind needs a reviewed default                |
-| Optional ordering by stream                           | Most work can stay concurrent                                       | Ordering cost is isolated                    | Ordered streams can block on retry                 |
-| Explicit occurrence keys plus payload hash            | Producers know occurrence identity                                  | Deterministic duplicate prevention           | Bad producer keys are operational errors           |
-| At-least-once processing                              | Honest cross-system guarantee                                       | Reliable and practical                       | Rare ambiguous external outcomes remain            |
-| Five email attempts over 24 hours                     | Balances outage recovery and staleness                              | Recovers ordinary provider incidents         | Long incidents end in dead letter                  |
-| Do not blindly resend post-window ambiguity           | Duplicate email can be harmful                                      | Safer unknown handling                       | Some messages need manual judgment                 |
-| Suppress destinations, not preferences                | Technical failure is not user intent                                | Correct semantics and recovery               | Adds destination lifecycle state                   |
-| Full admin delivery console                           | Support needs record-level diagnosis                                | Visible and recoverable failures             | Requires strong RBAC and audit                     |
-| Metadata redacted by default                          | Content and destinations can be personal                            | Minimizes routine PII exposure               | Privileged investigations take an extra step       |
-| Two-year content and 90-day attempt retention         | Balance reproducibility with minimization                           | Bounded sensitive storage                    | Older detailed investigations are unavailable      |
-| Indefinite redacted audit ledger                      | Preserve lifecycle accountability                                   | Long-term support history                    | Event volume grows indefinitely                    |
-| Use PostgreSQL and BullMQ in the application          | Expected scale is modest                                            | Reuses proven infrastructure                 | Future high scale may require partitioning/archive |
-| No generic rule engine                                | Domain conditions belong to domain modules                          | Avoids an over-general platform              | Features still implement event detection           |
-| Campaigns remain separate producers                   | Planning and approval differ from delivery                          | Reuses lifecycle without bloating core       | Two modules participate in a campaign send         |
-| Shadow then switch per kind                           | Avoid duplicate sends and validate parity                           | Safe incremental migration                   | Temporary dual-model complexity                    |
-| Parliament plus budget newsletter first               | Proves event and scheduled paths                                    | Broad validation with two cases              | Other flows remain legacy temporarily              |
-| API plus polling for inbox                            | No realtime infrastructure is currently needed                      | Simple and reliable                          | Notification appearance is not instantaneous       |
+| Decision                                                   | Reason                                                              | Advantage                                            | Tradeoff                                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Keep generation separate from delivery                     | The boundary is already useful and supports independent reliability | Domain code does not implement transport             | Requires explicit persisted handoff                                              |
+| Use domain events plus scheduled evaluators                | Both real-time and periodic use cases exist                         | One lifecycle supports both                          | Producers must create stable occurrences                                         |
+| Store generic subscriptions with domain policy             | Avoid duplicated CRUD while retaining authorization                 | Reusable and typed                                   | No universal subject foreign key                                                 |
+| Authenticated users are the only v1 recipient              | Current identity, preferences, deletion, and inbox are user-based   | Clear ownership and privacy                          | No anonymous or organization inbox                                               |
+| One logical notification, separate channel deliveries      | Channels have different content and outcomes                        | Clean inbox/email/push evolution                     | More normalized records                                                          |
+| Launch with inbox and email                                | Both are required now                                               | Useful product value without push complexity         | No realtime OS/browser notification                                              |
+| Prepare contracts for browser push next                    | It is the next selected extension                                   | Tests endpoint/delivery abstraction                  | No push user value in v1                                                         |
+| Server-controlled, versioned templates                     | Current registry is strong and secure                               | Typed, reviewable, reproducible                      | Content changes require deployment                                               |
+| Romanian-only rendering in v1                              | Current launch requirement                                          | Limits translation complexity                        | Other locales wait                                                               |
+| Global plus per-channel preferences                        | Sufficient current control                                          | Predictable precedence                               | No per-subscription override                                                     |
+| Kind-owned preference class                                | Prevent arbitrary consent bypass                                    | Auditable required messages                          | Policy changes require code review                                               |
+| Recheck before external delivery                           | Honor late opt-out and deletion                                     | Safer consent behavior                               | Delivery set may differ from creation snapshot                                   |
+| Daily and weekly email digests                             | Covers expected grouping needs                                      | Reduces email volume                                 | Adds batch/window state                                                          |
+| Digest is a batch over logical items                       | Preserve event-level inbox history                                  | No lost event relationship                           | Inbox may show items before email                                                |
+| Persist a general `not_before`                             | Supports controlled delays and embargoes                            | Simple durable scheduling primitive                  | No user quiet hours                                                              |
+| Per-kind expiry                                            | Notification usefulness varies                                      | Avoid stale sends                                    | Every kind needs a reviewed default                                              |
+| Optional ordering by stream                                | Most work can stay concurrent                                       | Ordering cost is isolated                            | Ordered streams can block on retry                                               |
+| Explicit occurrence keys plus payload hash                 | Producers know occurrence identity                                  | Deterministic duplicate prevention                   | Bad producer keys are operational errors                                         |
+| At-least-once processing                                   | Honest cross-system guarantee                                       | Reliable and practical                               | Rare ambiguous external outcomes remain                                          |
+| Five email attempts over 24 hours                          | Balances outage recovery and staleness                              | Recovers ordinary provider incidents                 | Long incidents end in dead letter                                                |
+| Do not blindly resend post-window ambiguity                | Duplicate email can be harmful                                      | Safer unknown handling                               | Some messages need manual judgment                                               |
+| Suppress destinations, not preferences                     | Technical failure is not user intent                                | Correct semantics and recovery                       | Adds destination lifecycle state                                                 |
+| Full admin delivery console                                | Support needs record-level diagnosis                                | Visible and recoverable failures                     | Requires strong RBAC and audit                                                   |
+| Metadata redacted by default                               | Content and destinations can be personal                            | Minimizes routine PII exposure                       | Privileged investigations take an extra step                                     |
+| Two-year content and 90-day attempt retention              | Balance reproducibility with minimization                           | Bounded sensitive storage                            | Older detailed investigations are unavailable                                    |
+| Indefinite redacted audit ledger                           | Preserve lifecycle accountability                                   | Long-term support history                            | Event volume grows indefinitely                                                  |
+| Use PostgreSQL and BullMQ in the application               | Expected scale is modest                                            | Reuses proven infrastructure                         | Future high scale may require partitioning/archive                               |
+| No generic rule engine                                     | Domain conditions belong to domain modules                          | Avoids an over-general platform                      | Features still implement event detection                                         |
+| Campaigns remain separate producers                        | Planning and approval differ from delivery                          | Reuses lifecycle without bloating core               | Two modules participate in a campaign send                                       |
+| Shadow then switch per kind                                | Avoid duplicate sends and validate parity                           | Safe incremental migration                           | Temporary dual-model complexity                                                  |
+| Parliament plus budget newsletter first                    | Proves event and scheduled paths                                    | Broad validation with two cases                      | Other flows remain legacy temporarily                                            |
+| API plus polling for inbox                                 | No realtime infrastructure is currently needed                      | Simple and reliable                                  | Notification appearance is not instantaneous                                     |
+| Reconciliation-first event capture                         | Both proof cases span separate databases, no shared transaction     | Honest durability story; one primary path            | Latency floor set by scan cadence                                                |
+| 60s ingestion scan, 2-minute recovery scan                 | Fits relaxed SLOs with margin at acceptable upstream load           | Predictable, monitorable latency budget              | Sub-minute notification is structurally impossible                               |
+| p95 inbox 5 minutes, email acceptance 15 minutes           | Targets derived from scan cadence, not assumed instant enqueue      | SLOs the design can actually meet                    | Slower than the original one-minute aspiration                                   |
+| Digest email caps at 20 items plus overflow link           | Bound email size without losing inbox history                       | Simple, honest volume bound                          | Inbox and immediate-send volume remain uncapped                                  |
+| Whole-batch digest cancel, legal/redaction only            | Preserve immutable-snapshot semantics; reuse delivery cancellation  | No batch-editing workflow to build                   | Coarse-grained response to redaction requests                                    |
+| Strictly one event type per kind                           | Keep the event-to-message relationship auditable and simple         | No fan-out ambiguity or double notification          | Two messages from one occurrence need two events                                 |
+| Stream ordering via database claim gating                  | OSS BullMQ lacks FIFO groups; claims already exist                  | Consistent with the rest of the design               | No-op dispatches and head-of-line stream delays                                  |
+| REST-only user-facing APIs                                 | CRUD/polling surface with no composition need                       | Half the contract area to version and test           | Deviates from the codebase dual REST+GraphQL norm                                |
+| Sender cutover via reviewed code constant                  | Single-active-sender must be enforceable by review                  | No runtime misconfiguration class                    | Cutover and rollback cost a deploy cycle                                         |
+| Unversioned API paths, additive evolution                  | Path version segments fragment per resource and never converge      | One stable contract; header pinning possible later   | Breaking changes require a new endpoint, not a new version                       |
+| Send-time destination resolution, fingerprint-only storage | No plaintext address should live in notification tables             | Minimal PII surface; reveal is a live audited lookup | Send path depends on the identity provider; changed address cancels the delivery |
 
 ## 26. Review checklist
 
@@ -1117,15 +1167,17 @@ Before implementation begins, reviewers should confirm:
 - The indefinite redacted audit ledger is justified and has acceptable growth.
 - The parliamentary vote event and initiative subscription have stable domain identities.
 - The budget newsletter can materialize immutable report facts at event time.
-- The p95 latency targets are compatible with configured email-provider quotas.
+- The p95 latency targets are compatible with configured email-provider quotas and the §8.1 scan cadences.
+- The watermark scheme for each ingested source has a stable, restart-safe definition.
 - Administrative reveal and requeue permissions have clear owners.
-- The migration flags can enforce exactly one active sender per kind.
+- The reviewed sender constants can enforce exactly one active sender per kind.
 - User deletion behavior is complete before any new tables reach production.
 - Browser-push contracts do not accidentally pull push implementation into v1.
 
 ## 27. Confirmed v1 defaults
 
-- Events come from durable domain transactions, idempotent external ingestion, or scheduled domain evaluators.
+- Event capture is reconciliation-first: a 60-second watermark-based ingestion scan and a 2-minute recovery scan are the primary path; same-transaction capture applies only where domain and notification tables share a database.
+- Each notification kind accepts exactly one event type, one-to-one.
 - Subscriptions can be explicit; policy eligibility is allowed only through registered kinds.
 - Recipients are authenticated users.
 - Organizations and groups may select users but are not notification owners.
@@ -1136,9 +1188,13 @@ Before implementation begins, reviewers should confirm:
 - Cadences are immediate, daily, weekly, or off when allowed.
 - Daily digest is 08:00 Europe/Bucharest.
 - Weekly digest is Monday 08:00 Europe/Bucharest.
+- A digest email renders at most 20 items plus an overflow link to the inbox.
+- Snapshotted digest batches are immutable; only a legal/redaction event cancels one, and only whole.
 - User-defined schedules, quiet hours, and time zones are out of scope.
 - Inbox supports unread/read and archive/unarchive, not deletion.
-- Inbox uses cursor APIs and polling.
+- Inbox uses cursor APIs and polling; user-facing notification APIs are REST-only.
+- API paths are unversioned (`/api/notifications/*`) and evolve additively; no path version segments.
+- Destination addresses are never persisted: fingerprint-and-generation storage, send-time resolution from the identity provider, audited live lookup for reveal.
 - Templates are server-controlled, versioned, and Romanian-only in v1.
 - Content facts and exact channel renderings are persisted.
 - Duplicate identity comes from explicit occurrence keys and database uniqueness.
@@ -1148,7 +1204,9 @@ Before implementation begins, reviewers should confirm:
 - Detailed attempts and raw webhooks are retained 90 days.
 - Content and logical history are retained two years.
 - Redacted audit is retained indefinitely.
-- V1 assumes fewer than 10,000 logical notifications per day and audiences below 10,000.
+- V1 assumes fewer than 10,000 logical notifications per day and audiences below 10,000; both validated against production volumes.
+- Latency targets are p95 inbox visibility within five minutes and p95 email acceptance within fifteen, measured from ingestability.
+- Ordered streams are enforced by database claim gating, one in-flight delivery per stream key.
 - PostgreSQL and BullMQ remain the infrastructure.
 - Implementation starts with parliamentary votes and one budget newsletter flow.
-- Existing flows migrate through shadow comparison and per-kind cutover.
+- Existing flows migrate through shadow comparison and per-kind cutover, switched by reviewed code constants and deploys.
