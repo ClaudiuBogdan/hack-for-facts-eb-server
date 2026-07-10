@@ -839,8 +839,9 @@ const anonymizeDeletedUserInTransaction = async (
 
   // Keep the row so the "N people asked for this dataset" signal survives, but
   // strip the identity-bearing columns and the free-text note, which can name
-  // the requester. Requests submitted while signed out carry no clerk_user_id
-  // and cannot be matched here.
+  // the requester. Anonymous requests never persist contact_email or note (see
+  // docs/USER-DATA-ANONYMIZATION.md), so every such value belongs to a row this
+  // clerk_user_id match can reach.
   const insDatasetRequestsUpdatedResult = await trx
     .updateTable('ins_dataset_requests')
     .set({

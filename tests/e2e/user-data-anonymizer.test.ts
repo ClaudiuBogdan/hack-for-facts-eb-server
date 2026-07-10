@@ -362,8 +362,10 @@ describe('User data anonymizer', () => {
           id: anonymousRequestId,
           dataset_code: 'POP107D',
           siruta: null,
-          contact_email: `anon-${suffix}@example.com`,
-          note: 'Anonymous request',
+          // The write path never persists contact_email/note without a
+          // clerk_user_id, precisely because the anonymizer could not reach them.
+          contact_email: null,
+          note: null,
           clerk_user_id: null,
         },
       ] as never)
@@ -508,14 +510,17 @@ describe('User data anonymizer', () => {
     expect(datasetRequest.dataset_code).toBe('POP107D');
     expect(datasetRequest.siruta).toBe('54975');
 
-    // A request submitted while signed out cannot be matched to the deleted user.
+    // An anonymous row holds no PII to begin with, and the anonymizer leaves it
+    // alone; only its aggregate signal remains.
     const anonymousRequest = await userDb
       .selectFrom('ins_dataset_requests')
       .selectAll()
       .where('id', '=', anonymousRequestId)
       .executeTakeFirstOrThrow();
     expect(anonymousRequest.clerk_user_id).toBeNull();
-    expect(anonymousRequest.contact_email).toBe(`anon-${suffix}@example.com`);
+    expect(anonymousRequest.contact_email).toBeNull();
+    expect(anonymousRequest.note).toBeNull();
+    expect(anonymousRequest.dataset_code).toBe('POP107D');
 
     const datasetRows = await userDb
       .selectFrom('advancedmapdatasetrows')

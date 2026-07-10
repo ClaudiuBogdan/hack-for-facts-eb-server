@@ -45,7 +45,17 @@ export const createInsDatasetRequest = async (
     return err(createValidationError('datasetCode', 'datasetCode is required'));
   }
 
-  const note = cleaned(input.note);
+  const siruta = cleaned(input.siruta);
+  const clerkUserId = cleaned(input.clerkUserId);
+
+  // Identity-bearing fields are only persisted for an authenticated submission.
+  // Clerk `user.deleted` carries a user id and nothing else, so a row with no
+  // clerk_user_id can never be matched and its PII would be unreachable forever.
+  // Anonymous requests are still accepted — dataset_code/siruta/created_at carry
+  // the aggregate "N people asked for this" signal, which is the product value.
+  const isAuthenticated = clerkUserId !== undefined;
+
+  const note = isAuthenticated ? cleaned(input.note) : undefined;
   if (note !== undefined && note.length > MAX_DATASET_REQUEST_NOTE_LENGTH) {
     return err(
       createValidationError(
@@ -55,13 +65,10 @@ export const createInsDatasetRequest = async (
     );
   }
 
-  const contactEmail = cleaned(input.contactEmail);
+  const contactEmail = isAuthenticated ? cleaned(input.contactEmail) : undefined;
   if (contactEmail !== undefined && !isValidContactEmail(contactEmail)) {
     return err(createValidationError('contactEmail', 'contactEmail is not a valid email address'));
   }
-
-  const siruta = cleaned(input.siruta);
-  const clerkUserId = cleaned(input.clerkUserId);
 
   const record: InsDatasetRequestInput = {
     dataset_code: datasetCode.toUpperCase(),

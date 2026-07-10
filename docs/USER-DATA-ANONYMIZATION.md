@@ -74,14 +74,25 @@ Operational ledgers are retained only after identity-bearing fields are removed:
 - anonymization audit rows
 - INS dataset request rows
 
-## Known Limitation: Anonymous Submissions
+## Anonymous Submissions Never Persist PII
 
-`ins_dataset_requests` accepts anonymous submissions, which carry a
-`contact_email` but no `clerk_user_id`. The Clerk `user.deleted` payload
-identifies the account only by user ID, so a request submitted while signed out
-cannot be matched to the deleted account and its `contact_email` is not cleared.
-Rows submitted while signed in are matched on `clerk_user_id` and fully
-anonymized.
+`ins_dataset_requests` accepts submissions from signed-out users. The Clerk
+`user.deleted` event identifies the account **only by user ID** — it carries no
+email address — so the anonymizer can only match rows on `clerk_user_id`. A row
+written without a `clerk_user_id` is therefore structurally unreachable by the
+deletion handler: no `WHERE` clause could ever find it, and any PII it held
+would survive account deletion forever.
+
+The fix is at the write path, not the deletion path. When a dataset request has
+no authenticated Clerk user, the usecase does not persist `contact_email` or
+`note` at all; it stores only `dataset_code`, `siruta` and `created_at`. The
+request is still accepted — that tuple carries the aggregate "N people asked for
+this dataset" signal, which is the product value. Authenticated submissions
+persist both fields, because `clerk_user_id` makes them anonymizable on
+`user.deleted`.
+
+Consequently every `contact_email` and `note` in this table belongs to a row
+that the anonymizer can find.
 
 ## Idempotency
 

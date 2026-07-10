@@ -3,8 +3,10 @@
  * to be loaded, optionally for a specific territory.
  *
  * Submissions are allowed anonymously, so `contact_email` and `clerk_user_id`
- * are both optional. Both are identity-bearing and are anonymized on Clerk
- * `user.deleted` — see docs/USER-DATA-ANONYMIZATION.md.
+ * are both optional. `contact_email` and `note` are only persisted for an
+ * authenticated submission: Clerk `user.deleted` identifies the account by user
+ * id alone, so a row without `clerk_user_id` could never be matched and its PII
+ * would outlive the account. See docs/USER-DATA-ANONYMIZATION.md.
  */
 
 import { Type, type Static } from '@sinclair/typebox';
