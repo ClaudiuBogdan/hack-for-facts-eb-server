@@ -685,8 +685,9 @@ export const makeProcurementAggregateRepo = (
         .executeTakeFirst();
       return row?.refreshed_at ?? null;
     } catch {
-      // A key with a null watermark still isolates by scope; it just cannot detect
-      // a refresh. That is better than failing the aggregate.
+      // Without a watermark the entry cannot be invalidated on refresh, so it is
+      // not cacheable at all — see `cached` below. Never key on a null watermark:
+      // two different gate decisions would collapse onto the same key.
       return null;
     }
   };
@@ -695,16 +696,24 @@ export const makeProcurementAggregateRepo = (
    * Cache ONLY non-entity scopes. `load` returns a `Result`; an `err` must never be
    * memoized, so it is carried out through a rejection (the cache only stores what a
    * loader RESOLVES) and unwrapped back into an `err` on the way out.
+   *
+   * `spendGrains` is keyed, not merely closed over: it decides whether money is
+   * summed or nulled, so an entry computed while the gate allowed contract spend
+   * must never be served after the gate withdraws it.
    */
   const cached = async <T>(
     query: string,
     scope: ScopeFilter,
     grains: readonly ProcurementGrain[],
     topN: number,
+    spendGrains: readonly ProcurementGrain[],
     load: () => Promise<Result<T, ApiError>>
   ): Promise<Result<T, ApiError>> => {
     if (!isCacheableScope(scope)) return load();
-    const key = scopeCacheKey(query, scope, grains, topN, await gateRefreshedAt());
+    const refreshedAt = await gateRefreshedAt();
+    // An unkeyable snapshot is served live rather than memoized under a null key.
+    if (refreshedAt === null) return load();
+    const key = scopeCacheKey(query, scope, grains, topN, refreshedAt, spendGrains);
     try {
       const value = await cache.through(key, async () => {
         const result = await load();
@@ -723,7 +732,9 @@ export const makeProcurementAggregateRepo = (
     grains: readonly ProcurementGrain[],
     spendGrains: readonly ProcurementGrain[]
   ): Promise<Result<ScopeFlowStats, ApiError>> =>
-    cached('stats', scope, grains, 0, () => scopeRepo.scopeStats(scope, grains, spendGrains));
+    cached('stats', scope, grains, 0, spendGrains, () =>
+      scopeRepo.scopeStats(scope, grains, spendGrains)
+    );
 
   const scopeTopParties = (
     scope: ScopeFilter,
@@ -732,7 +743,7 @@ export const makeProcurementAggregateRepo = (
     side: 'authority' | 'supplier',
     topN: number
   ): Promise<Result<readonly TopPartyRow[], ApiError>> =>
-    cached(`top:${side}`, scope, grains, topN, () =>
+    cached(`top:${side}`, scope, grains, topN, spendGrains, () =>
       scopeRepo.scopeTopParties(scope, grains, spendGrains, side, topN)
     );
 
@@ -741,7 +752,7 @@ export const makeProcurementAggregateRepo = (
     grains: readonly ProcurementGrain[],
     spendGrains: readonly ProcurementGrain[]
   ): Promise<Result<readonly CategoryRow[], ApiError>> =>
-    cached('categories', scope, grains, 0, () =>
+    cached('categories', scope, grains, 0, spendGrains, () =>
       scopeRepo.scopeCategoryBreakdown(scope, grains, spendGrains)
     );
 
@@ -750,7 +761,7 @@ export const makeProcurementAggregateRepo = (
     grains: readonly ProcurementGrain[],
     spendGrains: readonly ProcurementGrain[]
   ): Promise<Result<readonly MonthlyPoint[], ApiError>> =>
-    cached('timeline', scope, grains, 0, () =>
+    cached('timeline', scope, grains, 0, spendGrains, () =>
       scopeRepo.scopeSpendOverTime(scope, grains, spendGrains)
     );
 

@@ -4,9 +4,12 @@
  *
  * The two grains live in two tables, so there is no single index to walk. We issue
  * one keyset query per table, merge-sort in TS, and slice to `first`. The cursor
- * therefore encodes `(date, grain, id)` — the GRAIN TAG IS REQUIRED because
- * `contract_id` and `da_id` are only unique WITHIN their table, so `(date, id)`
- * alone would collide across grains and silently drop or repeat a row.
+ * therefore encodes `(supplierCui, date, grain, id)`. The GRAIN TAG IS REQUIRED
+ * because `contract_id` and `da_id` are only unique WITHIN their table, so
+ * `(date, id)` alone would collide across grains and silently drop or repeat a
+ * row. The SUPPLIER IS REQUIRED because a keyset position only means something
+ * inside one supplier's ordering — replaying another supplier's cursor would
+ * otherwise skip an arbitrary prefix instead of failing.
  *
  * Merge order — the total order both tables and the merge agree on:
  *     (date DESC NULLS LAST, grainRank ASC, id DESC)
@@ -25,10 +28,16 @@ export const grainRank = (grain: ProcurementGrain): number =>
 /** Null dates sort AFTER every dated row (`NULLS LAST`). */
 const dateRank = (date: string | null): number => (date === null ? 1 : 0);
 
-export interface RecordCursor {
+/** The total order's key. Sorting never needs the supplier — a page is one supplier. */
+export interface RecordSortKey {
   readonly date: string | null;
   readonly grain: ProcurementGrain;
   readonly id: string;
+}
+
+/** A sort key bound to the supplier it was minted for. See `encodeRecordCursor`. */
+export interface RecordCursor extends RecordSortKey {
+  readonly supplierCui: string;
 }
 
 const CURSOR_SEPARATOR = '|';
@@ -41,14 +50,27 @@ const GRAIN_CODE: Readonly<Record<ProcurementGrain, string>> = {
   direct_acquisition: 'd',
 };
 
-/** Opaque, but stable: `base64url("<date|''>|<c|d>|<id>")`. */
+/**
+ * Opaque, but stable: `base64url("<supplierCui>|<date|''>|<c|d>|<id>")`.
+ *
+ * The cursor carries the supplier it was minted for. A keyset position is only
+ * meaningful within one supplier's ordered records, so replaying supplier A's
+ * cursor against supplier B would silently start B's connection partway down
+ * A's ordering and skip an arbitrary prefix. `decodeRecordCursor` therefore
+ * demands the supplier it is being replayed against.
+ */
 export const encodeRecordCursor = (cursor: RecordCursor): string =>
   Buffer.from(
-    [cursor.date ?? '', GRAIN_CODE[cursor.grain], cursor.id].join(CURSOR_SEPARATOR),
+    [cursor.supplierCui, cursor.date ?? '', GRAIN_CODE[cursor.grain], cursor.id].join(
+      CURSOR_SEPARATOR
+    ),
     'utf8'
   ).toString('base64url');
 
-export const decodeRecordCursor = (raw: string): Result<RecordCursor, ApiError> => {
+export const decodeRecordCursor = (
+  raw: string,
+  supplierCui: string
+): Result<RecordCursor, ApiError> => {
   let decoded: string;
   try {
     decoded = Buffer.from(raw, 'base64url').toString('utf8');
@@ -56,31 +78,44 @@ export const decodeRecordCursor = (raw: string): Result<RecordCursor, ApiError> 
     return err(invalidInput('after is not a valid cursor', 'after'));
   }
   const parts = decoded.split(CURSOR_SEPARATOR);
-  if (parts.length !== 3) return err(invalidInput('after is not a valid cursor', 'after'));
-  const [date, code, id] = parts as [string, string, string];
+  if (parts.length !== 4) return err(invalidInput('after is not a valid cursor', 'after'));
+  const [cui, date, code, id] = parts as [string, string, string, string];
+  if (cui !== supplierCui) {
+    return err(invalidInput('after was issued for a different supplier', 'after'));
+  }
   const grain = GRAIN_TOKENS[code];
   if (grain === undefined) return err(invalidInput('after carries an unknown grain', 'after'));
   if (!/^\d+$/u.test(id)) return err(invalidInput('after carries an invalid id', 'after'));
   if (date !== '' && !/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
     return err(invalidInput('after carries an invalid date', 'after'));
   }
-  return ok({ date: date === '' ? null : date, grain, id });
+  return ok({ supplierCui: cui, date: date === '' ? null : date, grain, id });
 };
 
-export const cursorOf = (record: SupplierRecord): RecordCursor =>
+/** The grain's own date + pk column, which is all the merge order needs. */
+export const sortKeyOf = (record: SupplierRecord): RecordSortKey =>
   record.grain === 'procurement_contract'
-    ? { date: record.contract.contractDate, grain: record.grain, id: record.contract.contractId }
+    ? {
+        date: record.contract.contractDate,
+        grain: record.grain,
+        id: record.contract.contractId,
+      }
     : {
         date: record.directAcquisition.finalizationDate,
         grain: record.grain,
         id: record.directAcquisition.daId,
       };
 
+export const cursorOf = (record: SupplierRecord, supplierCui: string): RecordCursor => ({
+  supplierCui,
+  ...sortKeyOf(record),
+});
+
 /**
  * The merge comparator: negative when `a` precedes `b`. `id` is a bigint string, so
  * it is compared by length-then-lexicographically, never as a lossy JS number.
  */
-export const compareRecords = (a: RecordCursor, b: RecordCursor): number => {
+export const compareRecords = (a: RecordSortKey, b: RecordSortKey): number => {
   const rank = dateRank(a.date) - dateRank(b.date);
   if (rank !== 0) return rank;
   if (a.date !== null && b.date !== null && a.date !== b.date) return a.date < b.date ? 1 : -1;
@@ -107,7 +142,7 @@ export const mergeSupplierRecords = (
   first: number
 ): { readonly page: readonly SupplierRecord[]; readonly hasNextPage: boolean } => {
   const merged = [...contracts, ...directAcquisitions].sort((a, b) =>
-    compareRecords(cursorOf(a), cursorOf(b))
+    compareRecords(sortKeyOf(a), sortKeyOf(b))
   );
   return { page: merged.slice(0, first), hasNextPage: merged.length > first };
 };

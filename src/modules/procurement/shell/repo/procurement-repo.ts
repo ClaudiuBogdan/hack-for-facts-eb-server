@@ -28,7 +28,8 @@ import {
   type ApiError,
   type CursorPage,
   type FilterInput,
-  type ProdDatabase, type CollectionFilterSpec 
+  type ProdDatabase,
+  type CollectionFilterSpec,
 } from '@/modules/shared/index.js';
 
 import { makeProcurementDetailRepo } from './detail-repo.js';
@@ -38,12 +39,7 @@ import {
   cpvDivisionRange,
   yearDateRange,
 } from './filter-helpers.js';
-import {
-  mapContract,
-  mapDirectAcquisition,
-  mapModification,
-  mapProcedure,
-} from './mappers.js';
+import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { makeOffsetSearchRepo } from './offset-search-repo.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from '../../core/constants.js';
 import {
@@ -81,7 +77,8 @@ const LIST_LIMIT_MAX = 100;
 const MODIFICATIONS_CAP = 200;
 const CPV_RESOLVE_MAX = 50;
 
-const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(Math.floor(n), lo), hi);
+const clamp = (n: number, lo: number, hi: number): number =>
+  Math.min(Math.max(Math.floor(n), lo), hi);
 
 const composeAnd = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
@@ -92,7 +89,8 @@ const dirSql = (dir: 'asc' | 'desc'): RawBuilder<unknown> => (dir === 'asc' ? sq
 const omit = (input: FilterInput, drop: readonly string[]): FilterInput => {
   const set = new Set(drop);
   const out: FilterInput = {};
-  for (const k of Object.keys(input)) if (!set.has(k)) (out as Record<string, unknown>)[k] = input[k];
+  for (const k of Object.keys(input))
+    if (!set.has(k)) (out as Record<string, unknown>)[k] = input[k];
   return out;
 };
 
@@ -138,7 +136,10 @@ const normalizeCuiFilters = (input: FilterInput): FilterInput => {
 const needsCoreJoin = (input: FilterInput): boolean =>
   input['countyCode'] !== undefined || input['region'] !== undefined;
 
-export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT): ProcurementRepo => {
+export const makeProcurementRepo = (
+  db: Db,
+  daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT
+): ProcurementRepo => {
   // The offset-search + detail surfaces are their own modules; this repo composes
   // them so callers still see one `ProcurementRepo` port.
   const offset = makeOffsetSearchRepo(db, daMaxWindowDays);
@@ -209,12 +210,22 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const procedureSelect = [
-    'p.procedure_id', 'p.source_system', 'p.source_url',
-    'p.notice_no', 'p.notice_kind', 'p.procedure_type', 'p.contract_kind',
-    'p.title', 'p.authority_cui', 'p.authority_name', 'p.cpv_code', 'p.currency',
+    'p.procedure_id',
+    'p.source_system',
+    'p.source_url',
+    'p.notice_no',
+    'p.notice_kind',
+    'p.procedure_type',
+    'p.contract_kind',
+    'p.title',
+    'p.authority_cui',
+    'p.authority_name',
+    'p.cpv_code',
+    'p.currency',
     sql<string | null>`p.estimated_value_ron::text`.as('estimated_value_ron'),
     sql<string | null>`p.awarded_value_ron::text`.as('awarded_value_ron'),
-    'p.status', 'p.county_name',
+    'p.status',
+    'p.county_name',
     // date columns → ::text (pg returns `date` as a JS Date otherwise, which breaks
     // the YYYY-MM-DD contract AND the cursor key serialization).
     sql<string | null>`p.publication_date::text`.as('publication_date'),
@@ -226,13 +237,21 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ProcurementProcedure>, ApiError>> => {
     const conflict = assertNoYearDateConflict(filter, 'publicationDate');
-    if (!conflict.ok) return err(invalidInput('cannot combine year and publicationDate range', conflict.field));
+    if (!conflict.ok)
+      return err(invalidInput('cannot combine year and publicationDate range', conflict.field));
     const limit = clamp(page.first, 1, LIST_LIMIT_MAX);
     const fhash = fhashFor(procedureFilterSpec, filter);
     const cursor = decodeCursorKeys(page.after, fhash, 'publication_date');
     if (cursor.isErr()) return err(cursor.error);
 
-    const condsR = buildConditions(filter, 'p', 'publication_date', procedureKernelSpec, PROCEDURE_VIRTUAL_FIELDS, { canonical: false });
+    const condsR = buildConditions(
+      filter,
+      'p',
+      'publication_date',
+      procedureKernelSpec,
+      PROCEDURE_VIRTUAL_FIELDS,
+      { canonical: false }
+    );
     if (condsR.isErr()) return err(condsR.error);
     const conds = condsR.value;
     if (cursor.value !== undefined) {
@@ -244,7 +263,11 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
       if (needsCoreJoin(filter)) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'p.authority_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       }
       const rows = await base
         .select(procedureSelect)
@@ -253,13 +276,20 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .orderBy('p.procedure_id', 'desc')
         .limit(limit + 1)
         .execute();
-      return ok(toPage(rows, limit, fhash, 'publication_date', mapProcedure, (r) => [r.publication_date, r.procedure_id]));
+      return ok(
+        toPage(rows, limit, fhash, 'publication_date', mapProcedure, (r) => [
+          r.publication_date,
+          r.procedure_id,
+        ])
+      );
     } catch (error) {
       return err(databaseError('listProcedures failed', error));
     }
   };
 
-  const getProcedure = async (id: string): Promise<Result<ProcurementProcedure | null, ApiError>> => {
+  const getProcedure = async (
+    id: string
+  ): Promise<Result<ProcurementProcedure | null, ApiError>> => {
     if (!/^\d+$/u.test(id)) return err(invalidInput('id must be a bigint', 'id'));
     try {
       const row = await db
@@ -280,7 +310,9 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
    * null (procedure_lots has neither a winner nor an awarded value) and
    * `duplicates` structurally empty (procedures carry no dup_group_id).
    */
-  const getProcedureDetail = async (id: string): Promise<Result<ProcedureDetail | null, ApiError>> => {
+  const getProcedureDetail = async (
+    id: string
+  ): Promise<Result<ProcedureDetail | null, ApiError>> => {
     const procR = await getProcedure(id);
     if (procR.isErr()) return err(procR.error);
     if (procR.value === null) return ok(null);
@@ -315,14 +347,27 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const contractSelect = [
-    'c.contract_id', 'c.contract_key', 'c.source_system', 'c.source_url',
-    'c.procedure_id', 'c.notice_no', 'c.contract_no',
+    'c.contract_id',
+    'c.contract_key',
+    'c.source_system',
+    'c.source_url',
+    'c.procedure_id',
+    'c.notice_no',
+    'c.contract_no',
     sql<string | null>`c.contract_date::text`.as('contract_date'),
-    'c.title', 'c.authority_cui', 'c.authority_name', 'c.supplier_cui',
-    'c.supplier_name', 'c.cpv_code', 'c.currency',
+    'c.title',
+    'c.authority_cui',
+    'c.authority_name',
+    'c.supplier_cui',
+    'c.supplier_name',
+    'c.cpv_code',
+    'c.currency',
     sql<string | null>`c.value_ron::text`.as('value_ron'),
     sql<string | null>`c.estimated_value_ron::text`.as('estimated_value_ron'),
-    'c.status', 'c.county_name', 'c.is_canonical', 'c.dup_group_id',
+    'c.status',
+    'c.county_name',
+    'c.is_canonical',
+    'c.dup_group_id',
   ] as const;
 
   const listContracts = async (
@@ -330,13 +375,21 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ProcurementContract>, ApiError>> => {
     const conflict = assertNoYearDateConflict(filter, 'contractDate');
-    if (!conflict.ok) return err(invalidInput('cannot combine year and contractDate range', conflict.field));
+    if (!conflict.ok)
+      return err(invalidInput('cannot combine year and contractDate range', conflict.field));
     const limit = clamp(page.first, 1, LIST_LIMIT_MAX);
     const fhash = fhashFor(contractFilterSpec, filter);
     const cursor = decodeCursorKeys(page.after, fhash, 'contract_date');
     if (cursor.isErr()) return err(cursor.error);
 
-    const condsR = buildConditions(filter, 'c', 'contract_date', contractKernelSpec, CONTRACT_VIRTUAL_FIELDS, { canonical: true });
+    const condsR = buildConditions(
+      filter,
+      'c',
+      'contract_date',
+      contractKernelSpec,
+      CONTRACT_VIRTUAL_FIELDS,
+      { canonical: true }
+    );
     if (condsR.isErr()) return err(condsR.error);
     const conds = condsR.value;
     if (cursor.value !== undefined) {
@@ -348,7 +401,11 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
       if (needsCoreJoin(filter)) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'c.authority_cui')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code');
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'e.territorial_siruta_code'
+          );
       }
       const rows = await base
         .select(contractSelect)
@@ -357,7 +414,12 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .orderBy('c.contract_id', 'desc')
         .limit(limit + 1)
         .execute();
-      return ok(toPage(rows, limit, fhash, 'contract_date', mapContract, (r) => [r.contract_date, r.contract_id]));
+      return ok(
+        toPage(rows, limit, fhash, 'contract_date', mapContract, (r) => [
+          r.contract_date,
+          r.contract_id,
+        ])
+      );
     } catch (error) {
       return err(databaseError('listContracts failed', error));
     }
@@ -366,10 +428,13 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   const getContract = async (id: string): Promise<Result<ProcurementContract | null, ApiError>> => {
     if (!/^\d+$/u.test(id)) return err(invalidInput('id must be a bigint', 'id'));
     try {
+      // Canonical-only, like every other read: a suppressed duplicate fetched by
+      // its raw id would render as an authoritative record. Non-canonical ⇒ null.
       const row = await db
         .selectFrom('procurement.contracts as c')
         .select(contractSelect)
         .where('c.contract_id', '=', id)
+        .where('c.is_canonical', '=', true)
         .limit(1)
         .executeTakeFirst();
       return ok(row !== undefined ? mapContract(row) : null);
@@ -379,13 +444,21 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   };
 
   const modificationSelect = [
-    'm.modification_id', 'm.contract_id', 'm.source_url', 'm.link_method', 'm.link_confidence',
-    'm.authority_cui', 'm.supplier_cui', 'm.contract_no', 'm.notice_no',
+    'm.modification_id',
+    'm.contract_id',
+    'm.source_url',
+    'm.link_method',
+    'm.link_confidence',
+    'm.authority_cui',
+    'm.supplier_cui',
+    'm.contract_no',
+    'm.notice_no',
     sql<string | null>`m.modification_date::text`.as('modification_date'),
     sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
     sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
     sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
-    'm.modification_type', 'm.year',
+    'm.modification_type',
+    'm.year',
   ] as const;
 
   /** The trail is chronological (`modification_date asc`) — it reads as a history. */
@@ -414,14 +487,18 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
    * procedure (contracts carry no direct TED link), so it costs one more hop only
    * when the contract is linked to a procedure.
    */
-  const getContractDetail = async (id: string): Promise<Result<ContractDetail | null, ApiError>> => {
+  const getContractDetail = async (
+    id: string
+  ): Promise<Result<ContractDetail | null, ApiError>> => {
     const contractR = await getContract(id);
     if (contractR.isErr()) return err(contractR.error);
     if (contractR.value === null) return ok(null);
     const contract = contractR.value;
     const [modsR, procR, dupsR, tedR] = await Promise.all([
       getContractModifications(id),
-      contract.procedureId !== null ? getProcedure(contract.procedureId) : Promise.resolve(ok(null)),
+      contract.procedureId !== null
+        ? getProcedure(contract.procedureId)
+        : Promise.resolve(ok(null)),
       detail.duplicatesForContract({
         id: contract.contractId,
         dupGroupId: contract.dupGroupId,
@@ -467,14 +544,26 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   // ───────────────────────────────────────────────────────────────────────────
 
   const daSelect = [
-    'd.da_id', 'd.da_key', 'd.source_system', 'd.source_url', 'd.unique_code', 'd.title',
-    'd.authority_cui', 'd.authority_name', 'd.supplier_cui', 'd.supplier_name', 'd.cpv_code', 'd.currency',
+    'd.da_id',
+    'd.da_key',
+    'd.source_system',
+    'd.source_url',
+    'd.unique_code',
+    'd.title',
+    'd.authority_cui',
+    'd.authority_name',
+    'd.supplier_cui',
+    'd.supplier_name',
+    'd.cpv_code',
+    'd.currency',
     sql<string | null>`d.value_ron::text`.as('value_ron'),
     sql<string | null>`d.estimated_value_ron::text`.as('estimated_value_ron'),
-    'd.status', 'd.county_name',
+    'd.status',
+    'd.county_name',
     sql<string | null>`d.publication_date::text`.as('publication_date'),
     sql<string | null>`d.finalization_date::text`.as('finalization_date'),
-    'd.is_canonical', 'd.dup_group_id',
+    'd.is_canonical',
+    'd.dup_group_id',
   ] as const;
 
   const listDirectAcquisitions = async (
@@ -486,14 +575,22 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     if (selective.isErr()) return err(selective.error);
     // DA date filter binds to finalization_date (publication_date is null on elicitatie_da).
     const conflict = assertNoYearDateConflict(filter, 'finalizationDate');
-    if (!conflict.ok) return err(invalidInput('cannot combine year and finalizationDate range', conflict.field));
+    if (!conflict.ok)
+      return err(invalidInput('cannot combine year and finalizationDate range', conflict.field));
 
     const limit = clamp(page.first, 1, LIST_LIMIT_MAX);
     const fhash = fhashFor(daFilterSpec, filter);
     const cursor = decodeCursorKeys(page.after, fhash, 'finalization_date');
     if (cursor.isErr()) return err(cursor.error);
 
-    const condsR = buildConditions(filter, 'd', 'finalization_date', daKernelSpec, DA_VIRTUAL_FIELDS, { canonical: true });
+    const condsR = buildConditions(
+      filter,
+      'd',
+      'finalization_date',
+      daKernelSpec,
+      DA_VIRTUAL_FIELDS,
+      { canonical: true }
+    );
     if (condsR.isErr()) return err(condsR.error);
     const conds = condsR.value;
     if (cursor.value !== undefined) {
@@ -511,19 +608,28 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .orderBy('d.da_id', 'desc')
         .limit(limit + 1)
         .execute();
-      return ok(toPage(rows, limit, fhash, 'finalization_date', mapDirectAcquisition, (r) => [r.finalization_date, r.da_id]));
+      return ok(
+        toPage(rows, limit, fhash, 'finalization_date', mapDirectAcquisition, (r) => [
+          r.finalization_date,
+          r.da_id,
+        ])
+      );
     } catch (error) {
       return err(databaseError('listDirectAcquisitions failed', error));
     }
   };
 
-  const getDirectAcquisition = async (id: string): Promise<Result<ProcurementDirectAcquisition | null, ApiError>> => {
+  const getDirectAcquisition = async (
+    id: string
+  ): Promise<Result<ProcurementDirectAcquisition | null, ApiError>> => {
     if (!/^\d+$/u.test(id)) return err(invalidInput('id must be a bigint', 'id'));
     try {
+      // Canonical-only: see `getContract`.
       const row = await db
         .selectFrom('procurement.direct_acquisitions as d')
         .select(daSelect)
         .where('d.da_id', '=', id)
+        .where('d.is_canonical', '=', true)
         .limit(1)
         .executeTakeFirst();
       return ok(row !== undefined ? mapDirectAcquisition(row) : null);
@@ -546,7 +652,8 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     // Bind minDeltaPct into the cursor sort key so a cursor minted under one PC-8
     // threshold cannot be replayed against another (it isn't a spec field, so it
     // wouldn't otherwise affect the fhash) — Codex #7.
-    const sortKey = minDeltaPct !== undefined ? `modification_date|d${String(minDeltaPct)}` : 'modification_date';
+    const sortKey =
+      minDeltaPct !== undefined ? `modification_date|d${String(minDeltaPct)}` : 'modification_date';
     const cursor = decodeCursorKeys(page.after, fhash, sortKey);
     if (cursor.isErr()) return err(cursor.error);
 
@@ -570,7 +677,12 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .orderBy('m.modification_id', 'desc')
         .limit(limit + 1)
         .execute();
-      return ok(toPage(rows, limit, fhash, sortKey, mapModification, (r) => [r.modification_date, r.modification_id]));
+      return ok(
+        toPage(rows, limit, fhash, sortKey, mapModification, (r) => [
+          r.modification_date,
+          r.modification_id,
+        ])
+      );
     } catch (error) {
       return err(databaseError('listModifications failed', error));
     }
@@ -579,14 +691,16 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
   const listModifications = (
     filter: FilterInput,
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<ProcurementModification>, ApiError>> => listModificationsInternal(filter, page);
+  ): Promise<Result<CursorPage<ProcurementModification>, ApiError>> =>
+    listModificationsInternal(filter, page);
 
   const listModificationsAboveDelta = (
     pct: number,
     filter: FilterInput,
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ProcurementModification>, ApiError>> => {
-    if (!Number.isFinite(pct)) return Promise.resolve(err(invalidInput('pct must be a number', 'pct')));
+    if (!Number.isFinite(pct))
+      return Promise.resolve(err(invalidInput('pct must be a number', 'pct')));
     return listModificationsInternal(filter, page, pct);
   };
 
@@ -616,7 +730,8 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
           : sql`(p.cpv_code >= ${lo} and p.cpv_code < ${hi})`
       );
     }
-    if (scope.monthFrom !== undefined) conds.push(sql`p.publication_date >= ${`${scope.monthFrom}-01`}::date`);
+    if (scope.monthFrom !== undefined)
+      conds.push(sql`p.publication_date >= ${`${scope.monthFrom}-01`}::date`);
     if (scope.monthTo !== undefined) {
       conds.push(sql`p.publication_date < (${`${scope.monthTo}-01`}::date + interval '1 month')`);
     }
@@ -649,13 +764,18 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
         .select(['cd.division_code', 'cd.label_en', 'cd.label_ro'])
         .orderBy('cd.division_code', 'asc')
         .execute();
-      return ok(rows.map((r) => ({ code: r.division_code, labelEn: r.label_en, labelRo: r.label_ro })));
+      return ok(
+        rows.map((r) => ({ code: r.division_code, labelEn: r.label_en, labelRo: r.label_ro }))
+      );
     } catch (error) {
       return err(databaseError('listCpvDivisions failed', error));
     }
   };
 
-  const resolveCpv = async (q: string, limit: number): Promise<Result<readonly CpvMatch[], ApiError>> => {
+  const resolveCpv = async (
+    q: string,
+    limit: number
+  ): Promise<Result<readonly CpvMatch[], ApiError>> => {
     const lim = clamp(limit, 1, CPV_RESOLVE_MAX);
     const term = q.trim();
     if (term === '') return ok([]);
@@ -665,7 +785,9 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
       const divs = await db
         .selectFrom('procurement.cpv_divisions as cd')
         .select(['cd.division_code', 'cd.label_en', 'cd.label_ro'])
-        .where(sql<SqlBool>`cd.label_en ilike ${pattern} escape '\\' or cd.label_ro ilike ${pattern} escape '\\' or cd.division_code = ${term}`)
+        .where(
+          sql<SqlBool>`cd.label_en ilike ${pattern} escape '\\' or cd.label_ro ilike ${pattern} escape '\\' or cd.division_code = ${term}`
+        )
         .orderBy('cd.division_code', 'asc')
         .limit(lim)
         .execute();
@@ -680,7 +802,9 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
       const codes = await db
         .selectFrom('procurement.cpv_codes as cc')
         .select(['cc.cpv_code', 'cc.label_ro'])
-        .where(sql<SqlBool>`cc.label_ro ilike ${pattern} escape '\\' or cc.cpv_code like ${`${term.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`}`)
+        .where(
+          sql<SqlBool>`cc.label_ro ilike ${pattern} escape '\\' or cc.cpv_code like ${`${term.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`}`
+        )
         .orderBy('cc.cpv_code', 'asc')
         .limit(lim - divMatches.length)
         .execute();

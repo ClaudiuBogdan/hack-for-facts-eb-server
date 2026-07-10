@@ -17,7 +17,12 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, invalidInput, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  invalidInput,
+  type ApiError,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 
 import { mapContract, mapDirectAcquisition, mapModification, mapTedRef } from './mappers.js';
 import {
@@ -50,36 +55,68 @@ const isBigint = (id: string): boolean => /^\d+$/u.test(id);
 
 // Projections must match the mapper row types exactly.
 const contractSelect = [
-  'c.contract_id', 'c.contract_key', 'c.source_system', 'c.source_url', 'c.procedure_id',
-  'c.notice_no', 'c.contract_no',
+  'c.contract_id',
+  'c.contract_key',
+  'c.source_system',
+  'c.source_url',
+  'c.procedure_id',
+  'c.notice_no',
+  'c.contract_no',
   sql<string | null>`c.contract_date::text`.as('contract_date'),
-  'c.title', 'c.authority_cui', 'c.authority_name', 'c.supplier_cui',
-  'c.supplier_name', 'c.cpv_code', 'c.currency',
+  'c.title',
+  'c.authority_cui',
+  'c.authority_name',
+  'c.supplier_cui',
+  'c.supplier_name',
+  'c.cpv_code',
+  'c.currency',
   sql<string | null>`c.value_ron::text`.as('value_ron'),
   sql<string | null>`c.estimated_value_ron::text`.as('estimated_value_ron'),
-  'c.status', 'c.county_name', 'c.is_canonical', 'c.dup_group_id',
+  'c.status',
+  'c.county_name',
+  'c.is_canonical',
+  'c.dup_group_id',
 ] as const;
 
 const daSelect = [
-  'd.da_id', 'd.da_key', 'd.source_system', 'd.source_url', 'd.unique_code', 'd.title',
-  'd.authority_cui', 'd.authority_name', 'd.supplier_cui', 'd.supplier_name', 'd.cpv_code',
+  'd.da_id',
+  'd.da_key',
+  'd.source_system',
+  'd.source_url',
+  'd.unique_code',
+  'd.title',
+  'd.authority_cui',
+  'd.authority_name',
+  'd.supplier_cui',
+  'd.supplier_name',
+  'd.cpv_code',
   'd.currency',
   sql<string | null>`d.value_ron::text`.as('value_ron'),
   sql<string | null>`d.estimated_value_ron::text`.as('estimated_value_ron'),
-  'd.status', 'd.county_name',
+  'd.status',
+  'd.county_name',
   sql<string | null>`d.publication_date::text`.as('publication_date'),
   sql<string | null>`d.finalization_date::text`.as('finalization_date'),
-  'd.is_canonical', 'd.dup_group_id',
+  'd.is_canonical',
+  'd.dup_group_id',
 ] as const;
 
 const modificationSelect = [
-  'm.modification_id', 'm.contract_id', 'm.source_url', 'm.link_method', 'm.link_confidence',
-  'm.authority_cui', 'm.supplier_cui', 'm.contract_no', 'm.notice_no',
+  'm.modification_id',
+  'm.contract_id',
+  'm.source_url',
+  'm.link_method',
+  'm.link_confidence',
+  'm.authority_cui',
+  'm.supplier_cui',
+  'm.contract_no',
+  'm.notice_no',
   sql<string | null>`m.modification_date::text`.as('modification_date'),
   sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
   sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
   sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
-  'm.modification_type', 'm.year',
+  'm.modification_type',
+  'm.year',
 ] as const;
 
 /** The canonical row's identity, as far as the duplicate lookup needs it. */
@@ -91,7 +128,9 @@ export interface DuplicateAnchor {
 }
 
 export interface ProcurementDetailRepo {
-  duplicatesForContract(anchor: DuplicateAnchor): Promise<Result<readonly DuplicateRef[], ApiError>>;
+  duplicatesForContract(
+    anchor: DuplicateAnchor
+  ): Promise<Result<readonly DuplicateRef[], ApiError>>;
   duplicatesForDirectAcquisition(
     anchor: DuplicateAnchor
   ): Promise<Result<readonly DuplicateRef[], ApiError>>;
@@ -179,20 +218,34 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
     const ids = contractIds.filter(isBigint);
     if (ids.length === 0) return ok(new Map());
     try {
+      // The cap must be PER CONTRACT. A single global `limit CAP * ids.length`
+      // ordered by contract_id lets one modification-heavy contract consume the
+      // whole budget and starve every later contract in the batch, which comes
+      // back with an empty trail. A window rank caps each parent independently.
       const rows = await db
-        .selectFrom('procurement.contract_modifications as m')
-        .select(modificationSelect)
-        .where('m.contract_id', 'in', ids)
-        .orderBy('m.contract_id')
-        .orderBy(sql`m.modification_date asc nulls last`)
-        .orderBy('m.modification_id', 'asc')
-        .limit(MODIFICATIONS_PER_CONTRACT_CAP * ids.length)
+        .selectFrom(
+          db
+            .selectFrom('procurement.contract_modifications as m')
+            .select(modificationSelect)
+            .select(
+              sql<number>`row_number() over (
+                partition by m.contract_id
+                order by m.modification_date asc nulls last, m.modification_id asc
+              )`.as('rn')
+            )
+            .where('m.contract_id', 'in', ids)
+            .as('r')
+        )
+        .selectAll('r')
+        .where('r.rn', '<=', MODIFICATIONS_PER_CONTRACT_CAP)
+        .orderBy('r.contract_id')
+        .orderBy('r.rn')
         .execute();
       const byContract = new Map<string, ProcurementModification[]>();
       for (const row of rows) {
         if (row.contract_id === null) continue;
         const bucket = byContract.get(row.contract_id) ?? [];
-        if (bucket.length < MODIFICATIONS_PER_CONTRACT_CAP) bucket.push(mapModification(row));
+        bucket.push(mapModification(row));
         byContract.set(row.contract_id, bucket);
       }
       return ok(byContract);
@@ -207,10 +260,13 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
     const ids = contractIds.filter(isBigint);
     if (ids.length === 0) return ok(new Map());
     try {
+      // Canonical-only: a modification must never resolve its parent to a
+      // suppressed duplicate.
       const rows = await db
         .selectFrom('procurement.contracts as c')
         .select(contractSelect)
         .where('c.contract_id', 'in', ids)
+        .where('c.is_canonical', '=', true)
         .execute();
       return ok(new Map(rows.map((r) => [r.contract_id, mapContract(r)])));
     } catch (error) {
@@ -262,7 +318,7 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
     const limit = Math.min(Math.max(Math.floor(first), 1), SUPPLIER_RECORDS_FIRST_MAX);
     let cursor: RecordCursor | undefined;
     if (after !== undefined) {
-      const decoded = decodeRecordCursor(after);
+      const decoded = decodeRecordCursor(after, supplierCui);
       if (decoded.isErr()) return err(decoded.error);
       cursor = decoded.value;
     }
@@ -285,9 +341,7 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
         contractQuery = contractQuery.where(
           keysetPredicate('c', 'contract_date', 'contract_id', contractRank, cursor)
         );
-        daQuery = daQuery.where(
-          keysetPredicate('d', 'finalization_date', 'da_id', daRank, cursor)
-        );
+        daQuery = daQuery.where(keysetPredicate('d', 'finalization_date', 'da_id', daRank, cursor));
       }
 
       // `first + 1` per table so the merge can tell "more rows exist" without a count.
@@ -314,7 +368,10 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
       }));
 
       const { page, hasNextPage } = mergeSupplierRecords(contracts, das, limit);
-      const edges = page.map((node) => ({ cursor: encodeRecordCursor(cursorOf(node)), node }));
+      const edges = page.map((node) => ({
+        cursor: encodeRecordCursor(cursorOf(node, supplierCui)),
+        node,
+      }));
       return ok({
         // An exact count across a 3.3M and a 26M-row table is not affordable here.
         total: null,

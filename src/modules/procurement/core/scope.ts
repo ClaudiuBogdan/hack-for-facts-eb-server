@@ -23,7 +23,7 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError  } from '@/modules/shared/index.js';
+import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
 import { PROCUREMENT_GRAINS } from './constants.js';
 
@@ -37,7 +37,9 @@ export const routeScope = (scope: ScopeFilter, needsCpvDimension: boolean): Scop
   needsCpvDimension || scope.cpvDivision !== undefined ? 'supplier_cpv' : 'org_edge';
 
 /** Parse the `grain` argument. `null`/absent = both grains. */
-export const resolveGrains = (grain: string | null | undefined): Result<readonly ProcurementGrain[], ApiError> => {
+export const resolveGrains = (
+  grain: string | null | undefined
+): Result<readonly ProcurementGrain[], ApiError> => {
   if (grain === undefined || grain === null || grain === '') return ok(PROCUREMENT_GRAINS);
   if ((PROCUREMENT_GRAINS as readonly string[]).includes(grain)) {
     return ok([grain as ProcurementGrain]);
@@ -91,13 +93,19 @@ export const monthStart = (month: string): string => `${month}-01`;
 /**
  * A stable, order-independent cache key. Entity-scoped requests are NOT cached
  * (unbounded key space + they are already index-fast), so `cacheable` gates it.
+ *
+ * `spendGrains` is part of the key because it decides whether money is summed or
+ * nulled. Keying only on `gateRefreshedAt` is not enough: the watermark read can
+ * fail, and two different gate decisions would then collapse onto the same key
+ * and serve a spend-allowed sum while the live gate forbids it.
  */
 export const scopeCacheKey = (
   query: string,
   scope: ScopeFilter,
   grains: readonly ProcurementGrain[],
   topN: number,
-  gateRefreshedAt: string | null
+  gateRefreshedAt: string,
+  spendGrains: readonly ProcurementGrain[]
 ): string =>
   JSON.stringify([
     query,
@@ -107,6 +115,7 @@ export const scopeCacheKey = (
     [...grains].sort(),
     topN,
     gateRefreshedAt,
+    [...spendGrains].sort(),
   ]);
 
 /**
