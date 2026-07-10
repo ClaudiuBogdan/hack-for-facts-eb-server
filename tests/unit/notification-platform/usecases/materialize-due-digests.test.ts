@@ -39,6 +39,6 @@ describe('materializeDueDigests', () => {
           now: h.clock.now(),
         })
       )
-    ).toBe('rejected');
+    ).toBe('batch_closed');
   });
 });

@@ -26,5 +26,8 @@ describe('recoverPlatformWork', () => {
     expect(h.runtime.pending().map((job) => job.name)).toEqual(
       expect.arrayContaining(['np-event-fanout', 'np-delivery-render', 'np-delivery-send'])
     );
+    expect(h.runtime.pending().find((job) => job.name === 'np-delivery-send')?.opts.dedupeId).toBe(
+      'np-send-send-1-1'
+    );
   });
 });

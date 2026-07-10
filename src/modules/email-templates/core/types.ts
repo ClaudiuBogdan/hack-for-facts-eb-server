@@ -468,6 +468,19 @@ export interface AnafForexebugDigestProps extends BaseTemplateProps {
   sections: AnafForexebugDigestSection[];
 }
 
+export interface NotificationPlatformDigestItem {
+  title: string;
+  summary: string;
+  actionUrl: string | null;
+}
+
+export interface NotificationPlatformDigestProps extends BaseTemplateProps {
+  templateType: 'notification-platform-digest';
+  items: NotificationPlatformDigestItem[];
+  overflowCount: number;
+  inboxUrl: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Union Types
 // ─────────────────────────────────────────────────────────────────────────────

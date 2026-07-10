@@ -445,7 +445,10 @@ export const dispatchDelivery = async (
   }
   const enqueued = await deps.sendScheduler.enqueue(
     { deliveryId: delivery.id },
-    { delayMs: Math.max(0, next.nextAttemptAt.getTime() - completedAt.getTime()) }
+    {
+      delayMs: Math.max(0, next.nextAttemptAt.getTime() - completedAt.getTime()),
+      dedupeToken: String(delivery.attemptCount + 1),
+    }
   );
   if (enqueued.isErr()) {
     return err(enqueued.error);

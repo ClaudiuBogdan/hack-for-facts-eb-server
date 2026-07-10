@@ -88,7 +88,7 @@ export class KyselyDigestBatchRepo implements DigestBatchRepo {
           return err(createNotFoundError('digest batch', input.batchId));
         }
         if (batch.status !== 'open') {
-          return ok<'added' | 'duplicate' | 'rejected'>('rejected');
+          return ok<'added' | 'duplicate' | 'batch_closed'>('batch_closed');
         }
         const inserted = await transaction
           .insertInto('notification_digest_members')
@@ -102,7 +102,7 @@ export class KyselyDigestBatchRepo implements DigestBatchRepo {
           )
           .returning('batch_id')
           .executeTakeFirst();
-        return ok<'added' | 'duplicate' | 'rejected'>(
+        return ok<'added' | 'duplicate' | 'batch_closed'>(
           inserted === undefined ? 'duplicate' : 'added'
         );
       });

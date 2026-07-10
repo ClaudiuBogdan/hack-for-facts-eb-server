@@ -141,6 +141,15 @@ export const redactEmailAddress = (email: string): string => {
   return `${localPart.slice(0, visibleLength)}***${domain}`;
 };
 
+const EMAIL_ADDRESS_PATTERN =
+  /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+/giu;
+const MAX_LOGGED_EMAIL_ERROR_MESSAGE_LENGTH = 300;
+
+export const redactEmailAddressesInMessage = (message: string): string =>
+  message
+    .replace(EMAIL_ADDRESS_PATTERN, (address) => redactEmailAddress(address))
+    .slice(0, MAX_LOGGED_EMAIL_ERROR_MESSAGE_LENGTH);
+
 /**
  * Creates a Resend email client.
  *
@@ -204,11 +213,17 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
         );
 
         if (result.error !== null) {
+          const classified = mapResendError(result.error);
           log.warn(
-            { error: result.error, to: redactedTo, idempotencyKey },
+            {
+              errorCode: classified.type,
+              errorMessage: redactEmailAddressesInMessage(classified.message),
+              to: redactedTo,
+              idempotencyKey,
+            },
             'Resend API returned error'
           );
-          return err(mapResendError(result.error));
+          return err(classified);
         }
 
         // At this point TypeScript knows result.data is non-null
@@ -221,8 +236,17 @@ export const makeEmailClient = (config: EmailClientConfig): EmailSender => {
           emailId: result.data.id,
         });
       } catch (error) {
-        log.error({ error, to: redactedTo, idempotencyKey }, 'Failed to send email');
-        return err(mapCaughtError(error));
+        const classified = mapCaughtError(error);
+        log.error(
+          {
+            errorCode: classified.type,
+            errorMessage: redactEmailAddressesInMessage(classified.message),
+            to: redactedTo,
+            idempotencyKey,
+          },
+          'Failed to send email'
+        );
+        return err(classified);
       }
     },
   };

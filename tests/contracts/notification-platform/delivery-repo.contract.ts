@@ -292,7 +292,7 @@ export const deliveryRepoContractCases: PortContractCases<DeliveryRepo> = ({ get
     ).toBeNull();
   });
 
-  it('gates a stream successor until its predecessor is terminal', async () => {
+  it('gates a stream successor while its predecessor is sending and releases it on accepted', async () => {
     const repo = getPort();
     const predecessorId = uuid(3);
     const successorId = uuid(4);
@@ -330,17 +330,6 @@ export const deliveryRepoContractCases: PortContractCases<DeliveryRepo> = ({ get
         })
       )
     ).toBe(true);
-    expect(
-      expectOk(
-        await repo.transition({
-          deliveryId: predecessorId,
-          from: ['accepted'],
-          to: 'delivered',
-          now: NOW,
-        })
-      )
-    ).toBe(true);
-
     expect(
       expectOk(
         await repo.claimForSending({

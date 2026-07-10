@@ -53,7 +53,7 @@ export const assignToDigest = async (
     if (membership.isErr()) {
       return err(membership.error);
     }
-    if (membership.value !== 'rejected') {
+    if (membership.value !== 'batch_closed') {
       return ok({ batchId: batch.value.id, membership: membership.value });
     }
   }

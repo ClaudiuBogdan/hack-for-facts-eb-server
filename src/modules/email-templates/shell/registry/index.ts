@@ -9,6 +9,7 @@ import { registration as alertSeriesRegistration } from './registrations/alert-s
 import { registration as anafForexebugDigestRegistration } from './registrations/anaf-forexebug-digest.js';
 import { registration as bucharestBudgetAnalysisRegistration } from './registrations/bucharest-budget-analysis.js';
 import { registration as newsletterEntityRegistration } from './registrations/newsletter-entity.js';
+import { registration as notificationPlatformDigestRegistration } from './registrations/notification-platform-digest.js';
 import { registration as publicDebateAdminFailureRegistration } from './registrations/public-debate-admin-failure.js';
 import { registration as publicDebateAdminResponseRequesterRegistration } from './registrations/public-debate-admin-response-requester.js';
 import { registration as publicDebateAdminResponseSubscriberRegistration } from './registrations/public-debate-admin-response-subscriber.js';
@@ -112,6 +113,10 @@ const BUILTIN_REGISTRATIONS: readonly RegistrationEntry[] = [
   {
     label: 'newsletter-entity',
     registration: newsletterEntityRegistration,
+  },
+  {
+    label: 'notification-platform-digest',
+    registration: notificationPlatformDigestRegistration,
   },
   {
     label: 'public-debate-admin-failure',

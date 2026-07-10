@@ -171,6 +171,6 @@ export const digestBatchRepoContractCases: PortContractCases<DigestBatchRepo> = 
           now: NOW,
         })
       )
-    ).toBe('rejected');
+    ).toBe('batch_closed');
   });
 };

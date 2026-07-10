@@ -150,6 +150,22 @@ export class KyselyDeliveryRepo implements DeliveryRepo {
     }
   }
 
+  public async saveProviderRefIfMissing(
+    input: Parameters<DeliveryRepo['saveProviderRefIfMissing']>[0]
+  ) {
+    try {
+      const result = await this.db
+        .updateTable('notification_deliveries')
+        .set({ provider_ref: input.providerRef, updated_at: input.now })
+        .where('id', '=', input.deliveryId)
+        .where('provider_ref', 'is', null)
+        .executeTakeFirst();
+      return ok(result.numUpdatedRows > 0n);
+    } catch (error) {
+      return err(toDatabaseError('Save notification delivery provider reference', error));
+    }
+  }
+
   public async claimForRender(input: Parameters<DeliveryRepo['claimForRender']>[0]) {
     try {
       const result = await sql<Record<string, unknown>>`
@@ -194,7 +210,7 @@ export class KyselyDeliveryRepo implements DeliveryRepo {
               AND p.stream_key = d.stream_key
               AND p.stream_sequence < d.stream_sequence
               AND p.status NOT IN (
-                'delivered','bounced','complained','suppressed','cancelled',
+                'accepted','delivered','bounced','complained','suppressed','cancelled',
                 'expired','permanent_failed','dead_letter','unknown'
               )
           ))

@@ -74,6 +74,20 @@ export const QUEUE_NAMES = {
   ADMIN_EVENTS: 'admin-events-review',
   /** Recovers correspondence threads stuck before platform-send completion */
   CORRESPONDENCE_RECOVERY: 'correspondence-recovery',
+  /** Scans notification-platform event sources */
+  NP_INGESTION: 'np-ingestion-scan',
+  /** Fans notification-platform events out to recipients */
+  NP_FANOUT: 'np-event-fanout',
+  /** Renders notification-platform deliveries */
+  NP_RENDER: 'np-delivery-render',
+  /** Sends notification-platform deliveries */
+  NP_SEND: 'np-delivery-send',
+  /** Materializes due notification-platform digest batches */
+  NP_DIGEST: 'np-digest-materialize',
+  /** Recovers notification-platform work */
+  NP_RECOVERY: 'np-platform-recovery',
+  /** Applies notification-platform retention policy */
+  NP_RETENTION: 'np-retention',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

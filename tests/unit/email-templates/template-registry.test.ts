@@ -40,7 +40,7 @@ describe('Template Registry', () => {
 
   it('discovers all registration files', () => {
     const all = registry.getAll();
-    expect(all).toHaveLength(15);
+    expect(all).toHaveLength(16);
     const ids = all.map((r) => r.id);
     expect(ids).toEqual([
       'admin_reviewed_user_interaction',
@@ -48,6 +48,7 @@ describe('Template Registry', () => {
       'anaf_forexebug_digest',
       'bucharest_budget_analysis_2026_04_23',
       'newsletter_entity',
+      'notification-platform-digest',
       'public_debate_admin_failure',
       'public_debate_admin_response_requester',
       'public_debate_admin_response_subscriber',
@@ -77,6 +78,7 @@ describe('Template Registry', () => {
     expect(registry.has('welcome')).toBe(true);
     expect(registry.has('alert_series')).toBe(true);
     expect(registry.has('newsletter_entity')).toBe(true);
+    expect(registry.has('notification-platform-digest')).toBe(true);
     expect(registry.has('anaf_forexebug_digest')).toBe(true);
     expect(registry.has('bucharest_budget_analysis_2026_04_23')).toBe(true);
     expect(registry.has('admin_reviewed_user_interaction')).toBe(true);
