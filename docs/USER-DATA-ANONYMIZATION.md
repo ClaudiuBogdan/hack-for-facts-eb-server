@@ -94,6 +94,20 @@ persist both fields, because `clerk_user_id` makes them anonymizable on
 Consequently every `contact_email` and `note` in this table belongs to a row
 that the anonymizer can find.
 
+The same invariant is enforced against deployment topology. The Clerk webhook —
+and therefore the anonymization handler — only registers when
+`CLERK_WEBHOOK_SIGNING_SECRET` is configured, while the dataset-request route
+mounts as soon as a user database exists. `makeInsRoutes` therefore takes a
+`userDeletionHandlerConfigured` flag: when the webhook is absent the route
+refuses to attach a Clerk user id at all, so a deploy without deletion wiring
+records only the aggregate signal and never personal data. Startup logs a
+warning in that state.
+
+> **Systemic note.** The notifications and share routes mount under the same
+> `userDb` guard and store `user_id` / email data without checking that the
+> Clerk webhook is registered. They have the same exposure and are not covered
+> by this flag.
+
 ## Idempotency
 
 The anonymizer is safe to run more than once for the same Clerk user because:

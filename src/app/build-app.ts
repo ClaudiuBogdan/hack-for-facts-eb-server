@@ -1257,9 +1257,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
 
     // INS dataset requests write to the user database; the INS domain tables are read-only.
+    // The Clerk webhook that drives user.deleted anonymization only registers when its
+    // signing secret is configured, so tell the route whether deletion is actually wired.
     await app.register(
       makeInsRoutes({
         datasetRequestRepo: makeInsDatasetRequestRepo(userDb),
+        userDeletionHandlerConfigured: config.auth.clerkWebhookSigningSecret !== undefined,
       })
     );
 
