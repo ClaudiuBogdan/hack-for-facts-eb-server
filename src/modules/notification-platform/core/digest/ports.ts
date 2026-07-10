@@ -5,6 +5,7 @@ import type { ExternalChannel } from '../shared/types.js';
 import type { Result } from 'neverthrow';
 
 export interface DigestBatchRepo {
+  findById(id: string): Promise<Result<DigestBatch | null, DigestError>>;
   findOrCreateOpen(input: {
     id: string;
     userId: string;
@@ -17,7 +18,7 @@ export interface DigestBatchRepo {
     batchId: string;
     logicalNotificationId: string;
     now: Date;
-  }): Promise<Result<'added' | 'duplicate', DigestError>>;
+  }): Promise<Result<'added' | 'duplicate' | 'rejected', DigestError>>;
   claimDue(input: {
     now: Date;
     limit: number;

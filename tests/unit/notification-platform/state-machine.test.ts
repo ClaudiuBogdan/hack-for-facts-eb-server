@@ -29,7 +29,7 @@ const EXPECTED_TRANSITIONS: Readonly<Record<DeliveryState, readonly DeliveryStat
   suppressed: [],
   cancelled: [],
   expired: [],
-  permanent_failed: [],
+  permanent_failed: ['ready'],
   dead_letter: ['ready'],
   unknown: ['ready'],
 };
@@ -56,6 +56,7 @@ describe('canTransition', () => {
     ['accepted', 'bounced'],
     ['accepted', 'complained'],
     ['dead_letter', 'ready'],
+    ['permanent_failed', 'ready'],
     ['unknown', 'ready'],
   ] as const)('allows the happy path %s -> %s', (from, to) => {
     expect(canTransition(from, to)).toBe(true);
@@ -67,7 +68,10 @@ describe('canTransition', () => {
 
   it('allows no terminal-state exits except audited requeue states', () => {
     for (const from of TERMINAL_DELIVERY_STATES) {
-      const expectedTargets = from === 'dead_letter' || from === 'unknown' ? ['ready'] : [];
+      const expectedTargets =
+        from === 'dead_letter' || from === 'unknown' || from === 'permanent_failed'
+          ? ['ready']
+          : [];
       for (const to of DELIVERY_STATES) {
         expect(canTransition(from, to), `${from} -> ${to}`).toBe(expectedTargets.includes(to));
       }

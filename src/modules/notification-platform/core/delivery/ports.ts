@@ -11,6 +11,8 @@ import type {
   ResolvedDestination,
 } from './types.js';
 import type { DeadLetterSearchFilter } from '../admin/types.js';
+import type { DigestBatch } from '../digest/types.js';
+import type { LogicalNotification } from '../inbox/types.js';
 import type { ContentProjection, KindDefinition } from '../registry/kind-definition.js';
 import type { QueueError } from '../shared/errors.js';
 import type { ExternalChannel, Page } from '../shared/types.js';
@@ -56,7 +58,7 @@ export interface DeliveryRepo {
   cancelPendingForUser(input: {
     userId: string;
     channels?: readonly ExternalChannel[];
-    onlyOptionalKinds: boolean;
+    kindIds?: readonly string[];
     reason: string;
     now: Date;
   }): Promise<Result<number, PlatformDeliveryError>>;
@@ -142,6 +144,17 @@ export interface ChannelAdapterPort {
       PlatformDeliveryError
     >
   >;
+  renderDigest(input: {
+    delivery: Delivery;
+    batch: DigestBatch;
+    items: LogicalNotification[];
+    overflowCount: number;
+  }): Promise<
+    Result<
+      { subject: string; html: string; text: string; contentHash: string },
+      PlatformDeliveryError
+    >
+  >;
   send(input: {
     delivery: Delivery;
     attempt: DeliveryAttempt;
@@ -164,6 +177,10 @@ export interface ChannelAdapterPort {
   }): Promise<
     Result<{ known: boolean; state?: 'accepted' | 'delivered' | 'bounced' }, PlatformDeliveryError>
   >;
+}
+
+export interface AnonymizationCheckPort {
+  isUserAnonymized(userId: string): Promise<Result<boolean, PlatformDeliveryError>>;
 }
 
 export interface SendJobScheduler {

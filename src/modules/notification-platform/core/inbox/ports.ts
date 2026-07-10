@@ -11,6 +11,7 @@ export interface LogicalNotificationRepo {
     id: string,
     userId: string
   ): Promise<Result<LogicalNotification | null, InboxError>>;
+  findByIds(ids: string[]): Promise<Result<LogicalNotification[], InboxError>>;
   listForUser(input: {
     userId: string;
     view: InboxView;
