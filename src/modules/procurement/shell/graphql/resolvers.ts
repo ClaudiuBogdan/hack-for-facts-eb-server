@@ -361,6 +361,7 @@ export const makeProcurementResolvers = (deps: ProcurementResolverDeps): Record<
 
     ProcurementFlowRecord: {
       // The union members are the plain node objects; the surrogate PK discriminates.
+      /* eslint-disable-next-line @typescript-eslint/naming-convention -- __resolveType is the GraphQL union discriminator hook */
       __resolveType: (node: Record<string, unknown>) =>
         'contractId' in node ? 'ProcurementContract' : 'ProcurementDirectAcquisition',
     },

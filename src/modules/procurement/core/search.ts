@@ -14,7 +14,10 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { invalidInput, type ApiError } from '@/modules/shared/index.js';
+
 import {
+  DEFAULT_SEARCH_SORT,
   DA_OFFSET_SELECTIVE_FIELDS,
   PAGE_SIZE_DEFAULT,
   PAGE_SIZE_MAX,
@@ -23,13 +26,11 @@ import {
   SEARCH_COUNT_CAP,
   SEARCH_SORTS,
   SEARCH_WINDOW_MAX,
-  DEFAULT_SEARCH_SORT,
   type SearchSort,
 } from './constants.js';
 
+
 import type { OffsetSearchRequest, OffsetSearchResult } from './types.js';
-import type { ApiError } from '@/modules/shared/index.js';
-import { invalidInput } from '@/modules/shared/index.js';
 
 // ── the validated filter (one shape; per-grain fields are optional) ────────────
 
@@ -135,7 +136,7 @@ export const parseOffsetRequest = (
   if (sort !== undefined && !isSearchSort(sort)) {
     return err(invalidInput(`sort must be one of ${SEARCH_SORTS.join(', ')}`, 'sort'));
   }
-  return ok({ page: p, pageSize: size, sort: (sort as SearchSort | undefined) ?? DEFAULT_SEARCH_SORT });
+  return ok({ page: p, pageSize: size, sort: sort ?? DEFAULT_SEARCH_SORT });
 };
 
 export const offsetOf = (req: OffsetSearchRequest): number => (req.page - 1) * req.pageSize;

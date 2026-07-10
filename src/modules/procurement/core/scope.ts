@@ -23,11 +23,11 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { invalidInput, type ApiError  } from '@/modules/shared/index.js';
+
 import { PROCUREMENT_GRAINS } from './constants.js';
 
 import type { GrainQuality, ProcurementGrain, ScopeFilter } from './types.js';
-import type { ApiError } from '@/modules/shared/index.js';
-import { invalidInput } from '@/modules/shared/index.js';
 
 /** Which materialized view answers a scope. */
 export type ScopeSource = 'org_edge' | 'supplier_cpv';

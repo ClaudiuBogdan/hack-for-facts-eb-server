@@ -40,4 +40,52 @@ bare amounts) on ~2.6k rows. **Invariant verified: `value_ron IS NOT NULL` ⟹ c
 - `valueSuspect` = `value_ron IS NULL AND currency present AND currency NOT IN ('','RON')`
   (a non-RON native value the loader could not convert; `value_ron` is correctly nulled).
 
-`currency` is NEVER exposed raw — only the two derived booleans + `valueRon`.
+**Currency exposure rule** (the client contract needs a token beside `valueRon`):
+
+```
+currency = isRon ? 'RON' : (/^[A-Za-z]{3}$/.test(trimmed) ? trimmed.toUpperCase() : null)
+```
+
+The RAW column never reaches the wire. A non-ISO-like token (the garbage tail)
+degrades to `null`, which the paired `valueSuspect: true` already explains. Only
+`isRon` / `valueSuspect` / the sanitized token are surfaced.
+
+## The client contract (`docs/design/procurement/graphql-api-spec.md`)
+
+The offset-search + scope-aggregate + detail-bundle surface the rebuilt UI reads.
+It coexists with the cursor surface the MCP tools page through; neither shares
+filter specs with the other (adding a field to a `CollectionFilterSpec` would
+change `fhashFor` and invalidate live MCP cursors).
+
+| Contract surface | Live route | v1 constraint |
+|---|---|---|
+| `procurementProcedures/Contracts/DirectAcquisitions/Modifications` | `shell/repo/offset-search-repo.ts` over the 4 base tables | `page * pageSize ≤ 10 000`; `total` is a CAPPED exact count (≤10 000 exact, else null + `totalEstimated`); a count timeout degrades `total`, never the page. |
+| DA search selectivity | `core/search.ts:assertDaOffsetSelective` | Requires `authorityCui`, `supplierCui`, or a fully-bounded ≤366-day date range. Measured live: `cpvDivision` alone = **16.6 s** (over the 15 s statement timeout, 2.8M rows to sort); `unique_code` has **no index** (8.0 s seq scan). CPV and `q` refine but never qualify. |
+| DA `publicationDate` facet | `direct_acquisitions.finalization_date` | `publication_date` is 100% NULL on the `elicitatie_da` half; `finalization_date` is the indexed, populated column. |
+| `procurementStats/TopAuthorities/TopSuppliers/CategoryBreakdown/SpendOverTime` | `shell/repo/scope-agg-repo.ts`; routing in `core/scope.ts:routeScope` | A CPV-dimension answer, or any scope naming a `cpvDivision`, reads `supplier_cpv_division_monthly_rollups` (the only CPV MV carrying BOTH cuis); everything else reads `org_edge_monthly_rollups`. The two MVs partition the same facts differently, so they are never mixed inside one answer. |
+| `scope.cpvCode` | — | **InvalidInput in v1**: every rollup is keyed on the 2-digit `cpv_division_code`. The 8-digit code still works as a search filter. |
+| `procurementStats.proceduresCount` | `procurement.procedures` (a base table, not a rollup) | Procedures have no `supplier_cui`, so a supplier scope counts the DISTINCT procedures under which that supplier won a canonical contract. Grain-independent: a procedure is a tender notice, not a flow. |
+| `procurementProcedure/Contract/DirectAcquisition` detail | `shell/repo/detail-repo.ts` | `perLotWinners: null` (procedure_lots has no winner identity, no awarded value). Procedure `duplicates: []` + `isCanonical: true` + `dupGroupId: null` (the table has no dedup columns). Duplicate siblings are driven from the canonical row's indexed `authority_cui` → `supplier_cui`; both null ⇒ `[]`. |
+| `ted` | `procedure_ted_links.procedure_id` → `ted_notices` | Both link columns are 100% populated (57 965/57 965), so `procedure_details` is not needed and is not declared. Coverage is 57 965 / 622 936 procedures = **9.3%** → an unlinked procedure honestly serves `ted: null`. |
+| `procurementSupplierRecords` | two per-table keyset queries merged in TS | Cursor encodes `(date, grain, id)`; the grain tag is REQUIRED because `contract_id` and `da_id` are unique only within their own table. `total` is always null. |
+| `procurementGrainQuality` → `ProcurementCapabilityGate` | `procurement.aggregate_quality_by_grain` | Rates stringified; `dataAsOf` = the matview `refreshed_at` (`etl.lane_watermarks` has no procurement row); **`cadence` is ALWAYS null** — nothing declares a refresh schedule and the MVs drift (refreshed_at 2026-06-29, read 2026-07-09). |
+
+### Money across grains, in the scope aggregates
+
+Counts may merge across grains; **money may not** (§14.6). `totalValueRon` /
+`amountRonSum` sum ONLY the in-scope grains whose live `spend_rankings_allowed` is
+true — currently `direct_acquisition` only. A suppressed grain contributes *nothing*
+(not zero), and when no in-scope grain qualifies the amount is `null`. Rankings fall
+back to the `flow_count` basis whenever any in-scope grain is suppressed, because a
+null amount would otherwise sink that grain's rows regardless of their size.
+`amountPresentCount` / `amountMissingCount` are COUNTS and span every in-scope grain:
+"1.6M contract flows carry an amount we may not total" is the honest statement.
+
+### Caching (`shell/scope-cache.ts`)
+
+Empty-scope aggregates cost 1.6–3.6 s each live, and the client fires all five in one
+multi-root document. A 15-minute in-process TTL cache covers scopes with **no**
+`authorityCui`/`supplierCui` — a bounded key space (empty + 45 divisions) × grain-set
+× month-window × topN. The gate's `refreshed_at` is part of every key, so a matview
+refresh invalidates implicitly. Entity scopes are index-fast and stay live. The
+empty-scope entries are warmed at module init, fire-and-forget.

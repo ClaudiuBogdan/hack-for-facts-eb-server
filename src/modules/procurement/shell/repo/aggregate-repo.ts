@@ -86,6 +86,17 @@ const monthGrainPredicate = (
   return conds;
 };
 
+/**
+ * Carries an `ApiError` out of the cache loader as a real `Error`. The cache stores
+ * only what a loader RESOLVES, so rejecting is how a failed load stays un-memoized.
+ */
+class UncacheableError extends Error {
+  constructor(readonly apiError: ApiError) {
+    super(apiError.message);
+    this.name = 'UncacheableError';
+  }
+}
+
 export const makeProcurementAggregateRepo = (
   db: Db,
   cache: ScopeCache = makeScopeCache()
@@ -682,8 +693,8 @@ export const makeProcurementAggregateRepo = (
 
   /**
    * Cache ONLY non-entity scopes. `load` returns a `Result`; an `err` must never be
-   * memoized, so it is unwrapped into a rejection inside the cache and re-wrapped
-   * on the way out.
+   * memoized, so it is carried out through a rejection (the cache only stores what a
+   * loader RESOLVES) and unwrapped back into an `err` on the way out.
    */
   const cached = async <T>(
     query: string,
@@ -697,12 +708,13 @@ export const makeProcurementAggregateRepo = (
     try {
       const value = await cache.through(key, async () => {
         const result = await load();
-        if (result.isErr()) throw result.error;
+        if (result.isErr()) throw new UncacheableError(result.error);
         return result.value;
       });
       return ok(value);
     } catch (error) {
-      return err(error as ApiError);
+      if (error instanceof UncacheableError) return err(error.apiError);
+      return err(databaseError(`${query} failed`, error));
     }
   };
 
