@@ -135,14 +135,16 @@ export const getCaseDetail = async (
 
   let personPartyCount = 0;
   const partyViews: JudicialPartyView[] = parties.map((p) => {
-    // Only publishable rows may resolve a name; everything else is name:null.
+    // Only rows that pass BOTH publication gates may expose an identity key or
+    // name. A stable key on a person/unknown/declined row would permit cross-case
+    // correlation even when its display name is withheld.
     const pub = p.publishable && p.nameKeyId !== null ? names.get(p.nameKeyId) : undefined;
     if (p.partyKind === 'person' || p.partyKind === 'unknown') personPartyCount += 1;
     return {
       partyIndex: p.partyIndex,
       partyKind: p.partyKind,
       roleNormalized: p.roleNormalized,
-      nameKeyId: p.nameKeyId,
+      nameKeyId: pub?.nameKeyId ?? null,
       name: pub?.displayName ?? null,
       legalForm: pub?.legalForm ?? null,
     };
@@ -214,7 +216,8 @@ export const listCasesCitingAct = (
 export const getCaseLineage = (
   repos: Pick<JudicialRepos, 'lineage'>,
   caseId: string
-): Promise<Result<readonly JudicialLineageEdge[], ApiError>> => repos.lineage.lineageForCase(caseId);
+): Promise<Result<readonly JudicialLineageEdge[], ApiError>> =>
+  repos.lineage.lineageForCase(caseId);
 
 // ── resolve / discovery (§7.4) ─────────────────────────────────────────────────
 
@@ -240,7 +243,13 @@ export const resolveJudicialFilters = async (
     case 'courtLevel': {
       // Static enum match — case-insensitive contains over the level codes.
       const needle = q.trim().toLowerCase();
-      const levels = ['judecatorie', 'tribunal', 'tribunal_militar', 'curte_de_apel', 'curte_militara_apel'];
+      const levels = [
+        'judecatorie',
+        'tribunal',
+        'tribunal_militar',
+        'curte_de_apel',
+        'curte_militara_apel',
+      ];
       const hits = levels
         .filter((l) => needle === '' || l.includes(needle))
         .slice(0, limit)

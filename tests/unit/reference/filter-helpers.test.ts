@@ -17,6 +17,8 @@ import {
   virtualValues,
 } from '@/modules/reference/shell/repo/filter-helpers.js';
 
+import type { FilterInput } from '@/modules/shared/index.js';
+
 const VIRTUAL = ['countyCode', 'region', 'parentCui', 'hasIssues'];
 
 describe('omitVirtualFields — strips virtual fields from top-level AND exclude', () => {
@@ -30,14 +32,20 @@ describe('omitVirtualFields — strips virtual fields from top-level AND exclude
 
   it('removes virtual fields from the exclude branch (compiled separately by the kernel)', () => {
     const out = omitVirtualFields(
-      { entityType: { eq: 'uat' }, exclude: { region: { in: ['Vest'] }, entityType: { eq: 'health' } } },
+      {
+        entityType: { eq: 'uat' },
+        exclude: { region: { in: ['Vest'] }, entityType: { eq: 'health' } },
+      },
       VIRTUAL
     );
     expect(out).toEqual({ entityType: { eq: 'uat' }, exclude: { entityType: { eq: 'health' } } });
   });
 
   it('drops the exclude key entirely when it held only virtual fields', () => {
-    const out = omitVirtualFields({ name: { prefix: 'a' }, exclude: { countyCode: { eq: 'CJ' } } }, VIRTUAL);
+    const out = omitVirtualFields(
+      { name: { prefix: 'a' }, exclude: { countyCode: { eq: 'CJ' } } },
+      VIRTUAL
+    );
     expect(out).toEqual({ name: { prefix: 'a' } });
     expect('exclude' in out).toBe(false);
   });
@@ -51,17 +59,46 @@ describe('omitVirtualFields — strips virtual fields from top-level AND exclude
 
 describe('virtualValues — collects include + exclude values for a virtual field', () => {
   it('reads eq + in from the inclusion branch', () => {
-    expect(virtualValues({ region: { eq: 'Centru' } }, 'region')).toEqual({ include: ['Centru'], exclude: [] });
+    expect(virtualValues({ region: { eq: 'Centru' } }, 'region')).toEqual({
+      include: ['Centru'],
+      exclude: undefined,
+    });
     expect(virtualValues({ region: { in: ['Vest', 'Centru'] } }, 'region')).toEqual({
       include: ['Vest', 'Centru'],
-      exclude: [],
+      exclude: undefined,
     });
   });
 
   it('reads the exclude branch', () => {
     expect(virtualValues({ exclude: { region: { in: ['Vest'] } } }, 'region')).toEqual({
-      include: [],
+      include: undefined,
       exclude: ['Vest'],
+    });
+  });
+
+  it('distinguishes absent from empty and ANDs eq with in', () => {
+    expect(virtualValues({}, 'region')).toEqual({ include: undefined, exclude: undefined });
+    expect(virtualValues({ region: { in: [] } }, 'region')).toEqual({
+      include: [],
+      exclude: undefined,
+    });
+    expect(virtualValues({ region: { eq: 'Centru', in: ['Centru', 'Vest'] } }, 'region')).toEqual({
+      include: ['Centru'],
+      exclude: undefined,
+    });
+    expect(virtualValues({ region: { eq: 'Centru', in: ['Vest'] } }, 'region')).toEqual({
+      include: [],
+      exclude: undefined,
+    });
+  });
+
+  it('treats GraphQL null field/exclude values as absent without throwing', () => {
+    const nullField = { region: null } as unknown as FilterInput;
+    const nullExclude = { exclude: null } as unknown as FilterInput;
+    expect(virtualValues(nullField, 'region')).toEqual({ include: undefined, exclude: undefined });
+    expect(virtualValues(nullExclude, 'region')).toEqual({
+      include: undefined,
+      exclude: undefined,
     });
   });
 });
@@ -72,10 +109,19 @@ describe('validateVirtualEnum — rejects bad values in include OR exclude', () 
     expect(validateVirtualEnum({ region: { eq: 'Centru' } }, 'region', REGIONS).isOk()).toBe(true);
   });
   it('rejects an invalid inclusion value', () => {
-    expect(validateVirtualEnum({ region: { eq: 'Atlantis' } }, 'region', REGIONS).isErr()).toBe(true);
+    expect(validateVirtualEnum({ region: { eq: 'Atlantis' } }, 'region', REGIONS).isErr()).toBe(
+      true
+    );
+  });
+  it('validates all operands even when eq and in have an empty intersection', () => {
+    expect(
+      validateVirtualEnum({ region: { eq: 'Centru', in: ['Atlantis'] } }, 'region', REGIONS).isErr()
+    ).toBe(true);
   });
   it('rejects an invalid exclusion value (would silently no-op otherwise)', () => {
-    expect(validateVirtualEnum({ exclude: { region: { in: ['Atlantis'] } } }, 'region', REGIONS).isErr()).toBe(true);
+    expect(
+      validateVirtualEnum({ exclude: { region: { in: ['Atlantis'] } } }, 'region', REGIONS).isErr()
+    ).toBe(true);
   });
 });
 

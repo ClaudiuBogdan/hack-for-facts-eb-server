@@ -901,6 +901,9 @@ d('Parliament golden (live prod)', () => {
     expect(base).toBeGreaterThan(0);
     expect(await bills('{billType:{in:[]}}')).toBe(0);
     expect(await bills('{status:{in:[]}}')).toBe(0);
+    expect(await bills('{billType:{eq:"government",in:[]}}')).toBe(0);
+    expect(await bills('{billType:{eq:"government",in:["parliamentary"]}}')).toBe(0);
+    expect(await bills('{status:{eq:"promulgated",in:["rejected"]}}')).toBe(0);
     // (b) explicit null on a virtual field is treated as ABSENT (same result as base).
     expect(await bills('{status:null}')).toBe(base);
     expect(await bills('{billType:null, status:null}')).toBe(base);

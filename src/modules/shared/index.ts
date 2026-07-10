@@ -96,7 +96,10 @@ export interface Kernel {
   readonly globalSearchDeps: GlobalSearchDeps;
   readonly chatModel: string;
   /** Build the merged GraphQL SDL + resolvers from the base + module slices. */
-  buildGraphql(slices: readonly GraphqlSlice[]): { typeDefs: string; resolvers: Record<string, unknown> };
+  buildGraphql(slices: readonly GraphqlSlice[]): {
+    typeDefs: string;
+    resolvers: Record<string, unknown>;
+  };
   /** Build the MCP server from kernel + module-contributed tools. */
   buildMcpServer(moduleTools: readonly KernelMcpTool[]): ReturnType<typeof createKernelMcpServer>;
   /**
@@ -161,10 +164,14 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
 
   let legalActLoader: LegalActByIdLoader | undefined;
 
-  const entity360Deps: Entity360Deps = { identityRepo, flowsRepo, searchRepo, registry: contributors };
+  const entity360Deps: Entity360Deps = {
+    identityRepo,
+    flowsRepo,
+    searchRepo,
+    registry: contributors,
+  };
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient,
-    identityRepo,
     searchRepo,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
     ...(config.logger !== undefined && { logger: config.logger }),
@@ -181,16 +188,22 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
 
   const health = async (): Promise<HealthReport> => {
     // Bound the whole probe so a hung dependency can't stall the liveness check.
-    const withTimeout = async (fn: () => Promise<{ ok: boolean; error?: string }>): Promise<ServiceStatus> => {
+    const withTimeout = async (
+      fn: () => Promise<{ ok: boolean; error?: string }>
+    ): Promise<ServiceStatus> => {
       const start = Date.now();
       const r = await Promise.race([
         fn(),
         new Promise<{ ok: boolean; error?: string }>((resolve) =>
-          setTimeout(() => { resolve({ ok: false, error: 'health probe timeout' }); }, 4000)
+          setTimeout(() => {
+            resolve({ ok: false, error: 'health probe timeout' });
+          }, 4000)
         ),
       ]);
       const latencyMs = Date.now() - start;
-      return r.ok ? { status: 'ok', latencyMs } : { status: 'error', latencyMs, error: r.error ?? '' };
+      return r.ok
+        ? { status: 'ok', latencyMs }
+        : { status: 'error', latencyMs, error: r.error ?? '' };
     };
     const disabled: ServiceStatus = { status: 'disabled' };
     const configured = (v: string | undefined): boolean => v !== undefined && v !== '';
@@ -295,8 +308,17 @@ export * from './core/pagination.js';
 export * from './core/ports.js';
 export * from './core/filters/index.js';
 export { createContributorRegistry } from './core/usecases/registry.js';
-export { makeEntity360, makeEntityProfileSlice, type Entity360, type Entity360Deps } from './core/usecases/entity-360.js';
-export { makeGlobalSearch, type GlobalSearchDeps, type GlobalSearchResult } from './core/usecases/global-search.js';
+export {
+  makeEntity360,
+  makeEntityProfileSlice,
+  type Entity360,
+  type Entity360Deps,
+} from './core/usecases/entity-360.js';
+export {
+  makeGlobalSearch,
+  type GlobalSearchDeps,
+  type GlobalSearchResult,
+} from './core/usecases/global-search.js';
 export { makeAsk, type AskDeps, type AskInput, type AskResult } from './core/usecases/ask.js';
 export type { ProdDatabase } from './shell/db/types.js';
 export { mergeGraphqlSlices, KERNEL_BASE_TYPES, type GraphqlSlice } from './shell/graphql/merge.js';

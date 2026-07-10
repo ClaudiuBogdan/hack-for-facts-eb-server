@@ -3,7 +3,7 @@
  * notification handling. Uses a stub McpServer that echoes via the transport.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createMcpHttpDispatcher } from '@/modules/shared/shell/mcp/http-dispatch.js';
 
@@ -58,14 +58,26 @@ describe('createMcpHttpDispatcher', () => {
     // requests reusing client id:1 never collide on protocol/pending state.
     const dispatcher = createMcpHttpDispatcher(() => makeStubServer(10) as never);
     const results = (await Promise.all([
-      dispatcher.dispatch({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { tag: 'first' } }),
-      dispatcher.dispatch({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { tag: 'second' } }),
+      dispatcher.dispatch({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { tag: 'first' },
+      }),
+      dispatcher.dispatch({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { tag: 'second' },
+      }),
     ])) as { id: number; result: { echoedTag: string } }[];
     const a = results[0];
     const b = results[1];
     expect(a?.id).toBe(1);
     expect(b?.id).toBe(1);
-    expect(new Set([a?.result.echoedTag, b?.result.echoedTag])).toEqual(new Set(['first', 'second']));
+    expect(new Set([a?.result.echoedTag, b?.result.echoedTag])).toEqual(
+      new Set(['first', 'second'])
+    );
     await dispatcher.close();
   });
 
@@ -103,5 +115,48 @@ describe('createMcpHttpDispatcher', () => {
     const res = await dispatcher.dispatch({ jsonrpc: '2.0', method: 'notifications/initialized' });
     expect(res).toBeNull();
     await dispatcher.close();
+  });
+
+  it.each([null, 7, 'request', [], {}, { jsonrpc: '1.0', method: 'tools/list' }])(
+    'rejects malformed input without constructing a server: %j',
+    async (input) => {
+      const serverFactory = vi.fn(() => makeStubServer() as never);
+      const dispatcher = createMcpHttpDispatcher(serverFactory);
+
+      expect(await dispatcher.dispatch(input)).toEqual({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32_600, message: 'Invalid Request' },
+      });
+      expect(serverFactory).not.toHaveBeenCalled();
+      await dispatcher.close();
+    }
+  );
+
+  it('clears the request timeout after a successful response', async () => {
+    vi.useFakeTimers();
+    try {
+      const dispatcher = createMcpHttpDispatcher(() => {
+        let transport: StubTransport | undefined;
+        return {
+          connect: (connected: StubTransport) => {
+            transport = connected;
+            connected.onmessage = (message) => {
+              void transport?.send({ jsonrpc: '2.0', id: message['id'], result: { ok: true } });
+            };
+            return Promise.resolve();
+          },
+          close: () => Promise.resolve(),
+        } as never;
+      });
+
+      await expect(
+        dispatcher.dispatch({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      ).resolves.toMatchObject({ result: { ok: true } });
+      expect(vi.getTimerCount()).toBe(0);
+      await dispatcher.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

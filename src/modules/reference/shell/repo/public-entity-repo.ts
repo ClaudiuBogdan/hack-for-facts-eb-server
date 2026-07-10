@@ -87,7 +87,8 @@ const CARD_COLUMNS = [
 ] as const;
 
 /** Card select with `updated_at::text` appended (the cast that keeps it a string). */
-const cardSelect = () => [...CARD_COLUMNS, sql<string>`pe.updated_at::text`.as('updated_at')] as const;
+const cardSelect = () =>
+  [...CARD_COLUMNS, sql<string>`pe.updated_at::text`.as('updated_at')] as const;
 
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
@@ -117,7 +118,10 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
    * `county_code`/`region` is in the supplied values. Used for both the inclusion
    * predicate and (negated) the exclude predicate.
    */
-  const territoryExists = (column: 'county_code' | 'region', values: readonly string[]): RawBuilder<unknown> =>
+  const territoryExists = (
+    column: 'county_code' | 'region',
+    values: readonly string[]
+  ): RawBuilder<unknown> =>
     sql`exists (select 1 from core.territories t where t.territorial_siruta_code = pe.territorial_siruta_code and ${sql.ref(`t.${column}`)} in (${sql.join(
       values.map((v) => sql`${v}`),
       sql`, `
@@ -130,8 +134,16 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
     for (const field of ['countyCode', 'region'] as const) {
       const column = field === 'countyCode' ? 'county_code' : 'region';
       const { include, exclude } = virtualValues(input, field);
-      if (include.length > 0) conds.push(territoryExists(column, include));
-      if (exclude.length > 0) conds.push(sql`not ${territoryExists(column, exclude)}`);
+      if (include !== undefined) {
+        // Preserve the kernel contract: an explicit empty `in` (or a disjoint
+        // `eq` + `in`) is FALSE, never an omitted predicate that widens results.
+        conds.push(include.length === 0 ? sql`false` : territoryExists(column, include));
+      }
+      // Excluding an empty intersection is `NOT FALSE` (TRUE), so it contributes
+      // no condition and avoids an unnecessary territory semijoin.
+      if (exclude !== undefined && exclude.length > 0) {
+        conds.push(sql`not ${territoryExists(column, exclude)}`);
+      }
     }
 
     // parentCui: parent1_cui OR parent2_cui (eq only).
@@ -312,7 +324,11 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
       if (by === 'county') {
         const rows = await db
           .selectFrom('core.public_entities as pe')
-          .leftJoin('core.territories as t', 't.territorial_siruta_code', 'pe.territorial_siruta_code')
+          .leftJoin(
+            'core.territories as t',
+            't.territorial_siruta_code',
+            'pe.territorial_siruta_code'
+          )
           .select([
             sql<string | null>`t.county_code`.as('key'),
             sql<string | null>`max(t.county_name)`.as('label'),
@@ -348,7 +364,10 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
     }
   };
 
-  const resolve = async (q: string, limit: number): Promise<Result<readonly ResolveHit[], ApiError>> => {
+  const resolve = async (
+    q: string,
+    limit: number
+  ): Promise<Result<readonly ResolveHit[], ApiError>> => {
     const needle = q.trim();
     if (needle === '') return ok([]);
     const capped = clampLimit(limit, 50);
@@ -356,7 +375,11 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
     try {
       const rows = await db
         .selectFrom('core.public_entities as pe')
-        .leftJoin('core.territories as t', 't.territorial_siruta_code', 'pe.territorial_siruta_code')
+        .leftJoin(
+          'core.territories as t',
+          't.territorial_siruta_code',
+          'pe.territorial_siruta_code'
+        )
         .select([
           'pe.cui as value',
           'pe.name as label',
@@ -369,13 +392,15 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
         .limit(capped)
         .execute();
       return ok(
-        rows.map((r): ResolveHit => ({
-          kind: 'public_entity',
-          value: r.value,
-          label: r.label,
-          ...(typeof r.score === 'number' && { score: r.score }),
-          ...(r.hint !== null && { hint: r.hint }),
-        }))
+        rows.map(
+          (r): ResolveHit => ({
+            kind: 'public_entity',
+            value: r.value,
+            label: r.label,
+            ...(typeof r.score === 'number' && { score: r.score }),
+            ...(r.hint !== null && { hint: r.hint }),
+          })
+        )
       );
     } catch (error) {
       return err(databaseError('resolve failed', error));
@@ -385,7 +410,9 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
   const cardsForCuis = async (
     cuis: readonly string[]
   ): Promise<Result<ReadonlyMap<string, ReferencePublicEntityCard>, ApiError>> => {
-    const normalized = [...new Set(cuis.map((c) => normalizeCui(c)).filter((c): c is string => c !== null))];
+    const normalized = [
+      ...new Set(cuis.map((c) => normalizeCui(c)).filter((c): c is string => c !== null)),
+    ];
     if (normalized.length === 0) return ok(new Map());
     try {
       const rows = await db

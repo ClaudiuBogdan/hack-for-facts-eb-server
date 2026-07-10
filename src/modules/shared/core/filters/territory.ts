@@ -54,11 +54,11 @@ export interface TerritoryFilterValues {
 
 /** True when any geographic dimension is actually set (so callers can skip the join entirely). */
 export const hasTerritoryFilter = (v: TerritoryFilterValues): boolean =>
-  (v.region !== undefined && v.region.length > 0) ||
+  v.region !== undefined ||
   (v.excludeRegion !== undefined && v.excludeRegion.length > 0) ||
-  (v.countyCode !== undefined && v.countyCode.length > 0) ||
+  v.countyCode !== undefined ||
   (v.excludeCountyCode !== undefined && v.excludeCountyCode.length > 0) ||
-  (v.siruta !== undefined && v.siruta.length > 0) ||
+  v.siruta !== undefined ||
   (v.excludeSiruta !== undefined && v.excludeSiruta.length > 0) ||
   v.isUat !== undefined ||
   v.populationMin !== undefined ||
@@ -77,7 +77,10 @@ const needsTerritoriesJoin = (v: TerritoryFilterValues): boolean =>
 
 /** `col IN (v1, v2, …)` — values parameterized; empty arrays are handled by the caller. */
 const inList = (col: SqlCondition, values: readonly string[]): SqlCondition =>
-  sql`${col} in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
+  sql`${col} in (${sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `
+  )})`;
 
 /**
  * Build the inner-`SELECT` conditions over the `pe`/`t` aliases. Inclusion

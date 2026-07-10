@@ -7,8 +7,9 @@
  *  - A Meili failure OR a missing/corrupt index (the client surfaces both as
  *    `err`) DEGRADES to a bounded, visibility-scoped pg search over
  *    `search.documents` — never a hard fail.
- *  - The CUI-keyed org name match runs concurrently as the (deprecated)
- *    `organizations` array.
+ *  - The deprecated `organizations` array stays empty. Its former Postgres
+ *    name lookup was an unindexed scan over millions of rows; entity discovery
+ *    belongs to the indexed `hits` path.
  *  - Empty/whitespace `q` short-circuits to an empty result (no engine query) so
  *    Meili's "return everything" default never leaks.
  *
@@ -17,8 +18,12 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { type ApiError } from '../errors.js';
-import { buildEntitiesFilter, normalizeCounty, validEntityDocTypes } from '../filters/meili-array.js';
+import { invalidInput, type ApiError } from '../errors.js';
+import {
+  buildEntitiesFilter,
+  normalizeCounty,
+  validEntityDocTypes,
+} from '../filters/meili-array.js';
 import {
   SEARCH_ENTITY_DOC_TYPES,
   type OrgNameMatch,
@@ -26,7 +31,7 @@ import {
   type SearchHit,
 } from '../types.js';
 
-import type { IdentityRepo, MeiliClient, SearchRepo } from '../ports.js';
+import type { MeiliClient, SearchRepo } from '../ports.js';
 
 /**
  * The minimal structured-logger contract the usecase accepts (a pino `Logger`,
@@ -39,7 +44,6 @@ export interface GlobalSearchLogger {
 
 export interface GlobalSearchDeps {
   readonly meiliClient: MeiliClient;
-  readonly identityRepo: IdentityRepo;
   readonly searchRepo: SearchRepo;
   /** Meili indexes to query (resolved from per-domain config at wiring time). */
   readonly meiliIndexes: readonly string[];
@@ -85,7 +89,7 @@ export const makeGlobalSearch = async (
   deps: GlobalSearchDeps,
   input: GlobalSearchInput
 ): Promise<Result<GlobalSearchResult, ApiError>> => {
-  const { meiliClient, identityRepo, searchRepo, meiliIndexes, logger } = deps;
+  const { meiliClient, searchRepo, meiliIndexes, logger } = deps;
   const startedAt = Date.now();
   // Bound the page window: clamp limit to [1,50] and offset to [0,1000] so a
   // hostile/garbage paginator can never push Meili past its scan cap or send a
@@ -94,12 +98,17 @@ export const makeGlobalSearch = async (
   const offsetClamped = Math.min(Math.max(input.offset ?? 0, 0), OFFSET_MAX);
   const offset = offsetClamped > 0 ? offsetClamped : undefined;
 
-  const logSearch = (engine: 'meili' | 'postgres', hitCount: number, facetCount: number, meiliOk: boolean): void => {
+  const logSearch = (
+    engine: 'meili' | 'postgres',
+    hitCount: number,
+    facetCount: number,
+    meiliOk: boolean
+  ): void => {
     try {
       logger?.info(
         {
           component: 'kernel.globalSearch',
-          q: input.q,
+          queryLength: input.q.length,
           engine,
           hitCount,
           facetCount,
@@ -148,6 +157,10 @@ export const makeGlobalSearch = async (
   // or polluted index can never surface public non-entity docs.
   const docTypes = input.docTypes === undefined ? [...SEARCH_ENTITY_DOC_TYPES] : requested;
   const county = normalizeCounty(input.county);
+  if (input.county !== undefined && county === undefined) {
+    logSearch('meili', 0, 0, true);
+    return err(invalidInput('county must be a canonical county name', 'county'));
+  }
   const year = input.year !== undefined && Number.isInteger(input.year) ? input.year : undefined;
 
   const filterArgs = {
@@ -155,9 +168,6 @@ export const makeGlobalSearch = async (
     ...(county !== undefined && { county }),
     ...(year !== undefined && { year }),
   };
-
-  // Org name match is cheap + always useful (Meili-primary internally, §15.7).
-  const orgMatchPromise = identityRepo.searchByName(input.q, 10);
 
   const index = meiliIndexes[0] ?? 'entities';
   // No Meili index configured → go straight to the bounded pg fallback.
@@ -174,12 +184,11 @@ export const makeGlobalSearch = async (
   if (meiliRes?.isOk() === true) {
     const { hits, facetDistribution, estimatedTotalHits } = meiliRes.value;
     const facets = toFacets(facetDistribution);
-    const orgs = await orgMatchPromise;
     logSearch('meili', hits.length, facets.length, true);
     return ok({
       query: input.q,
       hits,
-      organizations: orgs.isOk() ? orgs.value : [],
+      organizations: [],
       engine: 'meili',
       facets,
       estimatedTotalHits,
@@ -188,14 +197,11 @@ export const makeGlobalSearch = async (
 
   // Meili down OR index missing/corrupt — bounded, visibility-scoped pg fallback
   // (degrade, do not error). No facets on this path.
-  const [fallbackRes, orgs] = await Promise.all([
-    searchRepo.searchEntities(input.q, {
-      ...filterArgs,
-      limit,
-      ...(offset !== undefined && { offset }),
-    }),
-    orgMatchPromise,
-  ]);
+  const fallbackRes = await searchRepo.searchEntities(input.q, {
+    ...filterArgs,
+    limit,
+    ...(offset !== undefined && { offset }),
+  });
 
   // A pg fallback ERROR is a real failure (DB/schema), not a degrade — surface it
   // rather than masking a regression as a valid empty result. (Meili being down
@@ -210,7 +216,7 @@ export const makeGlobalSearch = async (
   return ok({
     query: input.q,
     hits,
-    organizations: orgs.isOk() ? orgs.value : [],
+    organizations: [],
     engine: 'postgres',
     facets: [],
     estimatedTotalHits: hits.length,

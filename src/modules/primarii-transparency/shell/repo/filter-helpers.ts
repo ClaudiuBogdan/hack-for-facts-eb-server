@@ -25,11 +25,17 @@ import {
   type TerritoryFilterValues,
 } from '@/modules/shared/index.js';
 
-/** Pull a single field's op-map out of a FilterInput (typed, undefined-safe). */
-export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {
-  const v = input[name];
-  if (v === undefined || typeof v !== 'object') return undefined;
-  return v;
+/** Pull a single field's op-map out of a FilterInput (typed, null-safe). */
+export const fieldOf = (
+  input: FilterInput | null | undefined,
+  name: string
+): FieldFilter | undefined => {
+  if (input === null || input === undefined) return undefined;
+  // GraphQL nullable input fields can be null at runtime even though FilterInput's
+  // compile-time shape omits null, so deliberately widen before validating.
+  const v: unknown = input[name];
+  if (v === null || v === undefined || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  return v as FieldFilter;
 };
 
 /**
@@ -44,8 +50,13 @@ export const omitVirtualFields = (input: FilterInput, names: readonly string[]):
     if (key === 'exclude') continue;
     if (!drop.has(key)) out[key] = value;
   }
-  const exclude = input.exclude;
-  if (exclude !== undefined && typeof exclude === 'object') {
+  const exclude: unknown = input.exclude;
+  if (
+    exclude !== null &&
+    exclude !== undefined &&
+    typeof exclude === 'object' &&
+    !Array.isArray(exclude)
+  ) {
     const ex: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(exclude)) {
       if (!drop.has(key)) ex[key] = value;
@@ -83,24 +94,30 @@ export const boolEq = (f: FieldFilter | undefined): boolean | undefined => {
  * values under `exclude` (negation).
  */
 export interface VirtualValues {
-  readonly include: readonly string[];
-  readonly exclude: readonly string[];
+  /** Undefined means the field is absent; an empty array means match nothing. */
+  readonly include: readonly string[] | undefined;
+  /** Undefined means absent; an empty array is the no-op `NOT FALSE`. */
+  readonly exclude: readonly string[] | undefined;
 }
 
+/**
+ * Resolve `eq` and `in` using the kernel's within-field AND semantics:
+ * `eq:x AND in:[x,y]` narrows to x, while `eq:x AND in:[y]` matches nothing.
+ */
+const selectedValues = (f: FieldFilter | undefined): readonly string[] | undefined => {
+  if (f === undefined) return undefined;
+  const eq = eqValue(f);
+  const inList = inValues(f);
+  if (eq !== undefined && inList !== undefined) return inList.includes(eq) ? [eq] : [];
+  if (inList !== undefined) return [...new Set(inList)];
+  return eq !== undefined ? [eq] : undefined;
+};
+
 export const virtualValues = (input: FilterInput, name: string): VirtualValues => {
-  const inc = fieldOf(input, name);
-  const incEq = eqValue(inc);
-  const incIn = inValues(inc);
-  const include = incIn ?? (incEq !== undefined ? [incEq] : []);
+  const include = selectedValues(fieldOf(input, name));
 
   const excludeBranch = input.exclude;
-  let exclude: readonly string[] = [];
-  if (excludeBranch !== undefined && typeof excludeBranch === 'object') {
-    const ex = fieldOf(excludeBranch, name);
-    const exEq = eqValue(ex);
-    const exIn = inValues(ex);
-    exclude = exIn ?? (exEq !== undefined ? [exEq] : []);
-  }
+  const exclude = selectedValues(fieldOf(excludeBranch, name));
   return { include, exclude };
 };
 
@@ -114,8 +131,12 @@ export const validateVirtualEnum = (
   name: string,
   allowed: readonly string[]
 ): Result<void, ApiError> => {
-  const { include, exclude } = virtualValues(input, name);
-  for (const v of [...include, ...exclude]) {
+  const operands = (f: FieldFilter | undefined): readonly string[] => {
+    const eq = eqValue(f);
+    return [...(eq !== undefined ? [eq] : []), ...(inValues(f) ?? [])];
+  };
+  const values = [...operands(fieldOf(input, name)), ...operands(fieldOf(input.exclude, name))];
+  for (const v of values) {
     if (!allowed.includes(v)) {
       return err(invalidInput(`${name} must be one of ${allowed.join(', ')}`, name));
     }
@@ -129,16 +150,18 @@ const betweenBounds = (
   name: string
 ): Result<{ min?: number; max?: number }, ApiError> => {
   if (f === undefined) return ok({});
-  const between = f['between'];
+  // Widen for nullable GraphQL runtime input; malformed null returns InvalidInput.
+  const between: unknown = f['between'];
   if (between === undefined) return ok({});
-  if (typeof between !== 'object' || Array.isArray(between)) {
+  if (between === null || typeof between !== 'object' || Array.isArray(between)) {
     return err(invalidInput(`${name} between requires { from, to }`, name));
   }
   const { from, to } = between as { from?: string | number; to?: string | number };
   const out: { min?: number; max?: number } = {};
   if (from !== undefined) {
     const n = Number(from);
-    if (!Number.isFinite(n)) return err(invalidInput(`${name} between.from must be a number`, name));
+    if (!Number.isFinite(n))
+      return err(invalidInput(`${name} between.from must be a number`, name));
     out.min = n;
   }
   if (to !== undefined) {
@@ -166,10 +189,12 @@ export const territoryFilterValues = (
   if (popBounds.isErr()) return err(popBounds.error);
 
   const values: TerritoryFilterValues = {
-    ...(region.include.length > 0 && { region: region.include }),
-    ...(region.exclude.length > 0 && { excludeRegion: region.exclude }),
-    ...(siruta.include.length > 0 && { siruta: siruta.include }),
-    ...(siruta.exclude.length > 0 && { excludeSiruta: siruta.exclude }),
+    ...(region.include !== undefined && { region: region.include }),
+    ...(region.exclude !== undefined &&
+      region.exclude.length > 0 && { excludeRegion: region.exclude }),
+    ...(siruta.include !== undefined && { siruta: siruta.include }),
+    ...(siruta.exclude !== undefined &&
+      siruta.exclude.length > 0 && { excludeSiruta: siruta.exclude }),
     ...(isUat !== undefined && { isUat }),
     ...(popBounds.value.min !== undefined && { populationMin: popBounds.value.min }),
     ...(popBounds.value.max !== undefined && { populationMax: popBounds.value.max }),

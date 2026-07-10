@@ -21,12 +21,38 @@ import { judicialCasesSpec, judicialCourtsSpec } from '../filters/judicial.spec.
 const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(judicialCourtsSpec)}`;
 
 const objectsAndQuery = /* GraphQL */ `
-  enum JudicialCourtLevel { judecatorie tribunal tribunal_militar curte_de_apel curte_militara_apel }
-  enum JudicialPartyKind { company public_entity person unknown }
-  enum JudicialMappingConfidence { high medium low }
-  enum JudicialCaseSort { modifiedAt openedAt }
-  enum JudicialSortDir { ASC DESC }
-  enum JudicialAggregateGroupBy { court category year courtLevel }
+  enum JudicialCourtLevel {
+    judecatorie
+    tribunal
+    tribunal_militar
+    curte_de_apel
+    curte_militara_apel
+  }
+  enum JudicialPartyKind {
+    company
+    public_entity
+    person
+    unknown
+  }
+  enum JudicialMappingConfidence {
+    high
+    medium
+    low
+  }
+  enum JudicialCaseSort {
+    modifiedAt
+    openedAt
+  }
+  enum JudicialSortDir {
+    ASC
+    DESC
+  }
+  enum JudicialAggregateGroupBy {
+    court
+    category
+    year
+    courtLevel
+  }
 
   "A court in the 246-row reference hierarchy. ICCJ is permanently absent (different source)."
   type JudicialCourt {
@@ -78,11 +104,12 @@ const objectsAndQuery = /* GraphQL */ `
     appealType: String
   }
 
-  "A party rendered for case detail. name is non-null ONLY for publishable company/public parties (the gated dictionary); ALWAYS null for person/unknown."
+  "A party rendered for case detail. name and nameKeyId are non-null ONLY for publishable company/public parties; both are null for withheld identities."
   type JudicialPartyView {
     partyIndex: Int!
     partyKind: JudicialPartyKind!
     roleNormalized: String
+    "Public company/entity key; null for person, unknown, or otherwise non-publishable parties."
     nameKeyId: BigInt
     "Publishable company/public name (gated). null for person/unknown — the system cannot emit a person's name."
     name: String
@@ -118,7 +145,10 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   "Domain freshness watermark (§10)."
-  type JudicialAsOf { asOf: DateTime  estimated: Boolean! }
+  type JudicialAsOf {
+    asOf: DateTime
+    estimated: Boolean!
+  }
 
   "The case-detail composite. parties are name-gated; person/unknown contribute only to personPartyCount."
   type JudicialCaseDetail {
@@ -133,10 +163,21 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: JudicialAsOf!
   }
 
-  type JudicialCaseEdge { node: JudicialCase!  cursor: String! }
-  type JudicialCaseConnection { edges: [JudicialCaseEdge!]!  pageInfo: PageInfo!  totalCount: Int }
+  type JudicialCaseEdge {
+    node: JudicialCase!
+    cursor: String!
+  }
+  type JudicialCaseConnection {
+    edges: [JudicialCaseEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
 
-  type JudicialAggregateGroup { key: String!  label: String  caseCount: Int! }
+  type JudicialAggregateGroup {
+    key: String!
+    label: String
+    caseCount: Int!
+  }
   "Court caseload aggregate (JD-2). coverage discloses the share of the bounded set the groups cover."
   type JudicialCaseAggregate {
     groups: [JudicialAggregateGroup!]!
@@ -144,8 +185,14 @@ const objectsAndQuery = /* GraphQL */ `
     coverage: Float!
   }
 
-  type JudicialCourtLevelCount { courtLevel: JudicialCourtLevel!  count: Int! }
-  type JudicialYearCount { year: Int!  count: Int! }
+  type JudicialCourtLevelCount {
+    courtLevel: JudicialCourtLevel!
+    count: Int!
+  }
+  type JudicialYearCount {
+    year: Int!
+    count: Int!
+  }
   "Company-litigation summary (JD-1). published-only ⇒ empty in v1 (caseCount 0, coverage 0)."
   type JudicialCompanyLitigation {
     cui: String!
@@ -157,16 +204,49 @@ const objectsAndQuery = /* GraphQL */ `
     caveats: [String!]!
   }
 
-  type JudicialCaseLink { caseId: BigInt!  institutionCode: String!  caseNumber: String!  category: String  sourceOpenedAt: Date }
-  type JudicialCaseLinkEdge { node: JudicialCaseLink!  cursor: String! }
-  type JudicialCaseLinkConnection { edges: [JudicialCaseLinkEdge!]!  pageInfo: PageInfo!  totalCount: Int }
+  type JudicialCaseLink {
+    caseId: BigInt!
+    institutionCode: String!
+    caseNumber: String!
+    category: String
+    sourceOpenedAt: Date
+  }
+  type JudicialCaseLinkEdge {
+    node: JudicialCaseLink!
+    cursor: String!
+  }
+  type JudicialCaseLinkConnection {
+    edges: [JudicialCaseLinkEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
 
-  type JudicialCaseCitation { caseId: BigInt!  institutionCode: String!  caseNumber: String!  actType: String  actNumber: String  actYear: Int }
-  type JudicialCaseCitationEdge { node: JudicialCaseCitation!  cursor: String! }
-  type JudicialCaseCitationConnection { edges: [JudicialCaseCitationEdge!]!  pageInfo: PageInfo!  totalCount: Int }
+  type JudicialCaseCitation {
+    caseId: BigInt!
+    institutionCode: String!
+    caseNumber: String!
+    actType: String
+    actNumber: String
+    actYear: Int
+  }
+  type JudicialCaseCitationEdge {
+    node: JudicialCaseCitation!
+    cursor: String!
+  }
+  type JudicialCaseCitationConnection {
+    edges: [JudicialCaseCitationEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
 
   "A name→value discovery hit (kernel ResolveHit shape, module-local SDL projection). companyName resolves company/public dictionary ONLY (a person name returns zero rows)."
-  type JudicialResolveHit { kind: String!  value: String!  label: String!  score: Float  hint: String }
+  type JudicialResolveHit {
+    kind: String!
+    value: String!
+    label: String!
+    score: Float
+    hint: String
+  }
 
   extend type Query {
     "Courts in the 246-row hierarchy. Cheap reference list."
@@ -176,15 +256,42 @@ const objectsAndQuery = /* GraphQL */ `
     "A case by numeric caseId OR natural key (institutionCode + caseNumber). Composes name-gated detail."
     judicialCase(caseId: BigInt, institutionCode: String, caseNumber: String): JudicialCaseDetail
     "Case directory. Cursor-only (6.16M cases); REQUIRES a court or period bound."
-    judicialCases(filter: JudicialCasesFilter, sort: JudicialCaseSort = modifiedAt, dir: JudicialSortDir = DESC, first: Int = 20, after: String): JudicialCaseConnection!
+    judicialCases(
+      filter: JudicialCasesFilter
+      sort: JudicialCaseSort = modifiedAt
+      dir: JudicialSortDir = DESC
+      first: Int = 20
+      after: String
+    ): JudicialCaseConnection!
     "Court caseload analytics (JD-2). Deterministic SQL; requires a court/level/period bound."
-    judicialCaseload(groupBy: JudicialAggregateGroupBy!, filter: JudicialCasesFilter): JudicialCaseAggregate!
+    judicialCaseload(
+      groupBy: JudicialAggregateGroupBy!
+      filter: JudicialCasesFilter
+    ): JudicialCaseAggregate!
     "Company litigation (JD-1). published-only ⇒ empty in v1. Optional courtLevel/year/category narrowing (§7.3)."
-    judicialCompanyLitigation(cui: String!, courtLevel: [JudicialCourtLevel!], yearFrom: Int, yearTo: Int, category: [String!]): JudicialCompanyLitigation!
+    judicialCompanyLitigation(
+      cui: String!
+      courtLevel: [JudicialCourtLevel!]
+      yearFrom: Int
+      yearTo: Int
+      category: [String!]
+    ): JudicialCompanyLitigation!
     "Company litigation cases (JD-1 detail; gated; empty in v1)."
-    judicialCompanyLitigationCases(cui: String!, courtLevel: [JudicialCourtLevel!], yearFrom: Int, yearTo: Int, category: [String!], first: Int = 20, after: String): JudicialCaseLinkConnection!
+    judicialCompanyLitigationCases(
+      cui: String!
+      courtLevel: [JudicialCourtLevel!]
+      yearFrom: Int
+      yearTo: Int
+      category: [String!]
+      first: Int = 20
+      after: String
+    ): JudicialCaseLinkConnection!
     "Cases citing a legal act (JD-3 reverse; empty until gate #11)."
-    judicialCasesCitingAct(targetActId: BigInt!, first: Int = 20, after: String): JudicialCaseCitationConnection!
+    judicialCasesCitingAct(
+      targetActId: BigInt!
+      first: Int = 20
+      after: String
+    ): JudicialCaseCitationConnection!
     "Resolve a free-text query to a filter value (court→code, company name→nameKeyId, ...)."
     judicialResolve(dim: String!, q: String!, limit: Int = 10): [JudicialResolveHit!]!
   }

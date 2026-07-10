@@ -25,7 +25,15 @@ import type { FastifyInstance } from 'fastify';
 
 const HAS_DB = (process.env['PROD_DATABASE_URL'] ?? '').length > 0;
 const PIATRA_CUI = '2612790';
-const RAW_DENYLIST = ['source_excerpt', 'local_path', 'raw_document', 'raw_evidence', 'raw_claim', 'raw_quality', 'raw_'];
+const RAW_DENYLIST = [
+  'source_excerpt',
+  'local_path',
+  'raw_document',
+  'raw_evidence',
+  'raw_claim',
+  'raw_quality',
+  'raw_',
+];
 
 const d = HAS_DB ? describe : describe.skip;
 
@@ -51,17 +59,28 @@ const gql = async (
   return res.json();
 };
 
-const mcpCall = async (name: string, args: Record<string, unknown>): Promise<{ raw: string; out: Record<string, unknown> }> => {
+const mcpCall = async (
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ raw: string; out: Record<string, unknown> }> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC response body
-  const body = JSON.parse(res.body) as { result?: { structuredContent?: unknown; content?: { text?: string }[] } };
+  const body = JSON.parse(res.body) as {
+    result?: { structuredContent?: unknown; content?: { text?: string }[] };
+  };
   const structured = body.result?.structuredContent;
-  if (structured !== undefined) return { raw: JSON.stringify(structured), out: structured as Record<string, unknown> };
+  if (structured !== undefined)
+    return { raw: JSON.stringify(structured), out: structured as Record<string, unknown> };
   const text = body.result?.content?.[0]?.text ?? '{}';
   // eslint-disable-next-line no-restricted-syntax -- test parses the trusted MCP tool-output text payload
   return { raw: text, out: JSON.parse(text) as Record<string, unknown> };
@@ -87,7 +106,12 @@ interface PrimariiProfile {
     updatedAt: string;
     snapshotId?: string | null;
   };
-  categories: { category: string; status: string; evidenceCount: number; missingEvidenceCount: number }[];
+  categories: {
+    category: string;
+    status: string;
+    evidenceCount: number;
+    missingEvidenceCount: number;
+  }[];
   staffing: {
     totalPositions: number | null;
     occupiedPositions: number | null;
@@ -95,7 +119,12 @@ interface PrimariiProfile {
     asOfDate: string | null;
     confidence: number | null;
   } | null;
-  organigrama: { status: string; effectiveDate: string | null; summary: string | null; confidence: number | null } | null;
+  organigrama: {
+    status: string;
+    effectiveDate: string | null;
+    summary: string | null;
+    confidence: number | null;
+  } | null;
   documentCounts: { category: string; count: number }[];
 }
 
@@ -107,7 +136,7 @@ const graphqlComparableProfile = (profile: PrimariiProfile): PrimariiProfile => 
 };
 
 const profileQuery = /* GraphQL */ `
-  query($cui: CUI!) {
+  query ($cui: CUI!) {
     primariiEntity(cui: $cui) {
       status {
         cui
@@ -153,7 +182,11 @@ const profileQuery = /* GraphQL */ `
 d('Primarii-transparency golden (live prod)', () => {
   beforeAll(async () => {
     const config = loadRedesignConfig(process.env);
-    const built = await buildRedesignApp({ kernelConfig: config.kernel, logLevel: 'silent', modules: ['primarii-transparency'] });
+    const built = await buildRedesignApp({
+      kernelConfig: config.kernel,
+      logLevel: 'silent',
+      modules: ['primarii-transparency'],
+    });
     app = built.app;
     close = built.app.close.bind(built.app);
     await app.ready();
@@ -171,22 +204,42 @@ d('Primarii-transparency golden (live prod)', () => {
   });
 
   it('entity list filters and live status distributions match the pinned registry', async () => {
-    const all = await gql(`query { primariiEntities(first: 5) { totalCount edges { node { cui } cursor } pageInfo { hasNextPage endCursor } } }`);
-    const allConn = (all.data as { primariiEntities: { totalCount: number; edges: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } })
-      .primariiEntities;
+    const all = await gql(
+      `query { primariiEntities(first: 5) { totalCount edges { node { cui } cursor } pageInfo { hasNextPage endCursor } } }`
+    );
+    const allConn = (
+      all.data as {
+        primariiEntities: {
+          totalCount: number;
+          edges: unknown[];
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        };
+      }
+    ).primariiEntities;
     expect(all.errors).toBeUndefined();
     expect(allConn.totalCount).toBe(3187);
     expect(allConn.edges.length).toBe(5);
     expect(allConn.pageInfo.hasNextPage).toBe(true);
     expect(allConn.pageInfo.endCursor).not.toBeNull();
 
-    const qualityExpected: Record<string, number> = { medium: 2559, high: 265, review_needed: 169, low: 116, missing: 78 };
+    const qualityExpected: Record<string, number> = {
+      medium: 2559,
+      high: 265,
+      review_needed: 169,
+      low: 116,
+      missing: 78,
+    };
     for (const [status, total] of Object.entries(qualityExpected)) {
-      const res = await gql(`query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`, {
-        filter: { dataQualityStatus: { in: [status] } },
-      });
+      const res = await gql(
+        `query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`,
+        {
+          filter: { dataQualityStatus: { in: [status] } },
+        }
+      );
       expect(res.errors).toBeUndefined();
-      expect((res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount).toBe(total);
+      expect(
+        (res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount
+      ).toBe(total);
     }
 
     const resultExpected: Record<string, number> = {
@@ -198,11 +251,16 @@ d('Primarii-transparency golden (live prod)', () => {
       error: 3,
     };
     for (const [status, total] of Object.entries(resultExpected)) {
-      const res = await gql(`query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`, {
-        filter: { resultStatus: { in: [status] } },
-      });
+      const res = await gql(
+        `query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`,
+        {
+          filter: { resultStatus: { in: [status] } },
+        }
+      );
       expect(res.errors).toBeUndefined();
-      expect((res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount).toBe(total);
+      expect(
+        (res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount
+      ).toBe(total);
     }
 
     const typeExpected: Record<string, number> = {
@@ -213,11 +271,16 @@ d('Primarii-transparency golden (live prod)', () => {
       primarie: 1,
     };
     for (const [entityType, total] of Object.entries(typeExpected)) {
-      const res = await gql(`query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`, {
-        filter: { entityType: { in: [entityType] } },
-      });
+      const res = await gql(
+        `query($filter: PrimariiEntityFilter!) { primariiEntities(first: 1, filter: $filter) { totalCount } }`,
+        {
+          filter: { entityType: { in: [entityType] } },
+        }
+      );
       expect(res.errors).toBeUndefined();
-      expect((res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount).toBe(total);
+      expect(
+        (res.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount
+      ).toBe(total);
     }
 
     // publishesCategory semijoin: UATs whose CURRENT snapshot has salarii=found is a
@@ -227,7 +290,8 @@ d('Primarii-transparency golden (live prod)', () => {
       { filter: { publishesCategory: { in: ['salarii'] }, categoryState: { eq: 'found' } } }
     );
     expect(publishes.errors).toBeUndefined();
-    const publishesTotal = (publishes.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount;
+    const publishesTotal = (publishes.data as { primariiEntities: { totalCount: number } })
+      .primariiEntities.totalCount;
     expect(publishesTotal).toBe(1851);
 
     // An EXPLICIT empty publishesCategory in:[] must match NOTHING (not all 3187) — review P1.
@@ -236,7 +300,10 @@ d('Primarii-transparency golden (live prod)', () => {
       { filter: { publishesCategory: { in: [] } } }
     );
     expect(emptyPublishes.errors).toBeUndefined();
-    expect((emptyPublishes.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount).toBe(0);
+    expect(
+      (emptyPublishes.data as { primariiEntities: { totalCount: number } }).primariiEntities
+        .totalCount
+    ).toBe(0);
 
     // missingCategory text[] overlap (&&): UATs whose current view requires-but-lacks salarii.
     const missing = await gql(
@@ -244,7 +311,9 @@ d('Primarii-transparency golden (live prod)', () => {
       { filter: { missingCategory: { in: ['salarii'] } } }
     );
     expect(missing.errors).toBeUndefined();
-    expect((missing.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount).toBeGreaterThan(0);
+    expect(
+      (missing.data as { primariiEntities: { totalCount: number } }).primariiEntities.totalCount
+    ).toBeGreaterThan(0);
   }, 60_000);
 
   it('Piatra-Neamt entity profile is the pinned golden UAT', async () => {
@@ -261,9 +330,19 @@ d('Primarii-transparency golden (live prod)', () => {
     });
     expect(profile.categories).toHaveLength(3);
     expect(profile.categories.every((c) => c.status === 'found')).toBe(true);
-    expect(profile.staffing).toMatchObject({ totalPositions: 487, occupiedPositions: null, vacantPositions: null });
-    expect(profile.organigrama).toMatchObject({ status: 'found', effectiveDate: '2026-04-15', confidence: 0.93 });
-    expect(Object.fromEntries(profile.documentCounts.map((c) => [c.category, c.count]))).toMatchObject({
+    expect(profile.staffing).toMatchObject({
+      totalPositions: 487,
+      occupiedPositions: null,
+      vacantPositions: null,
+    });
+    expect(profile.organigrama).toMatchObject({
+      status: 'found',
+      effectiveDate: '2026-04-15',
+      confidence: 0.93,
+    });
+    expect(
+      Object.fromEntries(profile.documentCounts.map((c) => [c.category, c.count]))
+    ).toMatchObject({
       numar_angajati: 1,
       organigrama: 1,
       other: 1,
@@ -275,8 +354,13 @@ d('Primarii-transparency golden (live prod)', () => {
       { cui: PIATRA_CUI }
     );
     expect(snapshots.errors).toBeUndefined();
-    const snapshot = (snapshots.data as { primariiEntitySnapshots: { edges: { node: { snapshotId: string; cui: string; resultStatus: string } }[] } })
-      .primariiEntitySnapshots.edges[0]?.node;
+    const snapshot = (
+      snapshots.data as {
+        primariiEntitySnapshots: {
+          edges: { node: { snapshotId: string; cui: string; resultStatus: string } }[];
+        };
+      }
+    ).primariiEntitySnapshots.edges[0]?.node;
     expect(snapshot).toEqual({ snapshotId: '3615', cui: PIATRA_CUI, resultStatus: 'complete' });
   });
 
@@ -286,38 +370,66 @@ d('Primarii-transparency golden (live prod)', () => {
       { cui: PIATRA_CUI }
     );
     expect(res.errors).toBeUndefined();
-    const territory = (res.data as { primariiEntity: { status: { territory: { countyName: string | null; region: string | null } | null } } })
-      .primariiEntity.status.territory;
+    const territory = (
+      res.data as {
+        primariiEntity: {
+          status: { territory: { countyName: string | null; region: string | null } | null };
+        };
+      }
+    ).primariiEntity.status.territory;
     expect(territory).not.toBeNull();
     expect(territory?.countyName).toBeTruthy();
     expect(territory?.region).toBeTruthy();
   });
 
   it('status aggregates and category coverage match the live pinned totals', async () => {
-    const quality = await gql(`query { primariiStats(groupBy: data_quality_status) { key total withEvidence } }`);
+    const quality = await gql(
+      `query { primariiStats(groupBy: data_quality_status) { key total withEvidence } }`
+    );
     expect(quality.errors).toBeUndefined();
-    const qualityBuckets = (quality.data as { primariiStats: { key: string; total: number }[] }).primariiStats;
+    const qualityBuckets = (quality.data as { primariiStats: { key: string; total: number }[] })
+      .primariiStats;
     expect(qualityBuckets.reduce((sum, b) => sum + b.total, 0)).toBe(3187);
     expect(qualityBuckets.find((b) => b.key === 'high')?.total).toBe(265);
 
-    const types = await gql(`query { primariiStats(groupBy: entity_type) { key total withEvidence } }`);
+    const types = await gql(
+      `query { primariiStats(groupBy: entity_type) { key total withEvidence } }`
+    );
     expect(types.errors).toBeUndefined();
-    const typeBuckets = (types.data as { primariiStats: { key: string; total: number }[] }).primariiStats;
+    const typeBuckets = (types.data as { primariiStats: { key: string; total: number }[] })
+      .primariiStats;
     expect(typeBuckets.find((b) => b.key === 'admin_commune_hall')?.total).toBe(2861);
 
-    const coverage = await gql(`query { primariiCategoryCoverage { category found notFound unknown blocked coverage } }`);
+    const coverage = await gql(
+      `query { primariiCategoryCoverage { category found notFound unknown blocked coverage } }`
+    );
     expect(coverage.errors).toBeUndefined();
-    const rows = (coverage.data as {
-      primariiCategoryCoverage: { category: string; found: number; notFound: number; unknown: number; blocked: number; coverage: number }[];
-    }).primariiCategoryCoverage;
+    const rows = (
+      coverage.data as {
+        primariiCategoryCoverage: {
+          category: string;
+          found: number;
+          notFound: number;
+          unknown: number;
+          blocked: number;
+          coverage: number;
+        }[];
+      }
+    ).primariiCategoryCoverage;
     expect(rows).toHaveLength(3);
-    expect(rows.map((r) => r.category).sort()).toEqual(['numar_angajati', 'organigrama', 'salarii']);
+    expect(rows.map((r) => r.category).sort()).toEqual([
+      'numar_angajati',
+      'organigrama',
+      'salarii',
+    ]);
     for (const row of rows) {
       expect(row.found + row.notFound + row.unknown + row.blocked).toBe(3109);
       expect(row.coverage).toBeGreaterThanOrEqual(0);
       expect(row.coverage).toBeLessThanOrEqual(1);
     }
-    expect(rows.reduce((sum, row) => sum + row.found + row.notFound + row.unknown + row.blocked, 0)).toBe(9327);
+    expect(
+      rows.reduce((sum, row) => sum + row.found + row.notFound + row.unknown + row.blocked, 0)
+    ).toBe(9327);
   });
 
   it('documents connection works for bounded filters and rejects unbounded list requests', async () => {
@@ -326,19 +438,34 @@ d('Primarii-transparency golden (live prod)', () => {
       { filter: { cui: { eq: PIATRA_CUI } } }
     );
     expect(byCui.errors).toBeUndefined();
-    const cuiDocs = (byCui.data as { primariiDocuments: { totalCount: number; edges: { node: { cui: string; category: string | null } }[] } })
-      .primariiDocuments;
+    const cuiDocs = (
+      byCui.data as {
+        primariiDocuments: {
+          totalCount: number;
+          edges: { node: { cui: string; category: string | null } }[];
+        };
+      }
+    ).primariiDocuments;
     expect(cuiDocs.totalCount).toBe(5);
     expect(cuiDocs.edges.every((e) => e.node.cui === PIATRA_CUI)).toBe(true);
 
-    const categoryExpected: Record<string, number> = { salarii: 4062, organigrama: 1842, numar_angajati: 805, other: 524 };
+    const categoryExpected: Record<string, number> = {
+      salarii: 4062,
+      organigrama: 1842,
+      numar_angajati: 805,
+      other: 524,
+    };
     let documentTotal = 0;
     for (const [category, total] of Object.entries(categoryExpected)) {
-      const res = await gql(`query($filter: PrimariiDocumentFilter!) { primariiDocuments(filter: $filter, first: 1) { totalCount } }`, {
-        filter: { category: { eq: category } },
-      });
+      const res = await gql(
+        `query($filter: PrimariiDocumentFilter!) { primariiDocuments(filter: $filter, first: 1) { totalCount } }`,
+        {
+          filter: { category: { eq: category } },
+        }
+      );
       expect(res.errors).toBeUndefined();
-      const count = (res.data as { primariiDocuments: { totalCount: number } }).primariiDocuments.totalCount;
+      const count = (res.data as { primariiDocuments: { totalCount: number } }).primariiDocuments
+        .totalCount;
       expect(count).toBe(total);
       documentTotal += count;
     }
@@ -378,9 +505,14 @@ d('Primarii-transparency golden (live prod)', () => {
     );
     expect(res.errors).toBeUndefined();
     expectNoRawEvidence(JSON.stringify(res));
-    const claims = (res.data as {
-      primariiEntitySalaryClaims: { totalCount: number; edges: { node: { amountRon: string; roleTitle: string | null } }[] };
-    }).primariiEntitySalaryClaims;
+    const claims = (
+      res.data as {
+        primariiEntitySalaryClaims: {
+          totalCount: number;
+          edges: { node: { amountRon: string; roleTitle: string | null } }[];
+        };
+      }
+    ).primariiEntitySalaryClaims;
     expect(claims.totalCount).toBe(240);
     expect(claims.edges.length).toBe(5);
     for (const edge of claims.edges) {
@@ -390,9 +522,13 @@ d('Primarii-transparency golden (live prod)', () => {
   });
 
   it('load issues expose the pinned error codes and warning evidence_missing count', async () => {
-    const errors = await gql(`query { primariiLoadIssues(severity: "error", limit: 50) { severity issueCode cui message } }`);
+    const errors = await gql(
+      `query { primariiLoadIssues(severity: "error", limit: 50) { severity issueCode cui message } }`
+    );
     expect(errors.errors).toBeUndefined();
-    const errorRows = (errors.data as { primariiLoadIssues: { severity: string; issueCode: string }[] }).primariiLoadIssues;
+    const errorRows = (
+      errors.data as { primariiLoadIssues: { severity: string; issueCode: string }[] }
+    ).primariiLoadIssues;
     expect(errorRows).toHaveLength(21);
     expect(errorRows.every((r) => r.severity === 'error')).toBe(true);
     expect(errorRows.filter((r) => r.issueCode === 'evidence_empty')).toHaveLength(18);
@@ -402,7 +538,9 @@ d('Primarii-transparency golden (live prod)', () => {
       `query { primariiLoadIssues(severity: "warning", issueCode: "evidence_missing", limit: 200) { severity issueCode } }`
     );
     expect(warnings.errors).toBeUndefined();
-    expect((warnings.data as { primariiLoadIssues: unknown[] }).primariiLoadIssues).toHaveLength(200);
+    expect((warnings.data as { primariiLoadIssues: unknown[] }).primariiLoadIssues).toHaveLength(
+      200
+    );
   });
 
   it('territory filters compile through the kernel cui→territory builder (live counts)', async () => {
@@ -421,11 +559,16 @@ d('Primarii-transparency golden (live prod)', () => {
     };
 
     expect(await total({ region: { in: ['Nord-Vest'] } })).toBe(446);
+    expect(await total({ region: { in: [] } })).toBe(0);
+    expect(await total({ region: { eq: 'Nord-Vest', in: ['Centru'] } })).toBe(0);
+    expect(await total({ region: { eq: 'Nord-Vest', in: ['Nord-Vest', 'Centru'] } })).toBe(446);
     expect(await total({ siruta: { eq: '120726' } })).toBe(1); // Piatra-Neamt's territory
     expect(await total({ isUat: { eq: false } })).toBe(15);
     expect(await total({ population: { between: { from: 10000, to: 50000 } } })).toBe(174);
     // territory predicate ANDs with a physical filter (region ∧ dataQuality=high).
-    expect(await total({ region: { in: ['Nord-Vest'] }, dataQualityStatus: { in: ['high'] } })).toBe(42);
+    expect(
+      await total({ region: { in: ['Nord-Vest'] }, dataQualityStatus: { in: ['high'] } })
+    ).toBe(42);
     // exclusion negates the membership: everything outside Bucuresti-Ilfov.
     expect(await total({ exclude: { region: { in: ['Bucuresti-Ilfov'] } } })).toBe(3140);
 
@@ -438,9 +581,12 @@ d('Primarii-transparency golden (live prod)', () => {
   });
 
   it('entity resolver maps PIATRA to the golden CUI', async () => {
-    const res = await gql(`query { primariiResolve(dim: entity, q: "PIATRA", limit: 10) { kind value label hint } }`);
+    const res = await gql(
+      `query { primariiResolve(dim: entity, q: "PIATRA", limit: 10) { kind value label hint } }`
+    );
     expect(res.errors).toBeUndefined();
-    const hits = (res.data as { primariiResolve: { value: string; label: string }[] }).primariiResolve;
+    const hits = (res.data as { primariiResolve: { value: string; label: string }[] })
+      .primariiResolve;
     expect(hits.some((h) => h.value === PIATRA_CUI)).toBe(true);
   });
 
@@ -495,12 +641,14 @@ d('Primarii-transparency golden (live prod)', () => {
     expect(direct.errors).toBeUndefined();
     expect(viaEntity.errors).toBeUndefined();
     const directProfile = (direct.data as { primariiEntity: PrimariiProfile }).primariiEntity;
-    const entityProfile = (viaEntity.data as { entity: { primariiTransparency: PrimariiProfile | null } }).entity.primariiTransparency;
+    const entityProfile = (
+      viaEntity.data as { entity: { primariiTransparency: PrimariiProfile | null } }
+    ).entity.primariiTransparency;
     expect(entityProfile).toEqual(directProfile);
     expect(entityProfile?.status.dataQualityStatus).toBe('high');
-    expect(entityProfile?.categories.map((c) => ({ category: c.category, status: c.status }))).toEqual(
-      directProfile.categories.map((c) => ({ category: c.category, status: c.status }))
-    );
+    expect(
+      entityProfile?.categories.map((c) => ({ category: c.category, status: c.status }))
+    ).toEqual(directProfile.categories.map((c) => ({ category: c.category, status: c.status })));
   });
 
   it('GraphQL profile equals MCP get_primarii_entity_transparency and MCP omits raw evidence', async () => {
@@ -521,20 +669,30 @@ d('Primarii-transparency golden (live prod)', () => {
   });
 
   it('MCP list, aggregate, capability gate, and resolve surfaces match GraphQL facts', async () => {
-    const list = await mcpCall('list_primarii_entities', { filter: { dataQualityStatus: { in: ['high'] } }, limit: 5 });
+    const list = await mcpCall('list_primarii_entities', {
+      filter: { dataQualityStatus: { in: ['high'] } },
+      limit: 5,
+    });
     expectNoRawEvidence(list.raw);
     expect(list.out['ok']).toBe(true);
     expect(list.out['kind']).toBe('entity_list');
     expect(String(list.out['summary'])).toContain('265');
     expect(((list.out['items'] as unknown[]) ?? []).length).toBeLessThanOrEqual(5);
 
-    const quality = await mcpCall('aggregate_primarii_transparency', { groupBy: 'data_quality_status' });
+    const quality = await mcpCall('aggregate_primarii_transparency', {
+      groupBy: 'data_quality_status',
+    });
     expectNoRawEvidence(quality.raw);
     expect(quality.out['ok']).toBe(true);
     expect(quality.out['kind']).toBe('aggregate');
-    expect((quality.out['items'] as { key: string; total: number }[]).find((b) => b.key === 'high')?.total).toBe(265);
+    expect(
+      (quality.out['items'] as { key: string; total: number }[]).find((b) => b.key === 'high')
+        ?.total
+    ).toBe(265);
 
-    const coverage = await mcpCall('aggregate_primarii_transparency', { groupBy: 'category_coverage' });
+    const coverage = await mcpCall('aggregate_primarii_transparency', {
+      groupBy: 'category_coverage',
+    });
     expectNoRawEvidence(coverage.raw);
     expect(coverage.out['ok']).toBe(true);
     expect(coverage.out['kind']).toBe('aggregate');
@@ -545,10 +703,16 @@ d('Primarii-transparency golden (live prod)', () => {
     expect(region.out['ok']).toBe(false);
     expect(String(region.out['error'])).toContain('territory');
 
-    const resolve = await mcpCall('resolve_primarii_filters', { dim: 'entity', q: 'PIATRA', limit: 10 });
+    const resolve = await mcpCall('resolve_primarii_filters', {
+      dim: 'entity',
+      q: 'PIATRA',
+      limit: 10,
+    });
     expectNoRawEvidence(resolve.raw);
     expect(resolve.out['ok']).toBe(true);
     expect(resolve.out['kind']).toBe('filter_values');
-    expect((resolve.out['items'] as { value: string }[]).some((i) => i.value === PIATRA_CUI)).toBe(true);
+    expect((resolve.out['items'] as { value: string }[]).some((i) => i.value === PIATRA_CUI)).toBe(
+      true
+    );
   });
 });

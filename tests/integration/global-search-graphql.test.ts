@@ -34,7 +34,10 @@ import type {
 } from '@/modules/shared/core/types.js';
 import type { GlobalSearchDeps } from '@/modules/shared/core/usecases/global-search.js';
 import type { KernelCache } from '@/modules/shared/shell/middleware/cache.js';
-import type { RateLimiter, RateLimitResult } from '@/modules/shared/shell/middleware/rate-limiter.js';
+import type {
+  RateLimiter,
+  RateLimitResult,
+} from '@/modules/shared/shell/middleware/rate-limiter.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fakes
@@ -82,11 +85,14 @@ const makeDeps = (opts: {
   const searchEntities =
     opts.searchSpy ??
     vi.fn(async () =>
-      ok({ hits: opts.hits ?? [makeHit()], facetDistribution: {}, estimatedTotalHits: (opts.hits ?? [makeHit()]).length })
+      ok({
+        hits: opts.hits ?? [makeHit()],
+        facetDistribution: {},
+        estimatedTotalHits: (opts.hits ?? [makeHit()]).length,
+      })
     );
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient: { searchEntities } as never,
-    identityRepo: { searchByName: vi.fn(async () => ok([])) } as never,
     searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
     meiliIndexes: ['entities'],
   };
@@ -181,7 +187,7 @@ describe('searchEntities resolver — rate limiting', () => {
       expect(gqlErr.extensions['code']).toBe('RATE_LIMITED');
       expect(gqlErr.extensions['retryAfterMs']).toBe(5000);
     }
-    expect((cache).wrapCalls).toEqual([]);
+    expect(cache.wrapCalls).toEqual([]);
   });
 
   it('rate-limits per caller IP (distinct buckets per IP)', async () => {
@@ -235,7 +241,7 @@ describe('searchEntities resolver — caching', () => {
     await resolver(deps)(null, { q: 'a|b' }, ctx());
     await resolver(deps)(null, { q: 'a', docTypes: ['b'] }, ctx());
 
-    const keys = (cache).wrapCalls;
+    const keys = cache.wrapCalls;
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);
     expect(keys[0]).toContain('"q":"a|b"');
@@ -247,7 +253,7 @@ describe('searchEntities resolver — caching', () => {
     const { deps } = makeDeps({ cache });
     await resolver(deps)(null, { q: 'x', docTypes: ['bill', 'company'] }, ctx());
     await resolver(deps)(null, { q: 'x', docTypes: ['company', 'bill'] }, ctx());
-    const keys = (cache).wrapCalls;
+    const keys = cache.wrapCalls;
     expect(keys[0]).toBe(keys[1]);
   });
 });
@@ -264,7 +270,16 @@ describe('kernel base SDL — search types', () => {
   });
 
   it('exposes the new SearchHit projection fields', () => {
-    for (const field of ['docId', 'docKey', 'subtitle', 'countyName', 'url', 'rankBoost', 'cuis', 'year']) {
+    for (const field of [
+      'docId',
+      'docKey',
+      'subtitle',
+      'countyName',
+      'url',
+      'rankBoost',
+      'cuis',
+      'year',
+    ]) {
       expect(baseTypeDefs).toContain(field);
     }
   });

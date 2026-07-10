@@ -51,7 +51,11 @@ const strArray = (args: Record<string, unknown>, key: string): string[] | undefi
   const v = args[key];
   return Array.isArray(v) ? v.map((x) => String(x)) : undefined;
 };
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 /** Build a kernel FilterInput for the case-aggregate bound args (court/level/category/year). */
@@ -66,13 +70,19 @@ const aggregateFilter = (args: Record<string, unknown>): FilterInput => {
   const yearFrom = intArg(args, 'yearFrom');
   const yearTo = intArg(args, 'yearTo');
   if (yearFrom !== undefined || yearTo !== undefined) {
-    filter['year'] = { between: { ...(yearFrom !== undefined && { from: yearFrom }), ...(yearTo !== undefined && { to: yearTo }) } };
+    filter['year'] = {
+      between: {
+        ...(yearFrom !== undefined && { from: yearFrom }),
+        ...(yearTo !== undefined && { to: yearTo }),
+      },
+    };
   }
   return filter as FilterInput;
 };
 
 const litigationFilter = (args: Record<string, unknown>): CompanyLitigationFilter | undefined => {
-  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } = {};
+  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } =
+    {};
   const lvl = strArray(args, 'courtLevel');
   if (lvl !== undefined) f.courtLevels = lvl;
   const cat = strArray(args, 'category');
@@ -116,14 +126,17 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getJudicialCase: KernelMcpTool = {
     name: 'get_judicial_case',
     description:
-      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case, hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names only; person/unknown parties contribute only to personPartyCount), legal references, and lineage candidates.',
+      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case, hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names and keys only; withheld identities contribute only to personPartyCount), legal references, and lineage candidates.',
     inputShape: getJudicialCaseInput,
     async handler(args): Promise<McpToolOutput> {
       const caseId = str(args, 'caseId');
       const institutionCode = str(args, 'institutionCode');
       const caseNumber = str(args, 'caseNumber');
       if (caseId === undefined && (institutionCode === undefined || caseNumber === undefined)) {
-        return errorOut(JUDICIAL_MCP_KINDS.caseDetail, 'caseId or (institutionCode + caseNumber) is required');
+        return errorOut(
+          JUDICIAL_MCP_KINDS.caseDetail,
+          'caseId or (institutionCode + caseNumber) is required'
+        );
       }
       const res = await getCaseDetail(repos, {
         ...(caseId !== undefined && { caseId }),
@@ -133,7 +146,12 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.caseDetail, res.error.message);
       const detail = res.value;
       if (detail === null) {
-        return { ok: true, kind: JUDICIAL_MCP_KINDS.caseDetail, query: args, summary: 'No matching case.' };
+        return {
+          ok: true,
+          kind: JUDICIAL_MCP_KINDS.caseDetail,
+          query: args,
+          summary: 'No matching case.',
+        };
       }
       return {
         ok: true,
@@ -152,8 +170,14 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Court caseload analytics (JD-2): case counts grouped by court/category/year/courtLevel. Deterministic SQL; REQUIRES a court/level/period bound (else InvalidInput). Returns groups + denominator + coverage.',
     inputShape: getCourtCaseloadInput,
     async handler(args): Promise<McpToolOutput> {
-      const groupBy = str(args, 'groupBy') as 'court' | 'category' | 'year' | 'courtLevel' | undefined;
-      if (groupBy === undefined) return errorOut(JUDICIAL_MCP_KINDS.caseload, 'groupBy is required');
+      const groupBy = str(args, 'groupBy') as
+        | 'court'
+        | 'category'
+        | 'year'
+        | 'courtLevel'
+        | undefined;
+      if (groupBy === undefined)
+        return errorOut(JUDICIAL_MCP_KINDS.caseload, 'groupBy is required');
       const res = await getCourtCaseload(repos, groupBy, aggregateFilter(args));
       if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.caseload, res.error.message);
       const agg = res.value;
@@ -176,7 +200,8 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
     inputShape: getCompanyLitigationInput,
     async handler(args): Promise<McpToolOutput> {
       const cui = str(args, 'cui');
-      if (cui === undefined) return errorOut(JUDICIAL_MCP_KINDS.companyLitigation, 'cui is required');
+      if (cui === undefined)
+        return errorOut(JUDICIAL_MCP_KINDS.companyLitigation, 'cui is required');
       const res = await getCompanyLitigation(repos, cui, litigationFilter(args));
       if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.companyLitigation, res.error.message);
       const s = res.value;
