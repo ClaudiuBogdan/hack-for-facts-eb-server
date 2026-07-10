@@ -18,9 +18,16 @@ import {
   EXECUTION_REPORT_TYPE_FROM_LABEL,
   EXECUTION_REPORT_TYPE_LABELS,
 } from '@/modules/budget/core/constants.js';
-import { resolveCommitmentGate, resolveExecutionGate } from '@/modules/budget/shell/repo/filter-helpers.js';
+import {
+  resolveCommitmentGate,
+  resolveExecutionGate,
+} from '@/modules/budget/shell/repo/filter-helpers.js';
 
-const EXEC_DEFAULTS = { reportType: 'EXECUTION_DETAILED', accountCategory: 'EXPENSE', frequency: 'YEAR' } as const;
+const EXEC_DEFAULTS = {
+  reportType: 'EXECUTION_DETAILED',
+  accountCategory: 'EXPENSE',
+  frequency: 'YEAR',
+} as const;
 const COMMIT_DEFAULTS = { reportType: 'COMMITMENT_AGG_PRINCIPAL', frequency: 'YEAR' } as const;
 
 describe('enum ↔ partition-literal map (verified live 2026-06-17)', () => {
@@ -38,7 +45,9 @@ describe('enum ↔ partition-literal map (verified live 2026-06-17)', () => {
     expect(COMMITMENT_REPORT_TYPE_LABELS.COMMITMENT_AGG_PRINCIPAL).toBe(
       'Executie - Angajamente bugetare agregat principal'
     );
-    expect(COMMITMENT_REPORT_TYPE_LABELS.COMMITMENT_DETAILED).toBe('Executie - Angajamente bugetare detaliat');
+    expect(COMMITMENT_REPORT_TYPE_LABELS.COMMITMENT_DETAILED).toBe(
+      'Executie - Angajamente bugetare detaliat'
+    );
   });
 
   it('account category maps INCOME→vn / EXPENSE→ch (the L3 partition keys)', () => {
@@ -60,7 +69,10 @@ describe('enum ↔ partition-literal map (verified live 2026-06-17)', () => {
 
 describe('execution gate — pruning triple enforcement', () => {
   it('resolves the triple to partition literals when year + defaults are present', () => {
-    const gate = resolveExecutionGate({ reportingYear: { eq: 2025 } }, EXEC_DEFAULTS)._unsafeUnwrap();
+    const gate = resolveExecutionGate(
+      { reportingYear: { eq: 2025 } },
+      EXEC_DEFAULTS
+    )._unsafeUnwrap();
     expect(gate.years.eq).toBe(2025);
     expect(gate.reportLabel).toBe('Executie bugetara detaliata'); // default → literal, NOT the enum
     expect(gate.accountLabel).toBe('ch'); // EXPENSE default → ch
@@ -69,7 +81,11 @@ describe('execution gate — pruning triple enforcement', () => {
 
   it('honors an explicit reportType + accountCategory (mapped to literals)', () => {
     const gate = resolveExecutionGate(
-      { reportingYear: { eq: 2024 }, reportType: { eq: 'EXECUTION_AGG_PRINCIPAL' }, accountCategory: { eq: 'INCOME' } },
+      {
+        reportingYear: { eq: 2024 },
+        reportType: { eq: 'EXECUTION_AGG_PRINCIPAL' },
+        accountCategory: { eq: 'INCOME' },
+      },
       EXEC_DEFAULTS
     )._unsafeUnwrap();
     expect(gate.reportLabel).toBe('Executie bugetara agregata la nivel de ordonator principal');
@@ -77,8 +93,15 @@ describe('execution gate — pruning triple enforcement', () => {
   });
 
   it('accepts a bounded year range (between) and an IN list', () => {
-    expect(resolveExecutionGate({ reportingYear: { between: { from: 2020, to: 2024 } } }, EXEC_DEFAULTS).isOk()).toBe(true);
-    expect(resolveExecutionGate({ reportingYear: { in: [2023, 2024] } }, EXEC_DEFAULTS).isOk()).toBe(true);
+    expect(
+      resolveExecutionGate(
+        { reportingYear: { between: { from: 2020, to: 2024 } } },
+        EXEC_DEFAULTS
+      ).isOk()
+    ).toBe(true);
+    expect(
+      resolveExecutionGate({ reportingYear: { in: [2023, 2024] } }, EXEC_DEFAULTS).isOk()
+    ).toBe(true);
   });
 
   it('REJECTS a year-less fact query (the unbounded-scan guard)', () => {
@@ -93,17 +116,26 @@ describe('execution gate — pruning triple enforcement', () => {
 
   it('REJECTS an unknown reportType / accountCategory', () => {
     expect(
-      resolveExecutionGate({ reportingYear: { eq: 2025 }, reportType: { eq: 'NOPE' } }, EXEC_DEFAULTS).isErr()
+      resolveExecutionGate(
+        { reportingYear: { eq: 2025 }, reportType: { eq: 'NOPE' } },
+        EXEC_DEFAULTS
+      ).isErr()
     ).toBe(true);
     expect(
-      resolveExecutionGate({ reportingYear: { eq: 2025 }, accountCategory: { eq: 'NOPE' } }, EXEC_DEFAULTS).isErr()
+      resolveExecutionGate(
+        { reportingYear: { eq: 2025 }, accountCategory: { eq: 'NOPE' } },
+        EXEC_DEFAULTS
+      ).isErr()
     ).toBe(true);
   });
 });
 
 describe('commitment gate — pair enforcement, NO account_category', () => {
   it('resolves the pair (year + report_type) with no account_category', () => {
-    const gate = resolveCommitmentGate({ reportingYear: { eq: 2025 } }, COMMIT_DEFAULTS)._unsafeUnwrap();
+    const gate = resolveCommitmentGate(
+      { reportingYear: { eq: 2025 } },
+      COMMIT_DEFAULTS
+    )._unsafeUnwrap();
     expect(gate.reportLabel).toBe('Executie - Angajamente bugetare agregat principal');
     expect(gate.frequency).toBe('YEAR');
   });
@@ -119,6 +151,8 @@ describe('commitment gate — pair enforcement, NO account_category', () => {
   });
 
   it('REJECTS a year-less commitment query', () => {
-    expect(resolveCommitmentGate({ entityCuis: { in: ['4305857'] } }, COMMIT_DEFAULTS).isErr()).toBe(true);
+    expect(
+      resolveCommitmentGate({ entityCuis: { in: ['4305857'] } }, COMMIT_DEFAULTS).isErr()
+    ).toBe(true);
   });
 });

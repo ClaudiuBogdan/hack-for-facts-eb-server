@@ -24,7 +24,16 @@ import type { IsoDate } from '@/modules/shared/index.js';
 
 /** `mo_issues.part_code` (verified live: PI/PII/PIM/PIV/PIII/PVI/PV; PVII reserved). */
 export type MoPartCode = 'PI' | 'PII' | 'PIM' | 'PIII' | 'PIV' | 'PV' | 'PVI' | 'PVII';
-export const MO_PART_CODES: readonly MoPartCode[] = ['PI', 'PII', 'PIM', 'PIII', 'PIV', 'PV', 'PVI', 'PVII'];
+export const MO_PART_CODES: readonly MoPartCode[] = [
+  'PI',
+  'PII',
+  'PIM',
+  'PIII',
+  'PIV',
+  'PV',
+  'PVI',
+  'PVII',
+];
 
 /** `mo_act_publications.resolution` (no hyphens — needs no translation). */
 export type MoResolution = 'unique' | 'ambiguous' | 'unmatched';
@@ -32,14 +41,30 @@ export const MO_RESOLUTIONS: readonly MoResolution[] = ['unique', 'ambiguous', '
 
 /** `mo_lifecycle_edges.resolution` (`mo-only` is hyphenated — §6.1). */
 export type MoEdgeResolution = 'unique' | 'mo-only' | 'ambiguous' | 'unresolved';
-export const MO_EDGE_RESOLUTIONS: readonly MoEdgeResolution[] = ['unique', 'mo-only', 'ambiguous', 'unresolved'];
+export const MO_EDGE_RESOLUTIONS: readonly MoEdgeResolution[] = [
+  'unique',
+  'mo-only',
+  'ambiguous',
+  'unresolved',
+];
 
 /** `mo_lifecycle_edges.relation` (no hyphens). `respinge` is EDGE-ONLY. */
 export type MoRelation = 'promulga' | 'aproba' | 'respinge' | 'rectifica' | 'republica';
-export const MO_RELATIONS: readonly MoRelation[] = ['promulga', 'aproba', 'respinge', 'rectifica', 'republica'];
+export const MO_RELATIONS: readonly MoRelation[] = [
+  'promulga',
+  'aproba',
+  'respinge',
+  'rectifica',
+  'republica',
+];
 
 /** MO-written `act_status_events.event_kind` (5 hyphenated values — §2.4). */
-export type MoStatusKind = 'promulgare' | 'aprobare-oug' | 'aprobare-og' | 'rectificare' | 'republicare';
+export type MoStatusKind =
+  | 'promulgare'
+  | 'aprobare-oug'
+  | 'aprobare-og'
+  | 'rectificare'
+  | 'republicare';
 export const MO_STATUS_KINDS: readonly MoStatusKind[] = [
   'promulgare',
   'aprobare-oug',

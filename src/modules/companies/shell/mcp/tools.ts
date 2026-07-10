@@ -11,7 +11,12 @@
 
 import { z } from 'zod';
 
-import { normalizeOffset, type FilterInput, type KernelMcpTool, type McpToolOutput  } from '@/modules/shared/index.js';
+import {
+  normalizeOffset,
+  type FilterInput,
+  type KernelMcpTool,
+  type McpToolOutput,
+} from '@/modules/shared/index.js';
 
 import {
   COMPANY_RESOLVE_DIMS,
@@ -31,7 +36,6 @@ import {
 } from '../../core/usecases.js';
 
 import type { HubStatsProvider } from '../hub-stats-cache.js';
-
 
 export interface CompaniesMcpDeps extends CompanyUsecaseDeps {
   readonly clientBaseUrl: string;
@@ -55,7 +59,11 @@ const filterArg = (args: Record<string, unknown>): FilterInput => {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as FilterInput) : {};
 };
 
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 /**
@@ -77,12 +85,21 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       'Resolve a free-text company query to a filter value: company name → CUI (Meili-primary), registration number (J##/####/####) → CUI list (one-to-many possible), CAEN label → code, county name → canonical county. Use BEFORE the other company tools.',
     inputShape: {
       dim: z.enum(['name', 'regnum', 'caen', 'county']).describe('Which dimension to resolve.'),
-      q: z.string().describe('The free-text query (name, registration number, CAEN label, or county).'),
-      limit: z.number().int().min(0).max(50).optional().describe('Max hits (default 10; 0 = no hits).'),
+      q: z
+        .string()
+        .describe('The free-text query (name, registration number, CAEN label, or county).'),
+      limit: z
+        .number()
+        .int()
+        .min(0)
+        .max(50)
+        .optional()
+        .describe('Max hits (default 10; 0 = no hits).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const dim = strArg(args, 'dim') as CompanyResolveDim;
-      if (!COMPANY_RESOLVE_DIMS.includes(dim)) return errorOut('resolution', `unknown dim '${dim}'`);
+      if (!COMPANY_RESOLVE_DIMS.includes(dim))
+        return errorOut('resolution', `unknown dim '${dim}'`);
       const q = strArg(args, 'q');
       const res = await makeCompanyResolve(deps, dim, q, intArg(args, 'limit', 10));
       if (res.isErr()) return errorOut('resolution', res.error.message);
@@ -101,7 +118,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         query: { dim, q },
         items: hits,
         meta: { count: hits.length, degraded: r.degraded },
-        summary: r.degraded ? `${summary} (name search degraded — search service unavailable)` : summary,
+        summary: r.degraded
+          ? `${summary} (name search degraded — search service unavailable)`
+          : summary,
       };
     },
   };
@@ -116,7 +135,8 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const res = await makeCompanyProfile(deps, cui);
       if (res.isErr()) return errorOut('company', res.error.message);
       const p = res.value;
-      if (p === null) return { ok: true, kind: 'company', query: { cui }, summary: `No company for CUI ${cui}.` };
+      if (p === null)
+        return { ok: true, kind: 'company', query: { cui }, summary: `No company for CUI ${cui}.` };
       const latest = p.financials[0];
       const pm = p.publicMoney;
       const summary =
@@ -124,7 +144,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         (p.address.county !== null ? `, ${p.address.county}` : '') +
         (p.headlineStatus !== null ? `, status ${p.headlineStatus.label}` : '') +
         (p.fiscal?.vatPayer === true ? ', VAT payer' : '') +
-        (latest !== undefined ? `; ${String(latest.year)} turnover ${latest.turnover ?? 'n/a'} RON, ${latest.employees ?? 'n/a'} employees` : '') +
+        (latest !== undefined
+          ? `; ${String(latest.year)} turnover ${latest.turnover ?? 'n/a'} RON, ${latest.employees ?? 'n/a'} employees`
+          : '') +
         `; received ${pm?.totalRon ?? '0'} RON public money.`;
       return {
         ok: true,
@@ -157,14 +179,24 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const res = await makeCompanyFinancials(deps, cui);
       if (res.isErr()) return errorOut('financials', res.error.message);
       const f = res.value;
-      if (f === null) return { ok: true, kind: 'financials', query: { cui }, summary: `No financials for CUI ${cui}.` };
+      if (f === null)
+        return {
+          ok: true,
+          kind: 'financials',
+          query: { cui },
+          summary: `No financials for CUI ${cui}.`,
+        };
       return {
         ok: true,
         kind: 'financials',
         query: { cui },
         link: companyLink(cui),
         item: f,
-        summary: `${n(f.years.length)} financial year(s) for CUI ${cui}` + (f.latest !== null ? `; latest ${String(f.latest.year)} turnover ${f.latest.turnover ?? 'n/a'} RON.` : '.'),
+        summary:
+          `${n(f.years.length)} financial year(s) for CUI ${cui}` +
+          (f.latest !== null
+            ? `; latest ${String(f.latest.year)} turnover ${f.latest.turnover ?? 'n/a'} RON.`
+            : '.'),
       };
     },
   };
@@ -174,11 +206,28 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     description:
       'Filterable company list (bounded). Filter by cui/county/status/caenCode/legalForm/vatPayer/declaredFiscallyInactive/registrationDate; optional q (company name, Meili-primary). Sort by name/registrationDate/cui. Returns rows + bounded total (≤10,000; totalEstimated flags the cap). Resolve names→CUIs with resolve_company_filter first (Entity Resolution Gate).',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A companies filter object (e.g. { county: { in: ["Cluj"] }, status: { in: ["1084"] } }).'),
-      q: z.string().optional().describe('Company-name search (Meili-primary; degrades to a capped pg scan).'),
-      sort: z.enum(['name', 'registrationDate', 'cui']).optional().describe('Sort key (default name). Value sorts (turnover/employees) are not offered.'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          'A companies filter object (e.g. { county: { in: ["Cluj"] }, status: { in: ["1084"] } }).'
+        ),
+      q: z
+        .string()
+        .optional()
+        .describe('Company-name search (Meili-primary; degrades to a capped pg scan).'),
+      sort: z
+        .enum(['name', 'registrationDate', 'cui'])
+        .optional()
+        .describe('Sort key (default name). Value sorts (turnover/employees) are not offered.'),
       page: z.number().int().min(1).optional().describe('1-based page (default 1).'),
-      pageSize: z.number().int().min(1).max(100).optional().describe('Page size (default 20, max 100).'),
+      pageSize: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('Page size (default 20, max 100).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const sortRaw = strArg(args, 'sort');
@@ -203,7 +252,12 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         items: rows,
         // Structured totals so an agent can tell a capped estimate (≥10,000) from an
         // exact count without parsing the summary text (audit H6).
-        meta: { totalCount: total, totalEstimated, pageCount: rows.length, ...(caveats.length > 0 && { caveats }) },
+        meta: {
+          totalCount: total,
+          totalEstimated,
+          pageCount: rows.length,
+          ...(caveats.length > 0 && { caveats }),
+        },
         summary:
           `${n(rows.length)} company(ies) on page ${n(page.page)}` +
           `; ${totalEstimated ? '≥' : ''}${n(total)} match(es)` +
@@ -217,8 +271,13 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     description:
       'Count-ranked company aggregate grouped by county, status, or CAEN division, with a denominator and coverage block. Value-weighted ("biggest by turnover") rankings are NOT offered — no financials rank index/rollup exists (count-only).',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A companies filter object (e.g. { county: { in: ["Cluj"] } }).'),
-      groupBy: z.enum(['county', 'status', 'caenDivision']).describe('Grouping dimension. county requires a selective filter.'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A companies filter object (e.g. { county: { in: ["Cluj"] } }).'),
+      groupBy: z
+        .enum(['county', 'status', 'caenDivision'])
+        .describe('Grouping dimension. county requires a selective filter.'),
     },
     async handler(args): Promise<McpToolOutput> {
       const groupBy = strArg(args, 'groupBy') as CompanyGroupBy;
@@ -232,10 +291,16 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         link: `${clientBaseUrl}/companii`,
         items: res.value.groups,
         // Structured denominator + territory coverage (audit H6 — were summary-only).
-        meta: { denominator: res.value.denominator, groupCount: res.value.groups.length, coverage: res.value.coverage },
+        meta: {
+          denominator: res.value.denominator,
+          groupCount: res.value.groups.length,
+          coverage: res.value.coverage,
+        },
         summary:
           `${n(res.value.groups.length)} ${groupBy} group(s); ${n(res.value.denominator)} companies` +
-          (top !== undefined ? `; top ${top.label ?? top.key} = ${n(top.count)}. ${res.value.coverage.note}` : `. ${res.value.coverage.note}`),
+          (top !== undefined
+            ? `; top ${top.label ?? top.key} = ${n(top.count)}. ${res.value.coverage.note}`
+            : `. ${res.value.coverage.note}`),
       };
     },
   };
@@ -264,7 +329,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         },
         summary:
           `${n(s.totalCompanies)} companies on the registry spine; ${n(s.activeCompanies)} active (funcțiune)` +
-          (topCounty !== undefined ? `; most active in ${topCounty.key} (${n(topCounty.count)})` : '') +
+          (topCounty !== undefined
+            ? `; most active in ${topCounty.key} (${n(topCounty.count)})`
+            : '') +
           `; ${n(s.caenDivisions.length)} CAEN division(s). Computed ${s.computedAt}. ${s.coverage.note}`,
       };
     },

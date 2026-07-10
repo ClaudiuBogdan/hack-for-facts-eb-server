@@ -45,11 +45,21 @@ const filterArg = (args: Record<string, unknown>): FilterInput => {
   const v = args['filter'];
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as FilterInput) : {};
 };
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 const RESOLVE_DIMS = new Set(['entity', 'county', 'status', 'siruta']);
-const STAT_GROUP_BYS = new Set(['county', 'region', 'data_quality_status', 'result_status', 'entity_type']);
+const STAT_GROUP_BYS = new Set([
+  'county',
+  'region',
+  'data_quality_status',
+  'result_status',
+  'entity_type',
+]);
 
 export const makePrimariiMcpTools = (deps: PrimariiMcpDeps): readonly KernelMcpTool[] => {
   const { clientBaseUrl } = deps;
@@ -72,9 +82,15 @@ export const makePrimariiMcpTools = (deps: PrimariiMcpDeps): readonly KernelMcpT
     inputShape: resolvePrimariiFiltersInput,
     async handler(args): Promise<McpToolOutput> {
       const dim = strArg(args, 'dim');
-      if (!RESOLVE_DIMS.has(dim)) return errorOut(PRIMARII_MCP_KINDS.resolve, `unknown dim '${dim}'`);
+      if (!RESOLVE_DIMS.has(dim))
+        return errorOut(PRIMARII_MCP_KINDS.resolve, `unknown dim '${dim}'`);
       const q = strArg(args, 'q');
-      const res = await resolveFilters(deps, dim as PrimariiResolveDim, q, intArg(args, 'limit', 10));
+      const res = await resolveFilters(
+        deps,
+        dim as PrimariiResolveDim,
+        q,
+        intArg(args, 'limit', 10)
+      );
       if (res.isErr()) return errorOut(PRIMARII_MCP_KINDS.resolve, res.error.message);
       const top = res.value[0];
       return {
@@ -102,7 +118,12 @@ export const makePrimariiMcpTools = (deps: PrimariiMcpDeps): readonly KernelMcpT
       if (res.isErr()) return errorOut(PRIMARII_MCP_KINDS.entity, res.error.message);
       const profile = res.value;
       if (profile === null)
-        return { ok: true, kind: PRIMARII_MCP_KINDS.entity, query: { cui }, summary: 'No transparency profile for this CUI.' };
+        return {
+          ok: true,
+          kind: PRIMARII_MCP_KINDS.entity,
+          query: { cui },
+          summary: 'No transparency profile for this CUI.',
+        };
       const s = profile.status;
       const found = profile.categories.filter((c) => c.status === 'found').length;
       const docCount = profile.documentCounts.reduce((a, c) => a + c.count, 0);
@@ -175,7 +196,8 @@ export const makePrimariiMcpTools = (deps: PrimariiMcpDeps): readonly KernelMcpT
         };
       }
 
-      if (!STAT_GROUP_BYS.has(groupBy)) return errorOut(PRIMARII_MCP_KINDS.aggregate, `unknown groupBy '${groupBy}'`);
+      if (!STAT_GROUP_BYS.has(groupBy))
+        return errorOut(PRIMARII_MCP_KINDS.aggregate, `unknown groupBy '${groupBy}'`);
       const res = await getTransparencyStats(deps, groupBy as PrimariiStatGroupBy, filter);
       if (res.isErr()) return errorOut(PRIMARII_MCP_KINDS.aggregate, res.error.message);
       const top = res.value[0];

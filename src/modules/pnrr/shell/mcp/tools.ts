@@ -8,10 +8,13 @@
 
 import { z } from 'zod';
 
-import { PNRR_GRAIN_NOTE, PNRR_RESOLVE_DIMS,
+import {
+  PNRR_GRAIN_NOTE,
+  PNRR_RESOLVE_DIMS,
   type PnrrContractorRankBy,
   type PnrrPaymentGroupBy,
-  type PnrrResolveDim } from '../../core/types.js';
+  type PnrrResolveDim,
+} from '../../core/types.js';
 import {
   aggregatePnrrPayments,
   getPnrrEntity,
@@ -44,7 +47,11 @@ const intArg = (args: Record<string, unknown>, key: string, dflt: number): numbe
   return Number.isFinite(n) ? Math.floor(n) : dflt;
 };
 
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 
 /** Stringify a number for safe template interpolation (no implicit number→string). */
 const n = (x: number): string => String(x);
@@ -58,7 +65,9 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
     description:
       'Resolve a free-text PNRR query to a filter value: entity/contractor name → CUI, label → component code, name → measure fenix reference, county name → SIRUTA. Use before querying other PNRR tools.',
     inputShape: {
-      dim: z.enum(['entity', 'component', 'measure', 'county', 'contractor']).describe('Which dimension to resolve.'),
+      dim: z
+        .enum(['entity', 'component', 'measure', 'county', 'contractor'])
+        .describe('Which dimension to resolve.'),
       q: z.string().describe('The free-text query (name or label).'),
       limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 10).'),
     },
@@ -96,7 +105,12 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
       const entity = entityRes.value;
       const profile = profileRes.value;
       if (entity === null || profile === null) {
-        return { ok: true, kind: 'entity', query: { cui }, summary: `No PNRR entity for CUI ${cui}.` };
+        return {
+          ok: true,
+          kind: 'entity',
+          query: { cui },
+          summary: `No PNRR entity for CUI ${cui}.`,
+        };
       }
       const name = entity.name ?? cui;
       const pay = profile.payments;
@@ -121,7 +135,10 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
     description:
       'Rank PNRR contractors by total awarded value or award count, from source procurement facts. Self-award acquisitions are excluded. Optionally filter by role/CUI/acquisition.',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A PnrrContractors filter object (e.g. { role: { eq: "winning_bidder" } }).'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A PnrrContractors filter object (e.g. { role: { eq: "winning_bidder" } }).'),
       by: z.enum(['value', 'awards']).optional().describe('Ranking basis (default value).'),
       limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 20).'),
     },
@@ -139,7 +156,9 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
         items: res.value,
         summary:
           `Top ${n(res.value.length)} PNRR contractors by ${by} (self-awards excluded)` +
-          (top !== undefined ? `; #1 ${top.contractorName ?? top.contractorCui ?? 'n/a'} (${n(top.awardCount)} award(s)).` : '.'),
+          (top !== undefined
+            ? `; #1 ${top.contractorName ?? top.contractorCui ?? 'n/a'} (${n(top.awardCount)} award(s)).`
+            : '.'),
       };
     },
   };
@@ -149,7 +168,10 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
     description:
       'Aggregate PNRR cash payments grouped by component, measure, county, or year. Needs a bounded window (paymentDate/year) or a driving predicate (beneficiaryCui/componentCode/measureFenix).',
     inputShape: {
-      filter: z.record(z.string(), z.unknown()).optional().describe('A PnrrPayments filter object.'),
+      filter: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A PnrrPayments filter object.'),
       groupBy: z.enum(['component', 'measure', 'county', 'year']).describe('Grouping dimension.'),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -165,7 +187,9 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
         items: res.value,
         summary:
           `PNRR payments grouped by ${groupBy}: ${n(res.value.length)} group(s)` +
-          (top !== undefined ? `; top ${top.label ?? top.key} = ${top.totalLei ?? '0'} lei (cash; not commitments).` : '.'),
+          (top !== undefined
+            ? `; top ${top.label ?? top.key} = ${top.totalLei ?? '0'} lei (cash; not commitments).`
+            : '.'),
       };
     },
   };

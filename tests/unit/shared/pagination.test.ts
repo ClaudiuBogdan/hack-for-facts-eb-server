@@ -31,14 +31,24 @@ describe('cursor envelope', () => {
   });
 
   it('rejects an fhash mismatch (filters changed mid-pagination)', () => {
-    const cursor = buildNextCursor({ sort: 'flow_date', dir: 'desc', fhash: 'OLD', lastKeys: ['2024-01-01', 42] });
+    const cursor = buildNextCursor({
+      sort: 'flow_date',
+      dir: 'desc',
+      fhash: 'OLD',
+      lastKeys: ['2024-01-01', 42],
+    });
     const decoded = decodeCursor(cursor, expected);
     expect(decoded.isErr()).toBe(true);
     expect(decoded._unsafeUnwrapErr().message).toContain('mismatch');
   });
 
   it('rejects a sort/dir mismatch', () => {
-    const cursor = buildNextCursor({ sort: 'amount', dir: 'asc', fhash: 'abc123', lastKeys: ['1'] });
+    const cursor = buildNextCursor({
+      sort: 'amount',
+      dir: 'asc',
+      fhash: 'abc123',
+      lastKeys: ['1'],
+    });
     expect(decodeCursor(cursor, expected).isErr()).toBe(true);
   });
 
@@ -59,7 +69,12 @@ describe('cursor envelope', () => {
   });
 
   it('encodes null keys as empty strings', () => {
-    const cursor = buildNextCursor({ sort: 'flow_date', dir: 'desc', fhash: 'abc123', lastKeys: [null, 7] });
+    const cursor = buildNextCursor({
+      sort: 'flow_date',
+      dir: 'desc',
+      fhash: 'abc123',
+      lastKeys: [null, 7],
+    });
     const decoded = decodeCursor(cursor, expected);
     expect(decoded._unsafeUnwrap().keys).toEqual(['', '7']);
   });

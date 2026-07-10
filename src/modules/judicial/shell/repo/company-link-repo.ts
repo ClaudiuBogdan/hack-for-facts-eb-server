@@ -81,8 +81,10 @@ const filterConds = (filter: CompanyLitigationFilter | undefined) => {
       )})`
     );
   }
-  if (filter.yearFrom !== undefined) conds.push(sql`c.source_opened_at >= make_date(${filter.yearFrom}, 1, 1)`);
-  if (filter.yearTo !== undefined) conds.push(sql`c.source_opened_at < make_date(${filter.yearTo + 1}, 1, 1)`);
+  if (filter.yearFrom !== undefined)
+    conds.push(sql`c.source_opened_at >= make_date(${filter.yearFrom}, 1, 1)`);
+  if (filter.yearTo !== undefined)
+    conds.push(sql`c.source_opened_at < make_date(${filter.yearTo + 1}, 1, 1)`);
   return conds;
 };
 
@@ -106,7 +108,12 @@ export const makeJudicialCompanyLinkRepo = (
     try {
       // published-only join: candidates(published) → case_parties(name_key) → cases
       // (+ courts for level). count(distinct case) + per-level + per-year breakdowns.
-      const rows = await sql<{ court_level: string | null; year: number | null; cnt: string; name_key_id: string | null }>`
+      const rows = await sql<{
+        court_level: string | null;
+        year: number | null;
+        cnt: string;
+        name_key_id: string | null;
+      }>`
         select co.court_level as court_level,
                date_part('year', c.source_opened_at)::int as year,
                count(distinct c.case_id)::text as cnt,
@@ -127,7 +134,8 @@ export const makeJudicialCompanyLinkRepo = (
       for (const r of rows.rows) {
         const cnt = Number(r.cnt);
         total += cnt;
-        if (r.court_level !== null) byLevel.set(r.court_level, (byLevel.get(r.court_level) ?? 0) + cnt);
+        if (r.court_level !== null)
+          byLevel.set(r.court_level, (byLevel.get(r.court_level) ?? 0) + cnt);
         if (r.year !== null) byYear.set(r.year, (byYear.get(r.year) ?? 0) + cnt);
         if (r.name_key_id !== null) nameKeyId = r.name_key_id;
       }
@@ -144,7 +152,9 @@ export const makeJudicialCompanyLinkRepo = (
         courtLevel: courtLevel as JudicialCourtLevel,
         count,
       }));
-      const years = [...byYear.entries()].sort((a, b) => a[0] - b[0]).map(([year, count]) => ({ year, count }));
+      const years = [...byYear.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([year, count]) => ({ year, count }));
 
       return ok({
         cui,
@@ -179,7 +189,8 @@ export const makeJudicialCompanyLinkRepo = (
       cursorCaseId = decoded.value.keys[0];
     }
     const filterSql = linkFilterSql(filter);
-    const cursorSql = cursorCaseId !== undefined ? sql` and c.case_id < ${cursorCaseId}::bigint` : sql``;
+    const cursorSql =
+      cursorCaseId !== undefined ? sql` and c.case_id < ${cursorCaseId}::bigint` : sql``;
     try {
       const rows = await sql<{
         case_id: string;
@@ -200,13 +211,15 @@ export const makeJudicialCompanyLinkRepo = (
         limit ${limit + 1}
       `.execute(db);
       const hasMore = rows.rows.length > limit;
-      const items: JudicialCaseLink[] = (hasMore ? rows.rows.slice(0, limit) : rows.rows).map((r) => ({
-        caseId: r.case_id,
-        institutionCode: r.institution_code,
-        caseNumber: r.case_number,
-        category: r.category,
-        sourceOpenedAt: r.source_opened_at,
-      }));
+      const items: JudicialCaseLink[] = (hasMore ? rows.rows.slice(0, limit) : rows.rows).map(
+        (r) => ({
+          caseId: r.case_id,
+          institutionCode: r.institution_code,
+          caseNumber: r.case_number,
+          category: r.category,
+          sourceOpenedAt: r.source_opened_at,
+        })
+      );
       let next: string | null = null;
       if (hasMore) {
         const last = items[items.length - 1];

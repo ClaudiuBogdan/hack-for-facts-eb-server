@@ -11,11 +11,9 @@
  * is unit-testable in any environment and identical on every surface).
  */
 
-import { err, ok, type Result  } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, type ApiError } from './errors.js';
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Offset pagination (§5.3 + §14.4 guard)
@@ -46,7 +44,8 @@ export const normalizeOffset = (
   page: number | undefined,
   pageSize: number | undefined
 ): OffsetParams => {
-  const p = page !== undefined && Number.isFinite(page) && page >= 1 ? Math.floor(page) : DEFAULT_PAGE;
+  const p =
+    page !== undefined && Number.isFinite(page) && page >= 1 ? Math.floor(page) : DEFAULT_PAGE;
   const rawSize =
     pageSize !== undefined && Number.isFinite(pageSize) && pageSize >= 1
       ? Math.floor(pageSize)

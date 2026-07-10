@@ -38,7 +38,7 @@ import {
   type Cui,
   type FilterInput,
   type ProdDatabase,
-  type ResolveHit
+  type ResolveHit,
 } from '@/modules/shared/index.js';
 
 import {
@@ -88,11 +88,10 @@ import {
   type PrimariiLoadIssue,
   type PrimariiRegistryLink,
   type PrimariiSalaryClaim,
-  type PrimariiSnapshot
+  type PrimariiSnapshot,
 } from '../../core/types.js';
 
 import type { CountedCursorPage, PrimariiRepository } from '../../core/ports.js';
-
 
 type Db = Kysely<ProdDatabase>;
 
@@ -126,7 +125,8 @@ const CES_COLUMNS = [
 ] as const;
 
 /** current_entity_status select with `updated_at::text` (keeps it an ISO string). */
-const cesSelect = () => [...CES_COLUMNS, sql<string>`ces.updated_at::text`.as('updated_at')] as const;
+const cesSelect = () =>
+  [...CES_COLUMNS, sql<string>`ces.updated_at::text`.as('updated_at')] as const;
 
 // ── entity sort (keyset; always tiebroken on the PK `cui`) ───────────────────────
 
@@ -306,7 +306,9 @@ export const makePrimariiRepo = (
     const baseConds = [...condsRes.value];
     const pageConds = [...baseConds];
     if (cursorKeys?.length === 2) {
-      pageConds.push(keysetPredicate(sort.col, 'ces.cui', sort.dir, cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      pageConds.push(
+        keysetPredicate(sort.col, 'ces.cui', sort.dir, cursorKeys[0] ?? '', cursorKeys[1] ?? '')
+      );
     }
 
     try {
@@ -386,7 +388,9 @@ export const makePrimariiRepo = (
     }
   };
 
-  const getStaffing = async (rawCui: Cui): Promise<Result<PrimariiStaffingClaim | null, ApiError>> => {
+  const getStaffing = async (
+    rawCui: Cui
+  ): Promise<Result<PrimariiStaffingClaim | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
@@ -505,7 +509,13 @@ export const makePrimariiRepo = (
     const pageConds = [...conds];
     if (cursorKeys?.length === 2) {
       pageConds.push(
-        keysetPredicate(sortCol, 'sac.salary_amount_claim_id', dir, cursorKeys[0] ?? '', cursorKeys[1] ?? '')
+        keysetPredicate(
+          sortCol,
+          'sac.salary_amount_claim_id',
+          dir,
+          cursorKeys[0] ?? '',
+          cursorKeys[1] ?? ''
+        )
       );
     }
 
@@ -603,7 +613,10 @@ export const makePrimariiRepo = (
       return err(invalidInput('listDocuments requires a cui or category filter', 'filter'));
     }
 
-    const sortField = page.sort !== undefined && page.sort in DOC_SORT ? page.sort : primariiDocumentFilterSpec.sort.default;
+    const sortField =
+      page.sort !== undefined && page.sort in DOC_SORT
+        ? page.sort
+        : primariiDocumentFilterSpec.sort.default;
     const def = DOC_SORT[sortField] ?? DOC_SORT['cui'] ?? { col: 'd.cui', dir: 'asc' as const };
     const limit = clampFirst(page.first);
     const fhash = fhashFor(primariiDocumentFilterSpec, f);
@@ -621,7 +634,9 @@ export const makePrimariiRepo = (
     const baseConds = [...kernel.value, ...docVirtualConditions(f)];
     const pageConds = [...baseConds];
     if (cursorKeys?.length === 2) {
-      pageConds.push(keysetPredicate(def.col, 'd.document_pk', def.dir, cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      pageConds.push(
+        keysetPredicate(def.col, 'd.document_pk', def.dir, cursorKeys[0] ?? '', cursorKeys[1] ?? '')
+      );
     }
 
     try {
@@ -684,7 +699,9 @@ export const makePrimariiRepo = (
     const conds: RawBuilder<unknown>[] = [sql`es.cui = ${cui}`];
     const pageConds = [...conds];
     if (cursorKeys?.length === 2) {
-      pageConds.push(keysetPredicate(sortCol, 'es.snapshot_id', dir, cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      pageConds.push(
+        keysetPredicate(sortCol, 'es.snapshot_id', dir, cursorKeys[0] ?? '', cursorKeys[1] ?? '')
+      );
     }
 
     try {
@@ -870,7 +887,12 @@ export const makePrimariiRepo = (
       if (filter.severity !== undefined && filter.severity !== '') {
         const sev = filter.severity.trim();
         if (!(PRIMARII_ISSUE_SEVERITY as readonly string[]).includes(sev)) {
-          return err(invalidInput(`severity must be one of ${PRIMARII_ISSUE_SEVERITY.join(', ')}`, 'severity'));
+          return err(
+            invalidInput(
+              `severity must be one of ${PRIMARII_ISSUE_SEVERITY.join(', ')}`,
+              'severity'
+            )
+          );
         }
         q = q.where('li.severity', '=', sev);
       }
@@ -908,12 +930,14 @@ export const makePrimariiRepo = (
           .limit(capped)
           .execute();
         return ok(
-          rows.map((r): ResolveHit => ({
-            kind: 'entity',
-            value: r.value,
-            label: r.label,
-            ...(r.hint !== null && { hint: r.hint }),
-          }))
+          rows.map(
+            (r): ResolveHit => ({
+              kind: 'entity',
+              value: r.value,
+              label: r.label,
+              ...(r.hint !== null && { hint: r.hint }),
+            })
+          )
         );
       }
       if (dim === 'county') {
@@ -928,12 +952,14 @@ export const makePrimariiRepo = (
           .limit(capped)
           .execute();
         return ok(
-          rows.map((r): ResolveHit => ({
-            kind: 'county',
-            value: r.value ?? '',
-            label: r.value ?? '',
-            hint: `${r.cnt} UATs`,
-          }))
+          rows.map(
+            (r): ResolveHit => ({
+              kind: 'county',
+              value: r.value ?? '',
+              label: r.value ?? '',
+              hint: `${r.cnt} UATs`,
+            })
+          )
         );
       }
       // status: match a data-quality OR result-status enum by substring of its value.
@@ -972,7 +998,9 @@ export const makePrimariiRepo = (
   // ── presenceFor (contributor support) ─────────────────────────────────────────
   const presenceFor = async (
     rawCui: Cui
-  ): Promise<Result<{ present: boolean; status?: string; dataQuality?: string } | null, ApiError>> => {
+  ): Promise<
+    Result<{ present: boolean; status?: string; dataQuality?: string } | null, ApiError>
+  > => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {

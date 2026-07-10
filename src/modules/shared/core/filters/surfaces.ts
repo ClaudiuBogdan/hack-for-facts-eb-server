@@ -27,7 +27,10 @@ const scalarSchema = (field: FilterFieldSpec): TSchema => {
     case 'number':
       return Type.Number();
     case 'money':
-      return Type.String({ pattern: MONEY_PATTERN, description: 'Decimal money amount as a string.' });
+      return Type.String({
+        pattern: MONEY_PATTERN,
+        description: 'Decimal money amount as a string.',
+      });
     case 'bool':
       return Type.Boolean();
     case 'enum':

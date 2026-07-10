@@ -271,7 +271,9 @@ describe('mapCapabilityGate (the client contract)', () => {
   });
 
   it('null refreshedAt → null dataAsOf, never a fabricated "today"', () => {
-    expect(mapCapabilityGate(gateRow('direct_acquisition', { refreshedAt: null })).dataAsOf).toBeNull();
+    expect(
+      mapCapabilityGate(gateRow('direct_acquisition', { refreshedAt: null })).dataAsOf
+    ).toBeNull();
   });
 
   it('cadence is ALWAYS null — nothing declares a schedule and the MVs drift', () => {

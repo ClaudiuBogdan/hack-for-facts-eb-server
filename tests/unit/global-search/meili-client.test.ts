@@ -168,7 +168,11 @@ describe('searchEntities — mapHit', () => {
       attrs: { kind: 'srl', status: 'active' },
     };
     fetchSpy.mockResolvedValue(
-      jsonResponse({ hits: [rawHit], facetDistribution: { doc_type: { company: 1 } }, estimatedTotalHits: 1 })
+      jsonResponse({
+        hits: [rawHit],
+        facetDistribution: { doc_type: { company: 1 } },
+        estimatedTotalHits: 1,
+      })
     );
 
     const res = await client.searchEntities('acme', 'entities', { limit: 20 });
@@ -232,7 +236,9 @@ describe('searchEntities — mapHit', () => {
 
   it('coerces a numeric id to string and slices a long body into the snippet', async () => {
     const longBody = 'x'.repeat(500);
-    fetchSpy.mockResolvedValue(jsonResponse({ hits: [{ id: 7, name: 'Fallback', body: longBody }] }));
+    fetchSpy.mockResolvedValue(
+      jsonResponse({ hits: [{ id: 7, name: 'Fallback', body: longBody }] })
+    );
     const res = await client.searchEntities('acme', 'entities', { limit: 20 });
     const hit = res._unsafeUnwrap().hits[0]!;
 
@@ -280,7 +286,9 @@ describe('multiSearch — mapHit keeps the whole hit in attrs (companies-repo co
       // 1) /multi-search → 404 index_not_found
       .mockResolvedValueOnce(errorResponse(404, '{"code":"index_not_found"}'))
       // 2) per-index /indexes/organizations/search → ok with a hit
-      .mockResolvedValueOnce(jsonResponse({ hits: [{ id: 'org:1', cui: '42' }], estimatedTotalHits: 1 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ hits: [{ id: 'org:1', cui: '42' }], estimatedTotalHits: 1 })
+      )
       // 3) per-index /indexes/companies/search → non-OK → empty bucket (no throw)
       .mockResolvedValueOnce(errorResponse(500, 'boom'));
 

@@ -29,16 +29,16 @@ griffin 2026-06-16 against `pg_inherits` + `pg_indexes`; matches
 
 ### 0.1 Parent tables, partition keys, child naming
 
-| Parent | Partition strategy | Child naming (verified live) | Levels |
-|--------|--------------------|------------------------------|--------|
-| `budget.execution_line_items` | **RANGE(`reporting_year`) → LIST(`report_type`) → LIST(`account_category`)** | `…_y2016` … `…_y2030` + `…_default`; under each year: `…_y2025_rt1` / `_rt2` / `_rt3` + `…_y2025_default`; under each year×rt: `…_y2025_rt1_vn` / `_ch` + `…_y2025_rt1_default` | **3** |
-| `budget.commitment_line_items` | **RANGE(`reporting_year`) → LIST(`report_type`)** (two levels — decision 16) | `…_y2025_rt1/_rt2/_rt3` + `…_y2025_default` + table default | **2** |
-| `budget_staging.execution_line_items_ytd`, `…commitment_line_items_ytd` | RANGE(`reporting_year`) only | `…_y2016`…`_y2030` + `_default` | 1 (not API-facing) |
+| Parent                                                                  | Partition strategy                                                           | Child naming (verified live)                                                                                                                                                    | Levels             |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `budget.execution_line_items`                                           | **RANGE(`reporting_year`) → LIST(`report_type`) → LIST(`account_category`)** | `…_y2016` … `…_y2030` + `…_default`; under each year: `…_y2025_rt1` / `_rt2` / `_rt3` + `…_y2025_default`; under each year×rt: `…_y2025_rt1_vn` / `_ch` + `…_y2025_rt1_default` | **3**              |
+| `budget.commitment_line_items`                                          | **RANGE(`reporting_year`) → LIST(`report_type`)** (two levels — decision 16) | `…_y2025_rt1/_rt2/_rt3` + `…_y2025_default` + table default                                                                                                                     | **2**              |
+| `budget_staging.execution_line_items_ytd`, `…commitment_line_items_ytd` | RANGE(`reporting_year`) only                                                 | `…_y2016`…`_y2030` + `_default`                                                                                                                                                 | 1 (not API-facing) |
 
 > Leaf count is **not load-bearing** (the 298-table figure in the module header
 > counts every parent+intermediate+leaf relation across both fact trees + staging).
 > The **invariant the perf-guard test (§12) asserts is "every fact query prunes to
-> ≤1 leaf"** — not a specific count. What matters is the *shape* above: a pruned
+> ≤1 leaf"** — not a specific count. What matters is the _shape_ above: a pruned
 > execution read hits exactly one `…_yYYYY_rtN_{vn|ch}` leaf; a commitment read hits
 > one `…_yYYYY_rtN`.
 
@@ -46,7 +46,7 @@ griffin 2026-06-16 against `pg_inherits` + `pg_indexes`; matches
 normalized enum):
 
 - **execution** rt1=`'Executie bugetara detaliata'`, rt2=`'…agregata la nivel de
-  ordonator principal'`, rt3=`'…agregata la nivel de ordonator secundar'`.
+ordonator principal'`, rt3=`'…agregata la nivel de ordonator secundar'`.
 - **commitment** rt1=`'Executie - Angajamente bugetare agregat principal'`,
   rt2=`'…agregat secundar'`, rt3=`'…detaliat'`.
 - `account_category` LIST values: `'vn'` (venituri/income ≈ 18–26%) and `'ch'`
@@ -127,10 +127,10 @@ read filters only on `(year, report_type)` (+ entity/period/geo) and selects whi
 implementer must NOT add `WHERE account_category = …` on an MV read (the column does
 not exist — it would error):
 
-| MV | Grain | Driving index | Powers |
-|----|-------|---------------|--------|
-| `mv_execution_summary_{monthly,quarterly,annual}` | entity×period×report_type; `total_income`/`total_expense`/`budget_balance` | `…_entity_period`, `…_year_balance` (annual) | entity summary, balance/income/expense rankings, time-series |
-| `mv_commitment_summary_{monthly,quarterly,annual}` | entity×period×report_type; 13 angajamente metrics | `…_entity_period`, `…_period_plati` | commitment summary + rankings (by `plati_trezor`) |
+| MV                                                 | Grain                                                                      | Driving index                                | Powers                                                       |
+| -------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------ |
+| `mv_execution_summary_{monthly,quarterly,annual}`  | entity×period×report_type; `total_income`/`total_expense`/`budget_balance` | `…_entity_period`, `…_year_balance` (annual) | entity summary, balance/income/expense rankings, time-series |
+| `mv_commitment_summary_{monthly,quarterly,annual}` | entity×period×report_type; 13 angajamente metrics                          | `…_entity_period`, `…_period_plati`          | commitment summary + rankings (by `plati_trezor`)            |
 
 **Routing rule** (`shouldUseMV`, ported from legacy `commitments`): an aggregate
 request whose group-by is a subset of `{entity_cui, main_creditor_cui, year,
@@ -162,18 +162,18 @@ loaded'] }` rather than 404/500 (§10).
 **In prod now** (`transparenta_prod`, griffin `transparenta-eu-etl-prod`,
 verified 2026-06-16):
 
-| Table | Rows | Coverage |
-|-------|------|----------|
-| `budget.execution_line_items` | **126,778,624** | 2016–2026 (m1–5); detailed ≈ 11–14M/yr |
-| `budget.commitment_line_items` | **32,589,802** | 2019–2026 (angajamente; pre-2019 correctly absent) |
-| `budget.reports` | **3,820,780** | 2016–2026 report registry (file_source/download_links resolved at parse) |
-| `budget.approved_budget_facts` | **3,307,226** | national budget law measures (2016+) |
-| `budget.bgc_official_facts` | **0** ⚠ | execution-bulletin extract defect (tracked, additive dataset) |
-| `budget.quarterly_allocations` | **0** ⚠ | same extract defect |
-| `budget.{functional,economic}_classifications`, `budget.budget_sectors`, `budget.funding_sources` | dims | MFin catalogs (3,970 rows); `funding_source_id` resolved at load (0 = unresolved) |
-| `budget.mv_*_summary_*` (6) | refreshed | entity×period rollups (refresh ≈ 2m09s full, CONCURRENTLY thereafter) |
-| `core.public_entities` | 15,002 | CUI PK + `default_report_type` + SIRUTA link |
-| `core.territories` | 3,228 | SIRUTA hub (surrogate `id` = legacy `uat_id`) |
+| Table                                                                                             | Rows            | Coverage                                                                          |
+| ------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------- |
+| `budget.execution_line_items`                                                                     | **126,778,624** | 2016–2026 (m1–5); detailed ≈ 11–14M/yr                                            |
+| `budget.commitment_line_items`                                                                    | **32,589,802**  | 2019–2026 (angajamente; pre-2019 correctly absent)                                |
+| `budget.reports`                                                                                  | **3,820,780**   | 2016–2026 report registry (file_source/download_links resolved at parse)          |
+| `budget.approved_budget_facts`                                                                    | **3,307,226**   | national budget law measures (2016+)                                              |
+| `budget.bgc_official_facts`                                                                       | **0** ⚠         | execution-bulletin extract defect (tracked, additive dataset)                     |
+| `budget.quarterly_allocations`                                                                    | **0** ⚠         | same extract defect                                                               |
+| `budget.{functional,economic}_classifications`, `budget.budget_sectors`, `budget.funding_sources` | dims            | MFin catalogs (3,970 rows); `funding_source_id` resolved at load (0 = unresolved) |
+| `budget.mv_*_summary_*` (6)                                                                       | refreshed       | entity×period rollups (refresh ≈ 2m09s full, CONCURRENTLY thereafter)             |
+| `core.public_entities`                                                                            | 15,002          | CUI PK + `default_report_type` + SIRUTA link                                      |
+| `core.territories`                                                                                | 3,228           | SIRUTA hub (surrogate `id` = legacy `uat_id`)                                     |
 
 **Schemas served:** `budget.*` (facts, dims, MVs, official, `execution_vs_budget`
 view), the kernel `core.*` (identity + territory) for entity/geo enrichment.
@@ -182,11 +182,12 @@ loader); `bgc_reconciliation` (loader QA artifact — exposed only as a single
 freshness/quality signal, not a queryable collection).
 
 **Deferred / not yet wired (flag, don't block):**
-- Budget facts are **not yet in `flows.money_flows`** (no `budget_*` flow_type
-  live — verified: only `direct_acquisition`/`procurement_*`/`pnrr_*`). So the
-  cross-source flow view (kernel `FlowsRepo`) carries **no budget rows today**.
-  This module owns its native facts; it registers a `FLOW_TYPES` value
-  (`budget_execution`) for when the scrapper `flows` lane projects budget (§4.3),
+
+- Budget facts are **not yet in `flows.money_flows`** (no `budget_*` flow*type
+  live — verified: only `direct_acquisition`/`procurement*\_`/`pnrr\_\_`). So the
+cross-source flow view (kernel `FlowsRepo`) carries **no budget rows today**.
+This module owns its native facts; it registers a `FLOW_TYPES` value
+(`budget_execution`) for when the scrapper `flows` lane projects budget (§4.3),
   but the contributor's flow slice is **capability-gated to empty** until then.
 - Budget facts are **not yet in `search.documents`** (no `budget_*` doc_type live).
   The module declares `budget_entity` / `budget_report` doc_types it will own
@@ -224,58 +225,82 @@ budget keys on `entity_cui`).
 ```ts
 // fact row (execution) — the wide legacy shape, money columns as string
 export interface ExecutionLineItem {
-  readonly executionLineItemId: string;   // bigint → string
+  readonly executionLineItemId: string; // bigint → string
   readonly reportId: string;
   readonly reportingYear: number;
   readonly reportingMonth: number;
   readonly quarter: number | null;
   readonly entityCui: string;
   readonly mainCreditorCui: string | null;
-  readonly reportType: ReportType;        // enum, mapped to/from partition literal
+  readonly reportType: ReportType; // enum, mapped to/from partition literal
   readonly accountCategory: AccountCategory; // 'vn'|'ch' → INCOME|EXPENSE
   readonly budgetSectorId: number;
   readonly expenseType: string | null;
-  readonly functionalCode: string;        readonly functionalName: string | null;
-  readonly economicCode: string | null;   readonly economicName: string | null;
-  readonly fundingSource: string | null;  readonly fundingSourceId: number;
+  readonly functionalCode: string;
+  readonly functionalName: string | null;
+  readonly economicCode: string | null;
+  readonly economicName: string | null;
+  readonly fundingSource: string | null;
+  readonly fundingSourceId: number;
   readonly programCode: string | null;
-  readonly ytdAmount: string;             // Money
+  readonly ytdAmount: string; // Money
   readonly monthlyAmount: string;
   readonly quarterlyAmount: string | null;
   readonly period: { isMonthly: boolean; isQuarterly: boolean; isYearly: boolean };
   readonly anomaly: string | null;
 }
 
-export interface CommitmentLineItem { /* same key/period shape; 13 metric families
+export interface CommitmentLineItem {
+  /* same key/period shape; 13 metric families
   each with ytd/monthly/quarterly/latest as Money strings (crediteAngajament,
   limitaCreditAngajament, crediteBugetare, …Initiale, …Definitive, …Disponibile,
-  receptiiTotale, platiTrezor, platiNonTrezor, receptiiNeplatite) */ }
+  receptiiTotale, platiTrezor, platiNonTrezor, receptiiNeplatite) */
+}
 
-export interface BudgetEntitySummary {     // from mv_execution_summary_*
-  readonly entityCui: string; readonly mainCreditorCui: string | null;
+export interface BudgetEntitySummary {
+  // from mv_execution_summary_*
+  readonly entityCui: string;
+  readonly mainCreditorCui: string | null;
   readonly reportType: ReportType;
   readonly period: { year: number; month?: number; quarter?: number };
-  readonly totalIncome: string; readonly totalExpense: string; readonly budgetBalance: string;
+  readonly totalIncome: string;
+  readonly totalExpense: string;
+  readonly budgetBalance: string;
 }
-export interface CommitmentEntitySummary { /* entity×period; 13 metrics as Money */ }
-
-export interface BudgetReport {            // from budget.reports + core join
-  readonly reportId: string; readonly entityCui: string; readonly entityName: string | null;
-  readonly reportType: ReportType; readonly mainCreditorCui: string | null;
-  readonly reportDate: string | null; readonly reportingYear: number;
-  readonly reportingPeriod: string; readonly budgetSectorId: number | null;
-  readonly fileSource: string | null; readonly downloadLinks: readonly string[];
+export interface CommitmentEntitySummary {
+  /* entity×period; 13 metrics as Money */
 }
 
-export interface AggregatedBudgetRow {     // by functional+economic classification
-  readonly functionalCode: string; readonly functionalName: string | null;
-  readonly economicCode: string | null;   // economic_code IS nullable in the facts
-  readonly economicName: string | null;    // null bucket kept distinct, not coerced
-  readonly amount: string;                // Money (normalized when requested)
+export interface BudgetReport {
+  // from budget.reports + core join
+  readonly reportId: string;
+  readonly entityCui: string;
+  readonly entityName: string | null;
+  readonly reportType: ReportType;
+  readonly mainCreditorCui: string | null;
+  readonly reportDate: string | null;
+  readonly reportingYear: number;
+  readonly reportingPeriod: string;
+  readonly budgetSectorId: number | null;
+  readonly fileSource: string | null;
+  readonly downloadLinks: readonly string[];
 }
 
-export interface ApprovedBudgetFact { /* budget.approved_budget_facts */ }
-export interface BudgetVsExecutionRow { /* budget.execution_vs_budget view */ }
+export interface AggregatedBudgetRow {
+  // by functional+economic classification
+  readonly functionalCode: string;
+  readonly functionalName: string | null;
+  readonly economicCode: string | null; // economic_code IS nullable in the facts
+  readonly economicName: string | null; // null bucket kept distinct, not coerced
+  readonly amount: string; // Money (normalized when requested)
+}
+
+export interface ApprovedBudgetFact {
+  /* budget.approved_budget_facts */
+}
+export interface BudgetVsExecutionRow {
+  /* budget.execution_vs_budget view */
+}
 ```
 
 ### 2.3 PII / excluded columns
@@ -302,13 +327,20 @@ export interface BudgetRepo {
   // ---- line-item facts (fact path; pruning triple MANDATORY) ----
   // year+report_type+account_category pruned to a single L3 leaf; period-flag
   // partial index drives the scope. Cursor pagination (no COUNT on 126M rows).
-  listExecutionLineItems(q: ExecutionLineItemQuery): Promise<Result<Page<ExecutionLineItem>, ApiError>>;
+  listExecutionLineItems(
+    q: ExecutionLineItemQuery
+  ): Promise<Result<Page<ExecutionLineItem>, ApiError>>;
   getExecutionLineItem(id: string): Promise<Result<ExecutionLineItem | null, ApiError>>;
-  listCommitmentLineItems(q: CommitmentLineItemQuery): Promise<Result<Page<CommitmentLineItem>, ApiError>>;
+  listCommitmentLineItems(
+    q: CommitmentLineItemQuery
+  ): Promise<Result<Page<CommitmentLineItem>, ApiError>>;
 
   // ---- entity/period summaries (MV path; index-only, §0.4) ----
   getEntitySummary(cui: string, q: SummaryQuery): Promise<Result<BudgetEntitySummary[], ApiError>>;
-  getCommitmentSummary(cui: string, q: SummaryQuery): Promise<Result<CommitmentEntitySummary[], ApiError>>;
+  getCommitmentSummary(
+    cui: string,
+    q: SummaryQuery
+  ): Promise<Result<CommitmentEntitySummary[], ApiError>>;
   // time series for one entity/filter set — reads the MV at the requested grain
   executionTimeseries(q: TimeseriesQuery): Promise<Result<SeriesPoint[], ApiError>>;
   commitmentTimeseries(q: TimeseriesQuery): Promise<Result<SeriesPoint[], ApiError>>;
@@ -317,13 +349,17 @@ export interface BudgetRepo {
   // year+report_type mandatory; ORDER BY (income|expense|balance|per_capita) on the
   // annual/monthly MV; cursor or offset+estimated-total (§14.4). Never the fact leaf.
   rankEntities(q: EntityRankingQuery): Promise<Result<Page<RankedEntity>, ApiError>>;
-  rankCommitmentEntities(q: CommitmentRankingQuery): Promise<Result<Page<RankedCommitmentEntity>, ApiError>>;
+  rankCommitmentEntities(
+    q: CommitmentRankingQuery
+  ): Promise<Result<Page<RankedCommitmentEntity>, ApiError>>;
 
   // ---- classification aggregate (fact path; pruning triple MANDATORY) ----
   // GROUP BY (functional_code, functional_name, economic_code, economic_name)
   // within ONE pruned leaf; HAVING on aggregate amount; LIMIT≤100. Uses the
   // factors VALUES-CTE for normalize-then-aggregate (§3.4).
-  aggregateByClassification(q: ClassificationAggregateQuery): Promise<Result<AggregatedBudgetRow[], ApiError>>;
+  aggregateByClassification(
+    q: ClassificationAggregateQuery
+  ): Promise<Result<AggregatedBudgetRow[], ApiError>>;
 
   // ---- geo heatmap (MV path: entity×year MV → county rollup, §3.4) ----
   countyHeatmap(q: HeatmapQuery): Promise<Result<CountyHeatmapPoint[], ApiError>>;
@@ -339,11 +375,13 @@ export interface BudgetRepo {
   listFundingSources(q: DimensionQuery): Promise<Result<Page<FundingSource>, ApiError>>;
 
   // ---- budget-official (un-partitioned; capability-gated on row presence) ----
-  listApprovedBudgetFacts(q: ApprovedFactQuery): Promise<Result<Page<ApprovedBudgetFact>, ApiError>>;
+  listApprovedBudgetFacts(
+    q: ApprovedFactQuery
+  ): Promise<Result<Page<ApprovedBudgetFact>, ApiError>>;
   budgetVsExecution(q: VsBudgetQuery): Promise<Result<Page<BudgetVsExecutionRow>, ApiError>>;
 
   // ---- contributor support (§4.4) ----
-  presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;   // 1 MV index probe
+  presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>; // 1 MV index probe
   profileSlice(cui: string): Promise<Result<BudgetProfileSlice | null, ApiError>>; // latest-year summary
 
   // ---- freshness ----
@@ -351,9 +389,10 @@ export interface BudgetRepo {
   asOf(): Promise<Result<{ year: number; refreshedAt: string | null }, ApiError>>;
 }
 
-export interface BudgetDiscoveryRepo {       // name→value resolution (§7.4)
-  resolveEntity(q: string, limit: number): Promise<Result<EntityMatch[], ApiError>>;        // core.public_entities pg_trgm
-  resolveTerritory(q: string, limit: number): Promise<Result<TerritoryMatch[], ApiError>>;  // kernel TerritoryRepo
+export interface BudgetDiscoveryRepo {
+  // name→value resolution (§7.4)
+  resolveEntity(q: string, limit: number): Promise<Result<EntityMatch[], ApiError>>; // core.public_entities pg_trgm
+  resolveTerritory(q: string, limit: number): Promise<Result<TerritoryMatch[], ApiError>>; // kernel TerritoryRepo
   resolveFunctional(q: string, limit: number): Promise<Result<CodeMatch[], ApiError>>;
   resolveEconomic(q: string, limit: number): Promise<Result<CodeMatch[], ApiError>>;
 }
@@ -363,19 +402,27 @@ export interface BudgetDiscoveryRepo {       // name→value resolution (§7.4)
 
 ```ts
 interface ExecutionLineItemQuery {
-  reportingYear: number;                 // REQUIRED — prunes RANGE
-  reportType: ReportType;                // REQUIRED — prunes LIST L2
-  accountCategory: AccountCategory;      // REQUIRED — prunes LIST L3
-  frequency: 'MONTH'|'QUARTER'|'YEAR';   // selects is_monthly/quarterly/yearly + amount col
-  period?: { months?: number[]; quarters?: number[] };  // tuple predicate within the year
-  entityCuis?: string[]; mainCreditorCui?: string;
-  budgetSectorIds?: number[]; fundingSourceIds?: number[]; expenseTypes?: string[];
-  functionalCodes?: string[]; functionalPrefixes?: string[];
-  economicCodes?: string[]; economicPrefixes?: string[]; programCodes?: string[];
-  geo?: GeographicFilter;                // resolved via core join (entity/territory)
-  amount?: { min?: number; max?: number };           // row-level on monthly|quarterly|ytd
+  reportingYear: number; // REQUIRED — prunes RANGE
+  reportType: ReportType; // REQUIRED — prunes LIST L2
+  accountCategory: AccountCategory; // REQUIRED — prunes LIST L3
+  frequency: 'MONTH' | 'QUARTER' | 'YEAR'; // selects is_monthly/quarterly/yearly + amount col
+  period?: { months?: number[]; quarters?: number[] }; // tuple predicate within the year
+  entityCuis?: string[];
+  mainCreditorCui?: string;
+  budgetSectorIds?: number[];
+  fundingSourceIds?: number[];
+  expenseTypes?: string[];
+  functionalCodes?: string[];
+  functionalPrefixes?: string[];
+  economicCodes?: string[];
+  economicPrefixes?: string[];
+  programCodes?: string[];
+  geo?: GeographicFilter; // resolved via core join (entity/territory)
+  amount?: { min?: number; max?: number }; // row-level on monthly|quarterly|ytd
   exclude?: BudgetExclusion;
-  sort: ExecutionSortKey; cursor?: string; limit: number; // ≤100
+  sort: ExecutionSortKey;
+  cursor?: string;
+  limit: number; // ≤100
 }
 ```
 
@@ -442,22 +489,22 @@ adopts the **SQL VALUES-CTE** (`buildFactorValuesCTE` +
 Each REST handler, GraphQL resolver, and MCP handler calls the **same** usecase
 (§14.7 tri-surface equivalence).
 
-| Usecase | Signature | Notes |
-|---------|-----------|-------|
-| `listExecutionLineItems` | `(q) => Result<Page<ExecutionLineItem>>` | fact path; grain gate enforced |
-| `listCommitmentLineItems` | `(q) => Result<Page<CommitmentLineItem>>` | fact path |
-| `getEntityBudget` | `(cui, q) => Result<BudgetEntitySummary[]>` | MV path; powers contributor `profileSlice` |
-| `getEntityCommitments` | `(cui, q) => Result<CommitmentEntitySummary[]>` | MV path |
-| `budgetTimeseries` | `(q) => Result<SeriesPoint[]>` | MV path; normalization applied per-point |
-| `rankEntities` | `(q) => Result<Page<RankedEntity>>` | MV + factor; income/expense/balance/per_capita |
-| `rankCommitmentEntities` | `(q) => Result<Page<RankedCommitmentEntity>>` | MV; by plati_trezor etc. |
-| `aggregateByClassification` | `(q) => Result<AggregatedBudgetRow[]>` | fact path (one leaf); normalize-then-aggregate |
-| `countyHeatmap` | `(q) => Result<CountyHeatmapPoint[]>` | MV→county rollup |
-| `listReports` / `getReport` | `(q\|id) => Result<…>` | metadata |
-| `commitmentVsExecution` | `(q) => Result<…>` | the legacy FULL OUTER JOIN coverage cross-check (fact path, both leaves) |
-| `budgetVsApproved` | `(q) => Result<Page<BudgetVsExecutionRow>>` | reads `execution_vs_budget` view; capability-gated |
-| dimension list usecases (4) | `(q) => Result<Page<…>>` | reference |
-| `resolveBudgetFilter` | `(dim, q) => Result<Match[]>` | discovery (§7.4) |
+| Usecase                     | Signature                                       | Notes                                                                    |
+| --------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `listExecutionLineItems`    | `(q) => Result<Page<ExecutionLineItem>>`        | fact path; grain gate enforced                                           |
+| `listCommitmentLineItems`   | `(q) => Result<Page<CommitmentLineItem>>`       | fact path                                                                |
+| `getEntityBudget`           | `(cui, q) => Result<BudgetEntitySummary[]>`     | MV path; powers contributor `profileSlice`                               |
+| `getEntityCommitments`      | `(cui, q) => Result<CommitmentEntitySummary[]>` | MV path                                                                  |
+| `budgetTimeseries`          | `(q) => Result<SeriesPoint[]>`                  | MV path; normalization applied per-point                                 |
+| `rankEntities`              | `(q) => Result<Page<RankedEntity>>`             | MV + factor; income/expense/balance/per_capita                           |
+| `rankCommitmentEntities`    | `(q) => Result<Page<RankedCommitmentEntity>>`   | MV; by plati_trezor etc.                                                 |
+| `aggregateByClassification` | `(q) => Result<AggregatedBudgetRow[]>`          | fact path (one leaf); normalize-then-aggregate                           |
+| `countyHeatmap`             | `(q) => Result<CountyHeatmapPoint[]>`           | MV→county rollup                                                         |
+| `listReports` / `getReport` | `(q\|id) => Result<…>`                          | metadata                                                                 |
+| `commitmentVsExecution`     | `(q) => Result<…>`                              | the legacy FULL OUTER JOIN coverage cross-check (fact path, both leaves) |
+| `budgetVsApproved`          | `(q) => Result<Page<BudgetVsExecutionRow>>`     | reads `execution_vs_budget` view; capability-gated                       |
+| dimension list usecases (4) | `(q) => Result<Page<…>>`                        | reference                                                                |
+| `resolveBudgetFilter`       | `(dim, q) => Result<Match[]>`                   | discovery (§7.4)                                                         |
 
 ### 4.1 Cross-source contributor (§4.4 / §14.7)
 
@@ -491,27 +538,27 @@ a TypeBox query schema (derived from the §7 spec via `toTypeBox`), the response
 envelope (§5.2), pagination kind, cache TTL, and timeout class. Each module exports
 an OpenAPI fragment merged at `/api/v1/openapi.json`.
 
-| Method | Path | Query (TypeBox, from spec) | Response | Pagination | Cache | Timeout |
-|--------|------|----------------------------|----------|------------|-------|---------|
-| GET | `/budget/execution-line-items` | `BudgetFactFilter` (year,report_type,account_category req) + sort + cursor + limit | `ExecutionLineItem[]` | **cursor** | 60 s | 5 s |
-| GET | `/budget/execution-line-items/:id` | — | `ExecutionLineItem` | — | 300 s | 5 s |
-| GET | `/budget/commitment-line-items` | `CommitmentFactFilter` (year,report_type req) | `CommitmentLineItem[]` | **cursor** | 60 s | 5 s |
-| GET | `/budget/entities/:cui/summary` | `SummaryQuery` (year/from-to, freq, report_type?) | `BudgetEntitySummary[]` | offset (cheap, MV) | 300 s | 15 s |
-| GET | `/budget/entities/:cui/commitments` | `SummaryQuery` | `CommitmentEntitySummary[]` | offset | 300 s | 15 s |
-| GET | `/budget/timeseries` | `TimeseriesQuery` (filter + freq + normalization) | `SeriesPoint[]` | none (bounded ≤10k) | 120 s | 15 s |
-| GET | `/budget/rankings/entities` | `EntityRankingQuery` (year,report_type req; metric; normalization) | `RankedEntity[]` | **cursor** (+est total) | 120 s | 15 s |
-| GET | `/budget/rankings/commitment-entities` | `CommitmentRankingQuery` | `RankedCommitmentEntity[]` | cursor | 120 s | 15 s |
-| GET | `/budget/aggregate` | `BudgetFactFilter` + `groupBy=classification` + aggregate amount HAVING | `AggregatedBudgetRow[]` | offset≤100 | 120 s | 15 s |
-| GET | `/budget/analytics/county-heatmap` | `HeatmapQuery` (year,report_type req; normalization) | `CountyHeatmapPoint[]` | none (≤47) | 300 s | 15 s |
-| GET | `/budget/reports` | `ReportQuery` (≥1 of entity_cui\|year\|report_type REQUIRED) + date range, search | `BudgetReport[]` | offset + **cheap COUNT only when bounded** | 120 s | 5 s |
-| GET | `/budget/reports/:id` | — | `BudgetReport` | — | 300 s | 5 s |
-| GET | `/budget/classifications/functional` | `DimensionQuery` (search, codes) | `Classification[]` | offset | 1 h | 5 s |
-| GET | `/budget/classifications/economic` | `DimensionQuery` | `Classification[]` | offset | 1 h | 5 s |
-| GET | `/budget/sectors` | `DimensionQuery` | `BudgetSector[]` | offset | 1 h | 5 s |
-| GET | `/budget/funding-sources` | `DimensionQuery` | `FundingSource[]` | offset | 1 h | 5 s |
-| GET | `/budget/official/approved` | `ApprovedFactQuery` (budget_year, measure_kind…) | `ApprovedBudgetFact[]` | offset (cheap) | 1 h | 5 s |
-| GET | `/budget/official/vs-execution` | `VsBudgetQuery` | `BudgetVsExecutionRow[]` | offset | 1 h | 15 s |
-| GET | `/budget/filters/resolve` | `?dim={entity\|territory\|functional\|economic}&q=` | `Match[]` | none (≤20) | 300 s | 5 s |
+| Method | Path                                   | Query (TypeBox, from spec)                                                         | Response                    | Pagination                                 | Cache | Timeout |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------ | ----- | ------- |
+| GET    | `/budget/execution-line-items`         | `BudgetFactFilter` (year,report_type,account_category req) + sort + cursor + limit | `ExecutionLineItem[]`       | **cursor**                                 | 60 s  | 5 s     |
+| GET    | `/budget/execution-line-items/:id`     | —                                                                                  | `ExecutionLineItem`         | —                                          | 300 s | 5 s     |
+| GET    | `/budget/commitment-line-items`        | `CommitmentFactFilter` (year,report_type req)                                      | `CommitmentLineItem[]`      | **cursor**                                 | 60 s  | 5 s     |
+| GET    | `/budget/entities/:cui/summary`        | `SummaryQuery` (year/from-to, freq, report_type?)                                  | `BudgetEntitySummary[]`     | offset (cheap, MV)                         | 300 s | 15 s    |
+| GET    | `/budget/entities/:cui/commitments`    | `SummaryQuery`                                                                     | `CommitmentEntitySummary[]` | offset                                     | 300 s | 15 s    |
+| GET    | `/budget/timeseries`                   | `TimeseriesQuery` (filter + freq + normalization)                                  | `SeriesPoint[]`             | none (bounded ≤10k)                        | 120 s | 15 s    |
+| GET    | `/budget/rankings/entities`            | `EntityRankingQuery` (year,report_type req; metric; normalization)                 | `RankedEntity[]`            | **cursor** (+est total)                    | 120 s | 15 s    |
+| GET    | `/budget/rankings/commitment-entities` | `CommitmentRankingQuery`                                                           | `RankedCommitmentEntity[]`  | cursor                                     | 120 s | 15 s    |
+| GET    | `/budget/aggregate`                    | `BudgetFactFilter` + `groupBy=classification` + aggregate amount HAVING            | `AggregatedBudgetRow[]`     | offset≤100                                 | 120 s | 15 s    |
+| GET    | `/budget/analytics/county-heatmap`     | `HeatmapQuery` (year,report_type req; normalization)                               | `CountyHeatmapPoint[]`      | none (≤47)                                 | 300 s | 15 s    |
+| GET    | `/budget/reports`                      | `ReportQuery` (≥1 of entity_cui\|year\|report_type REQUIRED) + date range, search  | `BudgetReport[]`            | offset + **cheap COUNT only when bounded** | 120 s | 5 s     |
+| GET    | `/budget/reports/:id`                  | —                                                                                  | `BudgetReport`              | —                                          | 300 s | 5 s     |
+| GET    | `/budget/classifications/functional`   | `DimensionQuery` (search, codes)                                                   | `Classification[]`          | offset                                     | 1 h   | 5 s     |
+| GET    | `/budget/classifications/economic`     | `DimensionQuery`                                                                   | `Classification[]`          | offset                                     | 1 h   | 5 s     |
+| GET    | `/budget/sectors`                      | `DimensionQuery`                                                                   | `BudgetSector[]`            | offset                                     | 1 h   | 5 s     |
+| GET    | `/budget/funding-sources`              | `DimensionQuery`                                                                   | `FundingSource[]`           | offset                                     | 1 h   | 5 s     |
+| GET    | `/budget/official/approved`            | `ApprovedFactQuery` (budget_year, measure_kind…)                                   | `ApprovedBudgetFact[]`      | offset (cheap)                             | 1 h   | 5 s     |
+| GET    | `/budget/official/vs-execution`        | `VsBudgetQuery`                                                                    | `BudgetVsExecutionRow[]`    | offset                                     | 1 h   | 15 s    |
+| GET    | `/budget/filters/resolve`              | `?dim={entity\|territory\|functional\|economic}&q=`                                | `Match[]`                   | none (≤20)                                 | 300 s | 5 s     |
 
 Notes: `year`/`report_type`/`account_category` are **required** query params on the
 fact endpoints (TypeBox `minimum`/enum), defaulted by the handler to latest-year /
@@ -625,33 +672,33 @@ Each row: field → ops → driving column (`{alias,column}`, partition/index-aw
 REST param ↔ GraphQL input ↔ MCP input. `eli` = fact alias, `e` =
 `core.public_entities`, `t` = `core.territories`.
 
-| Field | type | ops | driving column | index/partition | REST ↔ GraphQL ↔ MCP |
-|-------|------|-----|----------------|-----------------|----------------------|
-| `reportingYear` | int | `eq`,`between`,`in` | `eli.reporting_year` | **RANGE L1 (prune)** | `year`/`yearFrom`/`yearTo` ↔ `year`/`yearFrom`/`yearTo` ↔ same; **default = latest, non-removable** |
-| `reportType` | enum | `eq` | `eli.report_type` | **LIST L2 (prune)** | `reportType` ↔ enum ↔ enum; default `EXECUTION_DETAILED` |
-| `accountCategory` | enum | `eq` | `eli.account_category` | **LIST L3 (prune)** | `accountCategory` ↔ enum ↔ enum; default `EXPENSE`; **required** |
-| `frequency` | enum | `eq` | `eli.is_{monthly,quarterly,yearly}` | partial scope idx | selects amount col + flag |
-| `months` / `quarters` | int[] | `in` | `eli.reporting_month`/`quarter` | tuple in scope idx | `months`/`quarters` CSV ↔ list ↔ list |
-| `entityCuis` | string[] | `in` | `eli.entity_cui` | scope idx col 3 | `entityCui` CSV ↔ `[CUI!]` ↔ list |
-| `mainCreditorCui` | string | `eq` | `eli.main_creditor_cui` | scope idx tail | same |
-| `budgetSectorIds` | int[] | `in` | `eli.budget_sector_id` | scope idx | `budgetSectorIds` |
-| `fundingSourceIds` | int[] | `in` | `eli.funding_source_id` | — (resolved at load) | `fundingSourceIds` |
-| `expenseTypes` | string[] | `in` | `eli.expense_type` | identity idx | `expenseTypes` |
-| `functionalCodes` | string[] | `in` | `eli.functional_code` | identity idx | `functionalCodes` |
-| `functionalPrefixes` | string[] | `prefix` | `eli.functional_code` | **text_pattern_ops btree** | `functionalPrefixes` (`LIKE 'x%'`) |
-| `economicCodes` | string[] | `in` | `eli.economic_code` | identity idx | `economicCodes` |
-| `economicPrefixes` | string[] | `prefix` | `eli.economic_code` | **text_pattern_ops btree** | `economicPrefixes` |
-| `programCodes` | string[] | `in` | `eli.program_code` | identity idx | `programCodes` |
-| `entityTypes` | string[] | `in` | `e.entity_type` | core (join) | `entityTypes` (needs entity join) |
-| `isUat` | bool | `eq` | `e.is_uat` | core | `isUat` |
-| `uatIds` | int[] | `in` | `t.id` | core (territory) | `uatIds` |
-| `countyCodes` | string[] | `in` | `t.county_code` | core | `countyCodes` |
-| `regions` | string[] | `in` | `t.region` | core | `regions` |
-| `minPopulation`/`maxPopulation` | int | `gte`/`lte` | `t.population` | core | `minPopulation`/`maxPopulation` |
-| `q` | string | `contains` | `e.name` | **pg_trgm** (kernel identity repo) | `search` ↔ `q` — text engine = **Postgres trigram** (entity name); not Meili/OS on this collection |
-| `minAmount`/`maxAmount` | number | `gte`/`lte` | `eli.{monthly\|quarterly\|ytd}_amount` (by `frequency`) | — (row filter) | `minAmount`/`maxAmount` |
-| `excludeTransfers` | bool | — | functional/economic prefix set | — | opt-in (fact path only; MVs pre-exclude) |
-| `exclude` | nested | negation | report_ids, entity_cuis, functional_codes/_prefixes, economic_codes/_prefixes, entity_types, uat_ids, county_codes, regions (`exclude:true` fields only, §14.2) | NULL-safe `(col IS NULL OR col NOT IN …)` | `exclude.<field>` ↔ `exclude: {...}` ↔ nested |
+| Field                           | type     | ops                 | driving column                                                                                                                                                    | index/partition                           | REST ↔ GraphQL ↔ MCP                                                                                |
+| ------------------------------- | -------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `reportingYear`                 | int      | `eq`,`between`,`in` | `eli.reporting_year`                                                                                                                                              | **RANGE L1 (prune)**                      | `year`/`yearFrom`/`yearTo` ↔ `year`/`yearFrom`/`yearTo` ↔ same; **default = latest, non-removable** |
+| `reportType`                    | enum     | `eq`                | `eli.report_type`                                                                                                                                                 | **LIST L2 (prune)**                       | `reportType` ↔ enum ↔ enum; default `EXECUTION_DETAILED`                                            |
+| `accountCategory`               | enum     | `eq`                | `eli.account_category`                                                                                                                                            | **LIST L3 (prune)**                       | `accountCategory` ↔ enum ↔ enum; default `EXPENSE`; **required**                                    |
+| `frequency`                     | enum     | `eq`                | `eli.is_{monthly,quarterly,yearly}`                                                                                                                               | partial scope idx                         | selects amount col + flag                                                                           |
+| `months` / `quarters`           | int[]    | `in`                | `eli.reporting_month`/`quarter`                                                                                                                                   | tuple in scope idx                        | `months`/`quarters` CSV ↔ list ↔ list                                                               |
+| `entityCuis`                    | string[] | `in`                | `eli.entity_cui`                                                                                                                                                  | scope idx col 3                           | `entityCui` CSV ↔ `[CUI!]` ↔ list                                                                   |
+| `mainCreditorCui`               | string   | `eq`                | `eli.main_creditor_cui`                                                                                                                                           | scope idx tail                            | same                                                                                                |
+| `budgetSectorIds`               | int[]    | `in`                | `eli.budget_sector_id`                                                                                                                                            | scope idx                                 | `budgetSectorIds`                                                                                   |
+| `fundingSourceIds`              | int[]    | `in`                | `eli.funding_source_id`                                                                                                                                           | — (resolved at load)                      | `fundingSourceIds`                                                                                  |
+| `expenseTypes`                  | string[] | `in`                | `eli.expense_type`                                                                                                                                                | identity idx                              | `expenseTypes`                                                                                      |
+| `functionalCodes`               | string[] | `in`                | `eli.functional_code`                                                                                                                                             | identity idx                              | `functionalCodes`                                                                                   |
+| `functionalPrefixes`            | string[] | `prefix`            | `eli.functional_code`                                                                                                                                             | **text_pattern_ops btree**                | `functionalPrefixes` (`LIKE 'x%'`)                                                                  |
+| `economicCodes`                 | string[] | `in`                | `eli.economic_code`                                                                                                                                               | identity idx                              | `economicCodes`                                                                                     |
+| `economicPrefixes`              | string[] | `prefix`            | `eli.economic_code`                                                                                                                                               | **text_pattern_ops btree**                | `economicPrefixes`                                                                                  |
+| `programCodes`                  | string[] | `in`                | `eli.program_code`                                                                                                                                                | identity idx                              | `programCodes`                                                                                      |
+| `entityTypes`                   | string[] | `in`                | `e.entity_type`                                                                                                                                                   | core (join)                               | `entityTypes` (needs entity join)                                                                   |
+| `isUat`                         | bool     | `eq`                | `e.is_uat`                                                                                                                                                        | core                                      | `isUat`                                                                                             |
+| `uatIds`                        | int[]    | `in`                | `t.id`                                                                                                                                                            | core (territory)                          | `uatIds`                                                                                            |
+| `countyCodes`                   | string[] | `in`                | `t.county_code`                                                                                                                                                   | core                                      | `countyCodes`                                                                                       |
+| `regions`                       | string[] | `in`                | `t.region`                                                                                                                                                        | core                                      | `regions`                                                                                           |
+| `minPopulation`/`maxPopulation` | int      | `gte`/`lte`         | `t.population`                                                                                                                                                    | core                                      | `minPopulation`/`maxPopulation`                                                                     |
+| `q`                             | string   | `contains`          | `e.name`                                                                                                                                                          | **pg_trgm** (kernel identity repo)        | `search` ↔ `q` — text engine = **Postgres trigram** (entity name); not Meili/OS on this collection  |
+| `minAmount`/`maxAmount`         | number   | `gte`/`lte`         | `eli.{monthly\|quarterly\|ytd}_amount` (by `frequency`)                                                                                                           | — (row filter)                            | `minAmount`/`maxAmount`                                                                             |
+| `excludeTransfers`              | bool     | —                   | functional/economic prefix set                                                                                                                                    | —                                         | opt-in (fact path only; MVs pre-exclude)                                                            |
+| `exclude`                       | nested   | negation            | report_ids, entity_cuis, functional_codes/\_prefixes, economic_codes/\_prefixes, entity_types, uat_ids, county_codes, regions (`exclude:true` fields only, §14.2) | NULL-safe `(col IS NULL OR col NOT IN …)` | `exclude.<field>` ↔ `exclude: {...}` ↔ nested                                                       |
 
 `sort`: default `LINE_ORDER`; allowed `{ AMOUNT_DESC, AMOUNT_ASC, LINE_ORDER }`
 (maps to `monthly\|quarterly\|ytd_amount` per frequency + tiebreak
@@ -679,9 +726,9 @@ leaves.
 ### 7.4 Dimension / report / official specs
 
 - Dimension specs (functional/economic/sector/funding): `{ search (pg_trgm),
-  codes/ids (in) }`, offset pagination, default sort by code/name.
+codes/ids (in) }`, offset pagination, default sort by code/name.
 - Report spec: `{ entityCui, reportingYear, reportingPeriod, reportType,
-  mainCreditorCui, reportDateFrom/To, q (entity name) }`; sort `report_date`.
+mainCreditorCui, reportDateFrom/To, q (entity name) }`; sort `report_date`.
   **`budget.reports` is 3.82M rows, so an unbounded list + COUNT is forbidden**
   (§14.4): the spec requires **at least one** of `entityCui`
   (`reports_entity_cui_idx`), `reportingYear` (`reports_reporting_year_idx`), or
@@ -689,7 +736,7 @@ leaves.
   COUNT cheap. A request with none → `InvalidInput`. (If a future unfiltered feed
   is needed, switch reports to cursor + estimated total like the facts.)
 - Approved spec: `{ budgetYear, measureYear, measureKind, budgetComponent,
-  functionalCode, economicCode }`. Vs-execution spec: period + component keys.
+functionalCode, economicCode }`. Vs-execution spec: period + component keys.
 
 ### 7.5 Discovery / resolve dimensions (§7.4)
 
@@ -703,14 +750,14 @@ literal map). Every resolve echoes the matched id + a confidence/ambiguity flag
 
 ### 7.6 Golden question → filter examples (from the catalog + budget reality)
 
-| Q | Intent | Resolved filter | Path |
-|---|--------|-----------------|------|
-| "Cheltuielile Primăriei Cluj-Napoca în 2024" | entity expense, one year | `{year:2024, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, entityCuis:[<resolved>], frequency:YEAR}` | MV summary |
-| "Pe ce a cheltuit ministerul X pe categorii funcționale, 2023" | spend by functional category | `{year:2023, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, entityCuis:[X], groupBy:classification}` | fact aggregate (one leaf) |
-| "Top 20 UAT-uri după cheltuieli pe locuitor, 2025" | per-capita ranking | `{year:2025, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, isUat:true, normalization:PER_CAPITA, sort:PER_CAPITA, limit:20}` | MV ranking + factor |
-| "Veniturile județului Iași lunar în 2024" | income timeseries | `{year:2024, reportType:EXECUTION_AGG_PRINCIPAL, accountCategory:INCOME, regions/county resolved, frequency:MONTH}` | MV monthly series |
-| "Angajamente plătite din trezorerie de entitatea Y, Q1–Q4 2025" | commitment metric | `{year:2025, reportType:COMMITMENT_AGG_PRINCIPAL, entityCuis:[Y], metric:platiTrezor, frequency:QUARTER}` | commitment MV |
-| "Cât a alocat legea bugetului 2024 pe componenta Z vs execuția" | planned vs actual | `budgetVsExecution{budgetYear:2024, component:Z}` | official view (gated) |
+| Q                                                               | Intent                       | Resolved filter                                                                                                                        | Path                      |
+| --------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| "Cheltuielile Primăriei Cluj-Napoca în 2024"                    | entity expense, one year     | `{year:2024, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, entityCuis:[<resolved>], frequency:YEAR}`                         | MV summary                |
+| "Pe ce a cheltuit ministerul X pe categorii funcționale, 2023"  | spend by functional category | `{year:2023, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, entityCuis:[X], groupBy:classification}`                          | fact aggregate (one leaf) |
+| "Top 20 UAT-uri după cheltuieli pe locuitor, 2025"              | per-capita ranking           | `{year:2025, reportType:EXECUTION_DETAILED, accountCategory:EXPENSE, isUat:true, normalization:PER_CAPITA, sort:PER_CAPITA, limit:20}` | MV ranking + factor       |
+| "Veniturile județului Iași lunar în 2024"                       | income timeseries            | `{year:2024, reportType:EXECUTION_AGG_PRINCIPAL, accountCategory:INCOME, regions/county resolved, frequency:MONTH}`                    | MV monthly series         |
+| "Angajamente plătite din trezorerie de entitatea Y, Q1–Q4 2025" | commitment metric            | `{year:2025, reportType:COMMITMENT_AGG_PRINCIPAL, entityCuis:[Y], metric:platiTrezor, frequency:QUARTER}`                              | commitment MV             |
+| "Cât a alocat legea bugetului 2024 pe componenta Z vs execuția" | planned vs actual            | `budgetVsExecution{budgetYear:2024, component:Z}`                                                                                      | official view (gated)     |
 
 These ship as integration golden-filter cases (§11).
 
@@ -729,18 +776,19 @@ caveats? }` (the catalog's verification envelope). Rate-limited; bounded sizes.
 input  { dim: 'entity'|'territory'|'functional'|'economic', q: string, limit?: int }
 output { ok, kind:'resolution', items:[{ id, label, kind, confidence, ambiguous }], summary }
 ```
+
 Calls `resolveBudgetFilter`. Wraps `/budget/filters/resolve` (§14.11). Mandatory
 first step for any name-based budget question (Entity Resolution Gate).
 
 ### 8.2 Query tools
 
-| Tool | Input (key fields) | Usecase | Output `kind` | `link` |
-|------|--------------------|---------|----------------|--------|
-| `get_budget_entity_snapshot` | `cui`, `year?`, `reportType?` | `getEntityBudget` (+commitments) | `entity_snapshot` | `/entities/{cui}/budget?year=` |
-| `rank_budget_entities` | `year`, `reportType`, `accountCategory`, `metric`, `normalization?`, `geo?`, `limit?` | `rankEntities` | `ranking` | `/budget/rankings?...` |
-| `aggregate_budget_by_classification` | `year`, `reportType`, `accountCategory`, `entityCui?`, `minAmount?` | `aggregateByClassification` | `aggregate` | `/budget/aggregate?...` |
-| `get_budget_timeseries` | filter + `frequency` + `normalization?` | `budgetTimeseries` | `timeseries` | `/budget/timeseries?...` |
-| `compare_budget_vs_approved` | `budgetYear`, component/entity | `budgetVsApproved` | `comparison` | `/budget/official/vs-execution?...` (gated) |
+| Tool                                 | Input (key fields)                                                                    | Usecase                          | Output `kind`     | `link`                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------- | ----------------- | ------------------------------------------- |
+| `get_budget_entity_snapshot`         | `cui`, `year?`, `reportType?`                                                         | `getEntityBudget` (+commitments) | `entity_snapshot` | `/entities/{cui}/budget?year=`              |
+| `rank_budget_entities`               | `year`, `reportType`, `accountCategory`, `metric`, `normalization?`, `geo?`, `limit?` | `rankEntities`                   | `ranking`         | `/budget/rankings?...`                      |
+| `aggregate_budget_by_classification` | `year`, `reportType`, `accountCategory`, `entityCui?`, `minAmount?`                   | `aggregateByClassification`      | `aggregate`       | `/budget/aggregate?...`                     |
+| `get_budget_timeseries`              | filter + `frequency` + `normalization?`                                               | `budgetTimeseries`               | `timeseries`      | `/budget/timeseries?...`                    |
+| `compare_budget_vs_approved`         | `budgetYear`, component/entity                                                        | `budgetVsApproved`               | `comparison`      | `/budget/official/vs-execution?...` (gated) |
 
 Every aggregate output includes (catalog Core Rule): `value`, `evidence` (entity
 CUIs / report_ids), `filters` (the canonicalized set actually applied),
@@ -784,7 +832,7 @@ deferred** — verified there are **no `budget_*` rows in `search.documents` tod
   CONCURRENTLY incremental). Live e2e proven for May 2026 (BUDGET_NOTES). Cadence:
   monthly (new reporting month) + ad-hoc re-downloads (source re-publications).
 - **As-of semantics:** every read surfaces `meta.asOf = { year: latestLoadedYear,
-  latestCompleteYear, refreshedAt: mv refresh ts }`. `latestLoadedYear` =
+latestCompleteYear, refreshedAt: mv refresh ts }`. `latestLoadedYear` =
   `MAX(reporting_year)` resolved at boot **and** re-read on a short TTL (facts are
   append-mostly within a year; the latest month grows during the month). **The
   default-year for annual summaries/rankings binds to `latestCompleteYear`** (the
@@ -799,7 +847,7 @@ deferred** — verified there are **no `budget_*` rows in `search.documents` tod
   change on refresh; fact lists get 60 s.
 - **Mutable rows:** within a reporting year, monthly YTD rows are recomputed (not
   appended) — the unique `(year, report_type, account_category, report_id,
-  line_key)` index means upserts converge; the server need only respect `asOf` and
+line_key)` index means upserts converge; the server need only respect `asOf` and
   let TTL expire. No "as-of historical snapshot" API in v1 (deferred).
 
 ---
@@ -810,11 +858,18 @@ deferred** — verified there are **no `budget_*` rows in `search.documents` tod
 // src/modules/budget/index.ts
 export const makeBudgetModule = (deps: {
   db: Kysely<ProdDatabase>;
-  identityRepo: IdentityRepo;      // kernel (CUI resolution + pg_trgm)
-  territoryRepo: TerritoryRepo;    // kernel (SIRUTA hub, Bucharest special-case)
-  cache: Cache; clock: Clock; capabilities: SearchCapabilities;
-}): BudgetModule => ({ restPlugin, graphql: { typeDefs, resolvers }, mcpTools,
-   contributor: makeBudgetContributor(repo), repos: { budgetRepo, discoveryRepo } });
+  identityRepo: IdentityRepo; // kernel (CUI resolution + pg_trgm)
+  territoryRepo: TerritoryRepo; // kernel (SIRUTA hub, Bucharest special-case)
+  cache: Cache;
+  clock: Clock;
+  capabilities: SearchCapabilities;
+}): BudgetModule => ({
+  restPlugin,
+  graphql: { typeDefs, resolvers },
+  mcpTools,
+  contributor: makeBudgetContributor(repo),
+  repos: { budgetRepo, discoveryRepo },
+});
 ```
 
 - **Deps:** kernel db + identity/territory repos + cache + capabilities. No source
@@ -874,13 +929,13 @@ export const makeBudgetModule = (deps: {
    `/budget/official/*` endpoints ship capability-gated. Risk: client shows an
    empty "vs budget" surface. Mitigation: the gate returns explicit `caveats`;
    document as known. **Verified live 2026-06-16: `SELECT count(*) FROM
-   budget.execution_vs_budget` = 0** — the view's FROM is `bgc_official_facts`
+budget.execution_vs_budget` = 0** — the view's FROM is `bgc_official_facts`
    (LEFT JOIN approved), so with bgc empty the view returns **zero rows**, NOT
    "approved with null execution." Therefore `/budget/official/vs-execution` is
    **fully empty** until the bgc extract is fixed; the capability gate keys on
    `bgc_official_facts` row count (not `approved_budget_facts`) and returns
    `{ data: [], caveats: ['budget-official execution bulletins not yet loaded;
-   vs-execution comparison unavailable'] }`. `approved_budget_facts` (3.3M) IS
+vs-execution comparison unavailable'] }`. `approved_budget_facts` (3.3M) IS
    available, so `/budget/official/approved` works on its own.
 3. **`search.documents` budget projection deferred.** Autocomplete uses the kernel
    identity hub fallback. Risk: budget entities not in global search until the

@@ -8,7 +8,7 @@
  * kernel's open `{ source, kind, summary?, data? }` shape.
  */
 
-import { err, ok, type Result  } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
 import { getPnrrEntityProfile } from '../core/usecases.js';
 
@@ -21,7 +21,6 @@ import type {
   SourceContributor,
   SourcePresence,
 } from '@/modules/shared/index.js';
-
 
 const PNRR_SOURCE = 'pnrr';
 

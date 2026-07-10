@@ -383,7 +383,13 @@ export const scopeTopAuthorities = async (
   const resolved = await resolveScopeGate(agg, scope, grain);
   if (resolved.isErr()) return err(resolved.error);
   if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeTopParties(scope, resolved.value.grains, resolved.value.spendGrains, 'authority', topN);
+  return agg.scopeTopParties(
+    scope,
+    resolved.value.grains,
+    resolved.value.spendGrains,
+    'authority',
+    topN
+  );
 };
 
 export const scopeTopSuppliers = async (
@@ -395,7 +401,13 @@ export const scopeTopSuppliers = async (
   const resolved = await resolveScopeGate(agg, scope, grain);
   if (resolved.isErr()) return err(resolved.error);
   if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeTopParties(scope, resolved.value.grains, resolved.value.spendGrains, 'supplier', topN);
+  return agg.scopeTopParties(
+    scope,
+    resolved.value.grains,
+    resolved.value.spendGrains,
+    'supplier',
+    topN
+  );
 };
 
 export const scopeCategoryBreakdown = async (
@@ -432,7 +444,8 @@ export const getSupplierRecords = (
   supplierCui: string,
   first: number,
   after: string | undefined
-): Promise<Result<SupplierRecordConnection, ApiError>> => repo.supplierRecords(supplierCui, first, after);
+): Promise<Result<SupplierRecordConnection, ApiError>> =>
+  repo.supplierRecords(supplierCui, first, after);
 
 // ── contributor (entity-360) ───────────────────────────────────────────────────
 

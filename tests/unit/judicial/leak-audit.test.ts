@@ -71,7 +71,10 @@ describe('judicial leak audit — projection-residue invariants', () => {
       if (/\bsolution_summary\b/u.test(residue)) offenders.push(`${label(file)}: solution_summary`);
       if (/\bsolution\b/u.test(masked)) offenders.push(`${label(file)}: solution`);
     }
-    expect(offenders, `solution/solution_summary in projection residue: ${offenders.join(', ')}`).toEqual([]);
+    expect(
+      offenders,
+      `solution/solution_summary in projection residue: ${offenders.join(', ')}`
+    ).toEqual([]);
   });
 
   it('display_name survives ONLY in the gated repo (+ the schema declaration) (test 1/3.1)', () => {
@@ -82,18 +85,28 @@ describe('judicial leak audit — projection-residue invariants', () => {
       if (file.endsWith(GATED_FILE)) gatedHasIt = hasIt;
       else if (hasIt && !file.endsWith('schema.ts')) offenders.push(label(file));
     }
-    expect(offenders, `display_name selected/used outside the gated repo: ${offenders.join(', ')}`).toEqual([]);
+    expect(
+      offenders,
+      `display_name selected/used outside the gated repo: ${offenders.join(', ')}`
+    ).toEqual([]);
     expect(gatedHasIt, 'the gated repo must read display_name').toBe(true);
   });
 
   it('candidate jsonb/PII columns never survive in a projection (test 6)', () => {
     const offenders: string[] = [];
     for (const [file, residue] of residues) {
-      for (const col of ['candidate_company_name', 'reviewed_by', '\\bevidence\\b', '\\bcandidates\\b']) {
+      for (const col of [
+        'candidate_company_name',
+        'reviewed_by',
+        '\\bevidence\\b',
+        '\\bcandidates\\b',
+      ]) {
         if (new RegExp(col, 'u').test(residue)) offenders.push(`${label(file)}: ${col}`);
       }
     }
-    expect(offenders, `candidate PII/jsonb in projection residue: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `candidate PII/jsonb in projection residue: ${offenders.join(', ')}`).toEqual(
+      []
+    );
   });
 
   it('raw legal-ref span (raw_text/span_start/span_end) never survives in a projection (S2)', () => {
@@ -103,7 +116,9 @@ describe('judicial leak audit — projection-residue invariants', () => {
         if (new RegExp(`\\b${col}\\b`, 'u').test(residue)) offenders.push(`${label(file)}: ${col}`);
       }
     }
-    expect(offenders, `raw legal-ref span in projection residue: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `raw legal-ref span in projection residue: ${offenders.join(', ')}`).toEqual(
+      []
+    );
   });
 });
 
@@ -118,7 +133,13 @@ describe('judicial leak audit — structural type invariants', () => {
   });
 
   it('GraphQL SDL declares NO forbidden FIELD (parsed AST, comments excluded)', () => {
-    const forbidden = new Set(['displayName', 'solutionSummary', 'solution', 'rawText', 'sourceField']);
+    const forbidden = new Set([
+      'displayName',
+      'solutionSummary',
+      'solution',
+      'rawText',
+      'sourceField',
+    ]);
     const offenders: string[] = [];
     for (const def of parse(judicialTypeDefs).definitions) {
       if (

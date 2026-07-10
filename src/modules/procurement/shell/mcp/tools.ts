@@ -59,7 +59,11 @@ const edgeFilterOf = (args: Record<string, unknown>, topN: number): EdgeAggFilte
   };
 };
 
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const n = (x: number): string => String(x);
 
 export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly KernelMcpTool[] => {
@@ -89,7 +93,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         items: res.value,
         summary:
           `Found ${n(res.value.length)} CPV match(es) for «${q}».` +
-          (lowConf ? ' (8-digit code matches are low-confidence; prefer the 2-digit division.)' : ''),
+          (lowConf
+            ? ' (8-digit code matches are low-confidence; prefer the 2-digit division.)'
+            : ''),
       };
     },
   };
@@ -136,7 +142,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     },
     async handler(args): Promise<McpToolOutput> {
       const filter = buildDaFilter(args);
-      const res = await searchDirectAcquisitions(repo, filter, { first: intArg(args, 'first', 20) });
+      const res = await searchDirectAcquisitions(repo, filter, {
+        first: intArg(args, 'first', 20),
+      });
       if (res.isErr()) return errorOut('da_list', res.error.message);
       return {
         ok: true,
@@ -174,7 +182,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         items: res.value.data,
         summary:
           `Top ${n(res.value.data.length)} suppliers of ${cui} (${res.value.grain})` +
-          (top !== undefined ? `; #1 ${top.supplierName ?? top.supplierCui} = ${top.flowCount} flows, ${top.amountRonSum ?? 'n/a'} RON.` : '.') +
+          (top !== undefined
+            ? `; #1 ${top.supplierName ?? top.supplierCui} = ${top.flowCount} flows, ${top.amountRonSum ?? 'n/a'} RON.`
+            : '.') +
           (res.value.caveats.length > 0 ? ` (${res.value.caveats.join('; ')})` : ''),
       };
     },
@@ -193,7 +203,11 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'supplierCui');
       if (cui === '') return errorOut('ranking', 'supplierCui is required');
-      const res = await topAuthorities(aggregate, cui, edgeFilterOf(args, intArg(args, 'topN', 20)));
+      const res = await topAuthorities(
+        aggregate,
+        cui,
+        edgeFilterOf(args, intArg(args, 'topN', 20))
+      );
       if (res.isErr()) return errorOut('ranking', res.error.message);
       const top = res.value.data[0];
       return {
@@ -243,7 +257,8 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
 
   const authorityCpv: KernelMcpTool = {
     name: 'get_procurement_authority_cpv_spend',
-    description: 'PC-4: an authority’s spend broken down by CPV division × period (from the rollup).',
+    description:
+      'PC-4: an authority’s spend broken down by CPV division × period (from the rollup).',
     inputShape: {
       authorityCui: z.string(),
       grain: z.enum(['direct_acquisition', 'procurement_contract']).optional(),
@@ -255,7 +270,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'authorityCui');
       if (cui === '') return errorOut('cpv_spend', 'authorityCui is required');
-      const divisions = Array.isArray(args['cpvDivision']) ? (args['cpvDivision'] as unknown[]).map(String) : undefined;
+      const divisions = Array.isArray(args['cpvDivision'])
+        ? (args['cpvDivision'] as unknown[]).map(String)
+        : undefined;
       const monthFrom = optStr(args, 'monthFrom');
       const monthTo = optStr(args, 'monthTo');
       const res = await authorityCpvSpend(aggregate, cui, {
@@ -272,7 +289,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         query: { authorityCui: cui, grain: res.value.grain },
         link: entityLink(cui, 'authority'),
         items: res.value.data,
-        summary: `${n(res.value.data.length)} CPV division(s) for ${cui} (${res.value.grain}).` + (res.value.caveats.length > 0 ? ` (${res.value.caveats.join('; ')})` : ''),
+        summary:
+          `${n(res.value.data.length)} CPV division(s) for ${cui} (${res.value.grain}).` +
+          (res.value.caveats.length > 0 ? ` (${res.value.caveats.join('; ')})` : ''),
       };
     },
   };
@@ -335,7 +354,17 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     },
   };
 
-  return [resolveFilter, searchContractsTool, searchDaTool, rankSuppliers, rankAuthorities, concentration, authorityCpv, sameDay, grainGate];
+  return [
+    resolveFilter,
+    searchContractsTool,
+    searchDaTool,
+    rankSuppliers,
+    rankAuthorities,
+    concentration,
+    authorityCpv,
+    sameDay,
+    grainGate,
+  ];
 };
 
 // ── filter builders (scalar MCP args → kernel FilterInput) ──────────────────────

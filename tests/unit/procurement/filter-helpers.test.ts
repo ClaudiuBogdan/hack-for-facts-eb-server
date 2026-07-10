@@ -8,9 +8,7 @@
 import { Kysely, PostgresDialect, type RawBuilder } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
-import {
-  assertNoYearDateConflict,
-} from '@/modules/procurement/core/filters.js';
+import { assertNoYearDateConflict } from '@/modules/procurement/core/filters.js';
 import {
   assertDaSelective,
   canonicalPredicate,
@@ -21,10 +19,14 @@ import {
 import type { FilterInput } from '@/modules/shared/index.js';
 
 // A pool-less Kysely instance just for compiling raw fragments (never executes).
-const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool: null as unknown as never }) });
+const db = new Kysely<unknown>({
+  dialect: new PostgresDialect({ pool: null as unknown as never }),
+});
 
 /** Render a Kysely raw fragment to its parameterized SQL + params for assertions. */
-const render = (cond: RawBuilder<unknown> | undefined): { sql: string; params: readonly unknown[] } | undefined => {
+const render = (
+  cond: RawBuilder<unknown> | undefined
+): { sql: string; params: readonly unknown[] } | undefined => {
   if (cond === undefined) return undefined;
   const compiled = cond.compile(db);
   return { sql: compiled.sql, params: compiled.parameters };
@@ -50,11 +52,21 @@ describe('assertDaSelective (the 20M-row guard, §3a(1))', () => {
   });
   it('accepts a single year, rejects a 10-year window', () => {
     expect(assertDaSelective({ year: { eq: 2024 } }, MAX).isOk()).toBe(true);
-    expect(assertDaSelective({ year: { between: { from: 2015, to: 2025 } } }, MAX).isErr()).toBe(true);
+    expect(assertDaSelective({ year: { between: { from: 2015, to: 2025 } } }, MAX).isErr()).toBe(
+      true
+    );
   });
   it('accepts a bounded finalizationDate window, rejects an over-wide one', () => {
-    expect(assertDaSelective({ finalizationDate: { between: { from: '2024-01-01', to: '2024-06-01' } } }, MAX).isOk()).toBe(true);
-    const wide = assertDaSelective({ finalizationDate: { between: { from: '2010-01-01', to: '2025-01-01' } } }, MAX);
+    expect(
+      assertDaSelective(
+        { finalizationDate: { between: { from: '2024-01-01', to: '2024-06-01' } } },
+        MAX
+      ).isOk()
+    ).toBe(true);
+    const wide = assertDaSelective(
+      { finalizationDate: { between: { from: '2010-01-01', to: '2025-01-01' } } },
+      MAX
+    );
     expect(wide.isErr()).toBe(true);
   });
 });
@@ -121,10 +133,17 @@ describe('canonicalPredicate', () => {
 describe('assertNoYearDateConflict', () => {
   const f = (x: FilterInput): FilterInput => x;
   it('rejects year + the matching date range together', () => {
-    expect(assertNoYearDateConflict(f({ year: { eq: 2024 }, finalizationDate: { between: {} } }), 'finalizationDate').ok).toBe(false);
+    expect(
+      assertNoYearDateConflict(
+        f({ year: { eq: 2024 }, finalizationDate: { between: {} } }),
+        'finalizationDate'
+      ).ok
+    ).toBe(false);
   });
   it('allows year alone or date alone', () => {
     expect(assertNoYearDateConflict(f({ year: { eq: 2024 } }), 'finalizationDate').ok).toBe(true);
-    expect(assertNoYearDateConflict(f({ finalizationDate: { between: {} } }), 'finalizationDate').ok).toBe(true);
+    expect(
+      assertNoYearDateConflict(f({ finalizationDate: { between: {} } }), 'finalizationDate').ok
+    ).toBe(true);
   });
 });

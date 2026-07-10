@@ -34,7 +34,10 @@ const onUncaught = (err: unknown): void => {
   throw err;
 };
 
-const gql = async (query: string, variables?: Record<string, unknown>): Promise<{ data?: unknown; errors?: unknown }> => {
+const gql = async (
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<{ data?: unknown; errors?: unknown }> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -49,10 +52,17 @@ const mcpCall = async (name: string, args: Record<string, unknown>): Promise<unk
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC response body
-  const body = JSON.parse(res.body) as { result?: { structuredContent?: unknown; content?: { text?: string }[] } };
+  const body = JSON.parse(res.body) as {
+    result?: { structuredContent?: unknown; content?: { text?: string }[] };
+  };
   // The SDK returns the tool output object under structuredContent (or JSON text).
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent;
   const text = body.result?.content?.[0]?.text;
@@ -70,7 +80,10 @@ d('PNRR golden (live prod)', () => {
     // The prod URL carries sslmode=require; pg's default verifies the cert (the
     // tunnel presents a self-signed one). Encrypt without verifying, like the
     // kernel pool does.
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     // The stateless-MCP transport (SDK hono server) schedules a delayed
     // `forceClose` after each request; once the socket is gone it throws
@@ -93,7 +106,21 @@ d('PNRR golden (live prod)', () => {
       { cui: CNAIR }
     );
     expect(res.errors).toBeUndefined();
-    const p = (res.data as { pnrrEntityProfile: { payments: { count: number; totalLei: string; totalEur: string; byComponent: { componentCode: string }[] }; commitments: { count: number }; procurement: { acquisitionsAsBeneficiary: number }; grainNote: string } }).pnrrEntityProfile;
+    const p = (
+      res.data as {
+        pnrrEntityProfile: {
+          payments: {
+            count: number;
+            totalLei: string;
+            totalEur: string;
+            byComponent: { componentCode: string }[];
+          };
+          commitments: { count: number };
+          procurement: { acquisitionsAsBeneficiary: number };
+          grainNote: string;
+        };
+      }
+    ).pnrrEntityProfile;
     expect(p.payments.count).toBe(1229);
     expect(p.payments.totalLei).toBe('6210010594.17');
     expect(p.payments.totalEur).toBe('1256053436.75');
@@ -112,10 +139,19 @@ d('PNRR golden (live prod)', () => {
     const raw = sqlRes.rows[0];
     expect(raw).toBeDefined();
 
-    const g = await gql(`query($cui: CUI!){ entity(cui:$cui){ pnrr { payments { count totalLei totalEur } } } }`, { cui: CNAIR });
-    const gPay = (g.data as { entity: { pnrr: { payments: { count: number; totalLei: string; totalEur: string } } } }).entity.pnrr.payments;
+    const g = await gql(
+      `query($cui: CUI!){ entity(cui:$cui){ pnrr { payments { count totalLei totalEur } } } }`,
+      { cui: CNAIR }
+    );
+    const gPay = (
+      g.data as {
+        entity: { pnrr: { payments: { count: number; totalLei: string; totalEur: string } } };
+      }
+    ).entity.pnrr.payments;
 
-    const mcp = (await mcpCall('get_pnrr_entity', { cui: CNAIR })) as { item: { profile: { payments: { count: number; totalLei: string; totalEur: string } } } };
+    const mcp = (await mcpCall('get_pnrr_entity', { cui: CNAIR })) as {
+      item: { profile: { payments: { count: number; totalLei: string; totalEur: string } } };
+    };
     const mPay = mcp.item.profile.payments;
 
     // All three agree on the grain (count + lei + eur).
@@ -128,8 +164,14 @@ d('PNRR golden (live prod)', () => {
   }, 30_000); // entity(cui) eagerly computes the kernel flow summary (19GB table)
 
   it('Entity.pnrr == pnrrEntityProfile (contributor parity §14.7)', async () => {
-    const viaEntity = await gql(`query($cui: CUI!){ entity(cui:$cui){ pnrr { payments { count totalLei } commitments { count } } } }`, { cui: CNAIR });
-    const viaDirect = await gql(`query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count totalLei } commitments { count } } }`, { cui: CNAIR });
+    const viaEntity = await gql(
+      `query($cui: CUI!){ entity(cui:$cui){ pnrr { payments { count totalLei } commitments { count } } } }`,
+      { cui: CNAIR }
+    );
+    const viaDirect = await gql(
+      `query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count totalLei } commitments { count } } }`,
+      { cui: CNAIR }
+    );
     const a = (viaEntity.data as { entity: { pnrr: unknown } }).entity.pnrr;
     const b = (viaDirect.data as { pnrrEntityProfile: unknown }).pnrrEntityProfile;
     expect(a).toEqual(b);
@@ -140,7 +182,9 @@ d('PNRR golden (live prod)', () => {
       `query($cui:[String!]){ pnrrPaymentAggregate(filter:{ beneficiaryCui:{ in:$cui } }, groupBy: component){ key count totalLei } }`,
       { cui: [CNAIR] }
     );
-    const rows = (agg.data as { pnrrPaymentAggregate: { key: string; count: number; totalLei: string }[] }).pnrrPaymentAggregate;
+    const rows = (
+      agg.data as { pnrrPaymentAggregate: { key: string; count: number; totalLei: string }[] }
+    ).pnrrPaymentAggregate;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.key).toBe('C4');
     expect(rows[0]?.count).toBe(1229);
@@ -162,9 +206,12 @@ d('PNRR golden (live prod)', () => {
     );
     expect(sql.rows[0]?.cnt).toBe('1435');
 
-    const res = await gql(`{ pnrrEntities(filter:{ hasNoHub:{ eq:true }, role:{ eq:"beneficiary" } }, first: 3){ edges { node { cui hubs } } } }`);
+    const res = await gql(
+      `{ pnrrEntities(filter:{ hasNoHub:{ eq:true }, role:{ eq:"beneficiary" } }, first: 3){ edges { node { cui hubs } } } }`
+    );
     expect(res.errors).toBeUndefined();
-    const edges = (res.data as { pnrrEntities: { edges: { node: { hubs: string[] } }[] } }).pnrrEntities.edges;
+    const edges = (res.data as { pnrrEntities: { edges: { node: { hubs: string[] } }[] } })
+      .pnrrEntities.edges;
     for (const e of edges) expect(e.node.hubs).toHaveLength(0);
   });
 
@@ -175,14 +222,22 @@ d('PNRR golden (live prod)', () => {
   });
 
   it('index-bound rule: empty in: [] does NOT satisfy the driving predicate', async () => {
-    const res = await gql(`{ pnrrPayments(filter:{ beneficiaryCui:{ in: [] } }, first: 5){ edges { node { paymentKey } } } }`);
+    const res = await gql(
+      `{ pnrrPayments(filter:{ beneficiaryCui:{ in: [] } }, first: 5){ edges { node { paymentKey } } } }`
+    );
     const errs = res.errors as { extensions?: { code?: string } }[] | undefined;
     expect(errs?.[0]?.extensions?.code).toBe('INVALID_INPUT');
   });
 
   it('CUI normalization parity: RO-prefixed CUI resolves the same as digits-only (§14.7)', async () => {
-    const withPrefix = await gql(`query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count } } }`, { cui: `RO${CNAIR}` });
-    const digitsOnly = await gql(`query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count } } }`, { cui: CNAIR });
+    const withPrefix = await gql(
+      `query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count } } }`,
+      { cui: `RO${CNAIR}` }
+    );
+    const digitsOnly = await gql(
+      `query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments { count } } }`,
+      { cui: CNAIR }
+    );
     expect(withPrefix.errors).toBeUndefined();
     expect(withPrefix.data).toEqual(digitsOnly.data);
   });
@@ -191,9 +246,13 @@ d('PNRR golden (live prod)', () => {
     // 85 self-award rows exist; ranking must not include any cui that only appears
     // as its own acquisition beneficiary. Verify no ranked cui is a self-award-only
     // contractor by cross-checking the top rows against SQL.
-    const res = await gql(`{ pnrrContractorRank(by: value, limit: 10){ contractorCui awardCount } }`);
+    const res = await gql(
+      `{ pnrrContractorRank(by: value, limit: 10){ contractorCui awardCount } }`
+    );
     expect(res.errors).toBeUndefined();
-    const rows = (res.data as { pnrrContractorRank: { contractorCui: string; awardCount: number }[] }).pnrrContractorRank;
+    const rows = (
+      res.data as { pnrrContractorRank: { contractorCui: string; awardCount: number }[] }
+    ).pnrrContractorRank;
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
       const sql = await pool.query<{ non_self: string }>(
@@ -217,7 +276,14 @@ d('PNRR golden (live prod)', () => {
       { cui: CNAIR }
     );
     expect(res.errors).toBeUndefined();
-    const e = (res.data as { entity: { flowsIn: { byFlowType: { flowType: string; count: number }[] }; pnrr: { payments: { count: number } } } }).entity;
+    const e = (
+      res.data as {
+        entity: {
+          flowsIn: { byFlowType: { flowType: string; count: number }[] };
+          pnrr: { payments: { count: number } };
+        };
+      }
+    ).entity;
     const pnrrPaymentFlow = e.flowsIn.byFlowType.find((b) => b.flowType === 'pnrr_payment');
     expect(pnrrPaymentFlow?.count).toBe(1229);
     expect(e.pnrr.payments.count).toBe(1229);

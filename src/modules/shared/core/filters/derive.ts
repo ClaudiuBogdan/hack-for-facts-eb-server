@@ -167,12 +167,14 @@ const coerceScalar = (
   switch (field.type) {
     case 'int': {
       const n = typeof raw === 'number' ? raw : Number(raw);
-      if (!Number.isInteger(n)) return err(invalidInput(`${field.name} must be an integer`, field.name));
+      if (!Number.isInteger(n))
+        return err(invalidInput(`${field.name} must be an integer`, field.name));
       return ok(n);
     }
     case 'number': {
       const n = typeof raw === 'number' ? raw : Number(raw);
-      if (!Number.isFinite(n)) return err(invalidInput(`${field.name} must be a number`, field.name));
+      if (!Number.isFinite(n))
+        return err(invalidInput(`${field.name} must be a number`, field.name));
       return ok(n);
     }
     case 'money': {
@@ -189,7 +191,9 @@ const coerceScalar = (
     case 'enum': {
       const s = String(raw);
       if (field.enumValues !== undefined && !field.enumValues.includes(s)) {
-        return err(invalidInput(`${field.name} must be one of ${field.enumValues.join(', ')}`, field.name));
+        return err(
+          invalidInput(`${field.name} must be one of ${field.enumValues.join(', ')}`, field.name)
+        );
       }
       return ok(s);
     }
@@ -206,7 +210,10 @@ const coerceScalar = (
 
 /** A parameterized `array[$1, $2, …]` literal of coerced values. */
 const sqlArray = (values: readonly (string | number | boolean)[]): SqlCondition =>
-  sql`array[${sql.join(values.map((v) => sql`${v}`), sql`, `)}]`;
+  sql`array[${sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `
+  )}]`;
 
 const opSql = (
   field: FilterFieldSpec,
@@ -285,14 +292,19 @@ const opSql = (
         const arr = sqlArray(coerced);
         return ok(
           wrap(
-            field.column.arrayKind === 'jsonb'
-              ? sql`${colRef} ?| ${arr}`
-              : sql`${colRef} && ${arr}`
+            field.column.arrayKind === 'jsonb' ? sql`${colRef} ?| ${arr}` : sql`${colRef} && ${arr}`
           )
         );
       }
       // Scalar IN — money fields cast both sides to numeric (like eq/range).
-      return ok(wrap(sql`${lhs} in (${sql.join(coerced.map((v) => rhs(v)), sql`, `)})`));
+      return ok(
+        wrap(
+          sql`${lhs} in (${sql.join(
+            coerced.map((v) => rhs(v)),
+            sql`, `
+          )})`
+        )
+      );
     }
     case 'contains': {
       if (isArrayCol) {

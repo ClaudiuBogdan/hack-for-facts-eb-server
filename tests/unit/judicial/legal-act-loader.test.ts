@@ -44,7 +44,12 @@ describe('JudicialLegalRef.targetAct — kernel legalActLoader, dangling-toleran
   });
 
   it('resolved act_id → the LegalActRef', async () => {
-    const ref: LegalActRef = { actId: '66150', title: 'Codul Fiscal', actType: 'lege', resolutionStatus: 'resolved' };
+    const ref: LegalActRef = {
+      actId: '66150',
+      title: 'Codul Fiscal',
+      actType: 'lege',
+      resolutionStatus: 'resolved',
+    };
     const load = vi.fn(async () => ref);
     const resolve = targetActResolver(() => ({ load, loadMany: vi.fn() }));
     expect(await resolve({ targetActId: '66150' })).toEqual(ref);

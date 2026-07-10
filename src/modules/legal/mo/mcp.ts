@@ -51,12 +51,17 @@ const strArr = (args: Record<string, unknown>, key: string): string[] | undefine
   const v = args[key];
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
 };
-const errorOut = (kind: string, message: string): McpToolOutput => ({ ok: false, kind, error: message });
+const errorOut = (kind: string, message: string): McpToolOutput => ({
+  ok: false,
+  kind,
+  error: message,
+});
 const num = (x: number): string => String(x);
 
 export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMcpTool[] => {
   const { repo, coverage, clientBaseUrl } = deps;
-  const actGazetteLink = (actId: string, frag: string): string => `${clientBaseUrl}/legal/acts/${actId}#${frag}`;
+  const actGazetteLink = (actId: string, frag: string): string =>
+    `${clientBaseUrl}/legal/acts/${actId}#${frag}`;
 
   const resolveMoFilter: KernelMcpTool = {
     name: 'resolve_mo_filter',
@@ -72,7 +77,10 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
       if (dim === undefined) return errorOut(MO_MCP_KINDS.resolve, 'dim is required');
       const q = str(args, 'q') ?? '';
       const limit = intArg(args, 'limit', 10);
-      const res = dim === 'mo_act_type' ? await repo.resolveActType(q, limit) : await repo.resolveIssuer(q, limit);
+      const res =
+        dim === 'mo_act_type'
+          ? await repo.resolveActType(q, limit)
+          : await repo.resolveIssuer(q, limit);
       if (res.isErr()) return errorOut(MO_MCP_KINDS.resolve, res.error.message);
       const top = res.value[0];
       return {
@@ -156,7 +164,13 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
       dateFrom: z.string().optional().describe('Publication date from (YYYY-MM-DD).'),
       dateTo: z.string().optional().describe('Publication date to (YYYY-MM-DD).'),
       page: z.number().int().min(1).optional().describe('Page (default 1).'),
-      pageSize: z.number().int().min(1).max(50).optional().describe('Page size (default 20, max 50).'),
+      pageSize: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Page size (default 20, max 50).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const year = args['year'];
@@ -170,13 +184,21 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
         year: { eq: Math.floor(year) },
         ...(parts !== undefined && parts.length > 0 && { partCode: { in: parts } }),
         ...((from !== undefined || to !== undefined) && {
-          issueDate: { between: { ...(from !== undefined && { from }), ...(to !== undefined && { to }) } },
+          issueDate: {
+            between: { ...(from !== undefined && { from }), ...(to !== undefined && { to }) },
+          },
         }),
       };
-      const res = await browseIssues(repo, coverage, filter, {
-        page: intArg(args, 'page', 1),
-        pageSize: Math.min(intArg(args, 'pageSize', 20), 50),
-      }, 'issue_date_desc');
+      const res = await browseIssues(
+        repo,
+        coverage,
+        filter,
+        {
+          page: intArg(args, 'page', 1),
+          pageSize: Math.min(intArg(args, 'pageSize', 20), 50),
+        },
+        'issue_date_desc'
+      );
       if (res.isErr()) return errorOut(MO_MCP_KINDS.issues, res.error.message);
       return {
         ok: true,
@@ -198,7 +220,10 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
       year: z.number().int().describe('Year (required; bounds the scan).'),
       issuerSlug: z.string().optional().describe('Restrict to one issuer slug.'),
       actType: z.array(z.string()).optional().describe('Restrict to act type(s).'),
-      groupBy: z.enum(['issuer', 'act_type', 'year']).optional().describe('Grouping dimension (default issuer).'),
+      groupBy: z
+        .enum(['issuer', 'act_type', 'year'])
+        .optional()
+        .describe('Grouping dimension (default issuer).'),
     },
     async handler(args): Promise<McpToolOutput> {
       const year = args['year'];
@@ -226,10 +251,18 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
         item: { items, denominator, coverage: cov, confidence: 'deterministic' },
         summary:
           `${num(denominator)} publication(s) in ${String(Math.floor(year))} (${groupBy})` +
-          (top !== undefined ? `; top: ${top.issuerSlug ?? top.actType ?? String(top.year)} (${num(top.count)}).` : '.'),
+          (top !== undefined
+            ? `; top: ${top.issuerSlug ?? top.actType ?? String(top.year)} (${num(top.count)}).`
+            : '.'),
       };
     },
   };
 
-  return [resolveMoFilter, findActPublications, getActGazetteTimeline, browseMoIssues, countMoPublicationsByIssuer];
+  return [
+    resolveMoFilter,
+    findActPublications,
+    getActGazetteTimeline,
+    browseMoIssues,
+    countMoPublicationsByIssuer,
+  ];
 };

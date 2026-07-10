@@ -6,10 +6,7 @@ import { CampaignHeader } from './components/campaign-header.js';
 import { EmailLayout } from './email-layout.js';
 import { formatTemplateTimestamp } from './formatting.js';
 
-import type {
-  AdminReviewedInteractionProps,
-  SupportedLanguage,
-} from '../../core/types.js';
+import type { AdminReviewedInteractionProps, SupportedLanguage } from '../../core/types.js';
 
 interface Copy {
   preview: string;
@@ -158,8 +155,7 @@ export const AdminReviewedInteractionEmail = (
 ): React.ReactElement => {
   const copy = COPY_BY_LANG[props.lang];
   const reviewedAt = formatTemplateTimestamp(props.reviewedAt);
-  const heading =
-    props.reviewStatus === 'approved' ? copy.approvedHeading : copy.rejectedHeading;
+  const heading = props.reviewStatus === 'approved' ? copy.approvedHeading : copy.rejectedHeading;
   const lead = props.reviewStatus === 'approved' ? copy.approvedLead : copy.rejectedLead;
 
   return (

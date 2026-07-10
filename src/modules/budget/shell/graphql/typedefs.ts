@@ -31,19 +31,63 @@ const filterInputs = [
   .join('\n\n');
 
 const objectsAndQuery = /* GraphQL */ `
-  enum BudgetReportType { EXECUTION_DETAILED EXECUTION_AGG_PRINCIPAL EXECUTION_AGG_SECONDARY }
-  enum BudgetCommitmentReportType { COMMITMENT_AGG_PRINCIPAL COMMITMENT_AGG_SECONDARY COMMITMENT_DETAILED }
-  enum BudgetAccountCategory { INCOME EXPENSE }
-  enum BudgetFrequency { MONTH QUARTER YEAR }
-  enum BudgetNormalization { TOTAL TOTAL_EURO PER_CAPITA PER_CAPITA_EURO PERCENT_GDP }
-  enum BudgetRankingMetric { INCOME EXPENSE BALANCE }
+  enum BudgetReportType {
+    EXECUTION_DETAILED
+    EXECUTION_AGG_PRINCIPAL
+    EXECUTION_AGG_SECONDARY
+  }
+  enum BudgetCommitmentReportType {
+    COMMITMENT_AGG_PRINCIPAL
+    COMMITMENT_AGG_SECONDARY
+    COMMITMENT_DETAILED
+  }
+  enum BudgetAccountCategory {
+    INCOME
+    EXPENSE
+  }
+  enum BudgetFrequency {
+    MONTH
+    QUARTER
+    YEAR
+  }
+  enum BudgetNormalization {
+    TOTAL
+    TOTAL_EURO
+    PER_CAPITA
+    PER_CAPITA_EURO
+    PERCENT_GDP
+  }
+  enum BudgetRankingMetric {
+    INCOME
+    EXPENSE
+    BALANCE
+  }
   "Commitment metrics present at every MV frequency (the safe common subset)."
-  enum BudgetCommitmentMetric { credite_angajament receptii_totale plati_trezor plati_non_trezor }
-  enum BudgetLineItemSortKey { LINE_ORDER AMOUNT_DESC AMOUNT_ASC }
-  enum BudgetResolveDim { entity territory functional economic }
+  enum BudgetCommitmentMetric {
+    credite_angajament
+    receptii_totale
+    plati_trezor
+    plati_non_trezor
+  }
+  enum BudgetLineItemSortKey {
+    LINE_ORDER
+    AMOUNT_DESC
+    AMOUNT_ASC
+  }
+  enum BudgetResolveDim {
+    entity
+    territory
+    functional
+    economic
+  }
 
   "A commitment metric family (ytd / monthly / quarterly cumulative + the latest snapshot)."
-  type BudgetCommitmentMetricValue { ytd: Money monthly: Money quarterly: Money latest: Money }
+  type BudgetCommitmentMetricValue {
+    ytd: Money
+    monthly: Money
+    quarterly: Money
+    latest: Money
+  }
 
   "A single execution line item (the pruned fact grain; year+reportType+accountCategory required to fetch)."
   type BudgetExecutionLineItem {
@@ -150,7 +194,13 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   "A normalized time-series point (amount already normalized per the requested mode)."
-  type BudgetSeriesPoint { year: Int! month: Int quarter: Int periodLabel: String! amount: Money! }
+  type BudgetSeriesPoint {
+    year: Int!
+    month: Int
+    quarter: Int
+    periodLabel: String!
+    amount: Money!
+  }
 
   "A ranked entity (MV path + normalization factor applied to MV sums)."
   type BudgetRankedEntity {
@@ -209,9 +259,19 @@ const objectsAndQuery = /* GraphQL */ `
     entity: Entity
   }
 
-  type BudgetClassification { code: String! name: String }
-  type BudgetSector { sectorId: Int! sectorDescription: String }
-  type BudgetFundingSource { sourceId: Int! sourceCode: String sourceDescription: String }
+  type BudgetClassification {
+    code: String!
+    name: String
+  }
+  type BudgetSector {
+    sectorId: Int!
+    sectorDescription: String
+  }
+  type BudgetFundingSource {
+    sourceId: Int!
+    sourceCode: String
+    sourceDescription: String
+  }
 
   type BudgetApprovedFact {
     factId: ID!
@@ -241,25 +301,72 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   "A name→value discovery hit (the Entity Resolution Gate output)."
-  type BudgetResolveMatch { dim: BudgetResolveDim! value: String! label: String! hint: String score: Float ambiguous: Boolean! }
+  type BudgetResolveMatch {
+    dim: BudgetResolveDim!
+    value: String!
+    label: String!
+    hint: String
+    score: Float
+    ambiguous: Boolean!
+  }
 
   "Freshness: latest loaded year + latest COMPLETE year (12 months) for safe defaults."
-  type BudgetAsOf { latestLoadedYear: Int! latestCompleteYear: Int! refreshedAt: DateTime }
+  type BudgetAsOf {
+    latestLoadedYear: Int!
+    latestCompleteYear: Int!
+    refreshedAt: DateTime
+  }
 
   # ── Relay connections (same cursor as the kernel; no COUNT) ──
-  type BudgetExecutionLineItemConnection { edges: [BudgetExecutionLineItemEdge!]! pageInfo: PageInfo! }
-  type BudgetExecutionLineItemEdge { node: BudgetExecutionLineItem! cursor: String! }
-  type BudgetCommitmentLineItemConnection { edges: [BudgetCommitmentLineItemEdge!]! pageInfo: PageInfo! }
-  type BudgetCommitmentLineItemEdge { node: BudgetCommitmentLineItem! cursor: String! }
+  type BudgetExecutionLineItemConnection {
+    edges: [BudgetExecutionLineItemEdge!]!
+    pageInfo: PageInfo!
+  }
+  type BudgetExecutionLineItemEdge {
+    node: BudgetExecutionLineItem!
+    cursor: String!
+  }
+  type BudgetCommitmentLineItemConnection {
+    edges: [BudgetCommitmentLineItemEdge!]!
+    pageInfo: PageInfo!
+  }
+  type BudgetCommitmentLineItemEdge {
+    node: BudgetCommitmentLineItem!
+    cursor: String!
+  }
 
   # ── capability-gated offset lists (carry caveats, never 404) ──
-  type BudgetReportGated { items: [BudgetReport!]! total: Int estimated: Boolean! caveats: [String!]! }
-  type BudgetClassificationGated { items: [BudgetClassification!]! total: Int estimated: Boolean! caveats: [String!]! }
-  type BudgetApprovedFactGated { items: [BudgetApprovedFact!]! total: Int estimated: Boolean! caveats: [String!]! }
-  type BudgetVsExecutionGated { items: [BudgetVsExecutionRow!]! total: Int estimated: Boolean! caveats: [String!]! }
+  type BudgetReportGated {
+    items: [BudgetReport!]!
+    total: Int
+    estimated: Boolean!
+    caveats: [String!]!
+  }
+  type BudgetClassificationGated {
+    items: [BudgetClassification!]!
+    total: Int
+    estimated: Boolean!
+    caveats: [String!]!
+  }
+  type BudgetApprovedFactGated {
+    items: [BudgetApprovedFact!]!
+    total: Int
+    estimated: Boolean!
+    caveats: [String!]!
+  }
+  type BudgetVsExecutionGated {
+    items: [BudgetVsExecutionRow!]!
+    total: Int
+    estimated: Boolean!
+    caveats: [String!]!
+  }
 
   "Latest-year income/expense/balance + top expense categories (entity-360 slice)."
-  type BudgetTopCategory { functionalCode: String! functionalName: String amount: Money! }
+  type BudgetTopCategory {
+    functionalCode: String!
+    functionalName: String
+    amount: Money!
+  }
   type BudgetEntityProfile {
     presence: Boolean!
     latestYear: Int
@@ -274,37 +381,116 @@ const objectsAndQuery = /* GraphQL */ `
 
   extend type Query {
     "One execution line item (the pruning triple is required to fetch a partitioned row)."
-    budgetExecutionLineItem(year: Int!, reportType: BudgetReportType!, accountCategory: BudgetAccountCategory!, id: ID!): BudgetExecutionLineItem
+    budgetExecutionLineItem(
+      year: Int!
+      reportType: BudgetReportType!
+      accountCategory: BudgetAccountCategory!
+      id: ID!
+    ): BudgetExecutionLineItem
     "Execution facts (fact path). Needs the pruning triple — defaults to latest-complete year / EXECUTION_DETAILED / EXPENSE."
-    budgetExecutionLineItems(filter: BudgetFactFilter, sort: BudgetLineItemSortKey = LINE_ORDER, first: Int = 20, after: String): BudgetExecutionLineItemConnection!
+    budgetExecutionLineItems(
+      filter: BudgetFactFilter
+      sort: BudgetLineItemSortKey = LINE_ORDER
+      first: Int = 20
+      after: String
+    ): BudgetExecutionLineItemConnection!
     "Commitment facts (fact path; pruning pair year+reportType). \`metric\` chooses the sort metric for AMOUNT_*."
-    budgetCommitmentLineItems(filter: BudgetCommitmentFactFilter, metric: BudgetCommitmentMetric = plati_trezor, sort: BudgetLineItemSortKey = LINE_ORDER, first: Int = 20, after: String): BudgetCommitmentLineItemConnection!
+    budgetCommitmentLineItems(
+      filter: BudgetCommitmentFactFilter
+      metric: BudgetCommitmentMetric = plati_trezor
+      sort: BudgetLineItemSortKey = LINE_ORDER
+      first: Int = 20
+      after: String
+    ): BudgetCommitmentLineItemConnection!
     "Entity execution summary by CUI (MV path; defaults to latest-complete year)."
-    budgetEntitySummary(cui: CUI!, year: Int, yearFrom: Int, yearTo: Int, frequency: BudgetFrequency = YEAR, reportType: BudgetReportType): [BudgetEntitySummary!]!
+    budgetEntitySummary(
+      cui: CUI!
+      year: Int
+      yearFrom: Int
+      yearTo: Int
+      frequency: BudgetFrequency = YEAR
+      reportType: BudgetReportType
+    ): [BudgetEntitySummary!]!
     "Entity commitment summary by CUI (MV path)."
-    budgetCommitmentSummary(cui: CUI!, year: Int, yearFrom: Int, yearTo: Int, frequency: BudgetFrequency = YEAR, reportType: BudgetCommitmentReportType): [BudgetCommitmentSummary!]!
+    budgetCommitmentSummary(
+      cui: CUI!
+      year: Int
+      yearFrom: Int
+      yearTo: Int
+      frequency: BudgetFrequency = YEAR
+      reportType: BudgetCommitmentReportType
+    ): [BudgetCommitmentSummary!]!
     "Execution time series (MV path; \`metric\` selects income/expense/balance; normalization applied per-point)."
-    budgetTimeseries(cui: CUI!, reportType: BudgetReportType!, metric: BudgetRankingMetric!, frequency: BudgetFrequency!, yearFrom: Int, yearTo: Int, normalization: BudgetNormalization = TOTAL): [BudgetSeriesPoint!]!
+    budgetTimeseries(
+      cui: CUI!
+      reportType: BudgetReportType!
+      metric: BudgetRankingMetric!
+      frequency: BudgetFrequency!
+      yearFrom: Int
+      yearTo: Int
+      normalization: BudgetNormalization = TOTAL
+    ): [BudgetSeriesPoint!]!
     "Commitment time series (MV path)."
-    budgetCommitmentTimeseries(cui: CUI!, reportType: BudgetCommitmentReportType!, metric: BudgetCommitmentMetric!, frequency: BudgetFrequency!, yearFrom: Int, yearTo: Int): [BudgetSeriesPoint!]!
+    budgetCommitmentTimeseries(
+      cui: CUI!
+      reportType: BudgetCommitmentReportType!
+      metric: BudgetCommitmentMetric!
+      frequency: BudgetFrequency!
+      yearFrom: Int
+      yearTo: Int
+    ): [BudgetSeriesPoint!]!
     "Bounded top-N entity ranking (MV path + normalization factor)."
-    budgetEntityRanking(filter: BudgetRankingFilter, metric: BudgetRankingMetric = EXPENSE, normalization: BudgetNormalization = TOTAL, ascending: Boolean = false, limit: Int = 50): [BudgetRankedEntity!]!
+    budgetEntityRanking(
+      filter: BudgetRankingFilter
+      metric: BudgetRankingMetric = EXPENSE
+      normalization: BudgetNormalization = TOTAL
+      ascending: Boolean = false
+      limit: Int = 50
+    ): [BudgetRankedEntity!]!
     "Bounded top-N commitment ranking (MV path)."
-    budgetCommitmentRanking(year: Int!, reportType: BudgetCommitmentReportType!, metric: BudgetCommitmentMetric = plati_trezor, limit: Int = 50): [BudgetRankedCommitmentEntity!]!
+    budgetCommitmentRanking(
+      year: Int!
+      reportType: BudgetCommitmentReportType!
+      metric: BudgetCommitmentMetric = plati_trezor
+      limit: Int = 50
+    ): [BudgetRankedCommitmentEntity!]!
     "Spend/income by functional×economic classification within ONE pruned leaf (fact path)."
-    budgetAggregateByClassification(filter: BudgetFactFilter!, normalization: BudgetNormalization = TOTAL, minAmount: Money, maxAmount: Money, limit: Int = 50): [BudgetAggregatedRow!]!
+    budgetAggregateByClassification(
+      filter: BudgetFactFilter!
+      normalization: BudgetNormalization = TOTAL
+      minAmount: Money
+      maxAmount: Money
+      limit: Int = 50
+    ): [BudgetAggregatedRow!]!
     "County heatmap (MV → county rollup)."
-    budgetCountyHeatmap(year: Int!, reportType: BudgetReportType!, metric: BudgetRankingMetric = EXPENSE, normalization: BudgetNormalization = TOTAL): [BudgetCountyHeatmapPoint!]!
+    budgetCountyHeatmap(
+      year: Int!
+      reportType: BudgetReportType!
+      metric: BudgetRankingMetric = EXPENSE
+      normalization: BudgetNormalization = TOTAL
+    ): [BudgetCountyHeatmapPoint!]!
     "Report registry (requires ≥1 of entityCui / reportingYear / reportType)."
     budgetReports(filter: BudgetReportFilter!, page: Int, pageSize: Int): BudgetReportGated!
     budgetReport(reportId: ID!): BudgetReport
     "Functional classification catalog (capability-gated: empty in prod → caveat)."
-    budgetFunctionalClassifications(search: String, codes: [String!], limit: Int = 50): BudgetClassificationGated!
-    budgetEconomicClassifications(search: String, codes: [String!], limit: Int = 50): BudgetClassificationGated!
+    budgetFunctionalClassifications(
+      search: String
+      codes: [String!]
+      limit: Int = 50
+    ): BudgetClassificationGated!
+    budgetEconomicClassifications(
+      search: String
+      codes: [String!]
+      limit: Int = 50
+    ): BudgetClassificationGated!
     budgetSectors(search: String, ids: [Int!]): [BudgetSector!]!
     budgetFundingSources(search: String, ids: [Int!]): [BudgetFundingSource!]!
     "Approved (planned) budget facts (budget-official; works on its own data)."
-    budgetApprovedFacts(filter: BudgetApprovedFactFilter, page: Int, pageSize: Int): BudgetApprovedFactGated!
+    budgetApprovedFacts(
+      filter: BudgetApprovedFactFilter
+      page: Int
+      pageSize: Int
+    ): BudgetApprovedFactGated!
     "Planned vs actual (capability-gated: execution bulletins not yet loaded → caveat)."
     budgetVsExecution(budgetYear: Int, page: Int, pageSize: Int): BudgetVsExecutionGated!
     "Resolve a free-text query to a budget filter value (name→CUI/SIRUTA/code)."

@@ -215,7 +215,9 @@ const normalizeSecondaryCtas = (
   return unique;
 };
 
-const getVisibleItems = (items: readonly WeeklyProgressDigestItem[]): WeeklyProgressDigestItem[] => {
+const getVisibleItems = (
+  items: readonly WeeklyProgressDigestItem[]
+): WeeklyProgressDigestItem[] => {
   return items.slice(0, 5);
 };
 
@@ -251,9 +253,7 @@ export const getWeeklyProgressDigestSubject = ({
     : 'Your weekly update from the Funky campaign';
 };
 
-export const WeeklyProgressDigestEmail = (
-  props: WeeklyProgressDigestProps
-): React.ReactElement => {
+export const WeeklyProgressDigestEmail = (props: WeeklyProgressDigestProps): React.ReactElement => {
   const copy = COPY_BY_LANG[props.lang];
   const visibleItems = getVisibleItems(props.items);
   const secondaryCtas = normalizeSecondaryCtas(props.primaryCta, props.secondaryCtas);

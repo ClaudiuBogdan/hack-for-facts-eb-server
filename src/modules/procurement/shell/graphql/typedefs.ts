@@ -18,9 +18,24 @@
  */
 
 export const procurementTypeDefs = /* GraphQL */ `
-  enum ProcurementGrain { direct_acquisition procurement_contract }
-  enum ProcurementResolveDim { authority supplier cpvDivision cpv region county }
-  enum ProcurementSort { date_desc date_asc value_desc value_asc }
+  enum ProcurementGrain {
+    direct_acquisition
+    procurement_contract
+  }
+  enum ProcurementResolveDim {
+    authority
+    supplier
+    cpvDivision
+    cpv
+    region
+    county
+  }
+  enum ProcurementSort {
+    date_desc
+    date_asc
+    value_desc
+    value_asc
+  }
 
   "A counterparty as the procurement source records it (no identity join)."
   type ProcurementParty {
@@ -29,13 +44,25 @@ export const procurementTypeDefs = /* GraphQL */ `
     displayName: String
   }
 
-  input StringEqInput { eq: String! }
-  input StringInInput { in: [String!]! }
+  input StringEqInput {
+    eq: String!
+  }
+  input StringInInput {
+    in: [String!]!
+  }
   "Server-bounded ILIKE (3–100 chars) over the grain's title/number columns."
-  input StringQInput { contains: String! }
-  input DateRangeInput { gte: Date, lte: Date }
+  input StringQInput {
+    contains: String!
+  }
+  input DateRangeInput {
+    gte: Date
+    lte: Date
+  }
   "RON decimal strings — never floats."
-  input DecimalRangeInput { gte: String, lte: String }
+  input DecimalRangeInput {
+    gte: String
+    lte: String
+  }
 
   # ── grain nodes ─────────────────────────────────────────────────────────────
 
@@ -196,15 +223,34 @@ export const procurementTypeDefs = /* GraphQL */ `
   \`total\` is null when the exact count exceeds 10 000 OR the count timed out;
   \`totalEstimated\` then marks it. Clients render "10000+".
   """
-  type ProcurementProceduresPage { total: Int, totalEstimated: Boolean!, items: [ProcurementProcedure!]! }
-  type ProcurementContractsPage { total: Int, totalEstimated: Boolean!, items: [ProcurementContract!]! }
-  type ProcurementDirectAcquisitionsPage { total: Int, totalEstimated: Boolean!, items: [ProcurementDirectAcquisition!]! }
-  type ProcurementModificationsPage { total: Int, totalEstimated: Boolean!, items: [ProcurementContractModification!]! }
+  type ProcurementProceduresPage {
+    total: Int
+    totalEstimated: Boolean!
+    items: [ProcurementProcedure!]!
+  }
+  type ProcurementContractsPage {
+    total: Int
+    totalEstimated: Boolean!
+    items: [ProcurementContract!]!
+  }
+  type ProcurementDirectAcquisitionsPage {
+    total: Int
+    totalEstimated: Boolean!
+    items: [ProcurementDirectAcquisition!]!
+  }
+  type ProcurementModificationsPage {
+    total: Int
+    totalEstimated: Boolean!
+    items: [ProcurementContractModification!]!
+  }
 
   # ── detail bundles ──────────────────────────────────────────────────────────
 
   "A dedup-suppressed sibling of this canonical row."
-  type ProcurementDuplicateRef { sourceSystem: String!, id: ID! }
+  type ProcurementDuplicateRef {
+    sourceSystem: String!
+    id: ID!
+  }
 
   type ProcurementLotWinner {
     lotLabel: String!
@@ -216,7 +262,10 @@ export const procurementTypeDefs = /* GraphQL */ `
   }
 
   "The EU Tenders-Electronic-Daily notice. ~9% of procedures carry one."
-  type ProcurementTedRef { tedNoticeNo: String!, sourceUrl: String! }
+  type ProcurementTedRef {
+    tedNoticeNo: String!
+    sourceUrl: String!
+  }
 
   type ProcurementProcedureDetail {
     procedure: ProcurementProcedure!
@@ -310,8 +359,14 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   union ProcurementFlowRecord = ProcurementContract | ProcurementDirectAcquisition
 
-  type ProcurementPageInfo { hasNextPage: Boolean!, endCursor: String }
-  type ProcurementRecordEdge { cursor: String!, node: ProcurementFlowRecord! }
+  type ProcurementPageInfo {
+    hasNextPage: Boolean!
+    endCursor: String
+  }
+  type ProcurementRecordEdge {
+    cursor: String!
+    node: ProcurementFlowRecord!
+  }
   type ProcurementRecordConnection {
     "Always null: an exact count over a 3.3M and a 26M-row table is not affordable."
     total: Int
@@ -343,10 +398,20 @@ export const procurementTypeDefs = /* GraphQL */ `
   }
 
   "Official CPV-2008 division (2-digit). The ONLY reliable CPV hierarchy (cpv_codes is corrupt)."
-  type ProcurementCpvDivision { divisionCode: String!, labelEn: String!, labelRo: String }
+  type ProcurementCpvDivision {
+    divisionCode: String!
+    labelEn: String!
+    labelRo: String
+  }
 
   "A name→value discovery hit (Entity Resolution Gate output)."
-  type ProcurementResolveHit { dim: String!, value: String!, label: String!, kind: String!, score: Float }
+  type ProcurementResolveHit {
+    dim: String!
+    value: String!
+    label: String!
+    kind: String!
+    score: Float
+  }
 
   # ── the retained analyst / MCP surface ──────────────────────────────────────
 
@@ -420,9 +485,24 @@ export const procurementTypeDefs = /* GraphQL */ `
     evidenceRefsSample: [String!]!
   }
 
-  type ProcurementEdgeResult { grain: ProcurementGrain! items: [ProcurementEdge!]! caveats: [String!]! refreshedAt: DateTime projectionVersion: String }
-  type ProcurementAuthorityCpvResult { grain: ProcurementGrain! items: [ProcurementAuthorityCpvRow!]! caveats: [String!]! refreshedAt: DateTime }
-  type ProcurementSupplierCpvResult { grain: ProcurementGrain! items: [ProcurementSupplierCpvRow!]! caveats: [String!]! }
+  type ProcurementEdgeResult {
+    grain: ProcurementGrain!
+    items: [ProcurementEdge!]!
+    caveats: [String!]!
+    refreshedAt: DateTime
+    projectionVersion: String
+  }
+  type ProcurementAuthorityCpvResult {
+    grain: ProcurementGrain!
+    items: [ProcurementAuthorityCpvRow!]!
+    caveats: [String!]!
+    refreshedAt: DateTime
+  }
+  type ProcurementSupplierCpvResult {
+    grain: ProcurementGrain!
+    items: [ProcurementSupplierCpvRow!]!
+    caveats: [String!]!
+  }
 
   # ── Entity-360 slice (via the contributor, §14.7) ──
   type ProcurementRoleSummary {
@@ -444,10 +524,30 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   extend type Query {
     # search (offset; page * pageSize ≤ 10 000)
-    procurementProcedures(filter: ProcurementProceduresFilter, sort: ProcurementSort, page: Int, pageSize: Int): ProcurementProceduresPage!
-    procurementContracts(filter: ProcurementContractsFilter, sort: ProcurementSort, page: Int, pageSize: Int): ProcurementContractsPage!
-    procurementDirectAcquisitions(filter: ProcurementDirectAcquisitionsFilter, sort: ProcurementSort, page: Int, pageSize: Int): ProcurementDirectAcquisitionsPage!
-    procurementModifications(filter: ProcurementModificationsFilter, sort: ProcurementSort, page: Int, pageSize: Int): ProcurementModificationsPage!
+    procurementProcedures(
+      filter: ProcurementProceduresFilter
+      sort: ProcurementSort
+      page: Int
+      pageSize: Int
+    ): ProcurementProceduresPage!
+    procurementContracts(
+      filter: ProcurementContractsFilter
+      sort: ProcurementSort
+      page: Int
+      pageSize: Int
+    ): ProcurementContractsPage!
+    procurementDirectAcquisitions(
+      filter: ProcurementDirectAcquisitionsFilter
+      sort: ProcurementSort
+      page: Int
+      pageSize: Int
+    ): ProcurementDirectAcquisitionsPage!
+    procurementModifications(
+      filter: ProcurementModificationsFilter
+      sort: ProcurementSort
+      page: Int
+      pageSize: Int
+    ): ProcurementModificationsPage!
 
     # detail (null for an unknown id)
     procurementProcedure(id: ID!): ProcurementProcedureDetail
@@ -458,30 +558,85 @@ export const procurementTypeDefs = /* GraphQL */ `
     # category page ({ cpvDivision }) and the supplier slice ({ supplierCui }).
     # \`grain\` is procurement_contract | direct_acquisition | null (= both).
     procurementStats(scope: ProcurementScopeFilter, grain: String): ProcurementStats!
-    procurementTopAuthorities(scope: ProcurementScopeFilter, grain: String, topN: Int): [ProcurementTopPartyRow!]!
-    procurementTopSuppliers(scope: ProcurementScopeFilter, grain: String, topN: Int): [ProcurementTopPartyRow!]!
-    procurementCategoryBreakdown(scope: ProcurementScopeFilter, grain: String): [ProcurementCategoryRow!]!
-    procurementSpendOverTime(scope: ProcurementScopeFilter, grain: String): [ProcurementMonthlyPoint!]!
+    procurementTopAuthorities(
+      scope: ProcurementScopeFilter
+      grain: String
+      topN: Int
+    ): [ProcurementTopPartyRow!]!
+    procurementTopSuppliers(
+      scope: ProcurementScopeFilter
+      grain: String
+      topN: Int
+    ): [ProcurementTopPartyRow!]!
+    procurementCategoryBreakdown(
+      scope: ProcurementScopeFilter
+      grain: String
+    ): [ProcurementCategoryRow!]!
+    procurementSpendOverTime(
+      scope: ProcurementScopeFilter
+      grain: String
+    ): [ProcurementMonthlyPoint!]!
 
     # supplier recent records (canonical flows only, date desc)
-    procurementSupplierRecords(supplierCui: ID!, first: Int, after: String): ProcurementRecordConnection!
+    procurementSupplierRecords(
+      supplierCui: ID!
+      first: Int
+      after: String
+    ): ProcurementRecordConnection!
 
     # meta
     procurementGrainQuality: [ProcurementCapabilityGate!]!
     procurementCpvDivisions: [ProcurementCpvDivision!]!
-    procurementResolve(dim: ProcurementResolveDim!, q: String!, limit: Int = 10): [ProcurementResolveHit!]!
+    procurementResolve(
+      dim: ProcurementResolveDim!
+      q: String!
+      limit: Int = 10
+    ): [ProcurementResolveHit!]!
 
     # analyst / MCP surface (unchanged)
     "PC-6: repeated buyer↔supplier pairs anchored on one side."
-    procurementRepeatedPairs(authorityCui: CUI, supplierCui: CUI, grain: ProcurementGrain = direct_acquisition, minMonths: Int = 2, topN: Int = 20): ProcurementEdgeResult!
+    procurementRepeatedPairs(
+      authorityCui: CUI
+      supplierCui: CUI
+      grain: ProcurementGrain = direct_acquisition
+      minMonths: Int = 2
+      topN: Int = 20
+    ): ProcurementEdgeResult!
     "PC-5: supplier concentration / HHI for an authority (count-based when spend gate-suppressed)."
-    procurementConcentration(authorityCui: CUI!, grain: ProcurementGrain = direct_acquisition, monthFrom: Date, monthTo: Date): ProcurementConcentration!
+    procurementConcentration(
+      authorityCui: CUI!
+      grain: ProcurementGrain = direct_acquisition
+      monthFrom: Date
+      monthTo: Date
+    ): ProcurementConcentration!
     "PC-4: authority spend by CPV division × period."
-    procurementAuthorityCpvSpend(authorityCui: CUI!, grain: ProcurementGrain = direct_acquisition, cpvDivision: [String!], monthFrom: Date, monthTo: Date, topN: Int = 50): ProcurementAuthorityCpvResult!
+    procurementAuthorityCpvSpend(
+      authorityCui: CUI!
+      grain: ProcurementGrain = direct_acquisition
+      cpvDivision: [String!]
+      monthFrom: Date
+      monthTo: Date
+      topN: Int = 50
+    ): ProcurementAuthorityCpvResult!
     "PC-2: top suppliers to a (buyer) region × CPV division."
-    procurementTopSuppliersByRegionCpv(region: String!, cpvDivision: String!, grain: ProcurementGrain = direct_acquisition, monthFrom: Date, monthTo: Date, topN: Int = 20): ProcurementSupplierCpvResult!
+    procurementTopSuppliersByRegionCpv(
+      region: String!
+      cpvDivision: String!
+      grain: ProcurementGrain = direct_acquisition
+      monthFrom: Date
+      monthTo: Date
+      topN: Int = 20
+    ): ProcurementSupplierCpvResult!
     "PC-7: same-day DA splitting candidates (requires authorityCui or a date window)."
-    procurementSameDayCandidates(authorityCui: CUI, dateFrom: Date, dateTo: Date, cpvDivision: String, minSameDayCount: Int = 2, page: Int = 1, pageSize: Int = 20): [ProcurementSameDayCandidate!]!
+    procurementSameDayCandidates(
+      authorityCui: CUI
+      dateFrom: Date
+      dateTo: Date
+      cpvDivision: String
+      minSameDayCount: Int = 2
+      page: Int = 1
+      pageSize: Int = 20
+    ): [ProcurementSameDayCandidate!]!
   }
 
   extend type Entity {

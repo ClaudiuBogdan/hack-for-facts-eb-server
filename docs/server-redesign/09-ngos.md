@@ -21,12 +21,12 @@
 
 ### 1.1 What is in prod now (NGOs): nothing
 
-| Surface | State |
-|---------|-------|
-| `transparenta_prod` `ngo` schema | **absent** (15 schemas live; none is `ngo`) |
-| `core.organizations.kind = 'ngo'` | **0 rows** (only `company`, 3.98M) |
-| `flows.money_flows` NGO flow type | **absent** |
-| `search.documents` NGO doc_type | **absent** |
+| Surface                           | State                                       |
+| --------------------------------- | ------------------------------------------- |
+| `transparenta_prod` `ngo` schema  | **absent** (15 schemas live; none is `ngo`) |
+| `core.organizations.kind = 'ngo'` | **0 rows** (only `company`, 3.98M)          |
+| `flows.money_flows` NGO flow type | **absent**                                  |
+| `search.documents` NGO doc_type   | **absent**                                  |
 
 Consequently §§2–9 below describe a **target** the scrapper must land first.
 The module ships **disabled by default** (env feature flag off) until the domain
@@ -40,14 +40,14 @@ The scrapper already runs an `ngos` **source-learning** raw lane
 registry. v1 measured counts (per
 `experimental/docs/ngo/extraction-readiness-2026-05-21.md`):
 
-| Raw object (`experimental_ngos`) | Role | v1 rows |
-|----------------------------------|------|---------|
-| `ngo_core.organization_profiles` | CUI-keyed NGO/org profile (name, legal_form, county, locality) | **9,945** |
-| `ngo_core.cui_evidence` | per-source CUI evidence (which registry saw this CUI) | **10,565** |
-| `ngo_core.license_accreditations` | sector accreditation/license rows (sector, authority, license_no, validity, status) | (per source; see below) |
-| `ngo_core.public_money_events` | NGO public-money events (programme, project, amount, authority, role) — **PNRR/SMIS/SEAP referenced, not duplicated** | ref-only in v1 |
-| `ngo_source.{anofm_rueis_entities, anofm_employment_providers, fpa_adult_training_providers, aracip_education_units, cnas_contracted_provider_rows}` | source-native minimized rows | RUEIS 9,172 · employment 1,383 · ARACIP 10 · CNAS 16 · FPA 0 |
-| `ngo_core.privacy_controls` | per-source privacy class + allowed-field allowlist | seeded |
+| Raw object (`experimental_ngos`)                                                                                                                     | Role                                                                                                                  | v1 rows                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `ngo_core.organization_profiles`                                                                                                                     | CUI-keyed NGO/org profile (name, legal_form, county, locality)                                                        | **9,945**                                                    |
+| `ngo_core.cui_evidence`                                                                                                                              | per-source CUI evidence (which registry saw this CUI)                                                                 | **10,565**                                                   |
+| `ngo_core.license_accreditations`                                                                                                                    | sector accreditation/license rows (sector, authority, license_no, validity, status)                                   | (per source; see below)                                      |
+| `ngo_core.public_money_events`                                                                                                                       | NGO public-money events (programme, project, amount, authority, role) — **PNRR/SMIS/SEAP referenced, not duplicated** | ref-only in v1                                               |
+| `ngo_source.{anofm_rueis_entities, anofm_employment_providers, fpa_adult_training_providers, aracip_education_units, cnas_contracted_provider_rows}` | source-native minimized rows                                                                                          | RUEIS 9,172 · employment 1,383 · ARACIP 10 · CNAS 16 · FPA 0 |
+| `ngo_core.privacy_controls`                                                                                                                          | per-source privacy class + allowed-field allowlist                                                                    | seeded                                                       |
 
 Extractable registries today: `anofm_rueis` (social enterprises), `anofm_employment_accreditation`,
 `fpa_adult_training`, `aracip_education_units`, `cnas_contracted_providers`.
@@ -55,16 +55,17 @@ Extractable registries today: `anofm_rueis` (social enterprises), `anofm_employm
 broad AEP. Planned-but-not-yet enrichment (research-ready, not loaded):
 **ANAF fiscal status**, **ANAF/MF financials**, **ANAF deductible status**, and
 the **MJ national NGO registry** (associations/foundations/federations) as the
-*legal identity backbone* — sampled MJ headers do **not** expose CUI yet.
+_legal identity backbone_ — sampled MJ headers do **not** expose CUI yet.
 
 **Implication for the contract's "NGOs are CUI-keyed; benefit from #3
-(companies) landed":** correct, but the *value* is mostly **cross-source** —
+(companies) landed":** correct, but the _value_ is mostly **cross-source** —
 an NGO's CUI links into the already-landed `companies`/identity hub, `flows`
 (once NGO flows land), procurement, and budget. The NGO-native surface (profile
-+ accreditations + public-money events) is **thin and coverage-limited**; the
-module's primary job is (a) an NGO **kind/registry filter** over the identity
-hub and (b) a **contributor** that adds the NGO slice to entity-360. This is
-explicitly *not* a high-volume analytics domain like procurement.
+
+- accreditations + public-money events) is **thin and coverage-limited**; the
+  module's primary job is (a) an NGO **kind/registry filter** over the identity
+  hub and (b) a **contributor** that adds the NGO slice to entity-360. This is
+  explicitly _not_ a high-volume analytics domain like procurement.
 
 ### 1.3 The source's prod schema(s)
 
@@ -91,7 +92,7 @@ Before this module can be enabled, the scrapper must:
    (a social enterprise / NGO can also be in ONRC), so do **not** blindly
    overwrite `kind='ngo'` (that is a merge-by-mutation, §4.1 forbids it). See the
    §13.2 open question for the overlay-vs-badge decision. **Until NGO identity is
-   linked, `Entity` cannot report NGO *kind*** (though the contributor badge in
+   linked, `Entity` cannot report NGO _kind_** (though the contributor badge in
    §1.4 note can still surface NGO-ness — see below).
 4. **(Optional, when meaningful)** register an `ngo_license`/`ngo_public_money`
    `flow_type` in `flows.money_flows` and an `ngo_*` `doc_type` in
@@ -102,7 +103,7 @@ Before this module can be enabled, the scrapper must:
 This plan's §§2–9 are written so that, once 1–3 land, implementation is
 mechanical.
 
-**Two decoupled capabilities** (do not conflate): the `kind='ngo'` *dimension*
+**Two decoupled capabilities** (do not conflate): the `kind='ngo'` _dimension_
 (faceting/filtering `Entity` by NGO kind) needs step 3's identity-hub link; but
 the entity-360 **NGO badge** (`isNgo` + sectors on the entity card) needs only
 the `ngo.*` tables (step 2) + the registered contributor (§4.4) — it works
@@ -117,13 +118,13 @@ soon as `ngo.*` lands, even before the kind overlay.
 > `ngo` schema (grounded in the raw `ngo_core.*` shape + the old unified stub).
 > Column names finalize at scrapper-migration time.
 
-| Proposed prod table | Module view model (`ngo/core/types.ts`) | Identity / territory | Notes |
-|---------------------|------------------------------------------|----------------------|-------|
-| `ngo.organizations` (`profile_key`, `cui`, `name`, `normalized_name`, `legal_form`, `county_name`, `locality_name`, `attrs`) | `NgoProfile { profileKey, cui, name, normalizedName, legalForm, countyName, localityName }` | `cui` → `core.organizations` (link-not-merge); `county_name`/locality denormalized; canonical territory via `core.territories` | `legal_form` enum: association/foundation/federation/social-enterprise/other |
-| `ngo.licenses` (`license_key`, `cui`, `organization_name`, `sector`, `authority`, `license_no`, `valid_from`, `valid_to`, `status`, `county_name`) | `NgoAccreditation { licenseKey, sector, authority, licenseNo, validFrom, validTo, status, status_active(derived) }` | `cui` link | "license" ≙ sector accreditation (ANOFM/FPA/ARACIP/CNAS). `valid_*` are **text** in raw — parse defensively |
-| `ngo.cui_evidence` (`source_name`, `source_record_key`, `cui`, `evidence_type`, `confidence`) | `NgoCuiEvidence { source, evidenceType, confidence }` | `cui` link | powers "which registries attest this NGO" coverage |
-| `ngo.public_money_events` (recommended) | `NgoPublicMoneyEvent { programme, projectTitle, amountRon, authority, role, eventDate }` | `cui` link | **prefer the kernel flows view** for totals (§14.6 grain gate); this is native event detail only |
-| `ngo.fiscal_status` / `ngo.financials` (ANAF, deferred) | `NgoFiscalStatus`, `NgoFinancials` | `cui` link | **DEFERRED** until ANAF enrichment lands |
+| Proposed prod table                                                                                                                                | Module view model (`ngo/core/types.ts`)                                                                             | Identity / territory                                                                                                           | Notes                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `ngo.organizations` (`profile_key`, `cui`, `name`, `normalized_name`, `legal_form`, `county_name`, `locality_name`, `attrs`)                       | `NgoProfile { profileKey, cui, name, normalizedName, legalForm, countyName, localityName }`                         | `cui` → `core.organizations` (link-not-merge); `county_name`/locality denormalized; canonical territory via `core.territories` | `legal_form` enum: association/foundation/federation/social-enterprise/other                                |
+| `ngo.licenses` (`license_key`, `cui`, `organization_name`, `sector`, `authority`, `license_no`, `valid_from`, `valid_to`, `status`, `county_name`) | `NgoAccreditation { licenseKey, sector, authority, licenseNo, validFrom, validTo, status, status_active(derived) }` | `cui` link                                                                                                                     | "license" ≙ sector accreditation (ANOFM/FPA/ARACIP/CNAS). `valid_*` are **text** in raw — parse defensively |
+| `ngo.cui_evidence` (`source_name`, `source_record_key`, `cui`, `evidence_type`, `confidence`)                                                      | `NgoCuiEvidence { source, evidenceType, confidence }`                                                               | `cui` link                                                                                                                     | powers "which registries attest this NGO" coverage                                                          |
+| `ngo.public_money_events` (recommended)                                                                                                            | `NgoPublicMoneyEvent { programme, projectTitle, amountRon, authority, role, eventDate }`                            | `cui` link                                                                                                                     | **prefer the kernel flows view** for totals (§14.6 grain gate); this is native event detail only            |
+| `ngo.fiscal_status` / `ngo.financials` (ANAF, deferred)                                                                                            | `NgoFiscalStatus`, `NgoFinancials`                                                                                  | `cui` link                                                                                                                     | **DEFERRED** until ANAF enrichment lands                                                                    |
 
 **PII / excluded columns (hard, §8.2):** the raw `privacy_controls` allowlist is
 the contract. **Never project** contact/person fields (FPA `drop_contacts`,
@@ -146,25 +147,37 @@ are organization-level only, never doctor/patient data.
 // ngo/core/ports.ts
 export interface NgoRepository {
   // detail
-  findByCui(cui: string): Promise<Result<NgoProfile | null, ApiError>>;          // ngo.organizations (cui unique idx)
+  findByCui(cui: string): Promise<Result<NgoProfile | null, ApiError>>; // ngo.organizations (cui unique idx)
   getAccreditations(cui: string): Promise<Result<readonly NgoAccreditation[], ApiError>>; // ngo.licenses (cui idx)
-  getCuiEvidence(cui: string): Promise<Result<readonly NgoCuiEvidence[], ApiError>>;       // ngo.cui_evidence (cui idx)
+  getCuiEvidence(cui: string): Promise<Result<readonly NgoCuiEvidence[], ApiError>>; // ngo.cui_evidence (cui idx)
 
   // list / filter (offset pagination — small bounded corpus, ~10k rows)
-  listProfiles(input: NgoProfileFilterInput, page: Page): Promise<Result<Paged<NgoProfile>, ApiError>>;
-  listAccreditations(input: NgoAccreditationFilterInput, page: Page): Promise<Result<Paged<NgoAccreditation>, ApiError>>;
+  listProfiles(
+    input: NgoProfileFilterInput,
+    page: Page
+  ): Promise<Result<Paged<NgoProfile>, ApiError>>;
+  listAccreditations(
+    input: NgoAccreditationFilterInput,
+    page: Page
+  ): Promise<Result<Paged<NgoAccreditation>, ApiError>>;
 
   // aggregate (cheap — small corpus)
-  countBy(dim: 'county' | 'legal_form' | 'sector' | 'authority' | 'status',
-          input: NgoProfileFilterInput): Promise<Result<readonly NgoBucket[], ApiError>>;
+  countBy(
+    dim: 'county' | 'legal_form' | 'sector' | 'authority' | 'status',
+    input: NgoProfileFilterInput
+  ): Promise<Result<readonly NgoBucket[], ApiError>>;
 
   // contributor support
-  presence(cui: string): Promise<Result<{ isNgo: boolean; accreditationCount: number; sectors: string[] } | null, ApiError>>;
+  presence(
+    cui: string
+  ): Promise<
+    Result<{ isNgo: boolean; accreditationCount: number; sectors: string[] } | null, ApiError>
+  >;
 }
 ```
 
 > **Kernel dependency (call out for the consistency pass):** the kernel
-> `SourcePresence` type (contract §4.4) was a *fixed* boolean record in the old
+> `SourcePresence` type (contract §4.4) was a _fixed_ boolean record in the old
 > unified module (`{ isSupplier, isAuthority, inPnrr, inNgo, hasFinancials }`).
 > The contributor registry replaces that with a **per-source open shape**
 > (`{ source, present, badges[] }`). This module assumes the kernel ships the
@@ -188,12 +201,12 @@ export interface NgoRepository {
 
 > **DEFERRED — pending `ngo` domain.**
 
-| Usecase | Signature | Notes |
-|---------|-----------|-------|
-| `getNgoProfile` | `(cui) → Result<NgoProfileView | null>` | profile + accreditations + cui-evidence assembled |
-| `listNgos` | `(filter, page) → Result<Paged<NgoProfile>>` | name/county/legal_form/sector filters |
-| `listAccreditations` | `(filter, page) → Result<Paged<NgoAccreditation>>` | sector/authority/status/validity |
-| `ngoCoverage` | `(filter) → Result<NgoBucket[]>` | counts by county/legal_form/sector + **coverage caveat** (corpus is partial) |
+| Usecase              | Signature                                          | Notes                                                                        |
+| -------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
+| `getNgoProfile`      | `(cui) → Result<NgoProfileView                     | null>`                                                                       | profile + accreditations + cui-evidence assembled |
+| `listNgos`           | `(filter, page) → Result<Paged<NgoProfile>>`       | name/county/legal_form/sector filters                                        |
+| `listAccreditations` | `(filter, page) → Result<Paged<NgoAccreditation>>` | sector/authority/status/validity                                             |
+| `ngoCoverage`        | `(filter) → Result<NgoBucket[]>`                   | counts by county/legal_form/sector + **coverage caveat** (corpus is partial) |
 
 **Cross-source contributor (§4.4 / §14.7):**
 
@@ -205,11 +218,11 @@ export const ngoContributor: SourceContributor = {
 };
 ```
 
-- **`flow_type` registered:** *none in v1* (NGO public-money events are
+- **`flow_type` registered:** _none in v1_ (NGO public-money events are
   reference-only / better served by the existing PNRR/procurement flows keyed by
   the NGO's CUI). If/when NGO-native grants land as flows, register
   `ngo_public_money` in `FLOW_TYPES` — **DEFERRED**.
-- **`doc_type` registered:** *none in v1* (the corpus is structured rows, not
+- **`doc_type` registered:** _none in v1_ (the corpus is structured rows, not
   free text worth full-text indexing). Optional `ngo_profile` doc_type later for
   name search — **DEFERRED**; until then NGO name search rides the identity-hub
   `searchByName` (§4.1) + Meili entity index, not a dedicated NGO index.
@@ -221,13 +234,13 @@ export const ngoContributor: SourceContributor = {
 > **DEFERRED — pending `ngo` domain.** Prefix `/api/v1/ngos/`. All read-only,
 > `config: { public: true }` (§14.11), envelope per §5.2, `requestId` included.
 
-| Method | Path | Query (TypeBox) | Response | Pagination | Cache | Timeout |
-|--------|------|-----------------|----------|------------|-------|---------|
-| GET | `/api/v1/ngos/organizations` | `NgoProfileFilter` (§7) | `NgoProfile[]` | offset (default 1/20, max 100) | 10 min TTL | 5s |
-| GET | `/api/v1/ngos/organizations/:cui` | — | `NgoProfileView` (+accreditations+evidence) | — | 10 min TTL | 5s |
-| GET | `/api/v1/ngos/accreditations` | `NgoAccreditationFilter` | `NgoAccreditation[]` | offset | 10 min TTL | 5s |
-| GET | `/api/v1/ngos/aggregate` | `dim` + `NgoProfileFilter` | `NgoBucket[]` + `{coverage, caveats}` | — | 30 min TTL | 15s |
-| GET | `/api/v1/ngos/filters/resolve` | `dim`, `q` | `{value,label}[]` | — | 30 min TTL | 5s |
+| Method | Path                              | Query (TypeBox)            | Response                                    | Pagination                     | Cache      | Timeout |
+| ------ | --------------------------------- | -------------------------- | ------------------------------------------- | ------------------------------ | ---------- | ------- |
+| GET    | `/api/v1/ngos/organizations`      | `NgoProfileFilter` (§7)    | `NgoProfile[]`                              | offset (default 1/20, max 100) | 10 min TTL | 5s      |
+| GET    | `/api/v1/ngos/organizations/:cui` | —                          | `NgoProfileView` (+accreditations+evidence) | —                              | 10 min TTL | 5s      |
+| GET    | `/api/v1/ngos/accreditations`     | `NgoAccreditationFilter`   | `NgoAccreditation[]`                        | offset                         | 10 min TTL | 5s      |
+| GET    | `/api/v1/ngos/aggregate`          | `dim` + `NgoProfileFilter` | `NgoBucket[]` + `{coverage, caveats}`       | —                              | 30 min TTL | 15s     |
+| GET    | `/api/v1/ngos/filters/resolve`    | `dim`, `q`                 | `{value,label}[]`                           | —                              | 30 min TTL | 5s      |
 
 - `:cui` validated via the kernel `CUI` scalar; `normalizeCui` applied before
   lookup (RO-prefix strip, §4.1).
@@ -247,7 +260,7 @@ export const ngoContributor: SourceContributor = {
 # scrapper migration's NOT NULL choices (server is read-only, F5).
 type NgoProfile {
   cui: CUI
-  name: String        # non-null only if the prod ngo.organizations.name lands NOT NULL
+  name: String # non-null only if the prod ngo.organizations.name lands NOT NULL
   legalForm: NgoLegalForm
   county: String
   locality: String
@@ -261,16 +274,25 @@ type NgoAccreditation {
   validFrom: Date
   validTo: Date
   status: String
-  active: Boolean     # nullable: null = validity unparseable/unknown (raw valid_* is free text, §13.5)
+  active: Boolean # nullable: null = validity unparseable/unknown (raw valid_* is free text, §13.5)
 }
 type NgoCuiEvidence {
   source: String!
   evidenceType: String!
   confidence: String!
 }
-enum NgoLegalForm { ASSOCIATION FOUNDATION FEDERATION SOCIAL_ENTERPRISE OTHER }
+enum NgoLegalForm {
+  ASSOCIATION
+  FOUNDATION
+  FEDERATION
+  SOCIAL_ENTERPRISE
+  OTHER
+}
 
-type NgoBucket { key: String!, count: Int! }
+type NgoBucket {
+  key: String!
+  count: Int!
+}
 
 # coverage-bearing aggregate result — parity with REST §5 + MCP §8 (catalog Core Rule)
 type NgoAggregateResult {
@@ -279,7 +301,9 @@ type NgoAggregateResult {
   coverage: NgoCoverage!
   caveats: [String!]!
 }
-type NgoCoverage { matchedCui: Float! }
+type NgoCoverage {
+  matchedCui: Float!
+}
 
 input NgoProfileFilter {
   cui: [CUI!]
@@ -294,8 +318,14 @@ input NgoProfileFilter {
   exclude: NgoProfileFilter
 }
 
-type NgoProfileConnection { edges: [NgoProfileEdge!]!, pageInfo: PageInfo! }
-type NgoProfileEdge { node: NgoProfile!, cursor: String! }
+type NgoProfileConnection {
+  edges: [NgoProfileEdge!]!
+  pageInfo: PageInfo!
+}
+type NgoProfileEdge {
+  node: NgoProfile!
+  cursor: String!
+}
 
 extend type Query {
   ngoProfile(cui: CUI!): NgoProfile
@@ -305,7 +335,7 @@ extend type Query {
 
 # Entity join-type extension (§6.2 / §14.7) — resolved via contributor.profileSlice
 extend type Entity {
-  ngo: NgoEntitySlice           # null when CUI is not an NGO
+  ngo: NgoEntitySlice # null when CUI is not an NGO
 }
 type NgoEntitySlice {
   isNgo: Boolean!
@@ -332,36 +362,36 @@ type NgoEntitySlice {
 
 ## 7. Filters — collection filter spec
 
-> **DEFERRED — pending `ngo` domain** for the *driving columns*, but the spec is
+> **DEFERRED — pending `ngo` domain** for the _driving columns_, but the spec is
 > declared now (the kernel ships the pipeline; this module only declares specs,
 > §14.2). One `CollectionFilterSpec` per filterable collection.
 
 ### 7.1 `ngo_organizations` filter spec
 
-| Field | Type | Ops | Driving column / index | REST param | GraphQL input | MCP input |
-|-------|------|-----|------------------------|------------|---------------|-----------|
-| `cui` | string[] | `in` | `ngo.organizations.cui` (unique idx) | `cui` (repeat/CSV) | `cui: [CUI!]` | `cui[]` |
-| `name` | string | `contains` (trigram) | `ngo.organizations.normalized_name` (pg_trgm) — **engine: Postgres trigram** (corpus too small for OS) | `q` | `name` | `name` (resolver-first) |
-| `legalForm` | enum | `in` | `legal_form` | `legalForm` | `legalForm: [NgoLegalForm!]` | `legalForm[]` |
-| `county` | string[] | `in` | `county_name` (+territory hub, §4.2) | `county` | `county` | `county[]` |
-| `siruta` | string[] | `in` | via `core.territories` join | `siruta` | `siruta: [SIRUTA!]` | `siruta[]` |
-| `region` | string[] | `in` | via `core.territories.region` | `region` | `region` | `region[]` |
-| `sector` | string[] | `in` | join `ngo.licenses.sector` (EXISTS) | `sector` | `sector` | `sector[]` |
-| `hasAccreditation` | bool | `eq` | EXISTS on `ngo.licenses` | `hasAccreditation` | `hasAccreditation` | `hasAccreditation` |
-| `exclude` | nested | — | symmetric negation (`exclude:true` fields only, §14.2) | `exclude.x` | `exclude: NgoProfileFilter` | `exclude{}` |
+| Field              | Type     | Ops                  | Driving column / index                                                                                 | REST param         | GraphQL input                | MCP input               |
+| ------------------ | -------- | -------------------- | ------------------------------------------------------------------------------------------------------ | ------------------ | ---------------------------- | ----------------------- |
+| `cui`              | string[] | `in`                 | `ngo.organizations.cui` (unique idx)                                                                   | `cui` (repeat/CSV) | `cui: [CUI!]`                | `cui[]`                 |
+| `name`             | string   | `contains` (trigram) | `ngo.organizations.normalized_name` (pg_trgm) — **engine: Postgres trigram** (corpus too small for OS) | `q`                | `name`                       | `name` (resolver-first) |
+| `legalForm`        | enum     | `in`                 | `legal_form`                                                                                           | `legalForm`        | `legalForm: [NgoLegalForm!]` | `legalForm[]`           |
+| `county`           | string[] | `in`                 | `county_name` (+territory hub, §4.2)                                                                   | `county`           | `county`                     | `county[]`              |
+| `siruta`           | string[] | `in`                 | via `core.territories` join                                                                            | `siruta`           | `siruta: [SIRUTA!]`          | `siruta[]`              |
+| `region`           | string[] | `in`                 | via `core.territories.region`                                                                          | `region`           | `region`                     | `region[]`              |
+| `sector`           | string[] | `in`                 | join `ngo.licenses.sector` (EXISTS)                                                                    | `sector`           | `sector`                     | `sector[]`              |
+| `hasAccreditation` | bool     | `eq`                 | EXISTS on `ngo.licenses`                                                                               | `hasAccreditation` | `hasAccreditation`           | `hasAccreditation`      |
+| `exclude`          | nested   | —                    | symmetric negation (`exclude:true` fields only, §14.2)                                                 | `exclude.x`        | `exclude: NgoProfileFilter`  | `exclude{}`             |
 
 Sort: default `name` asc; allowed `{name, county, legal_form}`.
 
 ### 7.2 `ngo_accreditations` filter spec
 
-| Field | Type | Ops | Driving column | Notes |
-|-------|------|-----|----------------|-------|
-| `cui` | string[] | `in` | `ngo.licenses.cui` | |
-| `sector` | string[] | `in` | `sector` | |
-| `authority` | string[] | `in` | `authority` | |
-| `status` | enum | `in`,`isNull` | `status` | closed enum after raw value audit |
-| `validOn` | date | `lte`/`gte` | `valid_from`/`valid_to` | **text columns in raw** — parse to date in loader, or compile a defensive cast; document the gate |
-| `active` | bool | `eq` | derived (`valid_to IS NULL OR valid_to >= now`) | |
+| Field       | Type     | Ops           | Driving column                                  | Notes                                                                                             |
+| ----------- | -------- | ------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `cui`       | string[] | `in`          | `ngo.licenses.cui`                              |                                                                                                   |
+| `sector`    | string[] | `in`          | `sector`                                        |                                                                                                   |
+| `authority` | string[] | `in`          | `authority`                                     |                                                                                                   |
+| `status`    | enum     | `in`,`isNull` | `status`                                        | closed enum after raw value audit                                                                 |
+| `validOn`   | date     | `lte`/`gte`   | `valid_from`/`valid_to`                         | **text columns in raw** — parse to date in loader, or compile a defensive cast; document the gate |
+| `active`    | bool     | `eq`          | derived (`valid_to IS NULL OR valid_to >= now`) |                                                                                                   |
 
 - **`q` text engine:** **Postgres trigram** over `normalized_name` (the corpus is
   ~10k rows — Meili/OS are unnecessary; the kernel identity-hub Meili index
@@ -382,14 +412,14 @@ The catalog (`AI_AGENT_FILTER_QUESTION_CATALOG.md`) has **no NGO-specific block*
 NGOs surface through **cross-source** questions and as a `kind` dimension. Golden
 cases for this module:
 
-| Logical question | Resolved filter | Authoritative source |
-|------------------|-----------------|----------------------|
-| "Social enterprises in Cluj county" | `legalForm=SOCIAL_ENTERPRISE & county=Cluj` | `ngo.organizations` (native) |
-| "Accredited employment-service NGOs, active" | `sector=employment_services & active=true` | `ngo.licenses` (native) |
-| "Is CUI X an NGO, and in what sectors?" | `presence(X)` | contributor → entity-360 |
-| **XS-1** "Entity 360 for CUI X" (incl. NGO slice) | kernel entity-360 iterates contributors → `ngoContributor` | **kernel** (cross-source) |
-| **XS-4** "Company Y: contracts + privacy-safe litigation" | NGO flag is a badge on the entity card | kernel + procurement/justice |
-| "How much public money did NGO X receive?" | **NOT NGO-native** — answer from PNRR/procurement/flows keyed by X's CUI | **kernel flows / procurement** (grain gate §14.6); NGO module only flags `isNgo` + lists native `public_money_events` as evidence, never as the authoritative total |
+| Logical question                                          | Resolved filter                                                          | Authoritative source                                                                                                                                                |
+| --------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Social enterprises in Cluj county"                       | `legalForm=SOCIAL_ENTERPRISE & county=Cluj`                              | `ngo.organizations` (native)                                                                                                                                        |
+| "Accredited employment-service NGOs, active"              | `sector=employment_services & active=true`                               | `ngo.licenses` (native)                                                                                                                                             |
+| "Is CUI X an NGO, and in what sectors?"                   | `presence(X)`                                                            | contributor → entity-360                                                                                                                                            |
+| **XS-1** "Entity 360 for CUI X" (incl. NGO slice)         | kernel entity-360 iterates contributors → `ngoContributor`               | **kernel** (cross-source)                                                                                                                                           |
+| **XS-4** "Company Y: contracts + privacy-safe litigation" | NGO flag is a badge on the entity card                                   | kernel + procurement/justice                                                                                                                                        |
+| "How much public money did NGO X receive?"                | **NOT NGO-native** — answer from PNRR/procurement/flows keyed by X's CUI | **kernel flows / procurement** (grain gate §14.6); NGO module only flags `isNgo` + lists native `public_money_events` as evidence, never as the authoritative total |
 
 **Coverage caveat (mandatory, §catalog Coverage Gate):** every NGO aggregate
 must disclose that the corpus is a **partial presence-signal set** (5 sector
@@ -404,12 +434,12 @@ via flows/procurement, never via NGO-native data, and labeled.
 > **DEFERRED — pending `ngo` domain.** Two families (§6.3): discovery + query.
 > Naming `<verb>_<domain>_<noun>`; rate-limited; bounded results; PII-excluded.
 
-| Tool | Input (TypeBox) | Output | Usecase | `link` | Summary template |
-|------|-----------------|--------|---------|--------|------------------|
-| `resolve_ngo_filters` (discovery) | `{ dim: 'ngo_name'|'county'|'sector'|'authority'|'legal_form', q }` | `{ ok, kind:'resolution', items:[{value,label,cui?}] }` | shared resolve | `/ngos?…` | "Resolved '{q}' → {n} candidates." |
-| `get_ngo_profile` (query) | `{ cui: CUI }` | `{ ok, kind:'ngo_profile', item: NgoProfileView, link, summary }` | `getNgoProfile` | `/ngos/{cui}` | "{name} ({legalForm}) in {county}; {n} accreditations across {sectors}." |
-| `list_ngos` (query) | `NgoProfileFilter + page` | `{ ok, kind:'ngo_list', items, summary }` | `listNgos` | `/ngos?…` | "{total} NGOs matching {filters} (coverage: partial)." |
-| `aggregate_ngos` (query) | `{ dim, NgoProfileFilter }` | `{ ok, kind:'ngo_aggregate', items:[{key,count}], coverage, caveats }` | `ngoCoverage` | `/ngos/aggregate?…` | "By {dim}: top {k}; coverage {pct}% — partial corpus." |
+| Tool                              | Input (TypeBox)             | Output                                                                 | Usecase         | `link`              | Summary template                                                         |
+| --------------------------------- | --------------------------- | ---------------------------------------------------------------------- | --------------- | ------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- | -------------- | --------- | ---------------------------------- |
+| `resolve_ngo_filters` (discovery) | `{ dim: 'ngo_name'          | 'county'                                                               | 'sector'        | 'authority'         | 'legal_form', q }`                                                       | `{ ok, kind:'resolution', items:[{value,label,cui?}] }` | shared resolve | `/ngos?…` | "Resolved '{q}' → {n} candidates." |
+| `get_ngo_profile` (query)         | `{ cui: CUI }`              | `{ ok, kind:'ngo_profile', item: NgoProfileView, link, summary }`      | `getNgoProfile` | `/ngos/{cui}`       | "{name} ({legalForm}) in {county}; {n} accreditations across {sectors}." |
+| `list_ngos` (query)               | `NgoProfileFilter + page`   | `{ ok, kind:'ngo_list', items, summary }`                              | `listNgos`      | `/ngos?…`           | "{total} NGOs matching {filters} (coverage: partial)."                   |
+| `aggregate_ngos` (query)          | `{ dim, NgoProfileFilter }` | `{ ok, kind:'ngo_aggregate', items:[{key,count}], coverage, caveats }` | `ngoCoverage`   | `/ngos/aggregate?…` | "By {dim}: top {k}; coverage {pct}% — partial corpus."                   |
 
 - MCP filter inputs are **the same fields as REST** (§7.3); the discovery tool
   resolves names → CUI/codes first, then the query tool runs deterministic SQL
@@ -428,7 +458,7 @@ via flows/procurement, never via NGO-native data, and labeled.
   identity-hub Meili index once `core.organizations` carries `kind='ngo'` rows
   (prerequisite §1.4.3) — no dedicated NGO Meili/OS index in v1.
 - **Optional later:** an `ngo_profile` doc_type projecting `{name, legal_form,
-  sectors, county}` into `search.documents` if NGO discovery demand grows. The
+sectors, county}` into `search.documents` if NGO discovery demand grows. The
   scrapper `search` lane writes it; the server only reads. **DEFERRED.**
 - **Semantic/pgvector:** capability-gated (§14.5) — not applicable to the
   structured NGO corpus; no semantic fields exposed.
@@ -460,7 +490,11 @@ via flows/procurement, never via NGO-native data, and labeled.
 ```ts
 // ngo/index.ts
 export const makeNgoModule = (deps: { db: Kysely<ProdDatabase>; cache: Cache }): NgoModule => ({
-  restPlugin, graphql: { typeDefs, resolvers }, mcpTools, contributor: ngoContributor, repos: { ngoRepo },
+  restPlugin,
+  graphql: { typeDefs, resolvers },
+  mcpTools,
+  contributor: ngoContributor,
+  repos: { ngoRepo },
 });
 ```
 
@@ -500,13 +534,13 @@ export const makeNgoModule = (deps: { db: Kysely<ProdDatabase>; cache: Cache }):
 
 1. **(BLOCKER) No `ngo` domain in serving.** Entire module is gated on the
    scrapper landing `ngo.*` + `kind='ngo'` in `core.organizations` (§1.4). Until
-   then this is a paper module. — *needs scrapper slice (TRACKER #9).*
+   then this is a paper module. — _needs scrapper slice (TRACKER #9)._
 2. **Identity-hub linkage decision (architecture).** Should NGO CUIs become
    `core.organizations` rows with `kind='ngo'`, or stay NGO-schema-local with a
    CUI FK and NGO-ness derived at query time? The contract says "link-not-merge,
-   never reassign org_id." **Collision risk:** many NGO CUIs (esp. social
+   never reassign org*id." **Collision risk:** many NGO CUIs (esp. social
    enterprises) already exist as `company`-kind rows (the hub holds 3.98M
-   company rows), so a blind `kind='ngo'` upsert would *overwrite* the company
+   company rows), so a blind `kind='ngo'` upsert would \_overwrite* the company
    kind — a merge-by-mutation §4.1 forbids. **Recommendation:** treat NGO-ness as
    an **additive identifier/badge**, not a `kind` reassignment — either (a) make
    `kind` multi-valued (an array or a `kinds` overlay column) so a CUI can be both
@@ -522,7 +556,7 @@ export const makeNgoModule = (deps: { db: Kysely<ProdDatabase>; cache: Cache }):
 4. **ANAF/MJ enrichment timing.** Fiscal status, financials, deductible status,
    and the MJ legal-identity backbone are research-ready but **not loaded**;
    `ngo.fiscal_status`/`ngo.financials` and MJ registration numbers are DEFERRED.
-   The MJ backbone is the path to a *real* NGO registry — flag as the highest-
+   The MJ backbone is the path to a _real_ NGO registry — flag as the highest-
    value next scrapper step for this source.
 5. **Validity columns are text in raw.** `valid_from`/`valid_to`/`status` are
    free-text; the `active` derivation and `validOn` filter depend on the loader

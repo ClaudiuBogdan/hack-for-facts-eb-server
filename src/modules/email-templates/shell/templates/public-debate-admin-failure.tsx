@@ -110,7 +110,9 @@ export const PublicDebateAdminFailureEmail = (
 ): React.ReactElement => {
   const copy = COPY_BY_LANG[props.lang];
   const entityName =
-    props.entityName !== undefined && props.entityName.trim() !== '' ? props.entityName : props.entityCui;
+    props.entityName !== undefined && props.entityName.trim() !== ''
+      ? props.entityName
+      : props.entityCui;
 
   return (
     <EmailLayout

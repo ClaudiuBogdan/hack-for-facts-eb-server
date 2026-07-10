@@ -50,52 +50,123 @@ import type {
  */
 type ProcedureRow = Pick<
   ProcurementProceduresTable,
-  | 'procedure_id' | 'source_system' | 'source_url' | 'notice_no' | 'notice_kind'
-  | 'procedure_type' | 'contract_kind'
-  | 'title' | 'authority_cui' | 'authority_name' | 'cpv_code' | 'currency'
-  | 'estimated_value_ron' | 'awarded_value_ron' | 'status' | 'county_name'
-  | 'publication_date' | 'state_date'
+  | 'procedure_id'
+  | 'source_system'
+  | 'source_url'
+  | 'notice_no'
+  | 'notice_kind'
+  | 'procedure_type'
+  | 'contract_kind'
+  | 'title'
+  | 'authority_cui'
+  | 'authority_name'
+  | 'cpv_code'
+  | 'currency'
+  | 'estimated_value_ron'
+  | 'awarded_value_ron'
+  | 'status'
+  | 'county_name'
+  | 'publication_date'
+  | 'state_date'
 >;
 type ContractRow = Pick<
   ProcurementContractsTable,
-  | 'contract_id' | 'contract_key' | 'source_system' | 'source_url' | 'procedure_id'
-  | 'notice_no' | 'contract_no'
-  | 'contract_date' | 'title' | 'authority_cui' | 'authority_name' | 'supplier_cui'
-  | 'supplier_name' | 'cpv_code' | 'currency' | 'value_ron' | 'estimated_value_ron'
-  | 'status' | 'county_name' | 'is_canonical' | 'dup_group_id'
+  | 'contract_id'
+  | 'contract_key'
+  | 'source_system'
+  | 'source_url'
+  | 'procedure_id'
+  | 'notice_no'
+  | 'contract_no'
+  | 'contract_date'
+  | 'title'
+  | 'authority_cui'
+  | 'authority_name'
+  | 'supplier_cui'
+  | 'supplier_name'
+  | 'cpv_code'
+  | 'currency'
+  | 'value_ron'
+  | 'estimated_value_ron'
+  | 'status'
+  | 'county_name'
+  | 'is_canonical'
+  | 'dup_group_id'
 >;
 type DaRow = Pick<
   ProcurementDirectAcquisitionsTable,
-  | 'da_id' | 'da_key' | 'source_system' | 'source_url' | 'unique_code' | 'title'
+  | 'da_id'
+  | 'da_key'
+  | 'source_system'
+  | 'source_url'
+  | 'unique_code'
+  | 'title'
   | 'authority_cui'
-  | 'authority_name' | 'supplier_cui' | 'supplier_name' | 'cpv_code' | 'currency'
-  | 'value_ron' | 'estimated_value_ron' | 'status' | 'county_name' | 'publication_date'
-  | 'finalization_date' | 'is_canonical' | 'dup_group_id'
+  | 'authority_name'
+  | 'supplier_cui'
+  | 'supplier_name'
+  | 'cpv_code'
+  | 'currency'
+  | 'value_ron'
+  | 'estimated_value_ron'
+  | 'status'
+  | 'county_name'
+  | 'publication_date'
+  | 'finalization_date'
+  | 'is_canonical'
+  | 'dup_group_id'
 >;
 type ModificationRow = Pick<
   ProcurementContractModificationsTable,
-  | 'modification_id' | 'contract_id' | 'source_url' | 'link_method' | 'link_confidence'
+  | 'modification_id'
+  | 'contract_id'
+  | 'source_url'
+  | 'link_method'
+  | 'link_confidence'
   | 'authority_cui'
-  | 'supplier_cui' | 'contract_no' | 'notice_no' | 'modification_date'
-  | 'value_before_ron' | 'value_after_ron' | 'value_delta_ron' | 'modification_type' | 'year'
+  | 'supplier_cui'
+  | 'contract_no'
+  | 'notice_no'
+  | 'modification_date'
+  | 'value_before_ron'
+  | 'value_after_ron'
+  | 'value_delta_ron'
+  | 'modification_type'
+  | 'year'
 >;
 
 // ── status coercion (closed enums; unknown live tokens → 'unknown') ────────────
 
 const PROCEDURE_STATUS_SET = new Set<ProcedureStatus>([
-  'published', 'in_evaluation', 'awarded', 'cancelled', 'suspended', 'unknown',
+  'published',
+  'in_evaluation',
+  'awarded',
+  'cancelled',
+  'suspended',
+  'unknown',
 ]);
 const CONTRACT_STATUS_SET = new Set<ContractStatus>([
-  'awarded', 'in_progress', 'closed', 'cancelled', 'unknown',
+  'awarded',
+  'in_progress',
+  'closed',
+  'cancelled',
+  'unknown',
 ]);
-const DA_STATUS_SET = new Set<DaStatus>(['offered', 'awarded', 'finalized', 'cancelled', 'unknown']);
+const DA_STATUS_SET = new Set<DaStatus>([
+  'offered',
+  'awarded',
+  'finalized',
+  'cancelled',
+  'unknown',
+]);
 const DA_SOURCE_SET = new Set<DaSourceSystem>(['elicitatie_da', 'seap_da', 'seap_dan']);
 
 const procedureStatus = (s: string): ProcedureStatus =>
   PROCEDURE_STATUS_SET.has(s as ProcedureStatus) ? (s as ProcedureStatus) : 'unknown';
 const contractStatus = (s: string): ContractStatus =>
   CONTRACT_STATUS_SET.has(s as ContractStatus) ? (s as ContractStatus) : 'unknown';
-const daStatus = (s: string): DaStatus => (DA_STATUS_SET.has(s as DaStatus) ? (s as DaStatus) : 'unknown');
+const daStatus = (s: string): DaStatus =>
+  DA_STATUS_SET.has(s as DaStatus) ? (s as DaStatus) : 'unknown';
 const daSourceSystem = (s: string): DaSourceSystem =>
   DA_SOURCE_SET.has(s as DaSourceSystem) ? (s as DaSourceSystem) : 'seap_da';
 

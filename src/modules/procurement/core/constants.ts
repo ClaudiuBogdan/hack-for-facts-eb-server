@@ -37,7 +37,13 @@ export const PROCEDURE_STATUSES = [
 ] as const;
 export type ProcedureStatus = (typeof PROCEDURE_STATUSES)[number];
 
-export const CONTRACT_STATUSES = ['awarded', 'in_progress', 'closed', 'cancelled', 'unknown'] as const;
+export const CONTRACT_STATUSES = [
+  'awarded',
+  'in_progress',
+  'closed',
+  'cancelled',
+  'unknown',
+] as const;
 export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 
 export const DA_STATUSES = ['offered', 'awarded', 'finalized', 'cancelled', 'unknown'] as const;

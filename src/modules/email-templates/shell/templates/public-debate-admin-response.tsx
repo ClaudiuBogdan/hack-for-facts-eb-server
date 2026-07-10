@@ -86,8 +86,7 @@ const COPY = {
   ro: {
     requester: {
       preview: 'A fost adăugat un răspuns la solicitarea ta.',
-      intro:
-        'Un administrator a adăugat un răspuns la solicitarea ta privind dezbaterea publică.',
+      intro: 'Un administrator a adăugat un răspuns la solicitarea ta privind dezbaterea publică.',
     },
     subscriber: {
       preview: 'A apărut o actualizare pentru localitatea pe care o urmărești.',
@@ -127,9 +126,7 @@ const COPY = {
 const getVariant = (
   templateType: PublicDebateAdminResponseProps['templateType']
 ): 'requester' | 'subscriber' => {
-  return templateType === 'public_debate_admin_response_requester'
-    ? 'requester'
-    : 'subscriber';
+  return templateType === 'public_debate_admin_response_requester' ? 'requester' : 'subscriber';
 };
 
 export const getPublicDebateAdminResponseSubject = (

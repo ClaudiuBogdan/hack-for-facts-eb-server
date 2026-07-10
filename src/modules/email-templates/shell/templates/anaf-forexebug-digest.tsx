@@ -13,11 +13,7 @@ import { CompactMetricRow } from './components/compact-metric-row.js';
 import { ConditionDisplay } from './components/condition-display.js';
 import { EmailLayout } from './email-layout.js';
 import { formatCompactCurrency, formatNumberWithUnit, formatPercentage } from './formatting.js';
-import {
-  getTranslations,
-  interpolate,
-  getDigestSummaryBadge,
-} from '../../core/i18n.js';
+import { getTranslations, interpolate, getDigestSummaryBadge } from '../../core/i18n.js';
 
 import type {
   AnafForexebugDigestProps,
@@ -160,7 +156,8 @@ const DigestEntitySection = ({
     expenses: lang === 'ro' ? 'Cheltuieli YTD' : 'YTD expenses',
     balance: lang === 'ro' ? 'Sold YTD' : 'YTD balance',
   };
-  const monthlyDeltaLabel = lang === 'ro' ? `în ${section.periodLabel}` : `in ${section.periodLabel}`;
+  const monthlyDeltaLabel =
+    lang === 'ro' ? `în ${section.periodLabel}` : `in ${section.periodLabel}`;
   const monthlyChangePrefix = lang === 'ro' ? 'lunar' : 'monthly';
 
   return (
@@ -307,7 +304,13 @@ const DigestAlertSection = ({
             <td style={{ verticalAlign: 'middle' }}>
               <Text style={{ ...styles.sectionTitle, margin: '0' }}>{section.title}</Text>
             </td>
-            <td style={{ verticalAlign: 'middle', textAlign: 'right' as const, whiteSpace: 'nowrap' as const }}>
+            <td
+              style={{
+                verticalAlign: 'middle',
+                textAlign: 'right' as const,
+                whiteSpace: 'nowrap' as const,
+              }}
+            >
               <span
                 style={
                   isTriggered
@@ -353,10 +356,28 @@ const DigestAlertSection = ({
         <tbody>
           <tr>
             <td>
-              <Text style={{ fontSize: '11px', fontWeight: '600' as const, color: '#8898aa', textTransform: 'uppercase' as const, letterSpacing: '0.5px', margin: '0 0 2px', lineHeight: '14px' }}>
+              <Text
+                style={{
+                  fontSize: '11px',
+                  fontWeight: '600' as const,
+                  color: '#8898aa',
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.5px',
+                  margin: '0 0 2px',
+                  lineHeight: '14px',
+                }}
+              >
                 {t.digest.alertStatus.currentValue}
               </Text>
-              <Text style={{ fontSize: '20px', fontWeight: '700' as const, color: isTriggered ? '#B45309' : '#111827', margin: '0', lineHeight: '28px' }}>
+              <Text
+                style={{
+                  fontSize: '20px',
+                  fontWeight: '700' as const,
+                  color: isTriggered ? '#B45309' : '#111827',
+                  margin: '0',
+                  lineHeight: '28px',
+                }}
+              >
                 {formattedValue}
               </Text>
             </td>
@@ -367,11 +388,7 @@ const DigestAlertSection = ({
       {/* Triggered conditions (only when triggered) */}
       {isTriggered && (
         <Section style={styles.conditionsBox}>
-          <ConditionDisplay
-            conditions={section.triggeredConditions}
-            lang={lang}
-            compact={true}
-          />
+          <ConditionDisplay conditions={section.triggeredConditions} lang={lang} compact={true} />
         </Section>
       )}
 

@@ -33,11 +33,7 @@ const TYPE_ALIASES: Record<string, string> = {
   decretul: 'decret',
 };
 
-const fold = (s: string): string =>
-  s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/gu, '')
-    .toLowerCase();
+const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/gu, '').toLowerCase();
 
 /**
  * Parse a citation into a `{ actType, actNumber, actYear }` key with an empty

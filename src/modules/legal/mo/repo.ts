@@ -159,7 +159,10 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
   const getIssueById: MonitorulRepo['getIssueById'] = async (moIssueId) => {
     if (!ID_RE.test(moIssueId)) return ok(null);
     try {
-      const row = await selectIssues().where('i.mo_issue_id', '=', moIssueId).limit(1).executeTakeFirst();
+      const row = await selectIssues()
+        .where('i.mo_issue_id', '=', moIssueId)
+        .limit(1)
+        .executeTakeFirst();
       return ok(row === undefined ? null : mapIssue(row as unknown as MoIssueRow));
     } catch (error) {
       return err(databaseError('getIssueById failed', error));
@@ -235,8 +238,13 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     try {
       let q = selectPubs().where('p.mo_issue_id', '=', moIssueId);
       if (afterKey !== undefined) q = q.where('p.mo_act_key', '>', afterKey);
-      const rows = await q.orderBy('p.mo_act_key', 'asc').limit(limit + 1).execute();
-      return ok(toKeyedCursorPage(mapPubRows(rows), limit, sortKey, dir, fhash, (it) => it.moActKey));
+      const rows = await q
+        .orderBy('p.mo_act_key', 'asc')
+        .limit(limit + 1)
+        .execute();
+      return ok(
+        toKeyedCursorPage(mapPubRows(rows), limit, sortKey, dir, fhash, (it) => it.moActKey)
+      );
     } catch (error) {
       return err(databaseError('getIssueContents failed', error));
     }
@@ -247,7 +255,10 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
   const getPublicationByKey: MonitorulRepo['getPublicationByKey'] = async (moActKey) => {
     if (moActKey === '') return ok(null);
     try {
-      const row = await selectPubs().where('p.mo_act_key', '=', moActKey).limit(1).executeTakeFirst();
+      const row = await selectPubs()
+        .where('p.mo_act_key', '=', moActKey)
+        .limit(1)
+        .executeTakeFirst();
       return ok(row === undefined ? null : mapPublication(row as unknown as MoActPublicationRow));
     } catch (error) {
       return err(databaseError('getPublicationByKey failed', error));
@@ -361,7 +372,12 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       conds.push(sql`p.issuer_slug = ${input.issuerSlug}`);
     }
     if (input.actType !== undefined && input.actType.length > 0) {
-      conds.push(sql`p.act_type in (${sql.join(input.actType.map((t) => sql`${t}`), sql`, `)})`);
+      conds.push(
+        sql`p.act_type in (${sql.join(
+          input.actType.map((t) => sql`${t}`),
+          sql`, `
+        )})`
+      );
     }
     const where = sql.join(conds, sql` and `);
     try {
@@ -534,24 +550,23 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     }
   };
 
-  const countPublicationsByPartForIssuer: MonitorulRepo['countPublicationsByPartForIssuer'] = async (
-    issuerSlug
-  ) => {
-    if (issuerSlug === '') return ok([]);
-    try {
-      const rows = await db
-        .selectFrom('legal.mo_act_publications as p')
-        .innerJoin('legal.mo_issues as i', 'i.mo_issue_id', 'p.mo_issue_id')
-        .where('p.issuer_slug', '=', issuerSlug)
-        .select(['i.part_code', sql<string>`count(*)`.as('cnt')])
-        .groupBy('i.part_code')
-        .orderBy(sql`cnt desc`)
-        .execute();
-      return ok(rows.map((r): MoPartCount => ({ partCode: r.part_code, count: Number(r.cnt) })));
-    } catch (error) {
-      return err(databaseError('countPublicationsByPartForIssuer failed', error));
-    }
-  };
+  const countPublicationsByPartForIssuer: MonitorulRepo['countPublicationsByPartForIssuer'] =
+    async (issuerSlug) => {
+      if (issuerSlug === '') return ok([]);
+      try {
+        const rows = await db
+          .selectFrom('legal.mo_act_publications as p')
+          .innerJoin('legal.mo_issues as i', 'i.mo_issue_id', 'p.mo_issue_id')
+          .where('p.issuer_slug', '=', issuerSlug)
+          .select(['i.part_code', sql<string>`count(*)`.as('cnt')])
+          .groupBy('i.part_code')
+          .orderBy(sql`cnt desc`)
+          .execute();
+        return ok(rows.map((r): MoPartCount => ({ partCode: r.part_code, count: Number(r.cnt) })));
+      } catch (error) {
+        return err(databaseError('countPublicationsByPartForIssuer failed', error));
+      }
+    };
 
   const getIssuerSummary: MonitorulRepo['getIssuerSummary'] = async (issuerSlug) => {
     if (issuerSlug === '') return ok(null);
@@ -615,12 +630,14 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .limit(capped)
         .execute();
       return ok(
-        rows.map((r): MoResolveHit => ({
-          kind: 'mo_issuer',
-          value: r.issuer_slug ?? '',
-          label: (r.issuer_slug ?? '').replace(/-/gu, ' '),
-          count: Number(r.cnt),
-        }))
+        rows.map(
+          (r): MoResolveHit => ({
+            kind: 'mo_issuer',
+            value: r.issuer_slug ?? '',
+            label: (r.issuer_slug ?? '').replace(/-/gu, ' '),
+            count: Number(r.cnt),
+          })
+        )
       );
     } catch (error) {
       return err(databaseError('resolveIssuer failed', error));
@@ -644,12 +661,14 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       }
       const rows = await qb.execute();
       return ok(
-        rows.map((r): MoResolveHit => ({
-          kind: 'mo_act_type',
-          value: r.act_type ?? '',
-          label: r.act_type ?? '',
-          count: Number(r.cnt),
-        }))
+        rows.map(
+          (r): MoResolveHit => ({
+            kind: 'mo_act_type',
+            value: r.act_type ?? '',
+            label: r.act_type ?? '',
+            count: Number(r.cnt),
+          })
+        )
       );
     } catch (error) {
       return err(databaseError('resolveActType failed', error));
@@ -692,7 +711,11 @@ const hasBoundingPredicate = (filter: FilterInput): boolean => {
 };
 
 /** The keyset predicate for publications `(act_year <dir> nulls last, mo_act_key)`. */
-const publicationKeyset = (cVal: string, cKey: string, dir: 'asc' | 'desc'): RawBuilder<unknown> => {
+const publicationKeyset = (
+  cVal: string,
+  cKey: string,
+  dir: 'asc' | 'desc'
+): RawBuilder<unknown> => {
   const cmp = dir === 'desc' ? sql`<` : sql`>`;
   if (cVal === '') {
     // already in the trailing NULL section: only the key tiebreak applies.

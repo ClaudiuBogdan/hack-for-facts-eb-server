@@ -126,13 +126,7 @@ export const CompactMetricRow = ({
   balance,
   lang,
 }: CompactMetricRowProps): React.ReactElement => (
-  <table
-    width="100%"
-    cellPadding="0"
-    cellSpacing="0"
-    border={0}
-    style={{ margin: '12px 0 0' }}
-  >
+  <table width="100%" cellPadding="0" cellSpacing="0" border={0} style={{ margin: '12px 0 0' }}>
     <tbody>
       <tr>
         <MetricCell metric={income} color={colors.income} metricType="income" lang={lang} />

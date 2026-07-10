@@ -6,10 +6,7 @@
  * (§14.7 contributor parity).
  */
 
-import type {
-  AccountCategory,
-  ExecutionReportType,
-} from './constants.js';
+import type { AccountCategory, ExecutionReportType } from './constants.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './ports.js';
 import type {
   AggregatedBudgetRow,
@@ -75,7 +72,8 @@ export const getEntityCommitments = (
   repo: BudgetRepo,
   cui: string,
   q: CommitmentSummaryQuery
-): Promise<Result<readonly CommitmentEntitySummary[], ApiError>> => repo.getCommitmentSummary(cui, q);
+): Promise<Result<readonly CommitmentEntitySummary[], ApiError>> =>
+  repo.getCommitmentSummary(cui, q);
 
 export const budgetTimeseries = (
   repo: BudgetRepo,
@@ -126,12 +124,14 @@ export const getReport = (
 export const listFunctionalClassifications = (
   repo: BudgetRepo,
   q: { search?: string; codes?: readonly string[]; limit: number }
-): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>> => repo.listFunctionalClassifications(q);
+): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>> =>
+  repo.listFunctionalClassifications(q);
 
 export const listEconomicClassifications = (
   repo: BudgetRepo,
   q: { search?: string; codes?: readonly string[]; limit: number }
-): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>> => repo.listEconomicClassifications(q);
+): Promise<Result<GatedOffsetPage<BudgetClassification>, ApiError>> =>
+  repo.listEconomicClassifications(q);
 
 export const listBudgetSectors = (
   repo: BudgetRepo,
@@ -148,7 +148,8 @@ export const listFundingSources = (
 export const listApprovedBudgetFacts = (
   repo: BudgetRepo,
   q: { filter: FilterInput; page: number; pageSize: number }
-): Promise<Result<GatedOffsetPage<ApprovedBudgetFact>, ApiError>> => repo.listApprovedBudgetFacts(q);
+): Promise<Result<GatedOffsetPage<ApprovedBudgetFact>, ApiError>> =>
+  repo.listApprovedBudgetFacts(q);
 
 export const budgetVsExecution = (
   repo: BudgetRepo,

@@ -29,7 +29,6 @@ import {
   type SearchSort,
 } from './constants.js';
 
-
 import type { OffsetSearchRequest, OffsetSearchResult } from './types.js';
 
 // ── the validated filter (one shape; per-grain fields are optional) ────────────
@@ -59,11 +58,7 @@ export interface ProcurementSearchFilter {
   readonly minDeltaPct?: number;
 }
 
-export type SearchGrain =
-  | 'procedures'
-  | 'contracts'
-  | 'direct_acquisitions'
-  | 'modifications';
+export type SearchGrain = 'procedures' | 'contracts' | 'direct_acquisitions' | 'modifications';
 
 // ── sort → (date column, value column) per grain ───────────────────────────────
 
@@ -121,7 +116,8 @@ export const parseOffsetRequest = (
 ): Result<OffsetSearchRequest, ApiError> => {
   const p = page ?? 1;
   const size = pageSize ?? PAGE_SIZE_DEFAULT;
-  if (!Number.isInteger(p) || p < 1) return err(invalidInput('page must be a positive integer', 'page'));
+  if (!Number.isInteger(p) || p < 1)
+    return err(invalidInput('page must be a positive integer', 'page'));
   if (!Number.isInteger(size) || size < 1 || size > PAGE_SIZE_MAX) {
     return err(invalidInput(`pageSize must be between 1 and ${String(PAGE_SIZE_MAX)}`, 'pageSize'));
   }

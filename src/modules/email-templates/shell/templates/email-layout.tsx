@@ -188,7 +188,9 @@ export const EmailLayout: React.FC<EmailLayoutProps> = ({
           )}
 
           {/* Content */}
-          <Section style={styles.content} className="email-content">{children}</Section>
+          <Section style={styles.content} className="email-content">
+            {children}
+          </Section>
 
           {/* Footer */}
           <Hr style={styles.hr} className="email-hr" />

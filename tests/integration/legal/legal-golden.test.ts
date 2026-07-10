@@ -71,7 +71,10 @@ interface LegalResolveHit {
   readonly hint?: string;
 }
 
-const gql = async <TData>(query: string, variables?: Record<string, unknown>): Promise<GqlResponse<TData>> => {
+const gql = async <TData>(
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<GqlResponse<TData>> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -87,7 +90,12 @@ const mcpCall = async <TOutput>(name: string, args: Record<string, unknown>): Pr
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   const body: JsonRpcResponse = res.json();
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent as TOutput;
@@ -117,7 +125,10 @@ d('Legal golden (live prod)', () => {
     // The prod URL carries sslmode=require; pg's default verifies the cert (the
     // tunnel presents a self-signed one). Encrypt without verifying, like the
     // kernel pool does.
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     // Kept in sync with the PNRR golden harness: swallow only the exact benign
     // post-response teardown race if it appears under MCP injection.
@@ -219,7 +230,9 @@ d('Legal golden (live prod)', () => {
   });
 
   it('legalActs default sort returns Legea 47/1992 first', async () => {
-    const res = await gql<{ legalActs: { edges: { node: { actId: string; inDegree: number } }[] } }>(
+    const res = await gql<{
+      legalActs: { edges: { node: { actId: string; inDegree: number } }[] };
+    }>(
       `{
         legalActs(first:1) {
           edges { node { actId inDegree } }
@@ -236,16 +249,21 @@ d('Legal golden (live prod)', () => {
     interface PageData {
       readonly legalActs: {
         readonly pageInfo: { readonly endCursor: string | null };
-        readonly edges: readonly { readonly node: { readonly actId: string; readonly inDegree: number } }[];
+        readonly edges: readonly {
+          readonly node: { readonly actId: string; readonly inDegree: number };
+        }[];
       };
     }
 
     const firstPage = expectGqlData(
-      await gql<PageData>(`{ legalActs(first:5) { pageInfo { endCursor } edges { node { actId inDegree } } } }`)
+      await gql<PageData>(
+        `{ legalActs(first:5) { pageInfo { endCursor } edges { node { actId inDegree } } } }`
+      )
     );
     const cursor = firstPage.legalActs.pageInfo.endCursor;
     expect(typeof cursor).toBe('string');
-    if (typeof cursor !== 'string') throw new Error('expected first legalActs page to have an endCursor');
+    if (typeof cursor !== 'string')
+      throw new Error('expected first legalActs page to have an endCursor');
 
     const secondPage = expectGqlData(
       await gql<PageData>(
@@ -295,7 +313,14 @@ d('Legal golden (live prod)', () => {
 
   it('GraphQL legalAct card agrees with MCP get_legal_act', async () => {
     const graph = expectGqlData(
-      await gql<{ legalAct: { actId: string; displayCitation: string; status: string; amendedAfterPublication: number } | null }>(
+      await gql<{
+        legalAct: {
+          actId: string;
+          displayCitation: string;
+          status: string;
+          amendedAfterPublication: number;
+        } | null;
+      }>(
         `query($actId: BigInt!) {
           legalAct(actId:$actId) { actId displayCitation status amendedAfterPublication }
         }`,
@@ -304,7 +329,12 @@ d('Legal golden (live prod)', () => {
     );
     const mcp = await mcpCall<{
       ok: boolean;
-      item: { actId: string; displayCitation: string; status: string; amendedAfterPublication: number };
+      item: {
+        actId: string;
+        displayCitation: string;
+        status: string;
+        amendedAfterPublication: number;
+      };
     }>('get_legal_act', { actId: CODUL_FISCAL_ACT_ID });
 
     expect(mcp.ok).toBe(true);
@@ -316,10 +346,13 @@ d('Legal golden (live prod)', () => {
   });
 
   it('MCP resolve_legal_filters discovers issuer and act values', async () => {
-    const issuer = await mcpCall<{ ok: boolean; items: LegalResolveHit[] }>('resolve_legal_filters', {
-      dim: 'issuer',
-      q: 'finante',
-    });
+    const issuer = await mcpCall<{ ok: boolean; items: LegalResolveHit[] }>(
+      'resolve_legal_filters',
+      {
+        dim: 'issuer',
+        q: 'finante',
+      }
+    );
     expect(issuer.ok).toBe(true);
     expect(issuer.items[0]?.value).toBe('ministerul-finantelor-publice');
     expect(issuer.items[0]?.hint).toBe('2369 acte');
@@ -334,7 +367,11 @@ d('Legal golden (live prod)', () => {
 
   it('legalSearch returns a semantic-or-lexical smoke result without error', async () => {
     const res = await gql<{
-      legalSearch: { caveats: string[]; acts: { score: number }[]; sections: { score: number }[] } | null;
+      legalSearch: {
+        caveats: string[];
+        acts: { score: number }[];
+        sections: { score: number }[];
+      } | null;
     }>(
       `{
         legalSearch(q:"cota de TVA", limit:3) {
@@ -348,7 +385,9 @@ d('Legal golden (live prod)', () => {
     expect(data.legalSearch).not.toBeNull();
     expect(Array.isArray(data.legalSearch?.caveats)).toBe(true);
     if (data.legalSearch?.caveats.includes('semantic search unavailable') === true) {
-      expect((data.legalSearch.acts.length + data.legalSearch.sections.length)).toBeGreaterThanOrEqual(0);
+      expect(
+        data.legalSearch.acts.length + data.legalSearch.sections.length
+      ).toBeGreaterThanOrEqual(0);
     }
   }, 30_000);
 

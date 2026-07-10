@@ -71,8 +71,7 @@ const namedDefName = (def: DefinitionNode): string | undefined =>
 
 const fieldsOf = (def: DefinitionNode): string[] => {
   if (
-    (def.kind === Kind.OBJECT_TYPE_EXTENSION ||
-      def.kind === Kind.OBJECT_TYPE_DEFINITION) &&
+    (def.kind === Kind.OBJECT_TYPE_EXTENSION || def.kind === Kind.OBJECT_TYPE_DEFINITION) &&
     def.fields !== undefined
   ) {
     return def.fields.map((f) => f.name.value);

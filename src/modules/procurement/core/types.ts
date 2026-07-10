@@ -190,7 +190,10 @@ export interface OffsetSearchRequest {
 /** A canonical flow record on a supplier's timeline, tagged with its source table. */
 export type SupplierRecord =
   | { readonly grain: 'procurement_contract'; readonly contract: ProcurementContract }
-  | { readonly grain: 'direct_acquisition'; readonly directAcquisition: ProcurementDirectAcquisition };
+  | {
+      readonly grain: 'direct_acquisition';
+      readonly directAcquisition: ProcurementDirectAcquisition;
+    };
 
 export interface SupplierRecordEdge {
   readonly cursor: string;
@@ -484,4 +487,11 @@ export interface SplitFilter {
   readonly cpvDivision?: string;
 }
 
-export type { ProcurementGrain, ProcedureStatus, ContractStatus, DaStatus, DaSourceSystem, SearchSort };
+export type {
+  ProcurementGrain,
+  ProcedureStatus,
+  ContractStatus,
+  DaStatus,
+  DaSourceSystem,
+  SearchSort,
+};

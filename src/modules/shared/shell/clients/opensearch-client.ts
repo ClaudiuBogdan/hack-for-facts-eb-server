@@ -23,7 +23,8 @@ export const makeOpenSearchClient = (config: OpenSearchClientConfig): OpenSearch
         const resp = await fetch(`${config.url}/_cluster/health`, {
           signal: AbortSignal.timeout(3000),
         });
-        if (!resp.ok) return err(upstreamError(`opensearch health ${String(resp.status)}`, 'opensearch'));
+        if (!resp.ok)
+          return err(upstreamError(`opensearch health ${String(resp.status)}`, 'opensearch'));
         const data = (await resp.json()) as { status: string };
         return ok({ status: data.status });
       } catch (error) {
@@ -62,7 +63,9 @@ export const makeOpenSearchClient = (config: OpenSearchClientConfig): OpenSearch
         }
         const data = (await resp.json()) as {
           aggregations?: {
-            groups?: { buckets?: { key: string; doc_count: number; total_ron?: { value: number } }[] };
+            groups?: {
+              buckets?: { key: string; doc_count: number; total_ron?: { value: number } }[];
+            };
           };
         };
         const buckets = data.aggregations?.groups?.buckets ?? [];

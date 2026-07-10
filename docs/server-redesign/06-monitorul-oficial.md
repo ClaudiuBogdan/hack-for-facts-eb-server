@@ -23,16 +23,16 @@ only the named symbol changes — MO's owned surface is unaffected.
 
 - **A1 — module index.** Portal defines `src/modules/legal/index.ts` exporting
   `makeLegalModule(deps): LegalModule` returning `{ restPlugin, graphql:{typeDefs,
-  resolvers}, mcpTools, contributor, repos }`. **MO contributes** a sub-factory
+resolvers}, mcpTools, contributor, repos }`. **MO contributes** a sub-factory
   `makeMonitorulSurface(deps): { restRoutes, typeDefs, resolvers, mcpTools,
-  entityExtension }` that portal's `makeLegalModule` composes into the single
+entityExtension }` that portal's `makeLegalModule` composes into the single
   module export. (One module, one REST plugin prefix `/api/v1/legal`, one GraphQL
   slice, one MCP namespace — MO does not register a second module.)
 - **A2 — `LegalAct` base type + `act_id` scalar.** Portal owns `type LegalAct`
   keyed on `legal.acts.act_id` (`BigInt`→string). MO **references** it
   (`MoActPublication.act: LegalAct`) and **extends** it with the 3-field gazette
   set (`extend type LegalAct { gazettePublications: [MoActPublication!]!
-  gazetteStatusEvents: [MoStatusEvent!]!  gazetteInEdges: [MoLifecycleEdge!]! }`,
+gazetteStatusEvents: [MoStatusEvent!]!  gazetteInEdges: [MoLifecycleEdge!]! }`,
   the authoritative naming — see §6 and foundation §9). MO never declares
   `type LegalAct`.
 - **A3 — shared legal repo base.** Portal defines a `LegalRepoBase` (the typed
@@ -70,12 +70,12 @@ circulars) that portal does not carry. Source-of-truth doc set:
 
 **In prod now (measured, `MONITORUL_NOTES.md` loader run 2026-06-12, A8 + recovery):**
 
-| Table | Rows | Grain | Notes |
-|---|---|---|---|
-| `legal.mo_issues` | **42,173** | one gazette issue | both raw lanes merged on `(part_code, lower(issue_label), issue_year)`; `has_emonitor_link` carries PDF/S3; 2012–2019 archive hole remains until backfill |
-| `legal.mo_act_publications` | **148,856** | one publication event | `act_id` nullable (link-not-merge); `resolution ∈ {unique, ambiguous, unmatched}` |
-| `legal.mo_lifecycle_edges` | **20,897** | one lifecycle relation | `relation ∈ {promulga, aproba, respinge, rectifica, republica}`; resolves into both act-id plane and MO-local plane |
-| `legal.act_status_events` (MO rows) | **9,473** | one status event | `event_source='monitorul-oficial'`; kinds `promulgare`/`aprobare-oug`/`aprobare-og`/`rectificare`/`republicare` |
+| Table                               | Rows        | Grain                  | Notes                                                                                                                                                     |
+| ----------------------------------- | ----------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `legal.mo_issues`                   | **42,173**  | one gazette issue      | both raw lanes merged on `(part_code, lower(issue_label), issue_year)`; `has_emonitor_link` carries PDF/S3; 2012–2019 archive hole remains until backfill |
+| `legal.mo_act_publications`         | **148,856** | one publication event  | `act_id` nullable (link-not-merge); `resolution ∈ {unique, ambiguous, unmatched}`                                                                         |
+| `legal.mo_lifecycle_edges`          | **20,897**  | one lifecycle relation | `relation ∈ {promulga, aproba, respinge, rectifica, republica}`; resolves into both act-id plane and MO-local plane                                       |
+| `legal.act_status_events` (MO rows) | **9,473**   | one status event       | `event_source='monitorul-oficial'`; kinds `promulgare`/`aprobare-oug`/`aprobare-og`/`rectificare`/`republicare`                                           |
 
 Edge distribution (NOTES): promulga 6,853 unique / 648 mo-only / 254 unresolved
 (96.7% paired); aproba 2,132 unique; respinge 169 unique; republica 293 unique /
@@ -116,19 +116,19 @@ deferred MO-B extracted layer, not here).
 ```ts
 // legal/core/types.ts (MO section)
 export interface MoIssue {
-  readonly moIssueId: string;        // bigint → string
-  readonly partCode: MoPartCode;     // 'PI'|'PII'|'PIM'|'PIII'|'PIV'|'PV'|'PVI'|'PVII'
-  readonly moPart: number | null;    // generated stored col; PIM → null (no portal citation form)
-  readonly issueLabel: string;       // e.g. '123', '123bis'
+  readonly moIssueId: string; // bigint → string
+  readonly partCode: MoPartCode; // 'PI'|'PII'|'PIM'|'PIII'|'PIV'|'PV'|'PVI'|'PVII'
+  readonly moPart: number | null; // generated stored col; PIM → null (no portal citation form)
+  readonly issueLabel: string; // e.g. '123', '123bis'
   readonly issueNumber: number | null;
-  readonly issueSuffix: string;      // '' default; 'bis'/'Bis'
-  readonly issueYear: number;        // smallint
+  readonly issueSuffix: string; // '' default; 'bis'/'Bis'
+  readonly issueYear: number; // smallint
   readonly issueDate: string | null; // date
   readonly pdfUrl: string | null;
   readonly hasArchiveIndex: boolean;
   readonly hasEmonitorLink: boolean;
-  readonly pdfBytes: string | null;  // bigint → string
-  readonly firstSeenAt: string;      // ISO
+  readonly pdfBytes: string | null; // bigint → string
+  readonly firstSeenAt: string; // ISO
   readonly lastSeenAt: string;
   // s3_bucket / s3_key / pdf_sha256 → INTERNAL, excluded from default projection (§2.5)
 }
@@ -138,19 +138,19 @@ export interface MoIssue {
 
 ```ts
 export interface MoActPublication {
-  readonly moActKey: string;             // PK (content-derived sha256; opaque to clients)
-  readonly moIssueId: string | null;     // bigint → string
-  readonly actType: string | null;       // loader-rederived (lege-first/anchored)
+  readonly moActKey: string; // PK (content-derived sha256; opaque to clients)
+  readonly moIssueId: string | null; // bigint → string
+  readonly actType: string | null; // loader-rederived (lege-first/anchored)
   readonly actNumberNorm: string | null; // via shared normalizeActNumber
   readonly actYear: number | null;
   readonly issueYear: number | null;
-  readonly issuerSlug: string | null;    // '' for national types; via shared issuerSlug
+  readonly issuerSlug: string | null; // '' for national types; via shared issuerSlug
   readonly title: string | null;
   readonly actDate: string | null;
-  readonly actId: string | null;         // bigint → string; null when link-not-merge unresolved
+  readonly actId: string | null; // bigint → string; null when link-not-merge unresolved
   readonly resolution: 'unique' | 'ambiguous' | 'unmatched';
   readonly matchedVia: 'act-year' | 'issue-year' | null;
-  readonly sourcePdfUrl: string | null;  // evidence only
+  readonly sourcePdfUrl: string | null; // evidence only
   readonly firstSeenAt: string;
   readonly lastSeenAt: string;
   // raw fields (act_type_raw/act_number_raw/issuer_raw) → EVIDENCE-ONLY, excluded
@@ -166,20 +166,20 @@ the GraphQL resolver / a `?expand=act` REST flag through portal's act mapper (A3
 ```ts
 export interface MoLifecycleEdge {
   readonly edgeId: string;
-  readonly sourceMoActKey: string;        // FK → mo_act_publications
-  readonly relation: 'promulga'|'aproba'|'respinge'|'rectifica'|'republica';
-  readonly targetRaw: string;             // per-target normalized citation fragment
+  readonly sourceMoActKey: string; // FK → mo_act_publications
+  readonly relation: 'promulga' | 'aproba' | 'respinge' | 'rectifica' | 'republica';
+  readonly targetRaw: string; // per-target normalized citation fragment
   readonly targetIndex: number;
   readonly targetActType: string | null;
   readonly targetActNumber: string | null;
   readonly targetActYear: number | null;
   readonly targetIssuerSlug: string;
-  readonly targetActId: string | null;    // identity plane (when citation key resolves)
+  readonly targetActId: string | null; // identity plane (when citation key resolves)
   readonly targetMoActKey: string | null; // MO-local plane (mo-only targets)
-  readonly resolution: 'unique'|'mo-only'|'ambiguous'|'unresolved';
-  readonly matchedVia: 'act-year'|'issue-year'|null;
+  readonly resolution: 'unique' | 'mo-only' | 'ambiguous' | 'unresolved';
+  readonly matchedVia: 'act-year' | 'issue-year' | null;
   readonly method: string;
-  readonly confidence: number | null;     // real
+  readonly confidence: number | null; // real
   // evidence jsonb → exposed only on the edge-detail/lookup endpoint, not lists
 }
 ```
@@ -193,10 +193,10 @@ NOTES "Contract fixes" #3). MO status events are **queryable lifecycle evidence*
 ```ts
 export interface MoStatusEvent {
   readonly eventId: string;
-  readonly actId: string;                 // not null; FK → legal.acts
-  readonly eventKind: 'promulgare'|'aprobare-oug'|'aprobare-og'|'rectificare'|'republicare';
+  readonly actId: string; // not null; FK → legal.acts
+  readonly eventKind: 'promulgare' | 'aprobare-oug' | 'aprobare-og' | 'rectificare' | 'republicare';
   readonly effectiveDate: string | null;
-  readonly sourceActId: string | null;    // the act asserting the event (e.g. the decret)
+  readonly sourceActId: string | null; // the act asserting the event (e.g. the decret)
   readonly eventSource: 'monitorul-oficial';
   // evidence jsonb → exposed on detail only
 }
@@ -247,23 +247,30 @@ export interface MonitorulRepo {
   // caller maps portal's mo_part(int) → part_code; PIM has no int form and is
   // unresolvable by this route (reviewer S1):
   findIssueByCoordinates(
-    partCode: MoPartCode, moNumberText: string, moDate: string | null
-  ): Promise<Result<MoIssue | null, ApiError>>;          // §2.1 conversion rule
+    partCode: MoPartCode,
+    moNumberText: string,
+    moDate: string | null
+  ): Promise<Result<MoIssue | null, ApiError>>; // §2.1 conversion rule
   listIssues(
-    f: MoIssueFilterInput, page: OffsetPage, sort: MoIssueSort
-  ): Promise<Result<Paged<MoIssue>, ApiError>>;          // offset (bounded by year)
-  getIssueContents(                                       // table-of-contents
-    moIssueId: string, page: OffsetPage
+    f: MoIssueFilterInput,
+    page: OffsetPage,
+    sort: MoIssueSort
+  ): Promise<Result<Paged<MoIssue>, ApiError>>; // offset (bounded by year)
+  getIssueContents( // table-of-contents
+    moIssueId: string,
+    page: OffsetPage
   ): Promise<Result<Paged<MoActPublication>, ApiError>>;
 
   // ── act-publication lookup ───────────────────────────────────────────────────
   getPublicationByKey(moActKey: string): Promise<Result<MoActPublication | null, ApiError>>;
   listPublications(
-    f: MoPublicationFilterInput, cursor: CursorArg, sort: MoPublicationSort
+    f: MoPublicationFilterInput,
+    cursor: CursorArg,
+    sort: MoPublicationSort
   ): Promise<Result<Cursored<MoActPublication>, ApiError>>;
   // MO-4 / consumer correlation: every place an act was published:
   getPublicationsForAct(actId: string): Promise<Result<readonly MoActPublication[], ApiError>>;
-  countPublicationsByIssuerYear(                          // MO-1 aggregate
+  countPublicationsByIssuerYear( // MO-1 aggregate
     f: MoPublicationAggInput
   ): Promise<Result<readonly MoIssuerYearCount[], ApiError>>;
 
@@ -271,33 +278,36 @@ export interface MonitorulRepo {
   getEdgesForSource(moActKey: string): Promise<Result<readonly MoLifecycleEdge[], ApiError>>;
   getEdgesForTargetAct(actId: string): Promise<Result<readonly MoLifecycleEdge[], ApiError>>; // LG-2/MO-3 (in-edges)
   listEdges(
-    f: MoEdgeFilterInput, cursor: CursorArg
+    f: MoEdgeFilterInput,
+    cursor: CursorArg
   ): Promise<Result<Cursored<MoLifecycleEdge>, ApiError>>;
   getStatusEventsForAct(actId: string): Promise<Result<readonly MoStatusEvent[], ApiError>>; // LG-3 (MO evidence slice)
 
   // ── Entity / contributor support (issuer-keyed; §4.4) ────────────────────────
-  countPublicationsByIssuerSlug(issuerSlug: string): Promise<Result<MoIssuerSummary | null, ApiError>>;
+  countPublicationsByIssuerSlug(
+    issuerSlug: string
+  ): Promise<Result<MoIssuerSummary | null, ApiError>>;
   resolveIssuer(q: string, limit: number): Promise<Result<readonly MoIssuerHit[], ApiError>>; // discovery (§7.4)
 }
 ```
 
 **Schema / index notes per method (verified against live `pg_indexes`, §recon):**
 
-| Method | Driving table | Driving index / predicate | Notes |
-|---|---|---|---|
-| `getIssueById` | `mo_issues` | `mo_issues_pkey (mo_issue_id)` | point lookup |
-| `findIssueByCoordinates` | `mo_issues` | `mo_issues_identity_uq (part_code, lower(issue_label), issue_year)` | conversion rule §2.1; caller passes `part_code` (portal `mo_part`→`part_code`; PIM unresolvable), then `lower(regexp_replace(mo_number,'\s+','','g')) = lower(issue_label)`, year via `mo_date`/`act_year` |
-| `listIssues` | `mo_issues` | ⚠ **earned index needed** — no `(issue_year, issue_date, part_code)` index exists today (only PK + identity_uq). v1 bounds the scan by **mandatory `year`** (table is 42K rows, full filtered scan is cheap; offset OK) and declares the index as a measured-workload follow-up (§13 R3). |
-| `getIssueContents` | `mo_act_publications` | `mo_act_publications_issue_idx (mo_issue_id)` | TOC; the index's documented consumer |
-| `getPublicationByKey` | `mo_act_publications` | `mo_act_publications_pkey (mo_act_key)` | point lookup |
-| `listPublications` | `mo_act_publications` | ⚠ **no single covering index** — filters are `act_type`/`issuer_slug`/`act_year`/`resolution`. v1 requires **at least one bounding predicate** (`act_year` OR `issuer_slug` OR `mo_issue_id`); cursor-paginated on `(act_year desc, mo_act_key)`. 148K rows; an earned composite index `(act_year, act_type, issuer_slug)` is the §13 R3 follow-up if name+year scans show up hot. |
-| `getPublicationsForAct` | `mo_act_publications` | `mo_act_publications_act_idx (act_id) WHERE act_id IS NOT NULL` | MO-4; the partial index's purpose |
-| `countPublicationsByIssuerYear` | `mo_act_publications` | grouped scan bounded by `issue_year`/`act_year`+`issuer_slug` | MO-1 aggregate; 15s class |
-| `getEdgesForSource` | `mo_lifecycle_edges` | `mo_lifecycle_edges_natural_uq` prefix `(source_mo_act_key, …)` | out-edges of a publication |
-| `getEdgesForTargetAct` | `mo_lifecycle_edges` | `mo_lifecycle_edges_target_act_idx (target_act_id) WHERE NOT NULL` | LG-2/MO-3 in-edges |
-| `listEdges` | `mo_lifecycle_edges` | bounded by `relation` and/or `target_act_id`; cursor on `(edge_id)` | |
-| `getStatusEventsForAct` | `act_status_events` | `act_status_events_natural_uq` **prefix** `(act_id, event_kind, …)` + WHERE `event_source='monitorul-oficial'` | the leading-column prefix serves the act lookup; **no dedicated `act_id` index needed** |
-| `countPublicationsByIssuerSlug` / `resolveIssuer` | `mo_act_publications` | grouped scan on `issuer_slug` (⚠ no index; bounded/cached — 367 distinct slugs, cache-friendly) | discovery; cached, TTL long |
+| Method                                            | Driving table         | Driving index / predicate                                                                                                                                                                                                                                                                                                                                                          | Notes                                                                                                                                                                                                      |
+| ------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getIssueById`                                    | `mo_issues`           | `mo_issues_pkey (mo_issue_id)`                                                                                                                                                                                                                                                                                                                                                     | point lookup                                                                                                                                                                                               |
+| `findIssueByCoordinates`                          | `mo_issues`           | `mo_issues_identity_uq (part_code, lower(issue_label), issue_year)`                                                                                                                                                                                                                                                                                                                | conversion rule §2.1; caller passes `part_code` (portal `mo_part`→`part_code`; PIM unresolvable), then `lower(regexp_replace(mo_number,'\s+','','g')) = lower(issue_label)`, year via `mo_date`/`act_year` |
+| `listIssues`                                      | `mo_issues`           | ⚠ **earned index needed** — no `(issue_year, issue_date, part_code)` index exists today (only PK + identity_uq). v1 bounds the scan by **mandatory `year`** (table is 42K rows, full filtered scan is cheap; offset OK) and declares the index as a measured-workload follow-up (§13 R3).                                                                                          |
+| `getIssueContents`                                | `mo_act_publications` | `mo_act_publications_issue_idx (mo_issue_id)`                                                                                                                                                                                                                                                                                                                                      | TOC; the index's documented consumer                                                                                                                                                                       |
+| `getPublicationByKey`                             | `mo_act_publications` | `mo_act_publications_pkey (mo_act_key)`                                                                                                                                                                                                                                                                                                                                            | point lookup                                                                                                                                                                                               |
+| `listPublications`                                | `mo_act_publications` | ⚠ **no single covering index** — filters are `act_type`/`issuer_slug`/`act_year`/`resolution`. v1 requires **at least one bounding predicate** (`act_year` OR `issuer_slug` OR `mo_issue_id`); cursor-paginated on `(act_year desc, mo_act_key)`. 148K rows; an earned composite index `(act_year, act_type, issuer_slug)` is the §13 R3 follow-up if name+year scans show up hot. |
+| `getPublicationsForAct`                           | `mo_act_publications` | `mo_act_publications_act_idx (act_id) WHERE act_id IS NOT NULL`                                                                                                                                                                                                                                                                                                                    | MO-4; the partial index's purpose                                                                                                                                                                          |
+| `countPublicationsByIssuerYear`                   | `mo_act_publications` | grouped scan bounded by `issue_year`/`act_year`+`issuer_slug`                                                                                                                                                                                                                                                                                                                      | MO-1 aggregate; 15s class                                                                                                                                                                                  |
+| `getEdgesForSource`                               | `mo_lifecycle_edges`  | `mo_lifecycle_edges_natural_uq` prefix `(source_mo_act_key, …)`                                                                                                                                                                                                                                                                                                                    | out-edges of a publication                                                                                                                                                                                 |
+| `getEdgesForTargetAct`                            | `mo_lifecycle_edges`  | `mo_lifecycle_edges_target_act_idx (target_act_id) WHERE NOT NULL`                                                                                                                                                                                                                                                                                                                 | LG-2/MO-3 in-edges                                                                                                                                                                                         |
+| `listEdges`                                       | `mo_lifecycle_edges`  | bounded by `relation` and/or `target_act_id`; cursor on `(edge_id)`                                                                                                                                                                                                                                                                                                                |                                                                                                                                                                                                            |
+| `getStatusEventsForAct`                           | `act_status_events`   | `act_status_events_natural_uq` **prefix** `(act_id, event_kind, …)` + WHERE `event_source='monitorul-oficial'`                                                                                                                                                                                                                                                                     | the leading-column prefix serves the act lookup; **no dedicated `act_id` index needed**                                                                                                                    |
+| `countPublicationsByIssuerSlug` / `resolveIssuer` | `mo_act_publications` | grouped scan on `issuer_slug` (⚠ no index; bounded/cached — 367 distinct slugs, cache-friendly)                                                                                                                                                                                                                                                                                    | discovery; cached, TTL long                                                                                                                                                                                |
 
 **No write path** (foundation F5). All reads via `selectFrom`/`with`/parameterized
 `sql`. `act_id`/`mo_issue_id`/`pdf_bytes` are read with the int8→string pg parser
@@ -310,17 +320,17 @@ already configured by the kernel (§14.1).
 `legal/core/usecases/` (MO section). Framework-free; each calls one repo method,
 shapes the view model, attaches `coverage`/`caveats` where the catalog requires it.
 
-| Usecase | Signature | Repo | Notes |
-|---|---|---|---|
-| `getIssue` | `(id) → Result<MoIssueView, ApiError>` | `getIssueById` + `getIssueContents` (TOC, opt) | NotFound if absent |
-| `browseIssues` | `(filter, page, sort) → Result<Paged<MoIssue>, ApiError>` | `listIssues` | requires `year`; coverage block per-year |
-| `lookupPublication` | `(moActKey) → Result<MoActPublicationView, ApiError>` | `getPublicationByKey` (+ optional `act` expand) | |
-| `listPublications` | `(filter, cursor, sort) → Result<Cursored<MoActPublication>, ApiError>` | `listPublications` | bounding predicate enforced |
-| `wherePublished` | `(actId) → Result<MoPublicationEvents, ApiError>` | `getPublicationsForAct` | **MO-4** answer |
-| `issuerYearBreakdown` | `(issuerSlug?, year, subtype?) → Result<Agg+coverage, ApiError>` | `countPublicationsByIssuerYear` | **MO-1** answer; deterministic count |
-| `actLifecycle` | `(actId) → Result<{ inEdges, outEdges, statusEvents }, ApiError>` | `getEdgesForTargetAct` + `getStatusEventsForAct` | **MO-3/LG-2** MO slice |
-| `edgeList` | `(filter, cursor) → Result<Cursored<MoLifecycleEdge>, ApiError>` | `listEdges` | |
-| `resolveIssuer` | `(q, limit) → Result<readonly MoIssuerHit[], ApiError>` | `resolveIssuer` | discovery (§7.4) |
+| Usecase               | Signature                                                               | Repo                                             | Notes                                    |
+| --------------------- | ----------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------- |
+| `getIssue`            | `(id) → Result<MoIssueView, ApiError>`                                  | `getIssueById` + `getIssueContents` (TOC, opt)   | NotFound if absent                       |
+| `browseIssues`        | `(filter, page, sort) → Result<Paged<MoIssue>, ApiError>`               | `listIssues`                                     | requires `year`; coverage block per-year |
+| `lookupPublication`   | `(moActKey) → Result<MoActPublicationView, ApiError>`                   | `getPublicationByKey` (+ optional `act` expand)  |                                          |
+| `listPublications`    | `(filter, cursor, sort) → Result<Cursored<MoActPublication>, ApiError>` | `listPublications`                               | bounding predicate enforced              |
+| `wherePublished`      | `(actId) → Result<MoPublicationEvents, ApiError>`                       | `getPublicationsForAct`                          | **MO-4** answer                          |
+| `issuerYearBreakdown` | `(issuerSlug?, year, subtype?) → Result<Agg+coverage, ApiError>`        | `countPublicationsByIssuerYear`                  | **MO-1** answer; deterministic count     |
+| `actLifecycle`        | `(actId) → Result<{ inEdges, outEdges, statusEvents }, ApiError>`       | `getEdgesForTargetAct` + `getStatusEventsForAct` | **MO-3/LG-2** MO slice                   |
+| `edgeList`            | `(filter, cursor) → Result<Cursored<MoLifecycleEdge>, ApiError>`        | `listEdges`                                      |                                          |
+| `resolveIssuer`       | `(q, limit) → Result<readonly MoIssuerHit[], ApiError>`                 | `resolveIssuer`                                  | discovery (§7.4)                         |
 
 **Cross-source contributor (foundation §4.4/§14.7).** MO registers a
 `SourceContributor` with `source: 'monitorul-oficial'`. Because MO has **no CUI**,
@@ -350,18 +360,18 @@ Prefix `/api/v1/legal/` (shared with portal; MO owns the `mo-*` sub-paths). Ever
 route `config: { public: true }` (§14.11). TypeBox at the boundary; envelope per
 §5.2 + `requestId`. Statement-timeout classes: read 5s, aggregate 15s.
 
-| Method | Path | Query / params (TypeBox) | Response | Pagination | Cache | Timeout |
-|---|---|---|---|---|---|---|
-| GET | `/legal/mo-issues` | `MoIssueFilter` (§7.1): `year`(req), `partCode[]`, `dateFrom/To`, `hasPdf`, `q`; `page`,`pageSize`(≤100), `sort` | `MoIssue[]` + `meta.page{page,pageSize,total}` + `coverage` | offset (bounded by `year`, cheap count) | 10 min | 5s |
-| GET | `/legal/mo-issues/:moIssueId` | path id; `?contents=true` | `MoIssue` (+ `contents: MoActPublication[]` first page) | — | 10 min | 5s |
-| GET | `/legal/mo-issues/:moIssueId/contents` | path id; `page`,`pageSize` | `MoActPublication[]` (TOC) + `meta.page` | offset | 10 min | 5s |
-| GET | `/legal/mo-publications` | `MoPublicationFilter` (§7.1): `actType[]`,`issuerSlug[]`,`actYear`,`issueYear`,`resolution[]`,`actId`,`q`; `cursor`,`limit`(≤100),`sort`; `?include=raw`,`?expand=act` | `MoActPublication[]` + `meta.cursor{next}` + `coverage` | cursor `(act_year desc, mo_act_key)` | 5 min | 5s |
-| GET | `/legal/mo-publications/:moActKey` | path key; `?include=raw`,`?expand=act` | `MoActPublication` (+ `act?: LegalAct`) | — | 10 min | 5s |
-| GET | `/legal/acts/:actId/publications` | path actId | `{ act: {actId}, publications: MoActPublication[] }` | — (bounded ≤ ~dozens) | 10 min | 5s |
-| GET | `/legal/acts/:actId/gazette-timeline` | path actId | `{ statusEvents: MoStatusEvent[], inEdges: MoLifecycleEdge[] }` + `coverage` | — | 10 min | 5s |
-| GET | `/legal/mo-edges` | `MoEdgeFilter` (§7.1): `relation[]`,`resolution[]`,`sourceMoActKey`,`targetActId`; `cursor`,`limit` | `MoLifecycleEdge[]` + `meta.cursor` | cursor `(edge_id)` | 5 min | 5s |
-| GET | `/legal/mo-publications/aggregate` | `MoPublicationAggFilter`: `issuerSlug`,`year`(req),`actType[]`,`groupBy`(enum: `issuer`\|`act_type`\|`year`) | `MoIssuerYearCount[]` + `denominator` + `coverage` | offset (small) | 10 min | 15s |
-| GET | `/legal/filters/resolve` | `dim`(enum: `mo_issuer`\|`mo_part`\|`mo_act_type`), `q`, `limit` | `{ dim, matches: [{value,label,count}] }` | — | 30 min | 5s |
+| Method | Path                                   | Query / params (TypeBox)                                                                                                                                               | Response                                                                     | Pagination                              | Cache  | Timeout |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------- | ------ | ------- |
+| GET    | `/legal/mo-issues`                     | `MoIssueFilter` (§7.1): `year`(req), `partCode[]`, `dateFrom/To`, `hasPdf`, `q`; `page`,`pageSize`(≤100), `sort`                                                       | `MoIssue[]` + `meta.page{page,pageSize,total}` + `coverage`                  | offset (bounded by `year`, cheap count) | 10 min | 5s      |
+| GET    | `/legal/mo-issues/:moIssueId`          | path id; `?contents=true`                                                                                                                                              | `MoIssue` (+ `contents: MoActPublication[]` first page)                      | —                                       | 10 min | 5s      |
+| GET    | `/legal/mo-issues/:moIssueId/contents` | path id; `page`,`pageSize`                                                                                                                                             | `MoActPublication[]` (TOC) + `meta.page`                                     | offset                                  | 10 min | 5s      |
+| GET    | `/legal/mo-publications`               | `MoPublicationFilter` (§7.1): `actType[]`,`issuerSlug[]`,`actYear`,`issueYear`,`resolution[]`,`actId`,`q`; `cursor`,`limit`(≤100),`sort`; `?include=raw`,`?expand=act` | `MoActPublication[]` + `meta.cursor{next}` + `coverage`                      | cursor `(act_year desc, mo_act_key)`    | 5 min  | 5s      |
+| GET    | `/legal/mo-publications/:moActKey`     | path key; `?include=raw`,`?expand=act`                                                                                                                                 | `MoActPublication` (+ `act?: LegalAct`)                                      | —                                       | 10 min | 5s      |
+| GET    | `/legal/acts/:actId/publications`      | path actId                                                                                                                                                             | `{ act: {actId}, publications: MoActPublication[] }`                         | — (bounded ≤ ~dozens)                   | 10 min | 5s      |
+| GET    | `/legal/acts/:actId/gazette-timeline`  | path actId                                                                                                                                                             | `{ statusEvents: MoStatusEvent[], inEdges: MoLifecycleEdge[] }` + `coverage` | —                                       | 10 min | 5s      |
+| GET    | `/legal/mo-edges`                      | `MoEdgeFilter` (§7.1): `relation[]`,`resolution[]`,`sourceMoActKey`,`targetActId`; `cursor`,`limit`                                                                    | `MoLifecycleEdge[]` + `meta.cursor`                                          | cursor `(edge_id)`                      | 5 min  | 5s      |
+| GET    | `/legal/mo-publications/aggregate`     | `MoPublicationAggFilter`: `issuerSlug`,`year`(req),`actType[]`,`groupBy`(enum: `issuer`\|`act_type`\|`year`)                                                           | `MoIssuerYearCount[]` + `denominator` + `coverage`                           | offset (small)                          | 10 min | 15s     |
+| GET    | `/legal/filters/resolve`               | `dim`(enum: `mo_issuer`\|`mo_part`\|`mo_act_type`), `q`, `limit`                                                                                                       | `{ dim, matches: [{value,label,count}] }`                                    | —                                       | 30 min | 5s      |
 
 **OpenAPI notes:** MO exports an OpenAPI fragment (paths above + the `Mo*` component
 schemas derived from the TypeBox specs); the kernel merges it into
@@ -387,14 +397,54 @@ MO **extends** the portal-owned `legal` GraphQL slice; all MO types are `Mo*`
 
 ```graphql
 # ── MO object types (Mo* prefix) ──────────────────────────────────────────────
-enum MoPartCode { PI PII PIM PIII PIV PV PVI PVII }
-enum MoResolution { unique ambiguous unmatched }
-enum MoEdgeResolution { unique mo_only ambiguous unresolved }   # mo_only ↔ DB 'mo-only' (§6.1)
-enum MoRelation { promulga aproba respinge rectifica republica }
-enum MoStatusKind { promulgare aprobare_oug aprobare_og rectificare republicare }  # underscores ↔ DB hyphens (§6.1)
-enum MoMatchedVia { act_year issue_year }                       # act_year ↔ DB 'act-year' (§6.1)
-enum MoIssueSort { ISSUE_DATE_DESC ISSUE_DATE_ASC ISSUE_YEAR_DESC }
-enum MoPublicationSort { ACT_YEAR_DESC ACT_YEAR_ASC }
+enum MoPartCode {
+  PI
+  PII
+  PIM
+  PIII
+  PIV
+  PV
+  PVI
+  PVII
+}
+enum MoResolution {
+  unique
+  ambiguous
+  unmatched
+}
+enum MoEdgeResolution {
+  unique
+  mo_only
+  ambiguous
+  unresolved
+} # mo_only ↔ DB 'mo-only' (§6.1)
+enum MoRelation {
+  promulga
+  aproba
+  respinge
+  rectifica
+  republica
+}
+enum MoStatusKind {
+  promulgare
+  aprobare_oug
+  aprobare_og
+  rectificare
+  republicare
+} # underscores ↔ DB hyphens (§6.1)
+enum MoMatchedVia {
+  act_year
+  issue_year
+} # act_year ↔ DB 'act-year' (§6.1)
+enum MoIssueSort {
+  ISSUE_DATE_DESC
+  ISSUE_DATE_ASC
+  ISSUE_YEAR_DESC
+}
+enum MoPublicationSort {
+  ACT_YEAR_DESC
+  ACT_YEAR_ASC
+}
 
 type MoIssue {
   moIssueId: BigInt!
@@ -411,13 +461,13 @@ type MoIssue {
   pdfBytes: BigInt
   firstSeenAt: DateTime!
   lastSeenAt: DateTime!
-  contents(first: Int = 20, after: String): MoActPublicationConnection!  # TOC, DataLoader by mo_issue_id
+  contents(first: Int = 20, after: String): MoActPublicationConnection! # TOC, DataLoader by mo_issue_id
 }
 
 type MoActPublication {
   moActKey: ID!
   moIssueId: BigInt
-  issue: MoIssue                 # DataLoader by mo_issue_id
+  issue: MoIssue # DataLoader by mo_issue_id
   actType: String
   actNumberNorm: String
   actYear: Int
@@ -426,11 +476,11 @@ type MoActPublication {
   title: String
   actDate: Date
   actId: BigInt
-  act: LegalAct                  # portal type (A2); DataLoader by act_id, null when unresolved
+  act: LegalAct # portal type (A2); DataLoader by act_id, null when unresolved
   resolution: MoResolution!
-  matchedVia: MoMatchedVia       # enum, value-translated (§6.1)
+  matchedVia: MoMatchedVia # enum, value-translated (§6.1)
   sourcePdfUrl: String
-  rawFields: MoPublicationRaw    # null unless requested; evidence-only (§2.5)
+  rawFields: MoPublicationRaw # null unless requested; evidence-only (§2.5)
   firstSeenAt: DateTime!
   lastSeenAt: DateTime!
 }
@@ -438,7 +488,7 @@ type MoActPublication {
 type MoLifecycleEdge {
   edgeId: BigInt!
   sourceMoActKey: ID!
-  source: MoActPublication       # DataLoader by mo_act_key
+  source: MoActPublication # DataLoader by mo_act_key
   relation: MoRelation!
   targetRaw: String!
   targetIndex: Int!
@@ -448,12 +498,12 @@ type MoLifecycleEdge {
   targetActType: String
   targetActNumber: String
   targetActYear: Int
-  targetIssuerSlug: String!      # NOT NULL DEFAULT '' (migration line 164)
+  targetIssuerSlug: String! # NOT NULL DEFAULT '' (migration line 164)
   targetActId: BigInt
-  targetAct: LegalAct            # portal type; DataLoader by act_id
+  targetAct: LegalAct # portal type; DataLoader by act_id
   targetMoActKey: ID
   resolution: MoEdgeResolution!
-  matchedVia: MoMatchedVia       # enum, value-translated (§6.1)
+  matchedVia: MoMatchedVia # enum, value-translated (§6.1)
   method: String!
   confidence: Float
 }
@@ -464,38 +514,73 @@ type MoStatusEvent {
   eventKind: MoStatusKind!
   effectiveDate: Date
   sourceActId: BigInt
-  sourceAct: LegalAct            # DataLoader by act_id
-  eventSource: String!           # always 'monitorul-oficial'
+  sourceAct: LegalAct # DataLoader by act_id
+  eventSource: String! # always 'monitorul-oficial'
 }
 
-type MoIssuerYearCount { issuerSlug: String  actType: String  year: Int  count: Int! }
-type MoCoverage { years: MoYearRange!  gaps: [String!]!  resolutionRates: MoResolutionRates }  # nullable: omitted on mo_issues (§5)
-
+type MoIssuerYearCount {
+  issuerSlug: String
+  actType: String
+  year: Int
+  count: Int!
+}
+type MoCoverage {
+  years: MoYearRange!
+  gaps: [String!]!
+  resolutionRates: MoResolutionRates
+} # nullable: omitted on mo_issues (§5)
 # connections (Relay; same cursor encoder as REST, §14.3)
-type MoIssueConnection { edges: [MoIssueEdge!]!  pageInfo: PageInfo!  totalCount: Int }
-type MoActPublicationConnection { edges: [MoActPublicationEdge!]!  pageInfo: PageInfo! }
-type MoLifecycleEdgeConnection { edges: [MoLifecycleEdgeEdge!]!  pageInfo: PageInfo! }
+type MoIssueConnection {
+  edges: [MoIssueEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+type MoActPublicationConnection {
+  edges: [MoActPublicationEdge!]!
+  pageInfo: PageInfo!
+}
+type MoLifecycleEdgeConnection {
+  edges: [MoLifecycleEdgeEdge!]!
+  pageInfo: PageInfo!
+}
 
 # ── root Query extensions ─────────────────────────────────────────────────────
 extend type Query {
   moIssue(moIssueId: BigInt!): MoIssue
-  moIssues(filter: MoIssueFilter, first: Int = 20, page: Int, sort: MoIssueSort = ISSUE_DATE_DESC): MoIssueConnection!
+  moIssues(
+    filter: MoIssueFilter
+    first: Int = 20
+    page: Int
+    sort: MoIssueSort = ISSUE_DATE_DESC
+  ): MoIssueConnection!
   moPublication(moActKey: ID!): MoActPublication
-  moPublications(filter: MoPublicationFilter!, first: Int = 20, after: String, sort: MoPublicationSort = ACT_YEAR_DESC): MoActPublicationConnection!
+  moPublications(
+    filter: MoPublicationFilter!
+    first: Int = 20
+    after: String
+    sort: MoPublicationSort = ACT_YEAR_DESC
+  ): MoActPublicationConnection!
   moEdges(filter: MoEdgeFilter!, first: Int = 20, after: String): MoLifecycleEdgeConnection!
   moPublicationsByIssuerYear(filter: MoPublicationAggFilter!): [MoIssuerYearCount!]!
 }
 
 # ── Entity join + LegalAct extension (foundation §6.2/§9; via contributor §14.7) ─
 extend type Entity {
-  monitorul: MoEntitySummary          # issuer-keyed; resolved via contributor.profileSlice(cui)
+  monitorul: MoEntitySummary # issuer-keyed; resolved via contributor.profileSlice(cui)
 }
-extend type LegalAct {                # MO consumer side of the correlation
-  gazettePublications: [MoActPublication!]!   # DataLoader by act_id → getPublicationsForAct
-  gazetteStatusEvents: [MoStatusEvent!]!      # DataLoader by act_id (event_source='monitorul-oficial')
-  gazetteInEdges: [MoLifecycleEdge!]!         # DataLoader by target_act_id
+extend type LegalAct { # MO consumer side of the correlation
+  gazettePublications: [MoActPublication!]! # DataLoader by act_id → getPublicationsForAct
+  gazetteStatusEvents: [MoStatusEvent!]! # DataLoader by act_id (event_source='monitorul-oficial')
+  gazetteInEdges: [MoLifecycleEdge!]! # DataLoader by target_act_id
 }
-type MoEntitySummary { issuerSlug: String  publicationCount: Int!  byPartCode: [MoPartCount!]!  lastIssueDate: Date  topActTypes: [String!]!  matchConfidence: Float! }
+type MoEntitySummary {
+  issuerSlug: String
+  publicationCount: Int!
+  byPartCode: [MoPartCount!]!
+  lastIssueDate: Date
+  topActTypes: [String!]!
+  matchConfidence: Float!
+}
 ```
 
 **DataLoaders (prevent N+1 on `Entity`/`LegalAct` fan-out):** by `mo_issue_id`
@@ -517,13 +602,13 @@ GraphQL serializer/parser AND the filter spec's `enumValues` + `canonicalizeFilt
 (§14.2), so the cursor `fhash` (§14.3) and the tri-surface equivalence test all
 agree on the **DB value**, not the GraphQL alias:
 
-| GraphQL alias | DB value (driving column) | Used by |
-|---|---|---|
-| `MoEdgeResolution.mo_only` | `'mo-only'` | `mo_lifecycle_edges.resolution` |
-| `MoStatusKind.aprobare_oug` | `'aprobare-oug'` | `act_status_events.event_kind` |
-| `MoStatusKind.aprobare_og` | `'aprobare-og'` | `act_status_events.event_kind` |
-| `MoMatchedVia.act_year` | `'act-year'` | `*.matched_via` |
-| `MoMatchedVia.issue_year` | `'issue-year'` | `*.matched_via` |
+| GraphQL alias               | DB value (driving column) | Used by                         |
+| --------------------------- | ------------------------- | ------------------------------- |
+| `MoEdgeResolution.mo_only`  | `'mo-only'`               | `mo_lifecycle_edges.resolution` |
+| `MoStatusKind.aprobare_oug` | `'aprobare-oug'`          | `act_status_events.event_kind`  |
+| `MoStatusKind.aprobare_og`  | `'aprobare-og'`           | `act_status_events.event_kind`  |
+| `MoMatchedVia.act_year`     | `'act-year'`              | `*.matched_via`                 |
+| `MoMatchedVia.issue_year`   | `'issue-year'`            | `*.matched_via`                 |
 
 **Rule:** the GraphQL→DB direction runs at arg-parse time (before the spec
 compiles to SQL); the DB→GraphQL direction runs in the mapper. Filter
@@ -547,27 +632,27 @@ national) — declared absent.
 
 **`mo_issues`** (collection `mo_issues`, sort default `ISSUE_DATE_DESC`):
 
-| field | type | ops | driving column / index | REST | GraphQL | MCP |
-|---|---|---|---|---|---|---|
-| `year` | int | `eq` (**required**) | `mo_issues.issue_year` (bounds the scan) | `year=` | `year` | `year` |
-| `partCode` | enum[] | `in` | `mo_issues.part_code` (CHECK enum) | `partCode=PI,PII` | `[MoPartCode]` | `part_code[]` |
-| `dateFrom`/`dateTo` | date | `between` | `mo_issues.issue_date` | `dateFrom`/`dateTo` | `{from,to}` | `date_from/to` |
-| `hasPdf` | bool | `eq` | `mo_issues.has_emonitor_link` | `hasPdf=true` | `hasPdf` | `has_pdf` |
-| `q` | string | `contains` | `mo_issues.issue_label` (ILIKE; small table) | `q=` | `q` | `q` |
+| field               | type   | ops                 | driving column / index                       | REST                | GraphQL        | MCP            |
+| ------------------- | ------ | ------------------- | -------------------------------------------- | ------------------- | -------------- | -------------- |
+| `year`              | int    | `eq` (**required**) | `mo_issues.issue_year` (bounds the scan)     | `year=`             | `year`         | `year`         |
+| `partCode`          | enum[] | `in`                | `mo_issues.part_code` (CHECK enum)           | `partCode=PI,PII`   | `[MoPartCode]` | `part_code[]`  |
+| `dateFrom`/`dateTo` | date   | `between`           | `mo_issues.issue_date`                       | `dateFrom`/`dateTo` | `{from,to}`    | `date_from/to` |
+| `hasPdf`            | bool   | `eq`                | `mo_issues.has_emonitor_link`                | `hasPdf=true`       | `hasPdf`       | `has_pdf`      |
+| `q`                 | string | `contains`          | `mo_issues.issue_label` (ILIKE; small table) | `q=`                | `q`            | `q`            |
 
 **`mo_act_publications`** (collection `mo_publications`, sort default `ACT_YEAR_DESC`;
 **≥1 bounding predicate required**: `actYear` ∨ `issuerSlug` ∨ `actId` ∨ `moIssueId`):
 
-| field | type | ops | driving column / index | REST | GraphQL | MCP |
-|---|---|---|---|---|---|---|
-| `actType` | enum[] | `in`, `isNull` | `act_type` (rederived) | `actType=lege,oug` | `[String]` | `act_type[]` |
-| `issuerSlug` | string[] | `in`, `isNull` | `issuer_slug` (cache-backed resolve) | `issuerSlug=` | `[String]` | `issuer_slug[]` |
-| `actYear` | int | `eq`,`between` | `act_year` | `actYear`/`actYearFrom/To` | `{from,to}` | `act_year` |
-| `issueYear` | int | `eq` | `issue_year` | `issueYear` | `issueYear` | `issue_year` |
-| `resolution` | enum[] | `in` | `resolution` (CHECK enum) | `resolution=unique` | `[MoResolution]` | `resolution[]` |
-| `actId` | bigint | `eq`, `isNull` | `act_id` (partial idx) | `actId=` | `actId` | `act_id` |
-| `moIssueId` | bigint | `eq` | `mo_issue_id` (idx) | `moIssueId=` | `moIssueId` | `mo_issue_id` |
-| `q` | string | `contains` | `title` (Meili/OS-backed when up; ILIKE fallback — §9) | `q=` | `q` | `q` |
+| field        | type     | ops            | driving column / index                                 | REST                       | GraphQL          | MCP             |
+| ------------ | -------- | -------------- | ------------------------------------------------------ | -------------------------- | ---------------- | --------------- |
+| `actType`    | enum[]   | `in`, `isNull` | `act_type` (rederived)                                 | `actType=lege,oug`         | `[String]`       | `act_type[]`    |
+| `issuerSlug` | string[] | `in`, `isNull` | `issuer_slug` (cache-backed resolve)                   | `issuerSlug=`              | `[String]`       | `issuer_slug[]` |
+| `actYear`    | int      | `eq`,`between` | `act_year`                                             | `actYear`/`actYearFrom/To` | `{from,to}`      | `act_year`      |
+| `issueYear`  | int      | `eq`           | `issue_year`                                           | `issueYear`                | `issueYear`      | `issue_year`    |
+| `resolution` | enum[]   | `in`           | `resolution` (CHECK enum)                              | `resolution=unique`        | `[MoResolution]` | `resolution[]`  |
+| `actId`      | bigint   | `eq`, `isNull` | `act_id` (partial idx)                                 | `actId=`                   | `actId`          | `act_id`        |
+| `moIssueId`  | bigint   | `eq`           | `mo_issue_id` (idx)                                    | `moIssueId=`               | `moIssueId`      | `mo_issue_id`   |
+| `q`          | string   | `contains`     | `title` (Meili/OS-backed when up; ILIKE fallback — §9) | `q=`                       | `q`              | `q`             |
 
 **`mo_lifecycle_edges`** (collection `mo_edges`, sort `EDGE_ID`; the only indexed
 predicates are `sourceMoActKey` (uq prefix) and `targetActId` (partial idx) —
@@ -575,12 +660,12 @@ predicates are `sourceMoActKey` (uq prefix) and `targetActId` (partial idx) —
 only lists as a **bounded full scan** of the 20,897-row table, cheap like
 `listIssues`; reviewer S2):
 
-| field | type | ops | driving column / index | REST | GraphQL | MCP |
-|---|---|---|---|---|---|---|
-| `relation` | enum[] | `in` | `relation` (CHECK enum) | `relation=promulga` | `[MoRelation]` | `relation[]` |
-| `resolution` | enum[] | `in` | `resolution` (CHECK enum) | `resolution=` | `[MoEdgeResolution]` | `resolution[]` |
-| `sourceMoActKey` | string | `eq` | `source_mo_act_key` (FK/uq prefix) | `sourceMoActKey=` | `sourceMoActKey` | `source_mo_act_key` |
-| `targetActId` | bigint | `eq` | `target_act_id` (partial idx) | `targetActId=` | `targetActId` | `target_act_id` |
+| field            | type   | ops  | driving column / index             | REST                | GraphQL              | MCP                 |
+| ---------------- | ------ | ---- | ---------------------------------- | ------------------- | -------------------- | ------------------- |
+| `relation`       | enum[] | `in` | `relation` (CHECK enum)            | `relation=promulga` | `[MoRelation]`       | `relation[]`        |
+| `resolution`     | enum[] | `in` | `resolution` (CHECK enum)          | `resolution=`       | `[MoEdgeResolution]` | `resolution[]`      |
+| `sourceMoActKey` | string | `eq` | `source_mo_act_key` (FK/uq prefix) | `sourceMoActKey=`   | `sourceMoActKey`     | `source_mo_act_key` |
+| `targetActId`    | bigint | `eq` | `target_act_id` (partial idx)      | `targetActId=`      | `targetActId`        | `target_act_id`     |
 
 `isNull` is mandatory on `actType`/`issuerSlug`/`actId` (catalog coverage
 questions — "publications with no resolved act"). Negation only on `exclude:true`
@@ -599,6 +684,7 @@ output feeds the cache key + cursor `fhash` + tri-surface equivalence test (§14
 ### 7.3 Discovery / name-resolution dimensions (§7.4, shared kernel)
 
 MO exposes for `/legal/filters/resolve` and the MCP discovery tool:
+
 - `mo_issuer` — Romanian issuer name → `issuer_slug` (via the cached slug→label+count
   map; 367 distinct slugs). Echoes the resolved slug + publication count.
 - `mo_part` — part label ("Partea I") → `part_code`.
@@ -609,14 +695,14 @@ no act identity of its own); MO resolves only gazette-native dimensions.
 
 ### 7.4 Golden question→filter examples (from `AI_AGENT_FILTER_QUESTION_CATALOG.md`)
 
-| Catalog ID | Question | Resolved MO filter / call |
-|---|---|---|
-| **MO-1** | What did issuer X publish in year Y by subtype? | `resolveIssuer('Ministerul Finanțelor')→slug`; `moPublicationsByIssuerYear{issuerSlug, year, groupBy:'act_type'}` → count + denominator + coverage |
-| **MO-4** | Where/when was act X published in MO? | portal resolves act name→`act_id`; `GET /legal/acts/:actId/publications` → `MoActPublication[]` (issue, part, date, page) |
-| **MO-3** | MO sections that cite/amend act X | `GET /legal/acts/:actId/gazette-timeline` → `inEdges` (MO `mo_lifecycle_edges` targeting `act_id`) + confidence (full-text MO-3 is search-backed, §9, capability-gated) |
-| **LG-2** | What amended/approved/repealed act X (MO evidence) | `actLifecycle(actId)` → `statusEvents` (promulgare/aprobare) + `inEdges` (respinge/rectifica) |
-| **LG-3** | Status of act X + evidence | MO **slice** of LG-3: `getStatusEventsForAct(actId)` (the answer's authority is portal's `acts.status` fold; MO contributes the gazette-grounded evidence events, labeled distinct grain) |
-| **XS-2** | Bill → law → MO publication → amendments | parliament/portal resolve act_id; MO supplies `wherePublished(actId)` + `gazetteInEdges` (the gazette legs of the cross-source timeline) |
+| Catalog ID | Question                                           | Resolved MO filter / call                                                                                                                                                                 |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MO-1**   | What did issuer X publish in year Y by subtype?    | `resolveIssuer('Ministerul Finanțelor')→slug`; `moPublicationsByIssuerYear{issuerSlug, year, groupBy:'act_type'}` → count + denominator + coverage                                        |
+| **MO-4**   | Where/when was act X published in MO?              | portal resolves act name→`act_id`; `GET /legal/acts/:actId/publications` → `MoActPublication[]` (issue, part, date, page)                                                                 |
+| **MO-3**   | MO sections that cite/amend act X                  | `GET /legal/acts/:actId/gazette-timeline` → `inEdges` (MO `mo_lifecycle_edges` targeting `act_id`) + confidence (full-text MO-3 is search-backed, §9, capability-gated)                   |
+| **LG-2**   | What amended/approved/repealed act X (MO evidence) | `actLifecycle(actId)` → `statusEvents` (promulgare/aprobare) + `inEdges` (respinge/rectifica)                                                                                             |
+| **LG-3**   | Status of act X + evidence                         | MO **slice** of LG-3: `getStatusEventsForAct(actId)` (the answer's authority is portal's `acts.status` fold; MO contributes the gazette-grounded evidence events, labeled distinct grain) |
+| **XS-2**   | Bill → law → MO publication → amendments           | parliament/portal resolve act_id; MO supplies `wherePublished(actId)` + `gazetteInEdges` (the gazette legs of the cross-source timeline)                                                  |
 
 **Grain note (foundation §14.6):** MO answers carry **counts of publication
 events** (deterministic SQL over `mo_*`). MO never computes money totals (no
@@ -632,18 +718,21 @@ handler calls a core usecase; output `{ ok, kind, query, link, item|items,
 summary? }`. `link` is the client deep link. Rate-limited; bounded result sizes.
 
 ### 8.1 Discovery — `resolve_mo_filter`
+
 - **Input:** `{ dim: 'mo_issuer'|'mo_part'|'mo_act_type', q: string, limit?: number(≤20) }`
 - **Output:** `{ ok, kind:'resolution', query, items:[{value,label,count}], summary }`
 - **Usecase:** `resolveIssuer` / static maps. Wraps `/legal/filters/resolve`.
 - **Summary tmpl:** `"'{q}' → {n} matches; top: {label} ({count} publications)"`.
 
 ### 8.2 `find_act_publications` (MO-4)
+
 - **Input:** `{ actId: BigInt }` (resolve act name→id via portal's discovery first)
 - **Output:** `{ ok, kind:'mo_publications', items:[MoActPublication], coverage, link, summary }`
 - **Usecase:** `wherePublished`. **Link:** `/legal/acts/{actId}#gazette`.
 - **Summary:** `"Act {actId} published {n}× in MO; first {minDate} (Partea {part}, nr {label})."`
 
 ### 8.3 `get_act_gazette_timeline` (LG-2 / MO-3 MO slice)
+
 - **Input:** `{ actId: BigInt }`
 - **Output:** `{ ok, kind:'mo_timeline', item:{ statusEvents, inEdges }, coverage, link, summary }`
 - **Usecase:** `actLifecycle`. **Link:** `/legal/acts/{actId}#timeline`.
@@ -651,11 +740,13 @@ summary? }`. `link` is the client deep link. Rate-limited; bounded result sizes.
   — **`nPromulg`/`nApprove` count `statusEvents`; `nReject`/`nRect`/republicare count `inEdges`** (relation `respinge`/`rectifica`/`republica`). `respinge` is edge-only — it never appears in `MoStatusEvent` (reviewer B1; migration line 53).
 
 ### 8.4 `browse_mo_issues`
+
 - **Input:** `{ year: int (req), partCode?: [string], dateFrom?, dateTo?, page?, pageSize?(≤50) }`
 - **Output:** `{ ok, kind:'mo_issues', items:[MoIssue], meta, coverage, link, summary }`
 - **Usecase:** `browseIssues`. **Link:** `/legal/mo-issues?year={year}&part={...}`.
 
 ### 8.5 `count_mo_publications_by_issuer` (MO-1)
+
 - **Input:** `{ issuerSlug?: string, year: int (req), actType?: [string], groupBy?: 'issuer'|'act_type'|'year' }`
 - **Output:** `{ ok, kind:'mo_aggregate', items:[MoIssuerYearCount], denominator, coverage, link, summary }`
 - **Usecase:** `issuerYearBreakdown`. Deterministic count (catalog Aggregate Accuracy Gate). **Summary:** `"{issuer} published {total} acts in {year}: {topType} ({n})…"`.
@@ -685,10 +776,10 @@ they return the partial result with explicit `caveats`, never a silent number.
   server).
 - **Projection into `search.documents` (written by the scrapper `search` lane;
   server reads only):** `mo_act` row = `{ doc_id: 'mo_act:'||mo_act_key,
-  doc_type:'mo_act', title: COALESCE(title,'(fără titlu)'), body: derived
-  citation+issuer string, cuis: '{}'::text[] (MO has no CUI), doc_date: act_date,
-  amount_ron: null, county_name: null, url: source_pdf_url, attrs:
-  {issuer_slug, act_type, issue_year, part_code, resolution, act_id} }`. The
+doc_type:'mo_act', title: COALESCE(title,'(fără titlu)'), body: derived
+citation+issuer string, cuis: '{}'::text[] (MO has no CUI), doc_date: act_date,
+amount_ron: null, county_name: null, url: source_pdf_url, attrs:
+{issuer_slug, act_type, issue_year, part_code, resolution, act_id} }`. The
   server's MO `q` filter queries this via the kernel SearchRepo.
 - **Index names:** Meili `mo_acts` (instant title/issuer autocomplete for
   discovery), OpenSearch `mo_acts` (full-text relevance for `q` only). MO-C adds
@@ -719,6 +810,7 @@ idempotent (ON CONFLICT on the case-folded issue identity / `mo_act_key` PK /
 edge natural key) with zero-drift convergence (NOTES A8).
 
 Serving impact:
+
 - **Cache TTLs** (§5) are loader-cadence-driven, not request-driven. Per §14.11,
   read a per-domain loader-completion version stamp (`etl`/`system_control`) if
   one exists for `legal`; **interim is TTL-only** — stated explicitly (no
@@ -745,10 +837,10 @@ Serving impact:
 
 - **`makeMonitorulSurface(deps)`** (composed by portal's `makeLegalModule`, A1):
   `deps = { db: Kysely<ProdDatabase>, search: SearchRepo, identity: IdentityRepo,
-  cache, legalActMapper (from portal A3) }`. Returns `{ restRoutes, typeDefs,
-  resolvers, mcpTools, entityExtension, contributor }`.
+cache, legalActMapper (from portal A3) }`. Returns `{ restRoutes, typeDefs,
+resolvers, mcpTools, entityExtension, contributor }`.
 - **Repos:** `MonitorulRepo` (Kysely over `legal.mo_*` + `legal.act_status_events`
-  + read `legal.acts`). No new clients (reuses kernel Meili/OS via SearchRepo).
+  - read `legal.acts`). No new clients (reuses kernel Meili/OS via SearchRepo).
 - **Env additions:** **none** — MO reuses kernel env (`PROD_DATABASE_URL`,
   `MEILI_*`, `OPENSEARCH_URL`). New Meili/OS index names (`mo_acts`) are constants,
   not env. Module feature-flag key (if the kernel uses a module enable-list):

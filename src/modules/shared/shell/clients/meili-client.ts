@@ -134,7 +134,11 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
         }
 
         const data = (await resp.json()) as {
-          results: { indexUid: string; hits: Record<string, unknown>[]; estimatedTotalHits?: number }[];
+          results: {
+            indexUid: string;
+            hits: Record<string, unknown>[];
+            estimatedTotalHits?: number;
+          }[];
         };
         return ok(
           data.results.map((r) => ({
@@ -200,14 +204,17 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
         });
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'unknown error';
-        return err(upstreamError(`meilisearch entities request failed: ${msg}`, 'meilisearch', error));
+        return err(
+          upstreamError(`meilisearch entities request failed: ${msg}`, 'meilisearch', error)
+        );
       }
     },
 
     async healthCheck(): Promise<Result<void, ApiError>> {
       try {
         const resp = await fetch(`${config.host}/health`, { signal: AbortSignal.timeout(3000) });
-        if (!resp.ok) return err(upstreamError(`meili health ${String(resp.status)}`, 'meilisearch'));
+        if (!resp.ok)
+          return err(upstreamError(`meili health ${String(resp.status)}`, 'meilisearch'));
         return ok(undefined);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'unknown error';

@@ -95,7 +95,11 @@ export const databaseError = (message: string, cause?: unknown): DatabaseError =
   cause,
 });
 
-export const upstreamError = (message: string, service?: string, cause?: unknown): UpstreamError => ({
+export const upstreamError = (
+  message: string,
+  service?: string,
+  cause?: unknown
+): UpstreamError => ({
   type: 'Upstream',
   message,
   ...(service !== undefined && { service }),

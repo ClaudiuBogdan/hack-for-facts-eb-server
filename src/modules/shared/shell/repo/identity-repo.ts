@@ -16,9 +16,14 @@ import { err, ok, type Result } from 'neverthrow';
 import { foldDiacritics } from './fold.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
 
-
 import type { IdentityRepo, OrgResolution } from '../../core/ports.js';
-import type { Cui, OrgIdentifier, OrgNameMatch, Organization, Territory } from '../../core/types.js';
+import type {
+  Cui,
+  OrgIdentifier,
+  OrgNameMatch,
+  Organization,
+  Territory,
+} from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -154,7 +159,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
 
   async resolve(cuiOrName: string): Promise<Result<OrgResolution | null, ApiError>> {
     // A pure-digit (after RO strip) input is treated as a CUI; else name search.
-    const asCui = cuiOrName.toUpperCase().trim().replace(/^RO/u, '').replace(/[^0-9]/gu, '');
+    const asCui = cuiOrName
+      .toUpperCase()
+      .trim()
+      .replace(/^RO/u, '')
+      .replace(/[^0-9]/gu, '');
     if (asCui.length > 0 && asCui === cuiOrName.toUpperCase().trim().replace(/^RO/u, '')) {
       const byCui = await this.findByCui(asCui);
       if (byCui.isErr()) return err(byCui.error);
@@ -174,7 +183,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
     try {
       const row = await db
         .selectFrom('core.public_entities as pe')
-        .innerJoin('core.territories as t', 't.territorial_siruta_code', 'pe.territorial_siruta_code')
+        .innerJoin(
+          'core.territories as t',
+          't.territorial_siruta_code',
+          'pe.territorial_siruta_code'
+        )
         .select([
           't.id',
           't.territorial_siruta_code',

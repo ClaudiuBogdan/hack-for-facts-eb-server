@@ -149,8 +149,10 @@ export const makeReferenceResolvers = (deps: ReferenceResolverDeps): Record<stri
         args: { by: ReferenceAggregateDim; filter?: FilterInput }
       ) => unwrap(await aggregatePublicEntities(deps, args.by, args.filter ?? {})),
 
-      referenceTerritory: async (_r: unknown, args: { id?: string | null; siruta?: string | null }) =>
-        unwrap(await getTerritory(deps, args)),
+      referenceTerritory: async (
+        _r: unknown,
+        args: { id?: string | null; siruta?: string | null }
+      ) => unwrap(await getTerritory(deps, args)),
 
       referenceTerritories: async (_r: unknown, args: PageArgs) => {
         const filter = args.filter ?? {};
@@ -193,13 +195,17 @@ export const makeReferenceResolvers = (deps: ReferenceResolverDeps): Record<stri
       referenceOrganization: async (_r: unknown, args: { cui: string }) =>
         unwrap(await getOrganizationRef(deps, args.cui)),
 
-      referenceResolve: async (_r: unknown, args: { dim: ReferenceResolveDim; q: string; limit?: number }) =>
-        unwrap(await resolveReference(deps, args.dim, args.q, args.limit ?? 10)),
+      referenceResolve: async (
+        _r: unknown,
+        args: { dim: ReferenceResolveDim; q: string; limit?: number }
+      ) => unwrap(await resolveReference(deps, args.dim, args.q, args.limit ?? 10)),
     },
 
     ReferencePublicEntity: {
       // Lazy territory via a CUI-keyed DataLoader (list rows already carry territorialSirutaCode).
-      territory: async (parent: ReferencePublicEntity | ReferencePublicEntityCard): Promise<Territory | null> => {
+      territory: async (
+        parent: ReferencePublicEntity | ReferencePublicEntityCard
+      ): Promise<Territory | null> => {
         if ('territory' in parent && parent.territory !== null) return parent.territory;
         if (parent.territorialSirutaCode === null) return null;
         return territoryByCuiLoader.load(parent.territorialSirutaCode);

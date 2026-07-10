@@ -149,54 +149,85 @@ export const makePrimariiResolvers = (deps: PrimariiResolverDeps): Record<string
 
       primariiEntities: async (_r: unknown, args: PageArgs & { sort?: string | null }) => {
         const filter = args.filter ?? {};
-        const sortKey = args.sort != null && args.sort in ENTITY_SORT_KEY ? ENTITY_SORT_KEY[args.sort] : undefined;
+        const sortKey =
+          args.sort != null && args.sort in ENTITY_SORT_KEY
+            ? ENTITY_SORT_KEY[args.sort]
+            : undefined;
         const page = unwrap(await listTransparencyEntities(deps, filter, pageReq(args, sortKey)));
         const sortField = sortKey ?? primariiEntityFilterSpec.sort.default;
         const dir = primariiEntitySortDir(sortField);
-        return toConnection(page, fhashOf(primariiEntityFilterSpec, filter), sortField, dir, (n) => [
-          entitySortKey(sortField, n),
-          n.cui,
-        ]);
+        return toConnection(
+          page,
+          fhashOf(primariiEntityFilterSpec, filter),
+          sortField,
+          dir,
+          (n) => [entitySortKey(sortField, n), n.cui]
+        );
       },
 
-      primariiEntitySnapshots: async (_r: unknown, args: { cui: string; first?: number | null; after?: string | null }) => {
+      primariiEntitySnapshots: async (
+        _r: unknown,
+        args: { cui: string; first?: number | null; after?: string | null }
+      ) => {
         const page = unwrap(await listEntitySnapshots(deps, args.cui, pageReq(args)));
         // The per-CUI cursor fhash MUST match the repo's (it normalizes the cui).
         const cui = normalizeCui(args.cui) ?? args.cui;
-        return toConnection(page, `snapshots:${cui}`, 'loaded_at', 'desc', (n: PrimariiSnapshot) => [
-          n.loadedAt,
-          n.snapshotId,
-        ]);
+        return toConnection(
+          page,
+          `snapshots:${cui}`,
+          'loaded_at',
+          'desc',
+          (n: PrimariiSnapshot) => [n.loadedAt, n.snapshotId]
+        );
       },
 
-      primariiEntitySalaryClaims: async (_r: unknown, args: { cui: string; first?: number | null; after?: string | null }) => {
+      primariiEntitySalaryClaims: async (
+        _r: unknown,
+        args: { cui: string; first?: number | null; after?: string | null }
+      ) => {
         const page = unwrap(await listSalaryClaims(deps, args.cui, pageReq(args)));
         const cui = normalizeCui(args.cui) ?? args.cui;
-        return toConnection(page, `salary:${cui}`, 'amount_ron', 'desc', (n: PrimariiSalaryClaim) => [
-          n.amountRon,
-          n.salaryAmountClaimId,
-        ]);
+        return toConnection(
+          page,
+          `salary:${cui}`,
+          'amount_ron',
+          'desc',
+          (n: PrimariiSalaryClaim) => [n.amountRon, n.salaryAmountClaimId]
+        );
       },
 
       primariiDocuments: async (_r: unknown, args: PageArgs) => {
         const filter = args.filter ?? {};
         const page = unwrap(await listEntityDocuments(deps, filter, pageReq(args)));
         const sortField = primariiDocumentFilterSpec.sort.default;
-        return toConnection(page, fhashOf(primariiDocumentFilterSpec, filter), sortField, 'asc', (n: PrimariiDocument) => [
-          sortField === 'category' ? (n.category ?? '') : n.cui,
-          n.documentPk,
-        ]);
+        return toConnection(
+          page,
+          fhashOf(primariiDocumentFilterSpec, filter),
+          sortField,
+          'asc',
+          (n: PrimariiDocument) => [
+            sortField === 'category' ? (n.category ?? '') : n.cui,
+            n.documentPk,
+          ]
+        );
       },
 
-      primariiStats: async (_r: unknown, args: { groupBy: PrimariiStatGroupBy; filter?: FilterInput | null }) =>
-        unwrap(await getTransparencyStats(deps, args.groupBy, args.filter ?? {})),
+      primariiStats: async (
+        _r: unknown,
+        args: { groupBy: PrimariiStatGroupBy; filter?: FilterInput | null }
+      ) => unwrap(await getTransparencyStats(deps, args.groupBy, args.filter ?? {})),
 
       primariiCategoryCoverage: async (_r: unknown, args: { filter?: FilterInput | null }) =>
         unwrap(await getCategoryCoverage(deps, args.filter ?? {})),
 
       primariiLoadIssues: async (
         _r: unknown,
-        args: { cui?: string | null; severity?: string | null; issueCode?: string | null; limit?: number | null }
+        args: {
+          cui?: string | null;
+          severity?: string | null;
+          issueCode?: string | null;
+          limit?: number | null;
+        }
       ) =>
         unwrap(
           await listLoadIssues(
@@ -210,8 +241,10 @@ export const makePrimariiResolvers = (deps: PrimariiResolverDeps): Record<string
           )
         ),
 
-      primariiResolve: async (_r: unknown, args: { dim: PrimariiResolveDim; q: string; limit?: number | null }) =>
-        unwrap(await resolveFilters(deps, args.dim, args.q, args.limit ?? 10)),
+      primariiResolve: async (
+        _r: unknown,
+        args: { dim: PrimariiResolveDim; q: string; limit?: number | null }
+      ) => unwrap(await resolveFilters(deps, args.dim, args.q, args.limit ?? 10)),
     },
 
     PrimariiEntityProfile: {
@@ -230,8 +263,12 @@ export const makePrimariiResolvers = (deps: PrimariiResolverDeps): Record<string
       // contributor's `profileSlice` calls). The presence gate (registry) returns
       // null for absent CUIs; we then return the full profile (richer than the
       // summary slice) so the client gets the same shape as `primariiEntity`.
-      primariiTransparency: async (parent: { cui: string }): Promise<PrimariiEntityProfile | null> => {
-        const slice = unwrap(await makeEntityProfileSlice(deps.registry, 'primarii_transparency', parent.cui));
+      primariiTransparency: async (parent: {
+        cui: string;
+      }): Promise<PrimariiEntityProfile | null> => {
+        const slice = unwrap(
+          await makeEntityProfileSlice(deps.registry, 'primarii_transparency', parent.cui)
+        );
         if (slice === null) return null;
         return unwrap(await getEntityTransparencyProfile(deps, parent.cui));
       },

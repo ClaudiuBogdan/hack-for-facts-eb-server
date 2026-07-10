@@ -50,7 +50,10 @@ export const makeLegalActLoader = (deps: LegalActLoaderDeps): LegalActByIdLoader
       }
       return res.value === null ? null : toRef(res.value);
     } catch (error) {
-      logger?.warn?.({ actId, err: error instanceof Error ? error.message : String(error) }, 'legalActLoader.load rejected → null');
+      logger?.warn?.(
+        { actId, err: error instanceof Error ? error.message : String(error) },
+        'legalActLoader.load rejected → null'
+      );
       return null;
     }
   };
@@ -60,14 +63,20 @@ export const makeLegalActLoader = (deps: LegalActLoaderDeps): LegalActByIdLoader
     try {
       const res = await acts.findActsByIds(ids);
       if (res.isErr()) {
-        logger?.warn?.({ count: ids.length, err: res.error.message }, 'legalActLoader.loadMany degraded to null');
+        logger?.warn?.(
+          { count: ids.length, err: res.error.message },
+          'legalActLoader.loadMany degraded to null'
+        );
         return ids.map(() => null);
       }
       const byId = new Map(res.value.map((a) => [a.actId, toRef(a)]));
       // Preserve request order + arity (one slot per requested id; dangling → null).
       return ids.map((id) => byId.get(id) ?? null);
     } catch (error) {
-      logger?.warn?.({ count: ids.length, err: error instanceof Error ? error.message : String(error) }, 'legalActLoader.loadMany rejected → all-null');
+      logger?.warn?.(
+        { count: ids.length, err: error instanceof Error ? error.message : String(error) },
+        'legalActLoader.loadMany rejected → all-null'
+      );
       return ids.map(() => null);
     }
   };

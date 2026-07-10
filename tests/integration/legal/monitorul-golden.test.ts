@@ -40,10 +40,16 @@ interface GqlResponse<TData> {
   readonly errors?: unknown;
 }
 interface JsonRpcResponse {
-  readonly result?: { readonly structuredContent?: unknown; readonly content?: readonly { readonly text?: string }[] };
+  readonly result?: {
+    readonly structuredContent?: unknown;
+    readonly content?: readonly { readonly text?: string }[];
+  };
 }
 
-const gql = async <TData>(query: string, variables?: Record<string, unknown>): Promise<GqlResponse<TData>> => {
+const gql = async <TData>(
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<GqlResponse<TData>> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -58,7 +64,12 @@ const mcpCall = async <TOutput>(name: string, args: Record<string, unknown>): Pr
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   const body: JsonRpcResponse = res.json();
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent as TOutput;
@@ -83,7 +94,10 @@ d('Monitorul-Oficial golden (live prod)', () => {
     app = built.app;
     close = built.app.close.bind(built.app);
     await app.ready();
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     process.on('uncaughtException', onUncaught);
   }, 60_000);
@@ -179,7 +193,10 @@ d('Monitorul-Oficial golden (live prod)', () => {
         { actId: ACT }
       )
     );
-    const mcp = await mcpCall<{ ok: boolean; items: { moActKey: string }[] }>('find_act_publications', { actId: ACT });
+    const mcp = await mcpCall<{ ok: boolean; items: { moActKey: string }[] }>(
+      'find_act_publications',
+      { actId: ACT }
+    );
     expect(mcp.ok).toBe(true);
     const graphKeys = new Set((graph.legalAct?.gazettePublications ?? []).map((p) => p.moActKey));
     const mcpKeys = new Set(mcp.items.map((p) => p.moActKey));
@@ -190,7 +207,11 @@ d('Monitorul-Oficial golden (live prod)', () => {
     const mcp = await mcpCall<{
       ok: boolean;
       summary: string;
-      item: { statusEvents: { eventKind: string }[]; inEdges: { relation: string }[]; confidence: string };
+      item: {
+        statusEvents: { eventKind: string }[];
+        inEdges: { relation: string }[];
+        confidence: string;
+      };
     }>('get_act_gazette_timeline', { actId: ACT });
     expect(mcp.ok).toBe(true);
     expect(mcp.item.confidence).toBe('deterministic');
@@ -201,10 +222,16 @@ d('Monitorul-Oficial golden (live prod)', () => {
 
   it('moIssue 10245 = Partea I, label 632, 2006-07-21', async () => {
     const data = expectData(
-      await gql<{ moIssue: { partCode: string; issueLabel: string; issueDate: string | null; moPart: number | null } | null }>(
-        `query($id: BigInt!){ moIssue(moIssueId:$id){ partCode issueLabel issueDate moPart } }`,
-        { id: ISSUE }
-      )
+      await gql<{
+        moIssue: {
+          partCode: string;
+          issueLabel: string;
+          issueDate: string | null;
+          moPart: number | null;
+        } | null;
+      }>(`query($id: BigInt!){ moIssue(moIssueId:$id){ partCode issueLabel issueDate moPart } }`, {
+        id: ISSUE,
+      })
     );
     expect(data.moIssue?.partCode).toBe('PI');
     expect(data.moIssue?.issueLabel).toBe('632');
@@ -256,7 +283,9 @@ d('Monitorul-Oficial golden (live prod)', () => {
   });
 
   it('moIssues without a year is an InvalidInput error, not an empty success (Codex #7)', async () => {
-    const res = await gql<{ moIssues: unknown }>(`{ moIssues{ total edges{ node{ moIssueId } } } }`);
+    const res = await gql<{ moIssues: unknown }>(
+      `{ moIssues{ total edges{ node{ moIssueId } } } }`
+    );
     expect(res.errors).toBeDefined();
   });
 

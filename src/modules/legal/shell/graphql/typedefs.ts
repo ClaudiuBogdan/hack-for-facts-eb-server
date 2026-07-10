@@ -16,14 +16,46 @@ import { legalActsSpec } from '../filters/legal-acts.spec.js';
 const filterInputs = toGraphQLInput(legalActsSpec);
 
 const objectsAndQuery = /* GraphQL */ `
-  enum LegalActStatus { IN_VIGOARE MODIFICAT ABROGAT ABROGAT_PARTIAL SUSPENDAT IESIT_DIN_VIGOARE NECUNOSCUT }
-  enum LegalRelation  { MODIFICA ABROGA COMPLETEAZA SUSPENDA APROBA RECTIFICA FACE_REFERIRE RESPINGE }
-  enum LegalSortKey   { IN_DEGREE ACT_YEAR ENTRY_INTO_FORCE DISPLAY_CITATION }
-  enum LegalLinkDirection { IN OUT }
-  enum LegalRetrievalChannel { auto sections docs }
+  enum LegalActStatus {
+    IN_VIGOARE
+    MODIFICAT
+    ABROGAT
+    ABROGAT_PARTIAL
+    SUSPENDAT
+    IESIT_DIN_VIGOARE
+    NECUNOSCUT
+  }
+  enum LegalRelation {
+    MODIFICA
+    ABROGA
+    COMPLETEAZA
+    SUSPENDA
+    APROBA
+    RECTIFICA
+    FACE_REFERIRE
+    RESPINGE
+  }
+  enum LegalSortKey {
+    IN_DEGREE
+    ACT_YEAR
+    ENTRY_INTO_FORCE
+    DISPLAY_CITATION
+  }
+  enum LegalLinkDirection {
+    IN
+    OUT
+  }
+  enum LegalRetrievalChannel {
+    auto
+    sections
+    docs
+  }
 
   "Sort direction (Legal*-prefixed to avoid a cross-module collision; kernel base SDL has no SortDir)."
-  enum LegalSortDir { ASC DESC }
+  enum LegalSortDir {
+    ASC
+    DESC
+  }
 
   "The shared legal-act base type (§9). 06 EXTENDS this with Mo*-typed gazette fields; it never redeclares it."
   type LegalAct {
@@ -48,7 +80,11 @@ const objectsAndQuery = /* GraphQL */ `
     "Incoming modifica/completeaza edge count — the §5.2-C honesty badge."
     amendedAfterPublication: Int!
     documents: [LegalDocument!]!
-    links(direction: LegalLinkDirection!, relation: [LegalRelation!], first: Int = 50): LegalReferenceConnection!
+    links(
+      direction: LegalLinkDirection!
+      relation: [LegalRelation!]
+      first: Int = 50
+    ): LegalReferenceConnection!
     timeline: [LegalTimelineEntry!]!
     tree(documentId: String, path: String, depth: Int = 1): [LegalNode!]!
   }
@@ -89,7 +125,12 @@ const objectsAndQuery = /* GraphQL */ `
     confidence: Float
   }
 
-  type LegalCitationKey { actType: String!  actNumber: String!  actYear: Int!  issuerSlug: String! }
+  type LegalCitationKey {
+    actType: String!
+    actNumber: String!
+    actYear: Int!
+    issuerSlug: String!
+  }
 
   type LegalReferenceEdge {
     sourceDocumentId: String!
@@ -106,7 +147,11 @@ const objectsAndQuery = /* GraphQL */ `
     "For incoming edges: the citing act (DataLoader by act_id)."
     sourceAct: LegalAct
   }
-  type LegalReferenceConnection { edges: [LegalReferenceEdge!]!  pageInfo: PageInfo!  totalCount: Int }
+  type LegalReferenceConnection {
+    edges: [LegalReferenceEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
 
   "A merged act timeline entry (status events + amendment edges, LG-2)."
   type LegalTimelineEntry {
@@ -143,7 +188,12 @@ const objectsAndQuery = /* GraphQL */ `
     charEnd: Int
   }
 
-  type LegalExternalAct { externalActId: BigInt!  identityKey: String!  displayCitation: String!  kind: String! }
+  type LegalExternalAct {
+    externalActId: BigInt!
+    identityKey: String!
+    displayCitation: String!
+    kind: String!
+  }
 
   "A provision-level retrieval hit. snippet is grounded from document_summaries; charStart/charEnd are a forward-compat locator (not served text — §3.4)."
   type LegalSectionHit {
@@ -161,7 +211,11 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   "A doc-channel topical hit."
-  type LegalDocHit { act: LegalAct!  summary: LegalActSummary  score: Float! }
+  type LegalDocHit {
+    act: LegalAct!
+    summary: LegalActSummary
+    score: Float!
+  }
 
   "The hybrid search result. caveats carries the §5.2-C honesty + semantic-gate notes."
   type LegalSearchResult {
@@ -170,19 +224,44 @@ const objectsAndQuery = /* GraphQL */ `
     caveats: [String!]!
   }
 
-  type LegalActConnection { edges: [LegalActEdge!]!  pageInfo: PageInfo!  totalCount: Int }
-  type LegalActEdge { node: LegalAct!  cursor: String! }
+  type LegalActConnection {
+    edges: [LegalActEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
+  type LegalActEdge {
+    node: LegalAct!
+    cursor: String!
+  }
 
   "A name→value discovery hit (kernel ResolveHit shape, module-local SDL projection)."
-  type LegalResolveHit { kind: String!  value: String!  label: String!  score: Float  hint: String }
+  type LegalResolveHit {
+    kind: String!
+    value: String!
+    label: String!
+    score: Float
+    hint: String
+  }
 
   extend type Query {
     "An act by numeric act_id or free-text citation ('legea 227/2015' | 'codul fiscal')."
     legalAct(actId: BigInt, citation: String): LegalAct
     "Acts directory. Cursor-only (223k acts); default sort in_degree desc."
-    legalActs(filter: LegalActsFilter, sort: LegalSortKey = IN_DEGREE, dir: LegalSortDir = DESC, first: Int = 20, after: String): LegalActConnection!
+    legalActs(
+      filter: LegalActsFilter
+      sort: LegalSortKey = IN_DEGREE
+      dir: LegalSortDir = DESC
+      first: Int = 20
+      after: String
+    ): LegalActConnection!
     "Retrieval (v1): identifier router (citation→act) → pgvector HNSW when the legal semantic gate is on, else a bounded Postgres lexical fallback. Engine RRF fusion (Meili + OpenSearch BM25) is planned, not yet wired."
-    legalSearch(q: String!, filter: LegalActsFilter, channel: LegalRetrievalChannel = auto, includeHistorical: Boolean = false, limit: Int = 20): LegalSearchResult!
+    legalSearch(
+      q: String!
+      filter: LegalActsFilter
+      channel: LegalRetrievalChannel = auto
+      includeHistorical: Boolean = false
+      limit: Int = 20
+    ): LegalSearchResult!
     legalExternalAct(externalActId: BigInt!): LegalExternalAct
     "Resolve a free-text query to a filter value (citation→actId, name→issuerSlug, label→domain/category)."
     legalResolve(dim: String!, q: String!, limit: Int = 10): [LegalResolveHit!]!

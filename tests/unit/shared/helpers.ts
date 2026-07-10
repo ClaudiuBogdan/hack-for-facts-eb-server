@@ -3,7 +3,14 @@
  * snapshot assertions without a live DB (Kysely + DummyDriver compiler).
  */
 
-import { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, sql } from 'kysely';
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  sql,
+} from 'kysely';
 
 import { composeWhere } from '@/modules/shared/core/filters/composer.js';
 

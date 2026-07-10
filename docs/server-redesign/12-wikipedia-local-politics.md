@@ -1,6 +1,6 @@
 # 12 — wikipedia-local-politics (council composition + mayors + BEC-2024)
 
-> **Status: FORWARD-LOOKING / NOT IMPLEMENTABLE YET.** This is a *target-state*
+> **Status: FORWARD-LOOKING / NOT IMPLEMENTABLE YET.** This is a _target-state_
 > plan for an eventual `local-politics` server module. **Nothing in this plan is
 > servable today** and no part of it may be built until the
 > [serving-promotion prerequisite](#0-serving-promotion-prerequisite-read-first)
@@ -10,13 +10,13 @@
 > cluster (`transparenta_eu_primarii_transparency`, schema
 > `primarii_wikipedia_politics`). It is **absent from the serving DB
 > `transparenta_prod`** — confirmed live on 2026-06-16: `\dn` lists `budget,
-> budget_staging, companies, core, etl, flows, justice, legal, parliament, pnrr,
-> primarii_transparency, procurement, search, system_control` — **no
+budget_staging, companies, core, etl, flows, justice, legal, parliament, pnrr,
+primarii_transparency, procurement, search, system_control` — **no
 > `wikipedia`/`local_politics`/`primarii_wikipedia_politics` schema in serving.**
 >
 > **Authority status: PROVISIONAL / NON-AUTHORITATIVE.** This is
 > **source-attributed STAGING, not canonical officeholder identity.** Every
-> council-seat and mayor *claim* row carries `accepted_for_map = false`. BEC-2024
+> council-seat and mayor _claim_ row carries `accepted_for_map = false`. BEC-2024
 > validates **party presence and votes, NOT exact seat allocation** — the seat
 > counts are Wikipedia's. The API contract below makes this caveat **structural
 > and unavoidable** (every record is labelled provisional; nothing is presented
@@ -54,7 +54,7 @@ minimum:
    serving columns so the API can label every row provisional.
 4. **Decide the org/CUI linkage** (open question — §13): the raw `entities`
    table is keyed by **CUI** (the UAT's public-entity CUI), so unlike most
-   "no-CUI" sources this source *does* have a CUI anchor at the UAT grain. The
+   "no-CUI" sources this source _does_ have a CUI anchor at the UAT grain. The
    loader should link `entities.cui` → `core.organizations` / `core.public_entities`
    **by CUI** (link-not-merge, §4.1) so the module can register a kernel
    contributor (§4.4) and contribute an `Entity` extension (§6.2). **This is the
@@ -65,7 +65,7 @@ minimum:
    API can surface (§10).
 6. **Regenerate the kernel `ProdDatabase` types.** Foundation §3 enumerates the
    served schemas (`core/flows/search/budget/companies/parliament/legal/pnrr/
-   justice/procurement/primarii_transparency`) — **`local_politics` is not among
+justice/procurement/primarii_transparency`) — **`local_politics` is not among
    them today.** The promotion slice must add the new schema to the kernel's
    generated DB-type definition so the typed Kysely instance (§11) covers
    `local_politics.*`. Until then the module cannot type-check.
@@ -86,21 +86,21 @@ acceptance filtering).
 (from `WIKIPEDIA_LOCAL_POLITICS_NOTES.md`, validated zero-drift across PG17.9
 local ↔ PG18.4 prod-raw):
 
-| Raw table | Grain | Rows | Notes |
-|-----------|-------|-----:|-------|
-| `entities` | UAT (PK `cui`) | 3,187 | derived `resolved_siruta` 100%; `has_council_table`/`has_mayor_row` |
-| `council_composition` | `(cui, table_id, row_index)` | 10,932 | party-seat rows; **`accepted_for_map=false`**; 25 dup-table cases |
-| `mayors` | `(cui, table_id, row_index)` | 3,156 | raw mayor text + parsed guesses; **`accepted_for_map=false`** |
+| Raw table                 | Grain                        |   Rows | Notes                                                                        |
+| ------------------------- | ---------------------------- | -----: | ---------------------------------------------------------------------------- |
+| `entities`                | UAT (PK `cui`)               |  3,187 | derived `resolved_siruta` 100%; `has_council_table`/`has_mayor_row`          |
+| `council_composition`     | `(cui, table_id, row_index)` | 10,932 | party-seat rows; **`accepted_for_map=false`**; 25 dup-table cases            |
+| `mayors`                  | `(cui, table_id, row_index)` |  3,156 | raw mayor text + parsed guesses; **`accepted_for_map=false`**                |
 | `bec_council_correlation` | `(cui, table_id, row_index)` | 10,932 | 10,857 matched / 75 no_match; `bec_vote_share`, votes bigint, `match_status` |
-| `bec_mayor_correlation` | `(cui, table_id, row_index)` | 3,156 | 109 party_no_match / 50 name_no_match |
-| `research_complements` | `row_sha256` | 326 | GPT-research complements; **`accepted_for_map=false`** |
-| `missing_entities` | `row_sha256` | 307 | review list |
-| `party_label_review` | `row_sha256` | 279 | review list |
-| `source_files` | `file_key` | 8 | sha256 + row_count provenance |
+| `bec_mayor_correlation`   | `(cui, table_id, row_index)` |  3,156 | 109 party_no_match / 50 name_no_match                                        |
+| `research_complements`    | `row_sha256`                 |    326 | GPT-research complements; **`accepted_for_map=false`**                       |
+| `missing_entities`        | `row_sha256`                 |    307 | review list                                                                  |
+| `party_label_review`      | `row_sha256`                 |    279 | review list                                                                  |
+| `source_files`            | `file_key`                   |      8 | sha256 + row_count provenance                                                |
 
 **What's deferred:** **everything** — there is no serving schema, no API, no
-search projection, no MCP tool, no client route. This plan defines the *target
-shape* only.
+search projection, no MCP tool, no client route. This plan defines the _target
+shape_ only.
 
 **Source's prod schema(s):** none yet. Proposed serving schema:
 **`local_politics`** in `transparenta_prod` (created by the promotion slice §0).
@@ -121,48 +121,48 @@ Proposed serving tables in `local_politics` (denormalized for read, territory
 linked by SIRUTA, no PII beyond publicly-published officeholder names — see
 privacy note below):
 
-| Proposed serving table | Maps from raw | Module view model (`core/types.ts`) |
-|------------------------|---------------|-------------------------------------|
-| `local_politics.uats` | `entities` | `LocalPoliticsUat` |
-| `local_politics.council_seats` | `council_composition` ⨝ `bec_council_correlation` | `LocalPoliticsCouncilSeat` |
-| `local_politics.mayors` | `mayors` ⨝ `bec_mayor_correlation` | `LocalPoliticsMayor` |
-| `local_politics.party_summaries` (derived rollup) | grouped `council_seats` | `LocalPoliticsPartySummary` |
+| Proposed serving table                            | Maps from raw                                     | Module view model (`core/types.ts`) |
+| ------------------------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| `local_politics.uats`                             | `entities`                                        | `LocalPoliticsUat`                  |
+| `local_politics.council_seats`                    | `council_composition` ⨝ `bec_council_correlation` | `LocalPoliticsCouncilSeat`          |
+| `local_politics.mayors`                           | `mayors` ⨝ `bec_mayor_correlation`                | `LocalPoliticsMayor`                |
+| `local_politics.party_summaries` (derived rollup) | grouped `council_seats`                           | `LocalPoliticsPartySummary`         |
 
 ```ts
 // local-politics/core/types.ts  (PROPOSED — domain-prefixed per §14.8)
 export interface LocalPoliticsUat {
-  readonly cui: string;                       // entities.cui — the ONLY CUI; UAT grain
-  readonly sirutaCode: string;                // canonicalized → core.territories.territorial_siruta_code (§4.2)
+  readonly cui: string; // entities.cui — the ONLY CUI; UAT grain
+  readonly sirutaCode: string; // canonicalized → core.territories.territorial_siruta_code (§4.2)
   readonly name: string;
-  readonly countyName: string | null;         // denormalized; canonical metadata via territory hub
+  readonly countyName: string | null; // denormalized; canonical metadata via territory hub
   readonly hasCouncilTable: boolean;
   readonly hasMayorRow: boolean;
-  readonly resolvedSirutaInBec: boolean;      // 1 UAT (Bucharest) is absent from BEC
-  readonly sourceRunId: string;               // provenance / "as-of" (§10)
-  readonly pageRevisionId: string | null;     // Wikipedia change signal
+  readonly resolvedSirutaInBec: boolean; // 1 UAT (Bucharest) is absent from BEC
+  readonly sourceRunId: string; // provenance / "as-of" (§10)
+  readonly pageRevisionId: string | null; // Wikipedia change signal
 }
 
 export interface LocalPoliticsCouncilSeat {
-  readonly cui: string;                        // UAT CUI
+  readonly cui: string; // UAT CUI
   readonly sirutaCode: string;
-  readonly partyLabel: string;                 // Wikipedia's party label (provisional)
-  readonly seats: number;                      // Wikipedia's seat count (NOT BEC-validated)
-  readonly becMatchStatus: 'matched' | 'no_match' | string;  // staging signal (open enum §1.4 NOTES)
-  readonly becVoteShare: string | null;        // numeric → string (§14.1 money/numeric rule)
-  readonly becVotes: string | null;            // bigint → string (§14.1)
-  readonly acceptedForMap: false;              // STRUCTURAL: always false in staging (§1.5)
-  readonly provenance: ProvenanceStamp;        // see below
+  readonly partyLabel: string; // Wikipedia's party label (provisional)
+  readonly seats: number; // Wikipedia's seat count (NOT BEC-validated)
+  readonly becMatchStatus: 'matched' | 'no_match' | string; // staging signal (open enum §1.4 NOTES)
+  readonly becVoteShare: string | null; // numeric → string (§14.1 money/numeric rule)
+  readonly becVotes: string | null; // bigint → string (§14.1)
+  readonly acceptedForMap: false; // STRUCTURAL: always false in staging (§1.5)
+  readonly provenance: ProvenanceStamp; // see below
 }
 
 export interface LocalPoliticsMayor {
   readonly cui: string;
   readonly sirutaCode: string;
-  readonly mayorNameRaw: string;               // publicly-published elected official name (see privacy note)
+  readonly mayorNameRaw: string; // publicly-published elected official name (see privacy note)
   readonly mayorNameParsed: string | null;
   readonly partyLabelParsed: string | null;
   readonly becWinnerParty: string | null;
-  readonly partyMatchStatus: string;           // 'matched' | 'party_no_match' | ...
-  readonly nameMatchStatus: string;            // 'matched' | 'name_no_match' | ...
+  readonly partyMatchStatus: string; // 'matched' | 'party_no_match' | ...
+  readonly nameMatchStatus: string; // 'matched' | 'name_no_match' | ...
   readonly acceptedForMap: false;
   readonly provenance: ProvenanceStamp;
 }
@@ -170,9 +170,9 @@ export interface LocalPoliticsMayor {
 // shared envelope every served local-politics record carries (§ enforces the caveat)
 export interface ProvenanceStamp {
   readonly source: 'wikipedia';
-  readonly authority: 'provisional';           // CONSTANT — never 'authoritative'
-  readonly becValidated: 'party_presence_only';// BEC validates presence/votes, NOT seat allocation
-  readonly sourceRunId: string;                // '20260518'
+  readonly authority: 'provisional'; // CONSTANT — never 'authoritative'
+  readonly becValidated: 'party_presence_only'; // BEC validates presence/votes, NOT seat allocation
+  readonly sourceRunId: string; // '20260518'
   readonly pageRevisionId: string | null;
 }
 ```
@@ -180,7 +180,7 @@ export interface ProvenanceStamp {
 **Identity (CUI) linkage:** **UAT grain only.** `uats.cui` links the kernel
 identity hub (§4.1) by CUI (link-not-merge). **Council members and mayors are
 persons and have NO CUI; never synthesize one.** The module's `Entity`
-contribution (§6) is the UAT's *local-politics presence*, not a person.
+contribution (§6) is the UAT's _local-politics presence_, not a person.
 
 **Territory (SIRUTA) linkage:** `siruta_code` (text) → `core.territories.
 territorial_siruta_code`. **This is the primary join and the primary filter
@@ -221,18 +221,26 @@ export interface LocalPoliticsRepo {
   listUats(f: UatFilterInput, page: OffsetPage): Promise<Result<Paged<LocalPoliticsUat>, ApiError>>;
 
   // council composition (the headline surface)
-  listCouncilSeats(f: CouncilFilterInput, page: OffsetPage): Promise<Result<Paged<LocalPoliticsCouncilSeat>, ApiError>>;
+  listCouncilSeats(
+    f: CouncilFilterInput,
+    page: OffsetPage
+  ): Promise<Result<Paged<LocalPoliticsCouncilSeat>, ApiError>>;
   councilCompositionFor(siruta: string): Promise<Result<LocalPoliticsCouncilSeat[], ApiError>>; // bounded ≤ ~60 rows/UAT
 
   // mayors
   getMayorFor(siruta: string): Promise<Result<LocalPoliticsMayor | null, ApiError>>;
-  listMayors(f: MayorFilterInput, page: OffsetPage): Promise<Result<Paged<LocalPoliticsMayor>, ApiError>>;
+  listMayors(
+    f: MayorFilterInput,
+    page: OffsetPage
+  ): Promise<Result<Paged<LocalPoliticsMayor>, ApiError>>;
 
   // BEC-2024 party/vote correlation rollup (provisional)
   partyPresence(f: PartyFilterInput): Promise<Result<LocalPoliticsPartySummary[], ApiError>>;
 
   // kernel contributor support (UAT grain, by CUI)
-  presenceForCui(cui: string): Promise<Result<{ hasCouncil: boolean; hasMayor: boolean; siruta: string } | null, ApiError>>;
+  presenceForCui(
+    cui: string
+  ): Promise<Result<{ hasCouncil: boolean; hasMayor: boolean; siruta: string } | null, ApiError>>;
 }
 ```
 
@@ -253,13 +261,13 @@ export interface LocalPoliticsRepo {
 
 > **DEFERRED — pending serving promotion.**
 
-| Usecase | Signature | Notes |
-|---------|-----------|-------|
-| `getCouncilComposition` | `(siruta) → Result<CouncilCompositionView, ApiError>` | seats grouped by party for one UAT; **labelled provisional** |
-| `getMayor` | `(siruta) → Result<MayorView | null, ApiError>` | one UAT's mayor claim; provisional |
-| `listCouncilSeats` | `(filter, page) → Result<Paged<…>, ApiError>` | filterable across UATs (by county/region/party) |
-| `getPartyPresence` | `(filter) → Result<PartySummary[], ApiError>` | BEC-2024 party presence/votes rollup; **NOT seat-allocation truth** |
-| `getUatPolitics` | `(cui) → Result<UatPoliticsView, ApiError>` | council + mayor for one UAT (module-local; cross-source via kernel) |
+| Usecase                 | Signature                                             | Notes                                                               |
+| ----------------------- | ----------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------- |
+| `getCouncilComposition` | `(siruta) → Result<CouncilCompositionView, ApiError>` | seats grouped by party for one UAT; **labelled provisional**        |
+| `getMayor`              | `(siruta) → Result<MayorView                          | null, ApiError>`                                                    | one UAT's mayor claim; provisional |
+| `listCouncilSeats`      | `(filter, page) → Result<Paged<…>, ApiError>`         | filterable across UATs (by county/region/party)                     |
+| `getPartyPresence`      | `(filter) → Result<PartySummary[], ApiError>`         | BEC-2024 party presence/votes rollup; **NOT seat-allocation truth** |
+| `getUatPolitics`        | `(cui) → Result<UatPoliticsView, ApiError>`           | council + mayor for one UAT (module-local; cross-source via kernel) |
 
 **Every view model embeds the `ProvenanceStamp`** and a top-level
 `caveats: string[]` defaulting to
@@ -272,8 +280,12 @@ Usecases never strip it.
 ```ts
 const localPoliticsContributor: SourceContributor = {
   source: 'local-politics',
-  async presenceFor(cui) { /* uats.cui == cui → { hasCouncil, hasMayor } */ },
-  async profileSlice(cui) { /* council composition + mayor for that UAT, provisional-stamped */ },
+  async presenceFor(cui) {
+    /* uats.cui == cui → { hasCouncil, hasMayor } */
+  },
+  async profileSlice(cui) {
+    /* council composition + mayor for that UAT, provisional-stamped */
+  },
 };
 ```
 
@@ -290,16 +302,16 @@ const localPoliticsContributor: SourceContributor = {
 > contract. All under the public-read prefix (foundation §8.1 / §14.11
 > per-route `config: { public: true }`).
 
-| Method | Path | Query/params (TypeBox) | Response | Pagination | Cache | Timeout |
-|--------|------|------------------------|----------|------------|-------|---------|
-| GET | `/api/v1/local-politics/uats` | `UatFilter` (county, region, siruta[], q, hasCouncil, hasMayor) | `LocalPoliticsUat[]` | offset (cheap count, tiny set §14.4) | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/uats/:siruta` | path `siruta` | `LocalPoliticsUat` | — | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/uats/:siruta/council` | path | `CouncilCompositionView` (seats by party + provenance/caveats) | — (bounded ≤~60) | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/uats/:siruta/mayor` | path | `LocalPoliticsMayor` | — | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/council-seats` | `CouncilFilter` (county, region, siruta[], party, becMatchStatus, minSeats) | `LocalPoliticsCouncilSeat[]` | offset | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/mayors` | `MayorFilter` (county, region, siruta[], party, becMatchStatus) | `LocalPoliticsMayor[]` | offset | 1h TTL | 5s |
-| GET | `/api/v1/local-politics/parties/presence` | `PartyFilter` (county, region, party) | `LocalPoliticsPartySummary[]` (provisional rollup) | offset | 1h TTL | 15s (aggregate) |
-| GET | `/api/v1/local-politics/filters/resolve` | `dim` (`party`\|`uat`\|`county`\|`region`), `q` | resolved values | — | 1h TTL | 5s |
+| Method | Path                                          | Query/params (TypeBox)                                                      | Response                                                       | Pagination                           | Cache  | Timeout         |
+| ------ | --------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------ | ------ | --------------- |
+| GET    | `/api/v1/local-politics/uats`                 | `UatFilter` (county, region, siruta[], q, hasCouncil, hasMayor)             | `LocalPoliticsUat[]`                                           | offset (cheap count, tiny set §14.4) | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/uats/:siruta`         | path `siruta`                                                               | `LocalPoliticsUat`                                             | —                                    | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/uats/:siruta/council` | path                                                                        | `CouncilCompositionView` (seats by party + provenance/caveats) | — (bounded ≤~60)                     | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/uats/:siruta/mayor`   | path                                                                        | `LocalPoliticsMayor`                                           | —                                    | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/council-seats`        | `CouncilFilter` (county, region, siruta[], party, becMatchStatus, minSeats) | `LocalPoliticsCouncilSeat[]`                                   | offset                               | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/mayors`               | `MayorFilter` (county, region, siruta[], party, becMatchStatus)             | `LocalPoliticsMayor[]`                                         | offset                               | 1h TTL | 5s              |
+| GET    | `/api/v1/local-politics/parties/presence`     | `PartyFilter` (county, region, party)                                       | `LocalPoliticsPartySummary[]` (provisional rollup)             | offset                               | 1h TTL | 15s (aggregate) |
+| GET    | `/api/v1/local-politics/filters/resolve`      | `dim` (`party`\|`uat`\|`county`\|`region`), `q`                             | resolved values                                                | —                                    | 1h TTL | 5s              |
 
 **Envelope (foundation §5.2 / §14.11):** success `{ ok:true, data, meta }`,
 error `{ ok:false, error, message, field?, requestId }`. **Every `data` payload
@@ -319,17 +331,25 @@ description.
 
 ```graphql
 # local-politics/shell/graphql/typedefs  — extends root Query
-enum LocalPoliticsAuthority { PROVISIONAL }          # closed enum — only value
+enum LocalPoliticsAuthority {
+  PROVISIONAL
+} # closed enum — only value
 # closed enum; the raw match_status columns carry NO CHECK constraint (NOTES §"no
 # CHECK on source enums") so the LOADER MUST fold any unanticipated source value to
 # OTHER before projecting to serving — otherwise a future re-export value would
 # hard-fail GraphQL enum serialization. Contract: unknown → OTHER (never a new bare value).
-enum LocalPoliticsBecMatch  { MATCHED NO_MATCH PARTY_NO_MATCH NAME_NO_MATCH OTHER }
+enum LocalPoliticsBecMatch {
+  MATCHED
+  NO_MATCH
+  PARTY_NO_MATCH
+  NAME_NO_MATCH
+  OTHER
+}
 
 type LocalPoliticsProvenance {
-  source: String!                 # "wikipedia"
-  authority: LocalPoliticsAuthority!   # always PROVISIONAL
-  becValidated: String!           # "party_presence_only"
+  source: String! # "wikipedia"
+  authority: LocalPoliticsAuthority! # always PROVISIONAL
+  becValidated: String! # "party_presence_only"
   sourceRunId: String!
   pageRevisionId: String
 }
@@ -339,7 +359,7 @@ type LocalPoliticsUat {
   siruta: SIRUTA!
   name: String!
   countyName: String
-  territory: Territory              # resolved via kernel territory hub (§4.2) + DataLoader on siruta
+  territory: Territory # resolved via kernel territory hub (§4.2) + DataLoader on siruta
   council: [LocalPoliticsCouncilSeat!]!
   mayor: LocalPoliticsMayor
   provenance: LocalPoliticsProvenance!
@@ -350,14 +370,14 @@ type LocalPoliticsCouncilSeat {
   party: String!
   seats: Int!
   becMatchStatus: LocalPoliticsBecMatch!
-  becVoteShare: String             # numeric as string (§14.1)
+  becVoteShare: String # numeric as string (§14.1)
   becVotes: BigInt
-  acceptedForMap: Boolean!         # always false in staging
+  acceptedForMap: Boolean! # always false in staging
   provenance: LocalPoliticsProvenance!
 }
 
 type LocalPoliticsMayor {
-  name: String!                    # public elected-official name
+  name: String! # public elected-official name
   partyLabel: String
   becWinnerParty: String
   partyMatchStatus: LocalPoliticsBecMatch!
@@ -369,21 +389,29 @@ type LocalPoliticsMayor {
 type LocalPoliticsPartySummary {
   party: String!
   uatCount: Int!
-  totalSeats: Int!                 # SUM of Wikipedia seat counts — provisional
+  totalSeats: Int! # SUM of Wikipedia seat counts — provisional
   becVotesTotal: BigInt
   provenance: LocalPoliticsProvenance!
 }
 
 extend type Query {
   localPoliticsUat(siruta: SIRUTA!): LocalPoliticsUat
-  localPoliticsCouncilSeats(filter: LocalPoliticsCouncilFilter, first: Int, after: String): LocalPoliticsCouncilSeatConnection!
-  localPoliticsMayors(filter: LocalPoliticsMayorFilter, first: Int, after: String): LocalPoliticsMayorConnection!
+  localPoliticsCouncilSeats(
+    filter: LocalPoliticsCouncilFilter
+    first: Int
+    after: String
+  ): LocalPoliticsCouncilSeatConnection!
+  localPoliticsMayors(
+    filter: LocalPoliticsMayorFilter
+    first: Int
+    after: String
+  ): LocalPoliticsMayorConnection!
   localPoliticsPartyPresence(filter: LocalPoliticsPartyFilter): [LocalPoliticsPartySummary!]!
 }
 
 # Entity join-type extension (§6.2) — UAT grain only, resolved by CUI via contributor.profileSlice
 extend type Entity {
-  localPolitics: LocalPoliticsUat       # null for non-UAT entities / entities absent from this staging source
+  localPolitics: LocalPoliticsUat # null for non-UAT entities / entities absent from this staging source
 }
 ```
 
@@ -411,16 +439,16 @@ extend type Entity {
 
 `council_seats` collection filter spec (representative; mayors/uats analogous):
 
-| field | type | ops | driving column / index | REST param ↔ GraphQL input ↔ MCP |
-|-------|------|-----|------------------------|-----------------------------------|
-| `siruta` | string | `in` | `council_seats.siruta_code` (idx) → resolved via territory hub | repeated `siruta` ↔ `siruta:[SIRUTA!]` ↔ `siruta[]` |
-| `county_code` | string | `in` | territory hub → resolved `siruta[]` predicate | `countyCode` ↔ list ↔ list |
-| `region` | string | `in` | territory hub → resolved `siruta[]` | `region` ↔ list ↔ list |
-| `party` | string | `eq`,`in`,`prefix` | `council_seats.party_label` (idx) | `party` ↔ `party` ↔ `party` |
-| `becMatchStatus` | enum | `eq`,`in` | `council_seats.bec_match_status` | `becMatchStatus` ↔ enum ↔ enum |
-| `minSeats` | int | `gte` | `council_seats.seats` | `minSeats` ↔ `{from}` ↔ `minSeats` |
-| `hasCouncilTable` | bool | `eq`,`isNull` | `uats.has_council_table` (for `uats`) | `hasCouncil` ↔ bool ↔ bool |
-| sort | — | — | default `seats desc`; allowed `seats`,`party`,`siruta` | — |
+| field             | type   | ops                | driving column / index                                         | REST param ↔ GraphQL input ↔ MCP                    |
+| ----------------- | ------ | ------------------ | -------------------------------------------------------------- | --------------------------------------------------- |
+| `siruta`          | string | `in`               | `council_seats.siruta_code` (idx) → resolved via territory hub | repeated `siruta` ↔ `siruta:[SIRUTA!]` ↔ `siruta[]` |
+| `county_code`     | string | `in`               | territory hub → resolved `siruta[]` predicate                  | `countyCode` ↔ list ↔ list                          |
+| `region`          | string | `in`               | territory hub → resolved `siruta[]`                            | `region` ↔ list ↔ list                              |
+| `party`           | string | `eq`,`in`,`prefix` | `council_seats.party_label` (idx)                              | `party` ↔ `party` ↔ `party`                         |
+| `becMatchStatus`  | enum   | `eq`,`in`          | `council_seats.bec_match_status`                               | `becMatchStatus` ↔ enum ↔ enum                      |
+| `minSeats`        | int    | `gte`              | `council_seats.seats`                                          | `minSeats` ↔ `{from}` ↔ `minSeats`                  |
+| `hasCouncilTable` | bool   | `eq`,`isNull`      | `uats.has_council_table` (for `uats`)                          | `hasCouncil` ↔ bool ↔ bool                          |
+| sort              | —      | —                  | default `seats desc`; allowed `seats`,`party`,`siruta`         | —                                                   |
 
 - **Text engine for `q`:** **Postgres trigram / Meili autocomplete** for
   UAT-name and party-label resolution (`/filters/resolve`). There is **no
@@ -439,13 +467,13 @@ extend type Entity {
 questions** — this module is net-new surface; these are the proposed golden
 cases, every answer **stamped provisional**):
 
-| Q | Filter | Authoritative source |
-|---|--------|----------------------|
-| "Council composition of Cluj-Napoca?" | `uats/:siruta/council` (siruta resolved from name) | **provisional** (Wikipedia seats) |
-| "Which parties hold council seats in Cluj county?" | `council-seats?countyCode=…&sort=seats` | provisional |
-| "Mayor of UAT X and their party?" | `uats/:siruta/mayor` | provisional (BEC name-match flagged) |
-| "UATs where BEC party-match failed?" | `council-seats?becMatchStatus=no_match` | staging signal (data-quality) |
-| "Party presence nationally (BEC-2024 votes)?" | `parties/presence` | **provisional** — presence/votes only, NOT seat truth |
+| Q                                                  | Filter                                             | Authoritative source                                  |
+| -------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------- |
+| "Council composition of Cluj-Napoca?"              | `uats/:siruta/council` (siruta resolved from name) | **provisional** (Wikipedia seats)                     |
+| "Which parties hold council seats in Cluj county?" | `council-seats?countyCode=…&sort=seats`            | provisional                                           |
+| "Mayor of UAT X and their party?"                  | `uats/:siruta/mayor`                               | provisional (BEC name-match flagged)                  |
+| "UATs where BEC party-match failed?"               | `council-seats?becMatchStatus=no_match`            | staging signal (data-quality)                         |
+| "Party presence nationally (BEC-2024 votes)?"      | `parties/presence`                                 | **provisional** — presence/votes only, NOT seat truth |
 
 ---
 
@@ -468,8 +496,8 @@ Two families (§6.3):
 **Output contract (every tool):** the structured object **MUST** carry
 `item.authority = "provisional"` and a `caveats[]` array, and the `summary`
 sentence MUST be phrased as a Wikipedia-sourced provisional claim
-(e.g. *"Per Wikipedia (provisional, not BEC-validated seat allocation), the
-local council of <UAT> has …"*). Tools **never** present seats as fact.
+(e.g. _"Per Wikipedia (provisional, not BEC-validated seat allocation), the
+local council of <UAT> has …"_). Tools **never** present seats as fact.
 `link` deep-link: `<client>/local-politics/uat/<siruta>`. Rate-limited; bounded
 result sizes; **no PII** (no member names; review tables excluded).
 
@@ -482,7 +510,7 @@ result sizes; **no PII** (no member names; review tables excluded).
 - **`doc_type` owned:** `local_politics_council` (one doc per UAT council
   composition: `title` = UAT name, `body` = party-seat summary text, `cuis` =
   `[uat_cui]`, `county_name`, `url` = client deep link, `attrs.authority =
-  "provisional"`). **The scrapper `search` lane writes these; the server only
+"provisional"`). **The scrapper `search` lane writes these; the server only
   reads** (foundation §4.5).
 - **Meilisearch:** entity-name / UAT autocomplete (instant). **Primary search
   value of this source.**
@@ -525,12 +553,14 @@ result sizes; **no PII** (no member names; review tables excluded).
 ```ts
 // local-politics/index.ts
 export function makeLocalPoliticsModule(deps: {
-  db: Kysely<ProdDatabase>;                 // typed over transparenta_prod incl. local_politics.*
-  territoryRepo: TerritoryRepo;             // kernel §4.2
-  identityRepo: IdentityRepo;               // kernel §4.1 (CUI link at UAT grain)
-  search?: SearchClient;                    // capability-gated §14.5
+  db: Kysely<ProdDatabase>; // typed over transparenta_prod incl. local_politics.*
+  territoryRepo: TerritoryRepo; // kernel §4.2
+  identityRepo: IdentityRepo; // kernel §4.1 (CUI link at UAT grain)
+  search?: SearchClient; // capability-gated §14.5
   cache: Cache;
-}): LocalPoliticsModule { /* { restPlugin, graphql, mcpTools, contributor, repos } */ }
+}): LocalPoliticsModule {
+  /* { restPlugin, graphql, mcpTools, contributor, repos } */
+}
 ```
 
 - **`build-app.ts`:** register REST plugin under `/api/v1/local-politics`, merge
@@ -571,7 +601,7 @@ export function makeLocalPoliticsModule(deps: {
 1. **Serving promotion is the blocker (§0).** Nothing here is buildable until a
    scrapper slice creates `local_politics` in `transparenta_prod` and loads it
    through a two-tier gate. **User/architecture decision required:** is
-   promoting a *non-authoritative staging* source to serving desired at all, or
+   promoting a _non-authoritative staging_ source to serving desired at all, or
    should it stay raw-only indefinitely? (It may be more honest to expose it
    **only** as a flagged, clearly-provisional client overlay rather than a
    first-class API domain.)
@@ -583,7 +613,7 @@ export function makeLocalPoliticsModule(deps: {
 3. **CUI grain confusion.** The only CUI is the **UAT's**; council members and
    mayors are persons with no CUI. Risk: a contributor or `Entity` extension
    mis-attributes person data to an org. Mitigation: contributor + `Entity.
-   localPolitics` are **UAT-grain only**, documented in §2/§6.
+localPolitics` are **UAT-grain only**, documented in §2/§6.
 4. **BEC ≠ seat allocation.** `bec_*_correlation` validates **party presence and
    votes**, not exact seats. The `party_presence` rollup must never be presented
    as a seat-allocation source of truth (`becValidated: "party_presence_only"`).

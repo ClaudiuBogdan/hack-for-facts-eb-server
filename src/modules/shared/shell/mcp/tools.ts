@@ -47,10 +47,16 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       const res = await deps.identityRepo.resolve(query);
       if (res.isErr()) return { ok: false, kind: 'entity_resolution', error: res.error.message };
       if (res.value === null) {
-        return { ok: true, kind: 'entity_resolution', query, summary: `No entity matched "${query}".` };
+        return {
+          ok: true,
+          kind: 'entity_resolution',
+          query,
+          summary: `No entity matched "${query}".`,
+        };
       }
       const org = res.value.org;
-      const territoryRes = org.cui !== null ? await deps.identityRepo.territoryForCui(org.cui) : null;
+      const territoryRes =
+        org.cui !== null ? await deps.identityRepo.territoryForCui(org.cui) : null;
       const territory = territoryRes?.isOk() === true ? territoryRes.value : null;
       return {
         ok: true,
@@ -86,7 +92,8 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       const presenceLabels = e.presence.filter((p) => p.present).map((p) => p.label ?? p.source);
       const inCount = String(e.flowsIn.count);
       const outCount = String(e.flowsOut.count);
-      const present = presenceLabels.length > 0 ? presenceLabels.join(', ') : 'no registered sources';
+      const present =
+        presenceLabels.length > 0 ? presenceLabels.join(', ') : 'no registered sources';
       return {
         ok: true,
         kind: 'entity_snapshot',
@@ -119,7 +126,10 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         .array(z.string())
         .optional()
         .describe('Restrict to these entity doc types (e.g. ["company","legal_act"]).'),
-      county: z.string().optional().describe('Canonical county name (case-sensitive, e.g. "Cluj").'),
+      county: z
+        .string()
+        .optional()
+        .describe('Canonical county name (case-sensitive, e.g. "Cluj").'),
       year: z.number().int().optional().describe('Exact year filter.'),
       limit: z.number().int().optional().describe('Max hits to return (default 20, max 50).'),
     },

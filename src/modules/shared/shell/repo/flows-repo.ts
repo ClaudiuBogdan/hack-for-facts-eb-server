@@ -181,7 +181,10 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
     }
   },
 
-  async listFlows(cui: string, options: FlowListOptions): Promise<Result<CursorPage<MoneyFlow>, ApiError>> {
+  async listFlows(
+    cui: string,
+    options: FlowListOptions
+  ): Promise<Result<CursorPage<MoneyFlow>, ApiError>> {
     const col = cuiColumnFor(options.direction);
     const limit = Math.min(Math.max(options.limit, 1), 500);
     const fhash = flowFhash(cui, options);
@@ -339,7 +342,12 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         .where('cui', '=', rootCui)
         .limit(1)
         .executeTakeFirst();
-      nodes.set(rootCui, { cui: rootCui, name: rootOrg?.name ?? rootCui, totalIn: '0', totalOut: '0' });
+      nodes.set(rootCui, {
+        cui: rootCui,
+        name: rootOrg?.name ?? rootCui,
+        totalIn: '0',
+        totalOut: '0',
+      });
 
       const addEdge = (from: string, to: string, amount: string, count: number): void => {
         edges.push({ payerCui: from, payeeCui: to, totalAmount: amount, flowCount: count });
@@ -408,7 +416,9 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
       if (filters.yearFrom !== undefined) query = query.where('flow_year', '>=', filters.yearFrom);
       if (filters.yearTo !== undefined) query = query.where('flow_year', '<=', filters.yearTo);
       if (groupBy === 'cpv') {
-        query = query.where('classification_system', '=', 'cpv').where('classification_code', 'is not', null);
+        query = query
+          .where('classification_system', '=', 'cpv')
+          .where('classification_code', 'is not', null);
       }
 
       const rows = await query

@@ -15,17 +15,20 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { normalizeCui,
+import {
+  normalizeCui,
   type ApiError,
   type Counterparty,
   type FilterInput,
   type FlowsRepo,
   type FlowSummary,
   type MeiliClient,
-  type OffsetParams } from '@/modules/shared/index.js';
+  type OffsetParams,
+} from '@/modules/shared/index.js';
 
 import { COMPANY_STATUS_NOMENCLATURE } from './filters.js';
-import { COMPANY_TERRITORY_COVERAGE_NOTE,
+import {
+  COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
   type CompanyCountyProfile,
   type CompanyHubStats,
@@ -38,7 +41,8 @@ import { COMPANY_TERRITORY_COVERAGE_NOTE,
   type CompanyProfile,
   type CompanyPublicMoney,
   type CompanyResolveDim,
-  type CompanySort } from './types.js';
+  type CompanySort,
+} from './types.js';
 
 import type { CompaniesRepository, CompanyProfileData } from './ports.js';
 
@@ -52,7 +56,11 @@ export interface CompanyUsecaseDeps {
   readonly meili: MeiliClient | null;
 }
 
-const invalidCui = (): ApiError => ({ type: 'InvalidInput', message: 'invalid CUI format', field: 'cui' });
+const invalidCui = (): ApiError => ({
+  type: 'InvalidInput',
+  message: 'invalid CUI format',
+  field: 'cui',
+});
 
 /**
  * Reject an empty `in: []` on any field (inclusion or exclude). The kernel
@@ -116,7 +124,11 @@ export const normalizeCuiFilter = (filter: FilterInput): Result<FilterInput, Api
     result['cui'] = r.value;
   }
   const exclude = filter.exclude;
-  if (exclude !== undefined && typeof exclude === 'object' && (exclude as Record<string, unknown>)['cui'] !== undefined) {
+  if (
+    exclude !== undefined &&
+    typeof exclude === 'object' &&
+    (exclude as Record<string, unknown>)['cui'] !== undefined
+  ) {
     const r = normField((exclude as Record<string, unknown>)['cui']);
     if (r.isErr()) return err(r.error);
     result['exclude'] = { ...(exclude as Record<string, unknown>), cui: r.value };
@@ -174,7 +186,13 @@ const buildPublicMoney = async (
     totalRon: c.totalAmountRon,
     count: c.flowCount,
   }));
-  return ok({ totalRon: summary.totalAmountRon, flowCount: summary.count, byYear, byFlowType, topPayers });
+  return ok({
+    totalRon: summary.totalAmountRon,
+    flowCount: summary.count,
+    byYear,
+    byFlowType,
+    topPayers,
+  });
 };
 
 /**
@@ -247,7 +265,9 @@ const computeTrajectory = (
   // entirely (audit H1: 951,172 / 951,194 loss rows carry net_profit = 0). Subtract
   // explicitly, treating a missing side as 0; null only when BOTH sides are absent.
   const netResult = (y: CompanyFinancialYear): string | null =>
-    y.netProfit === null && y.netLoss === null ? null : decDiff(y.netProfit ?? '0', y.netLoss ?? '0');
+    y.netProfit === null && y.netLoss === null
+      ? null
+      : decDiff(y.netProfit ?? '0', y.netLoss ?? '0');
   return {
     fromYear: prior.year,
     toYear: latest.year,
@@ -308,7 +328,8 @@ export const makeCompanyList = async (
     if (nameCuis.length === 0) {
       return ok({ rows: [], total: 0, totalEstimated: false, caveats });
     }
-    const existing = (filter['cui'] as { in?: readonly string[]; eq?: string } | undefined) ?? undefined;
+    const existing =
+      (filter['cui'] as { in?: readonly string[]; eq?: string } | undefined) ?? undefined;
     const prior = existing?.in ?? (existing?.eq !== undefined ? [existing.eq] : undefined);
     const intersected = prior !== undefined ? nameCuis.filter((c) => prior.includes(c)) : nameCuis;
     if (intersected.length === 0) {
@@ -345,14 +366,26 @@ export const makeCompanyResolve = async (
   q: string,
   limit: number
 ): Promise<Result<CompanyResolveResponse, ApiError>> => {
-  const base = { dim, q, matches: [] as readonly CompanyNameHit[], caenMatches: [] as readonly CaenCodeHit[], countyMatches: [] as readonly string[], degraded: false };
+  const base = {
+    dim,
+    q,
+    matches: [] as readonly CompanyNameHit[],
+    caenMatches: [] as readonly CaenCodeHit[],
+    countyMatches: [] as readonly string[],
+    degraded: false,
+  };
   // limit ≤ 0 means "no hits" — honor it rather than letting the repo floor it to 1 (M10).
   if (Math.floor(limit) <= 0) return ok({ ...base, ambiguous: false });
   switch (dim) {
     case 'name': {
       const res = await deps.repo.resolveByName(q, limit, deps.meili);
       if (res.isErr()) return err(res.error);
-      return ok({ ...base, matches: res.value.hits, degraded: res.value.degraded, ambiguous: res.value.hits.length > 1 });
+      return ok({
+        ...base,
+        matches: res.value.hits,
+        degraded: res.value.degraded,
+        ambiguous: res.value.hits.length > 1,
+      });
     }
     case 'regnum': {
       const res = await deps.repo.findByRegistrationNumber(q);
@@ -370,7 +403,11 @@ export const makeCompanyResolve = async (
       return ok({ ...base, countyMatches: res.value, ambiguous: res.value.length > 1 });
     }
     default:
-      return err({ type: 'InvalidInput', message: `unknown resolve dim '${String(dim)}'`, field: 'dim' });
+      return err({
+        type: 'InvalidInput',
+        message: `unknown resolve dim '${String(dim)}'`,
+        field: 'dim',
+      });
   }
 };
 
@@ -391,14 +428,38 @@ export interface CompanyResolveHitOut {
 export const toCompanyResolveHits = (res: CompanyResolveResponse): CompanyResolveHitOut[] => {
   switch (res.dim) {
     case 'caen':
-      return res.caenMatches.map((c) => ({ dim: 'CAEN' as const, value: c.code, label: c.label ?? c.code, cui: null, confidence: null }));
+      return res.caenMatches.map((c) => ({
+        dim: 'CAEN' as const,
+        value: c.code,
+        label: c.label ?? c.code,
+        cui: null,
+        confidence: null,
+      }));
     case 'county':
-      return res.countyMatches.map((c) => ({ dim: 'COUNTY' as const, value: c, label: c, cui: null, confidence: null }));
+      return res.countyMatches.map((c) => ({
+        dim: 'COUNTY' as const,
+        value: c,
+        label: c,
+        cui: null,
+        confidence: null,
+      }));
     case 'regnum':
-      return res.matches.map((m) => ({ dim: 'REGNUM' as const, value: m.value, label: m.label, cui: m.cui, confidence: m.confidence }));
+      return res.matches.map((m) => ({
+        dim: 'REGNUM' as const,
+        value: m.value,
+        label: m.label,
+        cui: m.cui,
+        confidence: m.confidence,
+      }));
     case 'name':
     default:
-      return res.matches.map((m) => ({ dim: 'NAME' as const, value: m.value, label: m.label, cui: m.cui, confidence: m.confidence }));
+      return res.matches.map((m) => ({
+        dim: 'NAME' as const,
+        value: m.value,
+        label: m.label,
+        cui: m.cui,
+        confidence: m.confidence,
+      }));
   }
 };
 

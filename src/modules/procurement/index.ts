@@ -79,7 +79,10 @@ const warmEmptyScope = (aggregate: ProcurementAggregateRepo, repo: ProcurementRe
 };
 
 export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementModule => {
-  const repo = makeProcurementRepo(deps.db, deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT);
+  const repo = makeProcurementRepo(
+    deps.db,
+    deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT
+  );
   const aggregate = makeProcurementAggregateRepo(deps.db);
   const contributor = makeProcurementContributor(aggregate);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';

@@ -53,15 +53,15 @@ pnpm dev:forward:status   # show which forward ports are listening
 pnpm dev:forward:stop     # tear the tmux session down
 ```
 
-| Local port | Source (cluster · ns · service)                              | Consumed by (env)                          |
-| ---------- | ------------------------------------------------------------ | ------------------------------------------ |
-| `55432`    | griffin · `transparenta-eu-etl-prod` · `…postgres-rw`         | redesign `PROD_DATABASE_URL`               |
-| `57700`    | griffin · … · `…meilisearch`                                  | redesign `PROD_MEILI_HOST`                 |
-| `59200`    | griffin · … · `…opensearch`                                   | redesign `PROD_OPENSEARCH_URL`             |
-| `5432`     | phoenix · `hack-for-facts-dev` · `postgres-db-rw`             | legacy `BUDGET_DATABASE_URL`               |
-| `5433`     | phoenix · … · `postgres-userdata-rw`                         | legacy `USER_DATABASE_URL`                 |
-| `5434`     | phoenix · … · `postgres-ins-rw`                              | legacy `INS_DATABASE_URL`                  |
-| `16379`    | phoenix · … · `redis`                                        | legacy `REDIS_URL` / `BULLMQ_REDIS_URL`    |
+| Local port | Source (cluster · ns · service)                       | Consumed by (env)                       |
+| ---------- | ----------------------------------------------------- | --------------------------------------- |
+| `55432`    | griffin · `transparenta-eu-etl-prod` · `…postgres-rw` | redesign `PROD_DATABASE_URL`            |
+| `57700`    | griffin · … · `…meilisearch`                          | redesign `PROD_MEILI_HOST`              |
+| `59200`    | griffin · … · `…opensearch`                           | redesign `PROD_OPENSEARCH_URL`          |
+| `5432`     | phoenix · `hack-for-facts-dev` · `postgres-db-rw`     | legacy `BUDGET_DATABASE_URL`            |
+| `5433`     | phoenix · … · `postgres-userdata-rw`                  | legacy `USER_DATABASE_URL`              |
+| `5434`     | phoenix · … · `postgres-ins-rw`                       | legacy `INS_DATABASE_URL`               |
+| `16379`    | phoenix · … · `redis`                                 | legacy `REDIS_URL` / `BULLMQ_REDIS_URL` |
 
 Each forward self-reconnects (~4s) if kubectl drops. **Caveat:** the redesign
 server crashes if its DB tunnel _hard_-drops and `tsx watch` does not restart it —

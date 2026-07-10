@@ -15,15 +15,19 @@
 import { sql, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FieldFilter, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  type ApiError,
+  type FieldFilter,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
 import { DA_SELECTIVE_FIELDS } from '../../core/filters.js';
-
 
 /** Read a field's op-bag from a FilterInput (the `{ eq, in, between, … }` object). */
 export const fieldOf = (input: FilterInput, name: string): FieldFilter | undefined => {
   const f = input[name];
-  return f !== undefined && typeof f === 'object' && !Array.isArray(f) ? (f) : undefined;
+  return f !== undefined && typeof f === 'object' && !Array.isArray(f) ? f : undefined;
 };
 
 /** A boolean `eq` value (true/'true'). */
@@ -65,7 +69,10 @@ export const cpvDivisionRange = (
   const divisions: string[] = [];
   for (const d of list) {
     const norm = normalizeDivision(d);
-    if (norm === null) return err(invalidInput(`cpvDivision must be a 2-digit code, got '${String(d)}'`, 'cpvDivision'));
+    if (norm === null)
+      return err(
+        invalidInput(`cpvDivision must be a 2-digit code, got '${String(d)}'`, 'cpvDivision')
+      );
     divisions.push(norm);
   }
   const col = sql.ref(`${alias}.${column}`);
@@ -149,7 +156,10 @@ export const yearDateRange = (
 // ── canonical / duplicates predicate ───────────────────────────────────────────
 
 /** Force `is_canonical = true` unless `includeDuplicates: { eq: true }` is set. */
-export const canonicalPredicate = (input: FilterInput, alias: string): RawBuilder<unknown> | undefined => {
+export const canonicalPredicate = (
+  input: FilterInput,
+  alias: string
+): RawBuilder<unknown> | undefined => {
   if (boolEq(input, 'includeDuplicates') === true) return undefined;
   return sql`${sql.ref(`${alias}.is_canonical`)} = true`;
 };
@@ -164,7 +174,10 @@ export const canonicalPredicate = (input: FilterInput, alias: string): RawBuilde
  * Note (review): a date window present but TOO WIDE is rejected, not accepted — a
  * 10-year `year between` or `finalizationDate between` still seq-scans 20M rows.
  */
-export const assertDaSelective = (input: FilterInput, maxWindowDays: number): Result<void, ApiError> => {
+export const assertDaSelective = (
+  input: FilterInput,
+  maxWindowDays: number
+): Result<void, ApiError> => {
   // Any entity/cpv/uniqueCode dimension with a real value is selective.
   for (const name of DA_SELECTIVE_FIELDS) {
     if (name === 'year' || name === 'finalizationDate') continue;
@@ -172,7 +185,13 @@ export const assertDaSelective = (input: FilterInput, maxWindowDays: number): Re
     if (ff === undefined) continue;
     // An explicit empty in:[] is NOT selective (§7.3; the empty-array footgun).
     const inVal = ff['in'];
-    if (Array.isArray(inVal) && inVal.length === 0 && ff['eq'] === undefined && ff['prefix'] === undefined) continue;
+    if (
+      Array.isArray(inVal) &&
+      inVal.length === 0 &&
+      ff['eq'] === undefined &&
+      ff['prefix'] === undefined
+    )
+      continue;
     return ok(undefined);
   }
 
@@ -183,10 +202,20 @@ export const assertDaSelective = (input: FilterInput, maxWindowDays: number): Re
   if (yearFF !== undefined) {
     const span = yearSpan(yearFF);
     if (span === null) {
-      return err(invalidInput('direct-acquisitions year filter must be a bounded eq / in[] / between', 'year'));
+      return err(
+        invalidInput(
+          'direct-acquisitions year filter must be a bounded eq / in[] / between',
+          'year'
+        )
+      );
     }
     if (span <= yearDays) return ok(undefined);
-    return err(invalidInput(`direct-acquisitions year window must span ≤ ${String(yearDays)} year(s)`, 'year'));
+    return err(
+      invalidInput(
+        `direct-acquisitions year window must span ≤ ${String(yearDays)} year(s)`,
+        'year'
+      )
+    );
   }
 
   // finalizationDate.between: span ≤ maxWindowDays.

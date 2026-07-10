@@ -14,11 +14,7 @@ import {
 } from '@/modules/shared/core/errors.js';
 import { safeColumnRef } from '@/modules/shared/core/filters/composer.js';
 import { normalizeCui } from '@/modules/shared/core/types.js';
-import {
-  BigIntScalar,
-  MoneyScalar,
-  CUIScalar,
-} from '@/modules/shared/shell/graphql/scalars.js';
+import { BigIntScalar, MoneyScalar, CUIScalar } from '@/modules/shared/shell/graphql/scalars.js';
 import { foldDiacritics } from '@/modules/shared/shell/repo/fold.js';
 
 import { compileCondition } from './helpers.js';
@@ -84,7 +80,9 @@ describe('safeColumnRef injection guard', () => {
     expect(compiled.sql).toBe('"c"."flow_year"');
   });
   it('allows a whitelisted cast', () => {
-    const compiled = compileCondition(safeColumnRef({ alias: 'o', column: 'siruta_code', cast: '::text' }));
+    const compiled = compileCondition(
+      safeColumnRef({ alias: 'o', column: 'siruta_code', cast: '::text' })
+    );
     expect(compiled.sql).toContain('::text');
   });
   it('throws on a malformed identifier', () => {
@@ -92,6 +90,8 @@ describe('safeColumnRef injection guard', () => {
     expect(() => safeColumnRef({ alias: 'c', column: 'y); delete from z' })).toThrow();
   });
   it('throws on a malformed cast', () => {
-    expect(() => safeColumnRef({ alias: 'c', column: 'y', cast: '::text; drop table x' })).toThrow();
+    expect(() =>
+      safeColumnRef({ alias: 'c', column: 'y', cast: '::text; drop table x' })
+    ).toThrow();
   });
 });

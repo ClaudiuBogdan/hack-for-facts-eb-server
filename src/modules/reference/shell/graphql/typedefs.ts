@@ -33,16 +33,45 @@ const filterInputs = [
   .join('\n\n');
 
 const objectsAndQuery = /* GraphQL */ `
-  enum ReferenceResolveDim { public_entity territory classification organization }
-  enum ReferenceAggregateDim { entity_type category is_uat county }
-  enum ReferencePublicEntitySort { name cui entity_type updated_at }
-  enum ReferenceTerritorySort { name population county_code }
-  enum ReferenceClassificationSort { code label }
+  enum ReferenceResolveDim {
+    public_entity
+    territory
+    classification
+    organization
+  }
+  enum ReferenceAggregateDim {
+    entity_type
+    category
+    is_uat
+    county
+  }
+  enum ReferencePublicEntitySort {
+    name
+    cui
+    entity_type
+    updated_at
+  }
+  enum ReferenceTerritorySort {
+    name
+    population
+    county_code
+  }
+  enum ReferenceClassificationSort {
+    code
+    label
+  }
 
   "Provenance of the UAT mapping (reference-only attrs)."
-  type ReferenceUatMapping { method: String, confidence: String, unresolvedReason: String }
+  type ReferenceUatMapping {
+    method: String
+    confidence: String
+    unresolvedReason: String
+  }
   "Parent-creditor CUIs (link, not merge)."
-  type ReferenceParentCreditors { cui1: CUI, cui2: CUI }
+  type ReferenceParentCreditors {
+    cui1: CUI
+    cui2: CUI
+  }
 
   "A budget-world public entity (the registry card over core.public_entities)."
   type ReferencePublicEntity {
@@ -73,36 +102,97 @@ const objectsAndQuery = /* GraphQL */ `
     entity: Entity
   }
 
-  type ReferenceClassificationCode { system: String!, code: String!, label: String, parentCode: String }
-  type ReferenceClassificationSystem { system: String!, count: Int! }
-  type ReferenceCounty { countyCode: String!, countyName: String!, region: String, uatCount: Int!, population: Int }
-  type ReferenceRegion { region: String!, countyCount: Int!, uatCount: Int! }
-  type ReferenceCountBucket { key: String!, label: String, count: Int! }
+  type ReferenceClassificationCode {
+    system: String!
+    code: String!
+    label: String
+    parentCode: String
+  }
+  type ReferenceClassificationSystem {
+    system: String!
+    count: Int!
+  }
+  type ReferenceCounty {
+    countyCode: String!
+    countyName: String!
+    region: String
+    uatCount: Int!
+    population: Int
+  }
+  type ReferenceRegion {
+    region: String!
+    countyCount: Int!
+    uatCount: Int!
+  }
+  type ReferenceCountBucket {
+    key: String!
+    label: String
+    count: Int!
+  }
   "A name→value discovery hit (kernel ResolveHit shape; kind = the resolved dimension)."
-  type ReferenceResolveHit { kind: String!, value: String!, label: String!, score: Float, hint: String }
+  type ReferenceResolveHit {
+    kind: String!
+    value: String!
+    label: String!
+    score: Float
+    hint: String
+  }
 
   # Relay connections (kernel cursor envelope). totalCount = the filtered registry total (cheap COUNT, small dim).
-  type ReferencePublicEntityConnection { edges: [ReferencePublicEntityEdge!]!, pageInfo: PageInfo!, totalCount: Int! }
-  type ReferencePublicEntityEdge { node: ReferencePublicEntity!, cursor: String! }
-  type ReferenceTerritoryConnection { edges: [ReferenceTerritoryNodeEdge!]!, pageInfo: PageInfo!, totalCount: Int! }
-  type ReferenceTerritoryNodeEdge { node: Territory!, cursor: String! }
-  type ReferenceClassificationConnection { edges: [ReferenceClassificationEdge!]!, pageInfo: PageInfo! }
-  type ReferenceClassificationEdge { node: ReferenceClassificationCode!, cursor: String! }
+  type ReferencePublicEntityConnection {
+    edges: [ReferencePublicEntityEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+  type ReferencePublicEntityEdge {
+    node: ReferencePublicEntity!
+    cursor: String!
+  }
+  type ReferenceTerritoryConnection {
+    edges: [ReferenceTerritoryNodeEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+  type ReferenceTerritoryNodeEdge {
+    node: Territory!
+    cursor: String!
+  }
+  type ReferenceClassificationConnection {
+    edges: [ReferenceClassificationEdge!]!
+    pageInfo: PageInfo!
+  }
+  type ReferenceClassificationEdge {
+    node: ReferenceClassificationCode!
+    cursor: String!
+  }
 
   extend type Query {
     "Public-entity registry detail by CUI. includeTrace adds field_trace (debug)."
     referencePublicEntity(cui: CUI!, includeTrace: Boolean = false): ReferencePublicEntity
     "Public-entity registry directory (default sort name asc)."
-    referencePublicEntities(filter: ReferencePublicEntityFilter, first: Int = 20, after: String, sort: ReferencePublicEntitySort): ReferencePublicEntityConnection!
+    referencePublicEntities(
+      filter: ReferencePublicEntityFilter
+      first: Int = 20
+      after: String
+      sort: ReferencePublicEntitySort
+    ): ReferencePublicEntityConnection!
     "Children of a creditor (parent1_cui/parent2_cui org tree)."
     referencePublicEntityChildren(cui: CUI!): [ReferencePublicEntity!]!
     "Registry stats grouped by entity_type / category / is_uat / county."
-    referencePublicEntityAggregate(by: ReferenceAggregateDim!, filter: ReferencePublicEntityFilter): [ReferenceCountBucket!]!
+    referencePublicEntityAggregate(
+      by: ReferenceAggregateDim!
+      filter: ReferencePublicEntityFilter
+    ): [ReferenceCountBucket!]!
 
     "Territory/UAT detail by surrogate id OR territorial SIRUTA (exactly one of)."
     referenceTerritory(id: ID, siruta: SIRUTA): Territory
     "Territory/UAT browse (kernel Territory nodes; default sort name asc)."
-    referenceTerritories(filter: ReferenceTerritoryFilter, first: Int = 20, after: String, sort: ReferenceTerritorySort): ReferenceTerritoryConnection!
+    referenceTerritories(
+      filter: ReferenceTerritoryFilter
+      first: Int = 20
+      after: String
+      sort: ReferenceTerritorySort
+    ): ReferenceTerritoryConnection!
     "42 counties (rollup, cached long)."
     referenceCounties: [ReferenceCounty!]!
     "8 development regions (rollup, cached long)."
@@ -111,7 +201,12 @@ const objectsAndQuery = /* GraphQL */ `
     "CAEN classification code detail."
     referenceClassificationCode(system: String!, code: String!): ReferenceClassificationCode
     "CAEN classification browse (default sort code asc)."
-    referenceClassificationCodes(filter: ReferenceClassificationFilter, first: Int = 50, after: String, sort: ReferenceClassificationSort): ReferenceClassificationConnection!
+    referenceClassificationCodes(
+      filter: ReferenceClassificationFilter
+      first: Int = 50
+      after: String
+      sort: ReferenceClassificationSort
+    ): ReferenceClassificationConnection!
     "The CAEN systems + code counts."
     referenceClassificationSystems: [ReferenceClassificationSystem!]!
 
@@ -119,7 +214,11 @@ const objectsAndQuery = /* GraphQL */ `
     referenceOrganization(cui: CUI!): Organization
 
     "Resolve a free-text query to a filter value: institution name → CUI, locality → SIRUTA, CAEN label → code, company name/CUI → CUI."
-    referenceResolve(dim: ReferenceResolveDim!, q: String!, limit: Int = 10): [ReferenceResolveHit!]!
+    referenceResolve(
+      dim: ReferenceResolveDim!
+      q: String!
+      limit: Int = 10
+    ): [ReferenceResolveHit!]!
   }
 
   extend type Entity {

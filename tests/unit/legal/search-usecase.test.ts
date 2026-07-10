@@ -10,7 +10,12 @@ import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import { searchLegal, type LegalSearchDeps } from '@/modules/legal/core/usecases.js';
-import { upstreamError, type ApiError, type CapabilityResolver, type SyntheticClient } from '@/modules/shared/index.js';
+import {
+  upstreamError,
+  type ApiError,
+  type CapabilityResolver,
+  type SyntheticClient,
+} from '@/modules/shared/index.js';
 
 import type { LegalActsRepo, LegalRetrievalRepo } from '@/modules/legal/core/ports.js';
 import type { LegalActCard, LegalDocHit, LegalSectionHit } from '@/modules/legal/core/types.js';
@@ -52,14 +57,21 @@ const makeDeps = (over: {
   const docs: readonly LegalDocHit[] = [];
   return {
     retrieval: {
-      searchSections: over.searchSections ?? (async (): Promise<Result<readonly LegalSectionHit[], ApiError>> => ok(sections)),
-      searchDocs: over.searchDocs ?? (async (): Promise<Result<readonly LegalDocHit[], ApiError>> => ok(docs)),
+      searchSections:
+        over.searchSections ??
+        (async (): Promise<Result<readonly LegalSectionHit[], ApiError>> => ok(sections)),
+      searchDocs:
+        over.searchDocs ??
+        (async (): Promise<Result<readonly LegalDocHit[], ApiError>> => ok(docs)),
     },
     acts: {
-      getActCard: over.getActCard ?? (async (): Promise<Result<LegalActCard | null, ApiError>> => ok(null)),
+      getActCard:
+        over.getActCard ?? (async (): Promise<Result<LegalActCard | null, ApiError>> => ok(null)),
     } as unknown as LegalActsRepo,
     synthetic: {
-      embed: over.embed ?? (async (): Promise<Result<readonly number[], ApiError>> => ok([0.1, 0.2, 0.3])),
+      embed:
+        over.embed ??
+        (async (): Promise<Result<readonly number[], ApiError>> => ok([0.1, 0.2, 0.3])),
     } as unknown as SyntheticClient,
     capabilities: capabilities(over.semanticReady ?? true),
     embeddingModel: 'nomic-embed-text-v1.5',
@@ -75,7 +87,13 @@ describe('searchLegal — identifier router', () => {
       getActCard: async () => ok(card),
       embed: embed,
     });
-    const res = await searchLegal(deps, { q: 'legea 227/2015', filter: {}, channel: 'auto', includeHistorical: false, limit: 5 });
+    const res = await searchLegal(deps, {
+      q: 'legea 227/2015',
+      filter: {},
+      channel: 'auto',
+      includeHistorical: false,
+      limit: 5,
+    });
     expect(res.isOk()).toBe(true);
     const out = res._unsafeUnwrap();
     expect(out.acts).toHaveLength(1);
@@ -89,7 +107,13 @@ describe('searchLegal — semantic gating', () => {
   it('semantic OFF → null vector + caveat (lexical path)', async () => {
     const searchDocs = vi.fn(async () => ok([] as LegalDocHit[]));
     const deps = makeDeps({ semanticReady: false, searchDocs: searchDocs });
-    const res = await searchLegal(deps, { q: 'cota de TVA', filter: {}, channel: 'docs', includeHistorical: false, limit: 5 });
+    const res = await searchLegal(deps, {
+      q: 'cota de TVA',
+      filter: {},
+      channel: 'docs',
+      includeHistorical: false,
+      limit: 5,
+    });
     expect(res.isOk()).toBe(true);
     expect(res._unsafeUnwrap().caveats).toContain('semantic search unavailable');
     // the repo was called with a null vector (lexical fallback)
@@ -104,7 +128,13 @@ describe('searchLegal — semantic gating', () => {
       embed: embed,
       searchSections: searchSections,
     });
-    await searchLegal(deps, { q: 'cota de TVA', filter: {}, channel: 'sections', includeHistorical: false, limit: 5 });
+    await searchLegal(deps, {
+      q: 'cota de TVA',
+      filter: {},
+      channel: 'sections',
+      includeHistorical: false,
+      limit: 5,
+    });
     expect(embed).toHaveBeenCalledWith('search_query: cota de TVA', 'nomic-embed-text-v1.5');
     expect(searchSections).toHaveBeenCalledWith([0.5, 0.6], expect.anything());
   });
@@ -116,7 +146,13 @@ describe('searchLegal — semantic gating', () => {
       embed: async () => err(upstreamError('synthetic down', 'synthetic')),
       searchDocs: searchDocs,
     });
-    const res = await searchLegal(deps, { q: 'cota de TVA', filter: {}, channel: 'docs', includeHistorical: false, limit: 5 });
+    const res = await searchLegal(deps, {
+      q: 'cota de TVA',
+      filter: {},
+      channel: 'docs',
+      includeHistorical: false,
+      limit: 5,
+    });
     expect(res.isOk()).toBe(true);
     expect(res._unsafeUnwrap().caveats).toContain('semantic search unavailable');
     // lexical fallback ran with a null vector
@@ -132,7 +168,13 @@ describe('searchLegal — channel routing', () => {
       searchSections: searchSections,
       searchDocs: searchDocs,
     });
-    await searchLegal(deps, { q: 'tva', filter: {}, channel: 'sections', includeHistorical: false, limit: 5 });
+    await searchLegal(deps, {
+      q: 'tva',
+      filter: {},
+      channel: 'sections',
+      includeHistorical: false,
+      limit: 5,
+    });
     expect(searchSections).toHaveBeenCalled();
     expect(searchDocs).not.toHaveBeenCalled();
   });

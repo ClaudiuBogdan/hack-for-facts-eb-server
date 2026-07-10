@@ -47,7 +47,14 @@ export const listPrimariiEntitiesInput = {
       'A PrimariiEntity filter object: dataQualityStatus/resultStatus/entityType/county (+ exclude), missingCategory, publishesCategory(+categoryState), hasIssues, minConfidence/minEvidenceCoverage. Territory filters (region/siruta/isUat/population) are capability-gated.'
     ),
   sort: z
-    .enum(['data_quality', 'confidence', 'evidence_coverage', 'issue_count', 'entity_name', 'updated_at'])
+    .enum([
+      'data_quality',
+      'confidence',
+      'evidence_coverage',
+      'issue_count',
+      'entity_name',
+      'updated_at',
+    ])
     .optional()
     .describe('Sort key (default data_quality — best-known first).'),
   limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 20).'),
@@ -56,7 +63,14 @@ export const listPrimariiEntitiesInput = {
 
 export const aggregatePrimariiTransparencyInput = {
   groupBy: z
-    .enum(['county', 'region', 'data_quality_status', 'result_status', 'entity_type', 'category_coverage'])
+    .enum([
+      'county',
+      'region',
+      'data_quality_status',
+      'result_status',
+      'entity_type',
+      'category_coverage',
+    ])
     .describe(
       "Rollup dimension. 'category_coverage' answers 'which UATs publish organigrame/headcount/salaries?' (routes to the per-category coverage rollup — found/not_found/unknown/blocked + coverage); the others are status counts. 'region' requires the kernel cui→territory resolver (capability-gated, attaches a coverage caveat)."
     ),

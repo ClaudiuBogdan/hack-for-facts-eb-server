@@ -218,7 +218,9 @@ export const PublicDebateAnnouncementEmail = (
           <InfoRow
             icon="📝"
             label="Descriere"
-            value={<span style={styles.description}>{renderMultilineText(trimmedDescription)}</span>}
+            value={
+              <span style={styles.description}>{renderMultilineText(trimmedDescription)}</span>
+            }
             isLast
           />
         ) : (

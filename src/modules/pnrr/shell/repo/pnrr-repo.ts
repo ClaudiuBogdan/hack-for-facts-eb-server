@@ -13,7 +13,7 @@
  * `announcement_contacts_private`, `is_personal_recipient`, `attrs`, or `*_raw`.
  */
 
-import { sql, type Kysely, type RawBuilder, type SqlBool  } from 'kysely';
+import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -28,7 +28,7 @@ import {
   fhashFor,
   invalidInput,
   normalizeCui,
-  toConditionBuilders
+  toConditionBuilders,
 } from '@/modules/shared/index.js';
 
 import {
@@ -64,7 +64,8 @@ import {
   pnrrMeasuresFilterSpec,
   pnrrPaymentsFilterSpec,
 } from '../../core/filters.js';
-import { PNRR_GRAIN_NOTE,
+import {
+  PNRR_GRAIN_NOTE,
   type PnrrAcquisition,
   type PnrrAcquisitionDetail,
   type PnrrCommitment,
@@ -81,10 +82,10 @@ import { PNRR_GRAIN_NOTE,
   type PnrrPaymentGroupBy,
   type PnrrProgramIndicator,
   type PnrrResolveDim,
-  type PnrrResolveHit } from '../../core/types.js';
+  type PnrrResolveHit,
+} from '../../core/types.js';
 
 import type { CursorPageRequest, PnrrRepository } from '../../core/ports.js';
-
 
 type Db = Kysely<ProdDatabase>;
 
@@ -205,7 +206,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           'e.is_winner',
           'e.is_subcontractor',
           'e.first_seen_source',
-          sql<string[]>`coalesce((select array_agg(distinct l.registry) from pnrr.entity_registry_links l where l.cui = e.cui), '{}')`.as(
+          sql<
+            string[]
+          >`coalesce((select array_agg(distinct l.registry) from pnrr.entity_registry_links l where l.cui = e.cui), '{}')`.as(
             'hubs'
           ),
         ])
@@ -248,7 +251,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           'e.is_winner',
           'e.is_subcontractor',
           'e.first_seen_source',
-          sql<string[]>`coalesce((select array_agg(distinct l.registry) from pnrr.entity_registry_links l where l.cui = e.cui), '{}')`.as(
+          sql<
+            string[]
+          >`coalesce((select array_agg(distinct l.registry) from pnrr.entity_registry_links l where l.cui = e.cui), '{}')`.as(
             'hubs'
           ),
         ])
@@ -414,7 +419,14 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     const yc = yearCondition(f, 'p.payment_date');
     if (yc !== undefined) conds.push(yc);
     if (cursorKeys?.length === 2) {
-      conds.push(descNullsLastCursor('p.payment_date', 'p.payment_key', cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      conds.push(
+        descNullsLastCursor(
+          'p.payment_date',
+          'p.payment_key',
+          cursorKeys[0] ?? '',
+          cursorKeys[1] ?? ''
+        )
+      );
     }
 
     try {
@@ -518,7 +530,11 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         .execute();
 
       // Resolve a friendly label for component/county groups (cheap lookups).
-      const labels = await resolveAggLabels(db, by, rows.map((r) => r.key));
+      const labels = await resolveAggLabels(
+        db,
+        by,
+        rows.map((r) => r.key)
+      );
       return ok(
         rows.map((r) => ({
           key: r.key ?? '(none)',
@@ -559,7 +575,14 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     if (kernel.isErr()) return err(kernel.error);
     const conds: RawBuilder<unknown>[] = [kernel.value];
     if (cursorKeys?.length === 2) {
-      conds.push(descNullsLastCursor('c.commitment_date', 'c.commitment_key', cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      conds.push(
+        descNullsLastCursor(
+          'c.commitment_date',
+          'c.commitment_key',
+          cursorKeys[0] ?? '',
+          cursorKeys[1] ?? ''
+        )
+      );
     }
 
     try {
@@ -695,13 +718,24 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     if (kernel.isErr()) return err(kernel.error);
     const conds: RawBuilder<unknown>[] = [kernel.value];
     if (cursorKeys?.length === 2) {
-      conds.push(descNullsLastCursor('a.signed_at', 'a.acquisition_key', cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
+      conds.push(
+        descNullsLastCursor(
+          'a.signed_at',
+          'a.acquisition_key',
+          cursorKeys[0] ?? '',
+          cursorKeys[1] ?? ''
+        )
+      );
     }
 
     try {
       let query = db.selectFrom('pnrr.acquisitions as a');
       if (needsJoin) {
-        query = query.innerJoin('pnrr.announcements as an', 'an.announcement_key', 'a.announcement_key');
+        query = query.innerJoin(
+          'pnrr.announcements as an',
+          'an.announcement_key',
+          'a.announcement_key'
+        );
       }
       const rows = await query
         .select([
@@ -975,7 +1009,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
-  const listMeasures = async (f: FilterInput): Promise<Result<readonly PnrrMeasure[], ApiError>> => {
+  const listMeasures = async (
+    f: FilterInput
+  ): Promise<Result<readonly PnrrMeasure[], ApiError>> => {
     const kernel = kernelConditions(pnrrMeasuresFilterSpec, f);
     if (kernel.isErr()) return err(kernel.error);
     try {
@@ -1042,7 +1078,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             )
             .limit(capped)
             .execute();
-          return ok(rows.map((r) => ({ dim, value: r.value, label: r.label ?? r.value, score: null })));
+          return ok(
+            rows.map((r) => ({ dim, value: r.value, label: r.label ?? r.value, score: null }))
+          );
         }
         case 'measure': {
           const rows = await db
@@ -1053,12 +1091,17 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             )
             .limit(capped)
             .execute();
-          return ok(rows.map((r) => ({ dim, value: r.value, label: r.label ?? r.value, score: null })));
+          return ok(
+            rows.map((r) => ({ dim, value: r.value, label: r.label ?? r.value, score: null }))
+          );
         }
         case 'county': {
           const rows = await db
             .selectFrom('pnrr.payments as p')
-            .select(['p.county_siruta as value', sql<string | null>`max(p.county_name)`.as('label')])
+            .select([
+              'p.county_siruta as value',
+              sql<string | null>`max(p.county_name)`.as('label'),
+            ])
             .where('p.county_siruta', 'is not', null)
             .where(sql<boolean>`p.county_name ilike ${pattern} escape '\\'`)
             .groupBy('p.county_siruta')
@@ -1145,10 +1188,13 @@ const contractorColumns = () =>
     'ct.validation_status',
   ] as const;
 
-const notFoundCommitment = (key: string): ApiError => invalidInput(`commitment '${key}' not found`, 'commitmentKey');
+const notFoundCommitment = (key: string): ApiError =>
+  invalidInput(`commitment '${key}' not found`, 'commitmentKey');
 
 /** Keep only the known contractor-role values (defensive against future roles). */
-const normalizeRoles = (roles: readonly string[]): readonly import('../../core/types.js').PnrrContractorRole[] => {
+const normalizeRoles = (
+  roles: readonly string[]
+): readonly import('../../core/types.js').PnrrContractorRole[] => {
   const known = new Set([
     'winning_bidder',
     'foreign_winning_bidder',
@@ -1175,7 +1221,9 @@ const resolveAggLabels = async (
       .execute();
     return new Map(
       rows
-        .filter((r): r is { component_code: string; component_name: string } => r.component_name !== null)
+        .filter(
+          (r): r is { component_code: string; component_name: string } => r.component_name !== null
+        )
         .map((r) => [r.component_code, r.component_name])
     );
   }
@@ -1188,7 +1236,10 @@ const resolveAggLabels = async (
     .execute();
   return new Map(
     rows
-      .filter((r): r is { county_siruta: string; county_name: string } => r.county_siruta !== null && r.county_name !== null)
+      .filter(
+        (r): r is { county_siruta: string; county_name: string } =>
+          r.county_siruta !== null && r.county_name !== null
+      )
       .map((r) => [r.county_siruta, r.county_name])
   );
 };

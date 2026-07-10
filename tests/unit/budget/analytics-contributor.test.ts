@@ -69,7 +69,9 @@ describe('budget contributor — profile slice + grain note', () => {
     totalIncome: '2656460197.71',
     totalExpense: '2259241251.68',
     budgetBalance: '397218946.03',
-    topExpenseCategories: [{ functionalCode: '66.05', functionalName: 'Spitale generale', amount: '308718837.89' }],
+    topExpenseCategories: [
+      { functionalCode: '66.05', functionalName: 'Spitale generale', amount: '308718837.89' },
+    ],
     refreshedAt: null,
   };
 

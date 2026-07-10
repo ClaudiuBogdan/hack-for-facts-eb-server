@@ -70,7 +70,9 @@ const mapRef = (r: RefRow): JudicialLegalRef => ({
 });
 
 export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
-  const listForCase = async (caseId: string): Promise<Result<readonly JudicialLegalRef[], ApiError>> => {
+  const listForCase = async (
+    caseId: string
+  ): Promise<Result<readonly JudicialLegalRef[], ApiError>> => {
     if (!ID_RE.test(caseId)) return ok([]);
     try {
       // EXCLUDE source_field='solution_summary' (S2). raw_text/span_* never selected.
@@ -104,7 +106,9 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
       cursorRefId = decoded.value.keys[0];
     }
     const cursorSql =
-      cursorRefId !== undefined ? sql` and lr.case_legal_reference_id < ${cursorRefId}::bigint` : sql``;
+      cursorRefId !== undefined
+        ? sql` and lr.case_legal_reference_id < ${cursorRefId}::bigint`
+        : sql``;
     try {
       const r = await sql<{
         ref_id: string;

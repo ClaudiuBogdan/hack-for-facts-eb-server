@@ -27,17 +27,37 @@ const unwrap = <T>(r: Result<T, ApiError>): T => {
   return r.value;
 };
 
-const finYear = (year: number, turnover: string | null, employees: string | null, netProfit: string | null = null): CompanyFinancialYear => ({
+const finYear = (
+  year: number,
+  turnover: string | null,
+  employees: string | null,
+  netProfit: string | null = null
+): CompanyFinancialYear => ({
   year,
   turnover,
   netProfit,
   netLoss: null,
   employees,
   summary: {
-    turnover, netProfit, netLoss: null, totalRevenue: null, totalExpenses: null, grossProfit: null,
-    grossLoss: null, receivables: null, currentAssets: null, fixedAssets: null, cashAndBank: null,
-    prepaidExpenses: null, deferredIncome: null, subscribedCapital: null, inventories: null,
-    debts: null, provisions: null, totalEquity: null, patrimonyRegie: null,
+    turnover,
+    netProfit,
+    netLoss: null,
+    totalRevenue: null,
+    totalExpenses: null,
+    grossProfit: null,
+    grossLoss: null,
+    receivables: null,
+    currentAssets: null,
+    fixedAssets: null,
+    cashAndBank: null,
+    prepaidExpenses: null,
+    deferredIncome: null,
+    subscribedCapital: null,
+    inventories: null,
+    debts: null,
+    provisions: null,
+    totalEquity: null,
+    patrimonyRegie: null,
   },
   lines: null,
 });
@@ -54,7 +74,13 @@ const profileData = (cui: string): CompanyProfileData => ({
   statusFlags: [],
   territory: null,
   address: { display: '', county: 'Bacău', locality: null },
-  fiscal: { vatPayer: true, declaredFiscallyInactive: false, mainCaenCode: '4752', registeredName: null, asOf: '2026-05-18' },
+  fiscal: {
+    vatPayer: true,
+    declaredFiscallyInactive: false,
+    mainCaenCode: '4752',
+    registeredName: null,
+    asOf: '2026-05-18',
+  },
   caenActivities: [],
   representatives: [],
   financials: [finYear(2024, '12294042595.00', '12313')],
@@ -70,7 +96,13 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
   findByRegistrationNumber: vi.fn(async () => ok([])),
   resolveCaen: vi.fn(async () => ok([])),
   resolveCounty: vi.fn(async () => ok([])),
-  countBy: vi.fn(async () => ok({ groups: [], denominator: 0, coverage: { territoryMatched: null, territoryUnmatched: null, note: '' } })),
+  countBy: vi.fn(async () =>
+    ok({
+      groups: [],
+      denominator: 0,
+      coverage: { territoryMatched: null, territoryUnmatched: null, note: '' },
+    })
+  ),
   profileSlice: vi.fn(async () => ok(null)),
   presenceCounts: vi.fn(async () => ok(null)),
   profileSlicesForCuis: vi.fn(async () => ok(new Map())),
@@ -78,7 +110,17 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
 });
 
 const stubFlows = (over: Partial<FlowsRepo> = {}): FlowsRepo => ({
-  getFlowSummary: vi.fn(async () => ok({ direction: 'in' as const, count: 0, totalAmountRon: '0', minYear: null, maxYear: null, byFlowType: [], byYear: [] })),
+  getFlowSummary: vi.fn(async () =>
+    ok({
+      direction: 'in' as const,
+      count: 0,
+      totalAmountRon: '0',
+      minYear: null,
+      maxYear: null,
+      byFlowType: [],
+      byYear: [],
+    })
+  ),
   getTopCounterparties: vi.fn(async () => ok([])),
   listFlows: vi.fn(async () => ok({ items: [], next: null })),
   getCounterpartyNetwork: vi.fn(async () => ok({ rootCui: '', depth: 0, nodes: [], edges: [] })),
@@ -86,7 +128,9 @@ const stubFlows = (over: Partial<FlowsRepo> = {}): FlowsRepo => ({
   ...over,
 });
 
-const deps = (over: { repo?: Partial<CompaniesRepository>; flows?: Partial<FlowsRepo> } = {}): CompanyUsecaseDeps => ({
+const deps = (
+  over: { repo?: Partial<CompaniesRepository>; flows?: Partial<FlowsRepo> } = {}
+): CompanyUsecaseDeps => ({
   repo: stubRepo(over.repo),
   flowsRepo: stubFlows(over.flows),
   meili: null,
@@ -111,18 +155,35 @@ describe('makeCompanyProfile', () => {
   });
 
   it('injects public money from the kernel FlowsRepo direction=in (payee), not the repo', async () => {
-    const getFlowSummary = vi.fn(async () => ok({
-      direction: 'in' as const, count: 3, totalAmountRon: '1816445170.99', minYear: 2019, maxYear: 2024,
-      byFlowType: [{ flowType: 'direct_acquisition', count: 3, totalAmountRon: '1816445170.99' }],
-      byYear: [
-        { year: 2024, flowType: 'direct_acquisition', count: 2, totalAmountRon: '1000000000.00' },
-        { year: 2019, flowType: 'direct_acquisition', count: 1, totalAmountRon: '816445170.99' },
-      ],
-    }));
+    const getFlowSummary = vi.fn(async () =>
+      ok({
+        direction: 'in' as const,
+        count: 3,
+        totalAmountRon: '1816445170.99',
+        minYear: 2019,
+        maxYear: 2024,
+        byFlowType: [{ flowType: 'direct_acquisition', count: 3, totalAmountRon: '1816445170.99' }],
+        byYear: [
+          { year: 2024, flowType: 'direct_acquisition', count: 2, totalAmountRon: '1000000000.00' },
+          { year: 2019, flowType: 'direct_acquisition', count: 1, totalAmountRon: '816445170.99' },
+        ],
+      })
+    );
     const d = deps({ flows: { getFlowSummary } });
     const res = await makeCompanyProfile(d, '2816464');
     expect(res.isOk()).toBe(true);
-    const pm = (res as { value: { publicMoney: { totalRon: string; flowCount: number; byYear: { year: number | null }[]; byFlowType: { flowType: string }[] } | null } }).value.publicMoney;
+    const pm = (
+      res as {
+        value: {
+          publicMoney: {
+            totalRon: string;
+            flowCount: number;
+            byYear: { year: number | null }[];
+            byFlowType: { flowType: string }[];
+          } | null;
+        };
+      }
+    ).value.publicMoney;
     expect(pm?.flowCount).toBe(3);
     expect(pm?.totalRon).toBe('1816445170.99');
     // H4: byYear carries a populated year (was always null); byFlowType is the rollup.
@@ -146,12 +207,26 @@ describe('makeCompanyProfile', () => {
 describe('makeCompanyFinancials trajectory (precision-safe)', () => {
   it('computes decimal turnover + bigint employee deltas without floats', async () => {
     const getFinancials = vi.fn(async () =>
-      ok([finYear(2024, '12294042595.00', '12313', '1636814708.00'), finYear(2023, '11545530630.00', '12113', '1534733147.00')])
+      ok([
+        finYear(2024, '12294042595.00', '12313', '1636814708.00'),
+        finYear(2023, '11545530630.00', '12113', '1534733147.00'),
+      ])
     );
     const d = deps({ repo: { getFinancials } });
     const res = await makeCompanyFinancials(d, '2816464');
     expect(res.isOk()).toBe(true);
-    const f = (res as { value: { latest: { year: number } | null; trajectory: { turnoverDelta: string | null; employeesDelta: string | null; netResultDelta: string | null } | null } }).value;
+    const f = (
+      res as {
+        value: {
+          latest: { year: number } | null;
+          trajectory: {
+            turnoverDelta: string | null;
+            employeesDelta: string | null;
+            netResultDelta: string | null;
+          } | null;
+        };
+      }
+    ).value;
     expect(f.latest?.year).toBe(2024);
     expect(f.trajectory?.turnoverDelta).toBe('748511965.00'); // 12294042595.00 - 11545530630.00
     expect(f.trajectory?.employeesDelta).toBe('200'); // 12313 - 12113
@@ -169,25 +244,72 @@ describe('makeCompanyList', () => {
   it('normalizes filter.cui (eq + in) at the boundary', async () => {
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
     const d = deps({ repo: { listCompanies } });
-    await makeCompanyList(d, { filter: { cui: { in: ['RO2816464', '4505500'] } }, sort: 'name', page: { page: 1, pageSize: 20 } });
+    await makeCompanyList(d, {
+      filter: { cui: { in: ['RO2816464', '4505500'] } },
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
     const calls = listCompanies.mock.calls as unknown as [{ cui: { in: string[] } }][];
     const passed = calls[0]?.[0];
     expect(passed?.cui.in).toEqual(['2816464', '4505500']);
   });
 
   it('rejects an un-normalizable cui filter value', async () => {
-    const res = await makeCompanyList(deps(), { filter: { cui: { eq: 'xx' } }, sort: 'name', page: { page: 1, pageSize: 20 } });
+    const res = await makeCompanyList(deps(), {
+      filter: { cui: { eq: 'xx' } },
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
     expect(res.isErr()).toBe(true);
   });
 
   it('q ANDs the resolved CUIs into filter.cui.in and runs listCompanies (filters + pagination apply); carries the degraded caveat', async () => {
-    const resolveByName = vi.fn(async () => ok({ hits: [{ dim: 'name' as const, value: '2816464', label: 'DEDEMAN SRL', cui: '2816464', confidence: 1 }], degraded: true }));
-    const listCompanies = vi.fn(async () => ok({ rows: [{ cui: '2816464', orgId: '1', name: 'DEDEMAN SRL', legalForm: 'SRL', headlineStatus: null, county: 'Bacău', vatPayer: true, declaredFiscallyInactive: false, registrationDate: null, registrationDatePresent: false }], total: 1, estimated: false }));
+    const resolveByName = vi.fn(async () =>
+      ok({
+        hits: [
+          {
+            dim: 'name' as const,
+            value: '2816464',
+            label: 'DEDEMAN SRL',
+            cui: '2816464',
+            confidence: 1,
+          },
+        ],
+        degraded: true,
+      })
+    );
+    const listCompanies = vi.fn(async () =>
+      ok({
+        rows: [
+          {
+            cui: '2816464',
+            orgId: '1',
+            name: 'DEDEMAN SRL',
+            legalForm: 'SRL',
+            headlineStatus: null,
+            county: 'Bacău',
+            vatPayer: true,
+            declaredFiscallyInactive: false,
+            registrationDate: null,
+            registrationDatePresent: false,
+          },
+        ],
+        total: 1,
+        estimated: false,
+      })
+    );
     const d = deps({ repo: { resolveByName, listCompanies } });
-    const res = await makeCompanyList(d, { filter: { status: { in: ['1048'] } }, q: 'dedeman', sort: 'name', page: { page: 1, pageSize: 20 } });
+    const res = await makeCompanyList(d, {
+      filter: { status: { in: ['1048'] } },
+      q: 'dedeman',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
     expect(res.isOk()).toBe(true);
     expect(resolveByName).toHaveBeenCalled();
-    const calls = listCompanies.mock.calls as unknown as [{ cui: { in: string[] }; status: { in: string[] } }][];
+    const calls = listCompanies.mock.calls as unknown as [
+      { cui: { in: string[] }; status: { in: string[] } },
+    ][];
     const passed = calls[0]?.[0];
     expect(passed?.cui.in).toEqual(['2816464']); // name-resolved CUIs ANDed in
     expect(passed?.status.in).toEqual(['1048']); // original filter preserved
@@ -198,13 +320,22 @@ describe('makeCompanyList', () => {
     const resolveByName = vi.fn(async () => ok({ hits: [], degraded: false }));
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
     const d = deps({ repo: { resolveByName, listCompanies } });
-    const res = await makeCompanyList(d, { filter: {}, q: 'zzzznomatch', sort: 'name', page: { page: 1, pageSize: 20 } });
+    const res = await makeCompanyList(d, {
+      filter: {},
+      q: 'zzzznomatch',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
     expect(unwrap(res).total).toBe(0);
     expect(listCompanies).not.toHaveBeenCalled();
   });
 
   it('rejects an empty in: [] (which the kernel composer would silently drop to match-all)', async () => {
-    const res = await makeCompanyList(deps(), { filter: { status: { in: [] } }, sort: 'name', page: { page: 1, pageSize: 20 } });
+    const res = await makeCompanyList(deps(), {
+      filter: { status: { in: [] } },
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
     expect(res.isErr()).toBe(true);
     expect((res as { error: ApiError }).error.type).toBe('InvalidInput');
   });
@@ -212,10 +343,12 @@ describe('makeCompanyList', () => {
 
 describe('makeCompanyResolve', () => {
   it('regnum returns the two-hop list and flags ambiguity at >1', async () => {
-    const findByRegistrationNumber = vi.fn(async () => ok([
-      { dim: 'regnum' as const, value: '1', label: 'A', cui: '1', confidence: null },
-      { dim: 'regnum' as const, value: '2', label: 'B', cui: '2', confidence: null },
-    ]));
+    const findByRegistrationNumber = vi.fn(async () =>
+      ok([
+        { dim: 'regnum' as const, value: '1', label: 'A', cui: '1', confidence: null },
+        { dim: 'regnum' as const, value: '2', label: 'B', cui: '2', confidence: null },
+      ])
+    );
     const d = deps({ repo: { findByRegistrationNumber } });
     const res = await makeCompanyResolve(d, 'regnum', 'J40/9216/2018', 10);
     expect(unwrap(res).matches).toHaveLength(2);
@@ -233,7 +366,13 @@ describe('makeCompanyResolve', () => {
 describe('error propagation', () => {
   it('surfaces a repo Database error from the profile usecase', async () => {
     const dbErr: ApiError = { type: 'Database', message: 'boom' };
-    const d = deps({ repo: { getProfileData: vi.fn(async (): Promise<Result<CompanyProfileData | null, ApiError>> => err(dbErr)) } });
+    const d = deps({
+      repo: {
+        getProfileData: vi.fn(
+          async (): Promise<Result<CompanyProfileData | null, ApiError>> => err(dbErr)
+        ),
+      },
+    });
     const res = await makeCompanyProfile(d, '2816464');
     expect((res as { error: ApiError }).error.type).toBe('Database');
   });

@@ -56,7 +56,10 @@ describe('LegalActByIdLoader — dangling tolerance', () => {
 
   it('load() degrades a DB error to null (never throws)', async () => {
     const loader = makeLegalActLoader({
-      acts: stubRepo({ findActById: async (): Promise<Result<LegalAct | null, ApiError>> => err(databaseError('boom')) }),
+      acts: stubRepo({
+        findActById: async (): Promise<Result<LegalAct | null, ApiError>> =>
+          err(databaseError('boom')),
+      }),
       logger: { warn: vi.fn() },
     });
     await expect(loader.load('66150')).resolves.toBeNull();
@@ -78,7 +81,10 @@ describe('LegalActByIdLoader — dangling tolerance', () => {
 
   it('loadMany degrades a DB error to all-null', async () => {
     const loader = makeLegalActLoader({
-      acts: stubRepo({ findActsByIds: async (): Promise<Result<readonly LegalAct[], ApiError>> => err(databaseError('boom')) }),
+      acts: stubRepo({
+        findActsByIds: async (): Promise<Result<readonly LegalAct[], ApiError>> =>
+          err(databaseError('boom')),
+      }),
     });
     await expect(loader.loadMany(['66150', '1'])).resolves.toEqual([null, null]);
   });

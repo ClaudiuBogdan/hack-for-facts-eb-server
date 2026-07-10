@@ -72,7 +72,12 @@ d('prod pool date/timestamp parsers (live)', () => {
     // salary_amount_claims.period_start is a real `date`; current_entity_status.updated_at
     // is a real `timestamptz`. Both must round-trip bare as strings equal to `::text`,
     // so a repo that drops the cast reads exactly what the cast produced today.
-    const { rows } = await prod.pool.query<{ d: unknown; d_text: string; ts: unknown; ts_text: string }>(
+    const { rows } = await prod.pool.query<{
+      d: unknown;
+      d_text: string;
+      ts: unknown;
+      ts_text: string;
+    }>(
       `select sac.period_start as d, sac.period_start::text as d_text,
               ces.updated_at as ts, ces.updated_at::text as ts_text
        from primarii_transparency.salary_amount_claims sac

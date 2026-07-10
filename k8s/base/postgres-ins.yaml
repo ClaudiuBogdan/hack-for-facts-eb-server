@@ -4,7 +4,7 @@ metadata:
   name: postgres-ins
   namespace: hack-for-facts
   annotations:
-    argocd.argoproj.io/sync-wave: "-4"
+    argocd.argoproj.io/sync-wave: '-4'
     argocd.argoproj.io/sync-options: Delete=false
 spec:
   instances: 1
@@ -19,8 +19,8 @@ spec:
     shared_preload_libraries:
       - pg_stat_statements
     parameters:
-      max_connections: "100"
-      shared_buffers: "256MB"
-      max_locks_per_transaction: "256"
+      max_connections: '100'
+      shared_buffers: '256MB'
+      max_locks_per_transaction: '256'
   storage:
     size: 200Gi

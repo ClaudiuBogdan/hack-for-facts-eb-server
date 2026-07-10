@@ -100,5 +100,9 @@ export const makeJudicialModule = (deps: JudicialModuleDeps): JudicialModule => 
 };
 
 export * from './core/types.js';
-export { JUDICIAL_FILTER_SPECS, judicialCasesSpec, judicialCourtsSpec } from './shell/filters/judicial.spec.js';
+export {
+  JUDICIAL_FILTER_SPECS,
+  judicialCasesSpec,
+  judicialCourtsSpec,
+} from './shell/filters/judicial.spec.js';
 export { PUBLISHABLE_RULES, CLASSIFIER_VERSION } from './shell/repo/constants.js';

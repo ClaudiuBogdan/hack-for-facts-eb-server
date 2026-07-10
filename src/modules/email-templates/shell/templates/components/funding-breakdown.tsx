@@ -67,10 +67,7 @@ const styles = {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const FundingBreakdown = ({
-  sources,
-  lang,
-}: FundingBreakdownProps): React.ReactElement => {
+export const FundingBreakdown = ({ sources, lang }: FundingBreakdownProps): React.ReactElement => {
   const t = getTranslations(lang);
 
   return (

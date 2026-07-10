@@ -69,7 +69,11 @@ describe('spokenAtWindowDays — pure UTC window math', () => {
   it('takes the TIGHTEST bounds when gte/lte AND between are combined (they AND in SQL)', () => {
     expect(
       spokenAtWindowDays({
-        spokenAt: { gte: '2025-01-01', lte: '2025-12-31', between: { from: '2025-06-01', to: '2025-06-30' } },
+        spokenAt: {
+          gte: '2025-01-01',
+          lte: '2025-12-31',
+          between: { from: '2025-06-01', to: '2025-06-30' },
+        },
       })
     ).toBe(30);
   });
@@ -122,7 +126,10 @@ describe('hasSpeechesBound / speechesFullTextEligible — the boundedness truth 
   });
 
   it('an over-cap mandateKey in: list is NOT a bound (cardinality cap)', () => {
-    const many = Array.from({ length: SPEECHES_MANDATE_KEYS_MAX + 1 }, (_, i) => `2:2020:${String(i)}`);
+    const many = Array.from(
+      { length: SPEECHES_MANDATE_KEYS_MAX + 1 },
+      (_, i) => `2:2020:${String(i)}`
+    );
     expect(hasSpeechesBound({ mandateKey: { in: many } })).toBe(false);
     expect(hasSpeechesBound({ mandateKey: { in: many.slice(0, SPEECHES_MANDATE_KEYS_MAX) } })).toBe(
       true
@@ -187,7 +194,10 @@ describe('listParliamentSpeeches — bound guard (rejected PRE-repo)', () => {
 
   it('rejects an over-cap mandateKey in: list with a SPECIFIC InvalidInput, pre-repo', async () => {
     const listSpeeches = vi.fn(emptyPage);
-    const many = Array.from({ length: SPEECHES_MANDATE_KEYS_MAX + 1 }, (_, i) => `2:2020:${String(i)}`);
+    const many = Array.from(
+      { length: SPEECHES_MANDATE_KEYS_MAX + 1 },
+      (_, i) => `2:2020:${String(i)}`
+    );
     const r = await list({ mandateKey: { in: many } }, { listSpeeches });
     expect(r.isErr()).toBe(true);
     if (r.isErr()) {
@@ -267,8 +277,7 @@ describe('listParliamentSpeeches — wantFullText threading + q handling', () =>
 });
 
 describe('getParliamentSpeechActivity — guards + wantFullText=mandateKey-only', () => {
-  const activity = () =>
-    okp({ year: 2025, days: [], availableYears: [2025], searchDepth: null });
+  const activity = () => okp({ year: 2025, days: [], availableYears: [2025], searchDepth: null });
 
   it('rejects a spokenAt inside filter and NEVER calls the repo (the year bounds the range)', async () => {
     const speechActivity = vi.fn(activity);
@@ -310,7 +319,12 @@ describe('getParliamentSpeechActivity — guards + wantFullText=mandateKey-only'
     expect(speechActivity).toHaveBeenLastCalledWith(2025, {}, 'lege', false);
 
     await getParliamentSpeechActivity(d, 2025, { chamber: { eq: 'senat' } }, 'lege');
-    expect(speechActivity).toHaveBeenLastCalledWith(2025, { chamber: { eq: 'senat' } }, 'lege', false);
+    expect(speechActivity).toHaveBeenLastCalledWith(
+      2025,
+      { chamber: { eq: 'senat' } },
+      'lege',
+      false
+    );
 
     const two = { mandateKey: { in: ['2:2020:12', '1:2024:1'] } };
     await getParliamentSpeechActivity(d, 2025, two, 'lege');
@@ -327,7 +341,10 @@ describe('getParliamentSpeechActivity — guards + wantFullText=mandateKey-only'
 
   it('rejects an over-cap mandateKey in: list BEFORE the repo', async () => {
     const speechActivity = vi.fn(activity);
-    const many = Array.from({ length: SPEECHES_MANDATE_KEYS_MAX + 1 }, (_, i) => `2:2020:${String(i)}`);
+    const many = Array.from(
+      { length: SPEECHES_MANDATE_KEYS_MAX + 1 },
+      (_, i) => `2:2020:${String(i)}`
+    );
     const r = await getParliamentSpeechActivity(deps(makeRepo({ speechActivity })), 2025, {
       mandateKey: { in: many },
     });

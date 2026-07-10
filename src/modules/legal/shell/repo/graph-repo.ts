@@ -16,7 +16,12 @@ import { type ApiError, type ProdDatabase, databaseError } from '@/modules/share
 import { mapAct, mapExternalAct, mapReferenceEdge, type ActRow } from './mappers.js';
 
 import type { LegalGraphRepo } from '../../core/ports.js';
-import type { LegalExternalAct, LegalIncomingEdge, LegalReferenceEdge, LegalRelation } from '../../core/types.js';
+import type {
+  LegalExternalAct,
+  LegalIncomingEdge,
+  LegalReferenceEdge,
+  LegalRelation,
+} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 const ID_RE = /^\d+$/u;
@@ -26,19 +31,21 @@ const clampEdges = (n: number): number => Math.min(Math.max(Math.floor(n), 1), M
 
 export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
   const selectRefs = () =>
-    db.selectFrom('legal.act_references as r').select([
-      'r.source_document_id',
-      'r.ref_index',
-      'r.relation',
-      'r.target_raw',
-      'r.target_class',
-      'r.target_act_id',
-      'r.target_external_act_id',
-      'r.target_fragment',
-      'r.resolution',
-      'r.confidence',
-      'r.resolver_version',
-    ]);
+    db
+      .selectFrom('legal.act_references as r')
+      .select([
+        'r.source_document_id',
+        'r.ref_index',
+        'r.relation',
+        'r.target_raw',
+        'r.target_class',
+        'r.target_act_id',
+        'r.target_external_act_id',
+        'r.target_fragment',
+        'r.resolution',
+        'r.confidence',
+        'r.resolver_version',
+      ]);
 
   const outgoingRefs = async (
     actId: string,

@@ -27,7 +27,12 @@ import type {
   JudicialParty,
   PublishableName,
 } from './types.js';
-import type { ApiError, CursorPage, CursorPageRequest, FilterInput } from '@/modules/shared/index.js';
+import type {
+  ApiError,
+  CursorPage,
+  CursorPageRequest,
+  FilterInput,
+} from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 // ── Courts (246-row reference) ─────────────────────────────────────────────────
@@ -44,7 +49,10 @@ export interface JudicialCourtRepo {
   /** court-name / locality / code trigram resolve (the `court` resolve dim). */
   resolveCourt(q: string, limit: number): Promise<Result<readonly JudicialCourt[], ApiError>>;
   /** distinct `category` / `category_name` values (the `category` resolve dim). */
-  resolveCategory(q: string, limit: number): Promise<Result<readonly { value: string; label: string | null }[], ApiError>>;
+  resolveCategory(
+    q: string,
+    limit: number
+  ): Promise<Result<readonly { value: string; label: string | null }[], ApiError>>;
 }
 
 // ── Cases ───────────────────────────────────────────────────────────────────────
@@ -114,7 +122,10 @@ export interface PartyDictionaryRepo {
     nameKeyIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, PublishableName>, ApiError>>;
   /** Name → name_key resolution for filters (company/public dictionary ONLY). */
-  resolveCompanyName(q: string, limit: number): Promise<Result<readonly PublishableName[], ApiError>>;
+  resolveCompanyName(
+    q: string,
+    limit: number
+  ): Promise<Result<readonly PublishableName[], ApiError>>;
 }
 
 // ── Company-litigation links (GATED; published-only; empty until gate #9) ──────

@@ -10,8 +10,16 @@
 import { ok, type Result } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
-import { REFERENCE_RESOLVE_DIMS, type ReferencePublicEntity, type ReferencePublicEntityCard } from '@/modules/reference/core/types.js';
-import { getPublicEntity, resolveReference, type ReferenceDeps } from '@/modules/reference/core/usecases.js';
+import {
+  REFERENCE_RESOLVE_DIMS,
+  type ReferencePublicEntity,
+  type ReferencePublicEntityCard,
+} from '@/modules/reference/core/types.js';
+import {
+  getPublicEntity,
+  resolveReference,
+  type ReferenceDeps,
+} from '@/modules/reference/core/usecases.js';
 import { makeReferenceContributor, toProfileSlice } from '@/modules/reference/shell/contributor.js';
 
 import type { ApiError, OrgNameMatch, Territory } from '@/modules/shared/index.js';
@@ -58,13 +66,15 @@ const makeDeps = (over: Partial<ReferenceDeps> = {}): ReferenceDeps => ({
     searchByName: () => okR<readonly ReferencePublicEntityCard[]>([]),
     findChildren: () => okR<readonly ReferencePublicEntityCard[]>([]),
     aggregate: () => okR([]),
-    resolve: (q: string) => okR([{ kind: 'public_entity', value: '4305857', label: `match:${q}`, score: 0.9 }]),
+    resolve: (q: string) =>
+      okR([{ kind: 'public_entity', value: '4305857', label: `match:${q}`, score: 0.9 }]),
     cardsForCuis: () => okR(new Map()),
   },
   classification: {
     findOne: () => okR(null),
     list: () => okR({ items: [], next: null }),
-    resolve: (_s, q) => okR([{ kind: 'classification', value: '1071', label: `caen:${q}`, hint: 'caen_rev2' }]),
+    resolve: (_s, q) =>
+      okR([{ kind: 'classification', value: '1071', label: `caen:${q}`, hint: 'caen_rev2' }]),
     listSystems: () => okR([]),
   },
   territories: {
@@ -79,7 +89,15 @@ const makeDeps = (over: Partial<ReferenceDeps> = {}): ReferenceDeps => ({
     getIdentifiers: () => okR([]),
     searchByName: (q: string) =>
       okR<readonly OrgNameMatch[]>([
-        { orgId: '99', cui: '16054368', name: `org:${q}`, normalizedName: null, countyName: 'CLUJ', kind: 'company', score: 0.7 },
+        {
+          orgId: '99',
+          cui: '16054368',
+          name: `org:${q}`,
+          normalizedName: null,
+          countyName: 'CLUJ',
+          kind: 'company',
+          score: 0.7,
+        },
       ]),
     resolve: () => okR(null),
     territoryForCui: () => okR(null),
@@ -133,7 +151,12 @@ describe('resolveReference routes dims + emits kernel ResolveHit (kind, not dim)
 
 describe('REFERENCE_RESOLVE_DIMS is exactly the four declared dimensions', () => {
   it('matches', () => {
-    expect([...REFERENCE_RESOLVE_DIMS]).toEqual(['public_entity', 'territory', 'classification', 'organization']);
+    expect([...REFERENCE_RESOLVE_DIMS]).toEqual([
+      'public_entity',
+      'territory',
+      'classification',
+      'organization',
+    ]);
   });
 });
 

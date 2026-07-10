@@ -4,7 +4,14 @@
  * (no DB).
  */
 
-import { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, sql } from 'kysely';
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  sql,
+} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { judicialCasesSpec } from '@/modules/judicial/shell/filters/judicial.spec.js';
@@ -20,11 +27,14 @@ const db = new Kysely<Record<string, never>>({
     createQueryCompiler: () => new PostgresQueryCompiler(),
   },
 });
-const render = (frag: ReturnType<typeof keysetCursor>): string => sql`select 1 where ${frag}`.compile(db).sql;
+const render = (frag: ReturnType<typeof keysetCursor>): string =>
+  sql`select 1 where ${frag}`.compile(db).sql;
 
 describe('judicial keysetCursor — (sortExpr, case_id) tiebreak', () => {
   it('desc non-null cursor keeps the IS NULL section reachable + case_id::bigint', () => {
-    const s = render(keysetCursor(sql`c.latest_source_modified_at`, 'date', '2024-02-01', '100', 'desc'));
+    const s = render(
+      keysetCursor(sql`c.latest_source_modified_at`, 'date', '2024-02-01', '100', 'desc')
+    );
     expect(s).toContain('is null');
     expect(s).toContain('::bigint');
     expect(s).toContain('::timestamptz');
@@ -44,7 +54,10 @@ describe('yearBounds — empty values are NOT a bound (Codex P1)', () => {
     expect(yearBounds(fieldOf({ year: { eq: 2024 } }, 'year'))).toEqual({ from: 2024, to: 2024 });
   });
   it('gte/lte → bounds', () => {
-    expect(yearBounds(fieldOf({ year: { gte: 2020, lte: 2024 } }, 'year'))).toEqual({ from: 2020, to: 2024 });
+    expect(yearBounds(fieldOf({ year: { gte: 2020, lte: 2024 } }, 'year'))).toEqual({
+      from: 2020,
+      to: 2024,
+    });
   });
 });
 
@@ -54,7 +67,12 @@ describe('case list bounding rule (§7.1) — rejects unbounded BEFORE any SQL',
   const repo = makeJudicialCaseRepo(throwingDb);
 
   it('empty filter → InvalidInput (no court/period bound)', async () => {
-    const res = await repo.listCursor({ filter: {}, sort: 'modifiedAt', dir: 'desc', page: { first: 20 } });
+    const res = await repo.listCursor({
+      filter: {},
+      sort: 'modifiedAt',
+      dir: 'desc',
+      page: { first: 20 },
+    });
     expect(res.isErr()).toBe(true);
     expect(res._unsafeUnwrapErr().type).toBe('InvalidInput');
   });

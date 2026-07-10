@@ -24,18 +24,20 @@ const MAX_NODES = 500;
 
 export const makeLegalTreeRepo = (db: Db): LegalTreeRepo => {
   const selectNodes = () =>
-    db.selectFrom('legal.document_nodes as n').select([
-      'n.node_id',
-      'n.document_id',
-      'n.parent_node_id',
-      'n.node_kind',
-      'n.label',
-      'n.number_key',
-      'n.path',
-      'n.order_index',
-      'n.char_start',
-      'n.char_end',
-    ]);
+    db
+      .selectFrom('legal.document_nodes as n')
+      .select([
+        'n.node_id',
+        'n.document_id',
+        'n.parent_node_id',
+        'n.node_kind',
+        'n.label',
+        'n.number_key',
+        'n.path',
+        'n.order_index',
+        'n.char_start',
+        'n.char_end',
+      ]);
 
   const nodeChildren = async (
     documentId: string,
@@ -62,7 +64,9 @@ export const makeLegalTreeRepo = (db: Db): LegalTreeRepo => {
             .executeTakeFirst();
           if (parent === undefined) return ok([]);
           const prefix = `${parent.path.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`;
-          q = q.where(sql<boolean>`n.path like ${prefix} escape '\\'`).where('n.node_id', '!=', parentNodeId);
+          q = q
+            .where(sql<boolean>`n.path like ${prefix} escape '\\'`)
+            .where('n.node_id', '!=', parentNodeId);
         }
       }
       const rows = await q.orderBy('n.order_index', 'asc').limit(MAX_NODES).execute();

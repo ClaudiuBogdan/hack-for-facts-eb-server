@@ -37,7 +37,10 @@ export const createRateLimiter = (config: RateLimiterConfig): RateLimiter => {
   const refill = (b: Bucket): void => {
     const now = Date.now();
     const elapsed = now - b.lastRefill;
-    b.tokens = Math.min(config.maxTokens, b.tokens + (elapsed / config.windowMs) * config.maxTokens);
+    b.tokens = Math.min(
+      config.maxTokens,
+      b.tokens + (elapsed / config.windowMs) * config.maxTokens
+    );
     b.lastRefill = now;
   };
 

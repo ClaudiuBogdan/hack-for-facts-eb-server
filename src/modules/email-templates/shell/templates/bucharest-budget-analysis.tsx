@@ -22,18 +22,15 @@ const TEMPLATE_DATA = {
   highlights: [
     {
       title: 'Bani în plus, dar nu din merit propriu',
-      body:
-        'Creșterea vine în principal din cotele și sumele defalcate din impozitul pe venit, ca efect al aplicării parțiale a referendumului local din 2024.',
+      body: 'Creșterea vine în principal din cotele și sumele defalcate din impozitul pe venit, ca efect al aplicării parțiale a referendumului local din 2024.',
     },
     {
       title: 'Transportul și termoficarea domină bugetul',
-      body:
-        'Transportul rutier și energia termică absorb 4,82 miliarde lei, peste jumătate din bugetul local, în mare parte prin subvenții operaționale.',
+      body: 'Transportul rutier și energia termică absorb 4,82 miliarde lei, peste jumătate din bugetul local, în mare parte prin subvenții operaționale.',
     },
     {
       title: 'Bugetul a fost publicat ca PDF scanat',
-      body:
-        'Formatul face analiza automată mult mai dificilă. Pentru un buget de peste 12 miliarde lei, accesul real la date ar trebui să fie mai bun.',
+      body: 'Formatul face analiza automată mult mai dificilă. Pentru un buget de peste 12 miliarde lei, accesul real la date ar trebui să fie mai bun.',
     },
   ],
 } as const;
@@ -265,9 +262,7 @@ const StatBox = ({
   </div>
 );
 
-export const getBucharestBudgetAnalysisSubject = (
-  _props: BucharestBudgetAnalysisProps
-): string => {
+export const getBucharestBudgetAnalysisSubject = (_props: BucharestBudgetAnalysisProps): string => {
   return 'Analiza Funky: bugetul 2026 pentru Primăria Municipiului București';
 };
 
@@ -288,8 +283,8 @@ export const BucharestBudgetAnalysisEmail = (
         <Text style={styles.eyebrow}>Analiza Funky Citizens pentru București</Text>
         <Text style={styles.title}>Bugetul PMB 2026, pe scurt</Text>
         <Text style={styles.intro}>
-          Am publicat analiza proiectului de buget al Primăriei Municipiului București. Mai jos
-          sunt cifrele care merită urmărite înainte de dezbaterea publică.
+          Am publicat analiza proiectului de buget al Primăriei Municipiului București. Mai jos sunt
+          cifrele care merită urmărite înainte de dezbaterea publică.
         </Text>
         <table cellPadding="0" cellSpacing="0" border={0} style={styles.metaTable}>
           <tbody>
@@ -397,8 +392,8 @@ export const BucharestBudgetAnalysisEmail = (
 
       <Text style={styles.body}>
         Ai primit această notificare pentru că urmărești actualizările despre București pe
-        Transparenta.eu. Poți modifica oricând localitățile urmărite din pagina de preferințe
-        pentru notificări.
+        Transparenta.eu. Poți modifica oricând localitățile urmărite din pagina de preferințe pentru
+        notificări.
       </Text>
       <Text style={styles.signature}>Echipa Funky & Transparenta.eu</Text>
     </EmailLayout>

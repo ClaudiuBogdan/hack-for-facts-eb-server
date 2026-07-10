@@ -101,9 +101,9 @@ describe('scope cache', () => {
 
   it('never memoizes a failed load', async () => {
     const cache = makeScopeCache(1000, () => 0);
-    await expect(
-      cache.through('k', () => Promise.reject(new Error('boom')))
-    ).rejects.toThrow('boom');
+    await expect(cache.through('k', () => Promise.reject(new Error('boom')))).rejects.toThrow(
+      'boom'
+    );
     expect(cache.size()).toBe(0);
     expect(await cache.through('k', () => Promise.resolve('ok'))).toBe('ok');
   });

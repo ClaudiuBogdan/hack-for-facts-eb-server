@@ -12,7 +12,6 @@ import { err, ok, type Result } from 'neverthrow';
 import { foldDiacritics } from './fold.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
 
-
 import type { TerritoryRepo } from '../../core/ports.js';
 import type { CountyRef, Siruta, Territory } from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
@@ -123,8 +122,9 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
         .execute();
       return ok(
         rows
-          .filter((r): r is { county_code: string; county_name: string } =>
-            r.county_code !== null && r.county_name !== null
+          .filter(
+            (r): r is { county_code: string; county_name: string } =>
+              r.county_code !== null && r.county_name !== null
           )
           .map((r) => ({ countyCode: r.county_code, countyName: r.county_name }))
       );

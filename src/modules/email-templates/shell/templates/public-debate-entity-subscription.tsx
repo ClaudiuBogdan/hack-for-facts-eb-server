@@ -131,9 +131,7 @@ export const PublicDebateEntitySubscriptionEmail = (
         )}
       </Section>
 
-      <Text style={styles.body}>
-        {t.body.continuationIntro}
-      </Text>
+      <Text style={styles.body}>{t.body.continuationIntro}</Text>
       {t.body.benefits.map((benefit, index) => (
         <Text key={index} style={styles.benefitItem}>
           {'\u2022'} {benefit}

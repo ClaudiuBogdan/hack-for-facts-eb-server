@@ -26,7 +26,14 @@ import type {
   PrimariiStatGroupBy,
   PrimariiStatusBucket,
 } from './types.js';
-import type { ApiError, Cui, FilterInput, IdentityRepo, ResolveHit, Territory } from '@/modules/shared/index.js';
+import type {
+  ApiError,
+  Cui,
+  FilterInput,
+  IdentityRepo,
+  ResolveHit,
+  Territory,
+} from '@/modules/shared/index.js';
 
 export interface PrimariiDeps {
   readonly repo: PrimariiRepository;
@@ -49,25 +56,29 @@ export const listEntityDocuments = (
   deps: PrimariiDeps,
   filter: FilterInput,
   page: CursorPageRequest
-): Promise<Result<CountedCursorPage<PrimariiDocument>, ApiError>> => deps.repo.listDocuments(filter, page);
+): Promise<Result<CountedCursorPage<PrimariiDocument>, ApiError>> =>
+  deps.repo.listDocuments(filter, page);
 
 export const listEntitySnapshots = (
   deps: PrimariiDeps,
   cui: Cui,
   page: CursorPageRequest
-): Promise<Result<CountedCursorPage<PrimariiSnapshot>, ApiError>> => deps.repo.listSnapshots(cui, page);
+): Promise<Result<CountedCursorPage<PrimariiSnapshot>, ApiError>> =>
+  deps.repo.listSnapshots(cui, page);
 
 export const listSalaryClaims = (
   deps: PrimariiDeps,
   cui: Cui,
   page: CursorPageRequest
-): Promise<Result<CountedCursorPage<PrimariiSalaryClaim>, ApiError>> => deps.repo.listSalaryClaims(cui, page);
+): Promise<Result<CountedCursorPage<PrimariiSalaryClaim>, ApiError>> =>
+  deps.repo.listSalaryClaims(cui, page);
 
 export const getTransparencyStats = (
   deps: PrimariiDeps,
   groupBy: PrimariiStatGroupBy,
   filter: FilterInput
-): Promise<Result<readonly PrimariiStatusBucket[], ApiError>> => deps.repo.aggregateStatus(groupBy, filter);
+): Promise<Result<readonly PrimariiStatusBucket[], ApiError>> =>
+  deps.repo.aggregateStatus(groupBy, filter);
 
 export const getCategoryCoverage = (
   deps: PrimariiDeps,
@@ -79,7 +90,8 @@ export const listLoadIssues = (
   deps: PrimariiDeps,
   filter: { cui?: string; severity?: string; issueCode?: string },
   limit: number
-): Promise<Result<readonly PrimariiLoadIssue[], ApiError>> => deps.repo.listLoadIssues(filter, limit);
+): Promise<Result<readonly PrimariiLoadIssue[], ApiError>> =>
+  deps.repo.listLoadIssues(filter, limit);
 
 /** Per-entity territory via the kernel cui→territory resolver (DataLoader-friendly). */
 export const territoryForEntity = (

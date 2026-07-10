@@ -10,11 +10,21 @@ import { parseCitation } from '@/modules/legal/shell/repo/citation.js';
 
 describe('parseCitation — identifier router', () => {
   it('parses "legea 227/2015" → lege 227/2015', () => {
-    expect(parseCitation('legea 227/2015')).toEqual({ actType: 'lege', actNumber: '227', actYear: 2015, issuerSlug: '' });
+    expect(parseCitation('legea 227/2015')).toEqual({
+      actType: 'lege',
+      actNumber: '227',
+      actYear: 2015,
+      issuerSlug: '',
+    });
   });
 
   it('parses the "Legea nr. 227/2015" display form (nr. stripped)', () => {
-    expect(parseCitation('Legea nr. 227/2015')).toEqual({ actType: 'lege', actNumber: '227', actYear: 2015, issuerSlug: '' });
+    expect(parseCitation('Legea nr. 227/2015')).toEqual({
+      actType: 'lege',
+      actNumber: '227',
+      actYear: 2015,
+      issuerSlug: '',
+    });
   });
 
   it('maps abbreviations: L / OUG / HG / O', () => {
@@ -25,7 +35,12 @@ describe('parseCitation — identifier router', () => {
   });
 
   it('tolerates spaces around the slash', () => {
-    expect(parseCitation('oug 57 / 2019')).toEqual({ actType: 'oug', actNumber: '57', actYear: 2019, issuerSlug: '' });
+    expect(parseCitation('oug 57 / 2019')).toEqual({
+      actType: 'oug',
+      actNumber: '57',
+      actYear: 2019,
+      issuerSlug: '',
+    });
   });
 
   it('returns null for a topical query (→ hybrid path)', () => {

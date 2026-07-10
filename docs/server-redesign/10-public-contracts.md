@@ -20,30 +20,30 @@
 
 ## 0. Live-schema facts this plan is grounded in (verified 2026-06-16, griffin)
 
-| Object | Kind | Live rows | Role |
-|---|---|---|---|
-| `procurement.procedures` | table | 526,333 | tender/notice lifecycle (e-licitatie CA ∪ SEAP notices) |
-| `procurement.contracts` | table | 2,252,010 | supplier-level awards (SEAP `contracts` family only) |
-| `procurement.direct_acquisitions` | table | **19,780,511** | catalog buys (elicitatie DA + SEAP DA/DAN) |
-| `procurement.contract_modifications` | table | 51,801 | SEAP modifications, linked to contracts/procedures |
-| `procurement.cpv_codes` | table | 9,748 | observed CPV vocab — **DATA-QUALITY FLAGGED** (`cpv_level` 100% NULL) |
-| `procurement.cpv_divisions` | table | 45 | official CPV-2008 divisions (clean, English labels) |
-| `procurement.procurement_flow_facts_v1` | **view** | (= proc flows) | canonical deterministic fact surface over `flows.money_flows` |
-| `procurement.org_edge_monthly_rollups` | **matview** | 8,344,915 | authority↔supplier monthly edges (PC-1/3/6) |
-| `procurement.authority_cpv_division_monthly_rollups` | **matview** | 5,222,133 | authority×CPV-division monthly (PC-4) |
-| `procurement.supplier_cpv_division_monthly_rollups` | **matview** | 9,264,776 | authority×supplier×CPV-division monthly (PC-2) |
-| `procurement.same_day_direct_acquisition_candidates` | **matview** | 1,158,463 | same-day DA splitting candidates (PC-7) |
-| `procurement.aggregate_quality_by_grain` | **matview** | 2 | **the grain gate** — which aggregate answers are allowed per grain |
-| `flows.money_flows` (source_id=`procurement`) | table | 16,655,987 (144,891 null-amount) | kernel-owned cross-source flow graph |
-| `search.documents` (3 procurement doc_types) | table | 2,782,639 | search projection |
+| Object                                               | Kind        | Live rows                        | Role                                                                  |
+| ---------------------------------------------------- | ----------- | -------------------------------- | --------------------------------------------------------------------- |
+| `procurement.procedures`                             | table       | 526,333                          | tender/notice lifecycle (e-licitatie CA ∪ SEAP notices)               |
+| `procurement.contracts`                              | table       | 2,252,010                        | supplier-level awards (SEAP `contracts` family only)                  |
+| `procurement.direct_acquisitions`                    | table       | **19,780,511**                   | catalog buys (elicitatie DA + SEAP DA/DAN)                            |
+| `procurement.contract_modifications`                 | table       | 51,801                           | SEAP modifications, linked to contracts/procedures                    |
+| `procurement.cpv_codes`                              | table       | 9,748                            | observed CPV vocab — **DATA-QUALITY FLAGGED** (`cpv_level` 100% NULL) |
+| `procurement.cpv_divisions`                          | table       | 45                               | official CPV-2008 divisions (clean, English labels)                   |
+| `procurement.procurement_flow_facts_v1`              | **view**    | (= proc flows)                   | canonical deterministic fact surface over `flows.money_flows`         |
+| `procurement.org_edge_monthly_rollups`               | **matview** | 8,344,915                        | authority↔supplier monthly edges (PC-1/3/6)                           |
+| `procurement.authority_cpv_division_monthly_rollups` | **matview** | 5,222,133                        | authority×CPV-division monthly (PC-4)                                 |
+| `procurement.supplier_cpv_division_monthly_rollups`  | **matview** | 9,264,776                        | authority×supplier×CPV-division monthly (PC-2)                        |
+| `procurement.same_day_direct_acquisition_candidates` | **matview** | 1,158,463                        | same-day DA splitting candidates (PC-7)                               |
+| `procurement.aggregate_quality_by_grain`             | **matview** | 2                                | **the grain gate** — which aggregate answers are allowed per grain    |
+| `flows.money_flows` (source_id=`procurement`)        | table       | 16,655,987 (144,891 null-amount) | kernel-owned cross-source flow graph                                  |
+| `search.documents` (3 procurement doc_types)         | table       | 2,782,639                        | search projection                                                     |
 
 **Grain gate snapshot — current values, NOT frozen contract** (as of the
 2026-06-16 MV refresh):
 
-| `source_grain` | rows (flow-grain) | `filter_answers_allowed` | `spend_rankings_allowed` | `supplier_region_filters_allowed` |
-|---|---|---|---|---|
-| `direct_acquisition` | 15,790,420 | **true** | **true** | false |
-| `procurement_contract` | 865,567 | **true** | **false** (amount coverage below threshold) | false |
+| `source_grain`         | rows (flow-grain) | `filter_answers_allowed` | `spend_rankings_allowed`                    | `supplier_region_filters_allowed` |
+| ---------------------- | ----------------- | ------------------------ | ------------------------------------------- | --------------------------------- |
+| `direct_acquisition`   | 15,790,420        | **true**                 | **true**                                    | false                             |
+| `procurement_contract` | 865,567           | **true**                 | **false** (amount coverage below threshold) | false                             |
 
 ⚠ **These three booleans are computed at MV-refresh time from coverage thresholds**
 (`amount/authority/supplier/cpv/date/territory coverage` vs fixed cut-offs in
@@ -60,9 +60,10 @@ different, larger-keyed grain (do not conflate).
 `source_grain` ∈ {`direct_acquisition`, `procurement_contract`} **= the `flow_type`**,
 NOT a SEAP/elicitatie distinction. Every aggregate endpoint reads the live gate
 first and acts on **all three** booleans (§4 enforcement):
+
 - `filter_answers_allowed=false` for the requested grain → the aggregate **abstains**
   (returns `{ ok:true, data:[], caveats:["grain not gate-approved for filtered
-  aggregate answers: <blockers>"] }`, partial-coverage per the catalog Coverage
+aggregate answers: <blockers>"] }`, partial-coverage per the catalog Coverage
   Gate), never fabricates a number.
 - `spend_rankings_allowed=false` → return counts + edge facts, **suppress value
   ordering** (rank by `flow_count`), and force concentration/share measures to be
@@ -96,6 +97,7 @@ dedup, pipe corruption, garbage money, status) and they are **live and verified*
 
 **Known data-quality the API surfaces (not hides)** — from the audit, exposed as
 `dataQuality` caveats and the grain gate, never silently:
+
 - `procurement.cpv_codes.cpv_level`/`parent_code` are unpopulated → **CPV hierarchy
   comes from `cpv_divisions` (2-digit) only**; deeper CPV is the raw 8-digit code +
   label, no tree. (Catalog §7a.)
@@ -127,21 +129,21 @@ the blob). `dup_group_id`/`is_canonical` are surfaced (dedup transparency).
 // procurement/core/types.ts  (grounded in _prod-schema/procurement.tsv)
 
 export interface ProcurementProcedure {
-  readonly procedureId: string;          // bigint → string
+  readonly procedureId: string; // bigint → string
   readonly sourceSystem: 'elicitatie' | 'seap_notice';
   readonly noticeNo: string | null;
-  readonly noticeKind: string | null;    // award|initiation|award_no_init|sad|unknown
+  readonly noticeKind: string | null; // award|initiation|award_no_init|sad|unknown
   readonly procedureType: string | null; // normalized sys_procedure_type / TIP_PROCEDURA
-  readonly contractKind: string | null;  // works|services|supplies
+  readonly contractKind: string | null; // works|services|supplies
   readonly title: string | null;
   readonly authorityCui: string | null;
   readonly authorityName: string | null;
-  readonly cpvCode: string | null;       // normalized 8-digit
+  readonly cpvCode: string | null; // normalized 8-digit
   readonly cpvDivisionCode: string | null; // derived: cpvCode[0:2] (join cpv_divisions for label)
   readonly estimatedValueRon: string | null;
   readonly awardedValueRon: string | null;
   readonly currency: string | null;
-  readonly status: ProcedureStatus;      // published|in_evaluation|awarded|cancelled|suspended|unknown
+  readonly status: ProcedureStatus; // published|in_evaluation|awarded|cancelled|suspended|unknown
   readonly countyName: string | null;
   readonly publicationDate: string | null;
   readonly stateDate: string | null;
@@ -149,8 +151,8 @@ export interface ProcurementProcedure {
 
 export interface ProcurementContract {
   readonly contractId: string;
-  readonly contractKey: string;          // seap_c:<entity_key>
-  readonly procedureId: string | null;   // FK → procedures (on delete set null)
+  readonly contractKey: string; // seap_c:<entity_key>
+  readonly procedureId: string | null; // FK → procedures (on delete set null)
   readonly noticeNo: string | null;
   readonly contractNo: string | null;
   readonly contractDate: string | null;
@@ -163,8 +165,8 @@ export interface ProcurementContract {
   readonly cpvDivisionCode: string | null;
   readonly valueRon: string | null;
   readonly estimatedValueRon: string | null;
-  readonly currency: string | null;      // ⚠ NOT a clean ISO code: per audit F1/F7 the loader nulls value_ron for non-RON and writes a flag token into this column. Map to { isRon, isSuspectNonRon } at the boundary; never expose as a plain currency.
-  readonly status: ContractStatus;       // awarded|in_progress|closed|cancelled|unknown
+  readonly currency: string | null; // ⚠ NOT a clean ISO code: per audit F1/F7 the loader nulls value_ron for non-RON and writes a flag token into this column. Map to { isRon, isSuspectNonRon } at the boundary; never expose as a plain currency.
+  readonly status: ContractStatus; // awarded|in_progress|closed|cancelled|unknown
   readonly countyName: string | null;
   readonly isCanonical: boolean;
   readonly dupGroupId: string | null;
@@ -172,7 +174,7 @@ export interface ProcurementContract {
 
 export interface ProcurementDirectAcquisition {
   readonly daId: string;
-  readonly daKey: string;                // elicitatie_da:<id>|seap_da:<key>|seap_dan:<key>
+  readonly daKey: string; // elicitatie_da:<id>|seap_da:<key>|seap_dan:<key>
   readonly sourceSystem: 'elicitatie_da' | 'seap_da' | 'seap_dan';
   readonly uniqueCode: string | null;
   readonly title: string | null;
@@ -185,7 +187,7 @@ export interface ProcurementDirectAcquisition {
   readonly valueRon: string | null;
   readonly estimatedValueRon: string | null;
   readonly currency: string | null;
-  readonly status: DaStatus;             // offered|awarded|finalized|cancelled|unknown
+  readonly status: DaStatus; // offered|awarded|finalized|cancelled|unknown
   readonly countyName: string | null;
   readonly publicationDate: string | null;
   readonly finalizationDate: string | null;
@@ -195,7 +197,7 @@ export interface ProcurementDirectAcquisition {
 
 export interface ProcurementModification {
   readonly modificationId: string;
-  readonly contractId: string | null;    // FK → contracts (on delete set null); null ⇔ link_method null
+  readonly contractId: string | null; // FK → contracts (on delete set null); null ⇔ link_method null
   readonly linkMethod: 'notice_no' | 'authority_cui+contract_no' | null;
   readonly linkConfidence: number | null;
   readonly authorityCui: string | null;
@@ -206,72 +208,133 @@ export interface ProcurementModification {
   readonly valueBeforeRon: string | null;
   readonly valueAfterRon: string | null;
   readonly valueDeltaRon: string | null;
-  readonly deltaPct: number | null;       // derived = delta/before (PC-8)
+  readonly deltaPct: number | null; // derived = delta/before (PC-8)
   readonly modificationType: string | null;
   readonly year: number | null;
 }
 
 // Aggregate view models (rollup-backed; see §3a)
-export interface ProcurementEdge {            // org_edge_monthly_rollups, grouped
-  readonly authorityCui: string; readonly authorityName: string | null;
-  readonly supplierCui: string;  readonly supplierName: string | null;
+export interface ProcurementEdge {
+  // org_edge_monthly_rollups, grouped
+  readonly authorityCui: string;
+  readonly authorityName: string | null;
+  readonly supplierCui: string;
+  readonly supplierName: string | null;
   readonly sourceGrain: ProcurementGrain;
-  readonly flowCount: string; readonly amountRonSum: string | null;
-  readonly amountPresentCount: string; readonly amountMissingCount: string;
-  readonly firstFlowDate: string | null; readonly lastFlowDate: string | null;
+  readonly flowCount: string;
+  readonly amountRonSum: string | null;
+  readonly amountPresentCount: string;
+  readonly amountMissingCount: string;
+  readonly firstFlowDate: string | null;
+  readonly lastFlowDate: string | null;
   readonly evidenceRefsSample: readonly string[];
 }
-export interface SupplierConcentration {      // computed over edges (PC-5)
-  readonly authorityCui: string; readonly sourceGrain: ProcurementGrain;
+export interface SupplierConcentration {
+  // computed over edges (PC-5)
+  readonly authorityCui: string;
+  readonly sourceGrain: ProcurementGrain;
   readonly supplierCount: number;
-  readonly basis: 'value' | 'count';         // count-based when grain spend_rankings_allowed=false (I6)
-  readonly top1Share: number | null;          // share of basis measure (value sum OR flow count)
+  readonly basis: 'value' | 'count'; // count-based when grain spend_rankings_allowed=false (I6)
+  readonly top1Share: number | null; // share of basis measure (value sum OR flow count)
   readonly top5Share: number | null;
-  readonly hhi: number | null;                // Herfindahl over the basis measure
-  readonly totalRon: string | null;           // null when basis='count'
+  readonly hhi: number | null; // Herfindahl over the basis measure
+  readonly totalRon: string | null; // null when basis='count'
   readonly caveats: readonly string[];
 }
-export interface GrainQuality {               // aggregate_quality_by_grain (the gate)
+export interface GrainQuality {
+  // aggregate_quality_by_grain (the gate)
   readonly sourceGrain: ProcurementGrain;
   readonly rowsCount: string;
-  readonly authorityCuiCoverageRate: number; readonly supplierCuiCoverageRate: number;
-  readonly amountCoverageRate: number; readonly cpvCoverageRate: number;
-  readonly dateCoverageRate: number; readonly authorityTerritoryCoverageRate: number;
-  readonly filterAnswersAllowed: boolean; readonly spendRankingsAllowed: boolean;
+  readonly authorityCuiCoverageRate: number;
+  readonly supplierCuiCoverageRate: number;
+  readonly amountCoverageRate: number;
+  readonly cpvCoverageRate: number;
+  readonly dateCoverageRate: number;
+  readonly authorityTerritoryCoverageRate: number;
+  readonly filterAnswersAllowed: boolean;
+  readonly spendRankingsAllowed: boolean;
   readonly supplierRegionFiltersAllowed: boolean;
   readonly blockers: readonly string[];
-  readonly refreshedAt: string | null; readonly projectionVersion: string;
+  readonly refreshedAt: string | null;
+  readonly projectionVersion: string;
 }
 
 // Remaining aggregate row / helper types (rollup-backed; columns from §0 MVs)
-export interface AuthorityCpvRow {            // authority_cpv_division_monthly_rollups
-  readonly authorityCui: string; readonly cpvDivisionCode: string; readonly cpvDivisionLabelEn: string | null;
-  readonly sourceGrain: ProcurementGrain; readonly flowCount: string; readonly amountRonSum: string | null;
-  readonly distinctSupplierCount: string; readonly firstFlowDate: string | null; readonly lastFlowDate: string | null;
+export interface AuthorityCpvRow {
+  // authority_cpv_division_monthly_rollups
+  readonly authorityCui: string;
+  readonly cpvDivisionCode: string;
+  readonly cpvDivisionLabelEn: string | null;
+  readonly sourceGrain: ProcurementGrain;
+  readonly flowCount: string;
+  readonly amountRonSum: string | null;
+  readonly distinctSupplierCount: string;
+  readonly firstFlowDate: string | null;
+  readonly lastFlowDate: string | null;
 }
-export interface SupplierCpvRow {             // supplier_cpv_division_monthly_rollups
-  readonly authorityCui: string; readonly supplierCui: string; readonly supplierName: string | null;
-  readonly authorityRegion: string | null; readonly cpvDivisionCode: string; readonly sourceGrain: ProcurementGrain;
-  readonly flowCount: string; readonly amountRonSum: string | null; readonly evidenceRefsSample: readonly string[];
+export interface SupplierCpvRow {
+  // supplier_cpv_division_monthly_rollups
+  readonly authorityCui: string;
+  readonly supplierCui: string;
+  readonly supplierName: string | null;
+  readonly authorityRegion: string | null;
+  readonly cpvDivisionCode: string;
+  readonly sourceGrain: ProcurementGrain;
+  readonly flowCount: string;
+  readonly amountRonSum: string | null;
+  readonly evidenceRefsSample: readonly string[];
 }
-export interface SameDayCandidate {           // same_day_direct_acquisition_candidates
-  readonly candidateDate: string; readonly authorityCui: string; readonly supplierCui: string;
-  readonly cpvCode: string | null; readonly cpvDivisionCode: string | null;
-  readonly sameDayCount: string; readonly sameDayTotalRon: string | null; readonly maxSingleAmountRon: string | null;
-  readonly evidenceRefsSample: readonly string[];   // candidate = review signal, NOT illegality
+export interface SameDayCandidate {
+  // same_day_direct_acquisition_candidates
+  readonly candidateDate: string;
+  readonly authorityCui: string;
+  readonly supplierCui: string;
+  readonly cpvCode: string | null;
+  readonly cpvDivisionCode: string | null;
+  readonly sameDayCount: string;
+  readonly sameDayTotalRon: string | null;
+  readonly maxSingleAmountRon: string | null;
+  readonly evidenceRefsSample: readonly string[]; // candidate = review signal, NOT illegality
 }
-export interface CpvDivision { readonly code: string; readonly labelEn: string; readonly labelRo: string | null; }
-export interface CpvMatch { readonly code: string; readonly label: string | null; readonly level: 'division' | 'code'; readonly confidence: number; }
-export interface ResolveHit { readonly value: string; readonly label: string | null; readonly kind: string; readonly confidence: number; }
-export interface ProcurementPresence { readonly source: 'procurement';
-  readonly asAuthority: { contractCount: string; daCount: string }; readonly asSupplier: { contractCount: string; daCount: string }; }
-export interface ProcurementProfileSlice { readonly asAuthority: ProcurementEdge[]; readonly asSupplier: ProcurementEdge[];
-  readonly spendByCpvDivision: AuthorityCpvRow[]; readonly caveats: readonly string[]; }
+export interface CpvDivision {
+  readonly code: string;
+  readonly labelEn: string;
+  readonly labelRo: string | null;
+}
+export interface CpvMatch {
+  readonly code: string;
+  readonly label: string | null;
+  readonly level: 'division' | 'code';
+  readonly confidence: number;
+}
+export interface ResolveHit {
+  readonly value: string;
+  readonly label: string | null;
+  readonly kind: string;
+  readonly confidence: number;
+}
+export interface ProcurementPresence {
+  readonly source: 'procurement';
+  readonly asAuthority: { contractCount: string; daCount: string };
+  readonly asSupplier: { contractCount: string; daCount: string };
+}
+export interface ProcurementProfileSlice {
+  readonly asAuthority: ProcurementEdge[];
+  readonly asSupplier: ProcurementEdge[];
+  readonly spendByCpvDivision: AuthorityCpvRow[];
+  readonly caveats: readonly string[];
+}
 
 export type ProcurementGrain = 'direct_acquisition' | 'procurement_contract';
-export type ProcedureStatus = 'published'|'in_evaluation'|'awarded'|'cancelled'|'suspended'|'unknown';
-export type ContractStatus  = 'awarded'|'in_progress'|'closed'|'cancelled'|'unknown';
-export type DaStatus        = 'offered'|'awarded'|'finalized'|'cancelled'|'unknown';
+export type ProcedureStatus =
+  | 'published'
+  | 'in_evaluation'
+  | 'awarded'
+  | 'cancelled'
+  | 'suspended'
+  | 'unknown';
+export type ContractStatus = 'awarded' | 'in_progress' | 'closed' | 'cancelled' | 'unknown';
+export type DaStatus = 'offered' | 'awarded' | 'finalized' | 'cancelled' | 'unknown';
 ```
 
 **Identity (CUI) linkage:** all entity rows carry `authority_cui` / `supplier_cui`
@@ -303,23 +366,45 @@ money totals go through the kernel `FlowsRepo`, not here** (§4.3/§14.6).
 ```ts
 export interface ProcurementRepo {
   // ---- procedures (526k; cursor by (publication_date, procedure_id)) ----
-  listProcedures(f: ProcedureFilterInput, p: CursorPage): Promise<Result<Page<ProcurementProcedure>, ApiError>>;
+  listProcedures(
+    f: ProcedureFilterInput,
+    p: CursorPage
+  ): Promise<Result<Page<ProcurementProcedure>, ApiError>>;
   getProcedure(id: string): Promise<Result<ProcurementProcedure | null, ApiError>>;
-  getProcedureContracts(id: string, p: OffsetPage): Promise<Result<Page<ProcurementContract>, ApiError>>; // procedure_id idx
+  getProcedureContracts(
+    id: string,
+    p: OffsetPage
+  ): Promise<Result<Page<ProcurementContract>, ApiError>>; // procedure_id idx
 
   // ---- contracts (2.25M; cursor by (contract_date, contract_id)) ----
-  listContracts(f: ContractFilterInput, p: CursorPage): Promise<Result<Page<ProcurementContract>, ApiError>>;
+  listContracts(
+    f: ContractFilterInput,
+    p: CursorPage
+  ): Promise<Result<Page<ProcurementContract>, ApiError>>;
   getContract(id: string): Promise<Result<ProcurementContract | null, ApiError>>;
-  getContractModifications(id: string, p: OffsetPage): Promise<Result<Page<ProcurementModification>, ApiError>>; // contract_id idx
+  getContractModifications(
+    id: string,
+    p: OffsetPage
+  ): Promise<Result<Page<ProcurementModification>, ApiError>>; // contract_id idx
 
   // ---- direct_acquisitions (19.8M; cursor ONLY by (finalization_date, da_id)) ----
-  listDirectAcquisitions(f: DaFilterInput, p: CursorPage): Promise<Result<Page<ProcurementDirectAcquisition>, ApiError>>;
+  listDirectAcquisitions(
+    f: DaFilterInput,
+    p: CursorPage
+  ): Promise<Result<Page<ProcurementDirectAcquisition>, ApiError>>;
   getDirectAcquisition(id: string): Promise<Result<ProcurementDirectAcquisition | null, ApiError>>;
 
   // ---- modifications (52k; cursor by (modification_date, modification_id)) ----
-  listModifications(f: ModificationFilterInput, p: CursorPage): Promise<Result<Page<ProcurementModification>, ApiError>>;
+  listModifications(
+    f: ModificationFilterInput,
+    p: CursorPage
+  ): Promise<Result<Page<ProcurementModification>, ApiError>>;
   // PC-8: modified by > X% — delta_pct computed in SQL, threshold pushed down
-  listModificationsAboveDelta(pct: number, f: ModificationFilterInput, p: CursorPage): Promise<Result<Page<ProcurementModification>, ApiError>>;
+  listModificationsAboveDelta(
+    pct: number,
+    f: ModificationFilterInput,
+    p: CursorPage
+  ): Promise<Result<Page<ProcurementModification>, ApiError>>;
 
   // ---- CPV discovery (cpv_divisions clean; cpv_codes labels best-effort) ----
   listCpvDivisions(): Promise<Result<readonly CpvDivision[], ApiError>>;
@@ -331,21 +416,38 @@ export interface ProcurementAggregateRepo {
   grainQuality(): Promise<Result<readonly GrainQuality[], ApiError>>;
 
   // PC-1 / PC-3 / PC-6 — org_edge_monthly_rollups, pruned by month_start range
-  topSuppliersForAuthority(cui: string, f: EdgeAggFilter): Promise<Result<readonly ProcurementEdge[], ApiError>>;
-  topAuthoritiesForSupplier(cui: string, f: EdgeAggFilter): Promise<Result<readonly ProcurementEdge[], ApiError>>;
+  topSuppliersForAuthority(
+    cui: string,
+    f: EdgeAggFilter
+  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
+  topAuthoritiesForSupplier(
+    cui: string,
+    f: EdgeAggFilter
+  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
   repeatedPairs(f: EdgeAggFilter): Promise<Result<readonly ProcurementEdge[], ApiError>>;
 
   // PC-5 — supplier concentration / HHI, computed over edges for one authority
-  supplierConcentration(cui: string, f: EdgeAggFilter): Promise<Result<SupplierConcentration, ApiError>>;
+  supplierConcentration(
+    cui: string,
+    f: EdgeAggFilter
+  ): Promise<Result<SupplierConcentration, ApiError>>;
 
   // PC-4 — authority spend by CPV division × period (authority_cpv_division_monthly_rollups)
-  authorityCpvSpend(cui: string, f: CpvAggFilter): Promise<Result<readonly AuthorityCpvRow[], ApiError>>;
+  authorityCpvSpend(
+    cui: string,
+    f: CpvAggFilter
+  ): Promise<Result<readonly AuthorityCpvRow[], ApiError>>;
 
   // PC-2 — top suppliers by region × CPV division (supplier_cpv_division_monthly_rollups)
-  topSuppliersByRegionCpv(f: RegionCpvAggFilter): Promise<Result<readonly SupplierCpvRow[], ApiError>>;
+  topSuppliersByRegionCpv(
+    f: RegionCpvAggFilter
+  ): Promise<Result<readonly SupplierCpvRow[], ApiError>>;
 
   // PC-7 — same-day DA splitting candidates (same_day_direct_acquisition_candidates)
-  sameDaySplittingCandidates(f: SplitFilter, p: OffsetPage): Promise<Result<Page<SameDayCandidate>, ApiError>>;
+  sameDaySplittingCandidates(
+    f: SplitFilter,
+    p: OffsetPage
+  ): Promise<Result<Page<SameDayCandidate>, ApiError>>;
 
   // contributor slices (see §4)
   presenceByCui(cui: string): Promise<Result<ProcurementPresence | null, ApiError>>;
@@ -363,25 +465,25 @@ Scale is handled two ways, both mandatory in this plan:
 list query over a big fact table MUST drive off an index and use cursor pagination
 (never offset+COUNT). Driving indexes (from `pg_indexes`, live):
 
-| Collection | Driving predicate / index | Cursor sort tuple | Hard cap |
-|---|---|---|---|
-| `direct_acquisitions` (19.8M) | `das_finalization_date_idx`, or `das_authority_cui_idx` / `das_supplier_cui_idx` / `das_cpv_code_idx` / `das_unique_code_idx` when a point filter is present | `(finalization_date desc, da_id desc)` | pageSize ≤ 100 |
-| `contracts` (2.25M) | `contracts_contract_date_idx` / `contracts_authority_cui_idx` / `contracts_supplier_cui_idx` / `contracts_cpv_code_idx` / `contracts_procedure_id_idx` / `contracts_notice_no_idx` | `(contract_date desc, contract_id desc)` | ≤ 100 |
-| `procedures` (526k) | `procedures_publication_date_idx` / `procedures_authority_cui_idx` / `procedures_cpv_code_idx` / `procedures_notice_no_idx` | `(publication_date desc, procedure_id desc)` | ≤ 100 |
-| `modifications` (52k) | `contract_modifications_*` (contract_id / authority+contract_no / notice_no) | `(modification_date desc, modification_id desc)` | offset OK (small, bounded) |
+| Collection                    | Driving predicate / index                                                                                                                                                          | Cursor sort tuple                                | Hard cap                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------- |
+| `direct_acquisitions` (19.8M) | `das_finalization_date_idx`, or `das_authority_cui_idx` / `das_supplier_cui_idx` / `das_cpv_code_idx` / `das_unique_code_idx` when a point filter is present                       | `(finalization_date desc, da_id desc)`           | pageSize ≤ 100             |
+| `contracts` (2.25M)           | `contracts_contract_date_idx` / `contracts_authority_cui_idx` / `contracts_supplier_cui_idx` / `contracts_cpv_code_idx` / `contracts_procedure_id_idx` / `contracts_notice_no_idx` | `(contract_date desc, contract_id desc)`         | ≤ 100                      |
+| `procedures` (526k)           | `procedures_publication_date_idx` / `procedures_authority_cui_idx` / `procedures_cpv_code_idx` / `procedures_notice_no_idx`                                                        | `(publication_date desc, procedure_id desc)`     | ≤ 100                      |
+| `modifications` (52k)         | `contract_modifications_*` (contract_id / authority+contract_no / notice_no)                                                                                                       | `(modification_date desc, modification_id desc)` | offset OK (small, bounded) |
 
-  - **Rule:** a `direct_acquisitions` list with NO selective filter is rejected
-    (`InvalidInput: "direct-acquisitions list requires authority_cui, supplier_cui,
-    cpv_code, or a date range"`) — a bare 19.8M cursor walk by date is allowed only
-    with an explicit date window. `is_canonical = true` is forced on every list
-    unless `includeDuplicates=true` (then results are labelled and capped tighter).
-  - **No blocking total** (§14.4): cursor pages return `meta.cursor`. For DAs the
-    default is `totalEstimated: null` (no count at all). An optional estimate, when a
-    client requests it, comes ONLY from the planner row estimate
-    (`EXPLAIN (FORMAT JSON)` of the filtered query, read `Plan.Plan Rows`) and is
-    returned as `{ total, estimated: true }`. **A real `COUNT(*)` over
-    direct_acquisitions is never issued** — `pg_class.reltuples` is a whole-table
-    figure and cannot be filter-scaled, so it is not used.
+- **Rule:** a `direct_acquisitions` list with NO selective filter is rejected
+  (`InvalidInput: "direct-acquisitions list requires authority_cui, supplier_cui,
+cpv_code, or a date range"`) — a bare 19.8M cursor walk by date is allowed only
+  with an explicit date window. `is_canonical = true` is forced on every list
+  unless `includeDuplicates=true` (then results are labelled and capped tighter).
+- **No blocking total** (§14.4): cursor pages return `meta.cursor`. For DAs the
+  default is `totalEstimated: null` (no count at all). An optional estimate, when a
+  client requests it, comes ONLY from the planner row estimate
+  (`EXPLAIN (FORMAT JSON)` of the filtered query, read `Plan.Plan Rows`) and is
+  returned as `{ total, estimated: true }`. **A real `COUNT(*)` over
+  direct_acquisitions is never issued** — `pg_class.reltuples` is a whole-table
+  figure and cannot be filter-scaled, so it is not used.
 
 **(2) Aggregate / analytics endpoints — the 5 materialized views.** All top-N /
 concentration / HHI / category / same-day / repeated-pair answers come from
@@ -392,25 +494,25 @@ over the `procurement_flow_facts_v1` **view** (which itself selects
 (`month_start = date_trunc('month', flow_date)`), partitioned logically by
 `source_grain` (= flow_type):
 
-| MV | grain / unique key | pruning predicate every endpoint uses | catalog Q |
-|---|---|---|---|
-| `org_edge_monthly_rollups` (8.34M) | `(month_start, source_grain, authority_cui, supplier_cui, authority_county_code, authority_region)` | `authority_cui = $1` **or** `supplier_cui = $1`, `source_grain = $g`, `month_start between $from and $to` (idx: `_authority_idx` / `_supplier_idx`) | PC-1, PC-3, PC-6 |
-| `authority_cpv_division_monthly_rollups` (5.22M) | `(month_start, source_grain, authority_cui, authority_county_code, authority_region, cpv_division_code)` | `authority_cui = $1`, `source_grain = $g`, `month_start between` (idx `_authority_idx`) | PC-4 |
-| `supplier_cpv_division_monthly_rollups` (9.26M) | `(month_start, source_grain, authority_cui, supplier_cui, ..., cpv_division_code)` | `authority_region = $r` **+** `cpv_division_code = $d`, `source_grain = $g`, `month_start between` (idx `_region_idx` / `_supplier_idx`) | PC-2 |
-| `same_day_direct_acquisition_candidates` (1.16M) | `(candidate_date, authority_cui, supplier_cui, cpv_code, cpv_division_code)`, `having count>1` | `authority_cui = $1` (idx `_authority_idx`) and/or `candidate_date between`; grain implicitly `direct_acquisition` | PC-7 |
-| `aggregate_quality_by_grain` (2) | `source_grain` (the gate) | read whole (2 rows) | gate |
+| MV                                               | grain / unique key                                                                                       | pruning predicate every endpoint uses                                                                                                               | catalog Q        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `org_edge_monthly_rollups` (8.34M)               | `(month_start, source_grain, authority_cui, supplier_cui, authority_county_code, authority_region)`      | `authority_cui = $1` **or** `supplier_cui = $1`, `source_grain = $g`, `month_start between $from and $to` (idx: `_authority_idx` / `_supplier_idx`) | PC-1, PC-3, PC-6 |
+| `authority_cpv_division_monthly_rollups` (5.22M) | `(month_start, source_grain, authority_cui, authority_county_code, authority_region, cpv_division_code)` | `authority_cui = $1`, `source_grain = $g`, `month_start between` (idx `_authority_idx`)                                                             | PC-4             |
+| `supplier_cpv_division_monthly_rollups` (9.26M)  | `(month_start, source_grain, authority_cui, supplier_cui, ..., cpv_division_code)`                       | `authority_region = $r` **+** `cpv_division_code = $d`, `source_grain = $g`, `month_start between` (idx `_region_idx` / `_supplier_idx`)            | PC-2             |
+| `same_day_direct_acquisition_candidates` (1.16M) | `(candidate_date, authority_cui, supplier_cui, cpv_code, cpv_division_code)`, `having count>1`           | `authority_cui = $1` (idx `_authority_idx`) and/or `candidate_date between`; grain implicitly `direct_acquisition`                                  | PC-7             |
+| `aggregate_quality_by_grain` (2)                 | `source_grain` (the gate)                                                                                | read whole (2 rows)                                                                                                                                 | gate             |
 
-  - **The pruning predicate is always `source_grain = $grain AND month_start
-    BETWEEN $from AND $to` plus the dimension equality** (`authority_cui` /
-    `supplier_cui` / `authority_region` / `cpv_division_code`). Endpoints that ask
-    "across all time" still bound by `month_start >= '2011-07-01'` (the MV min) to
-    keep the planner range-scanning the dims index.
-  - **Refresh ownership:** MVs are `WITH NO DATA` in the migration and refreshed by
-    the scrapper loader's aggregate-filters stage (loader-completion version stamp,
-    §10/§14.11). The server **never** refreshes them; it reads `refreshed_at` and
-    `projection_version` and surfaces them as the as-of watermark.
-  - **Combining grains is forbidden in one number** (§14.6): "contracts + DAs"
-    answers return **two labelled grain blocks**, never a summed scalar.
+- **The pruning predicate is always `source_grain = $grain AND month_start
+BETWEEN $from AND $to` plus the dimension equality** (`authority_cui` /
+  `supplier_cui` / `authority_region` / `cpv_division_code`). Endpoints that ask
+  "across all time" still bound by `month_start >= '2011-07-01'` (the MV min) to
+  keep the planner range-scanning the dims index.
+- **Refresh ownership:** MVs are `WITH NO DATA` in the migration and refreshed by
+  the scrapper loader's aggregate-filters stage (loader-completion version stamp,
+  §10/§14.11). The server **never** refreshes them; it reads `refreshed_at` and
+  `projection_version` and surfaces them as the as-of watermark.
+- **Combining grains is forbidden in one number** (§14.6): "contracts + DAs"
+  answers return **two labelled grain blocks**, never a summed scalar.
 
 ---
 
@@ -419,30 +521,31 @@ over the `procurement_flow_facts_v1` **view** (which itself selects
 `procurement/core/usecases/*` — framework-free, over the ports, `Result`-returning.
 Thin resolvers/handlers call these; tri-surface parity flows from one usecase per op.
 
-| Usecase | Signature | Notes |
-|---|---|---|
-| `searchProcedures` | `(f, page) → Page<ProcurementProcedure>` | §3a(1) bounded |
-| `getProcedureDetail` | `(id) → ProcedureDetail` (procedure + linked contracts head) | |
-| `searchContracts` | `(f, page) → Page<ProcurementContract>` | canonical-only default |
-| `getContractDetail` | `(id) → ContractDetail` (contract + modifications + procedure) | |
-| `searchDirectAcquisitions` | `(f, page) → Page<...>` | **selective-filter required** |
-| `getDirectAcquisitionDetail` | `(id) → ...` | |
-| `listContractModifications` | `(f, page)` / `aboveDelta(pct, f, page)` | PC-8 |
-| `topSuppliers` / `topAuthorities` | `(cui, aggFilter) → Edge[]` | PC-1/PC-3 via gate |
-| `supplierConcentration` | `(cui, aggFilter) → SupplierConcentration` | PC-5; gate-aware |
-| `repeatedPairs` | `(aggFilter) → Edge[]` | PC-6 |
-| `authorityCpvSpend` | `(cui, aggFilter) → AuthorityCpvRow[]` | PC-4 |
-| `topSuppliersByRegionCpv` | `(regionCpvFilter) → SupplierCpvRow[]` | PC-2 |
-| `sameDaySplittingCandidates` | `(filter, page) → Page<SameDayCandidate>` | PC-7; "candidate ≠ illegal" caveat |
-| `resolveProcurementFilter` | `(dim, q) → ResolveHit[]` | discovery (§7.4) |
+| Usecase                           | Signature                                                      | Notes                              |
+| --------------------------------- | -------------------------------------------------------------- | ---------------------------------- |
+| `searchProcedures`                | `(f, page) → Page<ProcurementProcedure>`                       | §3a(1) bounded                     |
+| `getProcedureDetail`              | `(id) → ProcedureDetail` (procedure + linked contracts head)   |                                    |
+| `searchContracts`                 | `(f, page) → Page<ProcurementContract>`                        | canonical-only default             |
+| `getContractDetail`               | `(id) → ContractDetail` (contract + modifications + procedure) |                                    |
+| `searchDirectAcquisitions`        | `(f, page) → Page<...>`                                        | **selective-filter required**      |
+| `getDirectAcquisitionDetail`      | `(id) → ...`                                                   |                                    |
+| `listContractModifications`       | `(f, page)` / `aboveDelta(pct, f, page)`                       | PC-8                               |
+| `topSuppliers` / `topAuthorities` | `(cui, aggFilter) → Edge[]`                                    | PC-1/PC-3 via gate                 |
+| `supplierConcentration`           | `(cui, aggFilter) → SupplierConcentration`                     | PC-5; gate-aware                   |
+| `repeatedPairs`                   | `(aggFilter) → Edge[]`                                         | PC-6                               |
+| `authorityCpvSpend`               | `(cui, aggFilter) → AuthorityCpvRow[]`                         | PC-4                               |
+| `topSuppliersByRegionCpv`         | `(regionCpvFilter) → SupplierCpvRow[]`                         | PC-2                               |
+| `sameDaySplittingCandidates`      | `(filter, page) → Page<SameDayCandidate>`                      | PC-7; "candidate ≠ illegal" caveat |
+| `resolveProcurementFilter`        | `(dim, q) → ResolveHit[]`                                      | discovery (§7.4)                   |
 
 **Gate enforcement is in the usecase, not the repo** (live read of `grainQuality()`
 first, all three booleans):
+
 - `filter_answers_allowed=false` (requested grain) → **abstain**: empty `data` +
   `caveats` listing the grain's `blockers`; no fabricated aggregate.
 - `spend_rankings_allowed=false` → return rows (with `amountRonSum` present for
   transparency) but **rank by `flow_count`**, set `caveats:["spend rankings not
-  gate-approved for <grain> grain"]`, and compute concentration/share **count-based**
+gate-approved for <grain> grain"]`, and compute concentration/share **count-based**
   (see §7.5 / I6) — never errors, degrades.
 - `supplier_region_filters_allowed=false` + a supplier-region filter supplied →
   `InvalidInput`.
@@ -452,6 +555,7 @@ code constants — they are data-driven off the live MV.
 
 **Cross-source contributor (§4.4 / §14.7):** the module registers a
 `SourceContributor` with `source = 'procurement'`:
+
 - `presenceFor(cui)` → `{ source:'procurement', asAuthority:{contractCount, daCount, totalRon}, asSupplier:{contractCount, daCount, totalRon} }` — computed from `org_edge_monthly_rollups` (cheap, indexed by cui), grain-labelled.
 - `profileSlice(cui)` → top-5 counterparties each direction + spend-by-CPV-division top-5 + total-by-grain, all rollup-backed, gate-aware. This is the **same** method `Entity.procurement` GraphQL resolver and REST entity-360 call.
 - Registers `flow_type` values **`procurement_contract`, `direct_acquisition`** into the kernel `FLOW_TYPES` enum.
@@ -466,26 +570,26 @@ from the filter spec (§7). Envelope per §5.2 + `requestId` (§14.11). Public-r
 (`config:{ public:true }`, §14.11). Caching read-through, key
 `procurement:<op>:<canonicalizeFilters>`; TTL + loader-version stamp.
 
-| Method | Path | Query/params | Response | Pagination | Cache TTL | stmt timeout |
-|---|---|---|---|---|---|---|
-| GET | `/procurement/procedures` | `ProcedureFilter` (§7) | `ProcurementProcedure[]` | cursor | 5m | 5s |
-| GET | `/procurement/procedures/:id` | path id | `ProcedureDetail` | — | 10m | 5s |
-| GET | `/procurement/contracts` | `ContractFilter` | `ProcurementContract[]` | cursor | 5m | 5s |
-| GET | `/procurement/contracts/:id` | path id | `ContractDetail` (+ modifications, +procedure) | — | 10m | 5s |
-| GET | `/procurement/contracts/:id/modifications` | path id, offset | `ProcurementModification[]` | offset | 10m | 5s |
-| GET | `/procurement/direct-acquisitions` | `DaFilter` (**selective filter required**) | `ProcurementDirectAcquisition[]` | cursor | 5m | 5s |
-| GET | `/procurement/direct-acquisitions/:id` | path id | DA detail | — | 10m | 5s |
-| GET | `/procurement/modifications` | `ModificationFilter` (+`minDeltaPct`) | `ProcurementModification[]` | cursor | 5m | 5s |
-| GET | `/procurement/aggregate/top-suppliers` | `authorityCui` (req), `EdgeAggFilter` | `ProcurementEdge[]` (+grain block) | offset (top-N ≤100) | 15m | 15s |
-| GET | `/procurement/aggregate/top-authorities` | `supplierCui` (req), `EdgeAggFilter` | `ProcurementEdge[]` | offset | 15m | 15s |
-| GET | `/procurement/aggregate/concentration` | `authorityCui` (req), `EdgeAggFilter` | `SupplierConcentration` | — | 15m | 15s |
-| GET | `/procurement/aggregate/repeated-pairs` | `EdgeAggFilter` (req authority or supplier) | `ProcurementEdge[]` | offset | 15m | 15s |
-| GET | `/procurement/aggregate/authority-cpv` | `authorityCui` (req), `CpvAggFilter` | `AuthorityCpvRow[]` | offset | 15m | 15s |
-| GET | `/procurement/aggregate/region-cpv-suppliers` | `region` (req), `cpvDivision` (req), `RegionCpvAggFilter` | `SupplierCpvRow[]` | offset | 15m | 15s |
-| GET | `/procurement/aggregate/same-day-candidates` | `SplitFilter` (req authorityCui or date range) | `SameDayCandidate[]` | offset | 15m | 15s |
-| GET | `/procurement/aggregate/grain-quality` | — | `GrainQuality[]` (the gate, with `refreshedAt`) | — | 30m | 5s |
-| GET | `/procurement/cpv/divisions` | — | `CpvDivision[]` (45) | — | 1h | 5s |
-| GET | `/procurement/filters/resolve` | `dim`, `q` | `ResolveHit[]` (§7.4) | — | 10m | 5s |
+| Method | Path                                          | Query/params                                              | Response                                        | Pagination          | Cache TTL | stmt timeout |
+| ------ | --------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------- | ------------------- | --------- | ------------ |
+| GET    | `/procurement/procedures`                     | `ProcedureFilter` (§7)                                    | `ProcurementProcedure[]`                        | cursor              | 5m        | 5s           |
+| GET    | `/procurement/procedures/:id`                 | path id                                                   | `ProcedureDetail`                               | —                   | 10m       | 5s           |
+| GET    | `/procurement/contracts`                      | `ContractFilter`                                          | `ProcurementContract[]`                         | cursor              | 5m        | 5s           |
+| GET    | `/procurement/contracts/:id`                  | path id                                                   | `ContractDetail` (+ modifications, +procedure)  | —                   | 10m       | 5s           |
+| GET    | `/procurement/contracts/:id/modifications`    | path id, offset                                           | `ProcurementModification[]`                     | offset              | 10m       | 5s           |
+| GET    | `/procurement/direct-acquisitions`            | `DaFilter` (**selective filter required**)                | `ProcurementDirectAcquisition[]`                | cursor              | 5m        | 5s           |
+| GET    | `/procurement/direct-acquisitions/:id`        | path id                                                   | DA detail                                       | —                   | 10m       | 5s           |
+| GET    | `/procurement/modifications`                  | `ModificationFilter` (+`minDeltaPct`)                     | `ProcurementModification[]`                     | cursor              | 5m        | 5s           |
+| GET    | `/procurement/aggregate/top-suppliers`        | `authorityCui` (req), `EdgeAggFilter`                     | `ProcurementEdge[]` (+grain block)              | offset (top-N ≤100) | 15m       | 15s          |
+| GET    | `/procurement/aggregate/top-authorities`      | `supplierCui` (req), `EdgeAggFilter`                      | `ProcurementEdge[]`                             | offset              | 15m       | 15s          |
+| GET    | `/procurement/aggregate/concentration`        | `authorityCui` (req), `EdgeAggFilter`                     | `SupplierConcentration`                         | —                   | 15m       | 15s          |
+| GET    | `/procurement/aggregate/repeated-pairs`       | `EdgeAggFilter` (req authority or supplier)               | `ProcurementEdge[]`                             | offset              | 15m       | 15s          |
+| GET    | `/procurement/aggregate/authority-cpv`        | `authorityCui` (req), `CpvAggFilter`                      | `AuthorityCpvRow[]`                             | offset              | 15m       | 15s          |
+| GET    | `/procurement/aggregate/region-cpv-suppliers` | `region` (req), `cpvDivision` (req), `RegionCpvAggFilter` | `SupplierCpvRow[]`                              | offset              | 15m       | 15s          |
+| GET    | `/procurement/aggregate/same-day-candidates`  | `SplitFilter` (req authorityCui or date range)            | `SameDayCandidate[]`                            | offset              | 15m       | 15s          |
+| GET    | `/procurement/aggregate/grain-quality`        | —                                                         | `GrainQuality[]` (the gate, with `refreshedAt`) | —                   | 30m       | 5s           |
+| GET    | `/procurement/cpv/divisions`                  | —                                                         | `CpvDivision[]` (45)                            | —                   | 1h        | 5s           |
+| GET    | `/procurement/filters/resolve`                | `dim`, `q`                                                | `ResolveHit[]` (§7.4)                           | —                   | 10m       | 5s           |
 
 - **OpenAPI:** module exports a fragment merged at `/api/v1/openapi.json`; every
   aggregate response carries `grain`, `projectionVersion`, `refreshedAt`, and a
@@ -502,11 +606,39 @@ Schema-stitched (§6.2). All types `Procurement`-prefixed (§14.8). Connections 
 the kernel cursor encoder (`fhash`, §14.3). Resolvers are thin → same usecases.
 
 ```graphql
-enum ProcurementGrain { direct_acquisition procurement_contract }
-enum ProcurementContractStatus { awarded in_progress closed cancelled unknown }
-enum ProcurementProcedureStatus { published in_evaluation awarded cancelled suspended unknown }
-enum ProcurementDaStatus { offered awarded finalized cancelled unknown }
-enum ProcurementSortKey { contract_date publication_date finalization_date value_ron modification_date }
+enum ProcurementGrain {
+  direct_acquisition
+  procurement_contract
+}
+enum ProcurementContractStatus {
+  awarded
+  in_progress
+  closed
+  cancelled
+  unknown
+}
+enum ProcurementProcedureStatus {
+  published
+  in_evaluation
+  awarded
+  cancelled
+  suspended
+  unknown
+}
+enum ProcurementDaStatus {
+  offered
+  awarded
+  finalized
+  cancelled
+  unknown
+}
+enum ProcurementSortKey {
+  contract_date
+  publication_date
+  finalization_date
+  value_ron
+  modification_date
+}
 
 type ProcurementContract {
   contractId: ID!
@@ -516,8 +648,8 @@ type ProcurementContract {
   contractNo: String
   contractDate: Date
   title: String
-  authority: Entity            # resolved via kernel IdentityRepo + DataLoader keyed by authorityCui
-  supplier: Entity             # resolved by supplierCui
+  authority: Entity # resolved via kernel IdentityRepo + DataLoader keyed by authorityCui
+  supplier: Entity # resolved by supplierCui
   authorityCui: CUI
   supplierCui: CUI
   cpvCode: String
@@ -530,45 +662,139 @@ type ProcurementContract {
   isCanonical: Boolean!
   modifications(first: Int, after: String): ProcurementModificationConnection!
 }
-type ProcurementProcedure { procedureId: ID! noticeNo: String procedureType: String contractKind: String
-  title: String authority: Entity authorityCui: CUI cpvCode: String cpvDivision: ProcurementCpvDivision
-  estimatedValueRon: Money awardedValueRon: Money status: ProcurementProcedureStatus!
-  publicationDate: Date contracts(first: Int, after: String): ProcurementContractConnection! }
-type ProcurementDirectAcquisition { daId: ID! uniqueCode: String title: String authority: Entity supplier: Entity
-  authorityCui: CUI supplierCui: CUI cpvCode: String cpvDivision: ProcurementCpvDivision valueRon: Money
-  status: ProcurementDaStatus! publicationDate: Date finalizationDate: Date isCanonical: Boolean! }
-type ProcurementModification { modificationId: ID! contractId: ID linkMethod: String
-  valueBeforeRon: Money valueAfterRon: Money valueDeltaRon: Money deltaPct: Float modificationDate: Date }
-type ProcurementCpvDivision { code: String! labelEn: String! labelRo: String }
+type ProcurementProcedure {
+  procedureId: ID!
+  noticeNo: String
+  procedureType: String
+  contractKind: String
+  title: String
+  authority: Entity
+  authorityCui: CUI
+  cpvCode: String
+  cpvDivision: ProcurementCpvDivision
+  estimatedValueRon: Money
+  awardedValueRon: Money
+  status: ProcurementProcedureStatus!
+  publicationDate: Date
+  contracts(first: Int, after: String): ProcurementContractConnection!
+}
+type ProcurementDirectAcquisition {
+  daId: ID!
+  uniqueCode: String
+  title: String
+  authority: Entity
+  supplier: Entity
+  authorityCui: CUI
+  supplierCui: CUI
+  cpvCode: String
+  cpvDivision: ProcurementCpvDivision
+  valueRon: Money
+  status: ProcurementDaStatus!
+  publicationDate: Date
+  finalizationDate: Date
+  isCanonical: Boolean!
+}
+type ProcurementModification {
+  modificationId: ID!
+  contractId: ID
+  linkMethod: String
+  valueBeforeRon: Money
+  valueAfterRon: Money
+  valueDeltaRon: Money
+  deltaPct: Float
+  modificationDate: Date
+}
+type ProcurementCpvDivision {
+  code: String!
+  labelEn: String!
+  labelRo: String
+}
 
 # Aggregate types (rollup-backed)
-type ProcurementEdge { authorityCui: CUI! authorityName: String supplierCui: CUI! supplierName: String
-  grain: ProcurementGrain! flowCount: BigInt! amountRonSum: Money
-  amountPresentCount: BigInt! amountMissingCount: BigInt!
-  firstFlowDate: Date lastFlowDate: Date evidenceRefsSample: [String!]! }  # field set MUST match §2 ProcurementEdge view model (tri-surface parity)
-type ProcurementConcentration { authorityCui: CUI! grain: ProcurementGrain! supplierCount: Int!
-  top1Share: Float top5Share: Float hhi: Float totalRon: Money caveats: [String!]! }
-type ProcurementGrainQuality { grain: ProcurementGrain! rowsCount: BigInt!
-  authorityCuiCoverageRate: Float! supplierCuiCoverageRate: Float! amountCoverageRate: Float!
-  cpvCoverageRate: Float! dateCoverageRate: Float! authorityTerritoryCoverageRate: Float!
-  filterAnswersAllowed: Boolean! spendRankingsAllowed: Boolean! supplierRegionFiltersAllowed: Boolean!
-  blockers: [String!]! refreshedAt: DateTime }
+type ProcurementEdge {
+  authorityCui: CUI!
+  authorityName: String
+  supplierCui: CUI!
+  supplierName: String
+  grain: ProcurementGrain!
+  flowCount: BigInt!
+  amountRonSum: Money
+  amountPresentCount: BigInt!
+  amountMissingCount: BigInt!
+  firstFlowDate: Date
+  lastFlowDate: Date
+  evidenceRefsSample: [String!]!
+} # field set MUST match §2 ProcurementEdge view model (tri-surface parity)
+type ProcurementConcentration {
+  authorityCui: CUI!
+  grain: ProcurementGrain!
+  supplierCount: Int!
+  top1Share: Float
+  top5Share: Float
+  hhi: Float
+  totalRon: Money
+  caveats: [String!]!
+}
+type ProcurementGrainQuality {
+  grain: ProcurementGrain!
+  rowsCount: BigInt!
+  authorityCuiCoverageRate: Float!
+  supplierCuiCoverageRate: Float!
+  amountCoverageRate: Float!
+  cpvCoverageRate: Float!
+  dateCoverageRate: Float!
+  authorityTerritoryCoverageRate: Float!
+  filterAnswersAllowed: Boolean!
+  spendRankingsAllowed: Boolean!
+  supplierRegionFiltersAllowed: Boolean!
+  blockers: [String!]!
+  refreshedAt: DateTime
+}
 
 # Relay connections (cursor parity with REST)
-type ProcurementContractConnection { edges: [ProcurementContractEdge!]! pageInfo: PageInfo! totalEstimated: Int }
+type ProcurementContractConnection {
+  edges: [ProcurementContractEdge!]!
+  pageInfo: PageInfo!
+  totalEstimated: Int
+}
 # ... ProcurementProcedureConnection / ...DirectAcquisitionConnection / ...ModificationConnection identical shape
 
 extend type Query {
   procurementContract(id: ID!): ProcurementContract
-  procurementContracts(filter: ProcurementContractFilter, first: Int, after: String): ProcurementContractConnection!
+  procurementContracts(
+    filter: ProcurementContractFilter
+    first: Int
+    after: String
+  ): ProcurementContractConnection!
   procurementProcedure(id: ID!): ProcurementProcedure
-  procurementProcedures(filter: ProcurementProcedureFilter, first: Int, after: String): ProcurementProcedureConnection!
-  procurementDirectAcquisitions(filter: ProcurementDaFilter!, first: Int, after: String): ProcurementDirectAcquisitionConnection!
-  procurementModifications(filter: ProcurementModificationFilter, first: Int, after: String): ProcurementModificationConnection!
+  procurementProcedures(
+    filter: ProcurementProcedureFilter
+    first: Int
+    after: String
+  ): ProcurementProcedureConnection!
+  procurementDirectAcquisitions(
+    filter: ProcurementDaFilter!
+    first: Int
+    after: String
+  ): ProcurementDirectAcquisitionConnection!
+  procurementModifications(
+    filter: ProcurementModificationFilter
+    first: Int
+    after: String
+  ): ProcurementModificationConnection!
   procurementTopSuppliers(authorityCui: CUI!, filter: ProcurementEdgeAggFilter): [ProcurementEdge!]!
-  procurementTopAuthorities(supplierCui: CUI!, filter: ProcurementEdgeAggFilter): [ProcurementEdge!]!
-  procurementConcentration(authorityCui: CUI!, filter: ProcurementEdgeAggFilter): ProcurementConcentration!
-  procurementSameDayCandidates(filter: ProcurementSplitFilter!, page: OffsetPageInput): [ProcurementSameDayCandidate!]!
+  procurementTopAuthorities(
+    supplierCui: CUI!
+    filter: ProcurementEdgeAggFilter
+  ): [ProcurementEdge!]!
+  procurementConcentration(
+    authorityCui: CUI!
+    filter: ProcurementEdgeAggFilter
+  ): ProcurementConcentration!
+  procurementSameDayCandidates(
+    filter: ProcurementSplitFilter!
+    page: OffsetPageInput
+  ): [ProcurementSameDayCandidate!]!
   procurementGrainQuality: [ProcurementGrainQuality!]!
 }
 
@@ -577,8 +803,8 @@ extend type Entity {
   procurement: ProcurementEntitySummary
 }
 type ProcurementEntitySummary {
-  asAuthority: ProcurementRoleSummary!   # contractCount, daCount, totalRon (grain-labelled), topSuppliers[5]
-  asSupplier: ProcurementRoleSummary!    # contractCount, daCount, totalRon, topAuthorities[5]
+  asAuthority: ProcurementRoleSummary! # contractCount, daCount, totalRon (grain-labelled), topSuppliers[5]
+  asSupplier: ProcurementRoleSummary! # contractCount, daCount, totalRon, topAuthorities[5]
   spendByCpvDivision: [ProcurementEdge!]!
   caveats: [String!]!
 }
@@ -597,8 +823,8 @@ type ProcurementEntitySummary {
 
 Each spec is declared once (`CollectionFilterSpec`, §14.2) → derives TypeBox (REST),
 GraphQL `input`, and MCP fragment; compiles via the kernel composer to parameterized
-`sql\`\``. `canonicalizeFilters` feeds cache key + cursor `fhash` + tri-surface test.
-**`isNull` is supported on coverage-relevant fields** (catalog presence questions).
+`sql\`\``. `canonicalizeFilters`feeds cache key + cursor`fhash` + tri-surface test.
+**`isNull` is supported on coverage-relevant fields\*\* (catalog presence questions).
 
 **Shared families used (§7.2):** Entity (`cui[]`, `name~`), Territory (buyer:
 `countyCode[]`, `region[]`), Period (`year`, `dateFrom/To`, `month`), Amount
@@ -606,23 +832,26 @@ GraphQL `input`, and MCP fragment; compiles via the kernel composer to parameter
 `cpvDivision[]`), Status/Enum (per-grain status), Exclusion (negatable fields).
 
 ### 7.1 `ProcedureFilter`
-| Field | op(s) | driving column / index | REST ↔ GraphQL ↔ MCP |
-|---|---|---|---|
-| `authorityCui[]` | in | `procedures.authority_cui` / `procedures_authority_cui_idx` | CSV param ↔ `[CUI]` ↔ `cui[]` |
-| `cpvCode[]` | in | `procedures.cpv_code` / `procedures_cpv_code_idx` | |
-| `cpvCodePrefix[]` | prefix | `cpv_code LIKE $p||'%'` (left-anchored → uses idx) | |
-| `cpvDivision[]` | in | **index-safe range, NOT `substring()`**: `cpv_code >= $d||'000000' AND cpv_code < successor($d)` (uses `*_cpv_code_idx`; no functional index exists on `substring(cpv_code,1,2)`) | derive 2-digit from `cpv_divisions` |
-| `procedureType` | eq/in | `procedures.procedure_type` (no idx; selective with authority) | closed enum from observed vocab |
-| `contractKind` | eq | `procedures.contract_kind` (works/services/supplies) | |
-| `status` | eq/in | `procedures.status` (enum) | |
-| `noticeNo` | eq | `procedures_notice_no_idx` | |
-| `year` / `dateFrom/To` | eq/between | `procedures.publication_date` / `procedures_publication_date_idx` | |
-| `countyCode[]`/`region[]` | in | resolved buyer territory via `core` join | buyer side only |
-| `minValueRon`/`maxValueRon` | gte/lte | `estimated_value_ron` / `awarded_value_ron` (declare which) | overflow-guarded |
-| `q` | contains | **Meili** (autocomplete) / **OpenSearch** (full-text) on title; PG `ILIKE` fallback | engine declared per call |
+
+| Field                       | op(s)      | driving column / index                                                              | REST ↔ GraphQL ↔ MCP            |
+| --------------------------- | ---------- | ----------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `authorityCui[]`            | in         | `procedures.authority_cui` / `procedures_authority_cui_idx`                         | CSV param ↔ `[CUI]` ↔ `cui[]`   |
+| `cpvCode[]`                 | in         | `procedures.cpv_code` / `procedures_cpv_code_idx`                                   |                                 |
+| `cpvCodePrefix[]`           | prefix     | `cpv_code LIKE $p                                                                   |                                 | '%'` (left-anchored → uses idx)                                                                                         |                                     |
+| `cpvDivision[]`             | in         | **index-safe range, NOT `substring()`**: `cpv_code >= $d                            |                                 | '000000' AND cpv_code < successor($d)`(uses`\*\_cpv_code_idx`; no functional index exists on `substring(cpv_code,1,2)`) | derive 2-digit from `cpv_divisions` |
+| `procedureType`             | eq/in      | `procedures.procedure_type` (no idx; selective with authority)                      | closed enum from observed vocab |
+| `contractKind`              | eq         | `procedures.contract_kind` (works/services/supplies)                                |                                 |
+| `status`                    | eq/in      | `procedures.status` (enum)                                                          |                                 |
+| `noticeNo`                  | eq         | `procedures_notice_no_idx`                                                          |                                 |
+| `year` / `dateFrom/To`      | eq/between | `procedures.publication_date` / `procedures_publication_date_idx`                   |                                 |
+| `countyCode[]`/`region[]`   | in         | resolved buyer territory via `core` join                                            | buyer side only                 |
+| `minValueRon`/`maxValueRon` | gte/lte    | `estimated_value_ron` / `awarded_value_ron` (declare which)                         | overflow-guarded                |
+| `q`                         | contains   | **Meili** (autocomplete) / **OpenSearch** (full-text) on title; PG `ILIKE` fallback | engine declared per call        |
+
 - Sort: default `publication_date desc`; allowed `{publication_date, estimated_value_ron}`.
 
 ### 7.2 `ContractFilter`
+
 Same shape, driving columns on `contracts.*`: `authorityCui[]`/`supplierCui[]`
 (`_authority_cui_idx`/`_supplier_cui_idx`), `cpvCode[]`/prefix/division
 (`_cpv_code_idx`), `status` (enum `awarded|in_progress|closed|cancelled|unknown`),
@@ -632,16 +861,17 @@ Same shape, driving columns on `contracts.*`: `authorityCui[]`/`supplierCui[]`
 Sort default `contract_date desc`; allowed `{contract_date, value_ron}`.
 
 ### 7.3 `DaFilter` (HIGH VOLUME — selective filter required)
+
 Driving columns on `direct_acquisitions.*`: `authorityCui[]`/`supplierCui[]`,
 `cpvCode[]`/prefix/division, `uniqueCode` (`_unique_code_idx`), `sourceSystem`
 (`elicitatie_da|seap_da|seap_dan`), `status` (`offered|awarded|finalized|cancelled|unknown`),
 `year`/`dateFrom/To` → `finalization_date` (`_finalization_date_idx`; note
-publication_date is 100% null on elicitatie_da — **date filter binds to
+publication*date is 100% null on elicitatie_da — **date filter binds to
 finalization_date** and the spec documents that), `minValueRon`/`maxValueRon`,
 `includeDuplicates`. `cpvDivision[]` uses the same index-safe range as §7.1 (never
 `substring`). **Validation (all three surfaces):** the spec is marked
 `requiresSelective: true`; the kernel composer applies a **runtime** check on the
-*resolved* filter object and rejects an empty / non-selective filter with
+\_resolved* filter object and rejects an empty / non-selective filter with
 `InvalidInput` for REST, GraphQL, and MCP alike. GraphQL's non-null `filter` arg only
 guarantees the wrapper object exists — `ProcurementDaFilter{}` still trips the runtime
 `requiresSelective` check. A selective filter = at least one of `authorityCui`,
@@ -650,12 +880,14 @@ guarantees the wrapper object exists — `ProcurementDaFilter{}` still trips the
 Sort default `finalization_date desc`.
 
 ### 7.4 `ModificationFilter`
+
 `contractId`, `authorityCui`+`contractNo`, `noticeNo` (the indexed link columns),
 `year`, `dateFrom/To` → `modification_date`, `minDeltaPct` (PC-8 — computed
 `value_delta_ron/nullif(value_before_ron,0)`), `linkMethod` (enum/`isNull` for PC-10
 "missing linkage"). `modificationType` eq.
 
 ### 7.5 Aggregate filters (rollup-backed; §3a(2))
+
 - `EdgeAggFilter`: `grain` (enum, default `direct_acquisition`), `monthFrom/To`
   (→ `month_start between`), `topN` (≤100), optional `countyCode`/`region` (buyer),
   optional `cpvDivision`. Pruning predicate fixed to dim + grain + month range.
@@ -669,6 +901,7 @@ Sort default `finalization_date desc`.
   to flow_count ordering with a caveat (`spend_rankings_allowed=false`).
 
 ### 7.6 Discovery / resolve dimensions (§7.4)
+
 `/procurement/filters/resolve?dim=&q=` and the MCP discovery tool expose:
 `authority` (name → CUI via kernel IdentityRepo, public_entity kind), `supplier`
 (name → CUI via IdentityRepo company kind), `cpvDivision` (Romanian/English label →
@@ -679,28 +912,29 @@ catalog warns the whole `cpv_codes` table is unreliable), `region`/`county` (nam
 code via TerritoryRepo). Names→codes resolve FIRST; the deterministic SQL then computes.
 
 ### 7.7 Golden question → filter examples (catalog PC-1..PC-10)
-| Catalog | Resolves to |
-|---|---|
-| PC-1 top suppliers of authority X, period T | `topSuppliers(cui=X, {grain, monthFrom/To, topN})` → org_edge MV; `share_of_institution_total` over the **basis measure** (value when `spend_rankings_allowed`, else flow_count — never a value share for a spend-suppressed grain) |
-| PC-2 top suppliers to region R, kind K | `topSuppliersByRegionCpv({region=R, cpvDivision=d(K), grain})` → supplier_cpv MV |
-| PC-3 top authorities buying from Y | `topAuthorities(cui=Y, {grain, monthFrom/To})` → org_edge MV; `last_contract_date`=`max(last_flow_date)` |
-| PC-4 authority X spend by CPV × year | `authorityCpvSpend(cui=X, {cpvDivision[], monthFrom/To→year})` → authority_cpv MV |
-| PC-5 supplier concentration for X | `supplierConcentration(cui=X, {grain})` — top1/top5 share + HHI over edges; **`basis='value'` only when the grain's `spend_rankings_allowed=true`, else `basis='count'` (shares/HHI over flow_count, `totalRon=null`)** |
-| PC-6 repeated buyer-supplier pairs | `repeatedPairs({authorityCui or supplierCui, minMonths})` → org_edge MV, first/last_flow_date |
-| PC-7 same-day DA splitting | `sameDaySplittingCandidates({authorityCui, dateFrom/To, minSameDayCount})` → same_day MV |
-| PC-8 contracts modified > X% | `listModificationsAboveDelta(pct, filter)` → modifications, delta_pct in SQL |
-| PC-9 awards to recently-registered suppliers | **cross-source** — supplier list from contracts + supplier `registration_date` from `companies` via kernel; **labelled cross-grain** (NOT this module alone) |
-| PC-10 procedures/contracts without linkage | `searchContracts({procedureId isNull})` + `listModifications({linkMethod isNull})` (`missing_link_count`) |
+
+| Catalog                                      | Resolves to                                                                                                                                                                                                                         |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PC-1 top suppliers of authority X, period T  | `topSuppliers(cui=X, {grain, monthFrom/To, topN})` → org_edge MV; `share_of_institution_total` over the **basis measure** (value when `spend_rankings_allowed`, else flow_count — never a value share for a spend-suppressed grain) |
+| PC-2 top suppliers to region R, kind K       | `topSuppliersByRegionCpv({region=R, cpvDivision=d(K), grain})` → supplier_cpv MV                                                                                                                                                    |
+| PC-3 top authorities buying from Y           | `topAuthorities(cui=Y, {grain, monthFrom/To})` → org_edge MV; `last_contract_date`=`max(last_flow_date)`                                                                                                                            |
+| PC-4 authority X spend by CPV × year         | `authorityCpvSpend(cui=X, {cpvDivision[], monthFrom/To→year})` → authority_cpv MV                                                                                                                                                   |
+| PC-5 supplier concentration for X            | `supplierConcentration(cui=X, {grain})` — top1/top5 share + HHI over edges; **`basis='value'` only when the grain's `spend_rankings_allowed=true`, else `basis='count'` (shares/HHI over flow_count, `totalRon=null`)**             |
+| PC-6 repeated buyer-supplier pairs           | `repeatedPairs({authorityCui or supplierCui, minMonths})` → org_edge MV, first/last_flow_date                                                                                                                                       |
+| PC-7 same-day DA splitting                   | `sameDaySplittingCandidates({authorityCui, dateFrom/To, minSameDayCount})` → same_day MV                                                                                                                                            |
+| PC-8 contracts modified > X%                 | `listModificationsAboveDelta(pct, filter)` → modifications, delta_pct in SQL                                                                                                                                                        |
+| PC-9 awards to recently-registered suppliers | **cross-source** — supplier list from contracts + supplier `registration_date` from `companies` via kernel; **labelled cross-grain** (NOT this module alone)                                                                        |
+| PC-10 procedures/contracts without linkage   | `searchContracts({procedureId isNull})` + `listModifications({linkMethod isNull})` (`missing_link_count`)                                                                                                                           |
 
 ### 7a. Catalog ↔ live-schema reconciliation (REQUIRED — §14.10)
 
-| Catalog logical name | Live object | Reconciliation note |
-|---|---|---|
-| `procurement.org_edges` rollup keyed `(authority_cui, supplier_cui, period, category)` | `procurement.org_edge_monthly_rollups` (matview) | period = `month_start` (monthly grain); **category is NOT in this MV** — CPV-division category lives in `authority_cpv_division_monthly_rollups` / `supplier_cpv_division_monthly_rollups`. org_edge has NO cpv dimension. Endpoints route PC-2/PC-4 to the cpv-division MVs, PC-1/3/6 to org_edge. |
-| "canonical procurement fact table or view, single declared grain" | `procurement.procurement_flow_facts_v1` (view over `flows.money_flows`) | the canonical fact surface; its `source_grain` column = `flow_type` (`direct_acquisition`/`procurement_contract`). |
-| "rebuilt CPV dictionary … do not rely on the currently corrupt `procurement.cpv_codes`" | `procurement.cpv_divisions` (45 clean) + `cpv_codes` (9,748, `cpv_level`/`parent_code` 100% NULL) | **CONFIRMED corrupt** (live: 0/9748 have cpv_level). Hierarchy + category filters use `cpv_divisions` (2-digit) ONLY; raw 8-digit `cpv_code`+best-effort label allowed for display, never for tree navigation. CPV discovery flags `cpv` (8-digit) hits low-confidence. |
-| "buyer territory from core.public_entities; supplier territory from company registration" | buyer: pre-joined in flow-facts (`authority_county_code/region`); supplier: **absent** | buyer-region filters supported; supplier-region filters **gate-blocked** (`supplier_region_filters_allowed=false`) until backfill. |
-| "explicit duplicate/canonical rules" | `is_canonical` + `dup_group_id` on contracts/DAs; flows/rollups read canonical only | every base-table list forces `is_canonical=true` by default. |
+| Catalog logical name                                                                      | Live object                                                                                       | Reconciliation note                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `procurement.org_edges` rollup keyed `(authority_cui, supplier_cui, period, category)`    | `procurement.org_edge_monthly_rollups` (matview)                                                  | period = `month_start` (monthly grain); **category is NOT in this MV** — CPV-division category lives in `authority_cpv_division_monthly_rollups` / `supplier_cpv_division_monthly_rollups`. org_edge has NO cpv dimension. Endpoints route PC-2/PC-4 to the cpv-division MVs, PC-1/3/6 to org_edge. |
+| "canonical procurement fact table or view, single declared grain"                         | `procurement.procurement_flow_facts_v1` (view over `flows.money_flows`)                           | the canonical fact surface; its `source_grain` column = `flow_type` (`direct_acquisition`/`procurement_contract`).                                                                                                                                                                                  |
+| "rebuilt CPV dictionary … do not rely on the currently corrupt `procurement.cpv_codes`"   | `procurement.cpv_divisions` (45 clean) + `cpv_codes` (9,748, `cpv_level`/`parent_code` 100% NULL) | **CONFIRMED corrupt** (live: 0/9748 have cpv_level). Hierarchy + category filters use `cpv_divisions` (2-digit) ONLY; raw 8-digit `cpv_code`+best-effort label allowed for display, never for tree navigation. CPV discovery flags `cpv` (8-digit) hits low-confidence.                             |
+| "buyer territory from core.public_entities; supplier territory from company registration" | buyer: pre-joined in flow-facts (`authority_county_code/region`); supplier: **absent**            | buyer-region filters supported; supplier-region filters **gate-blocked** (`supplier_region_filters_allowed=false`) until backfill.                                                                                                                                                                  |
+| "explicit duplicate/canonical rules"                                                      | `is_canonical` + `dup_group_id` on contracts/DAs; flows/rollups read canonical only               | every base-table list forces `is_canonical=true` by default.                                                                                                                                                                                                                                        |
 
 ---
 
@@ -715,6 +949,7 @@ input `{ dim: 'authority'|'supplier'|'cpvDivision'|'cpv'|'region'|'county', q: s
 output `{ ok, kind:'resolution', items:[{value, label, confidence, kind}], summary }`.
 
 **(2) Query/rank tools:**
+
 - `search_procurement_contracts` — input = `ProcurementContractFilter` (+cursor); output `items[]` + `link` to client `/procurement/contracts?…` + summary.
 - `search_procurement_direct_acquisitions` — input = `ProcurementDaFilter` (**filter required**, validated).
 - `rank_procurement_suppliers` — input `{ authorityCui, grain?, monthFrom?, monthTo?, topN? }` → `topSuppliers`; output `items[]` + per-grain block + `caveats` (gate) + `link`.
@@ -739,7 +974,7 @@ for items; `/procurement/entity/<cui>?role=authority|supplier` for rankings.
 - **Projection** (scrapper `search` lane writes; server only reads): each canonical
   serving row → one `search.documents` row (`title` = contract/procedure title,
   `body` = authority+supplier+CPV-label composite, `cuis` = `{authority_cui,
-  supplier_cui}`, `doc_date` = contract/finalization date, `amount_ron` = value_ron,
+supplier_cui}`, `doc_date` = contract/finalization date, `amount_ron` = value_ron,
   `county_name`, `url` = client deep link, `attrs` = grain + status). DAs are
   projected canonical-only (no duplicate/non-canonical doc rows).
 - **Meili** index `procurement` (or shared `entities`) backs autocomplete on
@@ -833,13 +1068,13 @@ makeProcurementModule({ db, identityRepo, territoryRepo, flowsRepo, searchClient
 ## 13. Open questions / risks
 
 1. **`procurement_contract` spend rankings gate-suppressed** (amount coverage below
-   threshold). Confirmed in the live gate. Decision: surface contract *counts* and
+   threshold). Confirmed in the live gate. Decision: surface contract _counts_ and
    flow facts but suppress value rankings for that grain until coverage improves —
    OR (alt) lower the threshold once the audit's contract value fixes fully land.
-   *Recommend:* keep suppressed + caveat; this is correct given the data.
+   _Recommend:_ keep suppressed + caveat; this is correct given the data.
 2. **DA list bare-walk policy.** `requiresSelective` rejects unfiltered 19.8M list;
    a date-only window is allowed. Is a 366-day default window cap acceptable, or
-   should DA list always require an entity/cpv filter? *Recommend:* allow date-window
+   should DA list always require an entity/cpv filter? _Recommend:_ allow date-window
    but cap span (env-tunable).
 3. **PC-9 (young suppliers) is cross-source** (needs `companies.registration_date`).
    Per §4.4 it belongs in a kernel cross-source usecase / `Entity` composition, not
@@ -873,6 +1108,7 @@ reassigned to cross-source kernel; (g) buyer-territory allowed / supplier-territ
 gate-blocked.
 
 Second-round (adversarial) findings incorporated:
+
 - **C1** — the three grain-gate booleans are **computed at MV-refresh time**, not
   constants; the server reads them **live per request** (§0 reframed as a snapshot;
   §4 enforcement is data-driven).

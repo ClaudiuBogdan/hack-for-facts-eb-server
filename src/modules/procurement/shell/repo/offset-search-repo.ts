@@ -20,12 +20,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import {
-  mapContract,
-  mapDirectAcquisition,
-  mapModification,
-  mapProcedure,
-} from './mappers.js';
+import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
 import {
   assertDaOffsetSelective,
@@ -186,14 +181,18 @@ export const buildSearchConditions = (
   }
   if (filter.dateRange !== undefined) {
     const col = ref(alias, b.dateColumn);
-    if (filter.dateRange.gte !== undefined) conds.push(sql`${col} >= ${filter.dateRange.gte}::date`);
-    if (filter.dateRange.lte !== undefined) conds.push(sql`${col} <= ${filter.dateRange.lte}::date`);
+    if (filter.dateRange.gte !== undefined)
+      conds.push(sql`${col} >= ${filter.dateRange.gte}::date`);
+    if (filter.dateRange.lte !== undefined)
+      conds.push(sql`${col} <= ${filter.dateRange.lte}::date`);
   }
   if (filter.valueRon !== undefined) {
     const col = ref(alias, b.valueColumn);
     // `::numeric` from a decimal STRING — the value never becomes a float.
-    if (filter.valueRon.gte !== undefined) conds.push(sql`${col} >= ${filter.valueRon.gte}::numeric`);
-    if (filter.valueRon.lte !== undefined) conds.push(sql`${col} <= ${filter.valueRon.lte}::numeric`);
+    if (filter.valueRon.gte !== undefined)
+      conds.push(sql`${col} >= ${filter.valueRon.gte}::numeric`);
+    if (filter.valueRon.lte !== undefined)
+      conds.push(sql`${col} <= ${filter.valueRon.lte}::numeric`);
   }
   if (filter.linked !== undefined) {
     const col = ref(alias, 'contract_id');
@@ -211,47 +210,89 @@ export const buildSearchConditions = (
 // ── projections (mirror the cursor repo; money + dates cast to text) ──────────
 
 const procedureSelect = [
-  'p.procedure_id', 'p.source_system', 'p.source_url', 'p.notice_no', 'p.notice_kind',
-  'p.procedure_type', 'p.contract_kind',
-  'p.title', 'p.authority_cui', 'p.authority_name', 'p.cpv_code', 'p.currency',
+  'p.procedure_id',
+  'p.source_system',
+  'p.source_url',
+  'p.notice_no',
+  'p.notice_kind',
+  'p.procedure_type',
+  'p.contract_kind',
+  'p.title',
+  'p.authority_cui',
+  'p.authority_name',
+  'p.cpv_code',
+  'p.currency',
   sql<string | null>`p.estimated_value_ron::text`.as('estimated_value_ron'),
   sql<string | null>`p.awarded_value_ron::text`.as('awarded_value_ron'),
-  'p.status', 'p.county_name',
+  'p.status',
+  'p.county_name',
   sql<string | null>`p.publication_date::text`.as('publication_date'),
   sql<string | null>`p.state_date::text`.as('state_date'),
 ] as const;
 
 const contractSelect = [
-  'c.contract_id', 'c.contract_key', 'c.source_system', 'c.source_url', 'c.procedure_id',
-  'c.notice_no', 'c.contract_no',
+  'c.contract_id',
+  'c.contract_key',
+  'c.source_system',
+  'c.source_url',
+  'c.procedure_id',
+  'c.notice_no',
+  'c.contract_no',
   sql<string | null>`c.contract_date::text`.as('contract_date'),
-  'c.title', 'c.authority_cui', 'c.authority_name', 'c.supplier_cui',
-  'c.supplier_name', 'c.cpv_code', 'c.currency',
+  'c.title',
+  'c.authority_cui',
+  'c.authority_name',
+  'c.supplier_cui',
+  'c.supplier_name',
+  'c.cpv_code',
+  'c.currency',
   sql<string | null>`c.value_ron::text`.as('value_ron'),
   sql<string | null>`c.estimated_value_ron::text`.as('estimated_value_ron'),
-  'c.status', 'c.county_name', 'c.is_canonical', 'c.dup_group_id',
+  'c.status',
+  'c.county_name',
+  'c.is_canonical',
+  'c.dup_group_id',
 ] as const;
 
 const daSelect = [
-  'd.da_id', 'd.da_key', 'd.source_system', 'd.source_url', 'd.unique_code', 'd.title',
-  'd.authority_cui', 'd.authority_name', 'd.supplier_cui', 'd.supplier_name', 'd.cpv_code',
+  'd.da_id',
+  'd.da_key',
+  'd.source_system',
+  'd.source_url',
+  'd.unique_code',
+  'd.title',
+  'd.authority_cui',
+  'd.authority_name',
+  'd.supplier_cui',
+  'd.supplier_name',
+  'd.cpv_code',
   'd.currency',
   sql<string | null>`d.value_ron::text`.as('value_ron'),
   sql<string | null>`d.estimated_value_ron::text`.as('estimated_value_ron'),
-  'd.status', 'd.county_name',
+  'd.status',
+  'd.county_name',
   sql<string | null>`d.publication_date::text`.as('publication_date'),
   sql<string | null>`d.finalization_date::text`.as('finalization_date'),
-  'd.is_canonical', 'd.dup_group_id',
+  'd.is_canonical',
+  'd.dup_group_id',
 ] as const;
 
 const modificationSelect = [
-  'm.modification_id', 'm.contract_id', 'm.source_url', 'm.link_method', 'm.link_confidence',
-  'm.authority_cui', 'm.supplier_cui', 'm.contract_no', 'm.notice_no',
+  'm.modification_id',
+  'm.contract_id',
+  'm.source_url',
+  'm.link_method',
+  'm.link_confidence',
+  'm.authority_cui',
+  'm.supplier_cui',
+  'm.contract_no',
+  'm.notice_no',
   sql<string | null>`m.modification_date::text`.as('modification_date'),
   sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
   sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
   sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
-  'm.modification_type', 'm.year',
+  'm.modification_type',
+  'm.year',
 ] as const;
 
 export interface ProcurementOffsetSearchRepo {
@@ -340,7 +381,11 @@ export const makeOffsetSearchRepo = (
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
-    return withCount('procedures', conds, rows.then((r) => r.map(mapProcedure)));
+    return withCount(
+      'procedures',
+      conds,
+      rows.then((r) => r.map(mapProcedure))
+    );
   };
 
   const searchContractsOffset = (
@@ -356,7 +401,11 @@ export const makeOffsetSearchRepo = (
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
-    return withCount('contracts', conds, rows.then((r) => r.map(mapContract)));
+    return withCount(
+      'contracts',
+      conds,
+      rows.then((r) => r.map(mapContract))
+    );
   };
 
   const searchDirectAcquisitionsOffset = async (
@@ -374,7 +423,11 @@ export const makeOffsetSearchRepo = (
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
-    return withCount('direct_acquisitions', conds, rows.then((r) => r.map(mapDirectAcquisition)));
+    return withCount(
+      'direct_acquisitions',
+      conds,
+      rows.then((r) => r.map(mapDirectAcquisition))
+    );
   };
 
   const searchModificationsOffset = (
@@ -390,7 +443,11 @@ export const makeOffsetSearchRepo = (
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
-    return withCount('modifications', conds, rows.then((r) => r.map(mapModification)));
+    return withCount(
+      'modifications',
+      conds,
+      rows.then((r) => r.map(mapModification))
+    );
   };
 
   return {
