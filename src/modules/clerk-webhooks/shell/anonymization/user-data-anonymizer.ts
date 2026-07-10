@@ -83,6 +83,7 @@ export interface UserDataAnonymizationSummary {
   advancedDatasetValueRowsDeleted: number;
   insDatasetRequestsUpdated: number;
   agentConversationsDeleted: number;
+  notificationPlatformRowsUpdated?: number;
 }
 
 export interface UserDataAnonymizationError {
@@ -120,10 +121,11 @@ export interface UserDataAnonymizerDeps {
 interface MutationResult {
   readonly numUpdatedRows?: bigint;
   readonly numDeletedRows?: bigint;
+  readonly numAffectedRows?: bigint;
 }
 
 const toMutationCount = (result: MutationResult): number => {
-  const count = result.numUpdatedRows ?? result.numDeletedRows ?? 0n;
+  const count = result.numUpdatedRows ?? result.numDeletedRows ?? result.numAffectedRows ?? 0n;
   return Number(count);
 };
 
@@ -677,6 +679,131 @@ const notifyAdminAnonymizationCompleted = (input: {
   });
 };
 
+const anonymizeNotificationPlatformRows = async (
+  trx: Transaction<UserDatabase>,
+  input: { matchingUserIds: string[]; anonymizedUserId: string; now: Date }
+): Promise<number> => {
+  const attemptResult = await sql`
+    UPDATE notification_delivery_attempts AS attempt
+    SET destination_fingerprint = NULL,
+        error_code = NULL,
+        error_message = NULL,
+        provider_ref = NULL
+    WHERE EXISTS (
+      SELECT 1
+      FROM notification_deliveries AS delivery
+      WHERE delivery.id = attempt.delivery_id
+        AND delivery.user_id IN (${sql.join(input.matchingUserIds)})
+    )
+  `.execute(trx);
+
+  const deliveryResult = await sql`
+    UPDATE notification_deliveries
+    SET user_id = CASE
+          WHEN user_id IN (${sql.join(input.matchingUserIds)}) THEN ${input.anonymizedUserId}
+          ELSE user_id
+        END,
+        destination_fingerprint = NULL,
+        destination_generation = NULL,
+        rendered_subject = NULL,
+        rendered_html = NULL,
+        rendered_text = NULL,
+        content_hash = NULL,
+        provider_idempotency_key = NULL,
+        provider_ref = NULL,
+        last_error_code = 'user_anonymized',
+        last_error_message = NULL,
+        status = CASE
+          WHEN status IN ('pending_render','scheduled','ready','sending','retry_wait')
+            THEN 'cancelled'
+          ELSE status
+        END,
+        terminal_at = CASE
+          WHEN status IN ('pending_render','scheduled','ready','sending','retry_wait')
+            THEN COALESCE(terminal_at, ${input.now})
+          ELSE terminal_at
+        END,
+        claim_token = NULL,
+        claim_expires_at = NULL,
+        updated_at = ${input.now}
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+
+  const logicalResult = await sql`
+    UPDATE logical_notifications
+    SET user_id = ${input.anonymizedUserId},
+        eligibility_reason = 'user_anonymized',
+        recipient_facts = NULL,
+        inbox_title = 'Notification unavailable',
+        inbox_body = '',
+        inbox_action_url = NULL,
+        inbox_visible = FALSE,
+        read_at = NULL,
+        archived_at = NULL
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+
+  const digestResult = await sql`
+    UPDATE notification_digest_batches
+    SET user_id = ${input.anonymizedUserId},
+        status = CASE
+          WHEN status IN ('open','materializing') THEN 'cancelled'
+          ELSE status
+        END,
+        rendered_item_ids = '[]'::jsonb,
+        overflow_count = NULL,
+        claim_token = NULL,
+        claim_expires_at = NULL,
+        updated_at = ${input.now}
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+
+  const auditResult = await sql`
+    UPDATE notification_audit_log
+    SET user_id = CASE
+          WHEN user_id IN (${sql.join(input.matchingUserIds)}) THEN ${input.anonymizedUserId}
+          ELSE user_id
+        END,
+        actor = CASE
+          WHEN actor IN (${sql.join(input.matchingUserIds)}) THEN ${input.anonymizedUserId}
+          ELSE actor
+        END,
+        reason = NULL,
+        details = '{}'::jsonb
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+       OR actor IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+
+  const subscriptionResult = await sql`
+    DELETE FROM notification_subscriptions
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+  const globalPreferenceResult = await sql`
+    DELETE FROM notification_global_preferences
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+  const channelPreferenceResult = await sql`
+    DELETE FROM notification_channel_preferences
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+  const destinationResult = await sql`
+    DELETE FROM notification_channel_destinations
+    WHERE user_id IN (${sql.join(input.matchingUserIds)})
+  `.execute(trx);
+
+  return [
+    attemptResult,
+    deliveryResult,
+    logicalResult,
+    digestResult,
+    auditResult,
+    subscriptionResult,
+    globalPreferenceResult,
+    channelPreferenceResult,
+    destinationResult,
+  ].reduce((count, result) => count + toMutationCount(result), 0);
+};
+
 const anonymizeDeletedUserInTransaction = async (
   trx: Transaction<UserDatabase>,
   input: UserDataAnonymizationInput,
@@ -872,6 +999,12 @@ const anonymizeDeletedUserInTransaction = async (
     anonymizedUserId,
   });
 
+  const notificationPlatformRowsUpdated = await anonymizeNotificationPlatformRows(trx, {
+    matchingUserIds,
+    anonymizedUserId,
+    now,
+  });
+
   const summary: UserDataAnonymizationSummary = {
     anonymizedUserId,
     shortLinksDeleted: Number(shortLinksDeletedResult.numAffectedRows ?? 0n),
@@ -889,6 +1022,7 @@ const anonymizeDeletedUserInTransaction = async (
     advancedDatasetValueRowsDeleted,
     insDatasetRequestsUpdated: toMutationCount(insDatasetRequestsUpdatedResult),
     agentConversationsDeleted: toMutationCount(agentConversationsDeletedResult),
+    notificationPlatformRowsUpdated,
   };
 
   await insertAuditRow(trx, {

@@ -45,6 +45,15 @@ describe('User data anonymizer', () => {
     const anonymousRequestId = randomUUID();
     const agentConversationId = randomUUID();
     const agentMessageId = `agent-message-${suffix}`;
+    const platformEventId = randomUUID();
+    const platformSubscriptionId = randomUUID();
+    const platformLogicalId = randomUUID();
+    const platformDestinationId = randomUUID();
+    const platformAcceptedDeliveryId = randomUUID();
+    const platformRetryDeliveryId = randomUUID();
+    const platformAttemptId = randomUUID();
+    const platformOpenDigestId = randomUUID();
+    const platformRenderedDigestId = randomUUID();
 
     await userDb
       .insertInto('shortlinks')
@@ -387,6 +396,245 @@ describe('User data anonymizer', () => {
       } as never)
       .execute();
 
+    const platformNow = new Date();
+    const platformRetention = new Date(platformNow.getTime() + 365 * 24 * 60 * 60 * 1000);
+    await userDb
+      .insertInto('notification_events')
+      .values({
+        id: platformEventId,
+        source: 'anonymizer-e2e',
+        event_type: 'anonymizer.test.created',
+        event_schema_version: 1,
+        occurrence_key: `anonymizer-${suffix}`,
+        occurred_at: platformNow,
+        facts: { publicFact: 'preserved' },
+        payload_hash: `platform-hash-${suffix}`,
+        status: 'resolved',
+        created_at: platformNow,
+        updated_at: platformNow,
+        resolved_at: platformNow,
+        retention_expires_at: platformRetention,
+      } as never)
+      .execute();
+    await userDb
+      .insertInto('notification_subscriptions')
+      .values({
+        id: platformSubscriptionId,
+        user_id: userId,
+        kind_id: 'anonymizer.kind',
+        subject_type: 'entity',
+        subject_id: 'entity-1',
+        config: { private: userId },
+        normalized_key: `anonymizer:${suffix}`,
+        state: 'active',
+        created_at: platformNow,
+        updated_at: platformNow,
+      } as never)
+      .execute();
+    await userDb
+      .insertInto('notification_global_preferences')
+      .values({ user_id: userId, optional_enabled: false, updated_at: platformNow })
+      .execute();
+    await userDb
+      .insertInto('notification_channel_preferences')
+      .values({
+        user_id: userId,
+        channel: 'email',
+        enabled: true,
+        cadence: 'daily',
+        updated_at: platformNow,
+      })
+      .execute();
+    await userDb
+      .insertInto('logical_notifications')
+      .values({
+        id: platformLogicalId,
+        event_id: platformEventId,
+        kind_id: 'anonymizer.kind',
+        kind_version: 1,
+        user_id: userId,
+        eligibility_reason: 'active_subscription',
+        locale: 'ro',
+        recipient_facts: { private: userId },
+        inbox_template_id: 'anonymizer-inbox',
+        inbox_template_version: 'v1',
+        inbox_title: `Private title ${userId}`,
+        inbox_body: `Private body ${userId}`,
+        inbox_action_url: `/private/${userId}`,
+        inbox_visible: true,
+        read_at: platformNow,
+        archived_at: platformNow,
+        created_at: platformNow,
+        retention_expires_at: platformRetention,
+      } as never)
+      .execute();
+    await userDb
+      .insertInto('notification_channel_destinations')
+      .values({
+        id: platformDestinationId,
+        user_id: userId,
+        channel: 'email',
+        fingerprint: `private-fingerprint-${suffix}`,
+        generation: 1,
+        is_current: true,
+        suppressed_at: platformNow,
+        suppression_reason: 'private reason',
+        created_at: platformNow,
+        updated_at: platformNow,
+      })
+      .execute();
+    await userDb
+      .insertInto('notification_digest_batches')
+      .values([
+        {
+          id: platformOpenDigestId,
+          user_id: userId,
+          channel: 'email',
+          cadence: 'daily',
+          window_start_utc: new Date(platformNow.getTime() - 24 * 60 * 60 * 1000),
+          window_end_utc: platformNow,
+          dispatch_at_utc: platformNow,
+          status: 'open',
+          rendered_item_ids: null,
+          overflow_count: null,
+          delivery_id: null,
+          claim_token: null,
+          claim_expires_at: null,
+          created_at: platformNow,
+          updated_at: platformNow,
+        },
+        {
+          id: platformRenderedDigestId,
+          user_id: userId,
+          channel: 'email',
+          cadence: 'weekly',
+          window_start_utc: new Date(platformNow.getTime() - 7 * 24 * 60 * 60 * 1000),
+          window_end_utc: platformNow,
+          dispatch_at_utc: platformNow,
+          status: 'rendered',
+          rendered_item_ids: [platformLogicalId],
+          overflow_count: 2,
+          delivery_id: null,
+          claim_token: null,
+          claim_expires_at: null,
+          created_at: platformNow,
+          updated_at: platformNow,
+        },
+      ] as never)
+      .execute();
+    await userDb
+      .insertInto('notification_digest_members')
+      .values([
+        {
+          batch_id: platformOpenDigestId,
+          logical_notification_id: platformLogicalId,
+          created_at: platformNow,
+        },
+        {
+          batch_id: platformRenderedDigestId,
+          logical_notification_id: platformLogicalId,
+          created_at: platformNow,
+        },
+      ])
+      .execute();
+    await userDb
+      .insertInto('notification_deliveries')
+      .values([
+        {
+          id: platformAcceptedDeliveryId,
+          delivery_key: `anonymizer-accepted-${suffix}`,
+          logical_notification_id: platformLogicalId,
+          digest_batch_id: null,
+          kind_id: 'anonymizer.kind',
+          user_id: userId,
+          channel: 'email',
+          destination_fingerprint: `private-fingerprint-${suffix}`,
+          destination_generation: 1,
+          template_id: 'anonymizer-email',
+          template_version: 'v1',
+          rendered_subject: `Private subject ${userId}`,
+          rendered_html: `<p>${userId}</p>`,
+          rendered_text: userId,
+          content_hash: `private-content-${suffix}`,
+          status: 'accepted',
+          attempt_count: 1,
+          provider_idempotency_key: `private-key-${suffix}`,
+          provider_ref: `private-provider-${suffix}`,
+          sender_mode: 'active',
+          created_at: platformNow,
+          updated_at: platformNow,
+          accepted_at: platformNow,
+          retention_expires_at: platformRetention,
+        },
+        {
+          id: platformRetryDeliveryId,
+          delivery_key: `anonymizer-retry-${suffix}`,
+          logical_notification_id: null,
+          digest_batch_id: platformRenderedDigestId,
+          kind_id: 'anonymizer.kind',
+          user_id: userId,
+          channel: 'email',
+          destination_fingerprint: `private-fingerprint-${suffix}`,
+          destination_generation: 1,
+          template_id: 'anonymizer-digest',
+          template_version: 'v1',
+          rendered_subject: `Private digest ${userId}`,
+          rendered_html: `<p>${userId}</p>`,
+          rendered_text: userId,
+          content_hash: `private-digest-content-${suffix}`,
+          status: 'retry_wait',
+          attempt_count: 1,
+          next_attempt_at: new Date(platformNow.getTime() + 60_000),
+          claim_token: randomUUID(),
+          claim_expires_at: new Date(platformNow.getTime() + 60_000),
+          provider_idempotency_key: `private-retry-key-${suffix}`,
+          last_error_code: 'private_error',
+          last_error_message: `Private error ${userId}`,
+          sender_mode: 'active',
+          created_at: platformNow,
+          updated_at: platformNow,
+          retention_expires_at: platformRetention,
+        },
+      ] as never)
+      .execute();
+    await userDb
+      .updateTable('notification_digest_batches')
+      .set({ delivery_id: platformRetryDeliveryId })
+      .where('id', '=', platformRenderedDigestId)
+      .execute();
+    await userDb
+      .insertInto('notification_delivery_attempts')
+      .values({
+        id: platformAttemptId,
+        delivery_id: platformAcceptedDeliveryId,
+        attempt_number: 1,
+        started_at: platformNow,
+        completed_at: platformNow,
+        provider_idempotency_key: `private-attempt-key-${suffix}`,
+        destination_fingerprint: `private-fingerprint-${suffix}`,
+        result: 'accepted',
+        error_code: 'private_error',
+        error_message: `Private error ${userId}`,
+        provider_ref: `private-attempt-provider-${suffix}`,
+      } as never)
+      .execute();
+    await userDb
+      .insertInto('notification_audit_log')
+      .values({
+        occurred_at: platformNow,
+        action: 'recipient.included',
+        actor: userId,
+        user_id: userId,
+        event_id: platformEventId,
+        logical_notification_id: platformLogicalId,
+        delivery_id: platformAcceptedDeliveryId,
+        batch_id: platformRenderedDigestId,
+        subscription_id: platformSubscriptionId,
+        reason: `Private reason ${userId}`,
+        details: { private: userId },
+      })
+      .execute();
+
     const firstResult = await anonymizer.anonymizeDeletedUser({
       userId,
       svixId: `svix-delete-${suffix}`,
@@ -554,6 +802,146 @@ describe('User data anonymizer', () => {
       .where('id', '=', agentMessageId)
       .executeTakeFirst();
     expect(deletedAgentMessage).toBeUndefined();
+
+    const platformEvent = await userDb
+      .selectFrom('notification_events')
+      .selectAll()
+      .where('id', '=', platformEventId)
+      .executeTakeFirstOrThrow();
+    expect(platformEvent.facts).toEqual({ publicFact: 'preserved' });
+
+    const platformSubscriptions = await userDb
+      .selectFrom('notification_subscriptions')
+      .selectAll()
+      .where('user_id', 'in', [userId, anonymizedUserId])
+      .execute();
+    expect(platformSubscriptions).toEqual([]);
+    const platformGlobalPreferences = await userDb
+      .selectFrom('notification_global_preferences')
+      .selectAll()
+      .where('user_id', 'in', [userId, anonymizedUserId])
+      .execute();
+    expect(platformGlobalPreferences).toEqual([]);
+    const platformChannelPreferences = await userDb
+      .selectFrom('notification_channel_preferences')
+      .selectAll()
+      .where('user_id', 'in', [userId, anonymizedUserId])
+      .execute();
+    expect(platformChannelPreferences).toEqual([]);
+    const platformDestination = await userDb
+      .selectFrom('notification_channel_destinations')
+      .select('id')
+      .where('id', '=', platformDestinationId)
+      .executeTakeFirst();
+    expect(platformDestination).toBeUndefined();
+
+    const platformLogical = await userDb
+      .selectFrom('logical_notifications')
+      .selectAll()
+      .where('id', '=', platformLogicalId)
+      .executeTakeFirstOrThrow();
+    expect(platformLogical).toMatchObject({
+      user_id: anonymizedUserId,
+      eligibility_reason: 'user_anonymized',
+      recipient_facts: null,
+      inbox_title: 'Notification unavailable',
+      inbox_body: '',
+      inbox_action_url: null,
+      inbox_visible: false,
+      read_at: null,
+      archived_at: null,
+    });
+
+    const platformAcceptedDelivery = await userDb
+      .selectFrom('notification_deliveries')
+      .selectAll()
+      .where('id', '=', platformAcceptedDeliveryId)
+      .executeTakeFirstOrThrow();
+    expect(platformAcceptedDelivery).toMatchObject({
+      user_id: anonymizedUserId,
+      status: 'accepted',
+      destination_fingerprint: null,
+      destination_generation: null,
+      rendered_subject: null,
+      rendered_html: null,
+      rendered_text: null,
+      content_hash: null,
+      provider_idempotency_key: null,
+      provider_ref: null,
+      claim_token: null,
+      claim_expires_at: null,
+    });
+    const platformRetryDelivery = await userDb
+      .selectFrom('notification_deliveries')
+      .selectAll()
+      .where('id', '=', platformRetryDeliveryId)
+      .executeTakeFirstOrThrow();
+    expect(platformRetryDelivery).toMatchObject({
+      user_id: anonymizedUserId,
+      status: 'cancelled',
+      last_error_code: 'user_anonymized',
+      last_error_message: null,
+      claim_token: null,
+      claim_expires_at: null,
+    });
+    expect(platformRetryDelivery.terminal_at).not.toBeNull();
+
+    const platformAttempt = await userDb
+      .selectFrom('notification_delivery_attempts')
+      .selectAll()
+      .where('id', '=', platformAttemptId)
+      .executeTakeFirstOrThrow();
+    expect(platformAttempt).toMatchObject({
+      destination_fingerprint: null,
+      error_code: null,
+      error_message: null,
+      provider_ref: null,
+      result: 'accepted',
+    });
+
+    const platformOpenDigest = await userDb
+      .selectFrom('notification_digest_batches')
+      .selectAll()
+      .where('id', '=', platformOpenDigestId)
+      .executeTakeFirstOrThrow();
+    expect(platformOpenDigest).toMatchObject({
+      user_id: anonymizedUserId,
+      status: 'cancelled',
+      rendered_item_ids: [],
+      overflow_count: null,
+      claim_token: null,
+      claim_expires_at: null,
+    });
+    const platformRenderedDigest = await userDb
+      .selectFrom('notification_digest_batches')
+      .selectAll()
+      .where('id', '=', platformRenderedDigestId)
+      .executeTakeFirstOrThrow();
+    expect(platformRenderedDigest).toMatchObject({
+      user_id: anonymizedUserId,
+      status: 'rendered',
+      rendered_item_ids: [],
+      overflow_count: null,
+      delivery_id: platformRetryDeliveryId,
+    });
+    const platformMembers = await userDb
+      .selectFrom('notification_digest_members')
+      .selectAll()
+      .where('logical_notification_id', '=', platformLogicalId)
+      .execute();
+    expect(platformMembers).toHaveLength(2);
+
+    const platformAudit = await userDb
+      .selectFrom('notification_audit_log')
+      .selectAll()
+      .where('event_id', '=', platformEventId)
+      .executeTakeFirstOrThrow();
+    expect(platformAudit).toMatchObject({
+      user_id: anonymizedUserId,
+      actor: anonymizedUserId,
+      reason: null,
+      details: {},
+    });
 
     const datasetRows = await userDb
       .selectFrom('advancedmapdatasetrows')
