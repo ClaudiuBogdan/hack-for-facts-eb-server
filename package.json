@@ -61,6 +61,10 @@
     ],
     "overrides": {
       "handlebars": ">=4.7.9",
+      "ip-address": "10.1.1",
+      "qs": "6.15.2",
+      "brace-expansion@5": "5.0.6",
+      "@opentelemetry/core@2": "2.8.0",
       "next": "16.2.3",
       "vite": "8.0.8",
       "fast-uri": "3.1.2",
