@@ -24,6 +24,19 @@ export interface DeliveryRepo {
   ): Promise<Result<{ delivery: Delivery; created: boolean }, PlatformDeliveryError>>;
   findById(id: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
   findByProviderRef(providerRef: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
+  listByLogicalNotification(
+    logicalNotificationId: string
+  ): Promise<Result<Delivery[], PlatformDeliveryError>>;
+  listShadowRecipients(input: {
+    kindId: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<
+    Result<
+      Page<{ userId: string; contentHash: string | null; deliveryKey: string }>,
+      PlatformDeliveryError
+    >
+  >;
   saveProviderRefIfMissing(input: {
     deliveryId: string;
     providerRef: string;

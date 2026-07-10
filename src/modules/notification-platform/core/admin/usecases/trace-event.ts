@@ -1,10 +1,17 @@
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  redactAuditEntry,
+  redactDelivery,
+  redactDeliveryAttempt,
+  redactLogicalNotification,
+  redactNotificationEvent,
+} from '../redaction.js';
+
 import type { AuditError } from '../../audit/errors.js';
 import type { AuditLedgerPort } from '../../audit/ports.js';
 import type { PlatformDeliveryError } from '../../delivery/errors.js';
 import type { DeliveryAttemptRepo, DeliveryRepo } from '../../delivery/ports.js';
-import type { Delivery } from '../../delivery/types.js';
 import type { EventError } from '../../events/errors.js';
 import type { NotificationEventRepo } from '../../events/ports.js';
 import type { NotificationEvent } from '../../events/types.js';
@@ -21,16 +28,10 @@ export interface NotificationEventTraceReader {
   }): Promise<Result<NotificationEvent | null, EventError>>;
 }
 
-export interface DeliveryTraceReader {
-  listByLogicalNotification(
-    logicalNotificationId: string
-  ): Promise<Result<Delivery[], PlatformDeliveryError>>;
-}
-
 export interface TraceEventDeps {
   events: NotificationEventRepo & NotificationEventTraceReader;
   logicalNotifications: LogicalNotificationRepo;
-  deliveries: DeliveryRepo & DeliveryTraceReader;
+  deliveries: DeliveryRepo;
   attempts: DeliveryAttemptRepo;
   audit: AuditLedgerPort;
   clock: Clock;
@@ -45,23 +46,10 @@ export type TraceEventInput =
 export type TraceEventResult = EventTrace;
 export type TraceEventError = EventError | InboxError | PlatformDeliveryError | AuditError;
 
-const redactDelivery = (delivery: Delivery): Delivery => ({
-  ...delivery,
-  destinationFingerprint: null,
-  destinationGeneration: null,
-  renderedSubject: null,
-  renderedHtml: null,
-  renderedText: null,
-  contentHash: null,
-});
-
 export const traceEvent = async (
   deps: TraceEventDeps,
   input: TraceEventInput
 ): Promise<Result<TraceEventResult, TraceEventError>> => {
-  // DESIGN NOTE: the committed repos omit composite event lookup and delivery-by-
-  // logical queries required by the inventory. These read-only interfaces document
-  // the missing adapter surface without changing the committed contracts.
   const found =
     'eventId' in input
       ? await deps.events.findById(input.eventId)
@@ -95,10 +83,13 @@ export const traceEvent = async (
       }
       tracedDeliveries.push({
         delivery: redactDelivery(delivery),
-        attempts: attempts.value.map((attempt) => ({ ...attempt, destinationFingerprint: null })),
+        attempts: attempts.value.map(redactDeliveryAttempt),
       });
     }
-    logicalNotifications.push({ logicalNotification: logical, deliveries: tracedDeliveries });
+    logicalNotifications.push({
+      logicalNotification: redactLogicalNotification(logical),
+      deliveries: tracedDeliveries,
+    });
   }
   const auditEntries = await deps.audit.listByEntity({
     eventId: found.value.id,
@@ -109,8 +100,8 @@ export const traceEvent = async (
     return err(auditEntries.error);
   }
   return ok({
-    event: found.value,
+    event: redactNotificationEvent(found.value),
     logicalNotifications,
-    auditEntries: auditEntries.value.items,
+    auditEntries: auditEntries.value.items.map(redactAuditEntry),
   });
 };

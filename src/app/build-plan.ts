@@ -6,6 +6,7 @@ import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/databas
 import type { AdminEventRuntimeFactory } from '../modules/admin-events/index.js';
 import type { AuthProvider } from '../modules/auth/index.js';
 import type { BudgetSectorRepository } from '../modules/budget-sector/index.js';
+import type { CampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
 import type { DatasetRepo } from '../modules/datasets/index.js';
 import type { ExecutionLineItemRepository as ExecutionLineItemsModuleRepository } from '../modules/execution-line-items/index.js';
 import type {
@@ -15,6 +16,13 @@ import type {
 import type { HealthChecker } from '../modules/health/index.js';
 import type { CorrespondenceRecoveryRuntimeFactory } from '../modules/institution-correspondence/index.js';
 import type { NotificationDeliveryRuntimeFactory } from '../modules/notification-delivery/index.js';
+import type {
+  LegacyOutboxReader,
+  NotificationPlatformRuntimeFactory,
+  NotificationPlatformWorkerDeps,
+  PlatformAdminRoutesFactory,
+  SubjectAuthorizationPort,
+} from '../modules/notification-platform/index.js';
 import type { KernelConfig } from '../modules/shared/index.js';
 import type { UserEventRuntimeFactory } from '../modules/user-events/index.js';
 import type { FastifyServerOptions } from 'fastify';
@@ -46,6 +54,19 @@ export interface AppDeps {
   authProvider?: AuthProvider;
   /** Optional notification delivery runtime factory for tests */
   notificationDeliveryRuntimeFactory?: NotificationDeliveryRuntimeFactory;
+  /** Optional notification platform runtime factory for tests */
+  notificationPlatformRuntimeFactory?: NotificationPlatformRuntimeFactory;
+  /**
+   * Optional notification platform composition overrides for integration tests.
+   * Production leaves this unset and receives the Kysely/Clerk/Resend adapters.
+   */
+  notificationPlatformOverrides?: {
+    workerDeps: NotificationPlatformWorkerDeps;
+    subjectAuthorizers?: ReadonlyMap<string, SubjectAuthorizationPort>;
+    adminPermissionAuthorizer?: CampaignAdminPermissionAuthorizer;
+    legacyOutboxReader?: LegacyOutboxReader;
+    adminRoutesFactory?: PlatformAdminRoutesFactory;
+  };
   /** Optional user event runtime factory for tests */
   userEventRuntimeFactory?: UserEventRuntimeFactory;
   /** Optional admin event runtime factory for tests */
@@ -79,6 +100,7 @@ export interface AppFeatureFlags {
   shouldEnqueueClerkWelcomeNotifications: boolean;
   shouldStartNotificationWorkers: boolean;
   shouldInitializeNotificationDeliveryRuntime: boolean;
+  shouldInitializeNotificationPlatform: boolean;
   shouldInitializeUserEventRuntime: boolean;
   enabledCampaignAdminKeys: readonly string[];
   shouldEnablePublicDebateCorrespondence: boolean;
@@ -125,6 +147,8 @@ function buildFeatureFlags(deps: AppDeps): AppFeatureFlags {
     shouldRegisterNotificationAdminRoutes ||
     shouldEnqueueClerkWelcomeNotifications ||
     shouldStartNotificationWorkers;
+  const shouldInitializeNotificationPlatform =
+    config.notificationPlatform.enabled && hasBullmqRedisConfig && deps.userDb !== undefined;
   const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
   const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
 
@@ -135,6 +159,7 @@ function buildFeatureFlags(deps: AppDeps): AppFeatureFlags {
     shouldEnqueueClerkWelcomeNotifications,
     shouldStartNotificationWorkers,
     shouldInitializeNotificationDeliveryRuntime,
+    shouldInitializeNotificationPlatform,
     shouldInitializeUserEventRuntime,
     enabledCampaignAdminKeys: config.learningProgress.campaignAdminEnabledCampaigns,
     shouldEnablePublicDebateCorrespondence,
@@ -154,12 +179,57 @@ function validateBuildPlan(deps: AppDeps, features: AppFeatureFlags): void {
   const unsubscribeSecret = config.notifications.unsubscribeHmacSecret?.trim();
   const campaignAdminClerkSecret = config.auth.clerkSecretKey?.trim();
   const emailApiKey = config.email.apiKey;
+  const notificationPlatformFingerprintSecret =
+    config.notificationPlatform.destinationFingerprintSecret?.trim();
 
   if (
     config.email.enabled &&
     (features.emailFromAddress === undefined || features.emailFromAddress === '')
   ) {
     throw new Error('Email is enabled but EMAIL_FROM_ADDRESS is missing.');
+  }
+
+  if (config.notificationPlatform.enabled && deps.authProvider === undefined) {
+    throw new Error(
+      'Notification platform requires authProvider (Clerk authentication) when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
+  }
+
+  if (
+    config.notificationPlatform.enabled &&
+    (config.auth.clerkSecretKey === undefined || config.auth.clerkSecretKey.trim() === '')
+  ) {
+    throw new Error(
+      'Notification platform requires CLERK_SECRET_KEY when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
+  }
+
+  if (
+    config.notificationPlatform.enabled &&
+    (emailApiKey === undefined || emailApiKey.trim() === '')
+  ) {
+    throw new Error(
+      'Notification platform requires RESEND_API_KEY when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
+  }
+
+  if (
+    config.notificationPlatform.enabled &&
+    (features.emailFromAddress === undefined || features.emailFromAddress === '')
+  ) {
+    throw new Error(
+      'Notification platform requires EMAIL_FROM_ADDRESS when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
+  }
+
+  if (
+    config.notificationPlatform.enabled &&
+    (notificationPlatformFingerprintSecret === undefined ||
+      notificationPlatformFingerprintSecret === '')
+  ) {
+    throw new Error(
+      'Notification platform requires NP_DESTINATION_FINGERPRINT_SECRET when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
   }
 
   if (

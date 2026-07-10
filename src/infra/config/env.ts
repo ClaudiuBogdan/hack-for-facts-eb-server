@@ -126,6 +126,22 @@ export const EnvSchema = Type.Object({
   /** Resend rate limit (requests per second) */
   RESEND_MAX_RPS: Type.Optional(Type.Number({ default: 2, minimum: 1, maximum: 10 })),
 
+  // Notification Platform
+  NOTIFICATION_PLATFORM_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  NP_INGESTION_SCAN_SECONDS: Type.Optional(
+    Type.Integer({ default: 60, minimum: 1, maximum: 86400 })
+  ),
+  NP_RECOVERY_SCAN_MINUTES: Type.Optional(Type.Integer({ default: 2, minimum: 1, maximum: 1440 })),
+  NP_DIGEST_SWEEP_MINUTES: Type.Optional(Type.Integer({ default: 5, minimum: 1, maximum: 1440 })),
+  NP_RECOVERY_THRESHOLD_MINUTES: Type.Optional(
+    Type.Integer({ default: 10, minimum: 1, maximum: 10080 })
+  ),
+  NP_RETENTION_BATCH_LIMIT: Type.Optional(
+    Type.Integer({ default: 500, minimum: 1, maximum: 10000 })
+  ),
+  NP_MAX_SEND_RPS: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+  NP_DESTINATION_FINGERPRINT_SECRET: Type.Optional(Type.String({ minLength: 1 })),
+
   // Jobs (BullMQ)
   /** Number of concurrent workers per queue */
   JOBS_CONCURRENCY: Type.Optional(Type.Number({ default: 5, minimum: 1, maximum: 50 })),
@@ -292,6 +308,33 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['RESEND_MAX_RPS'] != null && env['RESEND_MAX_RPS'] !== ''
         ? Number.parseInt(env['RESEND_MAX_RPS'], 10)
         : 2,
+    // Notification Platform
+    NOTIFICATION_PLATFORM_ENABLED: env['NOTIFICATION_PLATFORM_ENABLED'] === 'true',
+    NP_INGESTION_SCAN_SECONDS:
+      env['NP_INGESTION_SCAN_SECONDS'] != null && env['NP_INGESTION_SCAN_SECONDS'] !== ''
+        ? Number.parseInt(env['NP_INGESTION_SCAN_SECONDS'], 10)
+        : 60,
+    NP_RECOVERY_SCAN_MINUTES:
+      env['NP_RECOVERY_SCAN_MINUTES'] != null && env['NP_RECOVERY_SCAN_MINUTES'] !== ''
+        ? Number.parseInt(env['NP_RECOVERY_SCAN_MINUTES'], 10)
+        : 2,
+    NP_DIGEST_SWEEP_MINUTES:
+      env['NP_DIGEST_SWEEP_MINUTES'] != null && env['NP_DIGEST_SWEEP_MINUTES'] !== ''
+        ? Number.parseInt(env['NP_DIGEST_SWEEP_MINUTES'], 10)
+        : 5,
+    NP_RECOVERY_THRESHOLD_MINUTES:
+      env['NP_RECOVERY_THRESHOLD_MINUTES'] != null && env['NP_RECOVERY_THRESHOLD_MINUTES'] !== ''
+        ? Number.parseInt(env['NP_RECOVERY_THRESHOLD_MINUTES'], 10)
+        : 10,
+    NP_RETENTION_BATCH_LIMIT:
+      env['NP_RETENTION_BATCH_LIMIT'] != null && env['NP_RETENTION_BATCH_LIMIT'] !== ''
+        ? Number.parseInt(env['NP_RETENTION_BATCH_LIMIT'], 10)
+        : 500,
+    NP_MAX_SEND_RPS:
+      env['NP_MAX_SEND_RPS'] != null && env['NP_MAX_SEND_RPS'] !== ''
+        ? Number.parseInt(env['NP_MAX_SEND_RPS'], 10)
+        : undefined,
+    NP_DESTINATION_FINGERPRINT_SECRET: env['NP_DESTINATION_FINGERPRINT_SECRET'],
     // Jobs (BullMQ)
     JOBS_CONCURRENCY:
       env['JOBS_CONCURRENCY'] != null && env['JOBS_CONCURRENCY'] !== ''
@@ -341,6 +384,16 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
   ) {
     throw new Error(
       'Invalid environment configuration: EMAIL_FROM_ADDRESS is required when RESEND_API_KEY is set.'
+    );
+  }
+
+  const destinationFingerprintSecret = rawEnv.NP_DESTINATION_FINGERPRINT_SECRET?.trim();
+  if (
+    rawEnv.NOTIFICATION_PLATFORM_ENABLED &&
+    (destinationFingerprintSecret === undefined || destinationFingerprintSecret === '')
+  ) {
+    throw new Error(
+      'Invalid environment configuration: NP_DESTINATION_FINGERPRINT_SECRET is required when NOTIFICATION_PLATFORM_ENABLED=true.'
     );
   }
 
@@ -514,6 +567,16 @@ export const createConfig = (env: Env) => ({
     unsubscribeHmacSecret: env.UNSUBSCRIBE_HMAC_SECRET,
     /** Whether notifications are enabled */
     enabled: env.RESEND_API_KEY !== undefined && env.NOTIFICATION_TRIGGER_API_KEY !== undefined,
+  },
+  notificationPlatform: {
+    enabled: env.NOTIFICATION_PLATFORM_ENABLED ?? false,
+    ingestionScanSeconds: env.NP_INGESTION_SCAN_SECONDS ?? 60,
+    recoveryScanMinutes: env.NP_RECOVERY_SCAN_MINUTES ?? 2,
+    digestSweepMinutes: env.NP_DIGEST_SWEEP_MINUTES ?? 5,
+    recoveryThresholdMinutes: env.NP_RECOVERY_THRESHOLD_MINUTES ?? 10,
+    retentionBatchLimit: env.NP_RETENTION_BATCH_LIMIT ?? 500,
+    maxSendRps: env.NP_MAX_SEND_RPS ?? env.RESEND_MAX_RPS ?? 2,
+    destinationFingerprintSecret: env.NP_DESTINATION_FINGERPRINT_SECRET?.trim(),
   },
   learningProgress: {
     /** Campaign keys with enabled campaign-admin routes */

@@ -163,6 +163,16 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       unsubscribeHmacSecret: 'h'.repeat(32),
       enabled: false,
     },
+    notificationPlatform: {
+      enabled: false,
+      ingestionScanSeconds: 60,
+      recoveryScanMinutes: 2,
+      digestSweepMinutes: 5,
+      recoveryThresholdMinutes: 10,
+      retentionBatchLimit: 500,
+      maxSendRps: 2,
+      destinationFingerprintSecret: undefined,
+    },
     learningProgress: {
       campaignAdminEnabledCampaigns: [],
     },
@@ -193,6 +203,10 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     email: { ...defaults.email, ...overrides.email },
     jobs: { ...defaults.jobs, ...overrides.jobs },
     notifications: { ...defaults.notifications, ...overrides.notifications },
+    notificationPlatform: {
+      ...defaults.notificationPlatform,
+      ...overrides.notificationPlatform,
+    },
     learningProgress: { ...defaults.learningProgress, ...overrides.learningProgress },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };

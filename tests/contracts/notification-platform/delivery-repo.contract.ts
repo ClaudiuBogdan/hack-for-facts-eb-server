@@ -6,6 +6,7 @@ import type { DeliveryRepo } from '@/modules/notification-platform/core/delivery
 import type { CreateDeliveryInput } from '@/modules/notification-platform/core/delivery/types.js';
 
 export const DELIVERY_LOGICAL_PARENT_ID = '00000000-0000-4000-8000-000000000100';
+export const DELIVERY_OTHER_LOGICAL_PARENT_ID = '00000000-0000-4000-8000-000000000101';
 
 const NOW = new Date('2026-07-10T10:00:00.000Z');
 const LATER = new Date('2026-07-10T10:02:00.000Z');
@@ -409,5 +410,109 @@ export const deliveryRepoContractCases: PortContractCases<DeliveryRepo> = ({ get
     const outcomes = [expectOk(first), expectOk(second)];
     expect(outcomes.filter((outcome) => outcome.created)).toHaveLength(1);
     expect(new Set(outcomes.map((outcome) => outcome.delivery.id)).size).toBe(1);
+  });
+
+  it('lists only deliveries belonging to the requested logical notification', async () => {
+    const repo = getPort();
+    const firstId = uuid(20);
+    const secondId = uuid(21);
+    const otherId = uuid(22);
+    expectOk(await repo.insertIdempotent(deliveryInput(firstId)));
+    expectOk(await repo.insertIdempotent(deliveryInput(secondId)));
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(otherId, { logicalNotificationId: DELIVERY_OTHER_LOGICAL_PARENT_ID })
+      )
+    );
+
+    const deliveries = expectOk(await repo.listByLogicalNotification(DELIVERY_LOGICAL_PARENT_ID));
+    expect(deliveries.map((delivery) => delivery.id)).toEqual([firstId, secondId]);
+  });
+
+  it('pages shadow recipients by kind and excludes active deliveries', async () => {
+    const repo = getPort();
+    const firstId = uuid(30);
+    const secondId = uuid(31);
+    const thirdId = uuid(32);
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(firstId, {
+          deliveryKey: 'shadow:contract:01',
+          userId: 'shadow-user-1',
+          senderMode: 'shadow',
+        })
+      )
+    );
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(secondId, {
+          deliveryKey: 'shadow:contract:02',
+          userId: 'shadow-user-2',
+          senderMode: 'shadow',
+        })
+      )
+    );
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(thirdId, {
+          deliveryKey: 'shadow:contract:03',
+          userId: 'shadow-user-3',
+          senderMode: 'shadow',
+        })
+      )
+    );
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(uuid(33), {
+          deliveryKey: 'active:contract',
+          userId: 'active-user',
+        })
+      )
+    );
+    expectOk(
+      await repo.insertIdempotent(
+        deliveryInput(uuid(34), {
+          deliveryKey: 'shadow:other-kind',
+          kindId: 'other.kind',
+          senderMode: 'shadow',
+        })
+      )
+    );
+
+    const firstPage = expectOk(
+      await repo.listShadowRecipients({ kindId: 'contract.kind', limit: 2, cursor: null })
+    );
+    expect(firstPage).toEqual({
+      items: [
+        {
+          userId: 'shadow-user-1',
+          contentHash: null,
+          deliveryKey: 'shadow:contract:01',
+        },
+        {
+          userId: 'shadow-user-2',
+          contentHash: null,
+          deliveryKey: 'shadow:contract:02',
+        },
+      ],
+      nextCursor: 'shadow:contract:02',
+    });
+    const secondPage = expectOk(
+      await repo.listShadowRecipients({
+        kindId: 'contract.kind',
+        limit: 2,
+        cursor: firstPage.nextCursor,
+      })
+    );
+    expect(secondPage).toEqual({
+      items: [
+        {
+          userId: 'shadow-user-3',
+          contentHash: null,
+          deliveryKey: 'shadow:contract:03',
+        },
+      ],
+      nextCursor: null,
+    });
   });
 };

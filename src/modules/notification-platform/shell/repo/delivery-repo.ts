@@ -150,6 +150,51 @@ export class KyselyDeliveryRepo implements DeliveryRepo {
     }
   }
 
+  public async listByLogicalNotification(logicalNotificationId: string) {
+    try {
+      const rows = await this.db
+        .selectFrom('notification_deliveries')
+        .selectAll()
+        .where('logical_notification_id', '=', logicalNotificationId)
+        .orderBy('delivery_key', 'asc')
+        .execute();
+      return ok(rows.map((row) => mapDelivery(row as unknown as Record<string, unknown>)));
+    } catch (error) {
+      return err(toDatabaseError('List notification deliveries by logical notification', error));
+    }
+  }
+
+  public async listShadowRecipients(input: Parameters<DeliveryRepo['listShadowRecipients']>[0]) {
+    try {
+      const rows = await this.db
+        .selectFrom('notification_deliveries')
+        .select(['user_id', 'content_hash', 'delivery_key'])
+        .where('sender_mode', '=', 'shadow')
+        .where('kind_id', '=', input.kindId)
+        .$if(input.cursor !== null, (builder) =>
+          builder.where('delivery_key', '>', input.cursor ?? '')
+        )
+        .orderBy('delivery_key', 'asc')
+        .limit(input.limit + 1)
+        .execute();
+      const hasNext = rows.length > input.limit;
+      if (hasNext) {
+        rows.pop();
+      }
+      const items = rows.map((row) => ({
+        userId: row.user_id,
+        contentHash: row.content_hash,
+        deliveryKey: row.delivery_key,
+      }));
+      return ok({
+        items,
+        nextCursor: hasNext ? (items.at(-1)?.deliveryKey ?? null) : null,
+      });
+    } catch (error) {
+      return err(toDatabaseError('List shadow notification delivery recipients', error));
+    }
+  }
+
   public async saveProviderRefIfMissing(
     input: Parameters<DeliveryRepo['saveProviderRefIfMissing']>[0]
   ) {

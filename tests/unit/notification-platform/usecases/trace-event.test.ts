@@ -30,9 +30,15 @@ describe('traceEvent', () => {
     });
     const trace = expectOk(await traceEvent(h, { eventId: 'event-1' }));
     const delivery = trace.logicalNotifications[0]?.deliveries[0]?.delivery;
-    expect(delivery?.renderedHtml).toBeNull();
-    expect(delivery?.destinationFingerprint).toBeNull();
+    expect(delivery).not.toHaveProperty('renderedHtml');
+    expect(delivery).not.toHaveProperty('destinationFingerprint');
+    expect(trace.event).not.toHaveProperty('facts');
+    expect(trace.logicalNotifications[0]?.logicalNotification).not.toHaveProperty('recipientFacts');
     expect(trace.logicalNotifications[0]?.deliveries[0]?.attempts).toHaveLength(1);
+    expect(trace.logicalNotifications[0]?.deliveries[0]?.attempts[0]).not.toHaveProperty(
+      'errorMessage'
+    );
     expect(trace.auditEntries).toHaveLength(1);
+    expect(trace.auditEntries[0]).not.toHaveProperty('details');
   });
 });

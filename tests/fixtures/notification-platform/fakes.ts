@@ -10,11 +10,7 @@ import {
   type KeyedStore,
 } from '../../support/index.js';
 
-import type { ShadowComparisonReader } from '@/modules/notification-platform/core/admin/usecases/get-shadow-comparison.js';
-import type {
-  DeliveryTraceReader,
-  NotificationEventTraceReader,
-} from '@/modules/notification-platform/core/admin/usecases/trace-event.js';
+import type { NotificationEventTraceReader } from '@/modules/notification-platform/core/admin/usecases/trace-event.js';
 import type { AuditError } from '@/modules/notification-platform/core/audit/errors.js';
 import type { AuditLedgerPort } from '@/modules/notification-platform/core/audit/ports.js';
 import type { AuditEntry } from '@/modules/notification-platform/core/audit/types.js';
@@ -559,7 +555,7 @@ type DeliveryMethod =
   | 'findByProviderRef'
   | 'saveProviderRefIfMissing'
   | 'listByLogicalNotification'
-  | 'listShadowComparisonRecipients'
+  | 'listShadowRecipients'
   | 'claimForRender'
   | 'claimForSending'
   | 'saveRenderedContent'
@@ -569,8 +565,7 @@ type DeliveryMethod =
   | 'findExpiredClaims'
   | 'findDueForExpiry'
   | 'searchDeadLetters';
-export interface FakeDeliveryRepo
-  extends DeliveryRepo, DeliveryTraceReader, ShadowComparisonReader {
+export interface FakeDeliveryRepo extends DeliveryRepo {
   store: KeyedStore<string, Delivery>;
   faults: FaultPlan<DeliveryMethod, PlatformDeliveryError>;
 }
@@ -674,16 +669,27 @@ export const makeFakeDeliveryRepo = (options: {
       if (fault !== undefined) return err(fault);
       return ok(store.byIndex('logical', logicalNotificationId));
     },
-    listShadowComparisonRecipients: async (input) => {
-      const fault = faults.intercept('listShadowComparisonRecipients');
+    listShadowRecipients: async (input) => {
+      const fault = faults.intercept('listShadowRecipients');
       if (fault !== undefined) return err(fault);
-      return ok(
-        store
-          .filter(
-            (delivery) => delivery.kindId === input.kindId && delivery.senderMode === 'shadow'
-          )
-          .map((delivery) => ({ userId: delivery.userId, contentHash: delivery.contentHash }))
-      );
+      const shadow = store
+        .filter((delivery) => delivery.kindId === input.kindId && delivery.senderMode === 'shadow')
+        .sort((left, right) => left.deliveryKey.localeCompare(right.deliveryKey));
+      const cursorIndex =
+        input.cursor === null
+          ? -1
+          : shadow.findIndex((delivery) => delivery.deliveryKey === input.cursor);
+      const start = cursorIndex < 0 ? 0 : cursorIndex + 1;
+      const items = shadow.slice(start, start + input.limit).map((delivery) => ({
+        userId: delivery.userId,
+        contentHash: delivery.contentHash,
+        deliveryKey: delivery.deliveryKey,
+      }));
+      return ok({
+        items,
+        nextCursor:
+          start + items.length < shadow.length ? (items.at(-1)?.deliveryKey ?? null) : null,
+      });
     },
     claimForRender: async (input) => {
       const fault = faults.intercept('claimForRender');

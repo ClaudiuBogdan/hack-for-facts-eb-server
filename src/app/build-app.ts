@@ -37,6 +37,7 @@ import {
   DEBATE_REQUEST_INTERACTION_ID,
 } from '../common/campaign-user-interactions.js';
 import { CacheNamespace, initCache } from '../infra/cache/index.js';
+import { systemClock } from '../infra/clock/index.js';
 import {
   makeEmailClient,
   makeReceivedEmailFetcher,
@@ -48,6 +49,7 @@ import {
   commonGraphQLResolvers,
 } from '../infra/graphql/index.js';
 import { BaseSchema } from '../infra/graphql/schema.js';
+import { uuidIds } from '../infra/ids/index.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
 import {
@@ -253,6 +255,34 @@ import {
   type NotificationDeliveryRuntime,
 } from '../modules/notification-delivery/index.js';
 import {
+  ALL_NOTIFICATION_KINDS,
+  createValidationError as createNotificationPlatformValidationError,
+  makeAnonymizationCheckRepo,
+  makeAuditLedgerRepo,
+  makeChannelDestinationRepo,
+  makeDeliveryAttemptRepo as makePlatformDeliveryAttemptRepo,
+  makeDeliveryRepo as makePlatformDeliveryRepo,
+  makeDigestBatchRepo,
+  makeEmailChannelAdapter,
+  makeInboxRoutes,
+  makeKindRegistry,
+  makeLogicalNotificationRepo,
+  makeNotificationEventRepo,
+  makePlatformAdminRoutes,
+  makePreferenceRepo,
+  makePreferenceRoutes,
+  makeResendPlatformWebhookSideEffect,
+  makeRetentionRunner,
+  makeSourceWatermarkRepo,
+  makeSubscriptionRepo,
+  makeSubscriptionRoutes,
+  startNotificationPlatformRuntime,
+  type LegacyOutboxReader,
+  type LoggerPort as NotificationPlatformLoggerPort,
+  type NotificationEventRepo as PlatformNotificationEventRepo,
+  type NotificationEventTraceReader,
+} from '../modules/notification-platform/index.js';
+import {
   type CampaignSubscriptionStatsInvalidator,
   makeNotificationRoutes,
   makeNotificationsRepo,
@@ -322,6 +352,41 @@ const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_SUFFIX = '/subscription-stats';
 const CAMPAIGN_SUBSCRIPTION_STATS_ROUTE_PREFIX = '/api/v1/campaigns/';
 const SHORT_LINK_RESOLVE_ROUTE_PREFIX = '/api/v1/short-links/';
 const ADVANCED_MAP_PUBLIC_ROUTE_PREFIX = '/api/v1/advanced-map-analytics/public/';
+
+const makeNotificationPlatformLogger = (
+  logger: import('pino').Logger
+): NotificationPlatformLoggerPort => ({
+  child(bindings) {
+    return makeNotificationPlatformLogger(logger.child(bindings));
+  },
+  debug(message, data) {
+    if (data === undefined) logger.debug(message);
+    else logger.debug(data, message);
+  },
+  info(message, data) {
+    if (data === undefined) logger.info(message);
+    else logger.info(data, message);
+  },
+  warn(message, data) {
+    if (data === undefined) logger.warn(message);
+    else logger.warn(data, message);
+  },
+  error(message, data) {
+    if (data === undefined) logger.error(message);
+    else logger.error(data, message);
+  },
+});
+
+const makeUnavailableLegacyOutboxReader = (): LegacyOutboxReader => ({
+  listComparisonRecipients: () =>
+    Promise.resolve(
+      err(
+        createNotificationPlatformValidationError(
+          'Notification shadow comparison is not available until the Phase 4 legacy reader is implemented'
+        )
+      )
+    ),
+});
 
 function combineReviewSideEffectPlans(
   plans: readonly (ReviewSideEffectPlan | null | undefined)[]
@@ -548,6 +613,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     shouldEnqueueClerkWelcomeNotifications,
     shouldStartNotificationWorkers,
     shouldInitializeNotificationDeliveryRuntime,
+    shouldInitializeNotificationPlatform,
     shouldInitializeUserEventRuntime,
     enabledCampaignAdminKeys,
     emailFromAddress,
@@ -1424,6 +1490,170 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             throw new Error(getErrorMessage(enqueueResult.error));
           }
         });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setup Notification Platform (feature-gated runtime + REST + webhooks)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (shouldInitializeNotificationPlatform) {
+      const registryResult = makeKindRegistry(ALL_NOTIFICATION_KINDS);
+      if (registryResult.isErr()) {
+        throw new Error(
+          `Notification platform kind registry is invalid: ${registryResult.error.message}`
+        );
+      }
+
+      const platformLogger = makeNotificationPlatformLogger(repoLogger);
+      const platformOverrides = deps.notificationPlatformOverrides;
+      const platformWorkerDeps =
+        platformOverrides?.workerDeps ??
+        (() => {
+          const events = makeNotificationEventRepo(userDb);
+          const watermarks = makeSourceWatermarkRepo(userDb);
+          const subscriptions = makeSubscriptionRepo(userDb);
+          const preferences = makePreferenceRepo(userDb);
+          const logicalNotifications = makeLogicalNotificationRepo(userDb);
+          const deliveries = makePlatformDeliveryRepo(userDb);
+          const attempts = makePlatformDeliveryAttemptRepo(userDb);
+          const destinations = makeChannelDestinationRepo(userDb);
+          const digests = makeDigestBatchRepo(userDb);
+          const audit = makeAuditLedgerRepo(userDb);
+          const retentionRunner = makeRetentionRunner(userDb);
+          const emailAdapter = makeEmailChannelAdapter({
+            emailClient: makeEmailClient({
+              apiKey: config.email.apiKey ?? '',
+              fromAddress: emailFromAddress ?? '',
+              logger: repoLogger,
+            }),
+            emailRenderer,
+            tokenSigner,
+            userEmailFetcher: makeClerkUserEmailFetcher({
+              secretKey: config.auth.clerkSecretKey ?? '',
+              logger: repoLogger,
+            }),
+            fingerprintSecret: config.notificationPlatform.destinationFingerprintSecret ?? '',
+            fromAddress: emailFromAddress ?? '',
+            platformBaseUrl: config.notifications.platformBaseUrl,
+            apiBaseUrl: config.notifications.apiBaseUrl,
+            logger: platformLogger,
+          });
+
+          return {
+            events,
+            watermarks,
+            subscriptions,
+            preferences,
+            anonymization: makeAnonymizationCheckRepo(userDb),
+            logicalNotifications,
+            deliveries,
+            attempts,
+            destinations,
+            digests,
+            audit,
+            registry: registryResult.value,
+            channelAdapters: new Map([['email', emailAdapter] as const]),
+            // Phase 3/4 domain modules add their EventSourcePort adapters here.
+            eventSources: [],
+            retention: {
+              applyRetention: (input) =>
+                retentionRunner.applyRetention({
+                  now: input.now,
+                  batchLimit: config.notificationPlatform.retentionBatchLimit,
+                }),
+            },
+            clock: systemClock,
+            ids: uuidIds,
+            maxSendRps: config.notificationPlatform.maxSendRps,
+          };
+        })();
+
+      const createNotificationPlatformRuntime =
+        deps.notificationPlatformRuntimeFactory ?? startNotificationPlatformRuntime;
+      const notificationPlatformRuntime = await createNotificationPlatformRuntime({
+        redisUrl: config.jobs.redisUrl ?? '',
+        bullmqPrefix: config.jobs.prefix,
+        logger: repoLogger,
+        concurrency: config.jobs.concurrency,
+        ingestionScanIntervalSeconds: config.notificationPlatform.ingestionScanSeconds,
+        recoveryScanIntervalMinutes: config.notificationPlatform.recoveryScanMinutes,
+        digestSweepIntervalMinutes: config.notificationPlatform.digestSweepMinutes,
+        recoveryThresholdMinutes: config.notificationPlatform.recoveryThresholdMinutes,
+        workerDeps: platformWorkerDeps,
+        ...(config.jobs.redisPassword === undefined
+          ? {}
+          : { redisPassword: config.jobs.redisPassword }),
+      });
+      let runtimeStopped = false;
+      const stopNotificationPlatformRuntime = async (): Promise<void> => {
+        if (runtimeStopped) {
+          return;
+        }
+        runtimeStopped = true;
+        await notificationPlatformRuntime.stop();
+      };
+      app.addHook('onClose', stopNotificationPlatformRuntime);
+
+      try {
+        const routeDeps = {
+          ...platformWorkerDeps,
+          logger: platformLogger,
+        };
+        const subjectAuthorizers =
+          platformOverrides?.subjectAuthorizers ?? new Map<string, never>();
+
+        await app.register(makeInboxRoutes(routeDeps));
+        await app.register(
+          makeSubscriptionRoutes({
+            ...routeDeps,
+            subjectAuthorizers,
+          })
+        );
+        await app.register(makePreferenceRoutes(routeDeps));
+
+        const adminEvents = platformWorkerDeps.events as PlatformNotificationEventRepo &
+          NotificationEventTraceReader;
+        const adminPermissionAuthorizer =
+          platformOverrides?.adminPermissionAuthorizer ??
+          makeClerkCampaignAdminPermissionAuthorizer({
+            secretKey: config.auth.clerkSecretKey ?? '',
+            logger: repoLogger,
+          });
+        const makeAdminRoutes = platformOverrides?.adminRoutesFactory ?? makePlatformAdminRoutes;
+
+        await app.register(
+          makeAdminRoutes({
+            ...routeDeps,
+            events: adminEvents,
+            deliveries: platformWorkerDeps.deliveries,
+            sendScheduler: notificationPlatformRuntime.sendScheduler,
+            legacyOutboxReader:
+              platformOverrides?.legacyOutboxReader ?? makeUnavailableLegacyOutboxReader(),
+            permissionAuthorizer: adminPermissionAuthorizer,
+          })
+        );
+
+        resendWebhookSideEffects.push(
+          makeResendPlatformWebhookSideEffect({
+            deliveries: platformWorkerDeps.deliveries,
+            destinations: platformWorkerDeps.destinations,
+            audit: platformWorkerDeps.audit,
+            clock: platformWorkerDeps.clock,
+            ids: platformWorkerDeps.ids,
+            logger: platformLogger,
+            fingerprintSecret: config.notificationPlatform.destinationFingerprintSecret ?? '',
+          })
+        );
+      } catch (error) {
+        try {
+          await stopNotificationPlatformRuntime();
+        } catch (stopError) {
+          repoLogger.error(
+            { err: stopError },
+            'Failed to stop notification platform runtime after boot failure'
+          );
+        }
+        throw error;
       }
     }
 

@@ -2,8 +2,6 @@ import { err, ok, type Result } from 'neverthrow';
 
 import type { PlatformDeliveryError } from '../../delivery/errors.js';
 import type { DeliveryRepo } from '../../delivery/ports.js';
-import type { InboxError } from '../../inbox/errors.js';
-import type { LogicalNotificationRepo } from '../../inbox/ports.js';
 import type { Clock, IdGenerator, LoggerPort } from '../../shared/ports.js';
 import type { ShadowComparisonSummary } from '../types.js';
 
@@ -23,16 +21,8 @@ export interface LegacyOutboxReader {
 // same framed hash contract as the platform. Direct equality with legacy raw stored
 // hashes is not meaningful because their inputs and framing are not comparable.
 
-export interface ShadowComparisonReader {
-  listShadowComparisonRecipients(input: {
-    kindId: string;
-    periodKey: string | null;
-  }): Promise<Result<ComparisonRecipient[], PlatformDeliveryError | InboxError>>;
-}
-
 export interface GetShadowComparisonDeps {
-  deliveries: DeliveryRepo & ShadowComparisonReader;
-  logicalNotifications: LogicalNotificationRepo;
+  deliveries: DeliveryRepo;
   legacyOutboxReader: LegacyOutboxReader;
   clock: Clock;
   ids: IdGenerator;
@@ -45,14 +35,12 @@ export interface GetShadowComparisonInput {
 }
 
 export type GetShadowComparisonResult = ShadowComparisonSummary;
-export type GetShadowComparisonError = PlatformDeliveryError | InboxError;
+export type GetShadowComparisonError = PlatformDeliveryError;
 
 export const getShadowComparison = async (
   deps: GetShadowComparisonDeps,
   input: GetShadowComparisonInput
 ): Promise<Result<GetShadowComparisonResult, GetShadowComparisonError>> => {
-  // DESIGN NOTE: neither committed repo exposes the kind/period comparison query;
-  // the explicit read-only projection port keeps parity math in core.
   const periodKey = input.periodKey ?? null;
   const legacy = await deps.legacyOutboxReader.listComparisonRecipients({
     kindId: input.kindId,
@@ -61,16 +49,23 @@ export const getShadowComparison = async (
   if (legacy.isErr()) {
     return err(legacy.error);
   }
-  const shadow = await deps.deliveries.listShadowComparisonRecipients({
-    kindId: input.kindId,
-    periodKey,
-  });
-  if (shadow.isErr()) {
-    return err(shadow.error);
-  }
-
   const legacyByUser = new Map(legacy.value.map((entry) => [entry.userId, entry.contentHash]));
-  const shadowByUser = new Map(shadow.value.map((entry) => [entry.userId, entry.contentHash]));
+  const shadowByUser = new Map<string, string | null>();
+  let cursor: string | null = null;
+  do {
+    const shadow = await deps.deliveries.listShadowRecipients({
+      kindId: input.kindId,
+      limit: 1_000,
+      cursor,
+    });
+    if (shadow.isErr()) {
+      return err(shadow.error);
+    }
+    for (const entry of shadow.value.items) {
+      shadowByUser.set(entry.userId, entry.contentHash);
+    }
+    cursor = shadow.value.nextCursor;
+  } while (cursor !== null);
   let matchingRecipientCount = 0;
   let matchingContentCount = 0;
   let contentMismatchCount = 0;

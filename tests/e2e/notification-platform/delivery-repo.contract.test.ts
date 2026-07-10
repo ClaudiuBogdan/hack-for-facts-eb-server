@@ -8,6 +8,7 @@ import {
 } from './contract-db.js';
 import {
   DELIVERY_LOGICAL_PARENT_ID,
+  DELIVERY_OTHER_LOGICAL_PARENT_ID,
   deliveryRepoContractCases,
 } from '../../contracts/notification-platform/delivery-repo.contract.js';
 import { CONTRACT_EVENT_ID } from '../../contracts/notification-platform/event-repo.contract.js';
@@ -28,6 +29,12 @@ describePortContract('DeliveryRepo', deliveryRepoContractCases, {
             id: DELIVERY_LOGICAL_PARENT_ID,
             eventId: CONTRACT_EVENT_ID,
             kindId: 'delivery-contract-parent',
+            userId: 'contract-user',
+          });
+          await seedContractLogical(userDb, {
+            id: DELIVERY_OTHER_LOGICAL_PARENT_ID,
+            eventId: CONTRACT_EVENT_ID,
+            kindId: 'delivery-contract-other-parent',
             userId: 'contract-user',
           });
         },
