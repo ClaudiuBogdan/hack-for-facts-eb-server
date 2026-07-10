@@ -30,11 +30,17 @@ export interface InvalidFilterError {
   readonly field: string;
 }
 
+export interface ValidationError {
+  readonly type: 'ValidationError';
+  readonly message: string;
+  readonly field: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Union
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type InsError = DatabaseError | TimeoutError | InvalidFilterError;
+export type InsError = DatabaseError | TimeoutError | InvalidFilterError | ValidationError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors
@@ -59,6 +65,25 @@ export const createInvalidFilterError = (field: string, message: string): Invali
   message,
   field,
 });
+
+export const createValidationError = (field: string, message: string): ValidationError => ({
+  type: 'ValidationError',
+  message,
+  field,
+});
+
+/** HTTP status for the REST surface; GraphQL resolvers surface errors as thrown messages. */
+export const getHttpStatusForError = (error: InsError): 400 | 500 | 504 => {
+  switch (error.type) {
+    case 'ValidationError':
+    case 'InvalidFilterError':
+      return 400;
+    case 'TimeoutError':
+      return 504;
+    case 'DatabaseError':
+      return 500;
+  }
+};
 
 export const isTimeoutError = (cause: unknown): boolean => {
   if (cause instanceof Error) {

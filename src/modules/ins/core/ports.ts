@@ -2,6 +2,7 @@
  * Port interfaces for INS module.
  */
 
+import type { InsDatasetRequest, InsDatasetRequestInput } from './dataset-requests.js';
 import type { InsError } from './errors.js';
 import type {
   InsContextConnection,
@@ -74,4 +75,12 @@ export interface InsRepository {
     contextCode?: string,
     period?: string
   ): Promise<Result<{ dataset: InsDataset; observations: InsObservation[] }[], InsError>>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INS Dataset Request Repository (writes to the server-owned user database)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InsDatasetRequestRepository {
+  create(input: InsDatasetRequestInput): Promise<Result<InsDatasetRequest, InsError>>;
 }

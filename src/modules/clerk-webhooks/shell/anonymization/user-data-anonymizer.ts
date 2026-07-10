@@ -81,6 +81,7 @@ export interface UserDataAnonymizationSummary {
   advancedMapSnapshotsUpdated: number;
   advancedDatasetRowsUpdated: number;
   advancedDatasetValueRowsDeleted: number;
+  insDatasetRequestsUpdated: number;
 }
 
 export interface UserDataAnonymizationError {
@@ -836,6 +837,20 @@ const anonymizeDeletedUserInTransaction = async (
     .where('user_id', 'in', matchingUserIds)
     .executeTakeFirst();
 
+  // Keep the row so the "N people asked for this dataset" signal survives, but
+  // strip the identity-bearing columns and the free-text note, which can name
+  // the requester. Requests submitted while signed out carry no clerk_user_id
+  // and cannot be matched here.
+  const insDatasetRequestsUpdatedResult = await trx
+    .updateTable('ins_dataset_requests')
+    .set({
+      clerk_user_id: anonymizedUserId,
+      contact_email: null,
+      note: null,
+    } as never)
+    .where('clerk_user_id', 'in', matchingUserIds)
+    .executeTakeFirst();
+
   const institutionThreadsUpdated = await updateInstitutionThreads(trx, threadRows, {
     userId: input.userId,
     anonymizedUserId,
@@ -862,6 +877,7 @@ const anonymizeDeletedUserInTransaction = async (
     advancedMapSnapshotsUpdated,
     advancedDatasetRowsUpdated: toMutationCount(advancedDatasetsUpdatedResult),
     advancedDatasetValueRowsDeleted,
+    insDatasetRequestsUpdated: toMutationCount(insDatasetRequestsUpdatedResult),
   };
 
   await insertAuditRow(trx, {

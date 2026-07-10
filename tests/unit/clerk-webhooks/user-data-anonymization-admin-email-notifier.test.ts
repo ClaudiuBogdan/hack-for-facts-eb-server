@@ -31,6 +31,7 @@ const notification: UserDataAnonymizationAdminNotification = {
     advancedMapSnapshotsUpdated: 10,
     advancedDatasetRowsUpdated: 11,
     advancedDatasetValueRowsDeleted: 12,
+    insDatasetRequestsUpdated: 3,
   },
 };
 

@@ -49,6 +49,7 @@ table stores a one-way SHA-256 hash instead.
 | `AdvancedMapAnalyticsSnapshots` | user-created snapshot title/description/body                                                                                      | Placeholder title, clear description, replace snapshot with `{ "anonymized": true }`                                                                       | Preserve snapshot row without content                                  |
 | `AdvancedMapDatasets`           | `user_id`, user-created dataset title/description/markdown/unit/public ID                                                         | Replace `user_id`, placeholder title, clear descriptive fields, set private, row count 0, soft-delete                                                      | Preserve decoupled dataset record                                      |
 | `AdvancedMapDatasetRows`        | user-uploaded dataset row values                                                                                                  | Delete rows for datasets owned by the deleted user                                                                                                         | Hard-delete generated/user-uploaded values                             |
+| `ins_dataset_requests`          | `clerk_user_id`, `contact_email`, free-text `note`                                                                                | Replace `clerk_user_id` with the anonymized ID, clear `contact_email` and `note`; retain `dataset_code`, `siruta`, `created_at`                            | Preserve the aggregate demand signal without requester identity        |
 | `UserDataAnonymizationAudit`    | anonymization execution evidence                                                                                                  | Store user ID hash, anonymized user ID, first/latest Svix IDs, event type/timestamp, run count, and summary                                                | Preserve non-PII audit trail                                           |
 
 ## Soft Delete vs Hard Delete
@@ -71,6 +72,16 @@ Operational ledgers are retained only after identity-bearing fields are removed:
 - notification outbox rows
 - Resend webhook event rows
 - anonymization audit rows
+- INS dataset request rows
+
+## Known Limitation: Anonymous Submissions
+
+`ins_dataset_requests` accepts anonymous submissions, which carry a
+`contact_email` but no `clerk_user_id`. The Clerk `user.deleted` payload
+identifies the account only by user ID, so a request submitted while signed out
+cannot be matched to the deleted account and its `contact_email` is not cleared.
+Rows submitted while signed in are matched on `clerk_user_id` and fully
+anonymized.
 
 ## Idempotency
 

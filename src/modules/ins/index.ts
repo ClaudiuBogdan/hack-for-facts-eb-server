@@ -6,7 +6,13 @@
 // Repository
 // =============================================================================
 export { makeInsRepo } from './shell/repo/ins-repo.js';
-export type { InsRepository } from './core/ports.js';
+export { makeInsDatasetRequestRepo } from './shell/repo/ins-dataset-request-repo.js';
+export type { InsRepository, InsDatasetRequestRepository } from './core/ports.js';
+
+// =============================================================================
+// REST
+// =============================================================================
+export { makeInsRoutes, type MakeInsRoutesDeps } from './shell/rest/routes.js';
 
 // =============================================================================
 // Use Cases
@@ -21,6 +27,7 @@ export { listInsDimensionValues } from './core/usecases/list-ins-dimension-value
 export { listInsDatasetDimensionValues } from './core/usecases/list-ins-dataset-dimension-values.js';
 export { listInsContexts } from './core/usecases/list-ins-contexts.js';
 export { listInsTerritories } from './core/usecases/list-ins-territories.js';
+export { createInsDatasetRequest } from './core/usecases/create-ins-dataset-request.js';
 export { listInsLatestDatasetValues } from './core/usecases/list-ins-latest-dataset-values.js';
 
 // =============================================================================
@@ -85,3 +92,9 @@ export {
 // =============================================================================
 export type { InsError } from './core/errors.js';
 export { createDatabaseError } from './core/errors.js';
+
+// =============================================================================
+// Dataset Requests
+// =============================================================================
+export type { InsDatasetRequest, InsDatasetRequestInput } from './core/dataset-requests.js';
+export { MAX_DATASET_REQUEST_NOTE_LENGTH } from './core/dataset-requests.js';
