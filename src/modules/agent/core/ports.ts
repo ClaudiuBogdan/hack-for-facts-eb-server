@@ -20,16 +20,38 @@ export interface ConversationRepo {
   delete(userId: string, conversationId: string): Promise<Result<boolean, AgentError>>;
   /** Upsert messages (idempotent on message id) and bump `updated_at`. */
   appendMessages(
+    userId: string,
     conversationId: string,
     messages: readonly StoredUiMessage[]
   ): Promise<Result<void, AgentError>>;
-  getMessages(conversationId: string): Promise<Result<readonly StoredUiMessage[], AgentError>>;
-  setTitle(conversationId: string, title: string): Promise<Result<void, AgentError>>;
+  getMessages(
+    userId: string,
+    conversationId: string
+  ): Promise<Result<readonly StoredUiMessage[], AgentError>>;
+  setTitle(
+    userId: string,
+    conversationId: string,
+    title: string
+  ): Promise<Result<void, AgentError>>;
 }
 
 export interface QuotaStore {
   /** Input+output tokens consumed by `userId` in the current UTC day. */
   usedToday(userId: string): Promise<Result<number, AgentError>>;
-  /** Add tokens to today's counter (fire-and-forget accounting). */
+  /**
+   * Atomically reserve all remaining budget for one in-flight turn. Returning
+   * null means another request or prior usage already exhausted the budget.
+   */
+  reserveRemaining(
+    userId: string,
+    budgetTokens: number
+  ): Promise<Result<number | null, AgentError>>;
+  /** Replace a reservation with actual usage (or zero on pre-provider failure). */
+  reconcileReservation(
+    userId: string,
+    reservedTokens: number,
+    actualTokens: number
+  ): Promise<Result<void, AgentError>>;
+  /** Add unreserved tokens, used only by unlimited users. */
   recordUsage(userId: string, tokens: number): Promise<Result<void, AgentError>>;
 }

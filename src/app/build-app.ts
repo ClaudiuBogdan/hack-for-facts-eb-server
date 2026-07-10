@@ -1026,11 +1026,15 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // the paths need no entry in the global-auth bypass set.
     let agentDeps: import('./build-redesign-app.js').RedesignAgentDeps | undefined;
     if (config.agent.enabled) {
-      if (deps.userDb !== undefined && deps.authProvider !== undefined) {
+      const redisUrl = config.redis.url;
+      const redisConfigured = redisUrl !== undefined && redisUrl !== '';
+      if (config.server.isProduction && !redisConfigured) {
+        app.log.error('AGENT_ENABLED without REDIS_URL in production — agent surface NOT mounted');
+      } else if (deps.userDb !== undefined && deps.authProvider !== undefined) {
         let agentRedis: import('ioredis').Redis | null = null;
-        if (config.redis.url !== undefined && config.redis.url !== '') {
+        if (redisConfigured) {
           const { Redis } = await import('ioredis');
-          const redisClient = new Redis(config.redis.url, {
+          const redisClient = new Redis(redisUrl, {
             ...(config.redis.password !== undefined && config.redis.password !== ''
               ? { password: config.redis.password }
               : {}),

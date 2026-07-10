@@ -103,10 +103,22 @@ export const makeAgentConversationRepo = (db: Kysely<UserDatabase>): Conversatio
     }
   },
 
-  async appendMessages(conversationId, messages) {
+  async appendMessages(userId, conversationId, messages) {
     if (messages.length === 0) return ok(undefined);
     try {
-      await db.transaction().execute(async (trx) => {
+      const owned = await db.transaction().execute(async (trx) => {
+        // The scoped update both verifies ownership and locks the conversation
+        // row until every message write commits. A concurrent delete/recreate
+        // therefore cannot redirect an in-flight response to another tenant.
+        const conversation = await trx
+          .updateTable('agentconversations')
+          .set({ updated_at: sql`now()` })
+          .where('id', '=', conversationId)
+          .where('user_id', '=', userId)
+          .returning('id')
+          .executeTakeFirst();
+        if (conversation === undefined) return false;
+
         for (const message of messages) {
           await trx
             .insertInto('agentmessages')
@@ -125,25 +137,28 @@ export const makeAgentConversationRepo = (db: Kysely<UserDatabase>): Conversatio
             )
             .execute();
         }
-        await trx
-          .updateTable('agentconversations')
-          .set({ updated_at: sql`now()` })
-          .where('id', '=', conversationId)
-          .execute();
+        return true;
       });
+      if (!owned) return err({ type: 'CONVERSATION_NOT_FOUND', conversationId });
       return ok(undefined);
     } catch (error) {
       return err(storageError(error));
     }
   },
 
-  async getMessages(conversationId) {
+  async getMessages(userId, conversationId) {
     try {
       const rows = await db
         .selectFrom('agentmessages')
-        .select(['id', 'role', 'parts'])
-        .where('conversation_id', '=', conversationId)
-        .orderBy('created_at', 'asc')
+        .innerJoin('agentconversations', 'agentconversations.id', 'agentmessages.conversation_id')
+        .select([
+          'agentmessages.id as id',
+          'agentmessages.role as role',
+          'agentmessages.parts as parts',
+        ])
+        .where('agentmessages.conversation_id', '=', conversationId)
+        .where('agentconversations.user_id', '=', userId)
+        .orderBy('agentmessages.created_at', 'asc')
         .execute();
       const messages: StoredUiMessage[] = rows.map((row) => ({
         id: row.id,
@@ -156,13 +171,17 @@ export const makeAgentConversationRepo = (db: Kysely<UserDatabase>): Conversatio
     }
   },
 
-  async setTitle(conversationId, title) {
+  async setTitle(userId, conversationId, title) {
     try {
-      await db
+      const result = await db
         .updateTable('agentconversations')
         .set({ title, updated_at: sql`now()` })
         .where('id', '=', conversationId)
-        .execute();
+        .where('user_id', '=', userId)
+        .executeTakeFirst();
+      if (result.numUpdatedRows === 0n) {
+        return err({ type: 'CONVERSATION_NOT_FOUND', conversationId });
+      }
       return ok(undefined);
     } catch (error) {
       return err(storageError(error));

@@ -32,6 +32,7 @@ const notification: UserDataAnonymizationAdminNotification = {
     advancedDatasetRowsUpdated: 11,
     advancedDatasetValueRowsDeleted: 12,
     insDatasetRequestsUpdated: 3,
+    agentConversationsDeleted: 2,
   },
 };
 

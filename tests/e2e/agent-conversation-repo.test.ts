@@ -31,13 +31,13 @@ describe('Agent conversation repository', () => {
         output: { ok: true, kind: 'entity_list', items: [{ cui: '4305857' }] },
       },
     ];
-    const appended = await repo.appendMessages(conversationId, [
+    const appended = await repo.appendMessages(userId, conversationId, [
       { id: 'msg-user-1', role: 'user', parts: [parts[0]] },
       { id: 'msg-assistant-1', role: 'assistant', parts },
     ]);
     expect(appended.isOk()).toBe(true);
 
-    const messages = await repo.getMessages(conversationId);
+    const messages = await repo.getMessages(userId, conversationId);
     expect(messages.isOk()).toBe(true);
     if (messages.isOk()) {
       expect(messages.value).toEqual([
@@ -58,14 +58,14 @@ describe('Agent conversation repository', () => {
     const conversationId = randomUUID();
     await repo.create(userId, conversationId);
 
-    await repo.appendMessages(conversationId, [
+    await repo.appendMessages(userId, conversationId, [
       { id: 'msg-1', role: 'assistant', parts: [{ type: 'text', text: 'draft' }] },
     ]);
-    await repo.appendMessages(conversationId, [
+    await repo.appendMessages(userId, conversationId, [
       { id: 'msg-1', role: 'assistant', parts: [{ type: 'text', text: 'final answer' }] },
     ]);
 
-    const messages = await repo.getMessages(conversationId);
+    const messages = await repo.getMessages(userId, conversationId);
     expect(messages.isOk()).toBe(true);
     if (messages.isOk()) {
       expect(messages.value).toEqual([
@@ -105,6 +105,26 @@ describe('Agent conversation repository', () => {
       expect(foreignDelete.value).toBe(false);
     }
 
+    const foreignAppend = await repo.appendMessages(otherId, conversationId, [
+      { id: 'foreign-message', role: 'user', parts: [{ type: 'text', text: 'not mine' }] },
+    ]);
+    expect(foreignAppend.isErr()).toBe(true);
+    if (foreignAppend.isErr()) {
+      expect(foreignAppend.error.type).toBe('CONVERSATION_NOT_FOUND');
+    }
+
+    const foreignMessages = await repo.getMessages(otherId, conversationId);
+    expect(foreignMessages.isOk()).toBe(true);
+    if (foreignMessages.isOk()) {
+      expect(foreignMessages.value).toEqual([]);
+    }
+
+    const foreignTitle = await repo.setTitle(otherId, conversationId, 'Stolen title');
+    expect(foreignTitle.isErr()).toBe(true);
+    if (foreignTitle.isErr()) {
+      expect(foreignTitle.error.type).toBe('CONVERSATION_NOT_FOUND');
+    }
+
     const stillThere = await repo.getOwned(ownerId, conversationId);
     expect(stillThere.isOk()).toBe(true);
   });
@@ -123,7 +143,7 @@ describe('Agent conversation repository', () => {
     const secondId = randomUUID();
     await repo.create(userId, firstId);
     await repo.create(userId, secondId);
-    await repo.setTitle(secondId, 'Bugetul Clujului');
+    await repo.setTitle(userId, secondId, 'Bugetul Clujului');
     await repo.create(`agent-stranger-${randomUUID()}`, randomUUID());
 
     const listed = await repo.list(userId, 10);

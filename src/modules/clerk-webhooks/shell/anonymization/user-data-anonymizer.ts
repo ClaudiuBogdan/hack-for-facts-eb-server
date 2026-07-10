@@ -82,6 +82,7 @@ export interface UserDataAnonymizationSummary {
   advancedDatasetRowsUpdated: number;
   advancedDatasetValueRowsDeleted: number;
   insDatasetRequestsUpdated: number;
+  agentConversationsDeleted: number;
 }
 
 export interface UserDataAnonymizationError {
@@ -852,6 +853,14 @@ const anonymizeDeletedUserInTransaction = async (
     .where('clerk_user_id', 'in', matchingUserIds)
     .executeTakeFirst();
 
+  // Agent messages contain the user's free-text prompts and generated history.
+  // Hard-delete the owned conversation; the FK cascade removes every message.
+  // Matching the deterministic anonymized id keeps webhook replays idempotent.
+  const agentConversationsDeletedResult = await trx
+    .deleteFrom('agentconversations')
+    .where('user_id', 'in', matchingUserIds)
+    .executeTakeFirst();
+
   const institutionThreadsUpdated = await updateInstitutionThreads(trx, threadRows, {
     userId: input.userId,
     anonymizedUserId,
@@ -879,6 +888,7 @@ const anonymizeDeletedUserInTransaction = async (
     advancedDatasetRowsUpdated: toMutationCount(advancedDatasetsUpdatedResult),
     advancedDatasetValueRowsDeleted,
     insDatasetRequestsUpdated: toMutationCount(insDatasetRequestsUpdatedResult),
+    agentConversationsDeleted: toMutationCount(agentConversationsDeletedResult),
   };
 
   await insertAuditRow(trx, {

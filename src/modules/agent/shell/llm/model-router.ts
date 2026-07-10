@@ -5,8 +5,9 @@
  * Model ids are `provider/model` strings (`anthropic/claude-sonnet-4-5`,
  * `openai/gpt-5.2`, `openrouter/google/gemini-2.5-flash` — for OpenRouter the
  * remainder after the first `/` is the OpenRouter model path). A tier whose
- * provider key is missing falls back to the first configured provider's
- * default; zero configured providers disables the module at boot.
+ * provider key is missing may route through OpenRouter (which understands the
+ * full provider/model id); it is never sent as a bare, incompatible model id
+ * to a different direct provider.
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -23,7 +24,7 @@ export interface ModelRouterConfig {
   readonly anthropicApiKey?: string;
   readonly openaiApiKey?: string;
   readonly openrouterApiKey?: string;
-  /** `provider/model` per tier; unset tiers use DEFAULT_TIER_MODELS. */
+  /** `provider/model` per tier; unset tiers use the first configured provider's defaults. */
   readonly tierModels?: Partial<Readonly<Record<ModelTier, string>>>;
 }
 
@@ -37,6 +38,21 @@ const DEFAULT_TIER_MODELS: Readonly<Record<ModelTier, string>> = {
   title: 'anthropic/claude-haiku-4-5-20251001',
   research: 'anthropic/claude-opus-4-8',
 };
+
+const PROVIDER_DEFAULT_TIER_MODELS: Readonly<Record<string, Readonly<Record<ModelTier, string>>>> =
+  {
+    anthropic: DEFAULT_TIER_MODELS,
+    openai: {
+      chat: 'openai/gpt-4.1',
+      title: 'openai/gpt-4.1-mini',
+      research: 'openai/gpt-4.1',
+    },
+    openrouter: {
+      chat: 'openrouter/anthropic/claude-sonnet-4-5',
+      title: 'openrouter/anthropic/claude-haiku-4-5-20251001',
+      research: 'openrouter/anthropic/claude-opus-4-8',
+    },
+  };
 
 type ModelFactory = (modelId: string) => LanguageModel;
 
@@ -68,23 +84,32 @@ export const makeModelRouter = (config: ModelRouterConfig): ModelRouter => {
     const factory = factories.get(providerName);
     if (factory !== undefined) return ok(factory(modelId));
 
-    // Provider not configured — fall back to any configured provider with the
-    // bare model id (useful when the same model is reachable via OpenRouter).
-    const fallbackName = configuredProviders[0];
-    if (fallbackName === undefined) {
+    if (configuredProviders.length === 0) {
       return err({ type: 'NO_PROVIDER', message: 'No LLM provider API key is configured' });
     }
-    const fallback = factories.get(fallbackName);
-    if (fallback === undefined) {
-      return err({ type: 'NO_PROVIDER', message: 'No LLM provider API key is configured' });
+
+    // OpenRouter accepts the original provider/model path. A direct provider
+    // must never receive another provider's bare model id (for example a
+    // Claude id sent to OpenAI), because that fails late after accepting work.
+    const openrouter = factories.get('openrouter');
+    if (openrouter !== undefined && providerName !== 'openrouter') {
+      return ok(openrouter(spec));
     }
-    return ok(fallbackName === 'openrouter' ? fallback(spec) : fallback(modelId));
+
+    return err({
+      type: 'NO_PROVIDER',
+      message: `Model provider "${providerName}" is not configured for ${spec}`,
+    });
   };
 
   return {
     configuredProviders,
     resolve(tier) {
-      const spec = config.tierModels?.[tier] ?? DEFAULT_TIER_MODELS[tier];
+      const firstProvider = configuredProviders[0];
+      const providerDefaults =
+        firstProvider === undefined ? undefined : PROVIDER_DEFAULT_TIER_MODELS[firstProvider];
+      const spec =
+        config.tierModels?.[tier] ?? providerDefaults?.[tier] ?? DEFAULT_TIER_MODELS[tier];
       return resolveSpec(spec);
     },
   };

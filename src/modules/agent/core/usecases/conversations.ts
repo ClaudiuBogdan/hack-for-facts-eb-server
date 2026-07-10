@@ -27,7 +27,7 @@ export const getConversation = async (
   const owned = await deps.repo.getOwned(input.userId, input.conversationId);
   if (owned.isErr()) return err(owned.error);
 
-  const messages = await deps.repo.getMessages(input.conversationId);
+  const messages = await deps.repo.getMessages(input.userId, input.conversationId);
   if (messages.isErr()) return err(messages.error);
 
   return ok({ conversation: owned.value, messages: messages.value });

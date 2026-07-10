@@ -27,6 +27,8 @@ export interface PreparedChat {
   readonly conversation: AgentConversation;
   readonly isNewConversation: boolean;
   readonly quota: QuotaState;
+  /** Zero for unlimited users; otherwise must be reconciled exactly once. */
+  readonly reservedTokens: number;
 }
 
 export const computeQuotaState = (
@@ -60,11 +62,37 @@ export const prepareChat = async (
     });
   }
 
+  let reservedTokens = 0;
+  if (!quota.unlimited) {
+    const reserved = await deps.quota.reserveRemaining(input.userId, quota.budgetTokens);
+    if (reserved.isErr()) return err(reserved.error);
+    if (reserved.value === null) {
+      return err({
+        type: 'QUOTA_EXCEEDED',
+        usedTokens: quota.usedTokens,
+        budgetTokens: quota.budgetTokens,
+      });
+    }
+    reservedTokens = reserved.value;
+  }
+
+  const releaseReservation = async (): Promise<void> => {
+    if (reservedTokens > 0) {
+      await deps.quota.reconcileReservation(input.userId, reservedTokens, 0);
+    }
+  };
+
   const existing = await deps.repo.getOwned(input.userId, input.conversationId);
   if (existing.isOk()) {
-    return ok({ conversation: existing.value, isNewConversation: false, quota });
+    return ok({
+      conversation: existing.value,
+      isNewConversation: false,
+      quota,
+      reservedTokens,
+    });
   }
   if (existing.error.type !== 'CONVERSATION_NOT_FOUND') {
+    await releaseReservation();
     return err(existing.error);
   }
 
@@ -72,6 +100,9 @@ export const prepareChat = async (
   // colliding id owned by ANOTHER user surfaces here as a STORAGE error from
   // the unique constraint, never as access to the other user's thread.
   const created = await deps.repo.create(input.userId, input.conversationId);
-  if (created.isErr()) return err(created.error);
-  return ok({ conversation: created.value, isNewConversation: true, quota });
+  if (created.isErr()) {
+    await releaseReservation();
+    return err(created.error);
+  }
+  return ok({ conversation: created.value, isNewConversation: true, quota, reservedTokens });
 };
