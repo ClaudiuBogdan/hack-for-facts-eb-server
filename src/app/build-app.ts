@@ -173,6 +173,7 @@ import {
 } from '../modules/health/index.js';
 import {
   InsSchema,
+  makeInsDatasetCatalogReader,
   makeInsDatasetRequestRepo,
   makeInsRepo,
   makeInsResolvers,
@@ -1262,6 +1263,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     await app.register(
       makeInsRoutes({
         datasetRequestRepo: makeInsDatasetRequestRepo(userDb),
+        datasetCatalog: makeInsDatasetCatalogReader(insRepo),
         userDeletionHandlerConfigured: config.auth.clerkWebhookSigningSecret !== undefined,
       })
     );

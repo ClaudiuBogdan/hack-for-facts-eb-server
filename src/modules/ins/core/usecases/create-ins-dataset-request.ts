@@ -13,10 +13,11 @@ import {
 } from '../dataset-requests.js';
 import { createValidationError, type InsError } from '../errors.js';
 
-import type { InsDatasetRequestRepository } from '../ports.js';
+import type { InsDatasetCatalogReader, InsDatasetRequestRepository } from '../ports.js';
 
 export interface CreateInsDatasetRequestDeps {
   datasetRequestRepo: InsDatasetRequestRepository;
+  datasetCatalog: InsDatasetCatalogReader;
 }
 
 export interface CreateInsDatasetRequestInput {
@@ -70,8 +71,10 @@ export const createInsDatasetRequest = async (
     return err(createValidationError('contactEmail', 'contactEmail is not a valid email address'));
   }
 
+  const normalizedCode = datasetCode.toUpperCase();
+
   const record: InsDatasetRequestInput = {
-    dataset_code: datasetCode.toUpperCase(),
+    dataset_code: normalizedCode,
     ...(siruta !== undefined ? { siruta } : {}),
     ...(contactEmail !== undefined ? { contact_email: contactEmail } : {}),
     ...(note !== undefined ? { note } : {}),
@@ -80,6 +83,17 @@ export const createInsDatasetRequest = async (
 
   if (!isValidDatasetRequestInput(record)) {
     return err(createValidationError('body', 'Dataset request payload failed validation'));
+  }
+
+  // A request for a dataset that does not exist is unsatisfiable, so refuse it
+  // rather than accumulating unactionable rows. Checked last: it is the only
+  // step that performs I/O.
+  const exists = await deps.datasetCatalog.datasetExists(normalizedCode);
+  if (exists.isErr()) {
+    return err(exists.error);
+  }
+  if (!exists.value) {
+    return err(createValidationError('datasetCode', `Unknown INS dataset code: ${normalizedCode}`));
   }
 
   return deps.datasetRequestRepo.create(record);

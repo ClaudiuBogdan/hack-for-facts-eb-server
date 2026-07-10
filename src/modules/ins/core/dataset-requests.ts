@@ -49,7 +49,14 @@ export interface InsDatasetRequest {
   created_at: Date;
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * Deliberately conservative. Each dot-separated label on either side of the `@`
+ * must be non-empty, which rejects consecutive dots (`a@b..com`) and leading or
+ * trailing dots — cases the naive `[^\s@]+@[^\s@]+\.[^\s@]+` shape accepts.
+ */
+const EMAIL_LOCAL = String.raw`[^\s@.]+(?:\.[^\s@.]+)*`;
+const EMAIL_DOMAIN = String.raw`[^\s@.]+(?:\.[^\s@.]+)+`;
+const EMAIL_REGEX = new RegExp(`^${EMAIL_LOCAL}@${EMAIL_DOMAIN}$`);
 
 export const isValidContactEmail = (value: string): boolean =>
   value.length <= MAX_CONTACT_EMAIL_LENGTH && EMAIL_REGEX.test(value);
