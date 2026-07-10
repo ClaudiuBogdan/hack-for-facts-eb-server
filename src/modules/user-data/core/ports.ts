@@ -36,6 +36,7 @@ export interface UserDataMutationPort {
   probeReceipt(
     claim: ReceiptClaim
   ): Promise<Result<'absent' | 'match' | 'mismatch', UserDataError>>;
+  deleteExpiredReceipts(now: Date): Promise<Result<number, UserDataError>>;
 }
 export interface SyncPage {
   items: CurrentRecord[];

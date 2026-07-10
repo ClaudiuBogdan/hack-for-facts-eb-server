@@ -45,6 +45,13 @@ export interface RecordView {
   updatedAt: string;
   deletedAt: string | null;
 }
+export interface MutationResponse {
+  record: RecordView;
+  eventId: string;
+  eventSeq: string;
+  recordedAt: string;
+  replayed: boolean;
+}
 export interface Page<T> {
   items: T[];
   nextCursor: string | null;
