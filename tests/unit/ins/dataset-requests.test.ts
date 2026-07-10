@@ -35,11 +35,39 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: '  pop107d  ', siruta: ' 54975 ', note: ' need this ' }
+      { datasetCode: '  pop107d  ', siruta: ' 54975 ', note: ' need this ', clerkUserId: 'user_1' }
     );
 
     expect(result.isOk()).toBe(true);
-    expect(repo.created).toEqual([{ dataset_code: 'POP107D', siruta: '54975', note: 'need this' }]);
+    expect(repo.created).toEqual([
+      { dataset_code: 'POP107D', siruta: '54975', note: 'need this', clerk_user_id: 'user_1' },
+    ]);
+  });
+
+  it('drops contact_email and note on an anonymous submission', async () => {
+    const repo = makeFakeRepo();
+
+    const result = await createInsDatasetRequest(
+      { datasetRequestRepo: repo },
+      { datasetCode: 'POP107D', siruta: '54975', contactEmail: 'a@b.ro', note: 'I am Ana' }
+    );
+
+    // Accepted, but the anonymizer could never reach this row's PII, so it is
+    // never written. The aggregate signal survives.
+    expect(result.isOk()).toBe(true);
+    expect(repo.created).toEqual([{ dataset_code: 'POP107D', siruta: '54975' }]);
+  });
+
+  it('does not reject an anonymous submission carrying a malformed email', async () => {
+    const repo = makeFakeRepo();
+
+    const result = await createInsDatasetRequest(
+      { datasetRequestRepo: repo },
+      { datasetCode: 'POP107D', contactEmail: 'not-an-email', note: 'x'.repeat(5000) }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(repo.created[0]).toEqual({ dataset_code: 'POP107D' });
   });
 
   it('allows an anonymous request with no contact email or user id', async () => {
@@ -85,7 +113,11 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: 'POP107D', note: 'x'.repeat(MAX_DATASET_REQUEST_NOTE_LENGTH + 1) }
+      {
+        datasetCode: 'POP107D',
+        clerkUserId: 'user_1',
+        note: 'x'.repeat(MAX_DATASET_REQUEST_NOTE_LENGTH + 1),
+      }
     );
 
     expect(result.isErr()).toBe(true);
@@ -101,7 +133,11 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: 'POP107D', note: 'x'.repeat(MAX_DATASET_REQUEST_NOTE_LENGTH) }
+      {
+        datasetCode: 'POP107D',
+        clerkUserId: 'user_1',
+        note: 'x'.repeat(MAX_DATASET_REQUEST_NOTE_LENGTH),
+      }
     );
 
     expect(result.isOk()).toBe(true);
@@ -112,7 +148,7 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: 'POP107D', contactEmail: ' Ana@example.ro ' }
+      { datasetCode: 'POP107D', clerkUserId: 'user_1', contactEmail: ' Ana@example.ro ' }
     );
 
     expect(result.isOk()).toBe(true);
@@ -124,7 +160,7 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: 'POP107D', contactEmail: 'not-an-email' }
+      { datasetCode: 'POP107D', clerkUserId: 'user_1', contactEmail: 'not-an-email' }
     );
 
     expect(result.isErr()).toBe(true);
@@ -139,10 +175,10 @@ describe('createInsDatasetRequest', () => {
 
     const result = await createInsDatasetRequest(
       { datasetRequestRepo: repo },
-      { datasetCode: 'POP107D', note: '   ', contactEmail: '  ' }
+      { datasetCode: 'POP107D', clerkUserId: 'user_1', note: '   ', contactEmail: '  ' }
     );
 
     expect(result.isOk()).toBe(true);
-    expect(repo.created[0]).toEqual({ dataset_code: 'POP107D' });
+    expect(repo.created[0]).toEqual({ dataset_code: 'POP107D', clerk_user_id: 'user_1' });
   });
 });

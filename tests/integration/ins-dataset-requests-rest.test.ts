@@ -115,6 +115,22 @@ describe('POST /api/ins/dataset-requests', () => {
     expect(repo.created[0]?.contact_email).toBe('a@b.ro');
   });
 
+  it('accepts an anonymous request but never persists its PII', async () => {
+    const repo = makeFakeRepo();
+    app = await createTestApp({ datasetRequestRepo: repo });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ins/dataset-requests',
+      payload: { datasetCode: 'POP107D', contactEmail: 'a@b.ro', note: 'I am Ana' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(repo.created[0]).toEqual({ dataset_code: 'POP107D' });
+    expect(repo.created[0]?.contact_email).toBeUndefined();
+    expect(repo.created[0]?.note).toBeUndefined();
+  });
+
   it('rejects a body without a dataset code', async () => {
     const repo = makeFakeRepo();
     app = await createTestApp({ datasetRequestRepo: repo });
