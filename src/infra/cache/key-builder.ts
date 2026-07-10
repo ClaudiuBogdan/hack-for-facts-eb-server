@@ -26,8 +26,17 @@ export const CacheNamespace = {
   // ─────────────────────────────────────────────────────────────────────────
   // INS queries
   // ─────────────────────────────────────────────────────────────────────────
-  /** INS module read queries */
-  INS_QUERIES: 'ins:queries',
+  /**
+   * INS module read queries.
+   *
+   * The cache is Redis-backed and stores already-mapped domain objects, so it
+   * outlives a deploy. Adding a non-nullable field to a cached shape therefore
+   * requires bumping this key-space: entries written before the deploy lack the
+   * field, and GraphQL rejects them with "Cannot return null for non-nullable
+   * field" for the whole TTL. Bumped to v2 when `InsDataset.data_status` was
+   * added. Bump again for any further non-nullable addition to a cached INS shape.
+   */
+  INS_QUERIES: 'ins:queries:v2',
 
   // ─────────────────────────────────────────────────────────────────────────
   // Line items (detailed row-level queries)
