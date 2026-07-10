@@ -20,7 +20,6 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import { ROLLUP_MIN_MONTH } from '../../core/constants.js';
 import { monthStart, rankByValue, routeScope, type ScopeSource } from '../../core/scope.js';
 
 import type { ScopeFlowStats } from '../../core/ports.js';
@@ -51,19 +50,24 @@ const grainList = (grains: readonly ProcurementGrain[]): RawBuilder<unknown> =>
   );
 
 /**
- * The pruning predicate every scope query carries: the grain set, a month floor (so
- * the dims index always RANGE-scans rather than seq-scanning the MV), and the scope
- * dimensions themselves.
+ * The pruning predicate every scope query carries: the grain set, the caller's month
+ * window (if any), and the scope dimensions themselves.
+ *
+ * NO implicit month floor. The legacy edge repo floors at `ROLLUP_MIN_MONTH`
+ * (2011-07-01) so its dims index range-scans, but the MVs actually start at
+ * 2007-03-01, and that floor silently drops the earliest bucket — which is exactly
+ * the bucket `min(first_flow_date)` reports. `procurementStats.firstFlowDate` would
+ * then claim 2011 for a flow the DB dates to 2007-03-12. Measured live, the floor
+ * buys nothing here: the empty scope scans the MV either way (1.5–2.0s), and an
+ * entity scope is driven by its cui index.
  */
 const scopeConditions = (
   scope: ScopeFilter,
   grains: readonly ProcurementGrain[],
   source: ScopeSource
 ): RawBuilder<unknown>[] => {
-  const conds: RawBuilder<unknown>[] = [
-    sql`source_grain in (${grainList(grains)})`,
-    sql`month_start >= ${scope.monthFrom !== undefined ? monthStart(scope.monthFrom) : ROLLUP_MIN_MONTH}::date`,
-  ];
+  const conds: RawBuilder<unknown>[] = [sql`source_grain in (${grainList(grains)})`];
+  if (scope.monthFrom !== undefined) conds.push(sql`month_start >= ${monthStart(scope.monthFrom)}::date`);
   if (scope.monthTo !== undefined) conds.push(sql`month_start <= ${monthStart(scope.monthTo)}::date`);
   if (scope.authorityCui !== undefined) conds.push(sql`authority_cui = ${scope.authorityCui}`);
   if (scope.supplierCui !== undefined) conds.push(sql`supplier_cui = ${scope.supplierCui}`);

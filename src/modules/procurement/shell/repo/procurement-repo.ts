@@ -747,14 +747,15 @@ export const makeProcurementRepo = (db: Db, daMaxWindowDays = DA_LIST_MAX_WINDOW
     listCpvDivisions,
     resolveCpv,
     countProceduresInScope,
-    // offset search (the client contract)
-    searchProceduresOffset: offset.searchProceduresOffset,
-    searchContractsOffset: offset.searchContractsOffset,
-    searchDirectAcquisitionsOffset: offset.searchDirectAcquisitionsOffset,
-    searchModificationsOffset: offset.searchModificationsOffset,
+    // offset search (the client contract) — delegated, arrow-wrapped so the sub-repo
+    // methods keep their own `this`-free closure identity.
+    searchProceduresOffset: (f, p) => offset.searchProceduresOffset(f, p),
+    searchContractsOffset: (f, p) => offset.searchContractsOffset(f, p),
+    searchDirectAcquisitionsOffset: (f, p) => offset.searchDirectAcquisitionsOffset(f, p),
+    searchModificationsOffset: (f, p) => offset.searchModificationsOffset(f, p),
     // detail-bundle support
-    modificationsForContracts: detail.modificationsForContracts,
-    contractsByIds: detail.contractsByIds,
-    supplierRecords: detail.supplierRecords,
+    modificationsForContracts: (ids) => detail.modificationsForContracts(ids),
+    contractsByIds: (ids) => detail.contractsByIds(ids),
+    supplierRecords: (cui, first, after) => detail.supplierRecords(cui, first, after),
   };
 };

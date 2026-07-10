@@ -295,8 +295,9 @@ export const makeOffsetSearchRepo = (
     conds: readonly RawBuilder<unknown>[]
   ): Promise<number | null> => {
     const b = BINDINGS[grain];
+    // `sql.table` / `sql.ref` quote trusted internal identifiers (never user input).
     const table = sql.table(b.table);
-    const alias = sql.raw(b.alias);
+    const alias = sql.ref(b.alias);
     try {
       const result = await sql<{ n: string }>`
         select count(*)::text as n from (

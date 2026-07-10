@@ -6,11 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { pickDuplicateDriver } from '@/modules/procurement/shell/repo/detail-repo.js';
+import {
+  pickDuplicateDriver,
+  type DuplicateAnchor,
+} from '@/modules/procurement/shell/repo/detail-repo.js';
 import { addDecimalStrings } from '@/modules/procurement/shell/repo/scope-agg-repo.js';
 import { makeScopeCache } from '@/modules/procurement/shell/scope-cache.js';
-
-import type { DuplicateAnchor } from '@/modules/procurement/shell/repo/detail-repo.js';
 
 const anchor = (over: Partial<DuplicateAnchor> = {}): DuplicateAnchor => ({
   id: '2022821',
