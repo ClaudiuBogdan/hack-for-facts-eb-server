@@ -341,6 +341,17 @@ export interface AgentMessages {
   created_at: Generated<Timestamp>;
 }
 
+// INS dataset requests (docs/USER-DATA-ANONYMIZATION.md)
+export interface InsDatasetRequests {
+  id: Generated<string>;
+  dataset_code: string;
+  siruta: string | null;
+  contact_email: string | null;
+  note: string | null;
+  clerk_user_id: string | null;
+  created_at: Generated<Timestamp>;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
@@ -362,4 +373,5 @@ export interface UserDatabase {
   advancedmapdatasetrows: AdvancedMapDatasetRows;
   agentconversations: AgentConversations;
   agentmessages: AgentMessages;
+  ins_dataset_requests: InsDatasetRequests;
 }

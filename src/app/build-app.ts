@@ -171,7 +171,13 @@ import {
   makeCacheHealthChecker,
   type HealthChecker,
 } from '../modules/health/index.js';
-import { InsSchema, makeInsRepo, makeInsResolvers } from '../modules/ins/index.js';
+import {
+  InsSchema,
+  makeInsDatasetRequestRepo,
+  makeInsRepo,
+  makeInsResolvers,
+  makeInsRoutes,
+} from '../modules/ins/index.js';
 import {
   createDatabaseError as createCorrespondenceDatabaseError,
   makeCampaignAdminThreadNotificationService,
@@ -1247,6 +1253,13 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         deliveriesRepo,
         tokenSigner,
         hasher: sha256Hasher,
+      })
+    );
+
+    // INS dataset requests write to the user database; the INS domain tables are read-only.
+    await app.register(
+      makeInsRoutes({
+        datasetRequestRepo: makeInsDatasetRequestRepo(userDb),
       })
     );
 

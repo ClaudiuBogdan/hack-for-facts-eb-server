@@ -41,6 +41,8 @@ describe('User data anonymizer', () => {
     const threadId = randomUUID();
     const unrelatedThreadId = randomUUID();
     const unrelatedSimilarUserId = `${userId}4`;
+    const datasetRequestId = randomUUID();
+    const anonymousRequestId = randomUUID();
 
     await userDb
       .insertInto('shortlinks')
@@ -345,6 +347,28 @@ describe('User data anonymizer', () => {
       } as never)
       .execute();
 
+    await userDb
+      .insertInto('ins_dataset_requests')
+      .values([
+        {
+          id: datasetRequestId,
+          dataset_code: 'POP107D',
+          siruta: '54975',
+          contact_email: `user-${suffix}@example.com`,
+          note: `Please load this, I am user-${suffix}`,
+          clerk_user_id: userId,
+        },
+        {
+          id: anonymousRequestId,
+          dataset_code: 'POP107D',
+          siruta: null,
+          contact_email: `anon-${suffix}@example.com`,
+          note: 'Anonymous request',
+          clerk_user_id: null,
+        },
+      ] as never)
+      .execute();
+
     const firstResult = await anonymizer.anonymizeDeletedUser({
       userId,
       svixId: `svix-delete-${suffix}`,
@@ -471,6 +495,27 @@ describe('User data anonymizer', () => {
     expect(dataset.markdown_text).toBeNull();
     expect(dataset.row_count).toBe(0);
     expect(dataset.deleted_at).not.toBeNull();
+
+    const datasetRequest = await userDb
+      .selectFrom('ins_dataset_requests')
+      .selectAll()
+      .where('id', '=', datasetRequestId)
+      .executeTakeFirstOrThrow();
+    expect(datasetRequest.clerk_user_id).toBe(anonymizedUserId);
+    expect(datasetRequest.contact_email).toBeNull();
+    expect(datasetRequest.note).toBeNull();
+    // The aggregate demand signal survives.
+    expect(datasetRequest.dataset_code).toBe('POP107D');
+    expect(datasetRequest.siruta).toBe('54975');
+
+    // A request submitted while signed out cannot be matched to the deleted user.
+    const anonymousRequest = await userDb
+      .selectFrom('ins_dataset_requests')
+      .selectAll()
+      .where('id', '=', anonymousRequestId)
+      .executeTakeFirstOrThrow();
+    expect(anonymousRequest.clerk_user_id).toBeNull();
+    expect(anonymousRequest.contact_email).toBe(`anon-${suffix}@example.com`);
 
     const datasetRows = await userDb
       .selectFrom('advancedmapdatasetrows')
