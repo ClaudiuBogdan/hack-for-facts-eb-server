@@ -228,6 +228,21 @@ describe('POST /api/ins/dataset-requests', () => {
     expect(repo.created).toHaveLength(0);
   });
 
+  it('rejects a consecutive-dot email from an authenticated caller', async () => {
+    const repo = makeFakeRepo();
+    app = await createTestApp({ datasetRequestRepo: repo, authUserId: 'user_abc' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ins/dataset-requests',
+      payload: { datasetCode: 'POP107D', contactEmail: 'a@b..com' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ ok: false, error: 'ValidationError' });
+    expect(repo.created).toHaveLength(0);
+  });
+
   it('maps a repository failure to 500', async () => {
     const repo: InsDatasetRequestRepository = {
       create: async () => err(createDatabaseError('boom')),
