@@ -51,10 +51,16 @@ interface GqlResponse<T> {
   readonly errors?: readonly { readonly message: string }[];
 }
 interface JsonRpcResponse {
-  readonly result?: { readonly structuredContent?: unknown; readonly content?: readonly { readonly text?: string }[] };
+  readonly result?: {
+    readonly structuredContent?: unknown;
+    readonly content?: readonly { readonly text?: string }[];
+  };
 }
 
-const gql = async <T>(query: string, variables?: Record<string, unknown>): Promise<GqlResponse<T>> => {
+const gql = async <T>(
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<GqlResponse<T>> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -69,7 +75,12 @@ const mcpCall = async <T>(name: string, args: Record<string, unknown>): Promise<
     method: 'POST',
     url: '/api/v1/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    payload: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
   const body: JsonRpcResponse = res.json();
   if (body.result?.structuredContent !== undefined) return body.result.structuredContent as T;
@@ -155,8 +166,12 @@ const seed = async (): Promise<void> => {
 };
 
 const cleanup = async (): Promise<void> => {
-  await pool.query('delete from justice.case_legal_references where case_id = $1::bigint', [CASE_ID]);
-  await pool.query('delete from justice.party_company_candidates where candidate_id = $1::bigint', [CASE_ID]);
+  await pool.query('delete from justice.case_legal_references where case_id = $1::bigint', [
+    CASE_ID,
+  ]);
+  await pool.query('delete from justice.party_company_candidates where candidate_id = $1::bigint', [
+    CASE_ID,
+  ]);
   await pool.query('delete from justice.case_parties where case_id = $1::bigint', [CASE_ID]);
   await pool.query('delete from justice.party_name_keys where name_key_id = any($1::bigint[])', [
     [NAME_KEY_COMPANY, NAME_KEY_PUBLIC, NAME_KEY_DECLINED],
@@ -164,7 +179,9 @@ const cleanup = async (): Promise<void> => {
   await pool.query('delete from justice.case_appeals where case_id = $1::bigint', [CASE_ID]);
   await pool.query('delete from justice.case_hearings where case_id = $1::bigint', [CASE_ID]);
   await pool.query('delete from justice.cases where case_id = $1::bigint', [CASE_ID]);
-  await pool.query('delete from justice.courts where institution_code = any($1)', [[COURT_TRIB, COURT_JUD]]);
+  await pool.query('delete from justice.courts where institution_code = any($1)', [
+    [COURT_TRIB, COURT_JUD],
+  ]);
 };
 
 /** Recursively assert a value's JSON contains neither the planted person name nor a forbidden key. */
@@ -178,7 +195,10 @@ const assertNoLeak = (value: unknown, where: string): void => {
 
 d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
   beforeAll(async () => {
-    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(/[?&]sslmode=[a-z-]+/iu, '');
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
     pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
     await cleanup(); // idempotent: clear any leftover from a crashed run
     await seed();
@@ -204,7 +224,13 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
   });
 
   it('court tree (GraphQL): tribunal exposes its judecatorie child', async () => {
-    const res = await gql<{ judicialCourt: { institutionCode: string; courtLevel: string; children: { institutionCode: string }[] } | null }>(
+    const res = await gql<{
+      judicialCourt: {
+        institutionCode: string;
+        courtLevel: string;
+        children: { institutionCode: string }[];
+      } | null;
+    }>(
       `{ judicialCourt(institutionCode:"${COURT_TRIB}") { institutionCode courtLevel children { institutionCode courtLevel } } }`
     );
     expect(res.errors).toBeUndefined();
@@ -238,27 +264,32 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
 
     const unknown = detail!.parties.find((p) => p.partyKind === 'unknown');
     const publicEntity = detail!.parties.find((p) => p.partyKind === 'public_entity');
-    const declinedCompany = detail!.parties.find((p) => p.nameKeyId === NAME_KEY_DECLINED);
+    const declinedCompany = detail!.parties.find(
+      (p) => p.partyKind === 'company' && p.name === null
+    );
     // the publishable company party is the COMPANY-kind row carrying NAME_KEY_COMPANY.
     const publishableCompany = detail!.parties.find(
       (p) => p.partyKind === 'company' && p.nameKeyId === NAME_KEY_COMPANY
     );
     // THE P0-1 CASE: a person row that SHARES the publishable company's name_key.
-    const personSharingCompanyKey = detail!.parties.find(
-      (p) => p.partyKind === 'person' && p.nameKeyId === NAME_KEY_COMPANY
-    );
+    const personSharingCompanyKey = detail!.parties.find((p) => p.partyKind === 'person');
 
     expect(unknown?.name).toBeNull();
     expect(publishableCompany?.name).toBe(COMPANY_NAME); // gated publishable
     expect(publicEntity?.name).toBe(PUBLIC_NAME);
-    // the DECLINED-rule company party (nameKeyId set, but rule 'fallback') → name null.
+    // the DECLINED-rule company party exposes neither its stable key nor its name.
+    expect(declinedCompany?.nameKeyId).toBeNull();
     expect(declinedCompany?.name).toBeNull();
-    // CENTERPIECE: a person sharing the company's name_key must NOT inherit the name.
+    // CENTERPIECE: a person sharing the company's name_key exposes neither value.
     expect(personSharingCompanyKey).toBeTruthy();
+    expect(personSharingCompanyKey?.nameKeyId).toBeNull();
     expect(personSharingCompanyKey?.name).toBeNull();
-    // every person/unknown party is name-free.
+    // every person/unknown party is name- and stable-key-free.
     for (const p of detail!.parties) {
-      if (p.partyKind === 'person' || p.partyKind === 'unknown') expect(p.name).toBeNull();
+      if (p.partyKind === 'person' || p.partyKind === 'unknown') {
+        expect(p.nameKeyId).toBeNull();
+        expect(p.name).toBeNull();
+      }
     }
     expect(detail!.personPartyCount).toBe(3); // 2 person + 1 unknown
 
@@ -268,9 +299,9 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
   });
 
   it('company litigation (GraphQL): the published fixture link surfaces the GATED company name (never candidate_company_name path)', async () => {
-    const res = await gql<{ judicialCompanyLitigation: { cui: string; caseCount: number; companyName: string | null } }>(
-      `{ judicialCompanyLitigation(cui:"${TEST_CUI}") { cui caseCount companyName coverage } }`
-    );
+    const res = await gql<{
+      judicialCompanyLitigation: { cui: string; caseCount: number; companyName: string | null };
+    }>(`{ judicialCompanyLitigation(cui:"${TEST_CUI}") { cui caseCount companyName coverage } }`);
     expect(res.errors).toBeUndefined();
     const s = res.data?.judicialCompanyLitigation;
     expect(s?.caseCount).toBe(1);
@@ -279,35 +310,49 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
   });
 
   it('MCP get_judicial_case ≡ GraphQL (tri-surface) + NO leak', async () => {
-    const out = await mcpCall<{ ok: boolean; item: { personPartyCount: number; parties: { partyKind: string; name: string | null }[] } }>(
-      'get_judicial_case',
-      { caseId: CASE_ID }
-    );
+    const out = await mcpCall<{
+      ok: boolean;
+      item: {
+        personPartyCount: number;
+        parties: { partyKind: string; nameKeyId: string | null; name: string | null }[];
+      };
+    }>('get_judicial_case', { caseId: CASE_ID });
     expect(out.ok).toBe(true);
     expect(out.item.personPartyCount).toBe(3);
-    const company = out.item.parties.find((p) => p.partyKind === 'company' && p.name === COMPANY_NAME);
+    const company = out.item.parties.find(
+      (p) => p.partyKind === 'company' && p.name === COMPANY_NAME
+    );
     expect(company).toBeTruthy();
-    // no person/unknown party carries a name on the MCP surface either.
+    // no person/unknown party carries a name or correlatable key on MCP either.
     for (const p of out.item.parties) {
-      if (p.partyKind === 'person' || p.partyKind === 'unknown') expect(p.name).toBeNull();
+      if (p.partyKind === 'person' || p.partyKind === 'unknown') {
+        expect(p.nameKeyId).toBeNull();
+        expect(p.name).toBeNull();
+      }
     }
     assertNoLeak(out, 'get_judicial_case MCP');
   });
 
   it('MCP get_court_caseload (JD-2): grouped counts; requires a bound', async () => {
-    const out = await mcpCall<{ ok: boolean; item: { denominator: number } }>('get_court_caseload', {
-      groupBy: 'courtLevel',
-      institutionCode: [COURT_JUD],
-    });
+    const out = await mcpCall<{ ok: boolean; item: { denominator: number } }>(
+      'get_court_caseload',
+      {
+        groupBy: 'courtLevel',
+        institutionCode: [COURT_JUD],
+      }
+    );
     expect(out.ok).toBe(true);
     expect(out.item.denominator).toBe(1);
   });
 
   it('resolve companyName resolves the dictionary (gated), a person name returns empty (S1)', async () => {
-    const company = await mcpCall<{ ok: boolean; items: { value: string; label: string }[] }>('resolve_judicial_filters', {
-      dim: 'companyName',
-      q: 'ACME TEST',
-    });
+    const company = await mcpCall<{ ok: boolean; items: { value: string; label: string }[] }>(
+      'resolve_judicial_filters',
+      {
+        dim: 'companyName',
+        q: 'ACME TEST',
+      }
+    );
     expect(company.items.some((h) => h.label === COMPANY_NAME)).toBe(true);
     assertNoLeak(company, 'resolve companyName');
 
@@ -319,7 +364,9 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
   });
 
   it('unbounded case list is rejected (no court/period bound)', async () => {
-    const res = await gql<{ judicialCases: unknown }>(`{ judicialCases { edges { node { caseId } } } }`);
+    const res = await gql<{ judicialCases: unknown }>(
+      `{ judicialCases { edges { node { caseId } } } }`
+    );
     expect(res.errors).toBeDefined();
     expect(res.errors?.[0]?.message).toMatch(/court or period bound/u);
   });

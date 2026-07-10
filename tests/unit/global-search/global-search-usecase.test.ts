@@ -4,7 +4,7 @@
  * Locks the hybrid Meili-primary / pg-fallback contract:
  *  - empty/whitespace q and all-invalid docTypes short-circuit to empty WITHOUT
  *    touching either engine;
- *  - Meili `ok` → engine 'meili', facets flattened, orgs from identityRepo;
+ *  - Meili `ok` → engine 'meili', facets flattened, deprecated org array empty;
  *  - Meili `err` OR no index configured → degrade to searchRepo (engine 'postgres');
  *  - a searchRepo `err` on the degrade path surfaces as `err` (not a silent empty);
  *  - limit/offset clamping is asserted via the values handed to the spies.
@@ -14,18 +14,13 @@ import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import { upstreamError, databaseError, type ApiError } from '@/modules/shared/core/errors.js';
-import { SEARCH_ENTITY_DOC_TYPES, type OrgNameMatch, type SearchHit } from '@/modules/shared/core/types.js';
+import { SEARCH_ENTITY_DOC_TYPES, type SearchHit } from '@/modules/shared/core/types.js';
 import {
   makeGlobalSearch,
   type GlobalSearchDeps,
 } from '@/modules/shared/core/usecases/global-search.js';
 
-import type {
-  EntitiesSearchResult,
-  IdentityRepo,
-  MeiliClient,
-  SearchRepo,
-} from '@/modules/shared/core/ports.js';
+import type { EntitiesSearchResult, MeiliClient, SearchRepo } from '@/modules/shared/core/ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Builders
@@ -42,17 +37,6 @@ const makeHit = (over: Partial<SearchHit> = {}): SearchHit => ({
   ...over,
 });
 
-const makeOrg = (over: Partial<OrgNameMatch> = {}): OrgNameMatch => ({
-  orgId: '1',
-  cui: '123',
-  name: 'ACME SRL',
-  normalizedName: 'acme srl',
-  countyName: 'Cluj',
-  kind: 'company',
-  score: 0.8,
-  ...over,
-});
-
 const meiliResult = (over: Partial<EntitiesSearchResult> = {}): EntitiesSearchResult => ({
   hits: [makeHit()],
   facetDistribution: {},
@@ -63,30 +47,25 @@ const meiliResult = (over: Partial<EntitiesSearchResult> = {}): EntitiesSearchRe
 interface Spies {
   meiliSearch: ReturnType<typeof vi.fn>;
   repoSearch: ReturnType<typeof vi.fn>;
-  byName: ReturnType<typeof vi.fn>;
 }
 
 const makeDeps = (opts: {
   meili?: Result<EntitiesSearchResult, ApiError>;
   repo?: Result<readonly SearchHit[], ApiError>;
-  orgs?: Result<readonly OrgNameMatch[], ApiError>;
   meiliIndexes?: readonly string[];
 }): { deps: GlobalSearchDeps; spies: Spies } => {
   const meiliSearch = vi.fn(async () => opts.meili ?? ok(meiliResult()));
   const repoSearch = vi.fn(async () => opts.repo ?? ok([makeHit({ source: 'postgres' })]));
-  const byName = vi.fn(async () => opts.orgs ?? ok([makeOrg()]));
 
   const meiliClient = { searchEntities: meiliSearch } as unknown as MeiliClient;
   const searchRepo = { searchEntities: repoSearch } as unknown as SearchRepo;
-  const identityRepo = { searchByName: byName } as unknown as IdentityRepo;
 
   const deps: GlobalSearchDeps = {
     meiliClient,
     searchRepo,
-    identityRepo,
     meiliIndexes: opts.meiliIndexes ?? ['entities'],
   };
-  return { deps, spies: { meiliSearch, repoSearch, byName } };
+  return { deps, spies: { meiliSearch, repoSearch } };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,7 +88,6 @@ describe('makeGlobalSearch — short-circuit guards', () => {
     });
     expect(spies.meiliSearch).not.toHaveBeenCalled();
     expect(spies.repoSearch).not.toHaveBeenCalled();
-    expect(spies.byName).not.toHaveBeenCalled();
   });
 
   it('treats a whitespace-only q as empty (no engine query)', async () => {
@@ -136,7 +114,6 @@ describe('makeGlobalSearch — short-circuit guards', () => {
     });
     expect(spies.meiliSearch).not.toHaveBeenCalled();
     expect(spies.repoSearch).not.toHaveBeenCalled();
-    expect(spies.byName).not.toHaveBeenCalled();
   });
 
   it('does NOT short-circuit when docTypes is omitted (queries the engine)', async () => {
@@ -150,6 +127,20 @@ describe('makeGlobalSearch — short-circuit guards', () => {
     await makeGlobalSearch(deps, { q: 'acme', docTypes: ['company', 'nope'] });
     expect(spies.meiliSearch).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects a malformed requested county instead of widening nationwide', async () => {
+    const { deps, spies } = makeDeps({});
+    const res = await makeGlobalSearch(deps, { q: 'acme', county: 'Cluj"] OR true' });
+
+    expect(res.isErr()).toBe(true);
+    expect(res._unsafeUnwrapErr()).toEqual({
+      type: 'InvalidInput',
+      message: 'county must be a canonical county name',
+      field: 'county',
+    });
+    expect(spies.meiliSearch).not.toHaveBeenCalled();
+    expect(spies.repoSearch).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,7 +148,7 @@ describe('makeGlobalSearch — short-circuit guards', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('makeGlobalSearch — Meili ok path', () => {
-  it('returns engine "meili" with hits, flattened facets, and orgs from identityRepo', async () => {
+  it('returns engine "meili" with hits, flattened facets, and no legacy org scan', async () => {
     const hits = [makeHit({ id: 'company:1' }), makeHit({ id: 'bill:2', docType: 'bill' })];
     const { deps, spies } = makeDeps({
       meili: ok(
@@ -167,7 +158,6 @@ describe('makeGlobalSearch — Meili ok path', () => {
           estimatedTotalHits: 7,
         })
       ),
-      orgs: ok([makeOrg({ orgId: '99' })]),
     });
 
     const res = await makeGlobalSearch(deps, { q: 'acme' });
@@ -180,7 +170,7 @@ describe('makeGlobalSearch — Meili ok path', () => {
       { field: 'doc_type', value: 'company', count: 5 },
       { field: 'doc_type', value: 'bill', count: 2 },
     ]);
-    expect(value.organizations).toEqual([makeOrg({ orgId: '99' })]);
+    expect(value.organizations).toEqual([]);
     expect(spies.repoSearch).not.toHaveBeenCalled();
   });
 
@@ -200,8 +190,8 @@ describe('makeGlobalSearch — Meili ok path', () => {
     });
   });
 
-  it('keeps an empty `organizations` array when the org name match errors', async () => {
-    const { deps } = makeDeps({ orgs: err(databaseError('orgs down')) });
+  it('keeps the deprecated `organizations` array empty', async () => {
+    const { deps } = makeDeps({});
     const res = await makeGlobalSearch(deps, { q: 'acme' });
     expect(res._unsafeUnwrap().organizations).toEqual([]);
     expect(res._unsafeUnwrap().engine).toBe('meili');
@@ -237,7 +227,10 @@ describe('makeGlobalSearch — degrade to postgres', () => {
   });
 
   it('goes straight to postgres (never calls meili) when no index is configured', async () => {
-    const { deps, spies } = makeDeps({ meiliIndexes: [], repo: ok([makeHit({ source: 'postgres' })]) });
+    const { deps, spies } = makeDeps({
+      meiliIndexes: [],
+      repo: ok([makeHit({ source: 'postgres' })]),
+    });
 
     const res = await makeGlobalSearch(deps, { q: 'acme' });
 
@@ -278,14 +271,13 @@ describe('makeGlobalSearch — degrade to postgres', () => {
     expect(res._unsafeUnwrapErr().type).toBe('Database');
   });
 
-  it('still returns orgs from identityRepo on the degrade path', async () => {
+  it('keeps deprecated organizations empty on the degrade path', async () => {
     const { deps } = makeDeps({
       meili: err(upstreamError('meili down', 'meilisearch')),
       repo: ok([]),
-      orgs: ok([makeOrg({ orgId: '42' })]),
     });
     const res = await makeGlobalSearch(deps, { q: 'acme' });
-    expect(res._unsafeUnwrap().organizations).toEqual([makeOrg({ orgId: '42' })]);
+    expect(res._unsafeUnwrap().organizations).toEqual([]);
   });
 });
 
@@ -396,5 +388,7 @@ describe('makeGlobalSearch — logger', () => {
     const payload = info.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload['engine']).toBe('meili');
     expect(payload['component']).toBe('kernel.globalSearch');
+    expect(payload['queryLength']).toBe(4);
+    expect(payload).not.toHaveProperty('q');
   });
 });

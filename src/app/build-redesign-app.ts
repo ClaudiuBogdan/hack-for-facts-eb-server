@@ -17,6 +17,10 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import {
+  makeGraphQLErrorFormatter,
+  makeGraphQLValidationRules,
+} from '../infra/graphql/security.js';
 import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
@@ -409,11 +413,15 @@ export const registerRedesignSurface = async (
     resolvers: mergedResolvers as unknown as Record<string, never>,
   });
 
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
   await app.register(mercuriusPlugin, {
     schema,
     path: '/api/v1/graphql',
-    graphiql: deps.enableGraphiQL ?? process.env['NODE_ENV'] !== 'production',
+    graphiql: deps.enableGraphiQL ?? !isProduction,
     allowBatchedQueries: false,
+    validationRules: makeGraphQLValidationRules(isProduction),
+    errorFormatter: makeGraphQLErrorFormatter(isProduction),
   });
 
   // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────

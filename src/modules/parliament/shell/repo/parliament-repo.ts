@@ -292,30 +292,35 @@ const stringValues = (f: Record<string, unknown> | undefined): { eq?: string; in
  * never a silent empty/full result — the kernel composer can't validate a virtual
  * field, so the repo enforces the domain itself.
  *
- * Returns `matchNothing: true` for an EXPLICIT empty `in: []` with no `eq` — the
- * kernel contract (#60h) compiles `in: []` to FALSE (match nothing), NOT a dropped
- * predicate (which would silently match ALL rows). The caller emits `sql\`false\``
- * in that case so this virtual field mirrors the physical-field behavior.
+ * `eq` and `in` use the kernel's within-field AND semantics: `eq:x` plus an `in`
+ * containing x narrows to x; a disjoint or empty `in` matches nothing. The caller
+ * emits `sql\`false\`` in that case so a virtual field mirrors physical fields.
  */
-const enumSelection = (
+export const enumSelection = (
   f: Record<string, unknown> | undefined,
   allowed: readonly string[]
 ): Result<{ values: string[]; matchNothing: boolean }, ApiError> => {
   const { eq, in: inVals } = stringValues(f);
-  const explicitEmptyIn =
-    f !== undefined && Array.isArray(f['in']) && (f['in'] as unknown[]).length === 0;
-  const picked = [...(eq !== undefined ? [eq] : []), ...(inVals ?? [])];
-  const deduped = [...new Set(picked)];
-  for (const v of deduped) {
+  const operands = [...(eq !== undefined ? [eq] : []), ...(inVals ?? [])];
+  for (const v of new Set(operands)) {
     if (!allowed.includes(v)) {
       return err(
         invalidInput(`unknown value '${v}'; expected one of ${allowed.join(', ')}`, 'filter')
       );
     }
   }
+
+  const values =
+    eq !== undefined && inVals !== undefined
+      ? inVals.includes(eq)
+        ? [eq]
+        : []
+      : eq !== undefined
+        ? [eq]
+        : [...new Set(inVals ?? [])];
   return ok({
-    values: deduped,
-    matchNothing: deduped.length === 0 && eq === undefined && explicitEmptyIn,
+    values,
+    matchNothing: inVals !== undefined && values.length === 0,
   });
 };
 
@@ -1534,6 +1539,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .select(SPEECH_SELECT)
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false) // §2.6 — quarantined excluded by default
+          .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
           .orderBy('s.spoken_at', 'desc')
           .limit(p.pageSize)
           .offset(offsetFor(p))
@@ -1543,6 +1549,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .select(sql<string>`count(*)`.as('cnt'))
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false)
+          .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
           .executeTakeFirst();
         return { rows: rows.map(mapSpeech), total: Number(cnt?.cnt ?? 0) };
       },
@@ -1569,6 +1576,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`, // §2.6 — quarantined excluded by default
+      sql`coalesce(s.privacy_class, 'public') = 'public'`,
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1633,6 +1641,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`,
+      sql`coalesce(s.privacy_class, 'public') = 'public'`,
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1683,7 +1692,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (!(await speechTextsExists())) return ok(null);
     try {
       const r = await sql<{ full_text: string }>`
-        select t.full_text from parliament.speech_texts t where t.speech_key = ${speechKey} limit 1
+        select t.full_text
+        from parliament.speech_texts t
+        inner join parliament.speeches s on s.speech_key = t.speech_key
+        where t.speech_key = ${speechKey}
+          and s.quarantined = false
+          and coalesce(s.privacy_class, 'public') = 'public'
+        limit 1
       `.execute(db);
       return ok(r.rows[0]?.full_text ?? null);
     } catch {

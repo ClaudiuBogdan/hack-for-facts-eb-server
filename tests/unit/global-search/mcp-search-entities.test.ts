@@ -43,7 +43,13 @@ const makeHit = (over: Partial<SearchHit> = {}): SearchHit => ({
  * control the hits without a real engine.
  */
 const buildTools = (
-  meiliResult: { hits: readonly SearchHit[]; facetDistribution?: Record<string, Record<string, number>>; estimatedTotalHits?: number } | 'err'
+  meiliResult:
+    | {
+        hits: readonly SearchHit[];
+        facetDistribution?: Record<string, Record<string, number>>;
+        estimatedTotalHits?: number;
+      }
+    | 'err'
 ): readonly KernelMcpTool[] => {
   const searchEntities = vi.fn(async () =>
     meiliResult === 'err'
@@ -58,7 +64,6 @@ const buildTools = (
 
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient: { searchEntities } as never,
-    identityRepo: { searchByName } as never,
     searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
     meiliIndexes: ['entities'],
   };
@@ -127,7 +132,6 @@ describe('search_entities — structured envelope', () => {
       entity360Deps: {} as never,
       globalSearchDeps: {
         meiliClient: { searchEntities: vi.fn() } as never,
-        identityRepo: { searchByName: vi.fn(async () => ok([])) } as never,
         searchRepo: { searchEntities: searchEntitiesRepo } as never,
         meiliIndexes: [],
       },
@@ -201,18 +205,28 @@ describe('search_entities — arg coercion', () => {
       entity360Deps: {} as never,
       globalSearchDeps: {
         meiliClient: { searchEntities } as never,
-        identityRepo: { searchByName: vi.fn(async () => ok([])) } as never,
         searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
         meiliIndexes: ['entities'],
       },
       clientBaseUrl: 'https://transparenta.eu',
     };
     const tool = getSearchTool(makeKernelMcpTools(deps));
-    await tool.handler({ query: 'acme', docTypes: ['company', 7], county: 'Cluj', year: 2024, limit: 5 });
+    await tool.handler({
+      query: 'acme',
+      docTypes: ['company', 7],
+      county: 'Cluj',
+      year: 2024,
+      limit: 5,
+    });
 
     // docTypes filters non-strings; the usecase receives ['company'] → meili filter.
     expect(searchEntities).toHaveBeenCalledWith('acme', 'entities', {
-      filter: ['visibility = "public"', 'doc_type IN ["company"]', 'county_name = "Cluj"', 'year = 2024'],
+      filter: [
+        'visibility = "public"',
+        'doc_type IN ["company"]',
+        'county_name = "Cluj"',
+        'year = 2024',
+      ],
       facets: ['doc_type'],
       limit: 5,
     });

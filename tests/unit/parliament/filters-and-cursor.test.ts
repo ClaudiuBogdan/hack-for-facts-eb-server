@@ -24,6 +24,7 @@ import {
   MEMBERS_VIRTUAL_FIELDS,
   VOTES_VIRTUAL_FIELDS,
 } from '@/modules/parliament/shell/filters/specs.js';
+import { enumSelection } from '@/modules/parliament/shell/repo/parliament-repo.js';
 import {
   buildNextCursor,
   decodeCursor,
@@ -70,6 +71,33 @@ describe('filter specs — virtual fields are declared and skipped by the SQL co
     expect(sdl).toContain('outcome:');
     // bills year is virtual but STILL surfaces in the GraphQL input (documentation).
     expect(toGraphQLInput(billsFilterSpec)).toContain('year:');
+  });
+});
+
+describe('bill virtual enum selection mirrors physical eq/in semantics', () => {
+  const VALUES = ['government', 'parliamentary'] as const;
+
+  it('intersects eq with in', () => {
+    const overlap = enumSelection(
+      { eq: 'government', in: ['government', 'parliamentary'] },
+      VALUES
+    );
+    expect(overlap.isOk() && overlap.value).toEqual({
+      values: ['government'],
+      matchNothing: false,
+    });
+
+    const disjoint = enumSelection({ eq: 'government', in: ['parliamentary'] }, VALUES);
+    expect(disjoint.isOk() && disjoint.value).toEqual({ values: [], matchNothing: true });
+  });
+
+  it('treats empty in as match-nothing even when eq is also present', () => {
+    const result = enumSelection({ eq: 'government', in: [] }, VALUES);
+    expect(result.isOk() && result.value).toEqual({ values: [], matchNothing: true });
+  });
+
+  it('still validates every eq/in operand before intersecting', () => {
+    expect(enumSelection({ eq: 'government', in: ['unknown'] }, VALUES).isErr()).toBe(true);
   });
 });
 

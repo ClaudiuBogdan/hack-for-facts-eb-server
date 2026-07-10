@@ -47,6 +47,25 @@ export interface McpHttpDispatcher {
 const isResponse = (m: JsonRpcMessage): boolean =>
   m.method === undefined && (m.result !== undefined || m.error !== undefined);
 
+const invalidRequest = (): JsonRpcMessage => ({
+  jsonrpc: '2.0',
+  id: null,
+  error: { code: -32_600, message: 'Invalid Request' },
+});
+
+const isJsonRpcRequest = (raw: unknown): raw is JsonRpcMessage => {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
+  const message = raw as JsonRpcMessage;
+  if (message.jsonrpc !== '2.0' || typeof message.method !== 'string' || message.method === '') {
+    return false;
+  }
+  return (
+    message.id === undefined ||
+    typeof message.id === 'string' ||
+    (typeof message.id === 'number' && Number.isFinite(message.id))
+  );
+};
+
 /**
  * Build the per-request dispatcher. Each `dispatch` spins up a fresh server +
  * transport, runs one request to completion, and disposes the server — so MCP
@@ -57,13 +76,28 @@ export const createMcpHttpDispatcher = (makeServer: McpServerFactory): McpHttpDi
 
   return {
     async dispatch(raw: unknown): Promise<JsonRpcMessage | null> {
-      if (closed) return { jsonrpc: '2.0', id: null, error: { code: -32_000, message: 'dispatcher closed' } };
+      if (closed)
+        return { jsonrpc: '2.0', id: null, error: { code: -32_000, message: 'dispatcher closed' } };
 
-      const message = raw as JsonRpcMessage;
+      if (!isJsonRpcRequest(raw)) return invalidRequest();
+
+      const message = raw;
       const clientId = message.id;
       const server = makeServer();
 
       let resolveOnce: ((m: JsonRpcMessage | null) => void) | undefined;
+      let responseTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const settle = (messageToSend: JsonRpcMessage | null): void => {
+        const resolve = resolveOnce;
+        if (resolve === undefined) return;
+        resolveOnce = undefined;
+        if (responseTimer !== undefined) {
+          clearTimeout(responseTimer);
+          responseTimer = undefined;
+        }
+        resolve(messageToSend);
+      };
 
       const transport: DispatchTransport = {
         start: () => Promise.resolve(),
@@ -71,35 +105,36 @@ export const createMcpHttpDispatcher = (makeServer: McpServerFactory): McpHttpDi
         // Capture the FIRST response for this request id (ignore server-
         // originated requests/notifications, which carry a method).
         send: (out) => {
-          if (resolveOnce !== undefined && isResponse(out) && out.id !== undefined && out.id !== null) {
-            resolveOnce(out);
-            resolveOnce = undefined;
+          if (isResponse(out) && out.id === clientId) {
+            settle(out);
           }
           return Promise.resolve();
         },
       };
 
-      await server.connect(transport as unknown as Parameters<typeof server.connect>[0]);
-
       try {
+        await server.connect(transport as unknown as Parameters<typeof server.connect>[0]);
+
         // Notification: fire and forget, no response expected.
-        if (clientId === undefined || clientId === null) {
+        if (clientId === undefined) {
           transport.onmessage?.(message);
           return null;
         }
 
         return await new Promise<JsonRpcMessage | null>((resolve) => {
           resolveOnce = resolve;
-          const timer = setTimeout(() => {
-            if (resolveOnce !== undefined) {
-              resolveOnce = undefined;
-              resolve({ jsonrpc: '2.0', id: clientId, error: { code: -32_000, message: 'MCP request timed out' } });
-            }
+          responseTimer = setTimeout(() => {
+            settle({
+              jsonrpc: '2.0',
+              id: clientId,
+              error: { code: -32_000, message: 'MCP request timed out' },
+            });
           }, 30_000);
-          timer.unref();
+          responseTimer.unref();
           transport.onmessage?.(message);
         });
       } finally {
+        if (responseTimer !== undefined) clearTimeout(responseTimer);
         await server.close();
       }
     },

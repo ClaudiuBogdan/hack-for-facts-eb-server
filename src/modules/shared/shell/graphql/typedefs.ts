@@ -172,7 +172,7 @@ export const baseTypeDefs = /* GraphQL */ `
     facets: [SearchFacet!]!
     "Meili's approximate total (capped by maxTotalHits, default 1000); on the pg path it is the hit count."
     estimatedTotalHits: Int!
-    "Deprecated: overlaps doc_type=organization hits; consume \`hits\` instead."
+    "Deprecated: always empty; consume the indexed and visibility-filtered \`hits\` instead."
     organizations: [OrgNameMatch!]!
   }
 

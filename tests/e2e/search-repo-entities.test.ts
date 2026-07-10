@@ -22,7 +22,7 @@ import { execSync } from 'node:child_process';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
 import { makeSearchRepo } from '@/modules/shared/shell/repo/search-repo.js';
 
@@ -48,6 +48,21 @@ let repo: SearchRepo | undefined;
  * and SKIP cleanly on any startup failure rather than failing the suite.
  */
 let dockerAvailable = false;
+
+/**
+ * Mark Docker-dependent tests as skipped at execution time. `beforeAll` is the
+ * first point where testcontainers availability is known, so collection-time
+ * helpers such as `it.skipIf(...)` cannot make the decision correctly.
+ *
+ * The individual test bodies keep their defensive early return, but this
+ * wrapper ensures a missing runtime is reported as SKIPPED instead of PASSED.
+ */
+const it = (name: string, test: () => unknown): void => {
+  vitestIt(name, async ({ skip }) => {
+    if (!dockerAvailable) skip();
+    await test();
+  });
+};
 
 const DDL = `
   drop schema if exists search cascade;

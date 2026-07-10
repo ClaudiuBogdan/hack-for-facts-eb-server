@@ -223,6 +223,7 @@ export interface ParliamentRepo {
    * Per-day speech activity for one calendar year, under the SAME memberSpeechesFilterSpec
    * conditions + `q` as listMemberSpeechesCursor (drives the interventii heatmap). Each
    * day carries `comun` (joint-sitting turns) and `proprie` (= total - comun).
+   * Quarantined and non-public speech rows are excluded from every member surface.
    * `availableYears` is every year with any (filtered) turn — NOT bounded by the year
    * argument. `spokenAt` is rejected by the usecase (the year bounds the range).
    */
@@ -235,7 +236,8 @@ export interface ParliamentRepo {
   /**
    * The verbatim transcript for one speech (parliament.speech_texts.full_text),
    * resolved LAZILY (only when the client selects fullText). Returns null when the
-   * speech_texts table or the row is absent — never throws into the speech query.
+   * speech_texts table or the row is absent, quarantined, or non-public — never
+   * throws into the speech query.
    */
   getSpeechFullText(speechKey: string): Promise<Result<string | null, ApiError>>;
   listMemberInitiatives(
