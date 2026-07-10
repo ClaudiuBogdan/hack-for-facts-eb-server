@@ -72,7 +72,11 @@ const fakeAggregate = (
   gates: readonly GrainQuality[] = LIVE_GATES
 ): { repo: ProcurementAggregateRepo; calls: Recorded[] } => {
   const calls: Recorded[] = [];
-  const record = <T>(grains: readonly ProcurementGrain[], spendGrains: readonly ProcurementGrain[], value: T): Promise<Result<T, ApiError>> => {
+  const record = <T>(
+    grains: readonly ProcurementGrain[],
+    spendGrains: readonly ProcurementGrain[],
+    value: T
+  ): Promise<Result<T, ApiError>> => {
     calls.push({ grains, spendGrains });
     return Promise.resolve(ok(value));
   };
@@ -97,7 +101,9 @@ const fakeAggregate = (
 };
 
 const fakeRepo = (proceduresCount = '622936'): ProcurementRepo =>
-  ({ countProceduresInScope: () => Promise.resolve(ok(proceduresCount)) }) as unknown as ProcurementRepo;
+  ({
+    countProceduresInScope: () => Promise.resolve(ok(proceduresCount)),
+  }) as unknown as ProcurementRepo;
 
 // ── routing ───────────────────────────────────────────────────────────────────
 
@@ -144,7 +150,10 @@ describe('scope.cpvCode is rejected in v1', () => {
 
 describe('grain resolution', () => {
   it('null / undefined / empty = both grains', () => {
-    expect(resolveGrains(null)._unsafeUnwrap()).toEqual(['direct_acquisition', 'procurement_contract']);
+    expect(resolveGrains(null)._unsafeUnwrap()).toEqual([
+      'direct_acquisition',
+      'procurement_contract',
+    ]);
     expect(resolveGrains(undefined)._unsafeUnwrap()).toHaveLength(2);
     expect(resolveGrains('')._unsafeUnwrap()).toHaveLength(2);
   });
@@ -162,23 +171,35 @@ describe('grain resolution', () => {
 
 describe('spend approval per grain (from the live gate, never a constant)', () => {
   it('only direct_acquisition is spend-approved live', () => {
-    expect(spendApprovedGrains(['direct_acquisition', 'procurement_contract'], LIVE_GATES)).toEqual([
-      'direct_acquisition',
-    ]);
+    expect(spendApprovedGrains(['direct_acquisition', 'procurement_contract'], LIVE_GATES)).toEqual(
+      ['direct_acquisition']
+    );
     expect(spendApprovedGrains(['procurement_contract'], LIVE_GATES)).toEqual([]);
   });
 
   it('ranks by value only when EVERY in-scope grain is spend-approved', () => {
     expect(rankByValue(['direct_acquisition'], ['direct_acquisition'])).toBe(true);
     // Mixed: the suppressed grain's null amount would sink its rows regardless of size.
-    expect(rankByValue(['direct_acquisition', 'procurement_contract'], ['direct_acquisition'])).toBe(false);
+    expect(
+      rankByValue(['direct_acquisition', 'procurement_contract'], ['direct_acquisition'])
+    ).toBe(false);
     expect(rankByValue(['procurement_contract'], [])).toBe(false);
   });
 
   it('is data-driven: flip the gate and the answer flips', () => {
-    const permissive = [gateRow('direct_acquisition'), gateRow('procurement_contract', { spendRankingsAllowed: true })];
-    expect(spendApprovedGrains(['direct_acquisition', 'procurement_contract'], permissive)).toHaveLength(2);
-    expect(rankByValue(['direct_acquisition', 'procurement_contract'], ['direct_acquisition', 'procurement_contract'])).toBe(true);
+    const permissive = [
+      gateRow('direct_acquisition'),
+      gateRow('procurement_contract', { spendRankingsAllowed: true }),
+    ];
+    expect(
+      spendApprovedGrains(['direct_acquisition', 'procurement_contract'], permissive)
+    ).toHaveLength(2);
+    expect(
+      rankByValue(
+        ['direct_acquisition', 'procurement_contract'],
+        ['direct_acquisition', 'procurement_contract']
+      )
+    ).toBe(true);
   });
 });
 
@@ -232,7 +253,9 @@ describe('the usecases hand the repo the gate-derived grain sets', () => {
 
   it('proceduresCount comes from the base table, not the rollups', async () => {
     const { repo } = fakeAggregate();
-    const stats = (await scopeStats(repo, fakeRepo('101862'), { cpvDivision: '33' }, null))._unsafeUnwrap();
+    const stats = (
+      await scopeStats(repo, fakeRepo('101862'), { cpvDivision: '33' }, null)
+    )._unsafeUnwrap();
     expect(stats.proceduresCount).toBe('101862');
     expect(stats.directAcquisitionsCount).toBe('14820383');
   });
@@ -250,13 +273,36 @@ describe('cache key space', () => {
 
   it('the key ignores entity dims, is order-independent in the grain set, and binds the refresh watermark', () => {
     const scope: ScopeFilter = { cpvDivision: '33' };
-    const a = scopeCacheKey('stats', scope, ['direct_acquisition', 'procurement_contract'], 10, 'w1');
-    const b = scopeCacheKey('stats', scope, ['procurement_contract', 'direct_acquisition'], 10, 'w1');
+    const both: readonly ProcurementGrain[] = ['direct_acquisition', 'procurement_contract'];
+    const a = scopeCacheKey('stats', scope, both, 10, 'w1', ['direct_acquisition']);
+    const b = scopeCacheKey(
+      'stats',
+      scope,
+      ['procurement_contract', 'direct_acquisition'],
+      10,
+      'w1',
+      ['direct_acquisition']
+    );
     expect(a).toBe(b);
     // A matview refresh invalidates implicitly.
-    expect(scopeCacheKey('stats', scope, ['direct_acquisition'], 10, 'w2')).not.toBe(a);
+    expect(
+      scopeCacheKey('stats', scope, ['direct_acquisition'], 10, 'w2', ['direct_acquisition'])
+    ).not.toBe(a);
     // Different query / topN never collide.
-    expect(scopeCacheKey('timeline', scope, ['direct_acquisition', 'procurement_contract'], 10, 'w1')).not.toBe(a);
-    expect(scopeCacheKey('stats', scope, ['direct_acquisition', 'procurement_contract'], 50, 'w1')).not.toBe(a);
+    expect(scopeCacheKey('timeline', scope, both, 10, 'w1', ['direct_acquisition'])).not.toBe(a);
+    expect(scopeCacheKey('stats', scope, both, 50, 'w1', ['direct_acquisition'])).not.toBe(a);
+  });
+
+  it('the key binds the spend decision, so a spend-allowed entry cannot be served once the gate withdraws it', () => {
+    const scope: ScopeFilter = { cpvDivision: '33' };
+    const both: readonly ProcurementGrain[] = ['direct_acquisition', 'procurement_contract'];
+    // Same scope, same grains, same watermark — only the gate's spend verdict differs.
+    const spendBlocked = scopeCacheKey('stats', scope, both, 10, 'w1', ['direct_acquisition']);
+    const spendAllowed = scopeCacheKey('stats', scope, both, 10, 'w1', both);
+    expect(spendBlocked).not.toBe(spendAllowed);
+    // ...and it stays order-independent.
+    expect(
+      scopeCacheKey('stats', scope, both, 10, 'w1', ['procurement_contract', 'direct_acquisition'])
+    ).toBe(spendAllowed);
   });
 });
