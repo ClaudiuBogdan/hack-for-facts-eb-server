@@ -22,7 +22,7 @@ const TRANSITIONS: Readonly<Record<DeliveryState, readonly DeliveryState[]>> = {
   suppressed: [],
   cancelled: [],
   expired: [],
-  permanent_failed: [],
+  permanent_failed: ['ready'],
   dead_letter: ['ready'],
   unknown: ['ready'],
 };
