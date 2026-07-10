@@ -1625,7 +1625,12 @@ class KyselyInsRepo implements InsRepository {
    *
    * `data_status` is derived from membership in `v_matrices`, whose definition
    * is `where fact_load_status in ('partial','full')` — i.e. exactly the
-   * datasets whose observations have been loaded.
+   * datasets whose observations have been loaded. The compat views do not
+   * expose `fact_load_status` directly and this server is read-only on the INS
+   * domain tables, so membership is the only exact signal available.
+   *
+   * Deriving from `sync_status = 'PENDING'` would be wrong: `matrices` emits
+   * that for a fact-loaded dataset whose upstream sync is itself pending.
    */
   private selectFromDatasetCatalog(): DynamicQuery {
     return this.db.selectFrom((eb: DynamicQuery) =>

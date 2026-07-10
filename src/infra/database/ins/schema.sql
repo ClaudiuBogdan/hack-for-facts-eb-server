@@ -142,6 +142,17 @@ CREATE TABLE matrices (
     metadata JSONB NOT NULL DEFAULT '{}',  -- Names, definitions, flags, etc.
     dimensions JSONB DEFAULT '[]',         -- Dimension summary
     sync_status sync_status DEFAULT 'PENDING',
+    -- Whether this matrix's observations have been loaded, independent of the
+    -- sync-pipeline state in sync_status. Mirrors statistics.datasets in the
+    -- production database, where v_matrices is defined as
+    -- `where fact_load_status in ('partial','full')`; the INS repo derives
+    -- InsDataStatus from membership in that view.
+    -- NOTE: production defaults this to 'metadata_only'. This local/dev schema
+    -- defaults to 'full' so existing fixtures that never set the column stay
+    -- visible through v_matrices. Insert 'metadata_only' explicitly to model a
+    -- catalog-only dataset.
+    fact_load_status TEXT NOT NULL DEFAULT 'full'
+        CHECK (fact_load_status IN ('metadata_only', 'partial', 'full')),
     last_sync_at TIMESTAMPTZ,
     sync_error TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -636,7 +647,8 @@ SELECT
     c.names->>'en' AS context_name_en,
     c.path::text AS context_path
 FROM matrices m
-LEFT JOIN contexts c ON m.context_id = c.id;
+LEFT JOIN contexts c ON m.context_id = c.id
+WHERE m.fact_load_status IN ('partial', 'full');
 
 -- Territory hierarchy view
 CREATE VIEW v_territories AS
