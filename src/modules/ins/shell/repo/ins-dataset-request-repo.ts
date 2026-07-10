@@ -9,7 +9,11 @@ import { err, ok, type Result } from 'neverthrow';
 import { createDatabaseError, type InsError } from '../../core/errors.js';
 
 import type { InsDatasetRequest, InsDatasetRequestInput } from '../../core/dataset-requests.js';
-import type { InsDatasetRequestRepository } from '../../core/ports.js';
+import type {
+  InsDatasetCatalogReader,
+  InsDatasetRequestRepository,
+  InsRepository,
+} from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
 
 /**
@@ -49,3 +53,15 @@ class KyselyInsDatasetRequestRepo implements InsDatasetRequestRepository {
 
 export const makeInsDatasetRequestRepo = (db: UserDbClient): InsDatasetRequestRepository =>
   new KyselyInsDatasetRequestRepo(db);
+
+/**
+ * Backs {@link InsDatasetCatalogReader} with `getDatasetByCode`, which reads the
+ * full `matrices` catalog (not `v_matrices`), so CATALOG_ONLY codes resolve.
+ * Pass the cache-wrapped repo so the lookup is served from Redis.
+ */
+export const makeInsDatasetCatalogReader = (insRepo: InsRepository): InsDatasetCatalogReader => ({
+  datasetExists: async (code) => {
+    const result = await insRepo.getDatasetByCode(code);
+    return result.map((dataset) => dataset !== null);
+  },
+});

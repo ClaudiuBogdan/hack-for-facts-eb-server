@@ -19,7 +19,7 @@ import { isAuthenticated, type AuthContext } from '../../../auth/core/types.js';
 import { getHttpStatusForError } from '../../core/errors.js';
 import { createInsDatasetRequest } from '../../core/usecases/create-ins-dataset-request.js';
 
-import type { InsDatasetRequestRepository } from '../../core/ports.js';
+import type { InsDatasetCatalogReader, InsDatasetRequestRepository } from '../../core/ports.js';
 import type { RateLimitOptions } from '@fastify/rate-limit';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
@@ -36,6 +36,8 @@ const DEFAULT_RATE_LIMIT: RateLimitOptions = {
 
 export interface MakeInsRoutesDeps {
   datasetRequestRepo: InsDatasetRequestRepository;
+  /** Used to reject requests for dataset codes that are not in the INS catalog. */
+  datasetCatalog: InsDatasetCatalogReader;
   /**
    * Whether the Clerk `user.deleted` webhook — and therefore the anonymization
    * handler — is actually wired. The composition root can mount this route on
@@ -74,6 +76,7 @@ const getClerkUserId = (
 export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
   const {
     datasetRequestRepo,
+    datasetCatalog,
     userDeletionHandlerConfigured,
     rateLimit = DEFAULT_RATE_LIMIT,
   } = deps;
@@ -107,7 +110,7 @@ export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
         const clerkUserId = getClerkUserId(request, userDeletionHandlerConfigured);
 
         const result = await createInsDatasetRequest(
-          { datasetRequestRepo },
+          { datasetRequestRepo, datasetCatalog },
           {
             datasetCode,
             ...(siruta !== undefined ? { siruta } : {}),

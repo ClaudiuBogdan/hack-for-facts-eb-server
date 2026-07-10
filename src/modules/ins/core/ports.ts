@@ -84,3 +84,13 @@ export interface InsRepository {
 export interface InsDatasetRequestRepository {
   create(input: InsDatasetRequestInput): Promise<Result<InsDatasetRequest, InsError>>;
 }
+
+/**
+ * Narrow read port so the request usecase can reject codes that are not in the
+ * INS catalog, without depending on the whole {@link InsRepository}. Must be
+ * backed by the full catalog (`matrices`), not `v_matrices`: requesting a
+ * CATALOG_ONLY dataset is the entire point of the endpoint.
+ */
+export interface InsDatasetCatalogReader {
+  datasetExists(code: string): Promise<Result<boolean, InsError>>;
+}

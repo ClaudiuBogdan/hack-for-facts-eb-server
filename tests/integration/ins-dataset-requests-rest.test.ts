@@ -18,7 +18,10 @@ import type {
   InsDatasetRequest,
   InsDatasetRequestInput,
 } from '@/modules/ins/core/dataset-requests.js';
-import type { InsDatasetRequestRepository } from '@/modules/ins/core/ports.js';
+import type {
+  InsDatasetCatalogReader,
+  InsDatasetRequestRepository,
+} from '@/modules/ins/core/ports.js';
 
 const makeFakeRepo = (): InsDatasetRequestRepository & { created: InsDatasetRequestInput[] } => {
   const created: InsDatasetRequestInput[] = [];
@@ -37,8 +40,14 @@ const makeFakeRepo = (): InsDatasetRequestRepository & { created: InsDatasetRequ
   };
 };
 
+/** Knows POP107D only. */
+const fakeCatalog: InsDatasetCatalogReader = {
+  datasetExists: async (code) => ok(code === 'POP107D'),
+};
+
 const createTestApp = async (options: {
   datasetRequestRepo: InsDatasetRequestRepository;
+  datasetCatalog?: InsDatasetCatalogReader;
   /** Simulates the global auth preHandler having produced a session. */
   authUserId?: string;
   /** Defaults to true; set false to model a deploy without the Clerk webhook. */
@@ -74,6 +83,7 @@ const createTestApp = async (options: {
   await app.register(
     makeInsRoutes({
       datasetRequestRepo: options.datasetRequestRepo,
+      datasetCatalog: options.datasetCatalog ?? fakeCatalog,
       userDeletionHandlerConfigured: options.userDeletionHandlerConfigured ?? true,
     })
   );
@@ -201,6 +211,21 @@ describe('POST /api/ins/dataset-requests', () => {
     // spoofed id never reaches the usecase.
     expect(response.statusCode).toBe(201);
     expect(repo.created[0]?.clerk_user_id).toBeUndefined();
+  });
+
+  it('rejects a dataset code that is not in the catalog', async () => {
+    const repo = makeFakeRepo();
+    app = await createTestApp({ datasetRequestRepo: repo });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ins/dataset-requests',
+      payload: { datasetCode: 'NOT_A_DATASET' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ ok: false, error: 'ValidationError' });
+    expect(repo.created).toHaveLength(0);
   });
 
   it('maps a repository failure to 500', async () => {

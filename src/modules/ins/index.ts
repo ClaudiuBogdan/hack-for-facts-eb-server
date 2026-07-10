@@ -6,8 +6,15 @@
 // Repository
 // =============================================================================
 export { makeInsRepo } from './shell/repo/ins-repo.js';
-export { makeInsDatasetRequestRepo } from './shell/repo/ins-dataset-request-repo.js';
-export type { InsRepository, InsDatasetRequestRepository } from './core/ports.js';
+export {
+  makeInsDatasetRequestRepo,
+  makeInsDatasetCatalogReader,
+} from './shell/repo/ins-dataset-request-repo.js';
+export type {
+  InsRepository,
+  InsDatasetRequestRepository,
+  InsDatasetCatalogReader,
+} from './core/ports.js';
 
 // =============================================================================
 // REST
