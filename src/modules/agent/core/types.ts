@@ -56,6 +56,14 @@ export interface QuotaState {
 // Chat request (wire shape sent by the AI SDK `useChat` default transport)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const UserTextPartSchema = Type.Object(
+  {
+    type: Type.Literal('text'),
+    text: Type.String({ minLength: 1, maxLength: 32_000 }),
+  },
+  { additionalProperties: false }
+);
+
 export const ChatRequestSchema = Type.Object(
   {
     /** Conversation id — the `useChat` chat id. Created on first turn. */
@@ -64,19 +72,16 @@ export const ChatRequestSchema = Type.Object(
       Type.Object(
         {
           id: Type.String({ minLength: 1, maxLength: 64 }),
-          role: Type.Union([
-            Type.Literal('user'),
-            Type.Literal('assistant'),
-            Type.Literal('system'),
-          ]),
-          parts: Type.Array(Type.Unknown()),
+          role: Type.Literal('user'),
+          parts: Type.Array(UserTextPartSchema, { minItems: 1, maxItems: 20 }),
         },
-        { additionalProperties: true }
+        { additionalProperties: false }
       ),
-      { minItems: 1, maxItems: 200 }
+      // The server owns history. The client sends only the new user turn.
+      { minItems: 1, maxItems: 1 }
     ),
   },
-  { additionalProperties: true }
+  { additionalProperties: false }
 );
 
 export type ChatRequest = Static<typeof ChatRequestSchema>;

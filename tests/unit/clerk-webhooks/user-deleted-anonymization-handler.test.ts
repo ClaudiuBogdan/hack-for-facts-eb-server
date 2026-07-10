@@ -30,6 +30,7 @@ const summary: UserDataAnonymizationSummary = {
   advancedDatasetRowsUpdated: 0,
   advancedDatasetValueRowsDeleted: 0,
   insDatasetRequestsUpdated: 0,
+  agentConversationsDeleted: 0,
 };
 
 const createEvent = (overrides: Partial<ClerkWebhookEvent> = {}): ClerkWebhookEvent => ({

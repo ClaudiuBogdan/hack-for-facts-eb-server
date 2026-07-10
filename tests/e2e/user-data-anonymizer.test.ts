@@ -43,6 +43,8 @@ describe('User data anonymizer', () => {
     const unrelatedSimilarUserId = `${userId}4`;
     const datasetRequestId = randomUUID();
     const anonymousRequestId = randomUUID();
+    const agentConversationId = randomUUID();
+    const agentMessageId = `agent-message-${suffix}`;
 
     await userDb
       .insertInto('shortlinks')
@@ -371,6 +373,20 @@ describe('User data anonymizer', () => {
       ] as never)
       .execute();
 
+    await userDb
+      .insertInto('agentconversations')
+      .values({ id: agentConversationId, user_id: userId, title: `Private agent chat ${suffix}` })
+      .execute();
+    await userDb
+      .insertInto('agentmessages')
+      .values({
+        id: agentMessageId,
+        conversation_id: agentConversationId,
+        role: 'user',
+        parts: [{ type: 'text', text: `Private prompt from ${userId}` }],
+      } as never)
+      .execute();
+
     const firstResult = await anonymizer.anonymizeDeletedUser({
       userId,
       svixId: `svix-delete-${suffix}`,
@@ -378,6 +394,9 @@ describe('User data anonymizer', () => {
       eventTimestamp: Date.now(),
     });
     expect(firstResult.isOk()).toBe(true);
+    if (firstResult.isOk()) {
+      expect(firstResult.value.agentConversationsDeleted).toBe(1);
+    }
 
     const replayResult = await anonymizer.anonymizeDeletedUser({
       userId,
@@ -521,6 +540,20 @@ describe('User data anonymizer', () => {
     expect(anonymousRequest.contact_email).toBeNull();
     expect(anonymousRequest.note).toBeNull();
     expect(anonymousRequest.dataset_code).toBe('POP107D');
+
+    const deletedAgentConversation = await userDb
+      .selectFrom('agentconversations')
+      .select('id')
+      .where('id', '=', agentConversationId)
+      .executeTakeFirst();
+    expect(deletedAgentConversation).toBeUndefined();
+
+    const deletedAgentMessage = await userDb
+      .selectFrom('agentmessages')
+      .select('id')
+      .where('id', '=', agentMessageId)
+      .executeTakeFirst();
+    expect(deletedAgentMessage).toBeUndefined();
 
     const datasetRows = await userDb
       .selectFrom('advancedmapdatasetrows')
