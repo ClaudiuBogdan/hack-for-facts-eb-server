@@ -116,9 +116,11 @@ async function seedNotification(
 }
 
 describe('public debate admin response notifications', () => {
-  it('computes requester/subscriber raw and eligible counts against real notification rows', async () => {
+  it('computes requester/subscriber raw and eligible counts against real notification rows', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -182,9 +184,11 @@ describe('public debate admin response notifications', () => {
     }
   });
 
-  it('dedupes the same responseEventId and allows later response events with persisted outbox rows', async () => {
+  it('dedupes the same responseEventId and allows later response events with persisted outbox rows', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -299,9 +303,11 @@ describe('public debate admin response notifications', () => {
     }
   });
 
-  it('uses the oldest active entity-update row per user so distinct audience counts match one admin-response outbox row per recipient', async () => {
+  it('uses the oldest active entity-update row per user so distinct audience counts match one admin-response outbox row per recipient', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

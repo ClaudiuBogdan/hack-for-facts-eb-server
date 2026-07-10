@@ -13,9 +13,9 @@ import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
 describe('User data anonymizer', () => {
-  it('anonymizes user-owned PII and remains idempotent', async () => {
+  it('anonymizes user-owned PII and remains idempotent', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();

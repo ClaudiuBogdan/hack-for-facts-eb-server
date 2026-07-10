@@ -197,9 +197,9 @@ const CAMPAIGN_FIXTURE_ROWS: readonly NotificationSeedRow[] = [
 ];
 
 describe('public debate campaign count views', () => {
-  it('exposes the current schema views with campaign and per-UAT counts', async () => {
+  it('exposes the current schema views with campaign and per-UAT counts', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -217,9 +217,9 @@ describe('public debate campaign count views', () => {
     }
   });
 
-  it('adds the count views for existing user databases via migration', async () => {
+  it('adds the count views for existing user databases via migration', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

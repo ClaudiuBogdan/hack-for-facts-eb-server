@@ -61,9 +61,9 @@ function createKyselyClient<T>(connectionString: string): Kysely<T> {
 }
 
 describe('Learning progress auto-review reuse repo query', () => {
-  it('returns the full latest-precedence group for an exact-key match', async () => {
+  it('returns the full latest-precedence group for an exact-key match', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -206,9 +206,9 @@ describe('Learning progress auto-review reuse repo query', () => {
     }
   });
 
-  it('ignores older approvals when the latest reviewed row is rejected', async () => {
+  it('ignores older approvals when the latest reviewed row is rejected', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();

@@ -8,9 +8,9 @@ import { dockerAvailable } from './setup.js';
 import { getTestClients } from '../infra/test-db.js';
 
 describe('Agent conversation repository', () => {
-  it('round-trips UIMessage parts through the jsonb column', async () => {
+  it('round-trips UIMessage parts through the jsonb column', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -47,9 +47,9 @@ describe('Agent conversation repository', () => {
     }
   });
 
-  it('overwrites parts on message-id conflict instead of duplicating rows', async () => {
+  it('overwrites parts on message-id conflict instead of duplicating rows', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -74,9 +74,9 @@ describe('Agent conversation repository', () => {
     }
   });
 
-  it('does not leak conversations across users', async () => {
+  it('does not leak conversations across users', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();
@@ -109,9 +109,11 @@ describe('Agent conversation repository', () => {
     expect(stillThere.isOk()).toBe(true);
   });
 
-  it('lists only the requesting user conversations, newest first, and sets titles', async () => {
+  it('lists only the requesting user conversations, newest first, and sets titles', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const { userDb } = getTestClients();

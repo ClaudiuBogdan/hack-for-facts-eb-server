@@ -480,9 +480,11 @@ describe('campaign-admin entities repo', () => {
     await Promise.all(startedContainers.map(async (container) => container.stop()));
   });
 
-  it('aggregates entity rows across interactions, subscribers, and outbox activity', async () => {
+  it('aggregates entity rows across interactions, subscribers, and outbox activity', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -621,9 +623,11 @@ describe('campaign-admin entities repo', () => {
     }
   });
 
-  it('normalizes subscriber entity CUIs for exact lookup and ignores blank subscriber rows', async () => {
+  it('normalizes subscriber entity CUIs for exact lookup and ignores blank subscriber rows', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -734,9 +738,11 @@ describe('campaign-admin entities repo', () => {
     }
   });
 
-  it('applies allowlisted filters without changing campaign-wide notification aggregates', async () => {
+  it('applies allowlisted filters without changing campaign-wide notification aggregates', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -831,9 +837,9 @@ describe('campaign-admin entities repo', () => {
     }
   });
 
-  it('supports keyset pagination with entity_cui as the stable tie-breaker', async () => {
+  it('supports keyset pagination with entity_cui as the stable tie-breaker', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -911,9 +917,9 @@ describe('campaign-admin entities repo', () => {
     }
   });
 
-  it('returns repo-level meta counts for the entity summary surface', async () => {
+  it('returns repo-level meta counts for the entity summary surface', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();
@@ -957,9 +963,11 @@ describe('campaign-admin entities repo', () => {
     }
   });
 
-  it('fails closed on unsupported sorts, notification filters, and cursor mismatches', async () => {
+  it('fails closed on unsupported sorts, notification filters, and cursor mismatches', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const container = await new PostgreSqlContainer('postgres:16-alpine').start();

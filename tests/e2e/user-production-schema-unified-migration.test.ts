@@ -359,9 +359,11 @@ async function getSchemaSnapshot(client: pg.Client): Promise<SchemaSnapshot> {
 }
 
 describe('Unified production user DB migration', () => {
-  it('preserves shortlinks and notifications while rebuilding the rest to the current dev schema', async () => {
+  it('preserves shortlinks and notifications while rebuilding the rest to the current dev schema', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const migratedDatabase = await startTestDatabase();

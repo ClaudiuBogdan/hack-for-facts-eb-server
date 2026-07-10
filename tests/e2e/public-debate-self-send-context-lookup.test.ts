@@ -140,9 +140,9 @@ async function insertSendYourselfInteraction(
 }
 
 describe('Public debate self-send context lookup', () => {
-  it('resolves a hashed Funky interaction key', async () => {
+  it('resolves a hashed Funky interaction key', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -183,9 +183,9 @@ describe('Public debate self-send context lookup', () => {
     }
   });
 
-  it('returns null for a legacy newline interaction key', async () => {
+  it('returns null for a legacy newline interaction key', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -217,9 +217,9 @@ describe('Public debate self-send context lookup', () => {
     }
   });
 
-  it('returns null for an unmatched hashed interaction key', async () => {
+  it('returns null for an unmatched hashed interaction key', async ({ skip }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
@@ -240,9 +240,11 @@ describe('Public debate self-send context lookup', () => {
     }
   });
 
-  it('prefers the newest submitted match when duplicate self-send contexts exist', async () => {
+  it('prefers the newest submitted match when duplicate self-send contexts exist', async ({
+    skip,
+  }) => {
     if (!dockerAvailable) {
-      return;
+      skip();
     }
 
     const database = await startTestDatabase();
