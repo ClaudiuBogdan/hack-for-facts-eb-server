@@ -18,7 +18,7 @@ export interface DigestBatchRepo {
     batchId: string;
     logicalNotificationId: string;
     now: Date;
-  }): Promise<Result<'added' | 'duplicate' | 'rejected', DigestError>>;
+  }): Promise<Result<'added' | 'duplicate' | 'batch_closed', DigestError>>;
   claimDue(input: {
     now: Date;
     limit: number;

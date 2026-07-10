@@ -141,7 +141,10 @@ export const resolveAmbiguousOutcome = async (
     if (!retried.value) {
       return ok({ resolution: 'unknown' });
     }
-    const enqueued = await deps.sendScheduler.enqueue({ deliveryId: found.value.id });
+    const enqueued = await deps.sendScheduler.enqueue(
+      { deliveryId: found.value.id },
+      { dedupeToken: String(found.value.attemptCount + 1) }
+    );
     if (enqueued.isErr()) {
       return err(enqueued.error);
     }

@@ -730,13 +730,14 @@ describe('EmailRenderer (registry-backed)', () => {
 
   it('getTemplates() returns all registered templates', () => {
     const templates = renderer.getTemplates();
-    expect(templates).toHaveLength(15);
+    expect(templates).toHaveLength(16);
     const names = templates.map((t) => t.name);
     expect(names).toContain('admin_reviewed_user_interaction');
     expect(names).toContain('bucharest_budget_analysis_2026_04_23');
     expect(names).toContain('welcome');
     expect(names).toContain('alert_series');
     expect(names).toContain('newsletter_entity');
+    expect(names).toContain('notification-platform-digest');
     expect(names).toContain('anaf_forexebug_digest');
     expect(names).toContain('public_debate_announcement');
     expect(names).toContain('public_debate_campaign_welcome');

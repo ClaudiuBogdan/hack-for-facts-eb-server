@@ -2,7 +2,11 @@ import pinoLogger from 'pino';
 import { Webhook } from 'svix';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 
-import { makeWebhookVerifier, redactEmailAddress } from '@/infra/email/client.js';
+import {
+  makeWebhookVerifier,
+  redactEmailAddress,
+  redactEmailAddressesInMessage,
+} from '@/infra/email/client.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
 
@@ -23,6 +27,19 @@ describe('redactEmailAddress', () => {
 
   it('falls back to a placeholder for malformed input', () => {
     expect(redactEmailAddress('not-an-email')).toBe('***');
+  });
+});
+
+describe('redactEmailAddressesInMessage', () => {
+  it('redacts every embedded address and truncates provider messages', () => {
+    const message = `Rejected sender@example.com for recipient very.private@example.org ${'x'.repeat(400)}`;
+    const redacted = redactEmailAddressesInMessage(message);
+
+    expect(redacted).toContain('sen***@example.com');
+    expect(redacted).toContain('ver***@example.org');
+    expect(redacted).not.toContain('sender@example.com');
+    expect(redacted).not.toContain('very.private@example.org');
+    expect(redacted.length).toBeLessThanOrEqual(300);
   });
 });
 

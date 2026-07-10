@@ -26,6 +26,8 @@ export type {
   WeeklyProgressDigestProps,
   AnafForexebugDigestSection,
   AnafForexebugDigestProps,
+  NotificationPlatformDigestItem,
+  NotificationPlatformDigestProps,
   EmailTemplateProps,
   EmailTemplateType,
   RenderedEmail,
@@ -55,6 +57,8 @@ export {
   WeeklyProgressDigestCtaSchema,
   WeeklyProgressDigestPayloadSchema,
   AnafForexebugDigestPayloadSchema,
+  NotificationPlatformDigestItemSchema,
+  NotificationPlatformDigestPayloadSchema,
 } from './core/schemas.js';
 export type {
   WelcomePayload,
@@ -66,6 +70,7 @@ export type {
   AdminReviewedInteractionPayload,
   WeeklyProgressDigestPayload,
   AnafForexebugDigestPayload,
+  NotificationPlatformDigestPayload,
 } from './core/schemas.js';
 
 // Core ports

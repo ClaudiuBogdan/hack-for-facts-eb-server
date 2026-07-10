@@ -19,6 +19,10 @@ export interface LegacyOutboxReader {
   }): Promise<Result<ComparisonRecipient[], PlatformDeliveryError>>;
 }
 
+// DESIGN NOTE: Phase 4's legacyOutboxReader must normalize legacy content into the
+// same framed hash contract as the platform. Direct equality with legacy raw stored
+// hashes is not meaningful because their inputs and framing are not comparable.
+
 export interface ShadowComparisonReader {
   listShadowComparisonRecipients(input: {
     kindId: string;

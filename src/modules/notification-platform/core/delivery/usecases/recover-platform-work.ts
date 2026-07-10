@@ -107,7 +107,10 @@ export const recoverPlatformWork = async (
         continue;
       }
     }
-    const enqueued = await deps.sendScheduler.enqueue({ deliveryId: delivery.id });
+    const enqueued = await deps.sendScheduler.enqueue(
+      { deliveryId: delivery.id },
+      { dedupeToken: String(delivery.attemptCount + 1) }
+    );
     if (enqueued.isErr()) {
       return err(enqueued.error);
     }
@@ -144,7 +147,10 @@ export const recoverPlatformWork = async (
       }
       summary.rendersEnqueued += 1;
     } else {
-      const enqueued = await deps.sendScheduler.enqueue({ deliveryId: delivery.id });
+      const enqueued = await deps.sendScheduler.enqueue(
+        { deliveryId: delivery.id },
+        { dedupeToken: String(delivery.attemptCount + 1) }
+      );
       if (enqueued.isErr()) {
         return err(enqueued.error);
       }

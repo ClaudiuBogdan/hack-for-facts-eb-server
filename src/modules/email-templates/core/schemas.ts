@@ -415,3 +415,23 @@ export const AnafForexebugDigestPayloadSchema = Type.Object({
 });
 
 export type AnafForexebugDigestPayload = Static<typeof AnafForexebugDigestPayloadSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notification Platform Digest
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const NotificationPlatformDigestItemSchema = Type.Object({
+  title: Type.String({ minLength: 1 }),
+  summary: Type.String(),
+  actionUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+});
+
+export const NotificationPlatformDigestPayloadSchema = Type.Object({
+  items: Type.Array(NotificationPlatformDigestItemSchema, { maxItems: 20 }),
+  overflowCount: Type.Integer({ minimum: 0 }),
+  inboxUrl: Type.String({ minLength: 1 }),
+});
+
+export type NotificationPlatformDigestPayload = Static<
+  typeof NotificationPlatformDigestPayloadSchema
+>;

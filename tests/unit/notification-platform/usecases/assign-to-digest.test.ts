@@ -22,7 +22,7 @@ describe('assignToDigest', () => {
     expect(h.digests.store.size()).toBe(1);
   });
 
-  it('recomputes the window and retries once when membership is rejected', async () => {
+  it('recomputes the window and retries once when the batch is closed', async () => {
     const h = makeUsecaseHarness();
     const current = expectOk(
       await h.digests.findOrCreateOpen({

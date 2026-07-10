@@ -24,6 +24,11 @@ export interface DeliveryRepo {
   ): Promise<Result<{ delivery: Delivery; created: boolean }, PlatformDeliveryError>>;
   findById(id: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
   findByProviderRef(providerRef: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
+  saveProviderRefIfMissing(input: {
+    deliveryId: string;
+    providerRef: string;
+    now: Date;
+  }): Promise<Result<boolean, PlatformDeliveryError>>;
   claimForRender(input: {
     deliveryId: string;
     claimToken: string;
@@ -186,7 +191,7 @@ export interface AnonymizationCheckPort {
 export interface SendJobScheduler {
   enqueue(
     payload: SendJobPayload,
-    options?: { delayMs?: number }
+    options?: { delayMs?: number; dedupeToken?: string }
   ): Promise<Result<void, QueueError>>;
 }
 

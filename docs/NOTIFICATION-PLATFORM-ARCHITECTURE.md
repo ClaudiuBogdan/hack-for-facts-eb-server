@@ -601,7 +601,7 @@ A kind that requires ordering supplies:
 
 For such a kind, the platform preserves inbox order and dispatch order for the same recipient, channel, and stream. Unrelated streams continue concurrently. A permanently failed earlier delivery releases later work after the failure is recorded.
 
-The enforcement mechanism is a **single dispatch lane per stream key**: at most one delivery per `(recipient, channel, stream key)` is in flight at a time, and the next is released only when the previous reaches a terminal or released state. Because open-source BullMQ has no native per-key FIFO groups (§19), the lane is enforced at the database layer — the delivery claim query skips a delivery whose stream predecessor is not yet terminal — rather than by queue topology. The queue merely dispatches candidates; the database claim decides eligibility, consistent with the claim pattern used everywhere else in this design.
+The enforcement mechanism is a **single dispatch lane per stream key**: at most one delivery per `(recipient, channel, stream key)` is in flight at a time, and the next is released when the previous reaches `accepted` or a terminal state. Provider acceptance fixes dispatch order; waiting for a delivery webhook would only stall the stream. Because open-source BullMQ has no native per-key FIFO groups (§19), the lane is enforced at the database layer — the delivery claim query skips a delivery whose stream predecessor is not yet released — rather than by queue topology. The queue merely dispatches candidates; the database claim decides eligibility, consistent with the claim pattern used everywhere else in this design.
 
 The platform cannot guarantee the order in which an external email client displays messages after provider acceptance.
 
@@ -745,7 +745,7 @@ The agreed default retention policy is:
 
 Account deletion overrides these normal schedules and removes or anonymizes user-linked data immediately.
 
-Retention jobs must be observable and restartable. Terminal audit facts remain after detailed records are removed. If indefinite audit growth later becomes operationally significant, it can be time-partitioned and archived without changing the logical model.
+Retention jobs must be observable and restartable. At expiry they delete the detailed attempts/webhooks and dependency-ordered logical, delivery, digest, and unreferenced event rows; expired event facts are scrubbed only while a retained logical still references them. Terminal audit facts remain after detailed records are removed. If indefinite audit growth later becomes operationally significant, it can be time-partitioned and archived without changing the logical model.
 
 ## 17. Public and internal interfaces
 

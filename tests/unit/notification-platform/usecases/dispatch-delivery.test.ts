@@ -57,7 +57,15 @@ describe('dispatchDelivery', () => {
     );
     expect(result.outcome).toBe('retry_wait');
     expect(h.deliveries.store.get('delivery-1')?.status).toBe('retry_wait');
-    expect(h.runtime.pending().some((job) => job.state === 'delayed')).toBe(true);
+    expect(h.runtime.pending()).toEqual([
+      expect.objectContaining({
+        state: 'delayed',
+        opts: expect.objectContaining({
+          delayMs: expect.any(Number),
+          dedupeId: 'np-send-delivery-1-2',
+        }),
+      }),
+    ]);
   });
 
   it('dead-letters exhausted retries', async () => {
@@ -123,6 +131,7 @@ describe('dispatchDelivery', () => {
       ).outcome
     ).toBe('ambiguous_retried');
     expect(h.deliveries.store.get('delivery-1')?.providerIdempotencyKey).toBe('delivery-1');
+    expect(h.runtime.pending()[0]?.opts.dedupeId).toBe('np-send-delivery-1-2');
   });
 
   it('cancels when the destination fingerprint changed', async () => {

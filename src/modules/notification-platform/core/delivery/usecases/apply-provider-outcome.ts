@@ -7,7 +7,7 @@ import type { AuditLedgerPort } from '../../audit/ports.js';
 import type { Clock, IdGenerator, LoggerPort } from '../../shared/ports.js';
 import type { PlatformDeliveryError } from '../errors.js';
 import type { ChannelDestinationRepo, DeliveryRepo } from '../ports.js';
-import type { DeliveryState } from '../types.js';
+import type { Delivery, DeliveryState } from '../types.js';
 
 export interface ApplyProviderOutcomeDeps {
   deliveries: DeliveryRepo;
@@ -20,6 +20,7 @@ export interface ApplyProviderOutcomeDeps {
 
 export interface ApplyProviderOutcomeInput {
   providerRef?: string;
+  deliveryId?: string;
   idempotencyKey?: string;
   outcome: 'delivered' | 'bounced' | 'complained' | 'delayed';
   occurredAt: Date;
@@ -36,31 +37,62 @@ export const applyProviderOutcome = async (
   deps: ApplyProviderOutcomeDeps,
   input: ApplyProviderOutcomeInput
 ): Promise<Result<ApplyProviderOutcomeResult, ApplyProviderOutcomeError>> => {
-  if (input.providerRef === undefined && input.idempotencyKey === undefined) {
+  if (
+    input.providerRef === undefined &&
+    input.deliveryId === undefined &&
+    input.idempotencyKey === undefined
+  ) {
     return err({
       type: 'ValidationError',
-      message: 'providerRef or idempotencyKey is required',
+      message: 'providerRef, deliveryId, or idempotencyKey is required',
       field: 'providerRef',
     });
   }
-  const found =
-    input.providerRef === undefined
-      ? await deps.deliveries.findById(input.idempotencyKey ?? '')
-      : await deps.deliveries.findByProviderRef(input.providerRef);
-  if (found.isErr()) {
-    return err(found.error);
+
+  let delivery: Delivery | null = null;
+  if (input.providerRef !== undefined) {
+    const byProviderRef = await deps.deliveries.findByProviderRef(input.providerRef);
+    if (byProviderRef.isErr()) {
+      return err(byProviderRef.error);
+    }
+    delivery = byProviderRef.value;
   }
-  if (found.value === null || input.outcome === 'delayed') {
+
+  let matchedByDeliveryId = false;
+  const fallbackDeliveryId = input.deliveryId ?? input.idempotencyKey;
+  if (delivery === null && fallbackDeliveryId !== undefined) {
+    const byDeliveryId = await deps.deliveries.findById(fallbackDeliveryId);
+    if (byDeliveryId.isErr()) {
+      return err(byDeliveryId.error);
+    }
+    delivery = byDeliveryId.value;
+    matchedByDeliveryId = input.deliveryId !== undefined && delivery !== null;
+  }
+  if (delivery === null) {
+    return ok({ applied: false });
+  }
+
+  if (matchedByDeliveryId && input.providerRef !== undefined) {
+    const savedProviderRef = await deps.deliveries.saveProviderRefIfMissing({
+      deliveryId: delivery.id,
+      providerRef: input.providerRef,
+      now: input.occurredAt,
+    });
+    if (savedProviderRef.isErr()) {
+      return err(savedProviderRef.error);
+    }
+  }
+  if (input.outcome === 'delayed') {
     return ok({ applied: false });
   }
 
   const target: DeliveryState = input.outcome;
-  if (!canTransition(found.value.status, target)) {
+  if (!canTransition(delivery.status, target)) {
     return ok({ applied: false });
   }
   const transitioned = await deps.deliveries.transition({
-    deliveryId: found.value.id,
-    from: [found.value.status],
+    deliveryId: delivery.id,
+    from: [delivery.status],
     to: target,
     patch: {
       ...(input.providerRef === undefined ? {} : { providerRef: input.providerRef }),
@@ -76,11 +108,11 @@ export const applyProviderOutcome = async (
   }
 
   if (input.outcome === 'bounced' || input.outcome === 'complained') {
-    const fingerprint = input.destinationFingerprint ?? found.value.destinationFingerprint;
+    const fingerprint = input.destinationFingerprint ?? delivery.destinationFingerprint;
     if (fingerprint !== null) {
       const suppressed = await deps.destinations.suppressByFingerprint({
         fingerprint,
-        channel: found.value.channel,
+        channel: delivery.channel,
         reason: input.outcome,
         now: input.occurredAt,
       });
@@ -91,10 +123,10 @@ export const applyProviderOutcome = async (
         action: 'destination.suppressed',
         occurredAt: input.occurredAt,
         actor: 'system',
-        userId: found.value.userId,
-        deliveryId: found.value.id,
+        userId: delivery.userId,
+        deliveryId: delivery.id,
         reason: input.outcome,
-        details: { channel: found.value.channel, affected: suppressed.value },
+        details: { channel: delivery.channel, affected: suppressed.value },
       });
       if (audited.isErr()) {
         return err(audited.error);
@@ -105,8 +137,8 @@ export const applyProviderOutcome = async (
     action: 'delivery.terminal',
     occurredAt: input.occurredAt,
     actor: 'system',
-    userId: found.value.userId,
-    deliveryId: found.value.id,
+    userId: delivery.userId,
+    deliveryId: delivery.id,
     reason: input.outcome,
   });
   if (terminalAudit.isErr()) {

@@ -557,6 +557,7 @@ type DeliveryMethod =
   | 'insertIdempotent'
   | 'findById'
   | 'findByProviderRef'
+  | 'saveProviderRefIfMissing'
   | 'listByLogicalNotification'
   | 'listShadowComparisonRecipients'
   | 'claimForRender'
@@ -656,6 +657,18 @@ export const makeFakeDeliveryRepo = (options: {
       if (fault !== undefined) return err(fault);
       return ok(store.byIndex('providerRef', providerRef)[0] ?? null);
     },
+    saveProviderRefIfMissing: async (input) => {
+      const fault = faults.intercept('saveProviderRefIfMissing');
+      if (fault !== undefined) return err(fault);
+      const current = store.get(input.deliveryId);
+      if (current?.providerRef !== null) return ok(false);
+      store.update(current.id, (delivery) => ({
+        ...delivery,
+        providerRef: input.providerRef,
+        updatedAt: input.now,
+      }));
+      return ok(true);
+    },
     listByLogicalNotification: async (logicalNotificationId) => {
       const fault = faults.intercept('listByLogicalNotification');
       if (fault !== undefined) return err(fault);
@@ -718,6 +731,7 @@ export const makeFakeDeliveryRepo = (options: {
             predecessor.streamKey === current.streamKey &&
             predecessor.streamSequence !== null &&
             predecessor.streamSequence < currentSequence &&
+            predecessor.status !== 'accepted' &&
             !TERMINAL_STATES.has(predecessor.status)
         );
         if (blocked !== undefined) return ok(null);
@@ -1160,7 +1174,7 @@ export const makeFakeDigestBatchRepo = (options: {
         return err({ type: 'NotFound', entity: 'digest batch', id: input.batchId });
       }
       if (batch.status !== 'open') {
-        return ok('rejected');
+        return ok('batch_closed');
       }
       const key = `${input.batchId}\u0000${input.logicalNotificationId}`;
       if (members.has(key)) return ok('duplicate');
@@ -1382,6 +1396,8 @@ export const makeFakeChannelAdapterPort = (
     renderDigestResult?: RenderDigestResult;
     sendResult?: SendResult;
     sendResultValue?: SendResultValue;
+    sendResultValues?: readonly SendResultValue[];
+    sendHandler?: (input: Parameters<ChannelAdapterPort['send']>[0]) => Promise<SendResult>;
     reconcileResult?: ReconcileResult;
     resolvedFingerprint?: string;
     onSend?: () => void;
@@ -1390,6 +1406,7 @@ export const makeFakeChannelAdapterPort = (
   } = {}
 ): FakeChannelAdapterPort => {
   const faults = options.faults ?? makeFaultPlan<ChannelAdapterMethod, PlatformDeliveryError>();
+  const sendResultValues = [...(options.sendResultValues ?? [])];
   const calls = {
     resolvedUserIds: [] as string[],
     renderedDeliveryIds: [] as string[],
@@ -1448,9 +1465,15 @@ export const makeFakeChannelAdapterPort = (
       calls.sentDeliveryIds.push(input.delivery.id);
       options.callSequence?.push('adapter.send');
       options.onSend?.();
+      if (options.sendHandler !== undefined) {
+        return options.sendHandler(input);
+      }
       return (
         options.sendResult ??
-        ok(options.sendResultValue ?? { classification: 'accepted', providerRef: 'provider-1' })
+        ok(
+          sendResultValues.shift() ??
+            options.sendResultValue ?? { classification: 'accepted', providerRef: 'provider-1' }
+        )
       );
     },
     reconcile: async (input) => {
@@ -1589,7 +1612,10 @@ export const makeFakeSendJobScheduler = (
       if (fault !== undefined) return err(fault);
       return (
         await enqueue(payload, {
-          dedupeId: `${payload.deliveryId}:${String(enqueueOptions?.delayMs ?? 0)}`,
+          dedupeId:
+            enqueueOptions?.dedupeToken === undefined
+              ? `np-send-${payload.deliveryId}`
+              : `np-send-${payload.deliveryId}-${enqueueOptions.dedupeToken}`,
           ...(enqueueOptions?.delayMs === undefined ? {} : { delayMs: enqueueOptions.delayMs }),
         })
       )
