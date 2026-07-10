@@ -664,6 +664,19 @@ export interface DeliveryRepo {
   ): Promise<Result<{ delivery: Delivery; created: boolean }, PlatformDeliveryError>>;
   findById(id: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
   findByProviderRef(providerRef: string): Promise<Result<Delivery | null, PlatformDeliveryError>>;
+  listByLogicalNotification(
+    logicalNotificationId: string
+  ): Promise<Result<Delivery[], PlatformDeliveryError>>;
+  listShadowRecipients(input: {
+    kindId: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<
+    Result<
+      Page<{ userId: string; contentHash: string | null; deliveryKey: string }>,
+      PlatformDeliveryError
+    >
+  >;
   saveProviderRefIfMissing(input: {
     deliveryId: string;
     providerRef: string;
@@ -1375,13 +1388,13 @@ Admin routes (`makePlatformAdminRoutes`; Clerk auth + admin-authorization port, 
 
 ### 5.5 Anonymization
 
-`makeNotificationPlatformAnonymizer(db: UserDbClient)` covers every new user-linked table (subscriptions, preferences, logical notifications, deliveries, attempts, destinations, digest batches/members, audit user tombstone) plus cancellation of queued user work; wired into the existing Clerk `user.deleted` handler. The per-field treatment must be documented in `docs/USER-DATA-ANONYMIZATION.md` before any table reaches production (spec §15.3).
+Notification-platform user-deletion coverage lives in the central Clerk-webhooks anonymizer, as recorded in design decision 12 (§10). It covers every new user-linked table (subscriptions, preferences, logical notifications, deliveries, attempts, destinations, digest batches/members, and audit user tombstones) plus cancellation of queued user work. The per-field treatment must be documented in `docs/USER-DATA-ANONYMIZATION.md` before any table reaches production (spec §15.3).
 
 ## 6. Wiring and configuration
 
 ### 6.1 `index.ts` barrel exports
 
-`makeKindRegistry`, `ALL_NOTIFICATION_KINDS`, all `make*Repo` factories, `makeEmailChannelAdapter`, `makeResendPlatformWebhookSideEffect`, `startNotificationPlatformRuntime` + runtime types, route factories (`makeInboxRoutes`, `makeSubscriptionRoutes`, `makePreferenceRoutes`, `makePlatformAdminRoutes`), `makeNotificationPlatformAnonymizer`, port types (`EventSourcePort`, `SubjectAuthorizationPort`, `ChannelAdapterPort`, repo ports), error types + `create*` factories, and `recordNotificationEvent` (for future same-DB producers).
+`makeKindRegistry`, `ALL_NOTIFICATION_KINDS`, all `make*Repo` factories, `makeEmailChannelAdapter`, `makeResendPlatformWebhookSideEffect`, `startNotificationPlatformRuntime` + runtime types, route factories (`makeInboxRoutes`, `makeSubscriptionRoutes`, `makePreferenceRoutes`, `makePlatformAdminRoutes`), port types (`EventSourcePort`, `SubjectAuthorizationPort`, `ChannelAdapterPort`, repo ports), error types + `create*` factories, and `recordNotificationEvent` (for future same-DB producers). User-deletion coverage is intentionally not a notification-platform barrel export; it lives in the central Clerk-webhooks anonymizer (decision 12 in §10).
 
 ### 6.2 Composition root (`src/app/build-app.ts` / `build-plan.ts`)
 
@@ -1450,3 +1463,4 @@ Naming: pure-logic tests in `tests/unit/notification-platform/`, contract cases 
 9. **Stream-gated ordering via the claim query**, not queue topology (spec §11.3) — accepts no-op dispatches for not-yet-eligible deliveries.
 10. **`node:crypto` `createHash` is a documented exception to the core import allow-list** — pure, deterministic computation with no I/O, used only for payload hashing. Canonicalization is total: non-JSON-representable values (undefined, bigint, non-finite numbers, non-plain objects, cycles) return a `ValidationError` rather than silently collapsing distinct inputs or throwing; `hashEventPayload` and `buildNormalizedSubscriptionKey` therefore return `Result<string, ValidationError>`.
 11. **Policy-strategy recipient resolvers are deliberately unimplemented until Phase 5.** Both Phase 3/4 proof kinds use the subscription strategy: parliamentary initiative followers are native generic subscriptions, and §21 migrates legacy newsletter subscriptions into generic subscriptions. `resolveEventRecipients` keeps a `NotImplemented` validation error for policy kinds and states that policy resolvers arrive in Phase 5.
+12. **User-deletion coverage stays in the central Clerk-webhooks anonymizer.** Notification-platform tables and queue cancellation are handled by the verified `user.deleted` path; the platform does not expose a standalone anonymizer factory from its barrel.

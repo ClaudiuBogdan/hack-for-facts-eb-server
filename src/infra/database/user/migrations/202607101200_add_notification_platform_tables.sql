@@ -182,6 +182,12 @@ WHERE status = 'sending';
 CREATE INDEX IF NOT EXISTS idx_np_deliv_stream
 ON notification_deliveries(user_id, channel, stream_key, stream_sequence)
 WHERE stream_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_np_deliv_logical
+ON notification_deliveries(logical_notification_id, delivery_key)
+WHERE logical_notification_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_np_deliv_shadow
+ON notification_deliveries(kind_id, delivery_key)
+WHERE sender_mode = 'shadow';
 CREATE INDEX IF NOT EXISTS idx_np_deliv_dead
 ON notification_deliveries(status, terminal_at)
 WHERE status IN ('dead_letter','unknown','permanent_failed');

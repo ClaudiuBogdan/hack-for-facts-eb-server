@@ -1,23 +1,20 @@
 import { Type, type Static } from '@sinclair/typebox';
 
 import { AUDIT_ACTIONS } from '../audit/types.js';
-import { DeliveryAttemptSchema, DeliverySchema, DeliveryStateSchema } from '../delivery/schemas.js';
-import { NotificationEventSchema } from '../events/schemas.js';
-import { LogicalNotificationSchema } from '../inbox/schemas.js';
+import { AttemptResultSchema, DeliveryStateSchema } from '../delivery/schemas.js';
+import { EventStatusSchema } from '../events/schemas.js';
 import {
   DateTimeSchema,
   ExternalChannelSchema,
+  LocaleSchema,
   NonEmptyStringSchema,
-  UnknownRecordSchema,
 } from '../shared/schemas.js';
 
 export const AuditActionSchema = Type.Union(AUDIT_ACTIONS.map((action) => Type.Literal(action)));
 
 export const EventTraceAuditEntrySchema = Type.Object(
   {
-    id: NonEmptyStringSchema,
     action: AuditActionSchema,
-    occurredAt: DateTimeSchema,
     actor: NonEmptyStringSchema,
     userId: Type.Optional(Type.String()),
     eventId: Type.Optional(Type.String()),
@@ -26,21 +23,96 @@ export const EventTraceAuditEntrySchema = Type.Object(
     batchId: Type.Optional(Type.String()),
     subscriptionId: Type.Optional(Type.String()),
     reason: Type.Optional(Type.String()),
-    details: Type.Optional(UnknownRecordSchema),
   },
   { additionalProperties: false }
 );
 export type EventTraceAuditEntry = Static<typeof EventTraceAuditEntrySchema>;
 
+export const RedactedNotificationEventSchema = Type.Object(
+  {
+    id: NonEmptyStringSchema,
+    source: NonEmptyStringSchema,
+    eventType: NonEmptyStringSchema,
+    schemaVersion: Type.Integer({ minimum: 1 }),
+    occurrenceKey: NonEmptyStringSchema,
+    payloadHash: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+    status: EventStatusSchema,
+    occurredAt: DateTimeSchema,
+    createdAt: DateTimeSchema,
+    resolvedAt: Type.Union([DateTimeSchema, Type.Null()]),
+    retentionExpiresAt: DateTimeSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const RedactedLogicalNotificationSchema = Type.Object(
+  {
+    id: NonEmptyStringSchema,
+    eventId: NonEmptyStringSchema,
+    kindId: NonEmptyStringSchema,
+    kindVersion: Type.Integer({ minimum: 1 }),
+    userId: NonEmptyStringSchema,
+    eligibilityReason: NonEmptyStringSchema,
+    locale: LocaleSchema,
+    inboxVisible: Type.Boolean(),
+    readAt: Type.Union([DateTimeSchema, Type.Null()]),
+    archivedAt: Type.Union([DateTimeSchema, Type.Null()]),
+    createdAt: DateTimeSchema,
+    retentionExpiresAt: DateTimeSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const RedactedDeliverySchema = Type.Object(
+  {
+    id: NonEmptyStringSchema,
+    deliveryKey: NonEmptyStringSchema,
+    logicalNotificationId: Type.Union([Type.String(), Type.Null()]),
+    digestBatchId: Type.Union([Type.String(), Type.Null()]),
+    kindId: NonEmptyStringSchema,
+    userId: NonEmptyStringSchema,
+    channel: ExternalChannelSchema,
+    status: DeliveryStateSchema,
+    attemptCount: Type.Integer({ minimum: 0 }),
+    notBefore: Type.Union([DateTimeSchema, Type.Null()]),
+    expiresAt: Type.Union([DateTimeSchema, Type.Null()]),
+    nextAttemptAt: Type.Union([DateTimeSchema, Type.Null()]),
+    lastErrorCode: Type.Union([Type.String(), Type.Null()]),
+    providerRef: Type.Union([Type.String(), Type.Null()]),
+    senderMode: Type.Union([Type.Literal('shadow'), Type.Literal('active')]),
+    createdAt: DateTimeSchema,
+    updatedAt: DateTimeSchema,
+    acceptedAt: Type.Union([DateTimeSchema, Type.Null()]),
+    terminalAt: Type.Union([DateTimeSchema, Type.Null()]),
+    retentionExpiresAt: DateTimeSchema,
+  },
+  { additionalProperties: false }
+);
+
+export const RedactedDeliveryAttemptSchema = Type.Object(
+  {
+    attemptNumber: Type.Integer({ minimum: 1 }),
+    result: Type.Union([AttemptResultSchema, Type.Null()]),
+    errorCode: Type.Union([Type.String(), Type.Null()]),
+    latencyMs: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    startedAt: DateTimeSchema,
+    completedAt: Type.Union([DateTimeSchema, Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
 export const EventTraceDeliverySchema = Type.Object(
-  { delivery: DeliverySchema, attempts: Type.Array(DeliveryAttemptSchema) },
+  {
+    delivery: RedactedDeliverySchema,
+    attempts: Type.Array(RedactedDeliveryAttemptSchema),
+  },
   { additionalProperties: false }
 );
 export type EventTraceDelivery = Static<typeof EventTraceDeliverySchema>;
 
 export const EventTraceLogicalNotificationSchema = Type.Object(
   {
-    logicalNotification: LogicalNotificationSchema,
+    logicalNotification: RedactedLogicalNotificationSchema,
     deliveries: Type.Array(EventTraceDeliverySchema),
   },
   { additionalProperties: false }
@@ -49,7 +121,7 @@ export type EventTraceLogicalNotification = Static<typeof EventTraceLogicalNotif
 
 export const EventTraceSchema = Type.Object(
   {
-    event: NotificationEventSchema,
+    event: RedactedNotificationEventSchema,
     logicalNotifications: Type.Array(EventTraceLogicalNotificationSchema),
     auditEntries: Type.Array(EventTraceAuditEntrySchema),
   },
@@ -142,7 +214,7 @@ export const DeadLetterSearchResponseSchema = Type.Object(
   {
     ok: Type.Literal(true),
     data: Type.Object({
-      items: Type.Array(DeliverySchema),
+      items: Type.Array(RedactedDeliverySchema),
       nextCursor: Type.Union([Type.String(), Type.Null()]),
     }),
   },

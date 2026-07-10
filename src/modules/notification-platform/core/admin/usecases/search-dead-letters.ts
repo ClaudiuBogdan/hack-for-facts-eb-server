@@ -1,9 +1,10 @@
+import { redactDelivery } from '../redaction.js';
+import { type DeadLetterSearchFilter, type RedactedDelivery } from '../types.js';
+
 import type { PlatformDeliveryError } from '../../delivery/errors.js';
 import type { DeliveryRepo } from '../../delivery/ports.js';
-import type { Delivery } from '../../delivery/types.js';
 import type { Clock, IdGenerator, LoggerPort } from '../../shared/ports.js';
 import type { Page } from '../../shared/types.js';
-import type { DeadLetterSearchFilter } from '../types.js';
 import type { Result } from 'neverthrow';
 
 export interface SearchDeadLettersDeps {
@@ -18,18 +19,8 @@ export interface SearchDeadLettersInput extends DeadLetterSearchFilter {
   limit?: number;
 }
 
-export type SearchDeadLettersResult = Page<Delivery>;
+export type SearchDeadLettersResult = Page<RedactedDelivery>;
 export type SearchDeadLettersError = PlatformDeliveryError;
-
-const redactDelivery = (delivery: Delivery): Delivery => ({
-  ...delivery,
-  destinationFingerprint: null,
-  destinationGeneration: null,
-  renderedSubject: null,
-  renderedHtml: null,
-  renderedText: null,
-  contentHash: null,
-});
 
 export const searchDeadLetters = async (
   deps: SearchDeadLettersDeps,

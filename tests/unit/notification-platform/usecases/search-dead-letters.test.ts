@@ -15,7 +15,8 @@ describe('searchDeadLetters', () => {
     ]);
     const page = expectOk(await searchDeadLetters(h, {}));
     expect(page.items).toHaveLength(1);
-    expect(page.items[0]?.renderedSubject).toBeNull();
-    expect(page.items[0]?.destinationFingerprint).toBeNull();
+    expect(page.items[0]).not.toHaveProperty('renderedSubject');
+    expect(page.items[0]).not.toHaveProperty('destinationFingerprint');
+    expect(page.items[0]).not.toHaveProperty('lastErrorMessage');
   });
 });

@@ -283,6 +283,16 @@ export async function getClient(): Promise<GoldenMasterClient> {
         unsubscribeHmacSecret: undefined,
         enabled: false,
       },
+      notificationPlatform: {
+        enabled: false,
+        ingestionScanSeconds: 60,
+        recoveryScanMinutes: 2,
+        digestSweepMinutes: 5,
+        recoveryThresholdMinutes: 10,
+        retentionBatchLimit: 500,
+        maxSendRps: 2,
+        destinationFingerprintSecret: undefined,
+      },
       learningProgress: {
         campaignAdminEnabledCampaigns: [],
       },
