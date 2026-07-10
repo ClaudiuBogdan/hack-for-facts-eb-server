@@ -36,6 +36,14 @@ const DEFAULT_RATE_LIMIT: RateLimitOptions = {
 
 export interface MakeInsRoutesDeps {
   datasetRequestRepo: InsDatasetRequestRepository;
+  /**
+   * Whether the Clerk `user.deleted` webhook — and therefore the anonymization
+   * handler — is actually wired. The composition root can mount this route on
+   * `userDb` alone while the webhook stays unregistered because its signing
+   * secret is unset; accepting user-linked PII in that state would create rows
+   * that can never be deleted.
+   */
+  userDeletionHandlerConfigured: boolean;
   rateLimit?: RateLimitOptions;
 }
 
@@ -43,8 +51,19 @@ export interface MakeInsRoutesDeps {
  * `request.auth` is populated by the global auth preHandler, which is only
  * registered when an auth provider is configured. Treat its absence as an
  * anonymous caller rather than assuming the decorator is always present.
+ *
+ * When the deletion handler is not wired we deliberately refuse to attach the
+ * Clerk user id. Combined with the usecase — which persists `contact_email` and
+ * `note` only for an authenticated submission — this degrades the endpoint to
+ * storing no personal data at all, rather than storing data nothing can erase.
  */
-const getClerkUserId = (request: FastifyRequest): string | undefined => {
+const getClerkUserId = (
+  request: FastifyRequest,
+  userDeletionHandlerConfigured: boolean
+): string | undefined => {
+  if (!userDeletionHandlerConfigured) {
+    return undefined;
+  }
   const auth = request.auth as AuthContext | undefined;
   if (auth === undefined || !isAuthenticated(auth)) {
     return undefined;
@@ -53,9 +72,19 @@ const getClerkUserId = (request: FastifyRequest): string | undefined => {
 };
 
 export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
-  const { datasetRequestRepo, rateLimit = DEFAULT_RATE_LIMIT } = deps;
+  const {
+    datasetRequestRepo,
+    userDeletionHandlerConfigured,
+    rateLimit = DEFAULT_RATE_LIMIT,
+  } = deps;
 
   return async (fastify) => {
+    if (!userDeletionHandlerConfigured) {
+      fastify.log.warn(
+        'INS dataset requests mounted without the Clerk user.deleted webhook: submissions will be recorded without any personal data.'
+      );
+    }
+
     fastify.post<{ Body: CreateDatasetRequestBody }>(
       '/api/ins/dataset-requests',
       {
@@ -75,7 +104,7 @@ export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
       },
       async (request, reply) => {
         const { datasetCode, siruta, contactEmail, note } = request.body;
-        const clerkUserId = getClerkUserId(request);
+        const clerkUserId = getClerkUserId(request, userDeletionHandlerConfigured);
 
         const result = await createInsDatasetRequest(
           { datasetRequestRepo },

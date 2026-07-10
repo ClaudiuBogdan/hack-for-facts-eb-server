@@ -41,6 +41,8 @@ const createTestApp = async (options: {
   datasetRequestRepo: InsDatasetRequestRepository;
   /** Simulates the global auth preHandler having produced a session. */
   authUserId?: string;
+  /** Defaults to true; set false to model a deploy without the Clerk webhook. */
+  userDeletionHandlerConfigured?: boolean;
 }): Promise<FastifyInstance> => {
   const app = fastifyLib({ logger: false });
 
@@ -69,7 +71,12 @@ const createTestApp = async (options: {
     });
   }
 
-  await app.register(makeInsRoutes({ datasetRequestRepo: options.datasetRequestRepo }));
+  await app.register(
+    makeInsRoutes({
+      datasetRequestRepo: options.datasetRequestRepo,
+      userDeletionHandlerConfigured: options.userDeletionHandlerConfigured ?? true,
+    })
+  );
   await app.ready();
   return app;
 };
@@ -129,6 +136,27 @@ describe('POST /api/ins/dataset-requests', () => {
     expect(repo.created[0]).toEqual({ dataset_code: 'POP107D' });
     expect(repo.created[0]?.contact_email).toBeUndefined();
     expect(repo.created[0]?.note).toBeUndefined();
+  });
+
+  it('records no personal data when the deletion webhook is not configured', async () => {
+    const repo = makeFakeRepo();
+    app = await createTestApp({
+      datasetRequestRepo: repo,
+      authUserId: 'user_abc',
+      userDeletionHandlerConfigured: false,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/ins/dataset-requests',
+      payload: { datasetCode: 'POP107D', contactEmail: 'a@b.ro', note: 'I am Ana' },
+    });
+
+    // Even for an authenticated caller: without user.deleted wired, a row
+    // carrying a clerk_user_id could never be erased, so none is attached and
+    // no PII is stored.
+    expect(response.statusCode).toBe(201);
+    expect(repo.created[0]).toEqual({ dataset_code: 'POP107D' });
   });
 
   it('rejects a body without a dataset code', async () => {
