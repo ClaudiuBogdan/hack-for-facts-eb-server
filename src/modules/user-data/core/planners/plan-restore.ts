@@ -1,0 +1,73 @@
+import { err, ok, type Result } from 'neverthrow';
+
+import {
+  createInvalidTarget,
+  createRecordNotDeleted,
+  createRevisionConflict,
+  createSchemaVersionWriteDisabled,
+  type UserDataError,
+} from '../errors.js';
+import {
+  basePlan,
+  targetsEqual,
+  toRecordView,
+  validateDocument,
+  validateLogicalKey,
+  validateTarget,
+} from './shared.js';
+import { type ResolvedCategory } from '../registry/types.js';
+import {
+  type CurrentRecord,
+  type PlanContext,
+  type PlannedMutation,
+  type RestoreCommand,
+} from '../types.js';
+
+export const planRestore = (
+  entry: ResolvedCategory,
+  current: CurrentRecord,
+  cmd: RestoreCommand,
+  ctx: PlanContext
+): Result<PlannedMutation, UserDataError> => {
+  if (current.status !== 'deleted') return err(createRecordNotDeleted());
+  if (cmd.expectedRevision !== current.revision)
+    return err(createRevisionConflict(toRecordView(current)));
+  if (!entry.schemaVersion.writeEnabled)
+    return err(
+      createSchemaVersionWriteDisabled(entry.definition.category, entry.schemaVersion.version)
+    );
+  const key = validateLogicalKey(entry.definition, cmd.identity.logicalKey);
+  if (key.isErr()) return err(key.error);
+  const target = validateTarget(entry.definition, cmd.target);
+  if (target.isErr()) return err(target.error);
+  if (!targetsEqual(current.target, cmd.target)) return err(createInvalidTarget('immutable'));
+  const payload = validateDocument(
+    cmd.payload,
+    entry.schemaVersion.schema,
+    entry.definition.maxPayloadBytes
+  );
+  if (payload.isErr()) return err(payload.error);
+  return ok(
+    basePlan({
+      operation: 'restore',
+      scope: 'payload',
+      annotationNamespace: null,
+      identity: cmd.identity,
+      recordId: current.recordId,
+      eventId: ctx.ids.newId(),
+      target: current.target,
+      expectedRevision: cmd.expectedRevision,
+      afterImage: {
+        status: 'active',
+        payload: cmd.payload,
+        annotations: null,
+        schemaVersion: entry.schemaVersion.version,
+        schemaHash: entry.schemaVersion.schemaHash,
+      },
+      actor: ctx.actor,
+      clientOccurredAt: cmd.clientOccurredAt,
+      receipt: cmd.receipt,
+      quota: null,
+    })
+  );
+};
