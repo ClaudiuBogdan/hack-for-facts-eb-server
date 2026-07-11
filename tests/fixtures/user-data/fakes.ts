@@ -396,6 +396,7 @@ export const makeFakeUserDataStore = (options: {
             event.annotations,
             input.redactors
           ),
+          clientOccurredAt: null,
           privacyRedactedAt: input.now,
         });
         eventCount += 1;

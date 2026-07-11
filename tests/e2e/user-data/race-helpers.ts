@@ -19,7 +19,8 @@ export const deferred = (): Deferred => {
 };
 
 export const waitForBlockedAdvisoryLock = async (db: UserDbClient): Promise<void> => {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  // Generous window: the container may run emulated (amd64 image on arm64).
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     const result = await sql<{ count: string }>`
       SELECT COUNT(*)::text AS count
       FROM pg_locks

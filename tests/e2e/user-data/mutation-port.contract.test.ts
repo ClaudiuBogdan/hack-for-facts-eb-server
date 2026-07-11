@@ -3,17 +3,10 @@ import {
   makeUserDataMutationRepo,
   UserDataErrorSignal,
 } from '@/modules/user-data/shell/repo/kysely-user-data-mutation-repo.js';
+import { makeUserDataReadRepo } from '@/modules/user-data/shell/repo/kysely-user-data-read-repo.js';
 
-import {
-  isDockerAvailable,
-  makeMutationContractReadHelpers,
-  truncateUserDataTables,
-  userDataStateCounts,
-} from './contract-db.js';
-import {
-  mutationPortContractCases,
-  type MutationContractPort,
-} from '../../contracts/user-data/mutation-port.contract.js';
+import { isDockerAvailable, truncateUserDataTables, userDataStateCounts } from './contract-db.js';
+import { mutationPortContractCases } from '../../contracts/user-data/mutation-port.contract.js';
 import { setupTestDatabase } from '../../infra/test-db.js';
 import { describePortContract, makeTestClock } from '../../support/index.js';
 
@@ -38,7 +31,7 @@ describePortContract('UserDataMutationPort', mutationPortContractCases, {
           },
         },
       });
-      const port = Object.assign(mutation, makeMutationContractReadHelpers(userDb), {
+      const port = Object.assign(mutation, makeUserDataReadRepo({ db: userDb }), {
         contractControls: {
           advanceDays: (days: number): void => {
             clock.advance(days * 24 * 60 * 60 * 1000);
@@ -48,7 +41,7 @@ describePortContract('UserDataMutationPort', mutationPortContractCases, {
           },
           stateCounts: () => userDataStateCounts(userDb),
         },
-      }) as MutationContractPort;
+      });
       return {
         port,
         reset: async () => {

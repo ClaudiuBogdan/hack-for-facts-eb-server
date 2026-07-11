@@ -24,6 +24,7 @@ export const erasurePortContractCases: PortContractCases<ErasureContractPort> = 
         makePlannedMutation({
           operation: 'create',
           receipt: claim,
+          clientOccurredAt: new Date('2026-07-10T12:00:00.000Z'),
           afterImage: {
             status: 'active',
             payload: { secret: 'payload', keep: true },
@@ -70,6 +71,7 @@ export const erasurePortContractCases: PortContractCases<ErasureContractPort> = 
     expect(history.items[0]).toMatchObject({
       payload: { keep: true },
       annotations: { review: { keep: true } },
+      clientOccurredAt: null,
       privacyRedactedAt: now,
     });
     expect(expectOk(await port.probeReceipt(claim))).toBe('absent');

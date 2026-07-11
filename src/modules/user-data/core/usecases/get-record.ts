@@ -1,9 +1,9 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { type UserDataError } from '../errors.js';
+import { type ReadDeps } from './read-shared.js';
 import { toRecordView } from '../planners/shared.js';
 import { type RecordView } from '../types.js';
-import { type ReadDeps } from './read-shared.js';
 
 export type GetRecordInput =
   | { by: 'key'; ownerId: string; category: string; logicalKey: string }

@@ -1,8 +1,6 @@
 import { err, type Result } from 'neverthrow';
 
 import { type UserDataError } from '../errors.js';
-import { planCreateOrReplace } from '../planners/plan-create-or-replace.js';
-import { type MutationResponse, type ReplaceCommand } from '../types.js';
 import {
   mapMutationOutcome,
   probeAndRateLimit,
@@ -11,6 +9,8 @@ import {
   type MutationActorInput,
   type MutationDeps,
 } from './shared.js';
+import { planCreateOrReplace } from '../planners/plan-create-or-replace.js';
+import { type MutationResponse, type ReplaceCommand } from '../types.js';
 
 export interface ReplaceRecordInput extends MutationActorInput {
   command: ReplaceCommand;
