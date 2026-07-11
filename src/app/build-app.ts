@@ -319,6 +319,17 @@ import {
   makeUATAnalyticsRepo,
 } from '../modules/uat-analytics/index.js';
 import {
+  ALL_USER_DATA_CATEGORIES,
+  makeCategoryRegistry,
+  makeRedisMutationRateLimiter,
+  makeUserDataAdminReadRepo,
+  makeUserDataAdminRoutes,
+  makeUserDataMutationRepo,
+  makeUserDataOwnerRoutes,
+  makeUserDataReadRepo,
+  type MutationRateLimiterPort,
+} from '../modules/user-data/index.js';
+import {
   createLearningProgressUserEventSyncHook,
   makeEntityTermsAcceptedUserEventHandler,
   makeEntityTermsAcceptedSyncHandler,
@@ -374,6 +385,25 @@ const makeNotificationPlatformLogger = (
   error(message, data) {
     if (data === undefined) logger.error(message);
     else logger.error(data, message);
+  },
+});
+
+const makeUserDataLogger = (logger: import('pino').Logger) => ({
+  debug(message: string, context?: Record<string, unknown>) {
+    if (context === undefined) logger.debug(message);
+    else logger.debug(context, message);
+  },
+  info(message: string, context?: Record<string, unknown>) {
+    if (context === undefined) logger.info(message);
+    else logger.info(context, message);
+  },
+  warn(message: string, context?: Record<string, unknown>) {
+    if (context === undefined) logger.warn(message);
+    else logger.warn(context, message);
+  },
+  error(message: string, context?: Record<string, unknown>) {
+    if (context === undefined) logger.error(message);
+    else logger.error(context, message);
   },
 });
 
@@ -614,6 +644,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     shouldStartNotificationWorkers,
     shouldInitializeNotificationDeliveryRuntime,
     shouldInitializeNotificationPlatform,
+    shouldInitializeUserDataStore,
     shouldInitializeUserEventRuntime,
     enabledCampaignAdminKeys,
     emailFromAddress,
@@ -1655,6 +1686,75 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         }
         throw error;
       }
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Setup User Data Store v2 (feature-gated REST surface)
+    // ───────────────────────────────────────────────────────────────────────
+    if (shouldInitializeUserDataStore) {
+      const overrides = deps.userDataStoreOverrides;
+      const registryResult = makeCategoryRegistry(
+        overrides?.categories ?? ALL_USER_DATA_CATEGORIES
+      );
+      if (registryResult.isErr()) {
+        throw new Error(`User Data Store category registry is invalid: ${registryResult.error}`);
+      }
+      const registry = registryResult.value;
+      const logger = makeUserDataLogger(repoLogger);
+      const mutationPort =
+        overrides?.mutationPort ?? makeUserDataMutationRepo({ db: userDb, clock: systemClock });
+      const readPort = overrides?.readPort ?? makeUserDataReadRepo({ db: userDb });
+      const adminReadPort =
+        overrides?.adminReadPort ?? makeUserDataAdminReadRepo({ db: userDb, registry });
+
+      let rateLimiter: MutationRateLimiterPort;
+      if (overrides?.rateLimiter !== undefined) {
+        rateLimiter = overrides.rateLimiter;
+      } else {
+        const redisUrl = config.redis.url ?? config.jobs.redisUrl;
+        if (redisUrl === undefined || redisUrl === '') {
+          repoLogger.warn('User Data Store has no Redis connection; mutations will fail open');
+          rateLimiter = { consume: () => Promise.resolve(ok({ allowed: true as const })) };
+        } else {
+          const { Redis } = await import('ioredis');
+          const redis = new Redis(redisUrl, {
+            ...(config.redis.password === undefined || config.redis.password === ''
+              ? config.jobs.redisPassword === undefined
+                ? {}
+                : { password: config.jobs.redisPassword }
+              : { password: config.redis.password }),
+            lazyConnect: true,
+            maxRetriesPerRequest: 2,
+          });
+          redis.on('error', (error) => {
+            repoLogger.warn({ err: error }, 'User Data Store Redis connection error');
+          });
+          app.addHook('onClose', async () => {
+            await redis.quit().catch(() => {
+              redis.disconnect();
+            });
+          });
+          rateLimiter = makeRedisMutationRateLimiter({ redis, logger: repoLogger });
+        }
+      }
+
+      const permissionAuthorizer =
+        overrides?.adminPermissionAuthorizer ??
+        makeClerkCampaignAdminPermissionAuthorizer({
+          secretKey: config.auth.clerkSecretKey ?? '',
+          logger: repoLogger,
+        });
+      const routeDeps = {
+        registry,
+        mutationPort,
+        readPort,
+        adminReadPort,
+        rateLimiter,
+        ids: overrides?.ids ?? uuidIds,
+        logger,
+      };
+      await app.register(makeUserDataOwnerRoutes(routeDeps));
+      await app.register(makeUserDataAdminRoutes({ ...routeDeps, permissionAuthorizer }));
     }
 
     if (notificationDeliveryRuntime?.composeJobScheduler !== undefined) {
