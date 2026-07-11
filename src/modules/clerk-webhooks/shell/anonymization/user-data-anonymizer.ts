@@ -487,7 +487,9 @@ const updateUserInteractions = async (
           userId: input.userId,
           anonymizedUserId: input.anonymizedUserId,
         }),
-        audit_events: [],
+        // A raw JS [] reaches jsonb as the pg array literal '{}' — an empty
+        // OBJECT — which corrupts the audit array shape. Stringify it.
+        audit_events: JSON.stringify([]),
         updated_at: input.now,
       } as never)
       .where('user_id', '=', row.user_id)
