@@ -2,9 +2,9 @@ import { type Result } from 'neverthrow';
 
 import { type UserDataError } from '../errors.js';
 import { type UserDataErasurePort } from '../ports.js';
+import { type LoggerPort } from './shared.js';
 import { type CategoryRegistry } from '../registry/registry.js';
 import { type ResolvedRedactors } from '../types.js';
-import { type LoggerPort } from './shared.js';
 
 export interface AnonymizeUserDataDeps {
   erasurePort: UserDataErasurePort;

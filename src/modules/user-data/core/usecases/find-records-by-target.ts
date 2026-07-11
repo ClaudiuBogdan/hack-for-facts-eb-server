@@ -1,9 +1,9 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { type UserDataError } from '../errors.js';
+import { requireKnownCategory, type RegisteredReadDeps } from './read-shared.js';
 import { toRecordView } from '../planners/shared.js';
 import { type RecordTarget, type RecordView } from '../types.js';
-import { requireKnownCategory, type RegisteredReadDeps } from './read-shared.js';
 
 export interface FindRecordsByTargetInput {
   ownerId: string;

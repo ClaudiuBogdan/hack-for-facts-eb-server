@@ -1,8 +1,6 @@
 import { err, type Result } from 'neverthrow';
 
 import { createActorNotAllowed, createNotFound, type UserDataError } from '../errors.js';
-import { planAnnotate } from '../planners/plan-annotate.js';
-import { type AnnotateCommand, type MutationResponse } from '../types.js';
 import {
   mapMutationOutcome,
   probeAndRateLimit,
@@ -10,6 +8,8 @@ import {
   type MutationActorInput,
   type MutationDeps,
 } from './shared.js';
+import { planAnnotate } from '../planners/plan-annotate.js';
+import { type AnnotateCommand, type MutationResponse } from '../types.js';
 
 export interface AnnotateRecordInput extends MutationActorInput {
   command: AnnotateCommand;

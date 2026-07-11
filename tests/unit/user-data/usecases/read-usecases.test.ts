@@ -14,6 +14,7 @@ import { getRecord } from '@/modules/user-data/core/usecases/get-record.js';
 import { listRecords } from '@/modules/user-data/core/usecases/list-records.js';
 import { syncRecords } from '@/modules/user-data/core/usecases/sync-records.js';
 
+import { logger, makeUsecaseHarness } from './harness.js';
 import {
   makePlannedMutation,
   makeReceiptClaim,
@@ -21,7 +22,6 @@ import {
 } from '../../../fixtures/user-data/index.js';
 import { expectErr, expectOk } from '../../../support/index.js';
 import { makeDefinition } from '../fixtures.js';
-import { logger, makeUsecaseHarness } from './harness.js';
 
 const seed = async (h: ReturnType<typeof makeUsecaseHarness>, suffix: number, target = false) => {
   const identity = makeRecordIdentity({

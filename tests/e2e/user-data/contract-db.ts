@@ -1,14 +1,8 @@
 import { execSync } from 'node:child_process';
 
 import { sql } from 'kysely';
-import { ok } from 'neverthrow';
 
 import { type UserDbClient } from '@/infra/database/client.js';
-import { type UserDataReadPort } from '@/modules/user-data/core/ports.js';
-import {
-  mapUserDataEventRow,
-  mapUserDataRecordRow,
-} from '@/modules/user-data/shell/repo/kysely-user-data-mutation-repo.js';
 
 export const isDockerAvailable = (): boolean => {
   try {
@@ -47,61 +41,3 @@ export const userDataStateCounts = async (
     receipts: Number(row.receipts),
   };
 };
-
-export const makeMutationContractReadHelpers = (
-  db: UserDbClient
-): Pick<UserDataReadPort, 'findByKey' | 'historyByRecord' | 'syncSince'> => ({
-  findByKey: async (ownerId, category, logicalKey) => {
-    const row = await db
-      .selectFrom('user_data_records')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .where('category', '=', category)
-      .where('logical_key', '=', logicalKey)
-      .executeTakeFirst();
-    return ok(row === undefined ? null : mapUserDataRecordRow(row));
-  },
-
-  historyByRecord: async (ownerId, recordId, page) => {
-    let query = db
-      .selectFrom('user_data_events')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .where('record_id', '=', recordId)
-      .orderBy('revision', 'desc')
-      .limit(page.limit + 1);
-    if (page.beforeRevision !== null)
-      query = query.where('revision', '<', String(page.beforeRevision));
-    const rows = await query.execute();
-    const items = rows.slice(0, page.limit).map(mapUserDataEventRow);
-    return ok({
-      items,
-      nextCursor: rows.length > page.limit ? String(items.at(-1)?.revision ?? '') : null,
-    });
-  },
-
-  syncSince: async (ownerId, cursor, limit) => {
-    let query = db
-      .selectFrom('user_data_records')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .where('last_event_seq', '>', cursor.lastSeq)
-      .orderBy('last_event_seq', 'asc')
-      .limit(limit);
-    if (cursor.cycleHighWater !== null)
-      query = query.where('last_event_seq', '<=', cursor.cycleHighWater);
-    if (cursor.category !== null) query = query.where('category', '=', cursor.category);
-    const [rows, highWater] = await Promise.all([
-      query.execute(),
-      db
-        .selectFrom('user_data_records')
-        .select(({ fn }) => fn.max<string>('last_event_seq').as('value'))
-        .where('owner_id', '=', ownerId)
-        .executeTakeFirstOrThrow(),
-    ]);
-    return ok({
-      items: rows.map(mapUserDataRecordRow),
-      ownerHighWater: highWater.value ?? '0',
-    });
-  },
-});

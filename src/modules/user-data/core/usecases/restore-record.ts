@@ -1,8 +1,6 @@
 import { err, type Result } from 'neverthrow';
 
 import { createNotFound, type UserDataError } from '../errors.js';
-import { planRestore } from '../planners/plan-restore.js';
-import { type MutationResponse, type RestoreCommand } from '../types.js';
 import {
   mapMutationOutcome,
   probeAndRateLimit,
@@ -11,6 +9,8 @@ import {
   type MutationActorInput,
   type MutationDeps,
 } from './shared.js';
+import { planRestore } from '../planners/plan-restore.js';
+import { type MutationResponse, type RestoreCommand } from '../types.js';
 
 export interface RestoreRecordInput extends MutationActorInput {
   command: RestoreCommand;

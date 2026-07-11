@@ -1,8 +1,6 @@
 import { err, type Result } from 'neverthrow';
 
 import { createActorNotAllowed, createNotFound, type UserDataError } from '../errors.js';
-import { planMigrate } from '../planners/plan-migrate.js';
-import { type MigrateCommand, type MutationResponse } from '../types.js';
 import {
   mapMutationOutcome,
   probeWithoutRateLimit,
@@ -10,6 +8,8 @@ import {
   type MaintenanceMutationDeps,
   type MutationActorInput,
 } from './shared.js';
+import { planMigrate } from '../planners/plan-migrate.js';
+import { type MigrateCommand, type MutationResponse } from '../types.js';
 
 export interface MigrateRecordInput extends MutationActorInput {
   command: MigrateCommand;
