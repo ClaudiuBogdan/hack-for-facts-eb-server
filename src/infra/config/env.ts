@@ -142,6 +142,11 @@ export const EnvSchema = Type.Object({
   NP_MAX_SEND_RPS: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
   NP_DESTINATION_FINGERPRINT_SECRET: Type.Optional(Type.String({ minLength: 1 })),
 
+  // User Data Store v2
+  USER_DATA_STORE_ENABLED: Type.Optional(Type.Boolean({ default: false })),
+  UD_RECONCILE_MINUTES: Type.Optional(Type.Integer({ default: 60, minimum: 1, maximum: 10080 })),
+  UD_RECEIPT_CLEANUP_CRON: Type.Optional(Type.String({ default: '0 4 * * *', minLength: 1 })),
+
   // Jobs (BullMQ)
   /** Number of concurrent workers per queue */
   JOBS_CONCURRENCY: Type.Optional(Type.Number({ default: 5, minimum: 1, maximum: 50 })),
@@ -334,6 +339,13 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['NP_MAX_SEND_RPS'] != null && env['NP_MAX_SEND_RPS'] !== ''
         ? Number.parseInt(env['NP_MAX_SEND_RPS'], 10)
         : undefined,
+    // User Data Store v2
+    USER_DATA_STORE_ENABLED: env['USER_DATA_STORE_ENABLED'] === 'true',
+    UD_RECONCILE_MINUTES:
+      env['UD_RECONCILE_MINUTES'] != null && env['UD_RECONCILE_MINUTES'] !== ''
+        ? Number.parseInt(env['UD_RECONCILE_MINUTES'], 10)
+        : 60,
+    UD_RECEIPT_CLEANUP_CRON: env['UD_RECEIPT_CLEANUP_CRON'] ?? '0 4 * * *',
     NP_DESTINATION_FINGERPRINT_SECRET: env['NP_DESTINATION_FINGERPRINT_SECRET'],
     // Jobs (BullMQ)
     JOBS_CONCURRENCY:
@@ -577,6 +589,11 @@ export const createConfig = (env: Env) => ({
     retentionBatchLimit: env.NP_RETENTION_BATCH_LIMIT ?? 500,
     maxSendRps: env.NP_MAX_SEND_RPS ?? env.RESEND_MAX_RPS ?? 2,
     destinationFingerprintSecret: env.NP_DESTINATION_FINGERPRINT_SECRET?.trim(),
+  },
+  userDataStore: {
+    enabled: env.USER_DATA_STORE_ENABLED ?? false,
+    reconcileMinutes: env.UD_RECONCILE_MINUTES ?? 60,
+    receiptCleanupCron: env.UD_RECEIPT_CLEANUP_CRON ?? '0 4 * * *',
   },
   learningProgress: {
     /** Campaign keys with enabled campaign-admin routes */

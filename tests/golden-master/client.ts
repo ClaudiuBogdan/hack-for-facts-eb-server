@@ -293,6 +293,11 @@ export async function getClient(): Promise<GoldenMasterClient> {
         maxSendRps: 2,
         destinationFingerprintSecret: undefined,
       },
+      userDataStore: {
+        enabled: false,
+        reconcileMinutes: 60,
+        receiptCleanupCron: '0 4 * * *',
+      },
       learningProgress: {
         campaignAdminEnabledCampaigns: [],
       },

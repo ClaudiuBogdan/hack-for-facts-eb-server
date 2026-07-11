@@ -24,6 +24,14 @@ import type {
   SubjectAuthorizationPort,
 } from '../modules/notification-platform/index.js';
 import type { KernelConfig } from '../modules/shared/index.js';
+import type {
+  CategoryDefinition,
+  IdGenerator,
+  MutationRateLimiterPort,
+  UserDataAdminReadPort,
+  UserDataMutationPort,
+  UserDataReadPort,
+} from '../modules/user-data/index.js';
 import type { UserEventRuntimeFactory } from '../modules/user-events/index.js';
 import type { FastifyServerOptions } from 'fastify';
 
@@ -67,6 +75,16 @@ export interface AppDeps {
     legacyOutboxReader?: LegacyOutboxReader;
     adminRoutesFactory?: PlatformAdminRoutesFactory;
   };
+  /** Optional User Data Store v2 composition overrides for integration tests. */
+  userDataStoreOverrides?: {
+    categories?: readonly CategoryDefinition[];
+    mutationPort?: UserDataMutationPort;
+    readPort?: UserDataReadPort;
+    adminReadPort?: UserDataAdminReadPort;
+    rateLimiter?: MutationRateLimiterPort;
+    ids?: IdGenerator;
+    adminPermissionAuthorizer?: CampaignAdminPermissionAuthorizer;
+  };
   /** Optional user event runtime factory for tests */
   userEventRuntimeFactory?: UserEventRuntimeFactory;
   /** Optional admin event runtime factory for tests */
@@ -101,6 +119,7 @@ export interface AppFeatureFlags {
   shouldStartNotificationWorkers: boolean;
   shouldInitializeNotificationDeliveryRuntime: boolean;
   shouldInitializeNotificationPlatform: boolean;
+  shouldInitializeUserDataStore: boolean;
   shouldInitializeUserEventRuntime: boolean;
   enabledCampaignAdminKeys: readonly string[];
   shouldEnablePublicDebateCorrespondence: boolean;
@@ -149,6 +168,7 @@ function buildFeatureFlags(deps: AppDeps): AppFeatureFlags {
     shouldStartNotificationWorkers;
   const shouldInitializeNotificationPlatform =
     config.notificationPlatform.enabled && hasBullmqRedisConfig && deps.userDb !== undefined;
+  const shouldInitializeUserDataStore = config.userDataStore.enabled;
   const shouldInitializeUserEventRuntime = shouldPublishLearningProgressUserEvents;
   const shouldEnablePublicDebateCorrespondence = deps.userDb !== undefined && config.email.enabled;
 
@@ -160,6 +180,7 @@ function buildFeatureFlags(deps: AppDeps): AppFeatureFlags {
     shouldStartNotificationWorkers,
     shouldInitializeNotificationDeliveryRuntime,
     shouldInitializeNotificationPlatform,
+    shouldInitializeUserDataStore,
     shouldInitializeUserEventRuntime,
     enabledCampaignAdminKeys: config.learningProgress.campaignAdminEnabledCampaigns,
     shouldEnablePublicDebateCorrespondence,
@@ -192,6 +213,24 @@ function validateBuildPlan(deps: AppDeps, features: AppFeatureFlags): void {
   if (config.notificationPlatform.enabled && deps.authProvider === undefined) {
     throw new Error(
       'Notification platform requires authProvider (Clerk authentication) when NOTIFICATION_PLATFORM_ENABLED=true.'
+    );
+  }
+
+  if (features.shouldInitializeUserDataStore && deps.userDb === undefined) {
+    throw new Error('User Data Store requires userDb when USER_DATA_STORE_ENABLED=true.');
+  }
+
+  if (features.shouldInitializeUserDataStore && deps.authProvider === undefined) {
+    throw new Error('User Data Store requires authProvider when USER_DATA_STORE_ENABLED=true.');
+  }
+
+  if (
+    features.shouldInitializeUserDataStore &&
+    deps.userDataStoreOverrides?.adminPermissionAuthorizer === undefined &&
+    (config.auth.clerkSecretKey === undefined || config.auth.clerkSecretKey.trim() === '')
+  ) {
+    throw new Error(
+      'User Data Store requires CLERK_SECRET_KEY for administrative authorization when USER_DATA_STORE_ENABLED=true.'
     );
   }
 

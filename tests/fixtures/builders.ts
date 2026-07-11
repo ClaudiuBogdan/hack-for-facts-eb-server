@@ -173,6 +173,11 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       maxSendRps: 2,
       destinationFingerprintSecret: undefined,
     },
+    userDataStore: {
+      enabled: false,
+      reconcileMinutes: 60,
+      receiptCleanupCron: '0 4 * * *',
+    },
     learningProgress: {
       campaignAdminEnabledCampaigns: [],
     },
@@ -207,6 +212,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       ...defaults.notificationPlatform,
       ...overrides.notificationPlatform,
     },
+    userDataStore: { ...defaults.userDataStore, ...overrides.userDataStore },
     learningProgress: { ...defaults.learningProgress, ...overrides.learningProgress },
     telemetry: { ...defaults.telemetry, ...overrides.telemetry },
   };
