@@ -88,6 +88,10 @@ export const QUEUE_NAMES = {
   NP_RECOVERY: 'np-platform-recovery',
   /** Applies notification-platform retention policy */
   NP_RETENTION: 'np-retention',
+  /** Deletes expired User Data Store idempotency receipts */
+  UD_RECEIPT_CLEANUP: 'ud-receipt-cleanup',
+  /** Reports User Data Store ledger inconsistencies */
+  UD_RECONCILE: 'ud-reconcile',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

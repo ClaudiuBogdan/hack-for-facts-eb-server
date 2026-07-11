@@ -33,6 +33,9 @@ const notification: UserDataAnonymizationAdminNotification = {
     advancedDatasetValueRowsDeleted: 12,
     insDatasetRequestsUpdated: 3,
     agentConversationsDeleted: 2,
+    userDataStoreRecords: 0,
+    userDataStoreEvents: 0,
+    userDataStoreReceipts: 0,
   },
 };
 

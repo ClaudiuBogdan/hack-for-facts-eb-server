@@ -13,6 +13,7 @@ import {
   type ReceiptClaim,
   type RecordIdentity,
   type RecordTarget,
+  type ReconciliationReport,
   type ResolvedRedactors,
   type UserDataEvent,
 } from './types.js';
@@ -89,6 +90,9 @@ export interface UserDataErasurePort {
     redactors: ResolvedRedactors;
     now: Date;
   }): Promise<Result<{ records: number; events: number; receipts: number }, UserDataError>>;
+}
+export interface UserDataReconciliationPort {
+  findViolations(input: { limit: number }): Promise<Result<ReconciliationReport, UserDataError>>;
 }
 export interface MutationRateLimiterPort {
   consume(

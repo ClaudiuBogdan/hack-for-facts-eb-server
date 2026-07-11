@@ -165,3 +165,21 @@ export interface ResolvedRedactors {
     >
   >;
 }
+
+export type ReconciliationViolationKind =
+  | 'revisionMismatch'
+  | 'afterImageMismatch'
+  | 'missingEvent'
+  | 'expiredReceipts';
+
+export interface ReconciliationViolation {
+  recordId: string;
+  kind: ReconciliationViolationKind;
+  /** Identifiers and revisions only. Payload and annotation content is forbidden. */
+  detail: string;
+}
+
+export interface ReconciliationReport {
+  checkedRecords: number;
+  violations: readonly ReconciliationViolation[];
+}

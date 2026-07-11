@@ -9,12 +9,14 @@ import {
   type UserDataErasurePort,
   type UserDataMutationPort,
   type UserDataReadPort,
+  type UserDataReconciliationPort,
 } from '@/modules/user-data/core/ports.js';
 import {
   type AdminRecordFilters,
   type CurrentRecord,
   type PlannedMutation,
   type ReceiptClaim,
+  type ReconciliationViolation,
   type ResolvedRedactors,
   type UserDataEvent,
 } from '@/modules/user-data/core/types.js';
@@ -41,7 +43,8 @@ type FakeMethod =
   | 'historyByRecord'
   | 'adminListByCategory'
   | 'adminHistoryByCategory'
-  | 'eraseOwner';
+  | 'eraseOwner'
+  | 'findViolations';
 
 export interface FakeReceipt {
   requesterId: string;
@@ -52,7 +55,12 @@ export interface FakeReceipt {
 }
 
 export interface FakeUserDataStore
-  extends UserDataMutationPort, UserDataReadPort, UserDataAdminReadPort, UserDataErasurePort {
+  extends
+    UserDataMutationPort,
+    UserDataReadPort,
+    UserDataAdminReadPort,
+    UserDataErasurePort,
+    UserDataReconciliationPort {
   records: KeyedStore<string, CurrentRecord>;
   events: KeyedStore<string, UserDataEvent>;
   receipts: KeyedStore<string, FakeReceipt>;
@@ -82,7 +90,7 @@ const redactAnnotations = (
   return Object.fromEntries(
     Object.entries(annotations).map(([namespace, annotation]) => [
       namespace,
-      categoryRedactors[namespace]?.(annotation) ?? annotation,
+      categoryRedactors[namespace]?.(annotation) ?? {},
     ])
   );
 };
@@ -410,6 +418,69 @@ export const makeFakeUserDataStore = (options: {
         if (receipts.delete(receiptKey(receipt))) receiptCount += 1;
       }
       return ok({ records: recordCount, events: eventCount, receipts: receiptCount });
+    },
+    findViolations: async ({ limit }) => {
+      const failure = fail<{
+        checkedRecords: number;
+        violations: readonly ReconciliationViolation[];
+      }>('findViolations');
+      if (failure !== undefined) return failure;
+      const candidates = records
+        .list()
+        .sort((left, right) => compareDecimal(right.lastEventSeq, left.lastEventSeq))
+        .slice(0, limit);
+      const violations: ReconciliationViolation[] = [];
+      for (const record of candidates) {
+        const recordEvents = events
+          .filter((event) => event.recordId === record.recordId)
+          .sort((left, right) => right.revision - left.revision);
+        const latest = recordEvents[0];
+        const maxRevision = latest?.revision;
+        if (maxRevision !== undefined && record.revision !== maxRevision) {
+          violations.push({
+            recordId: record.recordId,
+            kind: 'revisionMismatch',
+            detail: `recordId=${record.recordId} currentRevision=${String(record.revision)} maxEventRevision=${String(maxRevision)}`,
+          });
+        }
+        if (
+          latest !== undefined &&
+          (record.status !== (latest.operation === 'delete' ? 'deleted' : 'active') ||
+            record.schemaVersion !== latest.schemaVersion ||
+            JSON.stringify(record.payload) !== JSON.stringify(latest.payload) ||
+            JSON.stringify(record.annotations) !== JSON.stringify(latest.annotations))
+        ) {
+          violations.push({
+            recordId: record.recordId,
+            kind: 'afterImageMismatch',
+            detail: `recordId=${record.recordId} currentRevision=${String(record.revision)} latestEventRevision=${String(latest.revision)}`,
+          });
+        }
+        if (
+          !recordEvents.some(
+            (event) =>
+              event.eventSeq === record.lastEventSeq && event.eventId === record.lastEventId
+          )
+        ) {
+          violations.push({
+            recordId: record.recordId,
+            kind: 'missingEvent',
+            detail: `recordId=${record.recordId} revision=${String(record.revision)}`,
+          });
+        }
+      }
+      const cleanupAllowance = options.clock.now().getTime() - 7 * 24 * 60 * 60 * 1000;
+      const expiredReceipts = receipts.filter(
+        (receipt) => receipt.expiresAt.getTime() < cleanupAllowance
+      ).length;
+      if (expiredReceipts > 0) {
+        violations.push({
+          recordId: 'receipts',
+          kind: 'expiredReceipts',
+          detail: `expiredReceiptCount=${String(expiredReceipts)}`,
+        });
+      }
+      return ok({ checkedRecords: candidates.length, violations });
     },
     reset: () => {
       records.clear();

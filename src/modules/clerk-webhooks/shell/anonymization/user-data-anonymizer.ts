@@ -84,6 +84,9 @@ export interface UserDataAnonymizationSummary {
   insDatasetRequestsUpdated: number;
   agentConversationsDeleted: number;
   notificationPlatformRowsUpdated?: number;
+  userDataStoreRecords: number;
+  userDataStoreEvents: number;
+  userDataStoreReceipts: number;
 }
 
 export interface UserDataAnonymizationError {
@@ -116,6 +119,18 @@ export interface UserDataAnonymizerDeps {
   db: UserDbClient;
   logger: Logger;
   adminNotifier?: UserDataAnonymizationAdminNotifier;
+  userDataStoreEraser?: {
+    eraseOwner(input: {
+      ownerId: string;
+      anonymizedOwnerId: string;
+      now: Date;
+    }): Promise<
+      Result<
+        { records: number; events: number; receipts: number },
+        { type: string; message?: string }
+      >
+    >;
+  };
 }
 
 interface MutationResult {
@@ -809,8 +824,7 @@ const anonymizeNotificationPlatformRows = async (
 const anonymizeDeletedUserInTransaction = async (
   trx: Transaction<UserDatabase>,
   input: UserDataAnonymizationInput,
-  anonymizedUserId: string,
-  log: Logger
+  anonymizedUserId: string
 ): Promise<UserDataAnonymizationSummary> => {
   const now = new Date();
   const matchingUserIds = [input.userId, anonymizedUserId];
@@ -1025,26 +1039,10 @@ const anonymizeDeletedUserInTransaction = async (
     insDatasetRequestsUpdated: toMutationCount(insDatasetRequestsUpdatedResult),
     agentConversationsDeleted: toMutationCount(agentConversationsDeletedResult),
     notificationPlatformRowsUpdated,
+    userDataStoreRecords: 0,
+    userDataStoreEvents: 0,
+    userDataStoreReceipts: 0,
   };
-
-  await insertAuditRow(trx, {
-    userIdHash: hashValue(input.userId),
-    anonymizedUserId,
-    svixId: input.svixId,
-    eventType: input.eventType,
-    eventTimestamp: input.eventTimestamp,
-    completedAt: now,
-    summary,
-  });
-
-  log.info(
-    {
-      svixId: input.svixId,
-      anonymizedUserId,
-      summary,
-    },
-    'Clerk deleted user data anonymization transaction completed'
-  );
 
   return summary;
 };
@@ -1076,16 +1074,59 @@ export const makeUserDataAnonymizer = (deps: UserDataAnonymizerDeps): UserDataAn
           startedAt: new Date(),
         });
 
-        const summary = await deps.db.transaction().execute((trx) =>
+        const legacySummary = await deps.db.transaction().execute((trx) =>
           anonymizeDeletedUserInTransaction(
             trx,
             {
               ...input,
               userId,
             },
-            anonymizedUserId,
-            log
+            anonymizedUserId
           )
+        );
+
+        const userDataStoreResult =
+          deps.userDataStoreEraser === undefined
+            ? ok({ records: 0, events: 0, receipts: 0 })
+            : await deps.userDataStoreEraser.eraseOwner({
+                ownerId: userId,
+                anonymizedOwnerId: anonymizedUserId,
+                now: new Date(),
+              });
+        if (userDataStoreResult.isErr()) {
+          const eraserMessage = userDataStoreResult.error.message;
+          log.error(
+            { userIdHash, errorType: userDataStoreResult.error.type },
+            'Failed to erase User Data Store during Clerk deletion'
+          );
+          return err({
+            type: 'DatabaseError',
+            message: `Failed to erase User Data Store: ${userDataStoreResult.error.type}${eraserMessage === undefined ? '' : `: ${eraserMessage}`}`,
+            retryable: true,
+          });
+        }
+        const summary: UserDataAnonymizationSummary = {
+          ...legacySummary,
+          userDataStoreRecords: userDataStoreResult.value.records,
+          userDataStoreEvents: userDataStoreResult.value.events,
+          userDataStoreReceipts: userDataStoreResult.value.receipts,
+        };
+        const completedAt = new Date();
+        await deps.db.transaction().execute((trx) =>
+          insertAuditRow(trx, {
+            userIdHash,
+            anonymizedUserId,
+            svixId: input.svixId,
+            eventType: input.eventType,
+            eventTimestamp: input.eventTimestamp,
+            completedAt,
+            summary,
+          })
+        );
+
+        log.info(
+          { svixId: input.svixId, anonymizedUserId, summary },
+          'Clerk deleted user data anonymization completed'
         );
 
         notifyAdminAnonymizationCompleted({
@@ -1097,7 +1138,7 @@ export const makeUserDataAnonymizer = (deps: UserDataAnonymizerDeps): UserDataAn
             svixId: input.svixId,
             eventType: input.eventType,
             eventTimestamp: input.eventTimestamp,
-            completedAt: new Date(),
+            completedAt,
             summary,
           },
         });

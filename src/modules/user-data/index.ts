@@ -20,7 +20,17 @@ export { makeUserDataMutationRepo } from './shell/repo/kysely-user-data-mutation
 export { makeUserDataReadRepo } from './shell/repo/kysely-user-data-read-repo.js';
 export { makeUserDataAdminReadRepo } from './shell/repo/kysely-user-data-admin-read-repo.js';
 export { makeUserDataErasureRepo } from './shell/repo/kysely-user-data-erasure-repo.js';
+export { makeUserDataReconciliationRepo } from './shell/repo/kysely-user-data-reconciliation-repo.js';
 export { makeRedisMutationRateLimiter } from './shell/repo/redis-mutation-rate-limiter.js';
+export { makeUserDataStoreEraser } from './shell/erasure/user-data-store-eraser.js';
+export {
+  makeUserDataMaintenanceRuntime,
+  processUserDataReceiptCleanup,
+  processUserDataReconciliation,
+  type UserDataMaintenanceRuntime,
+  type UserDataMaintenanceRuntimeFactory,
+  type UserDataMaintenanceRuntimeOptions,
+} from './shell/jobs/maintenance-runtime.js';
 export {
   makeUserDataOwnerRoutes,
   type MakeUserDataOwnerRoutesDeps,

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { err } from 'neverthrow';
 import pinoLogger from 'pino';
 import { describe, expect, it } from 'vitest';
 
@@ -8,9 +9,18 @@ import {
   makeUserDataAnonymizer,
   type UserDataAnonymizationAdminNotification,
 } from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
+import {
+  ALL_USER_DATA_CATEGORIES,
+  makeCategoryRegistry,
+  makeUserDataErasureRepo,
+  makeUserDataMutationRepo,
+  makeUserDataStoreEraser,
+} from '@/modules/user-data/index.js';
 
 import { dockerAvailable } from './setup.js';
+import { makePlannedMutation, makeReceiptClaim } from '../fixtures/user-data/index.js';
 import { getTestClients } from '../infra/test-db.js';
+import { expectOk, makeTestClock } from '../support/index.js';
 
 describe('User data anonymizer', () => {
   it('anonymizes user-owned PII and remains idempotent', async ({ skip }) => {
@@ -21,9 +31,14 @@ describe('User data anonymizer', () => {
     const { userDb } = getTestClients();
     const logger = pinoLogger({ level: 'silent' });
     const adminNotifications: UserDataAnonymizationAdminNotification[] = [];
+    const registry = expectOk(makeCategoryRegistry(ALL_USER_DATA_CATEGORIES));
     const anonymizer = makeUserDataAnonymizer({
       db: userDb,
       logger,
+      userDataStoreEraser: makeUserDataStoreEraser({
+        erasurePort: makeUserDataErasureRepo({ db: userDb }),
+        registry,
+      }),
       adminNotifier: {
         async notifyCompleted(input) {
           adminNotifications.push(input);
@@ -637,6 +652,63 @@ describe('User data anonymizer', () => {
       })
       .execute();
 
+    const userDataClock = makeTestClock(new Date());
+    const userDataMutation = makeUserDataMutationRepo({ db: userDb, clock: userDataClock });
+    const firstV2RecordId = randomUUID();
+    const secondV2RecordId = randomUUID();
+    expectOk(
+      await userDataMutation.commit(
+        makePlannedMutation({
+          operation: 'create',
+          identity: {
+            ownerId: userId,
+            category: 'funky.interaction',
+            logicalKey: `funky:interaction:${suffix}`,
+          },
+          recordId: firstV2RecordId,
+          eventId: randomUUID(),
+          receipt: makeReceiptClaim({
+            requesterId: userId,
+            idempotencyKeyHash: `v2-funky-${suffix}`,
+            canonicalRequestHash: `v2-funky-request-${suffix}`,
+          }),
+          afterImage: {
+            status: 'active',
+            payload: { private: userId },
+            annotations: { review: { private: userId } },
+            schemaVersion: 1,
+            schemaHash: ALL_USER_DATA_CATEGORIES[0].schemaVersions[0]!.schemaHash,
+          },
+        })
+      )
+    );
+    expectOk(
+      await userDataMutation.commit(
+        makePlannedMutation({
+          operation: 'create',
+          identity: {
+            ownerId: userId,
+            category: 'learning.progress',
+            logicalKey: `learning:${suffix}`,
+          },
+          recordId: secondV2RecordId,
+          eventId: randomUUID(),
+          receipt: makeReceiptClaim({
+            requesterId: userId,
+            idempotencyKeyHash: `v2-learning-${suffix}`,
+            canonicalRequestHash: `v2-learning-request-${suffix}`,
+          }),
+          afterImage: {
+            status: 'active',
+            payload: { private: userId },
+            annotations: null,
+            schemaVersion: 1,
+            schemaHash: ALL_USER_DATA_CATEGORIES[1].schemaVersions[0]!.schemaHash,
+          },
+        })
+      )
+    );
+
     const firstResult = await anonymizer.anonymizeDeletedUser({
       userId,
       svixId: `svix-delete-${suffix}`,
@@ -646,6 +718,11 @@ describe('User data anonymizer', () => {
     expect(firstResult.isOk()).toBe(true);
     if (firstResult.isOk()) {
       expect(firstResult.value.agentConversationsDeleted).toBe(1);
+      expect(firstResult.value).toMatchObject({
+        userDataStoreRecords: 2,
+        userDataStoreEvents: 2,
+        userDataStoreReceipts: 2,
+      });
     }
 
     const replayResult = await anonymizer.anonymizeDeletedUser({
@@ -655,6 +732,45 @@ describe('User data anonymizer', () => {
       eventTimestamp: Date.now(),
     });
     expect(replayResult.isOk()).toBe(true);
+    if (replayResult.isOk()) {
+      expect(replayResult.value).toMatchObject({
+        userDataStoreRecords: 0,
+        userDataStoreEvents: 0,
+        userDataStoreReceipts: 0,
+      });
+    }
+
+    const v2Records = await userDb
+      .selectFrom('user_data_records')
+      .selectAll()
+      .where('record_id', 'in', [firstV2RecordId, secondV2RecordId])
+      .orderBy('category')
+      .execute();
+    expect(v2Records).toHaveLength(2);
+    expect(v2Records.every((record) => record.owner_id === anonymizedUserId)).toBe(true);
+    expect(v2Records.every((record) => JSON.stringify(record.payload) === '{}')).toBe(true);
+    expect(v2Records.find((record) => record.record_id === firstV2RecordId)?.annotations).toEqual({
+      review: {},
+    });
+    expect(v2Records.every((record) => record.privacy_redacted_at !== null)).toBe(true);
+
+    const v2Events = await userDb
+      .selectFrom('user_data_events')
+      .selectAll()
+      .where('record_id', 'in', [firstV2RecordId, secondV2RecordId])
+      .execute();
+    expect(v2Events).toHaveLength(2);
+    expect(v2Events.every((event) => event.owner_id === anonymizedUserId)).toBe(true);
+    expect(v2Events.every((event) => JSON.stringify(event.payload) === '{}')).toBe(true);
+    expect(v2Events.every((event) => event.client_occurred_at === null)).toBe(true);
+    expect(v2Events.every((event) => event.source_event_id === null)).toBe(true);
+    expect(v2Events.every((event) => event.privacy_redacted_at !== null)).toBe(true);
+    const v2Receipts = await userDb
+      .selectFrom('user_data_idempotency_receipts')
+      .selectAll()
+      .where('requester_id', '=', userId)
+      .execute();
+    expect(v2Receipts).toEqual([]);
 
     const rowsWithOriginalUserId = await userDb
       .selectFrom('notifications')
@@ -979,5 +1095,34 @@ describe('User data anonymizer', () => {
     expect(adminNotifications[0]?.userIdHash).not.toBe(userId);
     expect(adminNotifications[0]?.anonymizedUserId).toBe(anonymizedUserId);
     expect(JSON.stringify(adminNotifications)).not.toContain(userId);
+  });
+
+  it('fails the anonymization when the User Data Store eraser fails so Clerk can retry', async ({
+    skip,
+  }) => {
+    if (!dockerAvailable) skip();
+    const { userDb } = getTestClients();
+    let eraserCalls = 0;
+    const anonymizer = makeUserDataAnonymizer({
+      db: userDb,
+      logger: pinoLogger({ level: 'silent' }),
+      userDataStoreEraser: {
+        eraseOwner: async () => {
+          eraserCalls += 1;
+          return err({ type: 'DatabaseError', message: 'v2 unavailable' });
+        },
+      },
+    });
+
+    const result = await anonymizer.anonymizeDeletedUser({
+      userId: `user-v2-failure-${randomUUID()}`,
+      svixId: `svix-v2-failure-${randomUUID()}`,
+      eventType: 'user.deleted',
+      eventTimestamp: Date.now(),
+    });
+
+    expect(eraserCalls).toBe(1);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) expect(result.error.message).toContain('v2 unavailable');
   });
 });

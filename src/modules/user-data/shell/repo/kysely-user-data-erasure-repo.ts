@@ -18,7 +18,7 @@ const redactAnnotations = (
   return Object.fromEntries(
     Object.entries(annotations).map(([namespace, annotation]) => [
       namespace,
-      namespaceRedactors[namespace]?.(annotation) ?? annotation,
+      namespaceRedactors[namespace]?.(annotation) ?? {},
     ])
   );
 };
