@@ -69,6 +69,26 @@ anonymizer and keeps retained related rows joinable without the original Clerk u
 | `notification_audit_log`               | User/actor IDs, free-text reason, and structured audit details                                                                    | Replace matching `user_id` and `actor` with the deterministic anonymized ID; clear reason and replace details with `{}`                                                                                                                       | Preserve redacted lifecycle/action audit                                                                |
 | `UserDataAnonymizationAudit`           | anonymization execution evidence                                                                                                  | Store user ID hash, anonymized user ID, first/latest Svix IDs, event type/timestamp, run count, and summary                                                                                                                                   | Preserve non-PII audit trail                                                                            |
 
+## User Data Store v2
+
+The v2 store is erased through the verified Clerk `user.deleted` flow after the legacy-table
+transaction succeeds. Its erasure runs in a separate idempotent transaction; a failure fails the
+webhook handling so Clerk retries rather than silently leaving v2 data behind.
+
+| Category            | Current record treatment                                                                                                          | Event treatment                                                                                                                                    | Receipt treatment                                             |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------ |
+| `funky.interaction` | `owner_id` → deterministic pseudonym; payload → the category v1 redactor (`{}`); annotations → each registered namespace redactor | Same owner/payload/annotation treatment; `client_occurred_at`, `source_event_id`, and `source_occurred_at` → `NULL`; `privacy_redacted_at` stamped | Delete every receipt whose `requester_id` is the deleted user |
+| `learning.progress` | `owner_id` → deterministic pseudonym; payload → the category v1 redactor (`{}`); annotations → each registered namespace redactor | Same owner/payload/annotation treatment; `client_occurred_at`, `source_event_id`, and `source_occurred_at` → `NULL`; `privacy_redacted_at` stamped | Delete every receipt whose `requester_id` is the deleted user |
+
+The event ledger remains append-only for ordinary application code. The erasure transaction sets
+the local `app.user_data_maintenance` GUC; the trigger permits exactly the privacy-redaction column
+set above and still rejects event deletion or changes to immutable identity/revision fields.
+
+**A category MUST have a field-treatment row in this section before it is enabled.** At launch the
+two categories declare no annotation namespaces; when a namespace is introduced, its redactor and
+field treatment must be reviewed here before deployment. Unknown persisted namespaces are
+fail-closed to `{}` by the erasure adapter.
+
 ## Soft Delete vs Hard Delete
 
 Soft delete is used when a durable product object may still be needed for

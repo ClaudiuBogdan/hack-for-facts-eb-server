@@ -322,11 +322,16 @@ import {
   ALL_USER_DATA_CATEGORIES,
   makeCategoryRegistry,
   makeRedisMutationRateLimiter,
+  makeUserDataErasureRepo,
+  makeUserDataMaintenanceRuntime,
   makeUserDataAdminReadRepo,
   makeUserDataAdminRoutes,
   makeUserDataMutationRepo,
   makeUserDataOwnerRoutes,
   makeUserDataReadRepo,
+  makeUserDataReconciliationRepo,
+  makeUserDataStoreEraser,
+  type CategoryRegistry,
   type MutationRateLimiterPort,
 } from '../modules/user-data/index.js';
 import {
@@ -1251,9 +1256,26 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       logger: repoLogger,
       campaignSubscriptionStatsInvalidator: campaignSubscriptionStatsCacheInvalidator,
     });
+    const userDataStoreOverrides = deps.userDataStoreOverrides;
+    let userDataStoreRegistry: CategoryRegistry | undefined;
+    let userDataStoreEraser: ReturnType<typeof makeUserDataStoreEraser> | undefined;
+    if (shouldInitializeUserDataStore) {
+      const registryResult = makeCategoryRegistry(
+        userDataStoreOverrides?.categories ?? ALL_USER_DATA_CATEGORIES
+      );
+      if (registryResult.isErr()) {
+        throw new Error(`User Data Store category registry is invalid: ${registryResult.error}`);
+      }
+      userDataStoreRegistry = registryResult.value;
+      userDataStoreEraser = makeUserDataStoreEraser({
+        erasurePort: userDataStoreOverrides?.erasurePort ?? makeUserDataErasureRepo({ db: userDb }),
+        registry: userDataStoreRegistry,
+      });
+    }
     const userDataAnonymizer = makeUserDataAnonymizer({
       db: userDb,
       logger: repoLogger,
+      ...(userDataStoreEraser === undefined ? {} : { userDataStoreEraser }),
       ...(config.email.enabled
         ? {
             adminNotifier: makeUserDataAnonymizationAdminEmailNotifier({
@@ -1692,14 +1714,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     // Setup User Data Store v2 (feature-gated REST surface)
     // ───────────────────────────────────────────────────────────────────────
     if (shouldInitializeUserDataStore) {
-      const overrides = deps.userDataStoreOverrides;
-      const registryResult = makeCategoryRegistry(
-        overrides?.categories ?? ALL_USER_DATA_CATEGORIES
-      );
-      if (registryResult.isErr()) {
-        throw new Error(`User Data Store category registry is invalid: ${registryResult.error}`);
-      }
-      const registry = registryResult.value;
+      const overrides = userDataStoreOverrides;
+      const registry = userDataStoreRegistry;
+      if (registry === undefined) throw new Error('User Data Store registry was not initialized');
       const logger = makeUserDataLogger(repoLogger);
       const mutationPort =
         overrides?.mutationPort ?? makeUserDataMutationRepo({ db: userDb, clock: systemClock });
@@ -1755,6 +1772,30 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       };
       await app.register(makeUserDataOwnerRoutes(routeDeps));
       await app.register(makeUserDataAdminRoutes({ ...routeDeps, permissionAuthorizer }));
+
+      if (hasBullmqRedisConfig) {
+        const reconciliationPort =
+          overrides?.reconciliationPort ??
+          makeUserDataReconciliationRepo({ db: userDb, clock: systemClock });
+        const runtimeFactory =
+          overrides?.maintenanceRuntimeFactory ?? makeUserDataMaintenanceRuntime;
+        const maintenanceRuntime = await runtimeFactory({
+          redisUrl: config.jobs.redisUrl ?? '',
+          bullmqPrefix: config.jobs.prefix,
+          mutationPort,
+          reconciliationPort,
+          clock: systemClock,
+          logger: repoLogger,
+          config: {
+            receiptCleanupCron: config.userDataStore.receiptCleanupCron,
+            reconcileMinutes: config.userDataStore.reconcileMinutes,
+          },
+          ...(config.jobs.redisPassword === undefined
+            ? {}
+            : { redisPassword: config.jobs.redisPassword }),
+        });
+        app.addHook('onClose', async () => maintenanceRuntime.stop());
+      }
     }
 
     if (notificationDeliveryRuntime?.composeJobScheduler !== undefined) {

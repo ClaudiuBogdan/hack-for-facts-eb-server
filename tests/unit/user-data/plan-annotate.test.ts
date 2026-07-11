@@ -32,6 +32,7 @@ describe('planAnnotate', () => {
     const plan = expectOk(planAnnotate(resolveDefinition(), current, command, ctx(actor)));
     expect(plan.afterImage.payload).toBe(current.payload);
     expect(plan.nextRevision).toBe(4);
+    expect(plan.actor).toEqual(actor);
   });
 
   it.each([

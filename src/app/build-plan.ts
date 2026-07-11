@@ -29,8 +29,11 @@ import type {
   IdGenerator,
   MutationRateLimiterPort,
   UserDataAdminReadPort,
+  UserDataErasurePort,
+  UserDataMaintenanceRuntimeFactory,
   UserDataMutationPort,
   UserDataReadPort,
+  UserDataReconciliationPort,
 } from '../modules/user-data/index.js';
 import type { UserEventRuntimeFactory } from '../modules/user-events/index.js';
 import type { FastifyServerOptions } from 'fastify';
@@ -81,6 +84,9 @@ export interface AppDeps {
     mutationPort?: UserDataMutationPort;
     readPort?: UserDataReadPort;
     adminReadPort?: UserDataAdminReadPort;
+    erasurePort?: UserDataErasurePort;
+    reconciliationPort?: UserDataReconciliationPort;
+    maintenanceRuntimeFactory?: UserDataMaintenanceRuntimeFactory;
     rateLimiter?: MutationRateLimiterPort;
     ids?: IdGenerator;
     adminPermissionAuthorizer?: CampaignAdminPermissionAuthorizer;

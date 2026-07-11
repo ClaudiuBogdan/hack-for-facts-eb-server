@@ -44,6 +44,7 @@ const makeHarness = async (
   options: {
     enabled?: boolean;
     categories?: readonly CategoryDefinition[];
+    jobsRedis?: boolean;
   } = {}
 ) => {
   const auth = createTestAuthProvider();
@@ -52,6 +53,8 @@ const makeHarness = async (
   const store = makeFakeUserDataStore({ clock, ids });
   const limiter = makeFakeMutationRateLimiter();
   const permissionCalls: { userId: string; permissionName: string }[] = [];
+  let maintenanceRuntimeCalls = 0;
+  let maintenanceRuntimeStops = 0;
   const app = await createApp({
     fastifyOptions: { logger: false },
     deps: {
@@ -60,6 +63,18 @@ const makeHarness = async (
       userDb: makeFakeKyselyDb(),
       datasetRepo: makeFakeDatasetRepo(),
       authProvider: auth.provider,
+      notificationDeliveryRuntimeFactory: async () => ({
+        collectQueue: {} as never,
+        composeJobScheduler: {} as never,
+        stop: async () => undefined,
+      }),
+      userEventRuntimeFactory: async () => ({
+        publisher: {
+          publish: async () => undefined,
+          publishMany: async () => undefined,
+        },
+        stop: async () => undefined,
+      }),
       userDataStoreOverrides: {
         categories: options.categories ?? ALL_USER_DATA_CATEGORIES,
         mutationPort: store,
@@ -67,6 +82,15 @@ const makeHarness = async (
         adminReadPort: store,
         rateLimiter: limiter,
         ids,
+        reconciliationPort: store,
+        maintenanceRuntimeFactory: async () => {
+          maintenanceRuntimeCalls += 1;
+          return {
+            stop: async () => {
+              maintenanceRuntimeStops += 1;
+            },
+          };
+        },
         adminPermissionAuthorizer: {
           hasPermission: async (input) => {
             permissionCalls.push(input);
@@ -78,6 +102,22 @@ const makeHarness = async (
         },
       },
       config: makeTestConfig({
+        auth: {
+          ...makeTestConfig().auth,
+          clerkSecretKey: options.jobsRedis === true ? 'clerk-test-secret' : undefined,
+        },
+        email: {
+          ...makeTestConfig().email,
+          apiKey: options.jobsRedis === true ? 'resend-test-key' : undefined,
+        },
+        jobs: {
+          redisUrl: options.jobsRedis === true ? 'redis://jobs.test' : undefined,
+          redisPassword: undefined,
+          concurrency: 5,
+          prefix: 'test:jobs',
+          notificationRecoverySweepIntervalMinutes: 15,
+          notificationStuckSendingThresholdMinutes: 15,
+        },
         userDataStore: {
           enabled: options.enabled ?? true,
           reconcileMinutes: 60,
@@ -86,7 +126,15 @@ const makeHarness = async (
       }),
     },
   });
-  return { app, auth, store, limiter, permissionCalls };
+  return {
+    app,
+    auth,
+    store,
+    limiter,
+    permissionCalls,
+    getMaintenanceRuntimeCalls: () => maintenanceRuntimeCalls,
+    getMaintenanceRuntimeStops: () => maintenanceRuntimeStops,
+  };
 };
 
 const headers = (auth: ReturnType<typeof createTestAuthProvider>, user: 'user1' | 'user2') => ({
@@ -105,6 +153,20 @@ describe('User Data Store v2 REST integration', () => {
     app = harness.app;
     expect((await app.inject({ method: 'GET', url: '/api/user-data/sync' })).statusCode).toBe(404);
     expect(app.printRoutes()).not.toContain('user-data');
+    expect(harness.getMaintenanceRuntimeCalls()).toBe(0);
+  });
+
+  it('starts maintenance only when the module and BullMQ Redis are both available', async () => {
+    const withoutRedis = await makeHarness();
+    expect(withoutRedis.getMaintenanceRuntimeCalls()).toBe(0);
+    await withoutRedis.app.close();
+
+    const withRedis = await makeHarness({ jobsRedis: true });
+    app = withRedis.app;
+    expect(withRedis.getMaintenanceRuntimeCalls()).toBe(1);
+    await app.close();
+    app = undefined;
+    expect(withRedis.getMaintenanceRuntimeStops()).toBe(1);
   });
 
   it('fails enabled boot on registry hash drift', async () => {
