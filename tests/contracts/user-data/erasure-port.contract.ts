@@ -6,7 +6,11 @@ import {
   type UserDataReadPort,
 } from '@/modules/user-data/core/ports.js';
 
-import { makePlannedMutation, makeReceiptClaim } from '../../fixtures/user-data/index.js';
+import {
+  makePlannedMutation,
+  makeReceiptClaim,
+  userDataRecordId,
+} from '../../fixtures/user-data/index.js';
 import { expectOk, type PortContractCases } from '../../support/index.js';
 
 export type ErasureContractPort = UserDataErasurePort & UserDataMutationPort & UserDataReadPort;
@@ -58,7 +62,10 @@ export const erasurePortContractCases: PortContractCases<ErasureContractPort> = 
       privacyRedactedAt: now,
     });
     const history = expectOk(
-      await port.historyByRecord('anonymous-1', 'record-id-1', { limit: 10, beforeRevision: null })
+      await port.historyByRecord('anonymous-1', userDataRecordId(1), {
+        limit: 10,
+        beforeRevision: null,
+      })
     );
     expect(history.items[0]).toMatchObject({
       payload: { keep: true },

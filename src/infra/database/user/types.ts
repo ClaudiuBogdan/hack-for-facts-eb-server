@@ -5,6 +5,7 @@ import type { DeliveryStatus } from '@/common/types/index.js';
 // Helper for timestamps which can be strings or Dates depending on driver config
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export type GeneratedTimestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+export type BigIntColumn = ColumnType<string, string | number, string | number>;
 
 // Short Links Table
 export interface ShortLinks {
@@ -597,6 +598,82 @@ export interface NotificationAuditLog {
   >;
 }
 
+export interface UserDataRecords {
+  record_id: string;
+  owner_id: string;
+  category: string;
+  logical_key: string;
+  target_type: string | null;
+  target_id: string | null;
+  schema_version: number;
+  schema_hash: string;
+  revision: BigIntColumn;
+  status: 'active' | 'deleted';
+  payload: JSONColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null,
+    Record<string, unknown> | string | null
+  >;
+  annotations: JSONColumnType<
+    Record<string, Record<string, unknown>> | null,
+    Record<string, Record<string, unknown>> | string | null,
+    Record<string, Record<string, unknown>> | string | null
+  >;
+  last_event_seq: BigIntColumn;
+  last_event_id: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  deleted_at: Timestamp | null;
+  privacy_redacted_at: Timestamp | null;
+}
+
+export interface UserDataEvents {
+  event_seq: BigIntColumn;
+  event_id: string;
+  record_id: string;
+  owner_id: string;
+  category: string;
+  logical_key: string;
+  target_type: string | null;
+  target_id: string | null;
+  revision: BigIntColumn;
+  operation: 'create' | 'replace' | 'annotate' | 'delete' | 'restore' | 'migrate' | 'legacy_import';
+  scope: 'payload' | 'annotation';
+  annotation_namespace: string | null;
+  schema_version: number;
+  schema_hash: string;
+  payload: JSONColumnType<
+    Record<string, unknown> | null,
+    Record<string, unknown> | string | null,
+    Record<string, unknown> | string | null
+  >;
+  annotations: JSONColumnType<
+    Record<string, Record<string, unknown>> | null,
+    Record<string, Record<string, unknown>> | string | null,
+    Record<string, Record<string, unknown>> | string | null
+  >;
+  actor_type: 'owner' | 'system' | 'admin';
+  actor_id: string | null;
+  actor_reason: string | null;
+  provenance: 'live' | 'legacy';
+  integrity: 'verified' | 'unverified';
+  recorded_at: Timestamp;
+  client_occurred_at: Timestamp | null;
+  source_event_id: string | null;
+  source_occurred_at: Timestamp | null;
+  privacy_redacted_at: Timestamp | null;
+}
+
+export interface UserDataIdempotencyReceipts {
+  requester_id: string;
+  idempotency_key_hash: string;
+  canonical_request_hash: string;
+  event_id: string;
+  event_seq: BigIntColumn;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+}
+
 // Database Schema Interface
 // Note: Keys must be lowercase to match PostgreSQL's default identifier handling.
 // PostgreSQL folds unquoted identifiers to lowercase, so CREATE TABLE NotificationsOutbox
@@ -631,4 +708,7 @@ export interface UserDatabase {
   notification_digest_batches: NotificationDigestBatches;
   notification_digest_members: NotificationDigestMembers;
   notification_audit_log: NotificationAuditLog;
+  user_data_records: UserDataRecords;
+  user_data_events: UserDataEvents;
+  user_data_idempotency_receipts: UserDataIdempotencyReceipts;
 }

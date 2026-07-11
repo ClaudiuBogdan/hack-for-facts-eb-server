@@ -8,6 +8,7 @@ type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
 const ADVANCED_MAP_DATASET_LOCK_NAMESPACE = 20_260_409;
 const LEARNING_PROGRESS_AUTO_REVIEW_REUSE_LOCK_NAMESPACE = 20_260_416;
 const CAMPAIGN_ENTITY_CONFIG_LOCK_NAMESPACE = 20_260_418;
+const USER_DATA_OWNER_LOCK_NAMESPACE = 20_260_711;
 
 function normalizeDatasetIds(datasetIds: readonly string[]): string[] {
   return Array.from(
@@ -72,6 +73,19 @@ export async function acquireCampaignEntityConfigTransactionLock(
     select pg_advisory_xact_lock(
       ${CAMPAIGN_ENTITY_CONFIG_LOCK_NAMESPACE},
       hashtext(${normalizedIdentity})
+    )
+  `.execute(db);
+}
+
+export async function acquireUserDataOwnerLock(
+  db: UserDbConnection,
+  ownerId: string
+): Promise<void> {
+  // Hash collisions only over-serialize otherwise independent owners.
+  await sql`
+    select pg_advisory_xact_lock(
+      ${USER_DATA_OWNER_LOCK_NAMESPACE},
+      hashtext(${ownerId})
     )
   `.execute(db);
 }

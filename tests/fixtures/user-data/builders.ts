@@ -5,6 +5,11 @@ import {
   type RecordIdentity,
 } from '@/modules/user-data/core/types.js';
 
+export const userDataRecordId = (suffix: number): string =>
+  `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`;
+export const userDataEventId = (suffix: number): string =>
+  `10000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`;
+
 export const makeRecordIdentity = (overrides: Partial<RecordIdentity> = {}): RecordIdentity => ({
   ownerId: 'owner-1',
   category: 'test.category',
@@ -33,8 +38,8 @@ export const makePlannedMutation = (
     annotationNamespace:
       overrides.annotationNamespace ?? (operation === 'annotate' ? 'review' : null),
     identity: overrides.identity ?? makeRecordIdentity(),
-    recordId: overrides.recordId ?? 'record-id-1',
-    eventId: overrides.eventId ?? `event-${String(expectedRevision + 1)}`,
+    recordId: overrides.recordId ?? userDataRecordId(1),
+    eventId: overrides.eventId ?? userDataEventId(expectedRevision + 1),
     target: overrides.target ?? null,
     expectedRevision,
     nextRevision: overrides.nextRevision ?? expectedRevision + 1,

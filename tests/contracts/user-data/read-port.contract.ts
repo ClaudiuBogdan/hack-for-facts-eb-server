@@ -9,6 +9,8 @@ import {
   makePlannedMutation,
   makeReceiptClaim,
   makeRecordIdentity,
+  userDataEventId,
+  userDataRecordId,
 } from '../../fixtures/user-data/index.js';
 import { expectOk, type PortContractCases } from '../../support/index.js';
 
@@ -30,8 +32,8 @@ const create = async (
       makePlannedMutation({
         operation: 'create',
         identity,
-        recordId: `record-id-${String(suffix)}`,
-        eventId: `event-${String(suffix)}`,
+        recordId: userDataRecordId(suffix),
+        eventId: userDataEventId(suffix),
         receipt: makeReceiptClaim({
           requesterId: ownerId,
           idempotencyKeyHash: `key-${ownerId}-${String(suffix)}`,
@@ -49,13 +51,13 @@ export const readPortContractCases: PortContractCases<ReadContractPort> = ({ get
     const port = getPort();
     await create(port, 1);
     expect(expectOk(await port.findByKey('owner-1', 'test.category', 'record:1'))?.recordId).toBe(
-      'record-id-1'
+      userDataRecordId(1)
     );
-    expect(expectOk(await port.findById('owner-1', 'record-id-1'))?.identity.ownerId).toBe(
+    expect(expectOk(await port.findById('owner-1', userDataRecordId(1)))?.identity.ownerId).toBe(
       'owner-1'
     );
     expect(expectOk(await port.findByKey('other-owner', 'test.category', 'record:1'))).toBeNull();
-    expect(expectOk(await port.findById('other-owner', 'record-id-1'))).toBeNull();
+    expect(expectOk(await port.findById('other-owner', userDataRecordId(1)))).toBeNull();
   });
 
   it('listByCategory uses a stable logical-key keyset', async () => {
@@ -85,10 +87,10 @@ export const readPortContractCases: PortContractCases<ReadContractPort> = ({ get
         makePlannedMutation({
           operation: 'delete',
           identity: makeRecordIdentity({ logicalKey: 'record:1' }),
-          recordId: 'record-id-1',
+          recordId: userDataRecordId(1),
           expectedRevision: 1,
           nextRevision: 2,
-          eventId: 'event-delete',
+          eventId: userDataEventId(10),
           receipt: makeReceiptClaim({
             idempotencyKeyHash: 'key-delete',
             canonicalRequestHash: 'delete',
@@ -126,7 +128,7 @@ export const readPortContractCases: PortContractCases<ReadContractPort> = ({ get
             operation: 'replace',
             expectedRevision: revision - 1,
             nextRevision: revision,
-            eventId: `event-r${String(revision)}`,
+            eventId: userDataEventId(revision + 10),
             receipt: makeReceiptClaim({
               idempotencyKeyHash: `key-r${String(revision)}`,
               canonicalRequestHash: `request-r${String(revision)}`,
@@ -136,10 +138,16 @@ export const readPortContractCases: PortContractCases<ReadContractPort> = ({ get
       );
     }
     const first = expectOk(
-      await port.historyByRecord('owner-1', 'record-id-1', { limit: 2, beforeRevision: null })
+      await port.historyByRecord('owner-1', userDataRecordId(1), {
+        limit: 2,
+        beforeRevision: null,
+      })
     );
     const second = expectOk(
-      await port.historyByRecord('owner-1', 'record-id-1', { limit: 2, beforeRevision: 2 })
+      await port.historyByRecord('owner-1', userDataRecordId(1), {
+        limit: 2,
+        beforeRevision: 2,
+      })
     );
     expect(first.items.map((event) => event.revision)).toEqual([3, 2]);
     expect(second.items.map((event) => event.revision)).toEqual([1]);

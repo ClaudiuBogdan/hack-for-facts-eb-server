@@ -80,5 +80,8 @@ export type {
   NotificationDigestMembers,
   NotificationAuditLog,
   UserDataAnonymizationAudit,
+  UserDataEvents,
+  UserDataIdempotencyReceipts,
+  UserDataRecords,
   UserDatabase,
 } from './user/types.js';
