@@ -135,7 +135,9 @@ describe('User data anonymizer', () => {
           sourceUrl: `https://example.test/${userId}`,
           updatedAt: new Date().toISOString(),
         },
-        audit_events: [
+        // Top-level arrays must be stringified: the pg driver renders JS arrays
+        // as Postgres array literals, which are invalid JSON.
+        audit_events: JSON.stringify([
           {
             id: `audit-${suffix}`,
             recordKey: `record-${suffix}`,
@@ -149,7 +151,7 @@ describe('User data anonymizer', () => {
             sourceClientEventId: 'event-1',
             sourceClientId: 'client-1',
           },
-        ],
+        ]),
       } as never)
       .execute();
 
@@ -165,7 +167,7 @@ describe('User data anonymizer', () => {
           payload_hash: `payload-${suffix}`,
           watermark: 'watermark',
           summary_json: { userId },
-          rows_json: [{ userId, email: `user-${suffix}@example.com` }],
+          rows_json: JSON.stringify([{ userId, email: `user-${suffix}@example.com` }]),
           expires_at: new Date(Date.now() + 60_000),
         },
         {
@@ -177,7 +179,7 @@ describe('User data anonymizer', () => {
           payload_hash: `payload-unrelated-${suffix}`,
           watermark: 'watermark',
           summary_json: { userId: unrelatedSimilarUserId },
-          rows_json: [{ userId: unrelatedSimilarUserId }],
+          rows_json: JSON.stringify([{ userId: unrelatedSimilarUserId }]),
           expires_at: new Date(Date.now() + 60_000),
         },
       ] as never)
@@ -287,8 +289,8 @@ describe('User data anonymizer', () => {
         email_created_at: new Date(),
         broadcast_id: null,
         template_id: null,
-        tags: [{ name: 'thread_key', value: `thread-${suffix}` }],
-        attachments_json: [{ filename: 'private.pdf' }],
+        tags: JSON.stringify([{ name: 'thread_key', value: `thread-${suffix}` }]),
+        attachments_json: JSON.stringify([{ filename: 'private.pdf' }]),
         bounce_type: null,
         bounce_sub_type: null,
         bounce_message: 'private bounce',
@@ -299,7 +301,7 @@ describe('User data anonymizer', () => {
         click_user_agent: 'agent',
         thread_key: `thread-${suffix}`,
         metadata: { userId, email: `user-${suffix}@example.com` },
-      } as never)
+      })
       .execute();
 
     await userDb
@@ -392,8 +394,8 @@ describe('User data anonymizer', () => {
         id: agentMessageId,
         conversation_id: agentConversationId,
         role: 'user',
-        parts: [{ type: 'text', text: `Private prompt from ${userId}` }],
-      } as never)
+        parts: JSON.stringify([{ type: 'text', text: `Private prompt from ${userId}` }]),
+      })
       .execute();
 
     const platformNow = new Date();
@@ -512,7 +514,7 @@ describe('User data anonymizer', () => {
           window_end_utc: platformNow,
           dispatch_at_utc: platformNow,
           status: 'rendered',
-          rendered_item_ids: [platformLogicalId],
+          rendered_item_ids: JSON.stringify([platformLogicalId]),
           overflow_count: 2,
           delivery_id: null,
           claim_token: null,
