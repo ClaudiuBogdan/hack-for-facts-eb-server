@@ -10,13 +10,15 @@ import {
   makePlannedMutation,
   makeReceiptClaim,
   makeRecordIdentity,
+  userDataEventId,
+  userDataRecordId,
 } from '../../fixtures/user-data/index.js';
 import { expectErr, expectOk, type PortContractCases } from '../../support/index.js';
 
 export interface MutationContractControls {
   advanceDays(days: number): void;
   failNextCommit(error: UserDataError): void;
-  stateCounts(): { records: number; events: number; receipts: number };
+  stateCounts(): Promise<{ records: number; events: number; receipts: number }>;
 }
 
 export type MutationContractPort = UserDataMutationPort &
@@ -35,7 +37,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'replace',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-2',
+        eventId: userDataEventId(2),
         receipt: makeReceiptClaim({
           idempotencyKeyHash: 'key-2',
           canonicalRequestHash: 'request-2',
@@ -51,7 +53,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
     );
     expect(second).toMatchObject({
       kind: 'committed',
-      result: { eventId: 'event-2', record: { revision: 2 } },
+      result: { eventId: userDataEventId(2), record: { revision: 2 } },
     });
   });
 
@@ -100,7 +102,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'replace',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-renewed',
+        eventId: userDataEventId(10),
         receipt: makeReceiptClaim({ canonicalRequestHash: 'renewed-content' }),
         afterImage: {
           status: 'active',
@@ -118,7 +120,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'replace',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-renewed',
+        eventId: userDataEventId(10),
         receipt: makeReceiptClaim({ canonicalRequestHash: 'renewed-content' }),
         afterImage: {
           status: 'active',
@@ -140,7 +142,11 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
       retryable: true,
     });
     expectErr(await port.commit(makePlannedMutation()), 'DatabaseError');
-    expect(port.contractControls.stateCounts()).toEqual({ records: 0, events: 0, receipts: 0 });
+    expect(await port.contractControls.stateCounts()).toEqual({
+      records: 0,
+      events: 0,
+      receipts: 0,
+    });
   });
 
   it('row 11: delete tombstones and restore keeps recordId without annotations', async () => {
@@ -164,7 +170,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'delete',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-delete',
+        eventId: userDataEventId(11),
         receipt: makeReceiptClaim({
           idempotencyKeyHash: 'key-delete',
           canonicalRequestHash: 'delete',
@@ -184,7 +190,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'restore',
         expectedRevision: 2,
         nextRevision: 3,
-        eventId: 'event-restore',
+        eventId: userDataEventId(12),
         receipt: makeReceiptClaim({
           idempotencyKeyHash: 'key-restore',
           canonicalRequestHash: 'restore',
@@ -200,7 +206,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
     );
     expect(restored).toMatchObject({
       kind: 'committed',
-      result: { record: { recordId: 'record-id-1', status: 'active', annotations: null } },
+      result: { record: { recordId: userDataRecordId(1), status: 'active', annotations: null } },
     });
   });
 
@@ -213,7 +219,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'replace',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-2',
+        eventId: userDataEventId(2),
         receipt: makeReceiptClaim({
           idempotencyKeyHash: 'key-2',
           canonicalRequestHash: 'request-2',
@@ -228,7 +234,10 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
       })
     );
     const history = expectOk(
-      await port.historyByRecord('owner-1', 'record-id-1', { limit: 10, beforeRevision: null })
+      await port.historyByRecord('owner-1', userDataRecordId(1), {
+        limit: 10,
+        beforeRevision: null,
+      })
     );
     const current = expectOk(await port.findByKey('owner-1', 'test.category', 'record:1'));
     expect(history.items.map((event) => [event.revision, event.payload])).toEqual([
@@ -252,7 +261,7 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
         operation: 'annotate',
         expectedRevision: 1,
         nextRevision: 2,
-        eventId: 'event-annotation',
+        eventId: userDataEventId(13),
         actor: { type: 'system', source: 'contract' },
         receipt: makeReceiptClaim({
           requesterId: 'system',
@@ -287,8 +296,8 @@ export const mutationPortContractCases: PortContractCases<MutationContractPort> 
       makePlannedMutation({
         operation: 'create',
         identity: makeRecordIdentity({ logicalKey: 'record:2' }),
-        recordId: 'record-id-2',
-        eventId: 'event-2',
+        recordId: userDataRecordId(2),
+        eventId: userDataEventId(2),
         receipt: makeReceiptClaim({
           idempotencyKeyHash: 'key-2',
           canonicalRequestHash: 'request-2',

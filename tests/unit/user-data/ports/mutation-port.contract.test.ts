@@ -20,7 +20,7 @@ describePortContract('UserDataMutationPort', mutationPortContractCases, {
         failNextCommit: (error: Parameters<typeof fake.faults.fail>[1]['error']): void => {
           fake.faults.fail('commit', { error });
         },
-        stateCounts: () => ({
+        stateCounts: async () => ({
           records: fake.records.size(),
           events: fake.events.size(),
           receipts: fake.receipts.size(),
